@@ -2080,21 +2080,10 @@ fn walk_world_over(
     sheet: crate::combat::Sheet,
     strips: &[[f32; 2]],
 ) -> Result<(super::super::Level, super::super::SimWorld), String> {
-    let triangles: Vec<[[f32; 3]; 3]> = strips
-        .iter()
-        .flat_map(|&[x0, x1]| {
-            let floor = [[x0, -5.5], [x1, -5.5], [x1, 5.5], [x0, 5.5]].map(floor_at);
-            [
-                [floor[0], floor[1], floor[2]],
-                [floor[0], floor[2], floor[3]],
-            ]
-        })
-        .collect();
-    let nav = collision::nav::NavMesh::build(&triangles, crate::walk::CLEARANCE * collision::UNIT);
     let level = crate::determinism::proving_ground()
         .with_module(data)
         .with_scripts(library())
-        .with_nav(nav);
+        .with_nav(floor_nav(strips));
     let kept = level.clone();
     let world = super::super::SimWorld::new(
         crate::WorldConfig {
@@ -2110,6 +2099,22 @@ fn walk_world_over(
     )
     .map_err(|error| error.to_string())?;
     Ok((kept, world))
+}
+
+/// A walkmesh over the floor between each pair of `strips` (the ground's
+/// own x, metres), each its own island where they do not meet.
+pub(crate) fn floor_nav(strips: &[[f32; 2]]) -> collision::nav::NavMesh {
+    let triangles: Vec<[[f32; 3]; 3]> = strips
+        .iter()
+        .flat_map(|&[x0, x1]| {
+            let floor = [[x0, -5.5], [x1, -5.5], [x1, 5.5], [x0, 5.5]].map(floor_at);
+            [
+                [floor[0], floor[1], floor[2]],
+                [floor[0], floor[2], floor[3]],
+            ]
+        })
+        .collect();
+    collision::nav::NavMesh::build(&triangles, crate::walk::CLEARANCE * collision::UNIT)
 }
 
 /// How seat 0's player chooses in a walk probe, as the target block does

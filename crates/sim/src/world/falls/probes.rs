@@ -177,7 +177,9 @@ impl Run {
                     ..Mind::companion(Seat(0))
                 };
             } else if entity.id == foe {
-                fighter.force.hold(0, STUNNED_MS);
+                fighter
+                    .force
+                    .hold(0, STUNNED_MS, crate::combat::force::HoldKind::Own);
                 fighter.mind.aware_at = 0;
                 fighter.target = Some(host);
             }
@@ -260,7 +262,10 @@ impl Run {
         let mut fighters = self.world.world.query::<(&Id, &mut Fighting)>();
         for (own, mut fighting) in fighters.iter_mut(&mut self.world.world) {
             if own.0 == id {
-                fighting.0.force.hold(now, u64::MAX);
+                fighting
+                    .0
+                    .force
+                    .hold(now, u64::MAX, crate::combat::force::HoldKind::Own);
             }
         }
     }
@@ -298,6 +303,8 @@ impl Run {
             spell: 0,
             id: 0,
             at: None,
+            save: None,
+            laid: false,
         };
         let mut scripts = self
             .world

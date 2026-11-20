@@ -100,6 +100,29 @@ summary = "A balanced weapon in the off hand, or a double weapon, reduces the ma
 source = "the feats' descriptions (the game's \"Balanced\"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon"
 see = "sim::combat::passive::hand_attack"
 
+[two_weapon.superior_main]
+name = "Superior Two-Weapon Fighting, Main Hand"
+value = [1, 2, 2]
+labels = ["I", "II", "III"]
+unit = "points"
+range = [0, 10]
+summary = "In KOTOR 2, Superior Two-Weapon Fighting I reduces the main hand's penalty by {feats.two_weapon.superior_main[0]:bare} more. Superior Two-Weapon Fighting II and III reduce it by {feats.two_weapon.superior_main[1]:bare} more."
+detail = "These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply to blasters as well as to melee weapons and lightsabers."
+source = "TSL's executable (its melee and ranged attack bonuses: +1 with the first feat, +2 with the second or third) and the feats' descriptions"
+see = "sim::combat::passive::hand_attack"
+applies = ["feat:SUPER_WEAPON_FOCUS_2_WEAPON_I", "feat:SUPER_WEAPON_FOCUS_2_WEAPON_II", "feat:SUPER_WEAPON_FOCUS_2_WEAPON_III"]
+
+[two_weapon.superior_off]
+name = "Superior Two-Weapon Fighting, Off Hand"
+value = [0, 0, 1]
+labels = ["I", "II", "III"]
+unit = "points"
+range = [0, 10]
+summary = "In KOTOR 2, Superior Two-Weapon Fighting III reduces the off hand's penalty by {feats.two_weapon.superior_off[2]:bare}. The first two ranks leave the off hand's penalty as it is."
+source = "TSL's executable (its melee and ranged attack bonuses: +1 to the off hand with the third feat only) and the feats' descriptions"
+see = "sim::combat::passive::hand_attack"
+applies = ["feat:SUPER_WEAPON_FOCUS_2_WEAPON_I", "feat:SUPER_WEAPON_FOCUS_2_WEAPON_II", "feat:SUPER_WEAPON_FOCUS_2_WEAPON_III"]
+
 [saves]
 title = "Saving Throws"
 summary = """
@@ -263,14 +286,15 @@ see = "sim::combat::force"
 [specials]
 title = "Feat Attacks for Ranged Weapons"
 summary = """
-The alternate fire of a ranged weapon uses a feat attack that the character
-knows. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
-type of gun does not decide which one is used. [Next feat attack] switches
-between the feat attacks the character knows, and each type of gun
-remembers its own choice. Until the character makes a choice, the
-alternate fire uses the first feat attack the character knows, in the
-order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough stamina, fires normally.
+With a ranged weapon in hand, [Saber throw/kata/ranged feat] fires a feat
+attack that the character knows. The feat attacks are Power Blast, Rapid
+Shot and Sniper Shot. The type of gun does not decide which one is used.
+[Next feat attack] switches between the feat attacks the character knows,
+and each type of gun remembers its own choice. Until the character makes a
+choice, the first feat attack the character knows is used, in the order
+Power Blast, Rapid Shot, Sniper Shot. While [Saber throw/kata/ranged feat]
+is held, [Attack] does nothing. A character without any of these feats, or
+without enough stamina, fires normally with [Saber throw/kata/ranged feat].
 The penalties of a feat attack last for one round
 ({combat.timing.round_ms:s}).
 """
@@ -290,8 +314,8 @@ applies = ["kind:stamina"]
 [specials.power_blast]
 title = "Power Blast"
 summary = """
-Keep the alternate fire pressed to charge a Power Blast, and release it to
-fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
+Keep [Saber throw/kata/ranged feat] pressed to charge a Power Blast, and
+release it to fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
 the charge, the stronger the shot.
 """
 applies = ["feat:POWER_BLAST", "feat:IMPROVED_POWER_BLAST", "feat:MASTER_POWER_BLAST", "kind:pistol"]
@@ -303,7 +327,7 @@ value = 200
 unit = "ms"
 range = [10, 2000]
 summary = "A Power Blast charges in steps of {feats.specials.power_blast.step_ms:s}."
-detail = "The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping the alternate fire deals no more damage per second than holding it."
+detail = "The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Saber throw/kata/ranged feat] deals no more damage per second than holding it."
 source = "JA (the Bryar's charge)"
 see = "sim::combat::specials::pull"
 
@@ -350,7 +374,8 @@ see = "sim::combat::specials::Special::shot"
 [specials.rapid_shot]
 title = "Rapid Shot"
 summary = """
-The alternate fire shoots a burst of shots as soon as the weapon is ready.
+[Saber throw/kata/ranged feat] shoots a burst of shots as soon as the
+weapon is ready.
 The weapon is ready to fire again one normal shot's time after the first
 shot of the burst, or when the burst ends if that is later. Every shot
 after the first is therefore an extra attack. For the round after the
@@ -402,23 +427,31 @@ see = "sim::combat::specials::Special::exposure"
 [specials.sniper_shot]
 title = "Sniper Shot"
 summary = """
-Keep the alternate fire pressed to aim. While aiming, the character moves
-slowly and cannot jump. Every shot fired while aiming gets a bonus to hit, and its
-critical threat range is multiplied. The critical threat range is the set
-of d20 rolls that can score a critical hit. For the round after the shot,
-the character suffers a penalty to Defense. In kjk, Sniper Shot does not
-stun.
+Hold [Saber throw/kata/ranged feat] to steady the gun, then let go to fire
+one shot. A
+character with a pistol in each hand fires both pistols at once. The shot
+has no spread. It gets a bonus to hit, and its critical threat range is
+multiplied. The critical threat range is the set of d20 rolls that can
+score a critical hit. The character can start to steady the gun while it
+is still cooling down after the last shot. If the character lets go once
+the gun is steady but before it is ready to fire again, the shot leaves as
+soon as the gun is ready. Until the shot leaves, the character moves at
+walking speed and cannot jump. Letting go before the gun is steady fires
+nothing and uses nothing. For the round after the shot, the character suffers a
+penalty to Defense. In kjk, Sniper Shot does not stun.
 """
 applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_SHOT"]
 
-[specials.sniper_shot.aim_speed]
-name = "Aiming Speed"
-value = 0.5
-unit = "×"
-range = [0.0, 1.0]
-summary = "A character aiming a Sniper Shot moves at {feats.specials.sniper_shot.aim_speed:bare} times normal speed."
-source = "JA (the disruptor's zoom)"
-see = "sim::combat::specials::AIM_SPEED"
+[specials.sniper_shot.steady_ms]
+name = "Sniper Shot Steadying"
+type = "u64"
+value = [500, 250]
+labels = ["from the hip", "while aiming"]
+unit = "ms"
+range = [0, 5000]
+summary = "A character steadies a Sniper Shot for {feats.specials.sniper_shot.steady_ms[0]:s} before it can fire. A character who is already aiming steadies it for {feats.specials.sniper_shot.steady_ms[1]:s}."
+source = "the owner's design, 2026-11-17"
+see = "sim::combat::specials::pull, sim::combat::ai::choose_special"
 
 [specials.sniper_shot.threat_times]
 name = "Sniper Shot Threat Range"
@@ -438,8 +471,8 @@ value = [4, 6, 8]
 labels = ["Sniper Shot", "Improved", "Master"]
 unit = "points"
 range = [0, 20]
-summary = "An aimed shot gets +{feats.specials.sniper_shot.attack_bonus[0]:bare} to hit with Sniper Shot, +{feats.specials.sniper_shot.attack_bonus[1]:bare} with Improved Sniper Shot and +{feats.specials.sniper_shot.attack_bonus[2]:bare} with Master Sniper Shot."
-detail = "The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, an aimed shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`)."
+summary = "A Sniper Shot gets +{feats.specials.sniper_shot.attack_bonus[0]:bare} to hit with Sniper Shot, +{feats.specials.sniper_shot.attack_bonus[1]:bare} with Improved Sniper Shot and +{feats.specials.sniper_shot.attack_bonus[2]:bare} with Master Sniper Shot."
+detail = "The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, a Sniper Shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`)."
 source = "ours"
 see = "sim::combat::specials::Special::shot"
 
@@ -449,7 +482,7 @@ type = "i8"
 value = -5
 unit = "points"
 range = [-20, 0]
-summary = "For the round after an aimed shot, the character suffers a {feats.specials.sniper_shot.defence_penalty:bare} penalty to Defense."
+summary = "For the round after a Sniper Shot, the character suffers a {feats.specials.sniper_shot.defence_penalty:bare} penalty to Defense."
 source = "the feats' descriptions"
 see = "sim::combat::specials::Special::exposure"
 

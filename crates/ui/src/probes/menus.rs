@@ -1429,7 +1429,13 @@ pub(super) fn key_chords() -> Vec<Check> {
 
 /// Block and the alternate attack on one mouse button, as the defaults
 /// have them: the Game tab shows the button on both rows, and Block bound
-/// back to it from another key takes it at once, with no clash named.
+/// back to it from another key takes it at once, with no clash named. When
+/// Use is bound onto a button that Block, the alternate attack and Aim
+/// share, the swap moves all three onto Use's old key, so no two actions
+/// that may not share a button are left on one. The message names all
+/// three. When Aim is bound onto Use's key, Use would move to the right
+/// mouse button, where Block and the alternate attack stay, so Use is left
+/// unbound instead. The message says so, and does not offer a swap.
 pub(super) fn key_shared_button() -> Vec<Check> {
     use crate::vm::KeyRow;
     let mut assets = Fake::new();
@@ -1475,6 +1481,66 @@ pub(super) fn key_shared_button() -> Vec<Check> {
         ..keys(&[Key::Activate])
     };
     let taken = page.step(&mut assets, &rebound, &back).intents;
+    // Use on E, and Block, the alternate attack and Aim sharing the right
+    // mouse button. The row of `first` is listed first, so the list's first
+    // press opens its entry. `raw` is then pressed twice: once to name the
+    // clash, and once to swap. The clash's message and the swap's intents.
+    let mut swap = |first: &str, raw: &str| {
+        let shared = |action: &str, label: &str, others: [&str; 2]| KeyRow {
+            shares: others.map(String::from).to_vec(),
+            ..row(action, label, "MouseRight", "")
+        };
+        let mut listed = vec![
+            row("use", "Use", "KeyE", ""),
+            shared("block", "Block (Advanced rules)", ["alt_attack", "aim"]),
+            shared("alt_attack", "Alt attack", ["block", "aim"]),
+            shared("aim", "Aim", ["block", "alt_attack"]),
+        ];
+        listed.sort_by_key(|row| row.action != first);
+        let vm = ViewModel {
+            keys: listed,
+            ..ViewModel::default()
+        };
+        let input = UiInput {
+            raw: vec![raw.into()],
+            ..keys(&[Key::Activate])
+        };
+        let mut page = opened("options_keymap", &mut assets, &vm);
+        press(&mut page, &mut assets, &vm, "BTN_Filter_Game");
+        press(&mut page, &mut assets, &vm, "LST_EventList");
+        page.step(&mut assets, &vm, &input);
+        let named = page
+            .state_of("LB_MESSAGE", &vm)
+            .and_then(|state| state.list?.rows.pop())
+            .map(|row| String::from_utf8_lossy(&row.text).into_owned())
+            .unwrap_or_else(String::new);
+        (named, page.step(&mut assets, &vm, &input).intents)
+    };
+    let settings = |pairs: &[(&str, &str)]| -> Vec<Intent> {
+        pairs
+            .iter()
+            .map(|(key, value)| Intent::Setting((*key).into(), (*value).into()))
+            .collect()
+    };
+    // Use bound onto the shared button: all three take Use's key.
+    let moved = swap("use", "MouseRight");
+    let moved_wanted = (
+        "Right mouse is Block (Advanced rules)'s, Alt attack's and Aim's. Press Right mouse again to swap them."
+            .to_string(),
+        settings(&[
+            ("key.block", "KeyE"),
+            ("key.alt_attack", "KeyE"),
+            ("key.aim", "KeyE"),
+            ("key.use", "MouseRight"),
+        ]),
+    );
+    // Aim bound onto E: Block and the alternate attack stay on the right
+    // mouse button and may not share it with Use, so Use is left unbound.
+    let aimed = swap("aim", "KeyE");
+    let aimed_wanted = (
+        "E is Use's. Press E again to bind Aim to it. Use will be left without a key.".to_string(),
+        settings(&[("key.use", "none"), ("key.aim", "KeyE")]),
+    );
     let wanted_rows: Vec<(String, String)> = [
         ("Block (Advanced rules)", "Right mouse"),
         ("Alt attack", "Right mouse"),
@@ -1493,7 +1559,22 @@ pub(super) fn key_shared_button() -> Vec<Check> {
                 taken == wanted,
             )
         })
-        .map(|()| "shared row shown twice, rebinding onto it taken at once".into())
+        .and_then(|()| {
+            expect(
+                &format!("every action on the button moved off it: {moved:?}"),
+                moved == moved_wanted,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("a moved action that may not share the old key is unbound: {aimed:?}"),
+                aimed == aimed_wanted,
+            )
+        })
+        .map(|()| {
+            "shared row shown twice, rebinding onto it taken at once, a swap moves every action on it and unbinds one that would clash"
+                .into()
+        })
     })]
 }
 

@@ -55,7 +55,9 @@ pub fn seat_look(
         .entities
         .iter()
         .find(|entity| entity.kind == Kind::Avatar(seat));
-    let headgear = own.and_then(|entity| drawn(snapshot, entity, hidden(&seat_name(seat))));
+    let headgear = own
+        .and_then(|entity| drawn(snapshot, entity, || hidden(&seat_name(seat))))
+        .map(str::to_ascii_lowercase);
     let good_evil = own
         .and_then(|entity| entity.sheet)
         .map_or(sim::combat::sheet::NEUTRAL, |sheet| sheet.good_evil);
@@ -144,16 +146,14 @@ pub fn note_talks(
     hides.note(&snapshot.talk.conversations, &hides_headgear, &named);
 }
 
-/// The item (a template, lowercase) `entity` is drawn wearing on its head
-/// in `snapshot`: its head slot's, none while `hidden` (the character's
-/// choice is set).
-pub fn drawn(snapshot: &sim::Snapshot, entity: &EntityState, hidden: bool) -> Option<String> {
-    if hidden {
-        return None;
-    }
+pub fn drawn<'s>(
+    snapshot: &'s sim::Snapshot,
+    entity: &EntityState,
+    hidden: impl FnOnce() -> bool,
+) -> Option<&'s str> {
     snapshot
         .worn(entity.id.0, sim::inventory::slots::HEAD)
-        .map(str::to_ascii_lowercase)
+        .filter(|_| !hidden())
 }
 
 /// What a conversation hides (`TalkHides`), on conversations made here: a

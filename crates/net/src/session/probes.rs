@@ -543,6 +543,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
         nonce_key: [7; 32],
         rebase_on: setup.rewinds.on,
         rebase_every_us: setup.rewinds.every_us,
+        rebuild_beside: false,
     };
     let mut saves: Vec<Vec<u8>> = Vec::new();
     let mut installing_at: Option<NetTime> = None;

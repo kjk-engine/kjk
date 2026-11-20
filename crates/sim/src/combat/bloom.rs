@@ -90,8 +90,9 @@ pub fn tune(blaster: Blaster) -> Tune {
 }
 
 /// `ps`'s stance for its spread: walking or running by its speed over the
-/// floor (`weapons.bloom.pace`), crouched, off the ground, aiming a Sniper
-/// Shot.
+/// floor (`weapons.bloom.pace`), crouched, off the ground, and aimed. A gun
+/// still rising to aim is not aimed yet, so its shot keeps the normal
+/// spread.
 pub fn stance(ps: &MotionState, shooting: &Shooting) -> Stance {
     let [walking, running] = rules::weapons::bloom::PACE;
     let speed = math::flat_length(ps.velocity);
@@ -137,8 +138,13 @@ pub fn cone(base: f32, bloom: f32, stance: Stance) -> f32 {
         Pace::Walking => walking,
         Pace::Running => running,
     };
+    let hip = if stance.aiming {
+        0.0
+    } else {
+        rules::weapons::bloom::HIP_SPREAD
+    };
     let by = |on: bool, factor: f32| if on { factor } else { 1.0 };
-    (base + bloom + on_the_move)
+    (base + bloom + on_the_move + hip)
         * by(stance.airborne, airborne)
         * by(stance.aiming, aiming)
         * by(stance.crouched, crouched)

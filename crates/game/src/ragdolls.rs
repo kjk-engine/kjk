@@ -24,6 +24,7 @@ use sim::combat::fighter::Outcome;
 use sim::combat::{Delivery, Fighter};
 use sim::{SimId, Snapshot};
 
+use crate::bolt_hits::BoltHit;
 use crate::cast::{self, Blended, BodyRig, Rest};
 use crate::severing;
 
@@ -551,10 +552,11 @@ impl Ragdolls {
     }
 
     /// The dying this frame: each new one becomes a ragdoll, each falling
-    /// one follows its death animation; then the world runs on to `ms`.
+    /// one follows its death animation; then the world runs on to `ms`. A
+    /// new one killed by a bolt in `bolt_hits` is thrown along the bolt.
     pub fn update(
         &mut self,
-        dying: &[Dying],
+        (dying, bolt_hits): (&[Dying], &[BoltHit]),
         (level, history): (&sim::Level, &[Arc<Snapshot>]),
         ms: f64,
     ) {
@@ -581,7 +583,8 @@ impl Ragdolls {
                         .spawn(template.clone(), &places, velocity, settled);
                     if let Some(fighter) = &d.at.fighter {
                         let seen = (level, history, ms);
-                        self.strike(id, (&template, &places), fighter, (d, seen));
+                        let struck = (fighter, bolt_hits);
+                        self.strike(id, (&template, &places), struck, (d, seen));
                     }
                     self.falls.entry(d.id).or_insert(Fall {
                         id,
@@ -623,14 +626,16 @@ impl Ragdolls {
     }
 
     /// The blow that killed: the newest hit on `fighter`, at its location's
-    /// part, from where its striker stood (or along the body's way); a
-    /// blade's recent one may cut a limb off (`severing`), thrown the way
-    /// the blade went through it and as far on as it would be at `ms`.
+    /// part, from where its striker stood (or along the body's way). A
+    /// blaster's bolt with a record in `bolt_hits` throws the body along the
+    /// bolt's way instead (`bolt_hits::blow_way`). A blade's recent one may
+    /// cut a limb off (`severing`), thrown the way the blade went through it
+    /// and as far on as it would be at `ms`.
     fn strike(
         &mut self,
         id: ragdoll::Id,
         (template, places): (&Template, &[Frame]),
-        fighter: &Fighter,
+        (fighter, bolt_hits): (&Fighter, &[BoltHit]),
         (d, (level, history, ms)): (&Dying, (&sim::Level, &[Arc<Snapshot>], f64)),
     ) {
         let newest = history.last().map(|newest| &**newest);
@@ -656,11 +661,19 @@ impl Ragdolls {
             .by
             .and_then(|by| cast::entity(newest?, by))
             .map(|striker| victim - Vec3::from_array(striker.position));
-        let flat = |way: Vec3| way.with_z(0.0).try_normalize();
-        let way = from
-            .and_then(flat)
-            .or_else(|| flat(Vec3::from_array(d.at.state.velocity)));
-        let Some(way) = way else { return };
+        // A blaster's killing bolt throws the body along its own way.
+        let bolt = matches!(hit.weapon, Some(Delivery::Blaster(_)))
+            .then(|| {
+                bolt_hits
+                    .iter()
+                    .find(|record| record.victim == d.id && record.sequence == hit.sequence)
+            })
+            .flatten()
+            .map(|record| record.way);
+        let velocity = Vec3::from_array(d.at.state.velocity);
+        let Some(way) = crate::bolt_hits::blow_way(bolt, from, velocity) else {
+            return;
+        };
         let point = places[part].point(template.parts[part].solid.centre());
         let impulse = (way + Vec3::Z * BLOW_LIFT).normalize() * strength;
         self.world.strike(id, part, impulse, point);

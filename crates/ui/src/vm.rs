@@ -88,6 +88,18 @@ pub struct Entry {
     pub kind: Option<ItemKind>,
 }
 
+/// A quest in the journal: its name, the text of the entry it has reached
+/// (after its planet's name, as KOTOR 2 writes it), whether that entry ends
+/// it (a completed quest), and its planet (`planetary.2da` row, -1 for
+/// none).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct QuestView {
+    pub name: Vec<u8>,
+    pub description: Vec<u8>,
+    pub done: bool,
+    pub planet: i32,
+}
+
 /// A party member (the player's own character, or one the bar brings up),
 /// as the in-game screens show it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -719,8 +731,9 @@ pub struct WheelView {
     pub arc: Vec<WheelEntry>,
     /// The arc item that letting go uses, by its place in `arc`.
     pub arc_at: Option<usize>,
-    /// The wheel's own key.
-    pub key: KeyLabel,
+    /// Where the player points, in H from the wheel's centre with y up.
+    /// The wheel draws a small dot there.
+    pub pointer: [f32; 2],
     /// While a controller plays, the bumpers that turn the ring back and
     /// on (LB and RB), drawn as that controller's buttons.
     pub bumpers: Option<[String; 2]>,
@@ -806,6 +819,11 @@ pub struct HudView {
     /// Its Stamina bar, while the Advanced rules are played and it holds a
     /// saber (`screens::hud::duel_bars`).
     pub duel: Option<DuelBars>,
+    /// KOTOR 2's Form slot, for a character who knows a lightsaber Form or a
+    /// Force Form: the icon of the Form in use and the next-Form key. Its
+    /// icon is dimmed while the Form does nothing, as a lightsaber Form
+    /// does without a lightsaber in the right hand (`screens::hud::FORM`).
+    pub form: Option<BarSlot>,
 }
 
 /// A fighter's one duel bar, which a player reads as Stamina: how much of
@@ -1374,6 +1392,9 @@ pub struct ViewModel {
     /// Movie Duels is installed beside Jedi Academy: the sabers' page
     /// offers its saber rules, hilts and stances (greyed without it).
     pub movie_duels: bool,
+    /// Movie Duels' archives are there, but its stances or hilts are not
+    /// in them: the greyed rows say that it is missing files.
+    pub movie_duels_incomplete: bool,
     /// The Movie Duels skeletons a character may be given a stance from
     /// on the character page (`CharacterView::stance_setting`), by folder,
     /// and the name each shows. None while the level has no stance sets.
@@ -1416,9 +1437,8 @@ pub struct ViewModel {
     /// main menu).
     pub load_in_play: bool,
     pub chargen: Option<ChargenView>,
-    /// The journal's quests, the latest updated first: the quest's name,
-    /// the entry reached (its text), and a count of 1 for one done.
-    pub journal: Vec<Entry>,
+    /// The journal's quests, the latest updated first.
+    pub journal: Vec<QuestView>,
     pub store: Option<StoreView>,
     pub upgrades: Vec<UpgradeItem>,
     /// TSL's workbench a script opened, while it is open.

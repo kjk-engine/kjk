@@ -41,6 +41,13 @@ fn tab_of(screen: &str) -> &str {
     }
 }
 
+/// Whether `screen` is a page under one of the bar's tabs, so that a page's
+/// key turns the open menu to it as a tab's button does.
+pub fn under_tabs(screen: &str) -> bool {
+    let tab = tab_of(screen);
+    TABS.iter().any(|(_, _, shown)| *shown == tab)
+}
+
 /// The other two members' portrait, its frame, its button and its level-up
 /// mark, by place.
 const OTHERS: [[&str; 4]; 2] = [

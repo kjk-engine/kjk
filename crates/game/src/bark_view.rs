@@ -50,7 +50,8 @@ impl Plugin for BarkViewPlugin {
         app.add_systems(
             Update,
             show.run_if(resource_exists::<PresentedSnapshot>)
-                .before(crate::ui_view::Stepped),
+                .before(crate::ui_view::Stepped)
+                .before(console::ConsoleQueue),
         );
     }
 }
@@ -217,17 +218,19 @@ fn show(
             }
             (ui::vm::BarkView { text, over }, voice)
         });
-    match &shown {
-        Some((view, voice)) => facts.0.insert(
-            "bark".into(),
-            serde_json::json!({
-                "said": view.text.iter().map(|&b| char::from(b)).collect::<String>(),
-                "over": view.over,
-                "voice": voice,
-            }),
-        ),
-        None => facts.0.remove("bark"),
-    };
+    if facts.wanted() {
+        match &shown {
+            Some((view, voice)) => facts.0.insert(
+                "bark".into(),
+                serde_json::json!({
+                    "said": view.text.iter().map(|&b| char::from(b)).collect::<String>(),
+                    "over": view.over,
+                    "voice": voice,
+                }),
+            ),
+            None => facts.0.remove("bark"),
+        };
+    }
     ui.vm.bark = shown.map(|(view, _)| view);
 }
 

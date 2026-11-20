@@ -13,6 +13,7 @@ mod edits;
 mod keeping;
 mod open;
 mod party;
+mod persona;
 mod sheets;
 mod warnings;
 

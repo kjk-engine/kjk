@@ -25,7 +25,7 @@ use sim::{EntityState, SimId};
 
 use crate::cast::Hitboxes;
 use crate::lifecycle_view::SceneCamera;
-use crate::material::OdysseyMaterial;
+use crate::model_fx::SprayStores;
 use crate::scene::game_to_bevy;
 use crate::scene_fx::{self, Batch, Puff, RefractionMaterial, ShaderMeshes, View};
 use crate::shots::OwnFire;
@@ -177,8 +177,7 @@ fn spawn(
     mut commands: Commands,
     mut pending: ResMut<Pending>,
     mut images: ResMut<Assets<Image>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<OdysseyMaterial>>,
+    mut stores: SprayStores,
     mut refractions: ResMut<Assets<RefractionMaterial>>,
 ) {
     let Some(setup) = pending.0.take() else {
@@ -188,9 +187,9 @@ fn spawn(
         &mut commands,
         (&setup.blends, &setup.textures),
         &mut images,
-        &mut meshes,
-        &mut materials,
+        stores.assets(),
     );
+    let (meshes, ..) = stores.assets();
     let refraction = setup.refraction.map(|model| {
         let mesh = meshes.add(Batch::default().into_mesh());
         commands.spawn((
@@ -338,8 +337,8 @@ fn draw(
     drawn: Option<ResMut<Drawn>>,
     places: Query<&GlobalTransform>,
     cameras: Query<(&GlobalTransform, &Projection, &Camera), SceneCamera>,
-    (mut meshes, mut lights): (ResMut<Assets<Mesh>>, ResMut<ForceLights>),
-    mut facts: ResMut<DumpFacts>,
+    mut stores: SprayStores,
+    (mut lights, mut facts): (ResMut<ForceLights>, ResMut<DumpFacts>),
 ) {
     let Some(mut drawn) = drawn else { return };
     let mut lit = Vec::new();
@@ -368,7 +367,7 @@ fn draw(
     let doors = std::cell::OnceCell::new();
     let ends = |from: Vec3, to: Vec3| {
         let doors = doors.get_or_init(|| level.states_in(current));
-        let hit = level.with(doors.as_deref(), |world| {
+        let hit = level.with_unremembered(doors.as_deref(), |world| {
             world.trace(
                 (from * UNIT).to_array(),
                 (to * UNIT).to_array(),
@@ -473,7 +472,8 @@ fn draw(
     }
     drawn.held = held;
     lights.set_if_neq(ForceLights(lit));
-    drawn.shaders.fill(batches, &mut meshes);
+    drawn.shaders.fill(batches, stores.assets());
+    let (meshes, ..) = stores.assets();
     let (batch, indices) = refraction;
     let empty = indices.is_empty();
     if let Some((_, mesh)) = &drawn.refraction

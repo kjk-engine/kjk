@@ -222,6 +222,9 @@ pub struct LoadedScene {
     pub name: String,
     pub models: Vec<Placed>,
     pub textures: BTreeMap<String, TextureIr>,
+    /// The images `textures` were uploaded as, which the characters and
+    /// placeables spawned later take again (`scene::SharedImages`).
+    pub images: crate::scene::SharedImages,
     /// Texture names the meshes use but the install does not resolve, or
     /// that do not decode (`stand_in` says what is drawn instead).
     pub missing: Vec<String>,
@@ -1414,6 +1417,7 @@ pub fn module_scene(
         name: module.to_string(),
         models,
         textures,
+        images: Default::default(),
         missing,
         entry: Some((ir.entry_position, ir.entry_direction)),
         missing_models,
@@ -1616,6 +1620,7 @@ impl CreatureLoad {
         &mut self,
         (resolver, game): (&Resolver, Game),
         (appearance, armour, head, headgear): (u32, Option<&str>, Option<u8>, Option<&str>),
+        owner: Option<&Resolver>,
         aligned: creature::Aligned,
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
@@ -1635,7 +1640,7 @@ impl CreatureLoad {
             look.head_row = Some(usize::from(head));
         }
         look.headgear =
-            headgear.and_then(|item| creature::item_model_with(&source, item, &mut self.tables));
+            headgear.and_then(|item| worn_model(owner, &source, &mut self.tables, item));
         self.place_look(
             (resolver, game),
             (0, &name, look, aligned),
@@ -2000,6 +2005,21 @@ fn floor(resolver: &Resolver, room: &str, walkable: &[bool]) -> Result<Vec<[[f32
             Some([corner(0)?, corner(1)?, corner(2)?])
         })
         .collect())
+}
+
+/// The model `item` (an item template) is drawn with: read from `source`,
+/// else, for a module's own template (`sim::inventory::own_template`), from
+/// `owner`, the archives of the module that holds it. A party member may
+/// wear such an item far from that module (Davik's Visor, from his estate
+/// on Taris), where `source` lacks its template.
+pub fn worn_model(
+    owner: Option<&Resolver>,
+    source: &ResolverSource,
+    tables: &mut asset_odyssey::tables::Tables,
+    item: &str,
+) -> Option<String> {
+    creature::item_model_with(source, item, tables)
+        .or_else(|| creature::item_model(&ResolverSource(owner?), item))
 }
 
 /// A model through a per-load cache.

@@ -101,20 +101,29 @@ fn leash_holds_on_its_edge() -> Result<String, String> {
 /// metres), each standing where a scene's fight stops it, facing its foe:
 /// there it attacks.
 fn stops() -> Vec<(&'static str, Result<String, String>)> {
+    // Each beast's personal space and `hitdist` (metres), at a humanoid
+    // (personal space 0.35 m); a katarn stops outside both personal spaces.
+    let humanoid = 0.35;
     let beasts = [
-        ("scene_stop_rakghoul_strikes", 0.35, 1.0),
-        ("scene_stop_gamorrean_strikes", 0.4, 1.0),
-        ("scene_stop_kath_hound_strikes", 0.6, 1.0),
+        ("scene_stop_rakghoul_strikes", 0.35, 1.0, None),
+        ("scene_stop_gamorrean_strikes", 0.4, 1.0, None),
+        ("scene_stop_kath_hound_strikes", 0.6, 1.0, None),
+        (
+            "scene_stop_katarn_keeps_its_space",
+            1.3,
+            1.0,
+            Some(1.3 + humanoid),
+        ),
     ];
     beasts
         .into_iter()
-        .map(|(name, space, hit_distance)| {
+        .map(|(name, space, hit_distance, kept)| {
             let strike = crate::module::Strike {
                 hit_distance,
                 ..crate::module::Strike::BLANK
             };
             let close = mind::Attack::Blow(crate::world::strikes::strike_reach(&strike, space));
-            let stop = scene_stop(close, true);
+            let stop = scene_stop(close, true, space + humanoid);
             let me = MotionState::standing([0.0, 0.0, -SOLE_Z], 0.0);
             let foe = MotionState::standing([stop, 0.0, -SOLE_Z], 180.0);
             let at = mind::look_at(&foe, close);
@@ -137,7 +146,15 @@ fn stops() -> Vec<(&'static str, Result<String, String>)> {
                 command.buttons
             );
             let attacks = command.buttons & crate::input::buttons::ATTACK != 0;
-            (name, if attacks { Ok(detail) } else { Err(detail) })
+            let apart = kept.is_none_or(|kept: f32| stop * UNIT >= kept - 0.001);
+            (
+                name,
+                if attacks && apart {
+                    Ok(detail)
+                } else {
+                    Err(detail)
+                },
+            )
         })
         .collect()
 }

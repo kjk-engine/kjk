@@ -174,7 +174,9 @@ lightning and how to see them).
   4 `on`, 5 `off`), then a script's `PlayAnimation` /
   `ActionPlayAnimation` (200 on, 201 off, 202 open, 203 closed, 204–213
   `animloop01`–`10`), a container opened (open) and let go (closed),
-  broken by blows (a container open, any other dead). Each look loops its
+  broken by blows (a container open, any other dead), killed by a death
+  effect (dead even when it holds items, then removed from the area 2 s
+  later, as the executables remove it). Each look loops its
   clip; a change plays its way there once first: to on `off2on`, to off
   `on2off`, to open `close2open`, to closed `open2close` (from open only),
   to dead `die`, back to default the way it came; none to a loop. A look

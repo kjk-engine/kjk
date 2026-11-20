@@ -65,16 +65,25 @@ struct Keys {
     turn: [i16; 3],
 }
 
-/// Button names (`b=attack+walk`), or a number.
-fn button_bits(word: &str) -> Result<u16, String> {
+/// Button names (`b=attack+walk`), or a number, with the `Command::holds`
+/// bits the names also press. The word `alt` holds the alternate attack and
+/// a blaster's aim. The word `feat` holds a blaster's feat attack.
+fn button_bits(word: &str) -> Result<(u16, u8), String> {
     if let Ok(bits) = word.parse::<u16>() {
-        return Ok(bits);
+        return Ok((bits, 0));
     }
-    let mut bits = 0;
+    let (mut bits, mut holds) = (0, 0);
     for name in word.split('+') {
         bits |= match name {
             "attack" => buttons::ATTACK,
-            "alt" => buttons::ALT_ATTACK,
+            "alt" => {
+                holds |= crate::input::holds::AIM;
+                buttons::ALT_ATTACK
+            }
+            "feat" => {
+                holds |= crate::input::holds::FEAT;
+                0
+            }
             "walk" => buttons::WALKING,
             "use" => buttons::USE,
             "useheld" => buttons::USE_HELD,
@@ -93,7 +102,7 @@ fn button_bits(word: &str) -> Result<u16, String> {
             other => return Err(format!("no button {other}")),
         };
     }
-    Ok(bits)
+    Ok((bits, holds))
 }
 
 fn anim(word: &str) -> Result<Anim, String> {
@@ -256,7 +265,7 @@ impl Rig {
                 "f" => c.forward = int(value)?,
                 "r" => c.right = int(value)?,
                 "u" => c.up = int(value)?,
-                "b" => c.buttons = button_bits(value)?,
+                "b" => (c.buttons, c.holds) = button_bits(value)?,
                 "w" => c.weapon = int(value)?,
                 "fs" => c.force = int(value)?,
                 "msec" => keys.msec = int(value)?,

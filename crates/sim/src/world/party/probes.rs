@@ -92,6 +92,17 @@ fn built(
     scripted: bool,
     edit: impl FnOnce(&mut ModuleData),
 ) -> Result<Ground, String> {
+    built_with(seats, bodies, scripted, edit, FriendlyFire::Off)
+}
+
+/// `built`, with `friendly_fire`.
+fn built_with(
+    seats: u8,
+    bodies: u8,
+    scripted: bool,
+    edit: impl FnOnce(&mut ModuleData),
+    friendly_fire: FriendlyFire,
+) -> Result<Ground, String> {
     use crate::combat::sheet::{Sheet, factions};
     let proving = crate::determinism::proving_ground();
     let placed = |tag: &str| {
@@ -134,7 +145,7 @@ fn built(
     data.repute = Repute::at_war(AT_WAR);
     data.placements.extend([hostile, pod].map(Placement::Own));
     edit(&mut data);
-    let level = proving.with_module(data);
+    let level = proving.with_module(data).with_friendly_fire(friendly_fire);
     let level = if scripted {
         level.with_scripts(leave_script())
     } else {
@@ -1103,6 +1114,75 @@ fn kept_by_party() -> Result<String, String> {
     )
 }
 
+/// The view's rule for what a shot stops on, which aims the drawn barrel
+/// (`Snapshot::shot_stops_on`), against the shot system's own
+/// (`world::firing::stopped_by`). The ground holds two players, the
+/// hostile, and a creature of the neutral faction. With friendly fire off
+/// and with it full, each player's two rules agree on every other body.
+/// A player's shot stops on the hostile and passes through the neutral.
+/// It stops on the other player only with friendly fire full.
+fn shots_stop_as_drawn() -> Result<String, String> {
+    use crate::combat::sheet::{Sheet, factions};
+    let neutral = |data: &mut ModuleData| {
+        let mut sheet = Sheet::commoner();
+        sheet.faction = factions::NEUTRAL;
+        let at = data.entry.position;
+        data.placements.push(Placement::Own(ObjectData {
+            tag: "probe_neutral".into(),
+            sheet: Some(sheet),
+            ..ObjectData::unknown("probe_neutral", math::add(at, [1.0, 1.0, 0.0]), 0.0)
+        }));
+    };
+    let (mut seen, mut wrong) = (Vec::new(), Vec::new());
+    for friendly_fire in [FriendlyFire::Off, FriendlyFire::Full] {
+        let mut ground = built_with(2, 2, false, neutral, friendly_fire)?;
+        let snapshot = ground.step(&[]).snapshot;
+        let instances = crate::Instances::in_snapshot(&ground.level, &snapshot);
+        let living = || {
+            (snapshot.entities.iter()).filter(|e| e.fighter.is_some_and(|fighter| fighter.alive()))
+        };
+        let named = |id: u32| match living().find(|e| e.id.0 == id).map(|e| e.kind) {
+            Some(Kind::Avatar(seat)) => format!("player {}", seat.0),
+            Some(Kind::Object(_, index)) => (ground.level.placed().get(index as usize))
+                .map_or(format!("#{id}"), |facts| facts.tag.clone()),
+            _ => format!("#{id}"),
+        };
+        let shooters: Vec<_> = living()
+            .filter(|e| matches!(e.kind, Kind::Avatar(_)))
+            .collect();
+        for shooter in shooters {
+            let system = super::super::firing::stopped_by(&mut ground.world.world, shooter.id);
+            let mut view: Vec<u32> = living()
+                .filter(|e| e.id != shooter.id)
+                .filter(|e| snapshot.shot_stops_on((&ground.level, &instances), shooter, e))
+                .map(|e| e.id.0)
+                .collect();
+            view.sort();
+            let names = |ids: &[u32]| ids.iter().map(|&id| named(id)).collect::<Vec<_>>();
+            let line = format!(
+                "{friendly_fire:?}, {} shoots: the view stops on {:?}, the shots on {:?}",
+                named(shooter.id.0),
+                names(&view),
+                names(&system)
+            );
+            let other_player = living().any(|e| {
+                e.id != shooter.id && matches!(e.kind, Kind::Avatar(_)) && view.contains(&e.id.0)
+            });
+            let expected = view.iter().any(|&id| named(id) == "probe_hostile")
+                && !view.iter().any(|&id| named(id) == "probe_neutral")
+                && other_player == (friendly_fire == FriendlyFire::Full);
+            if view != system || !expected {
+                wrong.push(line.clone());
+            }
+            seen.push(line);
+        }
+    }
+    check(
+        wrong.is_empty(),
+        format!("wrong: {wrong:?}; {}", seen.join("; ")),
+    )
+}
+
 /// A probe: what it saw, as a pass or a failure.
 type Probe = fn() -> Result<String, String>;
 
@@ -1130,6 +1210,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("recorded_calls_replay", recorded),
         ("kept_by_party", kept_by_party),
         ("solo_mode_by_the_first_seat", solo_by_seat),
+        ("shots_stop_as_drawn", shots_stop_as_drawn),
     ];
     cases.into_iter().map(|(name, run)| (name, run())).collect()
 }

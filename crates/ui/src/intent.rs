@@ -262,6 +262,9 @@ pub enum GuiSound {
     InventoryDrop,
     /// A party member may take a level.
     LevelUp,
+    /// The upgrade bench's Assemble: both games give that button this
+    /// sound in place of the default click.
+    Upgrade,
 }
 
 impl GuiSound {
@@ -276,6 +279,7 @@ impl GuiSound {
             GuiSound::InventorySelect => "Inventory_Select",
             GuiSound::InventoryDrop => "Inventory_Drop",
             GuiSound::LevelUp => "Level_Up_Notify",
+            GuiSound::Upgrade => "Upgrade",
         }
     }
 }

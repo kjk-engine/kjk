@@ -504,8 +504,11 @@ pub enum Choice {
     Disarm,
     Recover,
     /// TSL's: a mine the party carries set on a locked door or placeable,
-    /// to blast its lock (`Action::Mine`).
-    Mine,
+    /// to blast its lock (`Action::Mine`): the kit item chosen (`kits`),
+    /// else the one the sim picks.
+    Mine {
+        kit: Option<u32>,
+    },
 }
 
 /// What the character choosing brings to a lock: offered Security only
@@ -563,7 +566,7 @@ pub fn choices(
     let mined = |mut all: Vec<Choice>| {
         all.extend(
             (skilled && lock_mine && crate::traps::blastable(facts, locked))
-                .then_some(Choice::Mine),
+                .then_some(Choice::Mine { kit: None }),
         );
         all
     };
@@ -600,6 +603,22 @@ pub fn choices(
     }
 }
 
+/// `choices` with the mine on a lock offered once for each kit item the
+/// party carries (`kits`, by script object id), as TSL's menu lists each
+/// kit the party has, in place of the one mine `choices` offers.
+pub fn kits(choices: Vec<Choice>, kits: &[u32]) -> Vec<Choice> {
+    choices
+        .into_iter()
+        .flat_map(|choice| match choice {
+            Choice::Mine { kit: None } if !kits.is_empty() => kits
+                .iter()
+                .map(|kit| Choice::Mine { kit: Some(*kit) })
+                .collect(),
+            _ => vec![choice],
+        })
+        .collect()
+}
+
 /// What a choice asks of the host (`crate::action`): none for a revive,
 /// whose body goes as `Action::Revive` when its hold begins and which the
 /// player's held use does (`Reviving`), nor for an item, whose user and
@@ -611,7 +630,7 @@ pub fn ask(choice: Choice, object: u32, kind: ObjectKind) -> Option<crate::actio
         (Choice::Revive | Choice::Item { .. }, _) => return None,
         (Choice::Disarm, _) => return Some(Action::Disarm(object)),
         (Choice::Recover, _) => return Some(Action::Recover(object)),
-        (Choice::Mine, _) => return Some(Action::Mine(object)),
+        (Choice::Mine { kit }, _) => return Some(Action::Mine { object, kit }),
         (Choice::Open, _) | (Choice::Use, ObjectKind::Door) => Verb::Open,
         (Choice::Close, _) => Verb::Close,
         (Choice::Use, _) => Verb::Use,
@@ -769,7 +788,7 @@ fn arrival(choice: Choice, kind: ObjectKind) -> f32 {
 fn stands_for(choice: Choice) -> bool {
     matches!(
         choice,
-        Choice::Unlock { .. } | Choice::Disarm | Choice::Recover | Choice::Mine
+        Choice::Unlock { .. } | Choice::Disarm | Choice::Recover | Choice::Mine { .. }
     )
 }
 
@@ -1086,7 +1105,7 @@ impl crate::walk::Ways for KeptIn<'_> {
 }
 
 /// What of the player's own cancels a walk besides moving and jumping: an
-/// attack (T17).
+/// attack (T17). `steer` counts a blaster's [Feat attack] as one too.
 pub const WALK_BREAKS: u16 = crate::buttons::ATTACK | crate::buttons::ALT_ATTACK;
 /// What cancels a revive's hold besides moving and jumping: any action,
 /// as the host breaks a revive off for one (`falls::ACTING`).
@@ -1094,8 +1113,9 @@ pub const HOLD_BREAKS: u16 = crate::falls::ACTING;
 
 /// The command the player's tick takes: its own (`base`: the keys', a
 /// script's), or a walk's or a revive's hold (`piloted`) in its place; and
-/// whether `base` cancels it (it moves, jumps, or presses one of
-/// `breaks`).
+/// whether `base` cancels it. It cancels it when it moves, jumps, attacks
+/// (`Command::attacks`, a blaster's [Feat attack] too) or presses one of
+/// `breaks`.
 pub fn steer(
     piloted: Option<crate::Command>,
     base: crate::Command,
@@ -1104,7 +1124,8 @@ pub fn steer(
     let Some(command) = piloted else {
         return (base, false);
     };
-    if base.forward != 0 || base.right != 0 || base.up > 0 || base.buttons & breaks != 0 {
+    let moved = base.forward != 0 || base.right != 0 || base.up > 0;
+    if moved || base.attacks() || base.buttons & breaks != 0 {
         return (base, true);
     }
     (

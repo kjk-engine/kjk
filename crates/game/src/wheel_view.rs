@@ -29,8 +29,21 @@
 //! the wheel's key, LB steps on by one item, and nothing steps back. With no arc open and more
 //! than 28 entries, the same steps turn the ring by one entry.
 //!
+//! The pointer starts at the wheel's centre, and a small dot shows where it
+//! is. While the pointer is in the centre (closer than
+//! `ui::screens::wheel::DEAD_IN`, or with the right stick pushed less than
+//! `STICK_CENTRE`), nothing is highlighted. Moving the pointer back to the
+//! centre clears the highlight, so letting go there uses nothing.
+//!
 //! Letting go of the key uses the highlighted entry, as a press of a bar
-//! slot holding it would (`bar_view::slot_use`). An arc item other than the
+//! slot holding it would (`bar_view::slot_use`). Each use joins the end of
+//! a queue, as KOTOR's actions do. The first use in the queue waits until
+//! the character has a free hand for it (`ready`), and the next one starts
+//! only after it. So a player who picks Force Valor, Force Armor and Force
+//! Speed while the character is still casting Force Valor sees the three
+//! powers cast one after another. The action bar's slots join the same
+//! queue while it has uses in it or while the character is busy
+//! (`bar_view`). An arc item other than the
 //! one the character uses now is picked first (`Action::PickItem`). Letting
 //! go on grenades readies a grenade, or puts it away when one is readied, and
 //! a grenade picked from the arc is readied. Nothing is thrown. The
@@ -39,13 +52,15 @@
 //! down. While the wheel is open in a session of one seat, the game runs at
 //! a quarter of its speed (`time_scale`).
 
+use std::collections::VecDeque;
+
 use bevy::input::mouse::{AccumulatedMouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use sim::action::Action;
-use sim::combat::Life;
 use sim::combat::bar::{self, Content, Rules};
 use sim::combat::items::Shelf;
+use sim::combat::{Fighter, Life};
 use sim::{SimId, Snapshot};
 use ui::screens::wheel::{
     ARC_SHOWN, DEAD_IN, DEAD_OUT, RING_SHOWN, Ring, apart, arc_window, ring_slot,
@@ -53,8 +68,8 @@ use ui::screens::wheel::{
 
 use crate::bar_view::{BarUse, Means, slot_use, with_bar};
 use crate::loot::Outgoing;
-use crate::pad::{Actions, Prompts};
-use crate::pick_view::{Kind, Picking, TAP};
+use crate::pad::Actions;
+use crate::pick_view::{Kind, Picking};
 use crate::settings::Action as Key;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
@@ -74,6 +89,10 @@ const GRACE: f32 = 0.25;
 /// The longest a use waits for the snapshot to show the arc item picked
 /// before it goes ahead (seconds).
 const PICK_WAIT: f32 = 0.5;
+/// A push of the right stick shorter than this (from 0 to 1, past the
+/// pad's own dead middle) leaves the pointer in the wheel's centre, where
+/// nothing is highlighted.
+pub const STICK_CENTRE: f32 = 0.3;
 
 /// The wheel's state, from frame to frame.
 #[derive(Resource, Debug, Default)]
@@ -105,8 +124,9 @@ pub struct Wheel {
     rested: f32,
     /// How far the mouse wheel turned short of a notch.
     spare: f32,
-    /// A use on its way after the key was let go.
-    due: Option<Due>,
+    /// The uses on their way after the key was let go, and the action bar's
+    /// uses that wait behind them, first in line first.
+    queue: VecDeque<Due>,
     /// What a run's commands do with the wheel (`script`).
     scripted: Scripted,
 }
@@ -236,6 +256,16 @@ impl Wheel {
         }
     }
 
+    /// Puts `due` at the end of the queue of uses.
+    pub(crate) fn queue(&mut self, due: Due) {
+        self.queue.push_back(due);
+    }
+
+    /// Whether uses wait in the queue.
+    pub(crate) fn queued(&self) -> bool {
+        !self.queue.is_empty()
+    }
+
     /// A command's request: `powerwheel hold`, `powerwheel up`,
     /// `powerwheel point X Y` (the pointer in H, y up) or
     /// `powerwheel step N`.
@@ -266,7 +296,7 @@ impl Wheel {
         let alive = frame.body.filter(|(_, alive)| *alive).map(|(id, _)| id);
         let blocked = frame.screen || frame.talk || frame.movie || alive.is_none();
         if blocked {
-            self.due = None;
+            self.queue.clear();
         }
         if self.open && (blocked || alive != self.body) {
             self.open = false;
@@ -285,7 +315,7 @@ impl Wheel {
             *self = Wheel {
                 open: true,
                 body: alive,
-                due: self.due.take(),
+                queue: std::mem::take(&mut self.queue),
                 scripted: std::mem::take(&mut self.scripted),
                 ..Wheel::default()
             };
@@ -325,7 +355,12 @@ impl Wheel {
             self.anchor = None;
         }
         if frame.stick != Vec2::ZERO {
-            self.pointer = frame.stick.clamp_length_max(1.0) * ring.arc();
+            let push = frame.stick.clamp_length_max(1.0);
+            self.pointer = if push.length() < STICK_CENTRE {
+                Vec2::ZERO
+            } else {
+                push * ring.arc()
+            };
             self.by_stick = true;
             self.rested = 0.0;
         } else if self.by_stick {
@@ -401,9 +436,34 @@ impl Wheel {
     }
 }
 
-/// A use on its way after the wheel's key was let go. It first sends the
-/// pick of an arc item, if one was chosen. It then makes a short press of
-/// what the entry contains.
+/// Whether the character can start `content` now, so a use in the queue
+/// may go ahead. A Force power, an item other than a grenade, and a mine
+/// wait until the character has a free hand (`Fighter::hand_free`): no
+/// power cast is still under way, and no item is in use. A feat attack,
+/// stealth mode and the grenades go ahead at once.
+pub(crate) fn ready(content: Content, fighter: &Fighter, now_ms: u64) -> bool {
+    match content {
+        Content::Power(_) | Content::Mine => fighter.hand_free(now_ms, false),
+        Content::Item(shelf) if shelf != Shelf::Grenade => fighter.hand_free(now_ms, false),
+        Content::Item(_) | Content::Feat(_) | Content::Stealth => true,
+    }
+}
+
+/// What a use in the queue sees of the sim on a frame.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Seen {
+    /// The snapshot shows the arc item picked.
+    pub confirmed: bool,
+    /// The character can start the use now (`ready`).
+    pub ready: bool,
+    /// The snapshot's time (sim ms).
+    pub now_ms: u64,
+}
+
+/// A use on its way, from the wheel or from an action bar slot. It first
+/// sends the pick of an arc item, if one was chosen. It then waits until
+/// the character can start it, and makes a short press of what the entry
+/// contains.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Due {
     content: Content,
@@ -418,8 +478,12 @@ pub struct Due {
     sent: bool,
     /// How long the use has waited for the pick (seconds).
     waited: f32,
-    /// How long the press has left (seconds), once it has started.
-    tap: Option<f32>,
+    /// The snapshot's time when the press went down (sim ms).
+    down: Option<u64>,
+    /// The snapshot's time when the press went up again (sim ms).
+    up: Option<u64>,
+    /// The use is over.
+    over: bool,
 }
 
 impl Due {
@@ -438,19 +502,29 @@ impl Due {
             pick,
             sent: false,
             waited: 0.0,
-            tap: None,
+            down: None,
+            up: None,
+            over: false,
         }
     }
 
-    /// One frame of the use, `seconds` after the last. `confirmed` says the
-    /// snapshot shows the pick. Returns the actions to send this frame and
+    /// What the use is of.
+    pub fn content(&self) -> Content {
+        self.content
+    }
+
+    /// One frame of the use, `seconds` after the last, with what the
+    /// snapshot shows (`Seen`). Returns the actions to send this frame and
     /// what the bar holds down.
     ///
     /// The pick goes out on the first frame. The use waits for the snapshot
-    /// to show the pick, at most `PICK_WAIT`, and then holds the press for
-    /// `TAP`, so a sim step cannot miss it. The press's own actions go out
-    /// on its first frame.
-    pub fn step(&mut self, confirmed: bool, seconds: f32) -> (Vec<Action>, BarUse) {
+    /// to show the pick, at most `PICK_WAIT`, and then until the character
+    /// can start it. The press holds its buttons down until a sim step has
+    /// seen them, which the snapshot shows by moving on in time. The press's
+    /// own actions go out on its first frame. The buttons then stay up until
+    /// a step has seen them up, so the next use in the queue makes a new
+    /// press.
+    pub fn step(&mut self, seen: Seen, seconds: f32) -> (Vec<Action>, BarUse) {
         let mut sent = Vec::new();
         if !std::mem::replace(&mut self.sent, true)
             && let Some((_, row)) = self.pick
@@ -460,33 +534,42 @@ impl Due {
         // A grenade picked from the arc is readied by its pick (the sim's
         // `ready_grenades`). A press would put it away again.
         if matches!(self.pick, Some((Shelf::Grenade, _))) {
-            self.tap = Some(0.0);
+            self.over = true;
             return (sent, BarUse::default());
         }
-        let waiting = self.pick.is_some() && !confirmed && self.waited < PICK_WAIT;
-        if self.tap.is_none() && waiting {
-            self.waited += seconds;
-            return (sent, BarUse::default());
+        let pressed = self.down.is_none();
+        if pressed {
+            let waiting = self.pick.is_some() && !seen.confirmed && self.waited < PICK_WAIT;
+            if waiting {
+                self.waited += seconds;
+                return (sent, BarUse::default());
+            }
+            if !seen.ready {
+                return (sent, BarUse::default());
+            }
+            self.down = Some(seen.now_ms);
         }
-        let pressed = self.tap.is_none();
-        *self.tap.get_or_insert(TAP) -= seconds;
-        let (choices, usable) = (&self.choices, self.usable);
-        let mut used = slot_use(
-            self.content,
-            choices,
-            usable,
-            pressed,
-            true,
-            self.hand,
-            self.target,
-        );
-        sent.append(&mut used.actions);
-        (sent, used)
+        if self.up.is_none() && self.down.is_some_and(|down| seen.now_ms <= down) {
+            let mut used = slot_use(
+                self.content,
+                &self.choices,
+                self.usable,
+                pressed,
+                true,
+                self.hand,
+                self.target,
+            );
+            sent.append(&mut used.actions);
+            return (sent, used);
+        }
+        let up = *self.up.get_or_insert(seen.now_ms);
+        self.over = seen.now_ms > up;
+        (sent, BarUse::default())
     }
 
-    /// The press is over.
+    /// The use is over.
     pub fn done(&self) -> bool {
-        self.tap.is_some_and(|left| left <= 0.0)
+        self.over
     }
 }
 
@@ -626,7 +709,7 @@ fn steer(
         .as_ref()
         .is_some_and(|actions| actions.held(Key::Wheel))
         || wheel.scripted.held;
-    if !held && !wheel.open && wheel.due.is_none() {
+    if !held && !wheel.open && wheel.queue.is_empty() {
         // The wheel is shut and stays shut this frame, so the list is not
         // built. The mouse wheel's turns and the commands' steps are
         // dropped. A wheel that closed while its key was held may open
@@ -696,16 +779,19 @@ fn steer(
         return;
     };
     let foe = crate::bar_view::foe(targeted.as_deref(), snapshot);
-    wheel.due = with_bar(snapshot, own.0, &swap.level, |means, rules| {
+    let due = with_bar(snapshot, own.0, &swap.level, |means, rules| {
         let (content, pick) = listed.release(release)?;
         let target = crate::bar_view::cast_target(rules, content, foe, means.me.0);
         Some(Due::new(content, means, target, pick))
-    })
-    .flatten();
+    });
+    if let Some(due) = due.flatten() {
+        wheel.queue(due);
+    }
 }
 
-/// Plays out the wheel's use: sends its pick and its actions, and holds its
-/// buttons in `BarUse` beside the bar's.
+/// Plays out the first use in the queue: sends its pick and its actions,
+/// and holds its buttons in `BarUse` beside the bar's. The next use starts
+/// once it is over.
 #[allow(clippy::type_complexity)]
 fn let_go(
     mut wheel: ResMut<Wheel>,
@@ -718,28 +804,39 @@ fn let_go(
     ),
     time: Res<Time<Real>>,
 ) {
-    let Some(due) = wheel.due.as_mut() else {
+    let Some(due) = wheel.queue.front_mut() else {
         return;
     };
-    let picked = presented
+    let seen = presented
         .as_ref()
         .zip(own.as_ref())
         .zip(swap.as_ref())
         .and_then(|((presented, own), swap)| {
             let snapshot = presented.0.current();
-            let (_, sheet) = crate::cast::body_sheet(snapshot, own.0, &swap.level)?;
-            let (shelf, _) = due.pick?;
-            sheet.picks.item(shelf)
+            let (body, sheet) = crate::cast::body_sheet(snapshot, own.0, &swap.level)?;
+            let picked = due.pick.and_then(|(shelf, _)| sheet.picks.item(shelf));
+            let ready = body
+                .fighter
+                .as_ref()
+                .is_some_and(|fighter| ready(due.content, fighter, snapshot.time_ms));
+            Some(Seen {
+                confirmed: due.pick.is_some_and(|(_, row)| picked == Some(row)),
+                ready,
+                now_ms: snapshot.time_ms,
+            })
         });
-    let confirmed = due.pick.is_some_and(|(_, row)| picked == Some(row));
-    let (sent, used) = due.step(confirmed, time.delta_secs());
+    let Some(seen) = seen else {
+        return;
+    };
+    let (sent, used) = due.step(seen, time.delta_secs());
     if let Some(outgoing) = outgoing.as_mut() {
         outgoing.0.extend(sent);
     }
     bar_use.force = bar_use.force.or(used.force);
     bar_use.buttons |= used.buttons;
+    bar_use.still |= used.still;
     if due.done() {
-        wheel.due = None;
+        wheel.queue.pop_front();
     }
 }
 
@@ -756,9 +853,7 @@ fn entries(
         let at = shelf as usize;
         listed.chosen[at].and_then(|chosen| listed.kinds[at].get(chosen).cloned())
     });
-    let kits = library.map_or(0, |library| {
-        sim::traps::party_kits(&snapshot.goods, library.items())
-    });
+    let mine = library.and_then(|library| sim::traps::laid_kit(&snapshot.goods, library.items()));
     let shown = listed
         .list
         .iter()
@@ -771,7 +866,7 @@ fn entries(
             ui::vm::WheelEntry {
                 group: *group,
                 kinds: kinds.min(usize::from(u8::MAX)) as u8,
-                ..crate::hud::bar_entry(ui, *content, means, &chosen, kits)
+                ..crate::hud::bar_entry(ui, *content, means, &chosen, mine.as_ref())
             }
         })
         .collect();
@@ -817,7 +912,6 @@ fn show(
         Option<Res<SceneSwap>>,
         Option<Res<Picking>>,
     ),
-    prompts: Prompts,
     (actions, mut facts): (Option<Res<Actions>>, ResMut<console::DumpFacts>),
 ) {
     let Some(mut ui) = ui else {
@@ -836,7 +930,7 @@ fn show(
         let shown = ui.vm.wheel.as_ref().map(|view| {
             serde_json::json!({
                 "entries": named(&view.entries), "first": view.first, "at": view.at,
-                "arc": named(&view.arc), "arc_at": view.arc_at,
+                "arc": named(&view.arc), "arc_at": view.arc_at, "pointer": view.pointer,
             })
         });
         facts
@@ -862,9 +956,7 @@ fn show(
         at: wheel.at,
         arc_at: wheel.arc_at.filter(|_| !arc.is_empty()),
         arc,
-        key: prompts
-            .bound_label(Key::Wheel)
-            .unwrap_or(ui::vm::KeyLabel::default()),
+        pointer: wheel.pointer.into(),
         bumpers: crate::pad::wheel_badges(actions.as_deref()),
     });
 }

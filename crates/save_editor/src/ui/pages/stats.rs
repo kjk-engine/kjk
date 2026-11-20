@@ -1,5 +1,6 @@
-//! Stats: the picked character's classes, abilities, skills, alignment,
-//! points and XP, a TSL companion's influence, and the party's XP.
+//! The Stats page. It shows a player's head, and the picked character's
+//! classes, abilities, skills, alignment, points and XP. It also shows a TSL
+//! companion's influence and the party's XP.
 
 use egui::RichText;
 
@@ -35,6 +36,9 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
     let state = &mut app.pages;
     let mut changes = Vec::new();
     ui.label(RichText::new(format!("{name}, level {}", sheet.level)).strong());
+    if let (Some(catalog), Some(persona)) = (catalog, &character.persona) {
+        head(ui, &mut app.icons, catalog, who, persona, &mut changes);
+    }
     if let Some(catalog) = catalog {
         classes(
             ui,
@@ -247,5 +251,46 @@ fn classes(
         ui,
         "Raise Levels to level the character up with the game's own picks. Levels cannot be lowered.",
     );
+    ui.separator();
+}
+
+const PORTRAIT: f32 = 48.0;
+
+/// The player's head. The player portraits of the player's gender are
+/// shown, and the current one is framed. Picking another gives the player
+/// its head and the body that their first class takes.
+fn head(
+    ui: &mut egui::Ui,
+    icons: &mut crate::ui::icons::Icons,
+    catalog: &Catalog,
+    who: Who,
+    persona: &sim::persona::Persona,
+    changes: &mut Vec<Change>,
+) {
+    let Some(portraits) = &catalog.data.portraits else {
+        return;
+    };
+    ui.label("Head");
+    ui.horizontal_wrapped(|ui| {
+        for portrait in portraits.of_gender(persona.female()) {
+            let current = portrait.row == persona.portrait;
+            let response = icons.button(ui, Some(catalog), &portrait.texture, PORTRAIT, current);
+            if response.has_focus() {
+                ui.painter().rect_stroke(
+                    response.rect.expand(1.0),
+                    2.0,
+                    ui.visuals().selection.stroke,
+                    egui::StrokeKind::Outside,
+                );
+            }
+            let label = catalog
+                .portrait_label(portrait.row)
+                .unwrap_or(format!("portrait {}", portrait.row));
+            let response = response.on_hover_text(label);
+            if response.clicked() && !current {
+                changes.push(Change::Portrait(who, portrait.row));
+            }
+        }
+    });
     ui.separator();
 }

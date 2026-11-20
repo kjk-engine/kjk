@@ -103,6 +103,9 @@ pub(crate) fn row_words(new: bool) -> (usize, usize) {
 /// Feat rows (`feat.2da`) combat and the skills read.
 pub mod feats {
     pub const TWO_WEAPON_FIGHTING: [u16; 3] = [3, 9, 85];
+    /// TSL's Superior Two-Weapon Fighting I to III (the Weapon Master's
+    /// and the Marauder's).
+    pub const SUPERIOR_TWO_WEAPON: [u16; 3] = [159, 160, 161];
     pub const CRITICAL_STRIKE: [u16; 3] = [8, 19, 81];
     pub const FLURRY: [u16; 2] = [11, 91];
     /// Master Flurry (`WHIRLWIND_ATTACK`), Flurry's third line.
@@ -589,8 +592,9 @@ pub struct Weapon {
     pub massive: Roll,
     /// What its hits may do besides damage (32, `OnHit`).
     pub on_hit: [Option<OnHit>; ON_HITS],
-    /// Mighty (30): held ranged in the right hand, the most STR adds to its
-    /// damage; without it a ranged weapon takes only STR's penalty.
+    /// Mighty (30), the most STR a ranged weapon would add to its damage.
+    /// Kept as the item has it, but TSL's damage roll adds no STR to a gun
+    /// (`damage::strength`), so it changes nothing.
     pub mighty: Option<u8>,
     /// Its enhancement (Enhancement's, 5): what overcomes a soak.
     pub enhancement: u8,
@@ -825,6 +829,14 @@ pub struct Sheet {
 }
 
 impl Sheet {
+    /// Whether the character has feat `row`: one it learned, or one a worn
+    /// item gives it (a Bonus Feat property, as Davik's Visor gives Improved
+    /// Power Blast). A sheet `effects::sheet_now` made has both in `feats`;
+    /// a worn sheet keeps the items' in its gear.
+    pub fn knows(&self, row: u16) -> bool {
+        self.feats.has(row) || self.gear.feats.has(row)
+    }
+
     /// An ability's modifier: (score − 10) / 2, rounded down.
     pub fn modifier(&self, ability: Ability) -> i32 {
         (i32::from(self.abilities[ability as usize]) - 10).div_euclid(2)

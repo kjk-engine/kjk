@@ -40,6 +40,10 @@ const PROBES: &[Probe] = &[
     ("bystander_holds_ground", bystander_holds_ground),
     ("hostile_held_in_talk", hostile_held_in_talk),
     ("hostile_fighting_held", hostile_fighting_held),
+    (
+        "hostile_actor_cleared_out_of_combat",
+        hostile_actor_cleared_out_of_combat,
+    ),
     ("turned_hostile_held", turned_hostile_held),
     ("hostile_held_companion_leads", hostile_held_companion_leads),
     ("companion_stays", companion_stays),
@@ -191,6 +195,10 @@ const PROBES: &[Probe] = &[
     ("ends_mid_walk", ends_mid_walk),
     ("walk_asks_no_exit", walk_asks_no_exit),
     ("walked_into_exit_leaves_not", walked_into_exit_leaves_not),
+    (
+        "run_into_shut_exit_leaves_not",
+        run_into_shut_exit_leaves_not,
+    ),
     ("leaving_heard", leaving_heard),
     ("item_lost_heard", item_lost_heard),
     ("cue_names_trigger_and_comer", cue_names_trigger_and_comer),
@@ -813,6 +821,8 @@ struct Stage {
     aliens: Vec<Vec<String>>,
     walker: bool,
     way_out: bool,
+    /// The gate that leads out (`way_out`) stands shut.
+    way_out_shut: bool,
     through: bool,
     /// The gate's bearing as a KOTOR door's: its panel along the bearing,
     /// a walk through it across the bearing. The proving ground's gate
@@ -876,6 +886,7 @@ impl Default for Stage {
             aliens: Vec::new(),
             walker: false,
             way_out: false,
+            way_out_shut: false,
             through: false,
             gate_across: false,
             gate_points: false,
@@ -1046,7 +1057,7 @@ impl Ground {
                 tag: String::new(),
                 destination: None,
             });
-            gate.state = 1;
+            gate.state = u8::from(!stage.way_out_shut);
         }
         if stage.gate_across
             && let Some(Placement::Own(gate)) = data.placements.get_mut(GATE as usize)
@@ -1179,6 +1190,20 @@ impl Ground {
 
     fn step(&mut self) {
         self.step_with(TickInput::default());
+    }
+
+    /// One step with seat 0 giving `command` (its keys and view).
+    fn drive(&mut self, command: Command) {
+        self.tick += 1;
+        let mut input = TickInput::default();
+        input.insert(Seat(0), command);
+        self.last = crate::step(
+            &mut self.world,
+            self.tick,
+            &input,
+            STEP_MS as u32,
+            self.reason,
+        );
     }
 
     fn idle(&mut self, ms: u64) {
@@ -1684,6 +1709,37 @@ fn hostile_held_companion_leads() -> Found {
     )
 }
 
+/// `GetLastHostileActor`: the brawler hostile to the player attacks the
+/// companion, who then names it as its last hostile actor. A party
+/// conversation then holds the brawler. Once the companion has been out of
+/// combat for a while, it names no one. K1's duelists would not talk while
+/// the player's beaten opponent still counted as hostile.
+fn hostile_actor_cleared_out_of_combat() -> Found {
+    let (mut ground, buddy) = fight_ground(Stage::default(), Brawler::Hostile)?;
+    let foe = ground.object(FOE)?;
+    let hostile = |ground: &Ground| {
+        ground
+            .world
+            .script_state()
+            .last
+            .get(&(buddy.0, crate::script::last::HOSTILE))
+            .copied()
+    };
+    ground.run_script("probe_attack_buddy", FOE)?;
+    ground.idle(AWARE_MS + FIGHT_FIRST_MS);
+    let fighting = hostile(&ground);
+    ground.cutscene()?;
+    ground.idle(crate::combat::COMBAT_MS + 1000);
+    let after = hostile(&ground);
+    check(
+        fighting == Some(foe.0) && after.is_none(),
+        format!(
+            "in the fight: {fighting:?} (the brawler is {}); out of it: {after:?}",
+            foe.0
+        ),
+    )
+}
+
 /// How long `hostile_fighting_held`'s brawler fights before the
 /// conversation begins (ms, from its awareness).
 const FIGHT_FIRST_MS: u64 = 3000;
@@ -1889,6 +1945,57 @@ fn party_rolls_nothing() -> Result<String, String> {
         held == 0 && after > 0,
         format!("the dummy lost {held} HP held, {after} after the end"),
     )
+}
+
+/// S4 with the gun's other mode: the companion, a gunner with a blaster
+/// pistol, is told to attack the dummy (`ActionAttack`), and its mind holds
+/// the weapon's other mode (the alternate attack and [Feat attack],
+/// `Command::other_mode`) on every step. It fires no bolt in 2 s while a
+/// party conversation holds the world. Once the conversation ends, it fires
+/// in the next 2 s. A probe of hold to aim (`kjk sim probes --only aim`)
+/// runs it.
+pub(crate) fn party_feat_held() -> Found {
+    let mut ground = Ground::new(1)?;
+    let host = ground.body(0)?;
+    ground.put(host, [-6.0, -3.0]);
+    ground.place(TALKER, [-7.0, -3.0])?;
+    let buddy = ground.place(BUDDY, GUNNER_AT)?;
+    ground.place(DUMMY, DUMMY_AT)?;
+    ground.cutscene()?;
+    ground.run_script("probe_attack_dummy", BUDDY)?;
+    let held = ground.other_mode_bolts(buddy, 2000);
+    let up = ground.last.talk.party().is_some();
+    ground.goodbye()?;
+    ground.run_script("probe_attack_dummy", BUDDY)?;
+    let free = ground.other_mode_bolts(buddy, 2000);
+    check(
+        up && held == 0 && free > 0,
+        format!(
+            "the conversation up {up}; the companion fired {held} bolts held, {free} after the end"
+        ),
+    )
+}
+
+impl Ground {
+    /// `ms` of steps with `who`'s mind holding the weapon's other mode,
+    /// poked before each step: the bolts `who` fired.
+    fn other_mode_bolts(&mut self, who: SimId, ms: u64) -> usize {
+        let mut bolts = 0;
+        for _ in 0..steps(ms) {
+            let now = self.last.time_ms;
+            self.fighter(who, |fighter| {
+                fighter.mind.hold = buttons::ALT_ATTACK;
+                fighter.mind.hold_until = now + 1000;
+            });
+            self.step();
+            let at = self.last.time_ms;
+            bolts += (self.last.entities.iter())
+                .filter_map(|entity| entity.missile)
+                .filter(|bolt| bolt.owner == who && bolt.from_ms == at)
+                .count();
+        }
+        bolts
+    }
 }
 
 /// S4: a scene's attack (`CutsceneAttack`) by the companion, a gunner,
@@ -4280,22 +4387,31 @@ fn wait_camera_clip_holds() -> Found {
     check(got == [2000, 4500, 337], format!("lines last {got:?} ms"))
 }
 
-/// S5: in an animated cut a voiced line held by its camera clip (flag 1)
-/// lasts the clip, not its voice (Zhar's training speech, `k_player_dialog`
-/// E8: an 8 s voice over a short shot, voiceless shots after it): a 2 s
-/// clip under an 8 s voice lasts 2 s; with flag 2 too, the voice's 8 s;
-/// with no clip of that name, the voice's 8 s.
+/// S5: a voiced line held by its camera clip (flag 1) lasts the clip, not
+/// its voice (Zhar's training speech, `k_player_dialog` E8: an 8 s voice
+/// over a short shot, voiceless shots after it): a 2 s clip under an 8 s
+/// voice lasts 2 s; with flag 2 too, the voice's 8 s; with no clip of that
+/// name, the voice's 8 s. Outside an animated cut, under a camera model
+/// alone (Manaan's sea floor survivor, `m28ab_c01` E1), the same 2 s.
 fn cut_clip_outlasts_voice() -> Found {
-    let filmed = |flags: u32, animation: u16| {
+    let filmed = |flags: u32, animation: u16, animated_cut: bool| {
         let mut stage = line(&"x".repeat(40), None, flags, Some(8000));
-        stage.talk.animated_cut = true;
+        stage.talk.animated_cut = animated_cut;
         stage.talk.camera_model = "probe_cam".into();
         stage.talk.entries[0].camera_animation = animation;
         stage.camera_clips = [(("probe_cam".to_string(), "cut001w".to_string()), 2000)].into();
         length(stage)
     };
-    let got = [filmed(1, 1200)?, filmed(3, 1200)?, filmed(1, 1201)?];
-    check(got == [2000, 8000, 8000], format!("lines last {got:?} ms"))
+    let got = [
+        filmed(1, 1200, true)?,
+        filmed(3, 1200, true)?,
+        filmed(1, 1201, true)?,
+        filmed(1, 1200, false)?,
+    ];
+    check(
+        got == [2000, 8000, 8000, 2000],
+        format!("lines last {got:?} ms"),
+    )
 }
 
 /// S5: a line whose `CameraAnimation` is 1000 carries the camera clip the
@@ -6249,6 +6365,46 @@ fn walked_into_exit_leaves_not() -> Found {
     check(
         off <= 0.3 && !asked,
         format!("{off:.3} m off the doorway's middle, asked to leave {asked}"),
+    )
+}
+
+/// The player running into the shut gate that leads out asks to leave
+/// nothing, and stands at its panel; the use key pressed there then asks.
+/// KOTOR leaves by a closed door only when it is used. Running into one
+/// left the area before the player reached the door (#565).
+fn run_into_shut_exit_leaves_not() -> Found {
+    let mut ground = Ground::staged(
+        1,
+        Stage {
+            way_out: true,
+            way_out_shut: true,
+            ..Stage::default()
+        },
+    )?;
+    let host = ground.body(0)?;
+    ground.put(host, [-3.0, 0.0]);
+    ground.step();
+    let asked = |ground: &mut Ground, buttons: u16, ms: u64| {
+        let mut asked = false;
+        for _ in 0..steps(ms) {
+            ground.drive(Command {
+                forward: 127,
+                buttons,
+                ..Command::default()
+            });
+            asked |= ground.last.ready.is_some() || ground.last.transition.is_some();
+        }
+        asked
+    };
+    let ran_in = asked(&mut ground, 0, 3000);
+    let short = between(ground.at(host), floor_at([0.0, 0.0]));
+    let used = asked(&mut ground, buttons::USE, 300);
+    check(
+        !ran_in && short <= 1.0 && ground.gate_shut() && used,
+        format!(
+            "running into the shut gate asked to leave {ran_in}, {short:.3} m from its panel; \
+             the use key then asked {used}"
+        ),
     )
 }
 

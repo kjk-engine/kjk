@@ -575,6 +575,14 @@ impl Screen for Upgrade {
         true
     }
 
+    fn click_sound(&self, tag: &str) -> GuiSound {
+        if tag == "BTN_ASSEMBLE" {
+            GuiSound::Upgrade
+        } else {
+            GuiSound::Clicked
+        }
+    }
+
     fn row(&mut self, list: &str, index: usize, vm: &ViewModel, out: &mut Vec<Intent>) {
         if list == FITTING
             && let Some(item) = self.item(vm).cloned()

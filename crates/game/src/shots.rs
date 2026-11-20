@@ -98,11 +98,11 @@ pub fn shots(
                 |e: &sim::EntityState| e.fighter.map_or_else(Default::default, |f| f.shooting);
             let (then, shooting_now) = (shooting(earlier), shooting(entity));
             // The special its trigger was under: a charge let go, a burst
-            // going, an aim held.
+            // going, a Sniper Shot steadied.
             let special = Special::of(&sheet, blaster).filter(|special| match special {
                 Special::PowerBlast(_) => then.charging_from.is_some(),
                 Special::RapidShot(_) => then.burst > 0 || shooting_now.burst > 0,
-                Special::SniperShot(_) => shooting_now.aiming,
+                Special::SniperShot(_) => then.steadying,
             });
             // A pair's guns each their own; one gun's shots leave the gun out.
             let pair = sheet.pistol_pair();
@@ -337,7 +337,7 @@ impl OwnBolt {
             return None;
         }
         let metres = |v: Vec3| (v * UNIT).to_array();
-        let trace = level.with(doors, |world| {
+        let trace = level.with_unremembered(doors, |world| {
             Bodies::new(world, bodies).skipping(me.0 | sim::BODY).trace(
                 metres(from),
                 metres(to),

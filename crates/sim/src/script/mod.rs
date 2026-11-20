@@ -652,6 +652,7 @@ pub struct Library {
     /// `CREATURE_TYPE_*` and `PERCEPTION_*` by value, from the catalog.
     criteria: BTreeMap<i32, Criterion>,
     perceptions: BTreeMap<i32, (Option<bool>, Option<bool>)>,
+    regards: [Option<i32>; 3],
     talents: Talents,
     /// The level's conversations, by lowercase resref.
     dialogues: BTreeMap<String, Dlg>,
@@ -869,6 +870,7 @@ impl Library {
             .filter_map(|(name, seen, heard)| Some((int_constant(&catalog, name)?, (seen, heard))))
             .collect();
         let item_type = int_constant(&catalog, "OBJECT_TYPE_ITEM").unwrap_or(2);
+        let regards = engine::REGARDS.map(|(name, _)| int_constant(&catalog, name));
         Library {
             routines: Routines::new(Arc::new(catalog)),
             programs: scripts
@@ -880,6 +882,7 @@ impl Library {
             object_types,
             criteria,
             perceptions,
+            regards,
             talents,
             dialogues: BTreeMap::new(),
             voices: BTreeMap::new(),
@@ -2085,6 +2088,9 @@ pub struct Character {
     pub downed: bool,
     /// Stunned, held or confused (`GetIsDebilitated`).
     pub debilitated: bool,
+    /// In a grapple finisher, holding or held (`world::grapples`). Its
+    /// weapons stay in its hands until the finisher lets it go.
+    pub grappled: bool,
     /// Hundredths of its FP (the talents it can pay for).
     pub fp: i32,
     /// `feat.2da` rows known.
@@ -2439,6 +2445,7 @@ pub struct Made {
     pub yaw: f32,
     /// A companion the party table kept (`make_npc`): made as it was.
     pub kept: Option<party::Kept>,
+    pub(crate) reach: crate::install::Reach,
 }
 
 /// What the latest of `changes` that `pick` answers for gives.
@@ -2518,6 +2525,9 @@ pub enum Change {
     Trap { object: ObjectId, bits: u8 },
     /// Turn `who` to `yaw` (degrees).
     Face { who: ObjectId, yaw: f32 },
+    /// Stop `who` where it stands: what was left of its run is gone, so it
+    /// does not slide on (a mine being set, `world::traps`).
+    Halt { who: ObjectId },
     /// `who` takes the first seat's view as it was (`view`, degrees) and
     /// its commands from `angles` on: the body a new party leader leads
     /// with, so the camera keeps its way (`world::scripts`).
@@ -3204,6 +3214,7 @@ impl Step<'_> {
             event,
             depth: 0,
             benched: false,
+            failed: Vec::new(),
         };
         engine.trace(&format!("{what} {script} for {}", name(caller)));
         let outcome = match code {
@@ -4665,6 +4676,7 @@ fn make_of(
         at,
         yaw,
         kept: None,
+        reach: crate::install::JUMP,
     });
     id
 }
@@ -4846,9 +4858,22 @@ pub(crate) fn switch_weapons(
     out: &mut Out,
     who: ObjectId,
 ) {
+    if grappled(view, who) {
+        return;
+    }
     for moved in state.switch_weapons(out, who.0) {
         forfeit_equip(library, view, state, who, moved);
     }
+}
+
+/// Whether `who` is in a grapple finisher, holding or held
+/// (`Character::grappled`). Nothing changes the weapons in its hands then:
+/// a weapon set switched, a weapon equipped or one taken off. The view would
+/// play the new weapon's draw over the finisher's clip.
+pub(crate) fn grappled(view: &View, who: ObjectId) -> bool {
+    view.thing(who)
+        .and_then(|thing| thing.character.as_ref())
+        .is_some_and(|character| character.grappled)
 }
 
 /// TSL's forfeit conditions a party member `who` equipping `item` into

@@ -194,6 +194,9 @@ pub fn in_hands(
     id: SimId,
     own: Option<&cast::Own<'_>>,
 ) -> Vec<(Blade, Hand)> {
+    if !holds_blade(level, timeline((history, ms), id, own), id) {
+        return Vec::new();
+    }
     moment(level, (history, ms), id, own).map_or_else(Vec::new, |(moment, _)| {
         moment
             .blades
@@ -202,6 +205,21 @@ pub fn in_hands(
             .map(|(blade, which)| (blade, which.hand))
             .collect()
     })
+}
+
+fn holds_blade(level: &sim::Level, (history, ms): (&[Arc<Snapshot>], f64), id: SimId) -> bool {
+    let has = || {
+        let (a, ..) = around(history, ms)?;
+        let entity = cast::entity(a, id)?;
+        let fighter = entity.fighter.as_ref()?;
+        let kit = Kit::of(&cast::sheet(entity, &Instances::in_snapshot(level, a)));
+        Some(
+            blades::slots(&kit, &fighter.saber, fighter.hand)
+                .iter()
+                .any(Option::is_some),
+        )
+    };
+    has().unwrap_or(false)
 }
 
 /// The sim's blades of `id` at `ms`, or the own character's from its

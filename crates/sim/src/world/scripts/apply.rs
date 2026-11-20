@@ -182,16 +182,11 @@ pub(in crate::world) fn apply(
         let sheet = balance.map_or(sheet, |set| set.scaled(sheet, scripts.state.pc_level()));
         // Where the safe-location search stands it, as a jump's
         // (`install::jump_place`), clear of the living bodies and of those
-        // made before it; none found, where it was put.
+        // made before it; none found, where it was put. An arena's foe
+        // also needs room for its whole body (`install::ARENA`).
         let space = crate::world::strikes::humanoid_space(made.facts.personal_space);
         let free = level.0.with(states.as_deref(), |world| {
-            crate::install::stand_among(
-                &level.0,
-                world,
-                made.at,
-                &stood,
-                (space, crate::install::JUMP),
-            )
+            crate::install::stand_among(&level.0, world, made.at, &stood, (space, made.reach))
         });
         let origin = free.unwrap_or_else(|| {
             let mut origin = scale(made.at, 1.0 / collision::UNIT);
@@ -358,6 +353,12 @@ pub(in crate::world) fn apply(
                     ps.origin = free;
                     ps.velocity = [0.0; 3];
                     ps.face(yaw);
+                }
+            }
+            Change::Halt { who } => {
+                if let Some((_, mut player)) = players.iter_mut().find(|(id, _)| id.0.0 == who.0) {
+                    let ps = &mut player.0;
+                    ps.velocity = [0.0, 0.0, ps.velocity[2]];
                 }
             }
             Change::Face { who, yaw } => {

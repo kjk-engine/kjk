@@ -101,6 +101,56 @@ struct Keyed {
     set: [Option<bool>; SHELVES],
 }
 
+/// Where a run's commands turn the view to (`ui look at`, `ui look to`).
+#[derive(Debug, Clone, PartialEq)]
+enum LookAt {
+    /// The nearest living creature with this tag.
+    Tagged(String),
+    /// A yaw and a pitch (degrees, pitch positive looking down).
+    Angles { yaw: f32, pitch: f32 },
+}
+
+/// The turn of the view (degrees, x to the right and y down, as
+/// `Look::turn` takes them) that brings the view of the body `seat` plays
+/// in `snapshot` where `at` says. For a creature it brings the body's
+/// crosshair's line onto the chest of the nearest living creature with the
+/// tag (`sim::combat::mind::chest_of`). The line starts where the body's
+/// last command put it (`mind::crosshair`), so it runs from the camera
+/// beside the shoulder.
+fn look_toward(
+    snapshot: &Snapshot,
+    seat: sim::Seat,
+    level: &sim::Level,
+    at: &LookAt,
+) -> Option<Vec2> {
+    use sim::combat::mind;
+    let me = snapshot.body(seat)?.player?;
+    let turn = |pitch: f32, yaw: f32| {
+        Vec2::new(mind::turn(me.view[1], yaw), mind::turn(pitch, me.view[0]))
+    };
+    let tag = match at {
+        LookAt::Angles { yaw, pitch } => return Some(turn(*pitch, *yaw)),
+        LookAt::Tagged(tag) => tag,
+    };
+    let objects = sim::Instances::in_snapshot(level, snapshot);
+    let apart = |them: &sim::motion::MotionState| {
+        let d = sim::math::sub(them.origin, me.origin);
+        sim::math::dot(d, d)
+    };
+    let (them, entity) = (snapshot.entities.iter())
+        .filter(|e| crate::cast::is_tagged(e, &objects, tag))
+        .filter(|e| e.fighter.is_some_and(|f| f.alive()))
+        .filter_map(|e| Some((e.player?, e)))
+        .min_by(|(a, _), (b, _)| apart(a).total_cmp(&apart(b)))?;
+    let chest = mind::chest_of(&them, sim::bulk_of(objects.of_entity(entity)));
+    let (pitch, yaw) = mind::aim(mind::crosshair(&me), chest);
+    Some(turn(pitch, yaw))
+}
+
+/// The fighting keys a run's commands can hold (`ui key hold aim`), by
+/// the word that names each: [Aim] raises a blaster, [Attack] fires it.
+const SCRIPTED_FIGHT: [(&str, Key); 2] = [("aim", Key::Aim), ("attack", Key::Attack)];
+
 /// The item key held, the presses due, what the player picked and what the
 /// label says.
 #[derive(Resource, Debug, Default)]
@@ -125,6 +175,17 @@ pub struct Picking {
     /// frame before's.
     slots_by_script: [bool; BAR.len()],
     slots_were: [bool; BAR.len()],
+    /// The fighting keys a run's commands hold (`ui key hold aim`, `ui key
+    /// hold attack`, in the order of `SCRIPTED_FIGHT`), and the frame
+    /// before's.
+    fight_by_script: [bool; SCRIPTED_FIGHT.len()],
+    fight_were: [bool; SCRIPTED_FIGHT.len()],
+    /// The degrees a run's commands turn the view by next frame (`ui look
+    /// RIGHT DOWN`): x to the right, y down, as `Look::turn` takes them.
+    look_by_script: Vec2,
+    /// Where a run's commands turn the view to next: onto a creature
+    /// (`ui look at TAG`) or to a yaw and a pitch (`ui look to YAW PITCH`).
+    look_at: Option<LookAt>,
     /// A run's commands took the keys: its commands count though it has no
     /// window (`PlayerInput::read`).
     keys_scripted: bool,
@@ -205,7 +266,12 @@ impl Picking {
     }
 
     /// A command's request: `key hold grenade`, `key up grenade`, `key hold
-    /// slot 2`, `key up slot 2`, `key feat` or `wheel 1` (notches, down).
+    /// slot 2`, `key up slot 2`, `key hold aim`, `key up attack`, `key feat`,
+    /// `wheel 1` (notches, down), `look 10 -5` (the view turned 10° to the
+    /// right and 5° up), `look to 90 -5` (the view turned to a yaw of 90°
+    /// and 5° up) or `look at g_sithtroop01` (the view turned so the
+    /// crosshair's line meets the chest of the nearest living creature with
+    /// that tag, `look_toward`).
     pub(crate) fn script(&mut self, words: &[&str]) -> bool {
         let on = |name: &str| {
             Some(match name {
@@ -224,9 +290,26 @@ impl Picking {
                 }
                 _ => return false,
             },
-            ["key", verb @ ("hold" | "up"), name] => match on(name) {
-                Some(shelf) => self.held_by_script[shelf as usize] = *verb == "hold",
-                None => return false,
+            ["key", verb @ ("hold" | "up"), name] => {
+                let fight = SCRIPTED_FIGHT.iter().position(|(word, _)| word == name);
+                match (on(name), fight) {
+                    (Some(shelf), _) => self.held_by_script[shelf as usize] = *verb == "hold",
+                    (None, Some(fight)) => self.fight_by_script[fight] = *verb == "hold",
+                    (None, None) => return false,
+                }
+            }
+            ["look", "at", tag] => self.look_at = Some(LookAt::Tagged(tag.to_string())),
+            ["look", "to", yaw, pitch] => match (yaw.parse::<f32>(), pitch.parse::<f32>()) {
+                (Ok(yaw), Ok(pitch)) if yaw.is_finite() && pitch.is_finite() => {
+                    self.look_at = Some(LookAt::Angles { yaw, pitch });
+                }
+                _ => return false,
+            },
+            ["look", right, down] => match (right.parse::<f32>(), down.parse::<f32>()) {
+                (Ok(right), Ok(down)) if right.is_finite() && down.is_finite() => {
+                    self.look_by_script += Vec2::new(right, down);
+                }
+                _ => return false,
             },
             ["wheel", notches] => match notches.parse::<f32>() {
                 Ok(notches) => self.wheel_by_script -= notches,
@@ -238,13 +321,16 @@ impl Picking {
         true
     }
 
-    /// What the run's commands hold, put in `actions`; the wheel they turned.
+    /// What the run's commands hold, put in `actions`, with the view's turn
+    /// they asked for; the wheel they turned.
     fn scripted(&mut self, actions: &mut Actions) -> f32 {
         let shelves = self.held_by_script.into_iter().zip(self.was_by_script);
         let slots = self.slots_by_script.into_iter().zip(self.slots_were);
         let kinds = self.keys.into_iter().zip(shelves);
         let bar = BAR.map(Some).into_iter().zip(slots);
-        for (key, (held, was)) in kinds.chain(bar) {
+        let fight = (SCRIPTED_FIGHT.map(|(_, key)| Some(key)).into_iter())
+            .zip(self.fight_by_script.into_iter().zip(self.fight_were));
+        for (key, (held, was)) in kinds.chain(bar).chain(fight) {
             if let Some(key) = key.filter(|_| held) {
                 actions.set_held(key, true);
                 if !was {
@@ -257,6 +343,8 @@ impl Picking {
         }
         self.was_by_script = self.held_by_script;
         self.slots_were = self.slots_by_script;
+        self.fight_were = self.fight_by_script;
+        actions.turn += std::mem::take(&mut self.look_by_script);
         std::mem::take(&mut self.wheel_by_script)
     }
 
@@ -508,6 +596,20 @@ fn pick(
 ) {
     let turned = turned(&mut wheel);
     let busy = busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
+    // A run's `look at TAG`: the turn onto the creature, from the own body.
+    if let Some(at) = picking.look_at.take() {
+        let toward = (presented
+            .as_deref()
+            .zip(own.as_deref())
+            .zip(swap.as_deref()))
+        .and_then(|((presented, own), swap)| {
+            look_toward(presented.0.current(), own.0, &swap.level, &at)
+        });
+        match toward {
+            Some(turn) => picking.look_by_script += turn,
+            None => warn!(target: "console", "ui look: nothing to turn to for {at:?}"),
+        }
+    }
     let body = (!busy)
         .then_some(())
         .and_then(|()| Some((presented?, own?, swap?)));
@@ -663,6 +765,7 @@ fn slot_key_while_wheel_open() -> Result<String, String> {
 /// `key hold grenade` then holds and presses slot 3's key, and
 /// `key hold stim` holds nothing. `key hold slot 5` holds and presses slot
 /// 5's key, whatever the slot holds, and `key hold slot 11` is refused.
+/// `key hold aim` and `key hold attack` hold and press [Aim] and [Attack].
 #[cfg(feature = "probes")]
 fn bar_slot_keys() -> Result<String, String> {
     let mut bar = Bar::default();
@@ -687,13 +790,21 @@ fn bar_slot_keys() -> Result<String, String> {
     let third_and_fifth = |seen: [bool; sim::combat::bar::SLOTS]| {
         seen == std::array::from_fn(|slot| [2, 4].contains(&slot))
     };
+    let mut fighting = Picking::default();
+    let fights: [&[&str]; 2] = [&["key", "hold", "aim"], &["key", "hold", "attack"]];
+    let fought = fights.map(|words| fighting.script(words));
+    let mut fight = Actions::default();
+    fighting.scripted(&mut fight);
+    let fight = [Key::Aim, Key::Attack].map(|key| (fight.held(key), fight.pressed(key)));
     sim::probe::check(
         picking.keys == want
             && scripted == [true, true, true, false]
             && third_and_fifth(held)
-            && third_and_fifth(pressed),
+            && third_and_fifth(pressed)
+            && fought == [true, true]
+            && fight == [(true, true); 2],
         format!(
-            "keys {:?}, held {held:?}, pressed {pressed:?}",
+            "keys {:?}, held {held:?}, pressed {pressed:?}, aim and attack (held, pressed) {fight:?}",
             picking.keys
         ),
     )

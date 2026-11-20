@@ -571,9 +571,52 @@ replaces that for Force points (below), stamina keeping that refill. JA's shapes
 bolts (Q-0015); drain takes FP and heals; speed scales movement (`force.speed.scale`);
 protect and absorb (and TSL's Fury, JA's rage) exclusive; sight (TSL's
 Force Sight) breaks tricks on its user; mind trick confuses creatures and
-hides the caster from players; crowd control stuns for 3 s at most on a
-failed save (Fortitude, the fear chain Will), then 1 s immune, fear ending
-on damage.
+hides the caster from players; crowd control holds a target that fails
+its save (Fortitude, the fear chain Will).
+
+**Holds (C11, `ForceState::hold`).** A stun, paralysis, fear, sleep, droid
+stun or Force Whirlwind holds its target for the duration that its script,
+power, grenade or weapon property gives. No hold lasts longer than the
+Longest Hold (`force.crowd.longest_ms`). Every round
+(`force.crowd.round_ms`), the held target rolls its saving throw again.
+The roll uses the same save and the same DC as the save that first
+allowed the hold, and each roll after the first adds the Struggle Bonus
+(`force.crowd.struggle_bonus`) once more. If the save succeeds, the hold
+ends at once. The first roll comes one round after the hold starts, so no
+hold ends sooner than one round. A natural 20 always breaks free and a
+natural 1 never does (`combat::check`). The step rolls these saves on the
+authority, before it settles the effects (`world::harm::hurt`). The held
+player's seat is told the roll in the game's saving throw line, and
+"Saved" floats over a character that breaks free.
+
+The save each hold rolls comes from where it began. A scripted power's
+hold rolls the last save its target failed against the caster in the same
+script run (`Applied::save`). A scripted hold with no save before it rolls
+against the caster's power DC (`force::save_dc`), with Fortitude for a
+stun, a paralysis and a droid's stun, Reflex for a whirlwind, and Will for
+fear and sleep. Force Whirlwind on kjk's own path rolls Reflex against the
+caster's power DC. A weapon's on-hit hold rolls the property's save and DC
+(`gear::on_hits`), and a grenade's or a mine's rolls Reflex against the
+blast's DC. A hold that allowed no save, such as the adhesive grenade's,
+rolls none and lasts its whole time.
+
+A hold counts as recent until the Recent Hold time (`force.crowd.recent_ms`)
+after it ends. A character's second recent hold lasts the Second Recent
+Hold share of its duration (`force.crowd.second_percent`), and its third
+the Third Recent Hold share (`force.crowd.third_percent`). A shortened
+hold lasts at least one round, unless its full duration is shorter. A
+character that already had `force.crowd.most_recent` recent holds cannot
+be held again, and "Immune" floats over it. After any hold ends, the target
+cannot be held again for the Stun Immunity time (`force.crowd.immune_ms`).
+Fear ends when the frightened target takes damage, and its rolls end with
+it. A hold that ends early also ends its icons and visuals.
+
+Some holds keep the old rule: at most `force.crowd.hold_ms`, then the
+immunity, with no saves. These are a permanent hold that a script applies
+(a scene's stasis), a hold whose creator is not hostile to its target (a
+story script, a cutscene), and a choke. They do not count as recent. The
+stun, fear and droid powers on kjk's own path, where no impact script runs
+(`Cast::crowd`), also keep that rule, but they count as recent.
 
 **Impacts are KOTOR's** (the owner's choice, 2026-10-01): where a
 row has an impact script in the level's library (K1: `k_sp1_generic`), JA's
@@ -608,8 +651,8 @@ damage, an attack or a hostile within √10 m, `SCRIPTS.md`) or turning it
 Fury counting kills for damage (JA's rage, its health cost and its ÷ on
 hits, gives way). KOTOR's states (`combat::effects::state`: the
 cutscene holds, Force Crush's, a mind trick, a droid's scramble) hold as
-long as their effects, no 3 s and no immune second: those are for the plain
-holds. Under TSL's Force Body a cast's cost is 50 / 40 / 30 % from FP and
+long as their effects. They roll no saves, do not count as recent and have
+no immune second. Those rules are for the plain holds (C11). Under TSL's Force Body a cast's cost is 50 / 40 / 30 % from FP and
 as much from HP (`combat::effects::pay`), refused unless more than one HP
 is left after. Only Affliction and
 Plague stay native (KOTOR's are poisons, not carried out yet). Without a
@@ -705,7 +748,12 @@ Where TSL's rules meet our fight, TSL's win (the owner's call,
   Shien +2, Niman +1); Juyo +4 to a critical's confirmation and an extra
   attack a round, multiplying a weapon hit's budget as Speed's do. A Force
   power's damage, duration and saves under a Form are its impact script's
-  (`k_sp1_generic` asks `IsFormActive`).
+  (`k_sp1_generic` asks `IsFormActive`). The HUD's Form slot stands at the
+  right end of the action bar, inside its frame. It shows the icon of the
+  Form in use (its `spells.2da` icon) and the next-Form key, and the icon is
+  dimmed while a lightsaber Form has no lightsaber to work with
+  (`hud::form_slot`). The equip page's attack modifier counts the Form's
+  attack bonus against an enemy who holds no lightsaber (issue 617).
 - **Costs** (`ForceRules::cost`, `CSWSpell::GetAdjustedForcePoints`): a
   party member's power of a side (`goodevil` `G`, `E`) × `forceadjust.2da`'s
   multiplier at its alignment's tenth, one above 1 eased 0.05 a point of
@@ -760,28 +808,60 @@ level (Darth Malak's template holds 35 and his most is 175; his script
 drains a captive Jedi once his FP fall to 50 or his HP to 100). Both
 refill alike (20 s). The bar pays the saber specials
 and the blaster feat specials, 15% each (one a 3 s round
-sustained). The alternate button takes the special chosen for that type of
-gun (`combat::picks`: the next-feat key, a creature's script). Until then
-it takes the first special the character knows, in the order Power Blast,
-Rapid Shot, Sniper Shot. The type of gun never picks one (owner,
-2026-11-11). **Power Blast** (JA's Bryar charge): hold up to
+sustained). With a blaster in hand, [Feat attack] fires the special chosen
+for that type of gun (`combat::picks`: the next-feat key, a creature's
+script). The player presses [Feat attack] with the key map's
+`Saber throw/kata/ranged feat` row, which makes the feat attack with a
+blaster in hand and throws the saber or starts the kata otherwise. Its
+keyboard default is R, and its controller default is LB with the right
+trigger. With anything other than a blaster in hand, that chord only
+attacks while blocking, and it throws nothing. [Alt attack] does nothing with
+a blaster in hand. While [Feat attack] is held, [Attack] counts as not
+held. A creature's mind presses [Alt attack] and [Feat attack] together
+(`Command::other_mode`). A feat chosen from the action bar's feat slot
+presses no button. It only picks the feat line that [Feat attack] fires
+(`Action::Feat`).
+Until a special is chosen, [Feat attack] takes the first special the
+character knows, in the order Power Blast, Rapid Shot, Sniper Shot. The
+type of gun never picks one (owner, 2026-11-11). **Power Blast** (JA's Bryar charge): hold up to
 1 s, one shot on release, +5/+8/+10 damage at −3, paced by its whole
 time; **Rapid/Multi Shot** (the E-11's fast fire): a
 press queues a burst of 3 (4) shots 150 ms apart, the gun back a refire
 after the first or as the burst ends, −4/−2/−1 to hit and defence for 3 s;
-**Sniper Shot** (the zoom): held, movement halved and no jumping,
-each aimed shot +4/+6/+8 to hit, its threat range ×2/×3/×4 and defence −5 for
-3 s. Without a special
-or the bar the alternate fires the primary. Creatures use theirs
+**Sniper Shot** (one steadied shot): the player holds [Feat attack] to
+steady the gun and lets go to fire one shot. The steadying takes 500 ms
+from the hip and 250 ms while the gun is raised with [Aim]
+(`feats.specials.sniper_shot.steady_ms`). Letting go before the gun is
+steady fires nothing and costs nothing. The cost is paid only when the
+shot leaves. A Sniper Shot deals the gun's normal damage. The shot has no
+spread and no kick, gets +4/+6/+8 to hit, and multiplies its critical
+threat range by 2, 3 or 4. The shooter's Defense then falls by 5 for 3 s.
+A pair of pistols fires both guns for one cost. The steadying may begin
+while the gun cools down after a shot. A shot let go once steady but
+before the gun is ready leaves on the first step the gun is ready, so
+Sniper Shots in a row can leave at the gun's own rate. Until the shot
+leaves, the character walks and cannot jump. A stun, a knockdown, a
+weapon switch, putting the gun away or a medpac drops the shot, and a
+dropped shot costs nothing. The balance measurement
+(`kjk combat duel --only sniper_balance`, written up in
+`docs/superpowers/specs/2026-11-17-gunplay-sniper-balance.md`) found that
+Sniper Shot is worth using at long range while aiming. There it deals 1%
+to 64% more damage a second than plain aimed fire, and more against harder
+targets. Up close it is about even with plain aimed fire. Power Blast
+deals 1.4 to 4.1 times its damage a second, and 2.3 to 12 times its damage
+for each point of stamina. Without a special
+or the bar, [Feat attack] fires the primary. Creatures use theirs
 (`ai::choose_special`). Held, each gun shows KOTOR's own feat visual for as
 long as the button (`aim_fx`): a Power Blast's charge-up (`v_pb_p_gen`,
 `v_pb_m_gen`, the first tier the Improved one's) quickening on the muzzle,
 standing at its fullest until the shot, then dying out; a Sniper Shot's
 laser sight (`v_sn_r_gen`'s thin red line) from under each raised gun's
 muzzle to where the shot would land, none while the gun is drawn or swung
-away. While either is held the body holds its guns up as a shot leaves
-them (the shot's last frame, drawn in place of the ready pose: `cast`'s
-`raise`), so the shot let go leaves the guns at that height. **Sneak attack** (+1d6 a tier) lands on a target
+away. The Sniper Shot's sight shows while the shot steadies and while a
+steady shot waits for the gun. While either is held the body holds its
+guns up at the eye, as [Aim] raises them (`aim_pose`). A Sniper Shot plays
+no feat visual when it leaves the gun, so KOTOR's holographic scope of the
+Improved and Master rows never shows. **Sneak attack** (+1d6 a tier) lands on a target
 hit from its rear 90° (unless it has Uncanny Dodge), held (stunned,
 knocked down, gripped) or unaware (a creature with no target), within
 10 m; and the first blow out of stealth within 1.5 s of the attack that
@@ -1460,7 +1540,7 @@ saved.", `saves::refusal`), so a sandbox never takes the autosave's place.
 | a new attack, not a kick | one of `saberhup1–8` (any other weapon: its row's `swingshort0–2`, `cb_sw_blade1` for a vibroblade), weapon slot | where it starts |
 | an animation passes a keyframed sound (`animevents.cfg`) | its sound: whooshes by weight (`saberhup1–3`, `4–6`, `7–9`), spins, body falls, fists' and melee swings; none of the `*` voices. Held by any other weapon than a lightsaber, a whoosh is its row's `swingshort` (fast) or `swinglong`, a spin its `swingtwirl`; JA's fists' and kicks' `melee/swing` are row 0's (`cb_sw_unarmed1`) | with it (a whoosh: where it starts) |
 | a blow turned by a blade (`Parried`; a clash's two events once) | one of `saberblock1–9`; a blow not of a lightsaber its row's `parry0`/`parry1` (the effect `saber/saber_block` with it) | the event's point |
-| a shot (below: a joined player's own at once) | KOTOR's: its base item's `ammunitiontypes.2da` row's `shotsound0` (a Power Blast's `shotsound1`: `cb_sh_blast1`, `cb_sh_medbl1`, `cb_sh_hvybl1`, `cb_sh_sonbl1`, `cb_sh_pwrblast1`), weapon slot, at gain 0.8 to 1 and rate 0.92 to 1.08, each shot's by a hash of the shooter and the moment; its row's muzzle flash model (`v_muzflash_01`) on the gun, and a feat's visual there (`blaster_view::feat_row`) | the shooter / the gun's muzzle |
+| a shot (below: a joined player's own at once) | KOTOR's: its base item's `ammunitiontypes.2da` row's `shotsound0` (a Power Blast's `shotsound1`: `cb_sh_blast1`, `cb_sh_medbl1`, `cb_sh_hvybl1`, `cb_sh_sonbl1`, `cb_sh_pwrblast1`), weapon slot, at gain 0.8 to 1 and rate 0.92 to 1.08, each shot's by a hash of the shooter and the moment; its row's muzzle flash model (`v_muzflash_01`) on the gun, and a feat's visual there (`blaster_view::feat_row`), none for a Power Blast or a Sniper Shot | the shooter / the gun's muzzle |
 | a disruptor's shot (its weapon timer starting over in an attack) | its row's bolt drawn as a tracer to the body struck, else to the level, where the wall impact plays | from where a rifle's bolt leaves |
 | a blaster's hit on a body | its row's `impactsound0` (`cb_ht_blastleth1`, …; K1's Sonic row names a file K1 lacks: TSL's `cb_ht_hvyblleth1`) | where it struck |
 | a bolt turned by a blade (`Deflected`: sent on or absorbed) | KOTOR's blaster parry `cb_pa_blast1` | the event's point |
@@ -1542,6 +1622,35 @@ power needs a module (its cost is `spells.2da`'s): none casts on the duel
 floor. Dumps count the frames drawn (`force_fx.lightning_frames`,
 `grip_frames`, `distortion_frames`).
 
+**Hold to aim (`sim::combat::specials::Shooting::aim`, the rulebook's
+Weapons: Aiming).** A player holds [Aim] to raise a blaster to the eye.
+[Aim] is the right mouse button and the left trigger by default, the same
+buttons as [Alt attack], which does nothing with a blaster in hand. A
+pistol, a pair of pistols and a rifle are each raised to the eye line. The
+gun is fully raised 200 ms after the press (`weapons.aim.in_ms`) and fully
+lowered 150 ms after the release (`weapons.aim.out_ms`). While the gun is
+raised at all, the character walks and cannot jump. The walk limit
+applies from the step on which [Aim] is pressed while the gun is out, so a
+jump pressed on that step never leaves the ground. A roll needs a run, so
+none starts. Once the gun is fully raised, its spread is multiplied by 0.5
+(`weapons.bloom.stance`, its "aiming" value). A
+weapon switch, putting the gun away, a stun, a knockdown and a medpac each
+lower the gun on the next step. Only a body a seat plays aims: its avatar,
+a companion a guest drives, and the companion leading the party. A
+creature's mind never aims and keeps its own accuracy and speed. The view
+draws the aimed body from the shot's last frame, turned at the shoulders
+and the chest so the gun reaches the eye line (`aim_pose`). Any change of
+the raise fades into the pose over the lowering time, so a press or a
+release in the middle of a shot or a charge does not pop. While the gun is
+raised, the third-person camera moves in to 80% of its range
+(`AIM_RANGE`), moves out to 130% of its shoulder offset (`AIM_SHOULDER`)
+and narrows its field of view to 75% of its own (`AIM_FOV`, all in
+`camera_tune`). The line the shots leave along stays on the screen's
+middle. Every other character holds the gun up from each shot until 600 ms
+after its last one (`aim_pose::OTHERS_HOLD_MS`). The sim's probes are `kjk sim probes --only aim`, and
+the view's are `kjk sim probes --only "aim pose"`, which need the game
+files.
+
 **Bloom and kick (`sim::combat::bloom`, the rulebook's Weapons: Bloom
 and Kick).** A player's blaster (or a body a seat drives) grows less
 accurate as its trigger stays held: each shot adds its weapon's bloom to
@@ -1550,7 +1659,10 @@ without a shot the bloom falls away, so a pause a little longer than one
 refire brings the first shot after it back true (a spraying weapon keeps
 its own spread under the bloom). Walking adds a little spread and running
 more, however rested the gun (`weapons.bloom.pace_spread`); being off the
-ground widens the whole, and crouching and aiming a Sniper Shot narrow it. A shot strays evenly inside a disc of
+ground widens the whole, and crouching narrows it. A gun fully raised with
+[Aim] has its spread multiplied by 0.5 (`weapons.bloom.stance`, its
+"aiming" value), and a Sniper
+Shot leaves with no spread at all. A shot strays evenly inside a disc of
 that spread, round as the crosshair that shows it, never in its corners.
 Each shot also kicks the line it aims along up, and a little to a side
 drawn from the tick, to a limit, settling back once no shot has come for a
@@ -1565,6 +1677,41 @@ creature's wandering aim before. Creatures keep JA's aim
 (`combat::troop`). The probes `kjk sim probes --only "bloom,bloom shots"`
 check the maths and that no bolt strays past the spread the crosshair
 showed for it.
+
+**Firing motion (`recoil`, the view alone).** Every shot pushes the
+shooter's gun back along its barrel and lifts its muzzle at the wrist. A
+blaster pistol goes back 5 cm and its muzzle lifts 3°, alone or in a pair.
+A blaster rifle held at the hip goes back 8 cm and its muzzle lifts 1.2°.
+Every other gun is pushed by its own kick rule (`weapons.pistol.kick`,
+`weapons.rifle.kick` and the other guns' rows) against the blaster pistol's
+or the blaster rifle's, from half to twice as far. A disruptor pistol
+therefore goes back 10 cm and lifts 6°, and a disruptor rifle at the hip
+goes back 16 cm and lifts 2.4°. A repeating blaster at the hip goes back
+4.6 cm. A gun held like a rifle is pushed back less the further it is
+raised with [Aim]. When it is fully raised, every such gun goes back 2.5
+cm, because the aim pose holds the rifle's rear end about 9 cm in front of
+the face and a longer push would reach the face. Its muzzle lifts as far
+raised as at the hip. The push rises and settles as the gun's handling
+says (`weapons::handling`). It is gone completely within 1.5 seconds of a
+lone shot. Before the arms reach the gun, the same shot turns the
+shooter's gun-side collar bone back, so the shoulder gives way to the gun.
+A rifle shot turns it 6° and a pistol shot 2°. A rifle shot also turns the
+chest 2.5° so that the gun side goes back. The arms then reach the gun
+where the shot put it, so the elbows bend to take the push, the muzzle
+stays on its line, and a rifle's support hand stays on the rifle. A
+pistol's forearm and upper arm follow the wrist's kick up by 2° and 1°.
+Every gun that is not a pistol moves the way a rifle does. The shoulder's
+and the chest's turns also follow the gun's kick rule, from half to twice
+the turns of the wield's own gun. A character with a pair of pistols moves
+only the gun and the arm that fired. From the third shot of a run of shots
+with no gap longer than 1.1 seconds, the shooter's chest leans 4° toward
+the target, and it straightens once the shooting stops. The breathing of a
+character who stands still goes on under the motion, and the motion is
+added whether the gun is raised with [Aim] or held at the hip. In first
+person the player's gun moves back along the line of sight and its muzzle
+lifts, and no bone of the body turns. None of this changes where a shot
+goes, since the sim's skeleton and its aim are never touched. The probes
+are `kjk sim probes --only "firing motion"`.
 
 ```bash
 kjk play --stage end_m01aa --arrive wp_end_weld01_02 --hostile end_sith2 \

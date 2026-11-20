@@ -608,6 +608,23 @@ Running and checking:
 - `kjk` opens the main menu; `kjk play` starts in game. Esc, I, J, M, P, K
   open screens. `kjk play --gold N` starts the party with N credits,
   `--item TEMPLATE=N` with items, `--skill computer=8` sets a rank.
+- The key map's "Equipment", "Character" and "Messages" rows open those
+  pages of the in-game menu, as I opens the inventory. They have no key
+  and no chord until the player binds one. While the menu is open, a
+  page's key turns the menu to that page, and pressing it on its own page
+  closes the menu.
+- "Hide interface" in the key map hides the HUD, or shows it again. It has
+  no key and no chord until the player binds one. A hidden HUD takes away
+  the action bar, the party portraits, the minimap, the crosshair and its
+  hit marks, the target block, the words floating over creatures (names,
+  health bars and combat text), the area transition panel, the arena's
+  panels and barks. The power wheel still shows while its key is held.
+  Conversations, the status summary and a break's banner keep their own
+  rules, and the key does nothing during a conversation. Opening any
+  screen, such as the menu that Escape opens, shows the HUD again, so a
+  player who forgets the key gets the HUD back. Headless runs press it
+  with `ui hotkey hide_interface`, and `dump` writes `hud_hidden` in the
+  `ui` fact.
 - Breaks and ready checks (`game::party_calls`, `PARTY.md`): Z calls
   or ends a break (during another's, it asks and is told it is not its
   own), Y is ready (the host's after 5 s: go now), the in-game
@@ -869,7 +886,12 @@ Running and checking:
   alone, and a saved Movie Duels hilt shows KOTOR's. The description of the
   stances row then begins with "Needs Movie Duels installed beside Jedi
   Academy.", and the description of each hilt row begins with "Movie Duels'
-  hilts need Movie Duels installed beside Jedi Academy." A greyed row can
+  hilts need Movie Duels installed beside Jedi Academy." When Movie Duels'
+  archives are there but none holds its stances or its hilts
+  (`ViewModel::movie_duels_incomplete`, `vfs::MovieDuels::Incomplete`),
+  the rows are greyed the same way, and each description begins with
+  "Movie Duels is missing some of its files. Reinstall Movie Duels to use
+  its stances and hilts." A greyed row can
   still be pointed at, so its description shows. Activating it does
   nothing. A guest plays by the host's rules either way. `kjk gui screen`
   draws a page with the saved settings (`KJK_SETTINGS` names another file)
@@ -1135,8 +1157,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   mines, stealth mode and feat attacks (`bar::Group`), with a small gap
   between groups. A power used on an enemy (`spells.2da` `hostilesetting`)
   is offensive, and every other power is defensive. The mouse or the right
-  stick points at an entry, and letting go of the key uses it. Letting go
-  with no entry pointed at does nothing. The camera does not turn while the
+  stick points at an entry, and letting go of the key uses it. A small dot
+  shows where the pointer is. The centre of the wheel highlights nothing:
+  a pointer closer than 0.08 of the screen's height, or the right stick
+  pushed less than 30%, is in the centre, and letting go there does
+  nothing. Moving back to the centre clears the highlight, so the player
+  can open the wheel and back out. Each use joins a queue and is carried
+  out after the ones before it, once the character has a free hand. A
+  Force power or a mine pressed on the bar while the character is busy
+  joins the same queue. Laying a mine stops a run: the movement keys move
+  the character no more until the player lets go of them. The camera does not turn while the
   wheel is open. An item kind with two or more different items carried
   opens an outer arc that lists every item of that kind the character
   carries, and its entry shows a stack of frames behind it. The mouse
@@ -1155,7 +1185,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the bar. Headless runs drive it with `ui powerwheel hold`, `up`,
   `point X Y` and `step N`, and `dump` writes a `wheel` fact. Headless runs
   hold a bar slot's key with `ui key hold slot N`, where N is the slot from
-  1 to 10, and let it go with `ui key up slot N`.
+  1 to 10, and let it go with `ui key up slot N`. They hold [Aim] and
+  [Attack] with `ui key hold aim` and `ui key hold attack`, and let them go
+  with `ui key up aim` and `ui key up attack`. `ui look 10 -5` turns the
+  player's view 10° to the right and 5° up. `ui look to 90 0` turns it to a
+  yaw of 90° and a level pitch. `ui look at g_sithtroop01` turns it so the
+  crosshair's line meets the chest of the nearest living creature with that
+  tag. A `dump` taken while the player has a gun out, seen from behind, writes a
+  `play.sight` fact. It gives the angle between the barrel and the line
+  from the muzzle to the point under the crosshair, the angles between the
+  head's facing and the gun and the point, and the last shot's push.
 - The action bar setup (`ui::screens::action_bar`,
   `game::bar_setup_view`). The Abilities page's "Action bar" button opens
   it, and so does `Action bar setup` in the key map, which has no default
@@ -1297,8 +1336,8 @@ kjk play --stage tar_m02aa --arrive wp_01_03 --headless --moves '1s; 4s w; 3s' \
   camera's field of view (`hud::gap_px`), so it widens as the trigger
   stays held and closes after a rest: wider at once, narrower eased
   (`reticle_view::ease`). A gun holstered or lowered out of a fight
-  (`reticle_view::drawn`), a melee weapon, and aiming a disruptor's Sniper
-  Shot show the dot alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
+  (`reticle_view::drawn`), a melee weapon, and a disruptor's Sniper
+  Shot while it is steadied show the dot alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
   so a changing gap never redraws the HUD.
 - **Hit marks** (`hud::hitmarker`, `game::hitmarker_view`): each blaster
   shot of the player's own that lands flashes four strokes on the

@@ -185,6 +185,10 @@ fn catalog() -> Catalog {
         item("vibroblade", 80, PLAIN, false),
         gloves,
         host("scoped", vec![4, 5, 6], slots::RIGHT_WEAPON),
+        ItemFacts {
+            stacking: 10,
+            ..host("survivor", vec![4, 5], slots::RIGHT_WEAPON)
+        },
         host(
             "saber",
             vec![0, COLOUR_SLOT, 0, 1, 2, 3],
@@ -618,5 +622,87 @@ fn assembled(world: &mut SimWorld, me: u32) -> Checks {
             format!("{held:?}"),
         ),
     ));
+    checks.extend(stacks_upgraded(world));
+    checks
+}
+
+/// The survivor pistols' stacks the party carries: each stack's count and
+/// the parts in its slots, sorted.
+fn survivors(world: &SimWorld) -> Vec<(u16, Vec<String>)> {
+    let mut stacks: Vec<(u16, Vec<String>)> = world
+        .script_state()
+        .items
+        .values()
+        .filter(|held| held.template == "survivor" && held.holder == PARTY)
+        .map(|held| {
+            let parts = held.fitted.iter().filter(|part| !part.is_empty());
+            (held.stack, parts.cloned().collect())
+        })
+        .collect();
+    stacks.sort();
+    stacks
+}
+
+/// Upgrading one of a stack of pistols at the bench, and taking the
+/// upgraded ones out of a container: an item stacks only with items of the
+/// same upgrades.
+fn stacks_upgraded(world: &mut SimWorld) -> Checks {
+    let pistols = [0; 4].map(|_| give(world, "survivor", PARTY, None))[0];
+    let scopes = [0; 2].map(|_| give(world, "scope", PARTY, None));
+    let packs = give(world, "pack", PARTY, None);
+    let fit = |item, upgrade| Action::Assemble {
+        item,
+        changes: vec![Fitting::In {
+            upgrade,
+            replace: None,
+        }],
+    };
+    let with =
+        |count: u16, parts: &[&str]| (count, parts.iter().map(|part| part.to_string()).collect());
+    let mut checks: Checks = Vec::new();
+    let mut expect =
+        |world: &mut SimWorld, what, actions: &[Action], want: Vec<(u16, Vec<String>)>| {
+            step(world, actions);
+            let now = survivors(world);
+            checks.push((what, check(now == want, format!("{now:?}"))));
+        };
+    expect(
+        world,
+        "one of a stack of four upgraded at the bench: split off, three plain left",
+        &[fit(pistols, scopes[0])],
+        vec![with(1, &["scope"]), with(3, &[])],
+    );
+    expect(
+        world,
+        "a second one upgraded the same: joins the first upgraded one",
+        &[fit(pistols, scopes[1])],
+        vec![with(2, &[]), with(2, &["scope"])],
+    );
+    expect(
+        world,
+        "a third one upgraded differently: a stack of its own",
+        &[fit(pistols, packs)],
+        vec![with(1, &[]), with(1, &["pack"]), with(2, &["scope"])],
+    );
+    let scoped = world
+        .script_state()
+        .items
+        .iter()
+        .find(|(_, held)| held.template == "survivor" && held.stack == 2)
+        .map_or(0, |(id, _)| *id);
+    let crate_box = 0x7d00_0001;
+    let library = world.level().scripts().cloned();
+    let mut state = world.script_state().clone();
+    let put = state.put_in(scoped, crate_box, None);
+    if let Some(library) = library {
+        state.take_item(&library, crate_box, put, None);
+    }
+    world.set_script_state(state);
+    expect(
+        world,
+        "the upgraded ones put in a container and taken back: their upgrades kept, their own stack",
+        &[],
+        vec![with(1, &[]), with(1, &["pack"]), with(2, &["scope"])],
+    );
     checks
 }

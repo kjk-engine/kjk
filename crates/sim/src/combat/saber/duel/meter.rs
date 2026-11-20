@@ -94,6 +94,18 @@ pub fn can_kick(points: i32) -> bool {
     points >= kicks::USES
 }
 
+/// Whether a character with `points` Stamina may grab
+/// (`rules::duel::grab::USES`).
+pub fn can_grab(points: i32) -> bool {
+    points >= rules::duel::grab::USES
+}
+
+/// A grab begun with bare hands (`motion::Move::duel_grab`): the grabber
+/// loses `grab::USES` Stamina, whether or not the grab holds.
+pub fn grabbed(f: &mut Fighter, cap: u8) {
+    spend(f, rules::duel::grab::USES, cap);
+}
+
 /// A kick begun under the Advanced rules (`docs/SABER-RULES.md` 9.2). The
 /// kicker loses `kicks::USES` block points, whether or not the kick hits.
 /// The bar does not go below 0.

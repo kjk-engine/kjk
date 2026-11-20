@@ -163,6 +163,20 @@ opened, the hilt each lightsaber is drawn with or why KOTOR's stays, and a
 line when no archive read holds a Movie Duels character skeleton. A
 player's report then shows why Movie Duels' hilts or stances are missing.
 
+Movie Duels counts as installed only when its archives hold the two kinds
+of file kjk reads from it: a character's skeleton
+(`models/players/_humanoid_*/_humanoid.gla`) and a hilt
+(`ext_data/sabers/*.sab`). Movie Duels comes as more than one download.
+In Update 8, the first part holds both kinds (`MD_Assets2.pk3`,
+`MD_Hilts.pk3`), and the second part holds neither. A player with only
+the second part has Movie Duels' folder and archives, but no stances or
+hilts (issue 548). Such an install is incomplete
+(`Install::movie_duels_found`, `vfs::MovieDuels`). Its folder is still
+read, but its stances and hilts are not offered. The sabers' page says
+that Movie Duels is missing some of its files, and `kjk games` and the
+log say which kind of file no archive holds. An archive that cannot be
+opened counts as holding neither kind.
+
 Some players copy Movie Duels' archives into `base/` itself, as mods are
 often installed on Linux. Movie Duels' archives are never Jedi Academy's
 own, wherever they lie: one rule (`vfs::movie_duels_archive`, any case)

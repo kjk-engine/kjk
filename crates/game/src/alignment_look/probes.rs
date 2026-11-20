@@ -167,6 +167,7 @@ fn placed() -> Result<String, String> {
         .place_appearance(
             (&resolver, game),
             (K1_PLAYER, Some(CLOTHES), None, None),
+            None,
             dark,
             ([0.0; 3], 0.0),
             &mut models,

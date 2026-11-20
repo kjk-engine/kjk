@@ -1,20 +1,23 @@
-//! What an install gives edits: every item it holds, as scripts know them,
-//! and its classes, read without the game.
+//! What an install gives edits. It gives every item the install holds, as
+//! scripts know them, its classes and its player portraits. All of them
+//! are read without the game.
 
 use std::sync::Arc;
 
 use asset_odyssey::module::Source;
 use fmt_odyssey::ResType;
+use session::portraits::Portraits;
 use sim::inventory::Catalog;
 use sim::levels::Classes;
 use vfs::resolver::{Resolver, TextureQuality};
 use vfs::{DirIndex, Discovery, Game};
 
-/// An install's items and classes.
+/// An install's items, classes and player portraits.
 pub struct Data {
     /// Every UTI it lists (override's among them) that reads.
     pub catalog: Catalog,
     pub classes: Classes,
+    pub portraits: Option<Portraits>,
     /// The UTIs it lists that did not read, by name.
     pub unreadable: Vec<String>,
     /// The install's files, for what else a tool reads by name.
@@ -28,9 +31,11 @@ impl Data {
         let source = InstallSource::open(discovery, game)?;
         let (catalog, unreadable) = session::item_catalog(&source);
         let classes = session::classes::classes(&source);
+        let portraits = Portraits::read(&source);
         Ok(Data {
             catalog,
             classes,
+            portraits,
             unreadable,
             source,
         })

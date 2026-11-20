@@ -864,6 +864,7 @@ pub fn baton_swing_probes() -> sim::probe::Checks {
 /// A swing that hits at 0.5 s and turns its hand 90 degrees after the hit:
 /// drawn, the upper torso turns left by `BATON_AIM_TURN` and the hand moves
 /// on only `BATON_FOLLOW_THROUGH` of the way.
+#[cfg(feature = "probes")]
 fn aimed_swing_check() -> (&'static str, Result<String, String>) {
     let keys = |turned: f32| {
         [0.0, 0.5, 1.0].map(|at| {

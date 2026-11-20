@@ -41,13 +41,17 @@
 //!   part instead of JA's ready pose, blending out quickly as it is drawn,
 //!   slowly as it goes away (QUIRKS.md Q-0085).
 //!
-//! Limits, for the frame's cost: every character follows its snapshots and
-//! steers every step (cheap); a pose (Ghoul2 and the retarget, or the
-//! clip) is worked out every frame for the `POSED` characters nearest the
-//! camera within `POSE_RANGE` (the camera's own player always), every
-//! `FAR_EVERY`th frame in turn for the rest within `FAR_RANGE`; beyond it
-//! they keep their last pose while they move. The torso's `Motion` bolt, which needs a pose
-//! of its own, is read only for posed characters whose legs and torso play
+//! Limits, for the frame's cost. Every character follows its snapshots and
+//! steers every step, which is cheap. A pose (Ghoul2 and the retarget, or
+//! the clip) is the costly part. It is worked out every frame for the
+//! `POSED` characters nearest the camera within `POSE_RANGE`, and the
+//! camera's own player is always among them. It is also worked out every
+//! frame for the `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE`
+//! that the camera sees. A small one among those is posed at most once
+//! every `SMALL_GAP`, by the clock on the wall. The others within `FAR_RANGE` are posed in turn,
+//! one frame in `FAR_EVERY`. Beyond `FAR_RANGE`, characters keep their last
+//! pose while they move. The torso's `Motion` bolt, which needs a
+//! pose of its own, is read only for posed characters whose legs and torso play
 //! different animations (the only time the look uses it). Each distinct
 //! body model is lined up with JA's skeleton once and kept for the run.
 
@@ -61,7 +65,9 @@ use asset_ja::rig::{Aim, Eased, Grip, Posed, Reach, Retargeter, Side, Stowed, au
 use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::hooks;
 use asset_odyssey::model::ModelIr;
+use bevy::camera::primitives::{Frustum, Sphere};
 use bevy::prelude::*;
+use bevy::tasks::ComputeTaskPool;
 use collision::UNIT;
 use fmt_ja::animation_cfg::Sequence;
 use fmt_ja::ghoul2::Gla;
@@ -78,12 +84,14 @@ use sim::skeleton::{Blade, Hand};
 use sim::{EntityState, Instances, Kind, Seat, SimId, Snapshot};
 
 use crate::acting;
+use crate::aim_pose::{self, Lift};
 use crate::draw_anim::DrawPose;
 use crate::ground_lean::{self, Floor, Lean};
 use crate::holdings::Holdings;
 use crate::ragdolls::{self, Doll, Dying, Lengths, Ragdolls};
-use crate::scene::{Animator, SceneModel};
+use crate::scene::{Animator, SceneModel, game_to_bevy};
 use crate::stance;
+use crate::transforms::{Staged, Transforms};
 use crate::viewer::{CreatureClips, CreatureView, LoadedScene};
 use crate::weapons::{self, Armed, Hands, Hide, Owner, Props, Sabers, Stow, Wielded};
 
@@ -91,6 +99,14 @@ use crate::weapons::{self, Armed, Hands, Hide, Owner, Props, Sabers, Stow, Wield
 pub const POSED: usize = 16;
 /// How far from the camera a character is posed every frame (metres).
 pub const POSE_RANGE: f32 = 30.0;
+/// A far fight posed in turns stutters.
+pub const POSED_IN_VIEW: usize = 64;
+const SMALL_SHARE: f32 = 0.04;
+/// Measured by the clock on the wall, not by the world's time. A world in
+/// slow motion, or one held still, still draws at the full frame rate.
+const SMALL_GAP: std::time::Duration = std::time::Duration::from_millis(12);
+const STANDING_M: f32 = 1.8;
+const IN_VIEW_RADIUS: f32 = 4.0;
 /// The rest within `FAR_RANGE` (metres) take turns, each posed every
 /// `FAR_EVERY`th frame: a held pose would stop a far fight mid-swing.
 pub const FAR_RANGE: f32 = 150.0;
@@ -109,6 +125,16 @@ const AIM_EASE_MS: f32 = 60.0;
 /// eases out over the latter.
 const DRAW_BLEND_MS: f32 = 50.0;
 const HOLSTER_BLEND_MS: f32 = 250.0;
+/// The bones the look turns (`asset_ja::angles::player_angles`): the spine
+/// and the neck. A raised gun's correction of one of them is made after the
+/// look (`Figure::aim_pose`).
+const LOOK_BONES: [&str; 5] = [
+    "lower_lumbar",
+    "upper_lumbar",
+    "thoracic",
+    "cervical",
+    "cranium",
+];
 /// How long after a shot the gun is held fully aimed whatever else plays
 /// (ms): a shot always leaves along the barrel.
 const SHOT_AIM_MS: f64 = 150.0;
@@ -194,7 +220,7 @@ pub fn rest_of(ir: &ModelIr) -> Vec<(Option<usize>, Vec3, Quat)> {
 
 /// A KOTOR body lined up with JA's skeleton, and its nodes' rest pose.
 pub struct BodyRig {
-    retargeter: Retargeter<'static>,
+    pub(crate) retargeter: Retargeter<'static>,
     ir: &'static ModelIr,
     hold: Vec<(String, [f32; 4])>,
     /// Each node's parent, rest translation and rotation.
@@ -383,6 +409,16 @@ pub struct Own<'a> {
     pub correction: [f32; 3],
 }
 
+impl Own<'_> {
+    fn corrected(&self, origin: [f32; 3]) -> [f32; 3] {
+        std::array::from_fn(|axis| origin[axis] + self.correction[axis])
+    }
+}
+
+fn own_of<'o, 'a>(own: Option<&'o Own<'a>>, id: SimId) -> Option<&'o Own<'a>> {
+    own.filter(|own| own.id == id)
+}
+
 /// The character `id` at `ms` in `history`, or, the own character, from
 /// its predictions.
 pub fn blended_for(
@@ -391,64 +427,108 @@ pub fn blended_for(
     ms: f64,
     own: Option<&Own<'_>>,
 ) -> Option<Blended> {
-    match own {
-        Some(own) if own.id == id => {
+    match own_of(own, id) {
+        Some(own) => {
             let mut at = blended(own.history, id, own.ms)?;
-            at.origin = std::array::from_fn(|axis| at.origin[axis] + own.correction[axis]);
+            at.origin = own.corrected(at.origin);
             Some(at)
         }
-        _ => blended(history, id, ms),
+        None => blended(history, id, ms),
+    }
+}
+
+fn origin_for(
+    history: &[Arc<Snapshot>],
+    id: SimId,
+    ms: f64,
+    own: Option<&Own<'_>>,
+) -> Option<[f32; 3]> {
+    match own_of(own, id) {
+        Some(own) => Some(own.corrected(origin_at(own.history, id, own.ms)?)),
+        None => origin_at(history, id, ms),
     }
 }
 
 /// The character `id` at `ms` in `history` (oldest first), as drawn: one
 /// a destroy took out of the world stands as it went while it departs.
 pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended> {
-    let after = history.iter().position(|s| s.time_ms as f64 >= ms);
-    let (a, b) = match after {
-        Some(0) => (history.first()?, history.first()?),
-        Some(i) => (&history[i - 1], &history[i]),
-        None => (history.last()?, history.last()?),
-    };
+    let (a, b, t) = snapshots_at(history, ms)?;
     let (ea, eb) = (a.drawn(id)?, b.drawn(id)?);
     let (pa, pb) = (ea.player?, eb.player?);
-    let span = (b.time_ms - a.time_ms) as f64;
-    let t = if span > 0.0 {
-        ((ms - a.time_ms as f64) / span) as f32
-    } else {
-        1.0
-    };
     let thrown = |e: &EntityState| e.fighter.and_then(|f| f.saber.thrown).map(|t| t.at);
     Some(Blended {
         state: pb,
         origin: lerp(pa.origin, pb.origin, t),
-        view: std::array::from_fn(|i| pa.view[i] + angles::wrap_180(pb.view[i] - pa.view[i]) * t),
-        alive: eb.fighter.is_none_or(|f| f.alive()),
-        dead: eb.fighter.is_some_and(|f| f.dead()),
+        view: view_between(&pa, &pb, t),
+        alive: alive(eb),
+        dead: eb.fighter.as_ref().is_some_and(|f| f.dead()),
         fighter: eb.fighter,
         taken_ms: b.time_ms as f64,
         thrown_at: thrown(eb).map(|at| thrown(ea).map_or(at, |from| lerp(from, at, t))),
     })
 }
 
-/// Seat `seat`'s remote droid at `ms` in `history`: its place, yaw and
-/// pitch blended between the snapshots either side. None while it waits
-/// out a hold (`Remote::hidden`) or has none.
-pub fn remote_in(history: &[Arc<Snapshot>], seat: Seat, ms: f64) -> Option<Remote> {
+fn view_between(from: &MotionState, to: &MotionState, t: f32) -> [f32; 3] {
+    std::array::from_fn(|i| from.view[i] + angles::wrap_180(to.view[i] - from.view[i]) * t)
+}
+
+fn alive(entity: &EntityState) -> bool {
+    entity.fighter.as_ref().is_none_or(|f| f.alive())
+}
+
+struct Steered<'a> {
+    view: [f32; 3],
+    state: &'a MotionState,
+    alive: bool,
+}
+
+fn steered<'a>(
+    history: &'a [Arc<Snapshot>],
+    id: SimId,
+    ms: f64,
+    own: Option<&Own<'a>>,
+) -> Option<Steered<'a>> {
+    let (history, ms) = own_of(own, id).map_or((history, ms), |own| (own.history, own.ms));
+    let (a, b, t) = snapshots_at(history, ms)?;
+    let (ea, eb) = (a.drawn(id)?, b.drawn(id)?);
+    let (pa, pb) = (ea.player.as_ref()?, eb.player.as_ref()?);
+    Some(Steered {
+        view: view_between(pa, pb, t),
+        state: pb,
+        alive: alive(eb),
+    })
+}
+
+fn origin_at(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<[f32; 3]> {
+    let (a, b, t) = snapshots_at(history, ms)?;
+    let (pa, pb) = (a.drawn(id)?.player.as_ref()?, b.drawn(id)?.player.as_ref()?);
+    Some(lerp(pa.origin, pb.origin, t))
+}
+
+fn snapshots_at(history: &[Arc<Snapshot>], ms: f64) -> Option<(&Snapshot, &Snapshot, f32)> {
     let after = history.iter().position(|s| s.time_ms as f64 >= ms);
     let (a, b) = match after {
         Some(0) => (history.first()?, history.first()?),
         Some(i) => (&history[i - 1], &history[i]),
         None => (history.last()?, history.last()?),
     };
-    let rb = b.remote(seat).filter(|remote| !remote.hidden)?;
-    let ra = a.remote(seat).filter(|remote| !remote.hidden).unwrap_or(rb);
     let span = (b.time_ms - a.time_ms) as f64;
     let t = if span > 0.0 {
-        ((ms - a.time_ms as f64) / span).clamp(0.0, 1.0) as f32
+        ((ms - a.time_ms as f64) / span) as f32
     } else {
         1.0
     };
+    Some((a, b, t))
+}
+
+/// Seat `seat`'s remote droid at `ms` in `history`: its place, yaw and
+/// pitch blended between the snapshots either side. None while it waits
+/// out a hold (`Remote::hidden`) or has none.
+pub fn remote_in(history: &[Arc<Snapshot>], seat: Seat, ms: f64) -> Option<Remote> {
+    let (a, b, t) = snapshots_at(history, ms)?;
+    let t = t.clamp(0.0, 1.0);
+    let rb = b.remote(seat).filter(|remote| !remote.hidden)?;
+    let ra = a.remote(seat).filter(|remote| !remote.hidden).unwrap_or(rb);
     let turned = |from: f32, to: f32| from + angles::wrap_180(to - from) * t;
     Some(Remote {
         at: lerp(ra.at, rb.at, t),
@@ -822,6 +902,9 @@ pub struct Figure {
     shown_torso: Option<(Anim, bool)>,
     shot_ms: [Option<f64>; 2],
     shot_before_ms: [Option<f64>; 2],
+    /// Its run of shots, which leans the chest during sustained fire
+    /// (`recoil::Streak`).
+    streak: crate::recoil::Streak,
     /// Its gun put away, the torso playing the legs' part (`follow`).
     away: bool,
     /// How far each hand's gun is held up and aimed (`gun_aim`), as of
@@ -897,34 +980,247 @@ pub struct Figure {
     /// they are held at, since when (sim ms) they went up, and since when
     /// they came down from it.
     raised: Option<Raised>,
+    /// The spine's correction (`angles::Moment::motion`) last read while no
+    /// shot played: kept while a shot plays with the guns raised (`steer`).
+    unshot_motion: angles::Angles,
+    /// The torso `raise` last showed while the guns were held up or being
+    /// let down.
+    raised_torso: Option<sim::combat::saber::blades::Shown>,
+    /// How the torso's pose jumped when the guns' state last changed
+    /// (`Faded`).
+    faded: Option<Faded>,
+    /// The bones the torso's animation plays on (`lower_lumbar` and the
+    /// bones under it, and `Motion`): those the aim pose mixes.
+    upper: Vec<usize>,
 }
 
-/// Guns held up at `frame` (the shot's last) since `up_ms`, blended up from
-/// the ready pose's frame `from`; let down at `down_ms`.
-#[derive(Debug, Clone, Copy)]
+/// The torso's bones (`Figure::upper`, in order) as shown just before the
+/// guns' state changed at `ms` (sim ms), and as the new state shows them
+/// then. A change can come from [Aim], a charge, a shot or the sim's aim
+/// level, in any order. When the two differ, the difference is added to the
+/// torso and dies away over `RAISE_MS`, so that the gun never jumps. The
+/// torso goes on moving as the new state moves it meanwhile.
+#[derive(Debug, Clone)]
+struct Faded {
+    before: Vec<Local>,
+    after: Vec<Local>,
+    ms: u64,
+}
+
+/// How far (radians) one torso bone must jump on a change of the guns'
+/// state for the jump to die away (`Faded`) instead of being shown.
+const FADE_FROM: f32 = 0.005;
+
+/// Guns held up at `frame` (the shot's last) since `up_ms`; let down at
+/// `down_ms`.
+///
+/// - **A timed raise** (no `level`) shows the held frame, blended up to it
+///   over `RAISE_MS` from the pose shown when it began (`rise_from`, or the
+///   ready pose's frame `from`). A raise begun during a shot (`carried`)
+///   shows the held frame with no blend, since the shot leaves the arms
+///   there.
+/// - **A raise at the sim's level** (`level`, eased) leaves the torso the
+///   sim plays and mixes it toward the held frame by the level
+///   (`Figure::aim_pose`). After a shot the sim's torso blends from the
+///   shot's end, which is the held frame, so the arms stay out.
+/// - **A shot** plays unmixed (`in_shot`), since it carries the arms out by
+///   itself. It starts from the pose shown when it began (`shot_from`: when
+///   the shot began, and its blend, or none for the sim's own).
+/// - **While the guns are let down**, `lowered` is the ready pose's
+///   playback they blend into.
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Raised {
     frame: i32,
     from: i32,
     up_ms: u64,
     down_ms: Option<u64>,
+    level: Option<f32>,
+    in_shot: bool,
+    carried: bool,
+    rise_from: Option<sim::skeleton::Blend>,
+    lowered: Option<sim::skeleton::Playback>,
+    shot_from: Option<(u64, Option<sim::skeleton::Blend>)>,
+}
+
+/// A blend from frame `frame` over `RAISE_MS` from `start_ms`.
+fn blend_from(frame: i32, start_ms: u64) -> sim::skeleton::Blend {
+    sim::skeleton::Blend {
+        start_ms: start_ms as i64,
+        length_ms: RAISE_MS,
+        frame: frame as f32,
+        next: frame,
+        under: None,
+    }
+}
+
+/// A blend over `RAISE_MS` from what `playback` shows at `at_ms`, with the
+/// blend it is in, if one is under way.
+fn blend_from_shown(playback: &sim::skeleton::Playback, at_ms: u64) -> sim::skeleton::Blend {
+    let shown = playback.frames(at_ms as i64);
+    sim::skeleton::Blend {
+        start_ms: at_ms as i64,
+        length_ms: RAISE_MS,
+        frame: shown.current as f32 + shown.lerp,
+        next: shown.next,
+        under: (playback.blending(at_ms as i64)).map(|(blend, amount)| sim::skeleton::Under {
+            frame: blend.frame,
+            next: blend.next,
+            start: playback.frames(blend.start_ms),
+            amount,
+        }),
+    }
+}
+
+/// The frame `blend` starts from, the frame it mixes toward and how far,
+/// as `Raised::blend_toward_held` takes them. A blend it began in partway
+/// (`under`) is left out.
+fn base_of(blend: sim::skeleton::Blend) -> (f32, i32, sim::skeleton::Frames) {
+    let start = sim::skeleton::Frames {
+        current: blend.frame as i32,
+        next: blend.next,
+        lerp: blend.frame.fract(),
+    };
+    (blend.frame, blend.next, start)
+}
+
+impl Raised {
+    /// Its state apart from the sim's level, which moves a little at each
+    /// step: whether a level is followed is kept.
+    fn mode(raised: Option<Raised>) -> Option<Raised> {
+        raised.map(|raised| Raised {
+            level: raised.level.map(|_| 1.0),
+            ..raised
+        })
+    }
+
+    /// How far up the guns are at `ms` (0 to 1): the level, or the timed
+    /// raise's share of `RAISE_MS` since they went up or came down.
+    fn share(&self, ms: f64) -> f32 {
+        let timed = |since: u64| ((ms - since as f64) as f32 / RAISE_MS as f32).clamp(0.0, 1.0);
+        match (self.level, self.down_ms) {
+            (Some(level), _) => level,
+            (None, Some(down_ms)) => 1.0 - timed(down_ms),
+            (None, None) => timed(self.up_ms),
+        }
+    }
+
+    /// When the guns' let-down began (sim ms), starting it at `now_ms` if
+    /// it has not begun. Guns let down before they were fully up come down
+    /// from how far up they are, as if the let-down had begun that much
+    /// earlier.
+    fn let_down(&mut self, now_ms: u64) -> u64 {
+        let short = 1.0 - self.share(now_ms as f64);
+        *(self.down_ms).get_or_insert(now_ms.saturating_sub((short * RAISE_MS as f32) as u64))
+    }
+
+    /// A blend over `RAISE_MS` from `at_ms` that starts from the pose
+    /// shown when the torso is `share` (0 to 1) of the way from frame
+    /// `base` (mixed toward `next`, as it stood at `start`) to the held
+    /// frame.
+    fn blend_toward_held(
+        &self,
+        (base, next, start): (f32, i32, sim::skeleton::Frames),
+        share: f32,
+        at_ms: u64,
+    ) -> sim::skeleton::Blend {
+        sim::skeleton::Blend {
+            start_ms: at_ms as i64,
+            length_ms: RAISE_MS,
+            frame: base,
+            next,
+            under: Some(sim::skeleton::Under {
+                frame: self.frame as f32,
+                next: self.frame,
+                start,
+                amount: 1.0 - share,
+            }),
+        }
+    }
+
+    /// The blend a shot fired at `at_ms` starts with: from the pose shown
+    /// then. `sim` is the blend the sim starts the shot with, from its own
+    /// ready pose. None plays the shot as the sim blends it.
+    fn shot_blend(
+        &self,
+        at_ms: u64,
+        sim: Option<sim::skeleton::Blend>,
+    ) -> Option<sim::skeleton::Blend> {
+        let still = |frame: i32| {
+            let frames = sim::skeleton::Frames {
+                current: frame,
+                next: frame,
+                lerp: 0.0,
+            };
+            (frame as f32, frame, frames)
+        };
+        let (base, shown) = match (self.down_ms, self.lowered, self.level) {
+            // Let down into the ready pose: the held frame partway blended
+            // into it.
+            (Some(down_ms), Some(lowered), _) => {
+                let at = lowered.frames(at_ms as i64);
+                let base = (at.current as f32 + at.lerp, at.next);
+                let start = lowered.frames(down_ms as i64);
+                ((base.0, base.1, start), self.share(at_ms as f64))
+            }
+            // Let down after a shot: the sim's own torso is shown.
+            (Some(_), None, _) => return None,
+            // At the level: the sim's ready pose mixed toward the held
+            // frame.
+            (None, _, Some(level)) => (sim.map_or(still(self.from), base_of), level),
+            // A timed raise: the held frame, or blended up to it.
+            (None, _, None) => {
+                let base = (self.rise_from).map_or(still(self.from), base_of);
+                let shown = if self.carried {
+                    1.0
+                } else {
+                    self.share(at_ms as f64)
+                };
+                (base, shown)
+            }
+        };
+        Some(if shown >= 1.0 {
+            blend_from(self.frame, at_ms)
+        } else {
+            self.blend_toward_held(base, shown, at_ms)
+        })
+    }
 }
 
 /// How long the guns take to go up for a charge or an aim (ms): a draw's
 /// blend.
-const RAISE_MS: u32 = 150;
+pub(crate) const RAISE_MS: u32 = 150;
 
 impl Figure {
-    fn new(rig: &Rig, yaw: f32, ready: &'static str) -> Figure {
+    pub(crate) fn new(rig: &Rig, yaw: f32, ready: &'static str) -> Figure {
         let mut g2 = G2::new(rig.gla);
         g2.quirks = rig.quirks;
+        let bones = Bones::of(&g2);
+        // A bone is the torso's if it or a bone above it is the torso's
+        // part bone.
+        let count = rig.gla.bones.len();
+        let torso = |bone: usize| {
+            let mut at = Some(bone);
+            for _ in 0..count {
+                let Some(index) = at.filter(|&index| index < count) else {
+                    return false;
+                };
+                if bones.torso == Some(index) || bones.motion == Some(index) {
+                    return true;
+                }
+                at = usize::try_from(rig.gla.bones[index].parent).ok();
+            }
+            false
+        };
+        let upper = (0..count).filter(|&bone| torso(bone)).collect();
         Figure {
-            bones: Bones::of(&g2),
+            bones,
             g2,
             look: angles::State::facing(yaw),
             legs: None,
             torso: None,
             adopted: [None; 2],
             turned: None,
+            unshot_motion: [0.0; 3],
             died: None,
             followed: false,
             rose: None,
@@ -938,6 +1234,7 @@ impl Figure {
             shown_torso: None,
             shot_ms: [None; 2],
             shot_before_ms: [None; 2],
+            streak: crate::recoil::Streak::default(),
             away: false,
             aim: [0.0; 2],
             drawing: crate::draw_anim::Drawing::default(),
@@ -963,53 +1260,133 @@ impl Figure {
             flick: None,
             head: Head::default(),
             raised: None,
+            raised_torso: None,
+            faded: None,
+            upper,
         }
     }
 
     /// The torso the sim's skeleton plays (`torso`), drawn with its guns held
-    /// up while a charge or an aim is `held`: the gun's ready pose shown as
+    /// up as `lift` says (`aim_pose::lift`): the gun's ready pose shown as
     /// the last frame of its shot (`BOTH_ATTACK2`, `BOTH_ATTACK3`), the arms
-    /// out where a shot leaves them, blended up to over `RAISE_MS`. A shot
-    /// let go then plays from there, so it leaves the guns at their height;
-    /// what follows the held guns blends from them, not from the ready pose
-    /// the sim blends from.
+    /// out where a shot leaves them. A timed raise blends up to that frame
+    /// over `RAISE_MS`. A raise at the sim's level keeps the sim's torso
+    /// and the level (`Raised::level`), and `pose_facing` mixes the pose
+    /// toward the held frame by it. A shot plays from the pose shown when
+    /// it began and leaves the arms out; the shot that raised the guns
+    /// plays as the sim blends it.
     fn raise(
         &mut self,
         sequences: &BTreeMap<String, Sequence>,
         torso: sim::combat::saber::blades::Shown,
-        held: bool,
+        lift: Lift,
         now_ms: u64,
     ) -> sim::combat::saber::blades::Shown {
-        use sim::skeleton::{Blend, Playback};
-        let shot = match torso.anim {
-            Anim::TORSO_WEAPONREADY2 => Anim::BOTH_ATTACK2,
-            Anim::TORSO_WEAPONREADY3 => Anim::BOTH_ATTACK3,
-            _ => torso.anim,
+        use sim::skeleton::Playback;
+        // The gun's shot, its last frame and the ready pose's frame.
+        let gun = match torso.anim {
+            Anim::TORSO_WEAPONREADY2 | Anim::BOTH_ATTACK2 => {
+                Some((Anim::BOTH_ATTACK2, Anim::TORSO_WEAPONREADY2))
+            }
+            Anim::TORSO_WEAPONREADY3 | Anim::BOTH_ATTACK3 => {
+                Some((Anim::BOTH_ATTACK3, Anim::TORSO_WEAPONREADY3))
+            }
+            _ => None,
         };
-        let frame = sequences
-            .get(shot.name())
-            .filter(|_| matches!(shot, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3))
-            .map(|sequence| sequence.first_frame + sequence.frame_count - 1);
-        let from = |frame: i32, start_ms: u64| Blend {
-            start_ms: start_ms as i64,
-            length_ms: RAISE_MS,
-            frame: frame as f32,
-            next: frame,
-            under: None,
-        };
+        let frames = gun.and_then(|(shot, ready)| {
+            let (held, ready) = (sequences.get(shot.name())?, sequences.get(ready.name())?);
+            Some((
+                shot,
+                held.first_frame + held.frame_count - 1,
+                ready.first_frame,
+            ))
+        });
         let shooting = matches!(torso.anim, Anim::BOTH_ATTACK2 | Anim::BOTH_ATTACK3);
-        if held && let Some(frame) = frame {
-            let raised = match self.raised {
+        let held = lift != Lift::Down;
+        let start_ms = torso.playback.start_ms as u64;
+        if held && let Some((shot, frame, ready)) = frames {
+            let mut raised = match self.raised {
                 Some(raised) if raised.down_ms.is_none() => raised,
-                _ => Raised {
-                    frame,
-                    from: torso.playback.start_frame,
-                    up_ms: now_ms,
-                    down_ms: None,
-                },
+                was => {
+                    let (up_ms, shot_from, rise_from) = match was {
+                        // Raised again while being let down: the raise
+                        // carries on from how far up the guns still are
+                        // now, also during a shot. A shot fired then plays
+                        // from the pose shown. Where the sim's own torso
+                        // shows (after a shot), it rises from that.
+                        Some(was) => {
+                            let up = (was.share(now_ms as f64) * RAISE_MS as f32) as u64;
+                            let shot_from = shooting.then(|| {
+                                (was.shot_from.filter(|&(at, _)| at == start_ms)).unwrap_or_else(
+                                    || (start_ms, was.shot_blend(start_ms, torso.playback.blend)),
+                                )
+                            });
+                            let rise_from = (!shooting && was.lowered.is_none())
+                                .then(|| blend_from_shown(&torso.playback, now_ms));
+                            (now_ms.saturating_sub(up), shot_from, rise_from)
+                        }
+                        // Another character's guns first raised by its shot
+                        // go up as the shot begins, so that the shot is the
+                        // one that raised them and plays as the sim blends
+                        // it.
+                        None if shooting && lift == Lift::AfterShot => {
+                            (start_ms.min(now_ms), None, None)
+                        }
+                        // Raised from the pose the sim's torso shows, which
+                        // may still be blending out of a shot.
+                        None => (
+                            now_ms,
+                            None,
+                            Some(blend_from_shown(&torso.playback, now_ms)),
+                        ),
+                    };
+                    Raised {
+                        frame,
+                        from: ready,
+                        up_ms,
+                        down_ms: None,
+                        level: None,
+                        in_shot: false,
+                        carried: shooting,
+                        rise_from,
+                        lowered: None,
+                        shot_from,
+                    }
+                }
             };
-            self.raised = Some(raised);
+            // The sim's level takes over from a timed raise once it is as
+            // high. Going from the level to a timed raise, the clock goes
+            // on from how high the level had the guns, and from the sim's
+            // torso the level mixed toward the held frame. During a shot
+            // the shot leaves the arms at the held frame.
+            let level = match lift {
+                Lift::Level(level)
+                    if raised.level.is_some() || level >= raised.share(now_ms as f64) =>
+                {
+                    Some(level)
+                }
+                _ => None,
+            };
+            if let (None, Some(was)) = (level, raised.level) {
+                raised.up_ms = now_ms.saturating_sub((was * RAISE_MS as f32) as u64);
+                raised.carried = shooting;
+                raised.rise_from = (!shooting).then(|| sim::skeleton::Blend {
+                    start_ms: raised.up_ms as i64,
+                    ..blend_from_shown(&torso.playback, now_ms)
+                });
+            }
+            raised.level = level;
             if !shooting {
+                raised.in_shot = false;
+                self.raised = Some(raised);
+                if level.is_some() {
+                    return torso;
+                }
+                let blend = match (raised.carried, raised.rise_from) {
+                    (true, _) => None,
+                    (false, Some(rise_from)) => Some(rise_from),
+                    (false, None) => Some(blend_from(raised.from, raised.up_ms)),
+                };
                 return sim::combat::saber::blades::Shown {
                     anim: shot,
                     flip: torso.flip,
@@ -1019,36 +1396,70 @@ impl Figure {
                         speed: 0.0,
                         start_ms: raised.up_ms as i64,
                         looping: false,
-                        blend: Some(from(raised.from, raised.up_ms)),
+                        blend,
                     },
                     plays: sim::skeleton::Played::OWN,
                 };
             }
+            self.raised = Some(raised);
         }
         let Some(mut raised) = self.raised else {
             return torso;
         };
-        let start_ms = torso.playback.start_ms as u64;
         let mut torso = torso;
-        if held || shooting && start_ms >= raised.up_ms {
-            // A shot from the held guns (let go, or a pair's next, a
-            // sniper's): it plays from them, not from the ready pose.
-            torso.playback.blend = Some(from(raised.frame, start_ms));
-            if !held && raised.down_ms.is_none() {
-                raised.down_ms = Some(now_ms);
-                self.raised = Some(raised);
+        raised.in_shot = shooting;
+        if shooting {
+            // The shot that raised them plays as the sim blends it. Any
+            // other (let go, a pair's next, a sniper's) plays from the
+            // pose shown when it began, and leaves the arms out.
+            let blend = match raised.shot_from {
+                Some((at, blend)) if at == start_ms => blend,
+                _ => {
+                    let blend = (start_ms > raised.up_ms)
+                        .then(|| raised.shot_blend(start_ms, torso.playback.blend))
+                        .flatten();
+                    raised.shot_from = Some((start_ms, blend));
+                    blend
+                }
+            };
+            if let Some(blend) = blend {
+                torso.playback.blend = Some(blend);
             }
+            if !held {
+                raised.let_down(now_ms);
+            }
+            self.raised = Some(raised);
             return torso;
         }
-        // Let down with no shot (a charge let go of empty-handed): the
-        // ready pose blends from the held guns; then it is the sim's again.
-        let down_ms = *raised.down_ms.get_or_insert(now_ms);
-        if start_ms >= raised.up_ms || now_ms > down_ms + u64::from(RAISE_MS) {
+        if held {
+            // Held up over a torso that is not the gun's.
+            self.raised = Some(raised);
+            torso.playback.blend = Some(blend_from(raised.frame, start_ms));
+            return torso;
+        }
+        // Lowered at the sim's level, the guns are down already.
+        if raised.level.is_some() {
             self.raised = None;
             return torso;
         }
+        // Let down with no shot (a charge let go of empty-handed, another
+        // character's last shot long enough ago): the ready pose blends
+        // from the held guns; then it is the sim's again. An animation begun
+        // since the let-down (the one after a shot let go) blends as the
+        // sim has it from the shot's end, while the corrections go down.
+        let down_ms = raised.let_down(now_ms);
+        if now_ms > down_ms + u64::from(RAISE_MS) {
+            self.raised = None;
+            return torso;
+        }
+        if start_ms >= down_ms {
+            raised.lowered = None;
+            self.raised = Some(raised);
+            return torso;
+        }
+        raised.lowered = Some(torso.playback);
         self.raised = Some(raised);
-        torso.playback.blend = Some(from(raised.frame, down_ms));
+        torso.playback.blend = Some(blend_from(raised.frame, down_ms));
         torso
     }
 
@@ -1097,13 +1508,15 @@ impl Figure {
     /// ready: the torso plays what the legs play. A part the sim plays
     /// another sequence on (a stance set's, `Shown::plays`) is named by
     /// `stances`, the level's sets. Under the duel `rules` a held block's
-    /// guard over walking legs turns the spine back (`guard_walks`).
-    fn follow(
+    /// guard over walking legs turns the spine back (`guard_walks`). A body
+    /// a seat acts through (`seat`) holds its guns up as the sim raises
+    /// them; any other, after its shots (`aim_pose::lift`).
+    pub(crate) fn follow(
         &mut self,
         rig: &Rig,
         (time_ms, rules, stances): (u64, SaberRules, Option<&sim::skeleton::StanceSets>),
         entity: &EntityState,
-        armed: bool,
+        (armed, seat): (bool, bool),
     ) {
         let Some(p) = entity.player else { return };
         // The sim plays a get-up (`sim::world::falls::get_up`); an arena's
@@ -1149,6 +1562,7 @@ impl Figure {
                         *shot = Some(time_ms as f64);
                     }
                 }
+                self.streak.shot(time_ms as f64);
             }
             self.shown_torso = Some(torso);
         }
@@ -1171,12 +1585,31 @@ impl Figure {
         if posed.is_none() {
             // Dead or drawn the cgame's way: no guns held up to come back to.
             self.raised = None;
+            self.raised_torso = None;
+            self.faded = None;
         }
         if let Some(mut parts) = posed {
-            let held = entity.fighter.is_some_and(|f| {
-                f.alive() && (f.shooting.charging_from.is_some() || f.shooting.aiming)
-            });
-            parts[1] = self.raise(&rig.sequences, parts[1], held, time_ms);
+            let last_shot = self.shot_ms.into_iter().flatten().reduce(f64::max);
+            let lift = entity
+                .fighter
+                .filter(Fighter::alive)
+                .map_or(Lift::Down, |f| {
+                    aim_pose::lift(seat, &f.shooting, last_shot, time_ms as f64)
+                });
+            let (was, was_torso) = (self.raised, self.raised_torso);
+            parts[1] = self.raise(&rig.sequences, parts[1], lift, time_ms);
+            self.raised_torso = self.raised.map(|_| parts[1]);
+            // The guns' state changed: the pose shown just before, from the
+            // torso and the raise as they were.
+            let before = ((was.is_some() || self.raised.is_some())
+                && (Raised::mode(was) != Raised::mode(self.raised)
+                    || was_torso != self.raised_torso))
+                .then(|| {
+                    let now = std::mem::replace(&mut self.raised, was);
+                    let pose = self.upper_pose(time_ms);
+                    self.raised = now;
+                    pose
+                });
             let duel = parts.map(|part| part.plays != sim::skeleton::Played::OWN);
             self.swapped = duel.contains(&true);
             // A held block's guard (or JA's parry) on the torso over legs
@@ -1207,6 +1640,13 @@ impl Figure {
                 .is_some_and(|rising| !rising.blended[0] && parts[0].anim != rising.anim);
             if !lies {
                 self.adopt(parts, (away, keep), duel, time_ms as f32);
+            }
+            if let Some(before) = before {
+                self.fade_from(before, time_ms);
+            }
+            if (self.faded.as_ref()).is_some_and(|faded| time_ms >= faded.ms + u64::from(RAISE_MS))
+            {
+                self.faded = None;
             }
             return;
         }
@@ -1254,7 +1694,9 @@ impl Figure {
                     sequence,
                     at_ms: at_ms as f32,
                     blends: (blend, blend),
-                    speed_scale: 1.0,
+                    // The split kick plays slower than JA's (the sim holds
+                    // it as much longer).
+                    speed_scale: sim::motion::clip_speed(now.0),
                     before,
                     after,
                 };
@@ -1380,7 +1822,7 @@ impl Figure {
     /// The angles at `ms`, `frame_ms` after the last step (which advances
     /// their swinging), as JA's client turns them each rendered frame.
     /// `motion` reads the torso's `Motion` bolt, a pose's work.
-    fn steer(&mut self, rig: &Rig, at: &Blended, ms: f64, frame_ms: f32, motion: bool) {
+    fn steer(&mut self, rig: &Rig, at: &Steered, ms: f64, frame_ms: f32, motion: bool) {
         let (Some((legs, _)), Some((torso, _))) = (self.legs, self.torso) else {
             return;
         };
@@ -1410,9 +1852,29 @@ impl Figure {
                 let walk = self.g2.line_yaw(&pose, hips);
                 [0.0, angles::wrap_180(walk - guard), 0.0]
             }
+            // A shot turns the body further than the pose before it (the
+            // pair's shot 16 degrees further than its ready pose), and the
+            // spine is turned back against it. Raised guns are held by the
+            // aim, not by the shot's pose, so that only twisted the chest
+            // away from the aim and the arms crossed in front of it. While
+            // a shot plays, the correction stays as it was before the shot,
+            // as far as the guns are raised.
             (Some(bone), _) if motion && names[0] != names[1] => {
-                let pose = self.g2.pose(ms as f32);
-                self.g2.bolt_angles(&pose, bone)
+                let now = self
+                    .g2
+                    .bolt_angles_at(ms as f32, bone)
+                    .map(angles::wrap_180);
+                match self.raised.filter(|raised| raised.in_shot) {
+                    Some(raised) => {
+                        let held = raised.share(ms);
+                        let kept = self.unshot_motion;
+                        std::array::from_fn(|i| now[i] + angles::wrap_180(kept[i] - now[i]) * held)
+                    }
+                    None => {
+                        self.unshot_motion = now;
+                        now
+                    }
+                }
             }
             _ => [0.0; 3],
         };
@@ -1584,27 +2046,157 @@ impl Figure {
         // first frame, unblended, would take the turn below as well.
         let from = self.rising.and_then(|rising| rising.legs_from_ms);
         let mut pose = g2.pose(from.map_or(ms as f32, |from| from.max(ms as f32)));
+        let spine = self.aim_pose(&mut pose, ms);
         if let Some(turned) = &self.turned {
             for &(bone, angles) in &turned.bones {
                 if let Some(bone) = g2.bone(bone) {
                     g2.turn(&mut pose, bone, angles);
                 }
             }
-            if let Some(root) = self.bones.root.filter(|_| facing) {
-                // A get-up turned to start where the death left the body,
-                // once its legs have taken it up (`adopt`).
-                let turn = self
-                    .rising
-                    .filter(|rising| rising.legs_from_ms.is_some())
-                    .zip(self.rose)
-                    .map_or(0.0, |(rising, rose)| {
-                        rising.turn_at((ms - rose as f64) as f32)
-                    });
-                let yaw = Quat::from_rotation_z((turned.legs_yaw + turn).to_radians());
-                pose[root] = (yaw * pose[root].0, yaw * pose[root].1);
-            }
+        }
+        for (bone, turn) in spine {
+            g2.turn_in_model(&mut pose, bone, turn);
+        }
+        if let Some(turned) = &self.turned
+            && let Some(root) = self.bones.root.filter(|_| facing)
+        {
+            // A get-up turned to start where the death left the body,
+            // once its legs have taken it up (`adopt`).
+            let turn = self
+                .rising
+                .filter(|rising| rising.legs_from_ms.is_some())
+                .zip(self.rose)
+                .map_or(0.0, |(rising, rose)| {
+                    rising.turn_at((ms - rose as f64) as f32)
+                });
+            let yaw = Quat::from_rotation_z((turned.legs_yaw + turn).to_radians());
+            pose[root] = (yaw * pose[root].0, yaw * pose[root].1);
         }
         pose
+    }
+
+    /// Holds a gun of KOTOR wield number `wield` (`stance::wield`), as the
+    /// cast sets it from the character's sheet.
+    #[cfg(feature = "probes")]
+    pub(crate) fn hold_gun(&mut self, wield: u8) {
+        self.breath.wield = wield;
+    }
+
+    /// The largest angle (radians) by which one torso bone jumped at the
+    /// guns' last change of state, the jump that dies away (`Faded`), and
+    /// that bone (its number in the skeleton). Zero, on bone 0, when no jump
+    /// has needed to die away.
+    #[cfg(feature = "probes")]
+    pub(crate) fn faded_jump(&self) -> (f32, usize) {
+        self.faded.as_ref().map_or((0.0, 0), |faded| {
+            (self.upper.iter().zip(faded.before.iter().zip(&faded.after)))
+                .map(|(&bone, (before, after))| (before.0.angle_between(after.0), bone))
+                .fold(
+                    (0.0, 0),
+                    |most, jump| if jump.0 > most.0 { jump } else { most },
+                )
+        })
+    }
+
+    /// How far its guns are raised at `ms`, from 0 at the hip to 1 before
+    /// the eyes: the share by which `aim_pose` adds the wield's
+    /// corrections. A player's follows the sim's raise, and another
+    /// character's is timed (`Raised::share`).
+    pub(crate) fn raise_share(&self, ms: f64) -> f32 {
+        self.raised.map_or(0.0, |raised| raised.share(ms))
+    }
+
+    /// Whether it stands in one of JA's held stances or fires from one, so
+    /// that it breathes while it stands still (`stance::holding`).
+    #[cfg(feature = "probes")]
+    pub(crate) fn holding(&self) -> bool {
+        self.holding
+    }
+
+    /// How far (radians) its head leans toward the gun side at `ms`: the
+    /// wield's lean (`aim_pose::head_tilt_deg`) by how far up the guns are,
+    /// so it comes in with the raise and goes with the let-down.
+    fn head_tilt(&self, ms: f64) -> f32 {
+        let share = self.raised.map_or(0.0, |raised| raised.share(ms));
+        let wield = aim_pose::wield_of(self.breath.wield);
+        (aim_pose::head_tilt_deg(wield) * share).to_radians()
+    }
+
+    /// Its guns held up in `pose` at `ms` (`raise`): held at the sim's
+    /// level, the torso's bones mixed from the sim's pose toward the held
+    /// frame by it, except while a shot plays; then the wield's corrections
+    /// (`aim_pose::corrections`) added by how far up the guns are. Last,
+    /// what is left of the torso's jump at the guns' last change of state
+    /// is added (`Faded`).
+    ///
+    /// A correction of a bone the look turns too (`LOOK_BONES`, the chest)
+    /// is not made here. It is returned as a turn of the model's space
+    /// (`G2::model_turn`), to be made after the look (`G2::turn_in_model`).
+    /// The look bends the spine down as the view looks down. Made before
+    /// that, the chest's turn toward the aim would be bent with the spine,
+    /// and with the camera looking down it swung a pair of pistols' arms
+    /// across each other.
+    fn aim_pose(&self, pose: &mut [Local], ms: f64) -> Vec<(usize, Quat)> {
+        let g2 = &self.g2;
+        let mut spine = Vec::new();
+        if let Some(raised) = self.raised {
+            if let Some(level) = raised.level.filter(|_| !raised.in_shot) {
+                let held = g2.frame_pose(raised.frame as f32);
+                for &bone in &self.upper {
+                    pose[bone] = g2.mix(bone, pose[bone], held[bone], level.min(1.0));
+                }
+            }
+            let share = raised.share(ms);
+            if share > 0.0 {
+                let wield = aim_pose::wield_of(self.breath.wield);
+                for &(name, angles) in aim_pose::corrections(wield) {
+                    let Some(bone) = g2.bone(name) else {
+                        continue;
+                    };
+                    let angles = angles.map(|angle| angle * share);
+                    if LOOK_BONES.contains(&name) {
+                        spine.push((bone, g2.model_turn(pose, bone, angles)));
+                    } else {
+                        g2.turn(pose, bone, angles);
+                    }
+                }
+            }
+        }
+        if let Some(faded) = &self.faded {
+            let t = ((ms - faded.ms as f64) / f64::from(RAISE_MS)).clamp(0.0, 1.0) as f32;
+            // What is left of the jump, by smoothstep: no speed at either end.
+            let left = 1.0 - t * t * (3.0 - 2.0 * t);
+            let jumps = faded.before.iter().zip(&faded.after);
+            for (&bone, (&before, &after)) in self.upper.iter().zip(jumps) {
+                pose[bone] = g2.offset(bone, pose[bone], (before, after), left);
+            }
+        }
+        spine
+    }
+
+    /// After the guns' state changed at `ms`: if the torso now shows a
+    /// pose apart from `before`, the one shown just before, the jump dies
+    /// away from then (`Faded`). A jump still dying away is in `before`.
+    fn fade_from(&mut self, before: Vec<Local>, ms: u64) {
+        let fading = self.faded.take();
+        let after = self.upper_pose(ms);
+        let jumps =
+            (before.iter().zip(&after)).any(|(was, now)| was.0.angle_between(now.0) > FADE_FROM);
+        self.faded = if jumps {
+            Some(Faded { before, after, ms })
+        } else {
+            fading
+        };
+    }
+
+    /// The torso's bones (`upper`, in order) as `aim_pose` leaves them at
+    /// `ms`, before they are turned to the look.
+    fn upper_pose(&self, ms: u64) -> Vec<Local> {
+        let mut pose = self.g2.pose(ms as f32);
+        for (bone, turn) in self.aim_pose(&mut pose, ms as f64) {
+            self.g2.turn_in_model(&mut pose, bone, turn);
+        }
+        self.upper.iter().map(|&bone| pose[bone]).collect()
     }
 }
 
@@ -1710,6 +2302,9 @@ struct Body {
     /// it at rest (metres), where it has both.
     head_node: Option<Entity>,
     head_rise: Option<f32>,
+    /// The node of its model each hit location's flinch turns (the first of
+    /// the location's `Spot::nodes` it has), and its upper torso's.
+    flinch_nodes: ([Option<usize>; LOCATIONS], Option<usize>),
     /// Its model's index among the scene's models.
     model: usize,
     /// The bone its head turns by in a conversation (`head_bone`).
@@ -1748,6 +2343,41 @@ struct Member {
 }
 
 impl Member {
+    /// Its body's scale against JA's, where JA's clips drive it.
+    fn ja_scale(&self) -> Option<f32> {
+        match &self.body.look {
+            Look::Retargeted { rig, .. } => Some(rig.retargeter.scale()),
+            _ => None,
+        }
+    }
+
+    /// Where its body's nodes a grabber's hand may touch are drawn (world,
+    /// metres), as they stand now, with its scale
+    /// (`grapple_view::Held`); `None` without them all.
+    fn grapple_nodes(
+        &self,
+        transforms: &Query<&mut Transform>,
+    ) -> Option<crate::grapple_view::Held> {
+        let Look::Retargeted { rig, .. } = &self.body.look else {
+            return None;
+        };
+        let model = rig.model();
+        let mut nodes = [Vec3::ZERO; 6];
+        for (at, (_, name)) in nodes.iter_mut().zip(asset_ja::grapple::VICTIM_BONES) {
+            let node = model.node_index(name)?;
+            *at = drawn_at(
+                transforms,
+                self.body.root,
+                (&self.body.nodes, &rig.rest),
+                node,
+            )?;
+        }
+        Some(crate::grapple_view::Held {
+            nodes,
+            scale: rig.retargeter.scale(),
+        })
+    }
+
     /// Whether its death still plays at `ms` (`DEATH_PLAYS_MS` since its
     /// snapshots first had it dead): it is posed whether or not the camera
     /// is near or the sim still has it, so it lies as its death leaves it,
@@ -1857,9 +2487,14 @@ pub fn spot(location: Location) -> Spot {
 
 /// Where each character's hit locations are on its body: the node standing
 /// for each location, or `None` where the body has none (a droid's), by
-/// character. The combat effects put a hit there.
+/// character. The combat effects put a hit there. The second field is the
+/// characters whose heads are armour (a droid's, a Sith trooper's helmet),
+/// which bolts may burn like the rest of the body.
 #[derive(Resource, Default)]
-pub struct Hitboxes(pub BTreeMap<SimId, [Option<Entity>; LOCATIONS]>);
+pub struct Hitboxes(
+    pub BTreeMap<SimId, [Option<Entity>; LOCATIONS]>,
+    pub std::collections::BTreeSet<SimId>,
+);
 
 /// Where each character's shots leave its guns as drawn (`Wielded::guns`):
 /// each gun model's root and the muzzle in its space (metres), by
@@ -1979,8 +2614,10 @@ pub struct Cast {
     pub posed: usize,
     pub pose_ms: f64,
     pub arms_ms: f64,
+    pub totals: PoseTotals,
     /// Frames posed so far: whose turn it is beyond the nearest.
     round: usize,
+    small_posed: BTreeMap<SimId, std::time::Instant>,
     /// The dead, falling and fallen.
     pub ragdolls: Ragdolls,
     /// Limbs cut off this frame, for the scene to part their bodies'
@@ -1990,6 +2627,12 @@ pub struct Cast {
     /// over the origin) while it looks through them (`first_person`): its
     /// gun is held up before them.
     pub eye: Option<Vec3>,
+    /// The bolt hits of the last moments (`bolt_hits::BoltHits`): each body
+    /// struck flinches from them.
+    pub bolt_hits: Vec<crate::bolt_hits::BoltHit>,
+    /// How the player's own gun, seen from behind, lines up with the point
+    /// under the crosshair as last drawn (`aim_pose::Sight`), for the dumps.
+    pub sight: Option<crate::aim_pose::Sight>,
     /// The game's base items' wields: the stance each weapon breathes in.
     wields: stance::Wields,
     /// The bodies the conversations under way hide items of (S8).
@@ -2001,6 +2644,21 @@ pub struct Cast {
     /// each (seconds), by its model: what keys its emitters and lights
     /// (`own_fx::BodyClips`).
     pub body_clips: BTreeMap<usize, Vec<(Arc<AnimationIr>, f32)>>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PoseTotals {
+    pub posed: u64,
+    pub ms: f64,
+    pub frames: u64,
+}
+
+impl PoseTotals {
+    fn add(&mut self, posed: usize, ms: f64) {
+        self.posed += posed as u64;
+        self.ms += ms;
+        self.frames += 1;
+    }
 }
 
 /// A body some line of a conversation (its `owner`'s, of `dialog`) has had
@@ -2046,10 +2704,14 @@ impl Cast {
             posed: 0,
             pose_ms: 0.0,
             arms_ms: 0.0,
+            totals: PoseTotals::default(),
             round: 0,
+            small_posed: BTreeMap::new(),
             ragdolls: Ragdolls::default(),
             cuts: Vec::new(),
             eye: None,
+            bolt_hits: Vec::new(),
+            sight: None,
             wields,
             unequipped: Vec::new(),
             talking: Vec::new(),
@@ -2093,6 +2755,7 @@ impl Cast {
         self.members.clear();
         self.ragdolls = Ragdolls::default();
         self.cuts.clear();
+        self.small_posed.clear();
         self.holdings.reset(kept, commands)
     }
 
@@ -2227,7 +2890,13 @@ impl Cast {
                 continue;
             };
             let carries = matches!(entity.kind, Kind::Avatar(_));
-            let hands = self.fit((entity.id, carries), &mut body, scene, models, hitboxes);
+            let hands = self.fit(
+                (entity.id, carries, droid),
+                &mut body,
+                scene,
+                models,
+                hitboxes,
+            );
             let owner = match entity.kind {
                 Kind::Avatar(seat) => Some(Owner::Seat(seat.0)),
                 Kind::Object(_, index) => Some(Owner::Creature(index)),
@@ -2313,16 +2982,14 @@ impl Cast {
                 continue;
             };
             let sheet = sheet(entity, &objects);
+            let droid = droid(entity, &objects);
             let body = match wanted {
-                Some(view) => {
-                    let droid = droid(entity, &objects);
-                    self.body_in(view, droid, scene, models, commands)
-                }
+                Some(view) => self.body_in(view, droid, scene, models, commands),
                 None => member.own.take(),
             };
             if let Some(mut body) = body {
                 let carries = matches!(entity.kind, Kind::Avatar(_));
-                let hands = self.fit((id, carries), &mut body, scene, models, hitboxes);
+                let hands = self.fit((id, carries, droid), &mut body, scene, models, hitboxes);
                 self.holdings.rehang(id, &sheet, hands, commands);
                 self.grip(&mut body, id);
                 show(visibility, member.body.root, false);
@@ -2693,6 +3360,7 @@ impl Cast {
             height: None,
             head_node: None,
             head_rise: None,
+            flinch_nodes: ([None; LOCATIONS], None),
             model,
             head,
             face,
@@ -2748,10 +3416,12 @@ impl Cast {
     /// else the one of the head hung on it (`models` the scene's, by
     /// index); and the hands its weapons hang from, and where it carries one
     /// not in hand if it `carries` (the players' characters; everyone
-    /// else's stay in hand, `Hands::carries`).
+    /// else's stay in hand, `Hands::carries`). A `droid`'s head, or one its
+    /// models name as a helmet (`bolt_hits::armoured_head`), is armour, and
+    /// bolts may burn it (`Hitboxes::1`).
     fn fit(
         &self,
-        (id, carries): (SimId, bool),
+        (id, carries, droid): (SimId, bool, bool),
         body: &mut Body,
         scene: &LoadedScene,
         models: &[Option<(Entity, Vec<Entity>)>],
@@ -2765,6 +3435,24 @@ impl Cast {
         let spots =
             Location::ALL.map(|location| spot(location).nodes.iter().find_map(|name| node(name)));
         hitboxes.0.insert(id, spots);
+        let head_hook = ir.node_index(hooks::HEAD_HOOK);
+        let mut names = std::iter::once(ir.name.as_str()).chain(
+            (scene.models.iter())
+                .filter(|placed| {
+                    (placed.hook).is_some_and(|(on, at)| on == body.model && Some(at) == head_hook)
+                })
+                .map(|placed| placed.ir.name.as_str()),
+        );
+        if droid || names.any(crate::bolt_hits::armoured_head) {
+            hitboxes.1.insert(id);
+        } else {
+            hitboxes.1.remove(&id);
+        }
+        let index = |name: &str| ir.node_index(name).filter(|&at| at < body.nodes.len());
+        body.flinch_nodes = (
+            Location::ALL.map(|location| spot(location).nodes.iter().find_map(|name| index(name))),
+            index(UPPER_TORSO),
+        );
         body.camera = node(hooks::CAMERA_HOOK).or_else(|| hung_camera(body.model, scene, models));
         body.bullets = BULLET_NODES.map(node);
         body.height = model_height(body.model, scene);
@@ -2815,6 +3503,9 @@ impl Cast {
         let fought = fought(Some(snapshot));
         let objects = Instances::in_snapshot(level, snapshot);
         let stances = level.anims().stances();
+        let seated: Vec<SimId> = (0..snapshot.seats())
+            .filter_map(|seat| snapshot.body(Seat(seat)).map(|body| body.id))
+            .collect();
         for entity in &snapshot.entities {
             if skip == Some(entity.id) || only.is_some_and(|only| only != entity.id) {
                 continue;
@@ -2835,7 +3526,7 @@ impl Cast {
                     &self.rig,
                     (snapshot.time_ms, snapshot.saber_rules, stances),
                     entity,
-                    armed,
+                    (armed, seated.contains(&entity.id)),
                 );
             }
         }
@@ -2852,7 +3543,7 @@ impl Cast {
         own: Option<&Own<'_>>,
     ) {
         for (&id, member) in &mut self.members {
-            if let (Some(member), Some(at)) = (member, blended_for(history, id, ms, own)) {
+            if let (Some(member), Some(at)) = (member, steered(history, id, ms, own)) {
                 member
                     .figure
                     .steer(&self.rig, &at, ms, frame_ms, close.contains(&id));
@@ -2887,25 +3578,31 @@ impl Cast {
             .collect()
     }
 
-    /// The characters to pose this frame: the camera's player, then the
-    /// nearest others to `eye` (game space, metres) within `POSE_RANGE`,
-    /// `POSED` in all; then, in turn, a `FAR_EVERY`th of the rest within
-    /// `FAR_RANGE`.
+    /// The characters to pose this frame. The first is the camera's
+    /// player. Next come the nearest others to `eye` (game space, metres)
+    /// within `POSE_RANGE`, up to `POSED` in all. Next come the
+    /// `POSED_IN_VIEW` nearest of the rest within `FAR_RANGE` that `sees`
+    /// (the camera's view, in Bevy's space) takes in. A small one among
+    /// them is posed only once `SMALL_GAP` has passed since its last
+    /// pose. Last comes a `FAR_EVERY`th of the others within `FAR_RANGE`,
+    /// in turn. `zoom` is the vertical scale of the camera's projection
+    /// (`1 / tan(fov / 2)`), when it has a perspective.
     pub fn nearest(
         &mut self,
         history: &[Arc<Snapshot>],
         ms: f64,
-        eye: Vec3,
+        (eye, sees, zoom): (Vec3, Option<&Frustum>, Option<f32>),
         me: Option<SimId>,
     ) -> Vec<SimId> {
-        let mut near: Vec<(f32, SimId)> = self
+        let mut near: Vec<(f32, SimId, Vec3, f32)> = self
             .members
             .iter()
-            .filter(|&(&id, member)| member.is_some() && Some(id) != me)
-            .filter_map(|(&id, _)| {
-                let at = blended(history, id, ms)?;
-                let distance = (Vec3::from_array(at.origin) * UNIT).distance(eye);
-                (distance <= FAR_RANGE).then_some((distance, id))
+            .filter(|&(&id, _)| Some(id) != me)
+            .filter_map(|(&id, member)| {
+                let height = member.as_ref()?.body.height.unwrap_or(STANDING_M);
+                let at = Vec3::from_array(origin_at(history, id, ms)?) * UNIT;
+                let distance = at.distance(eye);
+                (distance <= FAR_RANGE).then_some((distance, id, at, height))
             })
             .collect();
         near.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -2913,18 +3610,49 @@ impl Cast {
         let close = near
             .iter()
             .take(every_frame)
-            .take_while(|(distance, _)| *distance <= POSE_RANGE)
+            .take_while(|(distance, ..)| *distance <= POSE_RANGE)
             .count();
+        let seen = |at: Vec3| {
+            sees.is_none_or(|sees| {
+                let middle = game_to_bevy() * (at + Vec3::Z);
+                let sphere = Sphere {
+                    center: middle.into(),
+                    radius: IN_VIEW_RADIUS,
+                };
+                sees.intersects_sphere(&sphere, true)
+            })
+        };
+        let small = |distance: f32, height: f32| {
+            zoom.is_some_and(|zoom| height * zoom / (2.0 * distance) < SMALL_SHARE)
+        };
+        let small_posed = &mut self.small_posed;
+        let now = std::time::Instant::now();
+        small_posed.retain(|id, _| near.iter().any(|&(_, near, ..)| near == *id));
+        let mut in_view = 0;
         self.round = self.round.wrapping_add(1);
         let round = self.round;
         // Turns by id, which stays put as the order by distance shifts.
-        let far = near[close..]
-            .iter()
-            .map(|(_, id)| *id)
-            .filter(|id| (id.0 as usize + round).is_multiple_of(FAR_EVERY));
+        let rest = near[close..].iter().filter(|&&(distance, id, at, height)| {
+            if in_view < POSED_IN_VIEW && seen(at) {
+                if !small(distance, height) {
+                    small_posed.remove(&id);
+                } else if small_posed
+                    .get(&id)
+                    .is_some_and(|&was| now.duration_since(was) < SMALL_GAP)
+                {
+                    return false;
+                } else {
+                    small_posed.insert(id, now);
+                }
+                in_view += 1;
+                return true;
+            }
+            (id.0 as usize + round).is_multiple_of(FAR_EVERY)
+        });
+        let rest: Vec<SimId> = rest.map(|&(_, id, ..)| id).collect();
         me.into_iter()
-            .chain(near[..close].iter().map(|(_, id)| *id))
-            .chain(far)
+            .chain(near[..close].iter().map(|&(_, id, ..)| id))
+            .chain(rest)
             .collect()
     }
 
@@ -3154,8 +3882,8 @@ impl Cast {
             }
             self.floor_states.clone_from(&states);
         }
-        let mut dying = Vec::new();
         self.body_clips.clear();
+        let mut placing = Vec::new();
         for (&id, member) in &mut self.members {
             let Some(member) = member else {
                 continue;
@@ -3180,7 +3908,6 @@ impl Cast {
                 Some(own) if own.id == id => own.ms,
                 _ => ms,
             };
-            let soles = soles(at.origin);
             let armed = at.fighter.is_none_or(|f| {
                 weapons::armed(&f, ms, fought.contains(&id), member.figure.equipped)
             });
@@ -3210,57 +3937,145 @@ impl Cast {
                 member.figure.drawing = crate::draw_anim::Drawing::at(false);
                 None
             };
-            let mut moved = None;
+            let look = looks
+                .iter()
+                .filter(|_| !still)
+                .find(|look| look.0 == id)
+                .and_then(|&(_, other, arc)| {
+                    Some((self::soles(origin_for(history, other, ms, own)?), arc))
+                });
+            // The bolts that struck it lately, while it lives.
+            let flinches: Vec<(Location, Vec3, f32)> = (self.bolt_hits.iter())
+                .filter(|hit| !still && hit.victim == id && at.alive)
+                .map(|hit| (hit.location, hit.way, hit.ms as f32))
+                .collect();
+            // The own gun seen from behind aims at the point under the
+            // crosshair, found only while a gun is out.
+            let seen_from_behind = Some(id) == me && self.eye.is_none();
+            let sighted = (!still && seen_from_behind && armed && at.alive)
+                .then_some(newest)
+                .flatten()
+                .filter(|_| self.holdings.wielded(id).is_some())
+                .map(|newest| {
+                    let mut player = at.state;
+                    player.view = at.view;
+                    player.origin = at.origin;
+                    crate::aim_pose::sighted((level, states.as_deref()), newest, id, &player)
+                });
+            placing.push(Placing {
+                id,
+                member,
+                at,
+                blasted,
+                ms,
+                still,
+                falls,
+                armed,
+                drawn,
+                flinches,
+                sighted,
+                full: posing.contains(&id) || falls || in_place || death_plays,
+                reach,
+                look,
+                talking: talking(&self.talking, id),
+                touches: Vec::new(),
+                posed: None,
+            });
+        }
+        let stage = Stage {
+            level,
+            states: states.as_deref(),
+            held,
+            rules,
+            me,
+            eye: self.eye,
+            holdings: &self.holdings,
+        };
+        // A grapple finisher's grabbers are posed after everyone else: their
+        // hands reach for where their victims are drawn (`grapple_view`).
+        let mut moving: Vec<&mut Placing> = (placing.iter_mut())
+            .filter(|p| !p.still && !p.grabs())
+            .collect();
+        let parallel = moving.iter().filter(|p| p.full).count() >= PARALLEL_FROM;
+        match ComputeTaskPool::try_get().filter(|_| parallel) {
+            Some(pool) => {
+                let world = &*transforms;
+                let size = moving.len().div_ceil(pool.thread_num() * 4).max(1);
+                let written = pool.scope(|scope| {
+                    for chunk in moving.chunks_mut(size) {
+                        let stage = &stage;
+                        scope.spawn(async move {
+                            (chunk.iter_mut())
+                                .map(|placing| {
+                                    let mut staged = Staged::new(world);
+                                    placing.place(stage, &mut staged);
+                                    staged.written()
+                                })
+                                .collect::<Vec<_>>()
+                        });
+                    }
+                });
+                for written in written.into_iter().flatten() {
+                    written.apply(transforms);
+                }
+            }
+            None => {
+                for placing in moving {
+                    placing.place(&stage, transforms);
+                }
+            }
+        }
+        let victims: BTreeMap<SimId, (SimId, crate::grapple_view::Held)> = (placing.iter())
+            .filter(|p| !p.still)
+            .filter_map(|p| {
+                let grapple = p.grapple().filter(|grapple| !grapple.grabber)?;
+                Some((p.id, (grapple.partner, p.member.grapple_nodes(transforms)?)))
+            })
+            .collect();
+        for grabber in placing.iter_mut().filter(|p| !p.still && p.grabs()) {
+            grabber.touches = grabber.reach_for(&victims, &self.rig);
+            grabber.place(&stage, transforms);
+        }
+        let mut dying = Vec::new();
+        for Placing {
+            id,
+            member,
+            at,
+            blasted,
+            ms,
+            still,
+            falls,
+            armed,
+            drawn,
+            sighted,
+            posed,
+            ..
+        } in placing
+        {
+            let moved = posed.as_ref().and_then(|posed| posed.root);
             if !still {
-                let eye = self.eye.filter(|_| Some(id) == me);
-                let look = looks
-                    .iter()
-                    .find(|look| look.0 == id)
-                    .and_then(|&(_, other, arc)| {
-                        Some((
-                            self::soles(blended_for(history, other, ms, own)?.origin),
-                            arc,
-                        ))
+                if Some(id) == me {
+                    self.sight = sighted.and_then(|point| {
+                        let wielded = self.holdings.wielded(id)?;
+                        let (gun, shape) = wielded.held_ups()[0]?;
+                        let support = gun
+                            .and_then(|gun| weapons::handling(gun.blaster).support)
+                            .filter(|_| !(wielded.pair() || gun.is_some_and(|g| g.one_handed)))
+                            .map(|share| shape.foregrip(share));
+                        let firing =
+                            firing_of(&member.figure, Some(wielded), (at.alive, false), ms);
+                        let push = firing.map_or_else(Default::default, |firing| {
+                            crate::recoil::push(&firing, 0, ms)
+                        });
+                        let raise = member.figure.raise_share(ms);
+                        sight_of(
+                            &member.body,
+                            (shape, support),
+                            (point, raise, push),
+                            transforms,
+                        )
                     });
-                // A body that leans with the floor, or stands on it, finds
-                // it under its middle; one standing upright is drawn on a
-                // slope there (`ground_lean::on_slope`), the leaning one as
-                // its lean has it.
-                let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
-                let floor = (leans || at.state.ground.is_some())
-                    .then(|| {
-                        let from = (Vec3::from_array(at.origin) * UNIT, soles);
-                        match member.floor {
-                            Some((found, floor)) if found == from => floor,
-                            _ => {
-                                let floor =
-                                    ground_lean::floor_under(level, states.as_deref(), from);
-                                member.floor = Some((from, floor));
-                                floor
-                            }
-                        }
-                    })
-                    .flatten();
-                let stands = if leans {
-                    soles
-                } else {
-                    ground_lean::on_slope(floor, soles)
-                };
-                let posed = place(
-                    member,
-                    &at,
-                    (stands, ms, eye, floor),
-                    (
-                        posing.contains(&id) || falls || in_place || death_plays,
-                        armed,
-                        reach,
-                    ),
-                    (held, look, drawn, rules),
-                    talking(&self.talking, id),
-                    self.holdings.wielded(id),
-                    transforms,
-                );
-                moved = posed.as_ref().and_then(|posed| posed.root);
+                }
                 if let Some(playing) = &mut member.body.playing
                     && !playing.is_empty()
                 {
@@ -3295,7 +4110,8 @@ impl Cast {
                 arms += drawing.elapsed();
             }
         }
-        self.ragdolls.update(&dying, (level, history), ms);
+        self.ragdolls
+            .update((&dying, &self.bolt_hits), (level, history), ms);
         for (id, sever) in self.ragdolls.severed.drain(..) {
             if let Some(Some(member)) = self.members.get(&id) {
                 self.cuts.push((member.body.nodes.clone(), sever));
@@ -3309,7 +4125,124 @@ impl Cast {
         self.arms_ms = arms.as_secs_f64() * 1000.0;
         self.posed = posing.len();
         self.pose_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.totals.add(self.posed, self.pose_ms);
         mine
+    }
+}
+
+/// With fewer, waking the threads and copying each character's transforms
+/// costs about as much time as it saves.
+const PARALLEL_FROM: usize = 8;
+
+/// Posing one character never reads what posing another writes, so the
+/// characters can be posed in any order, or in parallel (`Cast::draw`).
+struct Placing<'a> {
+    id: SimId,
+    member: &'a mut Member,
+    at: Blended,
+    blasted: Option<u64>,
+    ms: f64,
+    still: bool,
+    falls: bool,
+    armed: bool,
+    drawn: Option<DrawPose>,
+    flinches: Vec<(Location, Vec3, f32)>,
+    sighted: Option<Vec3>,
+    full: bool,
+    reach: &'a [(Blade, Hand)],
+    look: Option<(Vec3, f32)>,
+    talking: Option<Acting>,
+    /// A grapple finisher's grabber: where its hands hold its victim.
+    touches: Vec<GrappleTouch>,
+    posed: Option<Posed>,
+}
+
+struct Stage<'a> {
+    level: &'a sim::Level,
+    states: Option<&'a [u8]>,
+    held: bool,
+    rules: SaberRules,
+    me: Option<SimId>,
+    eye: Option<Vec3>,
+    holdings: &'a Holdings,
+}
+
+impl Placing<'_> {
+    /// The grab it is in, holding or held.
+    fn grapple(&self) -> Option<sim::combat::grab::Grapple> {
+        self.at.fighter.as_ref().and_then(|fighter| fighter.grapple)
+    }
+
+    /// Whether it holds another in a grapple finisher.
+    fn grabs(&self) -> bool {
+        self.grapple().is_some_and(|grapple| grapple.grabber)
+    }
+
+    /// Where a grabber's hands hold its victim, drawn already (`victims`:
+    /// each one's grabber and where its nodes are). None for a body JA's
+    /// clips do not drive, or whose victim is not drawn.
+    fn reach_for(
+        &self,
+        victims: &BTreeMap<SimId, (SimId, crate::grapple_view::Held)>,
+        rig: &Rig,
+    ) -> Vec<GrappleTouch> {
+        let found = self
+            .grapple()
+            .zip(self.member.ja_scale())
+            .and_then(|(grapple, scale)| {
+                let (partner, held) = victims.get(&grapple.partner)?;
+                let t = ((self.ms - grapple.since as f64) / 1000.0) as f32;
+                (*partner == self.id).then(|| {
+                    crate::grapple_view::touches(
+                        crate::grapple_view::contacts(rig.gla, &rig.sequences),
+                        &grapple,
+                        t,
+                        (self.at.state.view[1], scale),
+                        held,
+                    )
+                })
+            });
+        found.unwrap_or_else(Vec::new)
+    }
+
+    fn place(&mut self, stage: &Stage, transforms: &mut impl Transforms) {
+        let (id, at, member) = (self.id, &self.at, &mut *self.member);
+        let soles = soles(at.origin);
+        // A body that leans with the floor, or stands on it, finds
+        // it under its middle; one standing upright is drawn on a
+        // slope there (`ground_lean::on_slope`), the leaning one as
+        // its lean has it.
+        let leans = matches!(&member.body.look, Look::Clips(clips) if clips.lean.is_some());
+        let floor = (leans || at.state.ground.is_some())
+            .then(|| {
+                let from = (Vec3::from_array(at.origin) * UNIT, soles);
+                match member.floor {
+                    Some((found, floor)) if found == from => floor,
+                    _ => {
+                        let floor = ground_lean::floor_under(stage.level, stage.states, from);
+                        member.floor = Some((from, floor));
+                        floor
+                    }
+                }
+            })
+            .flatten();
+        let stands = if leans {
+            soles
+        } else {
+            ground_lean::on_slope(floor, soles)
+        };
+        let own = Some(id) == stage.me;
+        let eye = stage.eye.filter(|_| own);
+        self.posed = place(
+            member,
+            at,
+            (stands, self.ms, eye, floor),
+            (self.full, self.armed, self.reach, own),
+            (stage.held, self.look, self.drawn, stage.rules),
+            (self.talking, &self.flinches, &self.touches),
+            (stage.holdings.wielded(id), self.sighted),
+            transforms,
+        );
     }
 }
 
@@ -3555,13 +4488,9 @@ fn show(visibility: &mut Query<&mut Visibility>, root: Entity, shown: bool) {
 }
 
 /// Changes an entity's transform, if it has one.
-fn edit(
-    transforms: &mut Query<&mut Transform>,
-    entity: Entity,
-    change: impl FnOnce(&mut Transform),
-) {
-    if let Ok(mut transform) = transforms.get_mut(entity) {
-        change(&mut transform);
+fn edit(transforms: &mut impl Transforms, entity: Entity, change: impl FnOnce(&mut Transform)) {
+    if let Some(transform) = transforms.write(entity) {
+        change(transform);
     }
 }
 
@@ -3585,16 +4514,17 @@ pub fn held_nodes(ir: &ModelIr, pause: Option<&AnimationIr>) -> Vec<bool> {
 /// a node that moved is written.
 pub(crate) fn at_rest(
     (nodes, rest, held): (&[Entity], &Rest, &[bool]),
-    transforms: &mut Query<&mut Transform>,
+    transforms: &mut impl Transforms,
 ) {
     for (index, (&entity, &(_, translation, rotation))) in nodes.iter().zip(rest).enumerate() {
         if held.get(index).copied().unwrap_or(false) {
             continue;
         }
-        // Looked up once: read through the handle, it is marked changed
-        // only when written.
-        if let Ok(mut t) = transforms.get_mut(entity)
-            && (t.translation != translation || t.rotation != rotation)
+        // Read first, so a node is marked changed only when it is written.
+        if transforms
+            .read(entity)
+            .is_some_and(|t| t.translation != translation || t.rotation != rotation)
+            && let Some(t) = transforms.write(entity)
         {
             t.translation = translation;
             t.rotation = rotation;
@@ -3612,20 +4542,94 @@ fn fought(snapshot: Option<&Snapshot>) -> std::collections::BTreeSet<SimId> {
         .collect()
 }
 
+/// What the firing motion (`recoil`) needs of `figure` this frame, from
+/// its guns in hand (`gun`), whether its holder is `alive`, and whether the
+/// player looks through its eyes (`looked_through`), at `ms`. `None` for
+/// what shoots nothing (a stun baton) or no gun at all.
+fn firing_of(
+    figure: &Figure,
+    gun: Option<&Wielded>,
+    (alive, looked_through): (bool, bool),
+    ms: f64,
+) -> Option<crate::recoil::Firing> {
+    let wielded = gun?;
+    let blasters = wielded
+        .held_ups()
+        .map(|held| held.and_then(|(gun, _)| gun).map(|gun| gun.blaster));
+    blasters[0]?;
+    Some(crate::recoil::Firing {
+        wield: Some(aim_pose::wield_of(figure.breath.wield)),
+        blasters,
+        shots: hand_shots(figure, wielded.pair()),
+        streak: figure.streak,
+        raise: figure.raise_share(ms),
+        looked_through,
+        alive,
+    })
+}
+
+/// Adds the firing motion's turns (`recoil::turns`) over the body's pose,
+/// whatever it shows, after the arms hold the guns where the shots pushed
+/// them (`gun_aim`). A pistol's forearm and upper arm follow its kick, and
+/// sustained fire leans the chest in. A rifle's chest turns before the arms
+/// reach the gun (`recoil::Push::chest_deg`). `gun` is the body's guns in
+/// hand, `alive` whether its holder lives, and `looked_through` whether the
+/// player looks through its eyes. A turn's pitch is about the body's right and its yaw
+/// about its up, both taken from the way the legs face
+/// (`recoil::rotation`).
+fn recoil(
+    figure: &Figure,
+    transforms: &mut impl Transforms,
+    (nodes, rig): (&[Entity], &BodyRig),
+    (gun, alive, looked_through): (Option<&Wielded>, bool, bool),
+    (ms, to_model): (f64, Quat),
+) {
+    let Some(firing) = firing_of(figure, gun, (alive, looked_through), ms) else {
+        return;
+    };
+    let turns = crate::recoil::turns(&firing, ms);
+    if turns.is_empty() {
+        return;
+    }
+    let legs = figure.yaw().unwrap_or(0.0).to_radians();
+    let right = to_model * Vec3::new(legs.sin(), -legs.cos(), 0.0);
+    let up = to_model * Vec3::Z;
+    let model = rig.model();
+    for turn in turns {
+        let Some(node) = (0..model.nodes.len())
+            .find(|&node| model.nodes[node].name.eq_ignore_ascii_case(turn.node))
+        else {
+            continue;
+        };
+        let rotation = crate::recoil::rotation(&turn, right, up);
+        turn_in_model(transforms, (nodes, &rig.rest), node, rotation);
+    }
+}
+
+/// Each hand's last shot and the one before, as the motion of `pair` or of
+/// one gun reads them (`recoil::Shots::held`).
+fn hand_shots(figure: &Figure, pair: bool) -> crate::recoil::Shots {
+    crate::recoil::Shots::held(figure.shot_ms, figure.shot_before_ms, pair)
+}
+
 /// The gun `wielded` has out held up and aimed down its shots' way
 /// (`asset_ja::rig::Aim`, KOTOR model space by `to_model` from the body at
 /// `soles`): eased in over `AIM_EASE_MS` as the torso takes its ready or
 /// shot animation with the gun out (`armed`) and its holder alive, and out
 /// as the gun goes away (`HOLSTER_BLEND_MS`) or anything else plays; fully
-/// aimed for `SHOT_AIM_MS` after a shot; kicked by its last shot
-/// (`weapons::handling`); held up before the `eye` (`Cast::eye`) at `HOLD`.
+/// aimed for `SHOT_AIM_MS` after a shot; pushed back and kicked up by its
+/// last shot, with the shoulder and a rifle's chest giving way, less far
+/// the further a rifle is raised (`recoil::push`); held up before
+/// the `eye` (`Cast::eye`) at `HOLD`. A player's gun seen from behind aims
+/// at the point under its crosshair (`sighted`, units, game space:
+/// `aim_pose::sighted`), where its bolts go.
 /// None without a gun, or once eased out.
 fn gun_aim(
     figure: &mut Figure,
     at: &Blended,
     (wielded, armed, drawn): (Option<&Wielded>, bool, Option<DrawPose>),
     ms: f64,
-    (to_model, soles, eye): (Quat, Vec3, Option<Vec3>),
+    (to_model, soles, eye, sighted): (Quat, Vec3, Option<Vec3>, Option<Vec3>),
 ) -> Vec<Aim> {
     // What shoots nothing (a stun baton) is held up only before the eye.
     let guns = wielded.map_or([None, None], Wielded::held_ups);
@@ -3653,23 +4657,13 @@ fn gun_aim(
     } else {
         (0.0, HOLSTER_BLEND_MS / 3.0)
     };
-    // One gun's shots are the gun out's whichever hand the sim names.
-    let (shots, befores) = if pair {
-        (figure.shot_ms, figure.shot_before_ms)
-    } else {
-        let last = usize::from(
-            figure.shot_ms[1]
-                .is_some_and(|left| figure.shot_ms[0].is_none_or(|right| left > right)),
-        );
-        (
-            [figure.shot_ms[last], None],
-            [figure.shot_before_ms[last], None],
-        )
-    };
+    let shots = hand_shots(figure, pair).last;
     let shooting = shots
         .iter()
         .flatten()
         .any(|shot| (0.0..SHOT_AIM_MS).contains(&(ms - shot)));
+    let firing = firing_of(figure, wielded, (at.alive, eye.is_some()), ms);
+    let raised = figure.raise_share(ms);
     let mut ps = at.state;
     ps.view = at.view;
     ps.origin = at.origin;
@@ -3706,14 +4700,16 @@ fn gun_aim(
         // The other hand holds a gun only where both hands do: not a
         // pistol, nor either gun of a pair.
         let hand_alone = pair || gun.is_some_and(|gun| gun.one_handed);
-        let kick = shots[hand].map_or(0.0, |shot| {
-            let gap = befores[hand].map(|before| (shot - before) as f32);
-            handling.kick((ms - shot) as f32, gap)
+        let push = firing.map_or_else(Default::default, |firing| {
+            crate::recoil::push(&firing, hand, ms)
         });
         // The barrel aims at the shot's way `CONVERGE` units out, where the
         // bolt drawn from the muzzle meets it (`combat_fx::Path`); what
         // shoots nothing, along the view. A pair's left gun from its own
-        // muzzle (`sim::hand_muzzle`), held up mirrored before the eye.
+        // muzzle (`sim::hand_muzzle`), held up mirrored before the eye. A
+        // player's gun seen from behind aims at the point under its
+        // crosshair, so the barrel meets the crosshair's line there rather
+        // than running beside it.
         let side = if hand == 1 { Side::Left } else { Side::Right };
         let muzzle = Vec3::from_array(match blaster {
             Some(blaster) => sim::hand_muzzle(
@@ -3723,7 +4719,9 @@ fn gun_aim(
             ),
             None => sim::muzzle(&ps, [0.0; 3]),
         });
-        let target = muzzle + forward * crate::combat_fx::CONVERGE;
+        let target = sighted
+            .filter(|_| eye.is_none() && blaster.is_some())
+            .unwrap_or(muzzle + forward * crate::combat_fx::CONVERGE);
         let hold = eye.map(|eye| {
             let [ahead, aside, down] = HOLD;
             let aside = if side == Side::Left { -aside } else { aside };
@@ -3739,17 +4737,248 @@ fn gun_aim(
                 .support
                 .filter(|_| !hand_alone)
                 .map(|share| shape.foregrip(share)),
+            // Both hands on a gun seen from outside: its stock at the
+            // shoulder.
+            butt: (handling.support.is_some() && !hand_alone && eye.is_none())
+                .then_some((shape.seat, raised)),
             forward: handling.forward,
-            kick: (
-                handling.kick_degrees.to_radians() * kick,
-                handling.kick_back * kick,
-            ),
+            kick: (push.up_deg.to_radians(), push.back_m),
+            shoulder: push.shoulder_deg.to_radians(),
+            chest: push.chest_deg.to_radians(),
             weight: *aim,
             hold,
             stow,
         });
     }
     aims
+}
+
+/// How the gun in `body`'s right hand (its shape `shape`) and its head line
+/// up with `point` (units, game space) as `transforms` pose them now, the
+/// gun raised as far as `raise` says and pushed by its last shot as `push`
+/// says (`aim_pose::Sight`). None for a body not retargeted from JA's
+/// skeleton.
+fn sight_of(
+    body: &Body,
+    (shape, support): (&crate::weapons::GunShape, Option<Vec3>),
+    (point, raise, push): (Vec3, f32, crate::recoil::Push),
+    transforms: &Query<&mut Transform>,
+) -> Option<crate::aim_pose::Sight> {
+    let Look::Retargeted { rig, .. } = &body.look else {
+        return None;
+    };
+    let model = rig.model();
+    let find = |name: &str| {
+        (0..model.nodes.len()).find(|&n| model.nodes[n].name.eq_ignore_ascii_case(name))
+    };
+    let hand = find("rhand")?;
+    let root = *transforms.get(body.root).ok()?;
+    let placed = |node: usize| placed_in_model(transforms, (&body.nodes, &rig.rest), node);
+    let in_model = placed(hand)?;
+    let gun = root.mul_transform(in_model);
+    // The stock and the support hand, in the model's space (metres).
+    let at = |name: &str| Some(placed(find(name)?)?.translation);
+    let stock = in_model.transform_point(shape.butt);
+    let muzzle_in_model = in_model.transform_point(shape.muzzle);
+    let ahead = ((muzzle_in_model - stock) * Vec3::new(1.0, 1.0, 0.0)).normalize_or_zero();
+    let right = ahead.cross(Vec3::Z);
+    let stock_m = at("rbicep_g").map(|shoulder| {
+        let off = stock - shoulder;
+        [off.dot(ahead), off.z, off.dot(right)]
+    });
+    let aside_m = at("rbicep_g").zip(at("lbicep_g")).map(|(r, l)| {
+        let middle = (r + l) / 2.0;
+        [
+            (stock - middle).dot(right),
+            (muzzle_in_model - middle).dot(right),
+        ]
+    });
+    let mean = |names: [&str; 4]| -> Option<Vec3> {
+        let mut sum = Vec3::ZERO;
+        for name in names {
+            sum += at(name)?;
+        }
+        Some(sum / 4.0)
+    };
+    let support_gap_m = support.and_then(|grip| {
+        let knuckles = mean(["lafngrb_g", "lbfngrb_g", "lcfngrb_g", "ldfngrb_g"])?;
+        let tips = mean(["lafngrt_g", "lbfngrt_g", "lcfngrt_g", "ldfngrt_g"])?;
+        let palm = crate::aim_pose::support_palm(at("lhand_g")?, knuckles, tips);
+        Some(palm.distance(in_model.transform_point(grip)))
+    });
+    let muzzle = gun.transform_point(shape.muzzle);
+    let barrel = (gun.rotation * shape.barrel).normalize_or_zero();
+    let target = point * UNIT;
+    let head = body.head.as_ref().and_then(|bone| bone.facing(transforms));
+    let head = head.map(|(at, facing)| (root.transform_point(at), root.rotation * facing));
+    let degrees = |a: Vec3, b: Vec3| a.angle_between(b).to_degrees();
+    let face = body.head.as_ref().and_then(|bone| bone.face(transforms));
+    let seat = in_model.transform_point(shape.seat);
+    let face_from_seat_m = face.map(|(at, ..)| {
+        let off = at - seat;
+        [off.dot(ahead), off.z, off.dot(right)]
+    });
+    let jaw = body.head.as_ref().and_then(|bone| bone.jaw(transforms));
+    let jaw_over_seat_m =
+        jaw.map(|jaw| (jaw - seat).dot((in_model.rotation * shape.up).normalize()));
+    let face = face.map(|(at, looks, top)| {
+        let (at, looks, top) = (
+            root.transform_point(at),
+            root.rotation * looks,
+            root.rotation * top,
+        );
+        // The roll: how far the face's top leans to the right of the
+        // upright plane along its look.
+        let right = looks.cross(Vec3::Z).normalize_or_zero();
+        let roll = top.dot(right).clamp(-1.0, 1.0).asin().to_degrees();
+        (degrees(looks, target - at), roll)
+    });
+    Some(crate::aim_pose::Sight {
+        raise,
+        muzzle,
+        target,
+        barrel_off_deg: degrees(barrel, target - muzzle),
+        head_off_gun_deg: head.map(|(_, facing)| degrees(facing, barrel)),
+        head_off_target_deg: head.map(|(at, facing)| degrees(facing, target - at)),
+        push_back_m: push.back_m,
+        shoulder_deg: push.shoulder_deg,
+        stock_m,
+        aside_m,
+        support_gap_m,
+        face_off_target_deg: face.map(|(off, _)| off),
+        face_roll_deg: face.map(|(_, roll)| roll),
+        face_from_seat_m,
+        jaw_over_seat_m,
+    })
+}
+
+/// A gun held up (`gun_lines`): the hand bone that carries it, its weapon
+/// node, its muzzle and barrel in that node's space, the point it aims at
+/// in the model's space, and its kick up (radians, `Aim::kick`).
+struct GunLine {
+    hand: usize,
+    weapon: usize,
+    muzzle: Vec3,
+    barrel: Vec3,
+    target: Vec3,
+    kick: f32,
+}
+
+/// Each gun of `aims` held up and not in its holster (`GunLine`), on the
+/// body whose rig is `rig`.
+fn gun_lines(rig: &BodyRig, aims: &[Aim]) -> Vec<GunLine> {
+    let model = rig.model();
+    let find = |name: &str| {
+        (0..model.nodes.len()).find(|&node| model.nodes[node].name.eq_ignore_ascii_case(name))
+    };
+    (aims.iter())
+        .filter(|aim| aim.weight > 0.0 && aim.stow.is_none_or(|stow| stow.share < 1e-3))
+        .filter_map(|aim| {
+            let (hand, weapon) = match aim.side {
+                Side::Right => (find("rhand_g")?, find("rhand")?),
+                Side::Left => (find("lhand_g")?, find("lhand")?),
+            };
+            Some(GunLine {
+                hand,
+                weapon,
+                muzzle: aim.muzzle,
+                barrel: aim.barrel,
+                target: aim.target,
+                kick: aim.kick.0 * aim.weight,
+            })
+        })
+        .collect()
+}
+
+/// Turns each gun of `lines` by its hand bone at the wrist so that its
+/// barrel runs from where its muzzle now stands to the point it aims at,
+/// lifted by its kick, `share` of the way (how far the guns are raised, 0
+/// to 1). What turned the chest after the arms were posed (the breathing,
+/// the lean of sustained fire) then moves a raised gun but does not swing
+/// it off what it aims at.
+fn reaim(
+    lines: &[GunLine],
+    (nodes, rest): (&[Entity], &Rest),
+    share: f32,
+    transforms: &mut impl Transforms,
+) {
+    if share <= 0.0 {
+        return;
+    }
+    for line in lines {
+        let (Some(placed), Some(wrist)) = (
+            placed_in_model(transforms, (nodes, rest), line.weapon),
+            placed_in_model(transforms, (nodes, rest), line.hand),
+        ) else {
+            continue;
+        };
+        let (muzzle, wrist) = (placed.transform_point(line.muzzle), wrist.translation);
+        let Some(now) = (placed.rotation * line.barrel).try_normalize() else {
+            continue;
+        };
+        // The turn at the wrist carries the muzzle too, which changes the
+        // way from the muzzle to the point: found again from where the turn
+        // leaves the muzzle, a few times over.
+        let mut turn = Quat::IDENTITY;
+        for _ in 0..REAIM_STEPS {
+            let moved = wrist + turn * (muzzle - wrist);
+            let Some(way) = (line.target - moved).try_normalize() else {
+                break;
+            };
+            turn = Quat::from_rotation_arc(now, asset_ja::rig::kicked(way, line.kick));
+        }
+        let turn = Quat::IDENTITY.slerp(turn, share.min(1.0));
+        turn_in_model(transforms, (nodes, rest), line.hand, turn);
+    }
+}
+
+/// Puts the support hand of `aim`'s gun back on it (`Retargeter::regrip`)
+/// on the body whose rig is `rig`, its nodes posed as they stand.
+fn regrip<T: Transforms>(rig: &BodyRig, aim: &Aim, nodes: &[Entity], transforms: &mut T) {
+    if aim.support.is_none() || aim.stow.is_some_and(|stow| stow.share > 0.0) {
+        return;
+    }
+    let rest = &rig.rest;
+    let placed = |transforms: &T, node: usize| placed_in_model(transforms, (nodes, rest), node);
+    let globals: Option<Vec<(Vec3, Quat)>> = (0..rest.len())
+        .map(|node| placed(transforms, node).map(|t| (t.translation, t.rotation)))
+        .collect();
+    let Some(globals) = globals else {
+        return;
+    };
+    for (node, global) in rig.retargeter.regrip(&globals, aim) {
+        let parent = (rest.get(node).and_then(|r| r.0))
+            .and_then(|parent| placed(transforms, parent))
+            .map_or(Quat::IDENTITY, |t| t.rotation);
+        if let Some(&entity) = nodes.get(node) {
+            edit(transforms, entity, |t| {
+                t.rotation = (parent.inverse() * global).normalize();
+            });
+        }
+    }
+}
+
+/// How many times `reaim` finds its turn again from where the last one left
+/// the muzzle. The muzzle stands under a metre from the wrist and a target
+/// at least a metre out (`aim_pose::NEAREST_SIGHT`), so each time takes most
+/// of what is left off.
+const REAIM_STEPS: usize = 4;
+
+/// Node `node`'s place in its model's space as `transforms` pose it now: its
+/// own transform under each of its parents' (`rest`'s, `nodes` their
+/// entities).
+fn placed_in_model(
+    transforms: &impl Transforms,
+    (nodes, rest): (&[Entity], &Rest),
+    node: usize,
+) -> Option<Transform> {
+    let mut chain = vec![node];
+    while let Some(parent) = rest.get(*chain.last()?)?.0 {
+        chain.push(parent);
+    }
+    (chain.iter().rev()).try_fold(Transform::IDENTITY, |above, &at| {
+        Some(above.mul_transform(*transforms.read(*nodes.get(at)?)?))
+    })
 }
 
 /// The share of the clips laid over a JA pose from which they cover it
@@ -3777,7 +5006,25 @@ struct HeadBone {
     chest: (usize, Quat),
     /// The upper spine the head rides on, straightened with it (`level`).
     spine: Option<Spine>,
+    /// The face's own node under the head's (`head_g` under `hturn_g`),
+    /// which a head model's clips turn on their own, with its turn in the
+    /// model's space at rest. None where the head's node is the face's.
+    face: Option<(Entity, Quat)>,
+    /// The head model's neck and face (`neck_g`, `head_g`), which its
+    /// standing clip turns as the head looks about, each with its own turn
+    /// at rest: held near rest while a gun is raised (`AIM_STILL`).
+    still: Vec<(Entity, Quat)>,
+    /// The bottom of the face's jaw in the face's own node's space
+    /// (`aim_pose::jaw_of`), for the cheek on a rifle's stock.
+    jaw: Option<Vec3>,
 }
+
+/// How much of the head model's own looking about (its standing clip's
+/// turns of its neck and face, `HeadBone::still`) a raised gun takes away,
+/// at full raise. The rest is left so the head still looks alive: the
+/// standing clip swings Carth's face up to 11 degrees, so under one degree
+/// is left.
+const AIM_STILL: f32 = 0.92;
 
 /// A body's spine (`SPINE`) where the head's way passes it: its joints low
 /// to high, each a child of the one before; the nodes above the lowest
@@ -3855,18 +5102,13 @@ impl Spine {
     /// hands and what they hold stay where the pose put them (the drawn
     /// blade on the sim's). Else the shoulders ride on the chest, and the
     /// upper arms keep the way the pose swings them.
-    fn straighten(
-        &self,
-        share: f32,
-        keep: bool,
-        transforms: &mut Query<&mut Transform>,
-    ) -> Vec<Set> {
-        let affine = |transforms: &Query<&mut Transform>, entity: Entity| {
+    fn straighten<T: Transforms>(&self, share: f32, keep: bool, transforms: &mut T) -> Vec<Set> {
+        let affine = |transforms: &T, entity: Entity| {
             transforms
-                .get(entity)
+                .read(entity)
                 .map_or(Default::default(), |t| t.compute_affine())
         };
-        let chain = |transforms: &Query<&mut Transform>| {
+        let chain = |transforms: &T| {
             (self.joints.iter()).fold(bevy::math::Affine3A::IDENTITY, |chain, joint| {
                 chain * affine(transforms, joint.node)
             })
@@ -3888,13 +5130,13 @@ impl Spine {
             .collect();
         let rotation = |entity: Entity| {
             transforms
-                .get(entity)
+                .read(entity)
                 .map_or(Quat::IDENTITY, |t| t.rotation)
         };
         let mut world = (self.base.iter()).fold(Quat::IDENTITY, |turn, &e| turn * rotation(e));
         let mut rest = self.base_rest;
         for joint in &self.joints {
-            let Ok(own) = transforms.get(joint.node).map(|t| t.rotation) else {
+            let Some(own) = transforms.read(joint.node).map(|t| t.rotation) else {
                 return Vec::new();
             };
             let parent_up = (world * rest.inverse()) * Vec3::Z;
@@ -3913,7 +5155,7 @@ impl Spine {
         let after = chain(transforms);
         let mut set = Vec::new();
         for (entity, collar, stood) in stood {
-            let Ok(&from) = transforms.get(entity) else {
+            let Some(&from) = transforms.read(entity) else {
                 continue;
             };
             let written = match collar {
@@ -3989,7 +5231,20 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
         .find_map(|name| {
             // The chest: the hook, else the head's own parent; and the
             // body's node the head's way leaves it at.
-            let (mut chain, node, chest, end) = match &hung {
+            // The face: a child of the head's node named `head_g`.
+            let face_at = |ir: &ModelIr, index: usize| {
+                (ir.nodes.iter()).position(|n| {
+                    n.parent == Some(index) && n.name.eq_ignore_ascii_case(hooks::HEAD)
+                })
+            };
+            let face_of = |(ir, nodes): (&ModelIr, &[Entity]), index: usize| {
+                face_at(ir, index).and_then(|at| at_rest_of((ir, nodes), at))
+            };
+            // The bottom of the face's jaw, for the cheek on a stock.
+            let jaw_of = |ir: &ModelIr, index: usize| {
+                face_at(ir, index).and_then(|at| crate::aim_pose::jaw_of(ir, at))
+            };
+            let (mut chain, node, chest, end, face, still, jaw) = match &hung {
                 Some(hung) if let Some(index) = find(hung.ir, name) => {
                     let mut chain = ancestors(body, hung.hook);
                     let chest = chain.len();
@@ -3997,17 +5252,30 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
                     chain.push(hung.root);
                     chain.extend(ancestors((hung.ir, hung.nodes), index));
                     let node = at_rest_of((hung.ir, hung.nodes), index)?;
-                    (chain, node, chest, hung.hook)
+                    let face = face_of((hung.ir, hung.nodes), index);
+                    let still = (chain.last().copied().into_iter()).chain(face).collect();
+                    let jaw = jaw_of(hung.ir, index);
+                    (chain, node, chest, hung.hook, face, still, jaw)
                 }
                 _ => {
                     let index = find(body.0, name)?;
                     let chain = ancestors(body, index);
                     let chest = chain.len().checked_sub(1)?;
-                    (chain, at_rest_of(body, index)?, chest, index)
+                    let face = face_of(body, index);
+                    (
+                        chain,
+                        at_rest_of(body, index)?,
+                        chest,
+                        index,
+                        face,
+                        Vec::new(),
+                        jaw_of(body.0, index),
+                    )
                 }
             };
             let chest_rest = turned(&chain[..=chest]);
             let rest = turned(&chain) * node.1;
+            let face = face.map(|(entity, own)| (entity, rest * own));
             let above = chain.drain(..).map(|(entity, _)| entity).collect();
             Some(HeadBone {
                 node: node.0,
@@ -4015,6 +5283,9 @@ fn head_bone(body: (&ModelIr, &[Entity]), hung: Option<Hung>) -> Option<HeadBone
                 rest,
                 chest: (chest, chest_rest),
                 spine: spine_of(body, end),
+                face,
+                still,
+                jaw,
             })
         })
 }
@@ -4061,6 +5332,50 @@ fn ja_head_heading(g2: &G2, pose: &[Local]) -> Option<f32> {
 }
 
 impl HeadBone {
+    /// Where the head's node stands in the model's space (metres) and which
+    /// way the head faces there, its nodes posed as they stand. The body
+    /// faces +Y at rest, so the face points where the head's turn from its
+    /// rest (`rest`) takes +Y.
+    fn facing(&self, transforms: &impl Transforms) -> Option<(Vec3, Vec3)> {
+        let placed = (self.above.iter().chain([&self.node]))
+            .map(|&e| transforms.read(e).copied())
+            .try_fold(Transform::IDENTITY, |above, own| {
+                Some(above.mul_transform(own?))
+            })?;
+        Some((
+            placed.translation,
+            placed.rotation * self.rest.inverse() * Vec3::Y,
+        ))
+    }
+
+    /// Where the bottom of the face's jaw (`jaw`) stands in the model's
+    /// space, its nodes posed as they stand. None for a head with no face
+    /// node under its own.
+    fn jaw(&self, transforms: &impl Transforms) -> Option<Vec3> {
+        let ((face, _), jaw) = (self.face?, self.jaw?);
+        let placed = (self.above.iter().chain([&self.node, &face]))
+            .map(|&e| transforms.read(e).copied())
+            .try_fold(Transform::IDENTITY, |above, own| {
+                Some(above.mul_transform(own?))
+            })?;
+        Some(placed.transform_point(jaw))
+    }
+
+    /// Where the face's node stands in the model's space (metres), which way
+    /// the face looks and which way its top points, its nodes posed as they
+    /// stand: the face's own node (`face`) where it has one, else the
+    /// head's.
+    fn face(&self, transforms: &impl Transforms) -> Option<(Vec3, Vec3, Vec3)> {
+        let (last, rest) = self.face.map_or((None, self.rest), |(e, r)| (Some(e), r));
+        let placed = (self.above.iter().chain([&self.node]).chain(last.as_ref()))
+            .map(|&e| transforms.read(e).copied())
+            .try_fold(Transform::IDENTITY, |above, own| {
+                Some(above.mul_transform(own?))
+            })?;
+        let turn = placed.rotation * rest.inverse();
+        Some((placed.translation, turn * Vec3::Y, turn * Vec3::Z))
+    }
+
     /// The head held level, heading where JA's own head heads
     /// (`hold.heading`, else where the pose turned it): its turn in the
     /// model's space set to its rest turned about the model's up by that
@@ -4069,15 +5384,15 @@ impl HeadBone {
     /// share of the body left to hold), less as the chest leans far from
     /// upright unless the legs crouch (`crouch`, 0 to 1: how far into a
     /// crouch's hold).
-    fn level(
+    fn level<T: Transforms>(
         &self,
         hold: Hold,
         (share, crouch): (f32, f32),
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut T,
     ) -> Vec<Set> {
-        let read = |transforms: &Query<&mut Transform>| -> Vec<Quat> {
+        let read = |transforms: &T| -> Vec<Quat> {
             (self.above.iter())
-                .map(|&e| transforms.get(e).map_or(Quat::IDENTITY, |t| t.rotation))
+                .map(|&e| transforms.read(e).map_or(Quat::IDENTITY, |t| t.rotation))
                 .collect()
         };
         let mut rotations = read(transforms);
@@ -4112,7 +5427,7 @@ impl HeadBone {
             None => Vec::new(),
         };
         let above = product(&rotations);
-        let Ok(own) = transforms.get(self.node).map(|t| t.rotation) else {
+        let Some(own) = transforms.read(self.node).map(|t| t.rotation) else {
             return set;
         };
         let heading = match hold.heading {
@@ -4147,7 +5462,25 @@ struct Head {
     /// How far its body is into a crouch (`Hold::crouched`): 0 out of one,
     /// 1 crouched `CROUCH_EASE_S` and more.
     crouch: f32,
+    /// The neck as the cheek weld last wrote it, and as it stood before
+    /// (`aim_pose::weld_turn`).
+    welded: Option<(Transform, Transform)>,
+    /// How far (metres, the model's space) the head has come down onto a
+    /// rifle's stock past the cheek weld's turn (`aim_pose::cheek_drop`),
+    /// eased over `CHEEK_DROP_EASE_S`.
+    dropped: Vec3,
 }
+
+/// How long (seconds) a head takes to come about two thirds of the way
+/// down onto a rifle's stock past the cheek weld (`Head::dropped`), and
+/// back up. A shot's kick turns the rifle for a moment, and the head does
+/// not jerk with it.
+const CHEEK_DROP_EASE_S: f32 = 0.08;
+
+/// How far (0 to 1) a rifle must be raised to the shoulder before the head
+/// comes down onto its stock past the cheek weld (`Head::dropped`). On its
+/// way up the stock still stands low, under the jaw.
+const SEATED: f32 = 0.999;
 
 /// What a head is held level by (`HeadBone::level`): JA's head's heading
 /// (`ja_head_heading`), the JA pose's share of the body, whether the body
@@ -4183,14 +5516,41 @@ impl Head {
     /// at `HEAD_TURN_RAD_S` and turns `bone` so far about the model's up
     /// after the body's pose (`turn_under`), the head first held level
     /// (`HeadBone::level`) where `level` says, letting go over
-    /// `LEVEL_FADE_S` once its body is dead. A node no pose moved since it
-    /// was turned turns from where it stood before.
-    fn turn(
+    /// `LEVEL_FADE_S` once its body is dead. A body aiming a raised gun then
+    /// looks down it at the point its gun aims at (`sight`: that point in
+    /// the model's space, and how far the gun is raised, 0 to 1): its face
+    /// turns that share of the way toward the point, so at full raise it
+    /// looks straight at it and does not drift with the pose. Last it leans
+    /// by `tilt`: a turn (radians) about an axis in the model's space. A
+    /// node no pose moved since it was turned turns from where it stood
+    /// before. While it looks down a gun, the lean turns about the way the
+    /// face looks. Before it looks, a rifle's cheek weld (`sight`'s last
+    /// part, `aim_pose::cheek_weld_deg`) turns the neck (the head node's
+    /// parent), that share of the way, so the head comes down onto the
+    /// stock, and moves it back with the stock as far as the last shot
+    /// pushes the gun (metres, the weld's second part). A head whose jaw
+    /// then stands too high over the rifle's seat in the shoulder, along the
+    /// way the rifle's top faces (both in the model's space, the weld's
+    /// last part), comes down that much further (`aim_pose::cheek_drop`).
+    /// The neck, not the node the head model hangs from (`headhook`): a KOTOR head's mesh
+    /// starts at the collar with a ring its lower neck alone moves, so a
+    /// turn where the model hangs would pull that ring off the body's
+    /// collar and open a seam, where the neck bends the mesh above it. The
+    /// neck turns about the head model's hanging point, so the head comes
+    /// down as far as before. A raised gun first holds the head model's own
+    /// looking about (its standing clip's turns of its neck and face) near
+    /// rest, that share of the way times `AIM_STILL`.
+    #[allow(clippy::type_complexity)]
+    fn turn<T: Transforms>(
         &mut self,
         (target, ms): (Option<f32>, f64),
-        level: Option<Hold>,
+        (level, tilt, sight): (
+            Option<Hold>,
+            Option<(Vec3, f32)>,
+            Option<(Vec3, f32, Option<([f32; 2], f32, Option<(Vec3, Vec3)>)>)>,
+        ),
         bone: &HeadBone,
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut T,
     ) {
         let seconds = self
             .ms
@@ -4213,11 +5573,34 @@ impl Head {
         for set in std::mem::take(&mut self.set) {
             edit(transforms, set.node, |t| set.undo(t));
         }
-        if self.yaw.abs() < 0.01 && self.turned.is_none() && level.is_none() {
+        // The weld from the frame before, where no pose wrote the neck since.
+        let neck = (bone.above.len().checked_sub(1)).map(|at| (at, bone.above[at]));
+        if let (Some((written, from)), Some((_, neck))) = (self.welded.take(), neck)
+            && transforms.read(neck).is_some_and(|t| *t == written)
+        {
+            edit(transforms, neck, |t| *t = from);
+        }
+        let tilt = tilt.filter(|&(_, angle)| angle.abs() > 1e-4);
+        let sight = sight.filter(|&(_, share, _)| share > 1e-4);
+        // A raised gun holds the head model's own looking about near rest,
+        // as far as the gun is raised.
+        if let Some((_, share, _)) = sight {
+            for &(node, rest) in &bone.still {
+                edit(transforms, node, |t| {
+                    t.rotation = t.rotation.slerp(rest, share * AIM_STILL).normalize();
+                });
+            }
+        }
+        if self.yaw.abs() < 0.01
+            && self.turned.is_none()
+            && level.is_none()
+            && tilt.is_none()
+            && sight.is_none()
+        {
             return;
         }
         let entity = bone.node;
-        let Ok(now) = transforms.get(entity).map(|t| t.rotation) else {
+        let Some(now) = transforms.read(entity).map(|t| t.rotation) else {
             return;
         };
         let from = match self.turned {
@@ -4232,9 +5615,67 @@ impl Head {
             let turn = Quat::from_rotation_z(self.yaw.to_radians());
             turn_under(transforms, &bone.above, entity, turn);
         }
+        if let Some((point, share, Some((weld, back, seat)))) = sight
+            && let Some((index, neck)) = neck
+            && let Some((at, _)) = bone.facing(transforms)
+            && let Some(from) = transforms.read(neck).copied()
+        {
+            let above = &bone.above[..index];
+            let turn = crate::aim_pose::weld_turn(point - at, weld, share);
+            turn_under(transforms, above, neck, turn);
+            // The neck turns about where the head model hangs (the base of
+            // the neck), not about its own joint behind it, so the head
+            // comes down onto the stock as far as a turn there takes it.
+            let placed = |transforms: &T, chain: &[Entity]| {
+                (chain.iter()).try_fold(Transform::IDENTITY, |above, &e| {
+                    Some(above.mul_transform(*transforms.read(e)?))
+                })
+            };
+            let base = placed(transforms, &bone.above[..=bone.chest.0]);
+            let joint = placed(transforms, &bone.above[..=index]);
+            if let (Some(parent), Some(joint), Some(base)) =
+                (placed(transforms, above), joint, base)
+            {
+                let level = ((point - at) * Vec3::new(1.0, 1.0, 0.0)).normalize_or_zero();
+                let from_base = joint.translation - base.translation;
+                let pivot = turn * from_base - from_base;
+                let moved = parent.rotation.inverse() * (pivot - level * back) / parent.scale;
+                edit(transforms, neck, |t| t.translation += moved);
+                // A head whose jaw still stands too high over the stock's
+                // seat comes down onto it (`aim_pose::cheek_drop`).
+                let wanted = match (seat, bone.jaw(transforms)) {
+                    (Some((seat, up)), Some(jaw)) => {
+                        up * -crate::aim_pose::cheek_drop((jaw - seat).dot(up))
+                    }
+                    _ => Vec3::ZERO,
+                };
+                let eased = 1.0 - (-seconds / CHEEK_DROP_EASE_S).exp();
+                self.dropped += (wanted - self.dropped) * eased;
+                if self.dropped != Vec3::ZERO {
+                    let lowered = parent.rotation.inverse() * (self.dropped * share) / parent.scale;
+                    edit(transforms, neck, |t| t.translation += lowered);
+                }
+            }
+            self.welded = transforms.read(neck).map(|t| (*t, from));
+        }
+        let mut tilt = tilt;
+        if let Some((point, share, _)) = sight
+            && let Some((at, facing)) = bone.facing(transforms)
+            && let Some(way) = (point - at).try_normalize()
+        {
+            let turn = Quat::IDENTITY.slerp(Quat::from_rotation_arc(facing, way), share);
+            turn_under(transforms, &bone.above, entity, turn);
+            // The lean then turns about the way the face looks, so it does
+            // not swing the face off the point.
+            let looks = (turn * facing).normalize_or_zero();
+            tilt = tilt.map(|(axis, angle)| (axis.lerp(looks, share).normalize_or(axis), angle));
+        }
+        if let Some((axis, angle)) = tilt {
+            let turn = Quat::from_axis_angle(axis, angle);
+            turn_under(transforms, &bone.above, entity, turn);
+        }
         self.turned = transforms
-            .get(entity)
-            .ok()
+            .read(entity)
             .map(|t| (t.rotation, from))
             .filter(|(written, from)| written != from);
     }
@@ -4310,7 +5751,7 @@ pub fn straighten_probes() -> crate::probe_kit::Checks {
         };
         head.turn(
             (None, f64::from(n) * 2.5),
-            Some(hold),
+            (Some(hold), None, None),
             &bone,
             &mut transforms,
         );
@@ -4362,10 +5803,32 @@ fn look_toward(soles: Vec3, facing: f32, (other, arc): (Vec3, f32)) -> f32 {
     angles::wrap_180(aim - facing).clamp(-arc, arc)
 }
 
+/// Where `node` (of `nodes`, parented as `rest` has them) is drawn (world,
+/// metres): its transform under its ancestors' and the body's `root`'s, as
+/// they stand now.
+fn drawn_at(
+    transforms: &Query<&mut Transform>,
+    root: Entity,
+    (nodes, rest): (&[Entity], &Rest),
+    node: usize,
+) -> Option<Vec3> {
+    let mut chain = vec![node];
+    let mut parent = rest.get(node).and_then(|r| r.0);
+    while let Some(index) = parent {
+        chain.push(index);
+        parent = rest.get(index).and_then(|r| r.0);
+    }
+    let mut world = transforms.get(root).ok()?.to_matrix();
+    for &index in chain.iter().rev() {
+        world *= transforms.get(*nodes.get(index)?).ok()?.to_matrix();
+    }
+    Some(world.w_axis.truncate())
+}
+
 /// Turns `node` by `turn` in the model's space, its ancestors (`rest`'s
 /// parents, `nodes` their entities) posed as they stand.
 fn turn_in_model(
-    transforms: &mut Query<&mut Transform>,
+    transforms: &mut impl Transforms,
     (nodes, rest): (&[Entity], &Rest),
     node: usize,
     turn: Quat,
@@ -4382,16 +5845,82 @@ fn turn_in_model(
     }
 }
 
+/// The upper torso's node. A bolt that hits the trunk lower down turns it
+/// too, by `bolt_hits::TRUNK_SHARE` of the flinch.
+const UPPER_TORSO: &str = "torsoupr_g";
+
+/// Turns the nodes the bolt hits `flinches` (where each hit, its way in game
+/// space, and when, view ms) flinch at `ms`. Each hit turns its location's
+/// node (`spots`, from `Body::flinch_nodes`) so that the node's top moves
+/// along the bolt's way. A hit on the trunk turns the upper torso (`upper`)
+/// too, when that is another node. The turns of one node add up, to at most
+/// `bolt_hits::FLINCH_MOST_DEG`. `to_model` turns game space into the
+/// model's.
+fn bolt_flinch(
+    (nodes, rest): (&[Entity], &Rest),
+    (spots, upper): ([Option<usize>; LOCATIONS], Option<usize>),
+    flinches: &[(Location, Vec3, f32)],
+    (ms, to_model): (f32, Quat),
+    transforms: &mut impl Transforms,
+) {
+    let mut axes: Vec<(usize, Vec3)> = Vec::new();
+    let mut add = |node: usize, axis: Vec3| match axes.iter_mut().find(|(at, _)| *at == node) {
+        Some((_, sum)) => *sum += axis,
+        None => axes.push((node, axis)),
+    };
+    for &(location, way, hit_ms) in flinches {
+        let Some(node) = spots[location as usize] else {
+            continue;
+        };
+        let axis = crate::bolt_hits::flinch_axis(&[(to_model * way, hit_ms)], ms);
+        add(node, axis);
+        let trunk = matches!(
+            location,
+            Location::None
+                | Location::Chest
+                | Location::ChestLeft
+                | Location::ChestRight
+                | Location::Back
+                | Location::BackLeft
+                | Location::BackRight
+                | Location::Waist
+        );
+        if let Some(upper) = upper.filter(|&upper| trunk && upper != node) {
+            add(upper, axis * crate::bolt_hits::TRUNK_SHARE);
+        }
+    }
+    for (node, axis) in axes {
+        if axis != Vec3::ZERO {
+            let turn = crate::bolt_hits::capped_turn(axis);
+            turn_in_model(transforms, (nodes, rest), node, turn);
+        }
+    }
+}
+
+/// Puts each node a bolt's flinch may turn (`spots` and `upper`, from
+/// `Body::flinch_nodes`) back to its turn at rest (`rest`), unless the pose
+/// wrote it this frame (`posed`).
+fn unflinch(
+    (nodes, rest): (&[Entity], &Rest),
+    (spots, upper): ([Option<usize>; LOCATIONS], Option<usize>),
+    posed: &[(usize, Quat)],
+    transforms: &mut impl Transforms,
+) {
+    for node in spots.into_iter().chain([upper]).flatten() {
+        if posed.iter().any(|&(at, _)| at == node) {
+            continue;
+        }
+        if let (Some(&entity), Some(&(_, _, rotation))) = (nodes.get(node), rest.get(node)) {
+            edit(transforms, entity, |t| t.rotation = rotation);
+        }
+    }
+}
+
 /// Turns `entity` by `turn` in the space of the first of `above` (its
 /// ancestors, from there down), those posed as they stand.
-fn turn_under(
-    transforms: &mut Query<&mut Transform>,
-    above: &[Entity],
-    entity: Entity,
-    turn: Quat,
-) {
+fn turn_under(transforms: &mut impl Transforms, above: &[Entity], entity: Entity, turn: Quat) {
     let above = (above.iter())
-        .filter_map(|&e| transforms.get(e).ok().map(|t| t.rotation))
+        .filter_map(|&e| transforms.read(e).map(|t| t.rotation))
         .fold(Quat::IDENTITY, |above, rotation| above * rotation);
     edit(transforms, entity, |t| {
         t.rotation = (above.inverse() * turn * above * t.rotation).normalize();
@@ -4480,27 +6009,38 @@ pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
         || saber.bolt_block_until > now
 }
 
+/// A bolt that struck a body lately: where, from which way, and when.
+type Flinch = (Location, Vec3, f32);
+/// A grabber's hand held to its victim: which hand, where, and how much.
+type GrappleTouch = (asset_ja::rig::Side, Vec3, f32);
+
 /// Puts a body where its character stands and, with `pose`, poses it, a
 /// hand gripping a blade (while `armed`) reaching for it in `reach`
 /// (`asset_ja::rig::Reach`) with the blades `wielded` holds, a gun out held
-/// up and aimed (`gun_aim`). Looked through (`eye`, `Cast::eye`), its gun
+/// up and aimed (`gun_aim`), at the point under the crosshair (`sighted`)
+/// for the player's own. Looked through (`eye`, `Cast::eye`), its gun
 /// and its blade at rest are held up before its eyes. In a conversation a
 /// head looks at the one its line pairs it with (`look`: where that one
 /// stands, and the head's arc, `Head`) after the pose; as a line's speaker
 /// it talks (`talking`) standing where no script's animation plays on it.
-/// A script's animation
-/// shows on every body, a droid's or a beast's as a humanoid's does, in a
-/// conversation or out of one, its clip's events heard (`hear`). While one
-/// holds the world (`world_held`) it plays out (`acting`), a droid's or a
-/// beast's walk keeps to its stride, and a humanoid wholly on KOTOR's clips (nothing gripped or
-/// aimed) is KOTOR's own clip on its model, its JA pose not made. With no
-/// conversation under way, it is drawn as it was before scene mode (S7).
+/// Each bolt that struck it lately (`flinches`: where, along which way in
+/// game space, and when, view ms) turns a node of its body (`bolt_flinch`).
+/// A script's animation shows on every body, a droid's or a beast's as a
+/// humanoid's does, in a conversation or out of one, its clip's events
+/// heard (`hear`). While one holds the world (`world_held`) it plays out
+/// (`acting`), and a droid's or a beast's walk keeps to its stride. A
+/// humanoid wholly on KOTOR's clips (nothing gripped or aimed) is KOTOR's
+/// own clip on its model, its JA pose not made. That holds in a
+/// conversation always. Out of one, it holds for a living body that no
+/// blast is throwing and that is not the camera's own player (`own`), whose
+/// JA pose its trace and the animation audit read. With no conversation
+/// under way, it is otherwise drawn as it was before scene mode.
 /// A droid or beast that leans with the floor stands on `floor`
 /// (`ground_lean`). Under the duel rules (`rules`) a gripping hand turns its
 /// blade the sim's way only while the blade is in contact
 /// (`Figure::turn_share`).
 #[allow(clippy::too_many_arguments)]
-fn place(
+fn place<T: Transforms>(
     Member {
         body,
         figure,
@@ -4509,11 +6049,11 @@ fn place(
     }: &mut Member,
     at: &Blended,
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
-    (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
+    (pose, armed, reach, own): (bool, bool, &[(Blade, Hand)], bool),
     (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
-    talking: Option<Acting>,
-    wielded: Option<&Wielded>,
-    transforms: &mut Query<&mut Transform>,
+    (talking, flinches, touches): (Option<Acting>, &[Flinch], &[GrappleTouch]),
+    (wielded, sighted): (Option<&Wielded>, Option<Vec3>),
+    transforms: &mut T,
 ) -> Option<Posed> {
     let quarter = std::f32::consts::FRAC_PI_2;
     // A script's animation: moving, fighting or dying breaks it off. A
@@ -4632,7 +6172,7 @@ fn place(
             }
             // Each KOTOR clip over the body, and over its face.
             let lay = |shown: &mut dyn Iterator<Item = (&Animator, f32, f32)>,
-                       transforms: &mut Query<&mut Transform>| {
+                       transforms: &mut T| {
                 for (clip, seconds, weight) in shown {
                     clip.pose_over(seconds, weight, transforms);
                     if let Some(face) = face {
@@ -4768,7 +6308,19 @@ fn place(
                 });
             }
             let gun = wielded.filter(|_| gripping.is_none());
-            let aims = gun_aim(figure, at, (gun, armed, drawn), ms, (to_model, soles, eye));
+            let aims = gun_aim(
+                figure,
+                at,
+                (gun, armed, drawn),
+                ms,
+                (to_model, soles, eye, sighted),
+            );
+            // What the first gun held up aims at, where the head looks down
+            // it; not looked through, where the eye hangs on the head.
+            let sight = (aims.iter())
+                .find(|aim| aim.stow.is_none_or(|stow| stow.share < 1e-3))
+                .map(|aim| aim.target)
+                .filter(|_| eye.is_none());
             // The JA pose's share left under the clips laid over it in turn.
             let under: f32 = shown.iter().map(|&(_, _, weight)| 1.0 - weight).product();
             // Its head stands level under the JA pose, heading where JA's
@@ -4781,21 +6333,58 @@ fn place(
                 crouched: crouches(&at.state),
                 armed,
             };
-            let head =
-                |figure: &mut Figure, transforms: &mut Query<&mut Transform>, level: Hold| {
-                    if let Some(bone) = &body.head {
-                        let target = look.map(|look| look_toward(soles, faces, look));
-                        figure
-                            .head
-                            .turn((target, ms), Some(level), bone, transforms);
-                    }
-                };
-            // While the world is held, a body wholly on KOTOR's clips (the
-            // JA pose's share under them at most `1 − WHOLE`), nothing
-            // gripped (no hand reaches, so `reached` is empty) or aimed, is
-            // that clip on its model: its JA pose is not made.
+            let head = |figure: &mut Figure, transforms: &mut T, level: Hold| {
+                if let Some(bone) = &body.head {
+                    let target = look.map(|look| look_toward(soles, faces, look));
+                    // Aiming, it leans its head toward the gun side about
+                    // the way its legs face. Not the body looked through,
+                    // whose eye hangs on its head.
+                    let legs = figure.yaw().unwrap_or(0.0).to_radians();
+                    let forward = to_model * Vec3::new(legs.cos(), legs.sin(), 0.0);
+                    let tilt = eye.is_none().then(|| (forward, figure.head_tilt(ms)));
+                    // A raised gun: it looks down the gun at what the
+                    // gun aims at.
+                    // The cheek rides back with the stock as the shot
+                    // pushes the gun.
+                    let back = aims.first().map_or(0.0, |aim| aim.kick.1 * aim.weight);
+                    // Where the rifle's seat in the shoulder stands, and
+                    // which way the rifle's top faces, once the rifle is
+                    // fully up in the shoulder.
+                    let seat = aims.first().and_then(|aim| {
+                        let (seat, _) = aim
+                            .butt
+                            .filter(|&(_, raised)| raised.min(aim.weight) >= SEATED)?;
+                        let line = gun_lines(rig, std::slice::from_ref(aim)).pop()?;
+                        let gun =
+                            placed_in_model(transforms, (&body.nodes, &rig.rest), line.weapon)?;
+                        Some((
+                            gun.transform_point(seat),
+                            (gun.rotation * aim.up).normalize(),
+                        ))
+                    });
+                    let weld = aim_pose::cheek_weld_deg(aim_pose::wield_of(figure.breath.wield))
+                        .map(|weld| (weld, back, seat));
+                    let sight = sight.map(|point| (point, figure.raise_share(ms), weld));
+                    figure
+                        .head
+                        .turn((target, ms), (Some(level), tilt, sight), bone, transforms);
+                }
+            };
             let swung = baton.shown(acted, ms);
-            if world_held && under <= 1.0 - WHOLE && gripping.is_none() && aims.is_empty() {
+            // A body a blast throws keeps its JA pose, which its ragdoll
+            // starts from (`as_drawn_dead`).
+            let whole = under <= 1.0 - WHOLE && gripping.is_none() && aims.is_empty();
+            let thrown = blasted(at, ms).is_some();
+            // A body a bolt struck lately is posed in full too, so that it
+            // flinches (`bolt_flinch`).
+            let struck = !flinches.is_empty();
+            if whole && (world_held || (at.alive && !own && !thrown && !struck)) {
+                // The JA pose comes back without easing from where it was
+                // before the clips took the body over.
+                figure.eased = Eased::default();
+                figure
+                    .breath
+                    .follow(acted, false, (ms, stance::phase(body.root)));
                 lay(
                     &mut (shown.into_iter())
                         .chain(throw.shown(acted, ms))
@@ -4812,10 +6401,13 @@ fn place(
             } else {
                 0.0
             };
+            // A grapple finisher's grabber holds its victim where JA's
+            // does (`grapple_view`).
+            let touches = crate::grapple_view::in_model(touches, to_model, soles);
             let posed = rig.retargeter.pose(
                 &ja,
                 Vec3::ZERO,
-                (&reached, &aims),
+                (&reached, &aims, &touches),
                 (&mut figure.eased, ms as f32),
                 in_fist,
             );
@@ -4833,6 +6425,34 @@ fn place(
                     });
                 }
             }
+            // The pose above writes only the bones JA's skeleton maps. A node
+            // a bolt's flinch turns that it does not map (a player's head
+            // hangs at `headhook`) goes back to rest, so the flinch's turn
+            // from the frame before does not stay and add up.
+            unflinch(
+                (&body.nodes, &rig.rest),
+                body.flinch_nodes,
+                &posed.rotations,
+                transforms,
+            );
+            // The guns held up: the breathing and the firing motion below
+            // turn the chest under them, and a raised gun is turned back
+            // onto what it aims at (`reaim`). Not the body looked through,
+            // whose gun is held up before the eye.
+            let lines = if eye.is_none() {
+                gun_lines(rig, &aims)
+            } else {
+                Vec::new()
+            };
+            let rifle = aim_pose::wield_of(figure.breath.wield) == aim_pose::Wield::Rifle;
+            let reaimed = |figure: &Figure, transforms: &mut T| {
+                reaim(
+                    &lines,
+                    (&body.nodes, &rig.rest),
+                    figure.raise_share(ms),
+                    transforms,
+                );
+            };
             // Standing in one of JA's held stances, it breathes (`stance`);
             // not looked through, where the eye hangs on its head and its
             // weapon is held before the eye.
@@ -4866,6 +6486,22 @@ fn place(
                     );
                 }
             }
+            // A pistol's arms follow its kick up after this, so only the
+            // breathing is taken off its line. A rifle is turned back after
+            // the firing motion's lean in sustained fire and after the head
+            // is held level, whose straightened spine carries the arms a few
+            // centimetres.
+            if !rifle {
+                reaimed(figure, transforms);
+            }
+            let firing = (gun, at.alive, eye.is_some());
+            recoil(
+                figure,
+                transforms,
+                (&body.nodes, rig),
+                firing,
+                (ms, to_model),
+            );
             lay(
                 &mut (shown.into_iter())
                     .chain(throw.shown(acted, ms))
@@ -4874,6 +6510,23 @@ fn place(
             );
             let heading = ja_head_heading(&figure.g2, &ja);
             head(figure, transforms, Hold { heading, ..level });
+            if rifle {
+                reaimed(figure, transforms);
+            }
+            // What turned after the arms were posed moved a two-handed gun
+            // from under the support hand: the hand takes it again. Not the
+            // body looked through, whose gun is held up before the eye.
+            if let ([aim], None) = (aims.as_slice(), eye) {
+                regrip(rig, aim, &body.nodes, transforms);
+            }
+            // The bolts' flinches, over the breathing and the pain clip.
+            bolt_flinch(
+                (&body.nodes, &rig.rest),
+                body.flinch_nodes,
+                flinches,
+                (ms as f32, to_model),
+                transforms,
+            );
             Some(posed)
         }
         Look::Ja => {
@@ -4937,8 +6590,19 @@ fn place(
                 );
                 if let Some(bone) = &body.head {
                     let target = look.map(|look| look_toward(soles, faces, look));
-                    figure.head.turn((target, ms), None, bone, transforms);
+                    figure
+                        .head
+                        .turn((target, ms), (None, None, None), bone, transforms);
                 }
+                let to_model =
+                    (leans * Quat::from_rotation_z(faces.to_radians() - quarter)).inverse();
+                bolt_flinch(
+                    (&body.nodes, &clips.rest),
+                    body.flinch_nodes,
+                    flinches,
+                    (ms as f32, to_model),
+                    transforms,
+                );
             }
             None
         }
@@ -4978,7 +6642,7 @@ impl Clips {
         figure: &Figure,
         at: &Blended,
         (ms, held, armed): (f64, bool, bool),
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut impl Transforms,
         mut playing: Option<&mut Vec<(Arc<AnimationIr>, f32)>>,
         face: Option<&crate::face::Face>,
     ) {
@@ -5032,7 +6696,7 @@ impl Clips {
         figure: &Figure,
         at: &Blended,
         (ms, held, armed): (f64, bool, bool),
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut impl Transforms,
     ) {
         let Some((clip, seconds)) = self.at(figure, at, (ms, held, armed)) else {
             return;

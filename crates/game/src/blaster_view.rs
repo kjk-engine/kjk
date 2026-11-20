@@ -42,6 +42,7 @@ use crate::material::{GpuLight, LIGHT_COMBAT, fight_kind};
 use crate::scene::{ModelAssets, SceneContent, SceneRoot, Spawner, game_to_bevy};
 use crate::script_fx::Loaded;
 use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
+use crate::transforms::Transforms;
 
 /// How fast a tracer is drawn flying (metres a second): a disruptor's
 /// bolt, its shot a hitscan, about twice a rifle's bolt.
@@ -475,7 +476,12 @@ fn spawn(
         }
         let (images, stores) = assets.split();
         let mut spawning = Spawning {
-            spawner: Spawner::new(&read.textures, scene.0.area_light(), images),
+            spawner: Spawner::sharing(
+                &read.textures,
+                scene.0.area_light(),
+                images,
+                &scene.0.images,
+            ),
             stores,
             hazes: &mut hazes,
             textures: &read.textures,
@@ -603,7 +609,7 @@ fn draw(
         _ => BTreeMap::new(),
     };
     // The new flashes and tracers join those in play. A feat's visual shows
-    // once on a gun: the next shot's starts it over (Sniper Shot's scope),
+    // once on a gun: the next shot's starts it over (Rapid Shot's flames),
     // never a second copy over the first.
     for flash in shots.flashes {
         let feat = matches!(flash.shows, Flashed::Row(_));
@@ -770,8 +776,8 @@ fn draw(
                     ended_by: until
                         .filter(|until| now >= *until)
                         .map(|_| now - clip_ms(&live.model, clip)),
-                    // Its line folded: a Sniper Shot's sight is the aim's
-                    // (`aim_fx`), not drawn again by the shot.
+                    // Its line folded: a feat's sight is drawn by the aim
+                    // (`aim_fx`), never by a flash.
                     reach: Some(0.0),
                     // A muzzle flash glows. A feat's visual (no light of
                     // its own) is drawn as it is.
@@ -836,11 +842,10 @@ fn draw(
             let since = item.hold_ms.map_or(since, |hold| since.max(now - hold));
             let since = item.ended_by.map_or(since, |most| since.min(most));
             let copy = &mut pooled.spawned;
-            if let Ok(mut transform) = transforms.get_mut(copy.root) {
-                *transform = Transform::from_translation(item.at)
-                    .with_rotation(crate::minigame_view::heading(item.way))
-                    .with_scale(Vec3::splat(item.scale));
-            }
+            let shown = Transform::from_translation(item.at)
+                .with_rotation(crate::minigame_view::heading(item.way))
+                .with_scale(Vec3::splat(item.scale));
+            transforms.set(copy.root, |_| shown);
             copy.anims = vec![Anim {
                 name: item.clip.to_string(),
                 looping: false,

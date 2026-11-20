@@ -500,7 +500,11 @@ pub mod weapon_traits {
 /// poison, knocked down (TSL's), or death.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Struck {
-    Hold { ms: u64, fear: bool },
+    Hold {
+        ms: u64,
+        fear: bool,
+        save: crate::combat::force::HoldSave,
+    },
     Confuse(u64),
     Slow(u64),
     Drain(u8),
@@ -524,9 +528,9 @@ pub const DRAIN_MS: u64 = rules::items::properties::DRAIN_MS;
 /// slow Will, a drain Reflex (mind-affecting, as the games code it);
 /// poison and death no save. A slay against a side does nothing (an empty
 /// handler in both games). A hit worth `share` thousandths of a round (a
-/// stun baton's swing, `damage::pace`) has that share of each chance, so a
-/// round's hits roll as often as one KOTOR attack's; at a whole round or
-/// more the roll is the games' own.
+/// stun baton's swing or a chained punch's, `damage::pace`) has that share
+/// of each chance, so a round's hits roll as often as one KOTOR attack's;
+/// at a whole round or more the roll is the games' own.
 pub fn on_hits(
     weapon: &crate::combat::Weapon,
     target: &Sheet,
@@ -546,6 +550,15 @@ pub fn on_hits(
     let mut struck = Vec::new();
     for on_hit in weapon.on_hit.iter().flatten() {
         let ms = u64::from(on_hit.seconds) * 1000;
+        // A hold rolls the save that first allowed it each round (C11).
+        let hold = |fear: bool, index: usize| Struck::Hold {
+            ms,
+            fear,
+            save: crate::combat::force::HoldSave {
+                index: index as u8,
+                dc: i32::from(on_hit.dc),
+            },
+        };
         if on_hit.kind <= on_hit::SLOW {
             timed = on_hit.chance;
         }
@@ -554,19 +567,19 @@ pub fn on_hits(
                 timed,
                 Some(WILL),
                 mind || immune(immunity::SLEEP),
-                Struck::Hold { ms, fear: false },
+                hold(false, WILL),
             ),
             on_hit::STUN => (
                 timed,
                 Some(WILL),
                 mind || immune(immunity::STUN) || feat(feats::FORCE_IMMUNITY_STUN),
-                Struck::Hold { ms, fear: false },
+                hold(false, WILL),
             ),
             on_hit::PARALYZE => (
                 timed,
                 Some(FORT),
                 immune(immunity::PARALYSIS) || feat(feats::FORCE_IMMUNITY_PARALYSIS),
-                Struck::Hold { ms, fear: false },
+                hold(false, FORT),
             ),
             on_hit::CONFUSION => (
                 timed,
@@ -578,7 +591,7 @@ pub fn on_hits(
                 timed,
                 Some(WILL),
                 mind || immune(immunity::FEAR) || feat(feats::FORCE_IMMUNITY_FEAR),
-                Struck::Hold { ms, fear: true },
+                hold(true, WILL),
             ),
             on_hit::SLOW => (timed, Some(WILL), immune(immunity::SLOW), Struck::Slow(ms)),
             on_hit::ABILITY_DRAIN => (

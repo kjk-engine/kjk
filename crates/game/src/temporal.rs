@@ -12,9 +12,12 @@
 //! depth writes its motion there too (`material`, `motion_proxy`), and what
 //! does not (glows, particles, blended sheets) moves with what is behind it.
 //!
-//! The scene camera draws the depth prepass on every choice, multisampling
-//! too. Its main pass then shades only the surfaces it shows. The motion
-//! prepass is drawn for a temporal choice alone.
+//! A temporal choice declares the full depth prepass and the motion
+//! prepass it reads. The `prepasses` module then gives them to the scene
+//! camera. Under multisampling, nothing reads a prepass. There, the GPU load
+//! check (`prepasses::LoadCheck`) asks for the full depth prepass while the
+//! GPU is close to holding the frame rate back, or while it cannot time
+//! the GPU.
 //!
 //! Every camera drawing onto the world's target (the scene's, the overlays
 //! that draw the HUD, the screens, the fade, a movie) takes the same
@@ -47,8 +50,7 @@ use bevy::camera::Hdr;
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::core_pipeline::prepass::{
-    BackgroundMotionVectorsBindGroup, BackgroundMotionVectorsPipelineId, DepthPrepass,
-    MotionVectorPrepass,
+    BackgroundMotionVectorsBindGroup, BackgroundMotionVectorsPipelineId, MotionVectorPrepass,
 };
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
@@ -61,6 +63,7 @@ use bevy::shader::ShaderRef;
 
 use crate::display::Display;
 use crate::lifecycle_view::OverlayCamera;
+use crate::prepasses::{DerivedPrepasses, Need, PrepassNeeds};
 use crate::upscale::Upscale;
 
 const DEBUG_SHADER: Handle<Shader> = uuid_handle!("3c1d7e92-5a40-4f6b-9e21-8d0b6f4a2c75");
@@ -289,7 +292,17 @@ impl Plugin for TemporalPlugin {
         ))
         .init_resource::<Temporal>()
         .init_resource::<TemporalCut>()
-        .add_systems(Last, (choose, apply.in_set(Applied), cut).chain())
+        .add_systems(
+            Last,
+            (
+                choose,
+                apply
+                    .in_set(Applied)
+                    .in_set(crate::prepasses::DeclarePrepassNeeds),
+                cut,
+            )
+                .chain(),
+        )
         .add_systems(
             PostUpdate,
             motion_debug.before(bevy::transform::TransformSystems::Propagate),
@@ -440,10 +453,12 @@ fn on_world_target(
 }
 
 /// Every camera on the world's target takes the samples and texture of the
-/// choice; the scene camera its jitter, prepass and resolve.
+/// choice. The scene camera also takes its jitter and resolve. A temporal
+/// choice declares the prepasses it reads.
 #[allow(clippy::type_complexity)]
 fn apply(
     temporal: Res<Temporal>,
+    mut needs: ResMut<PrepassNeeds>,
     lighting: Option<Res<crate::rolloff::LightingMode>>,
     capture: Option<Res<console::CaptureTarget>>,
     mut cameras: Query<(
@@ -457,12 +472,21 @@ fn apply(
         Option<&DlssOn>,
         &mut CameraMainTextureUsages,
         Has<TemporalJitter>,
-        Has<DepthPrepass>,
         Option<&Upscale>,
     )>,
     mut commands: Commands,
 ) {
     let used = temporal.used;
+    let reader = match used {
+        Antialias::Msaa(_) => None,
+        Antialias::Taa => Some("TAA"),
+        Antialias::Upscale(Upscaler::Taa, _) => Some("kjk's upscaler"),
+        Antialias::Upscale(Upscaler::Dlss, Scale::Full) => Some("DLAA"),
+        Antialias::Upscale(Upscaler::Dlss, _) => Some("DLSS"),
+    };
+    if let Some(reader) = reader {
+        needs.declare(reader, Need::TEMPORAL);
+    }
     let dlss = matches!(used, Antialias::Upscale(Upscaler::Dlss, _));
     // A run without the options (a viewer) has Classic lighting.
     let hdr = dlss || lighting.is_some_and(|lighting| lighting.enhanced());
@@ -475,7 +499,7 @@ fn apply(
     // new choice.
     if !dlss {
         let mut leaving = false;
-        for (entity, .., dlss_on, _, _, _, _) in &cameras {
+        for (entity, .., dlss_on, _, _, _) in &cameras {
             if dlss_on.is_some() {
                 remove_dlss(&mut commands.entity(entity));
                 leaving = true;
@@ -508,7 +532,6 @@ fn apply(
         dlss_on,
         mut main_usages,
         has_jitter,
-        has_depth,
         upscale,
     ) in &mut cameras
     {
@@ -569,7 +592,6 @@ fn apply(
                     },
                     TemporalJitter::default(),
                     scale.mip_bias(),
-                    MotionVectorPrepass,
                 ));
             }
             (None, Some(_)) => {
@@ -577,17 +599,9 @@ fn apply(
             }
             (None, None) => {}
         }
-        // The scene camera draws depth first on every choice, so its main
-        // pass shades only the surfaces it shows. Without it a pixel is
-        // shaded once for each surface drawn there, hidden ones too, and
-        // the characters' shadows are traced for each (`shadows`).
-        if !has_depth {
-            camera.insert(DepthPrepass);
-        }
-        // The jitter is there only after TAA or DLSS, with their motion
-        // prepass.
+        camera.insert_if_new(DerivedPrepasses);
         if !used.temporal() && has_jitter {
-            camera.remove::<(TemporalJitter, MipBias, MotionVectorPrepass)>();
+            camera.remove::<(TemporalJitter, MipBias)>();
         }
         if used.temporal() {
             camera.insert_if_new(LastPose {
@@ -756,8 +770,10 @@ impl Material for MotionDebugMaterial {
 struct MotionDebugQuad;
 
 /// The debug quad under the scene camera, while `KJK_MOTION_DEBUG` is set.
+/// It reads the motion prepass, so it declares what TAA does.
 fn motion_debug(
     cameras: Query<Entity, crate::lifecycle_view::SceneCamera>,
+    mut needs: ResMut<PrepassNeeds>,
     quads: Query<(Entity, &ChildOf), With<MotionDebugQuad>>,
     mut materials: ResMut<Assets<MotionDebugMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -772,6 +788,7 @@ fn motion_debug(
     let Some(camera) = cameras.iter().next() else {
         return;
     };
+    needs.declare("the motion debug view", Need::TEMPORAL);
     let mut found = false;
     for (entity, parent) in &quads {
         if parent.parent() == camera {

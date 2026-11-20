@@ -10,8 +10,9 @@
 //!   `CHARGE_HOLD_MS` into its clip and staying there until the shot leaves;
 //!   then its clip runs on, its births over, for its flares to die out
 //!   (`DIE_OUT_MS`).
-//! - A Sniper Shot's aim (`Shooting::aiming`): the laser sight (`v_sn_r_gen`'s
-//!   `LazerSight`, a thin red ribbon to its reference node), from just under
+//! - A Sniper Shot's steadying (`Shooting::steadying`): the laser sight
+//!   (`v_sn_r_gen`'s `LazerSight`, a thin red ribbon to its reference
+//!   node), from just under
 //!   the muzzle to where the shot would go (the first wall or body along the
 //!   view; KOTOR's stops at its reference node, a metre or so out), once
 //!   the gun is raised on it:
@@ -31,7 +32,7 @@ use crate::cast::{self, Guns};
 use crate::combat_fx::{FightDrawn, gun_muzzle};
 use crate::scene::game_to_bevy;
 use crate::shots::OwnFire;
-use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
+use crate::sim_host::{PresentedDoors, PresentedSnapshot, SceneSwap, view_ms};
 
 const UNIT: f32 = asset_ja::UNIT;
 /// How far under the muzzle the laser leaves (metres).
@@ -64,7 +65,8 @@ impl Plugin for AimFxPlugin {
     }
 }
 
-/// A charge's or a raised aim's gun: which, and what it shows.
+/// The gun of a Power Blast's charge or a Sniper Shot's steadying: which,
+/// and what it shows.
 type Gun = (SimId, u8, u16);
 
 /// When each held gun began (the view's ms); each charge let go, when; and
@@ -82,7 +84,7 @@ fn draw(
     (guns, fire, eyes): (Res<Guns>, Res<OwnFire>, Res<crate::first_person::Eyes>),
     places: Query<&GlobalTransform>,
     mut since: Local<Since>,
-    mut shots: ResMut<BlasterShots>,
+    (mut shots, doors): (ResMut<BlasterShots>, Res<PresentedDoors>),
 ) {
     let (Some(presented), Some(swap)) = (presented, swap) else {
         return;
@@ -96,16 +98,22 @@ fn draw(
     let current = presented.0.current();
     let now = view_ms(&presented.0);
     let objects = Instances::in_snapshot(&swap.level, current);
-    let states = swap.level.states_in(current);
-    let bodies: Vec<collision::Body> = current
-        .entities
-        .iter()
-        .filter(|e| e.fighter.is_some_and(|f| f.alive()))
-        .filter_map(|e| {
-            let ps = e.player?;
-            Some(sim::body(e.id, &ps, sim::bulk_of(objects.of_entity(e))))
+    let gathered = std::cell::OnceCell::new();
+    let sight_world = || {
+        gathered.get_or_init(|| {
+            let states = doors.of(&presented.0, &swap);
+            let bodies: Vec<collision::Body> = current
+                .entities
+                .iter()
+                .filter(|e| e.fighter.is_some_and(|f| f.alive()))
+                .filter_map(|e| {
+                    let ps = e.player?;
+                    Some(sim::body(e.id, &ps, sim::bulk_of(objects.of_entity(e))))
+                })
+                .collect();
+            (states, bodies)
         })
-        .collect();
+    };
     let was = std::mem::take(&mut since.held);
     // A charge before the eyes the camera looks through plays as small as
     // the own muzzle flashes there; the sight keeps its length.
@@ -121,8 +129,9 @@ fn draw(
         // disruptor's reaches.
         let point = || {
             let to = gunner.eye + gunner.forward * sim::combat::weapons::HITSCAN_RANGE * UNIT;
-            let met = swap.level.with(states.as_deref(), |world| {
-                Bodies::new(world, &bodies)
+            let (states, bodies) = sight_world();
+            let met = swap.level.with_unremembered(states.as_deref(), |world| {
+                Bodies::new(world, bodies)
                     .skipping(gunner.id.0 | sim::BODY)
                     .trace(
                         gunner.eye.to_array(),
@@ -237,7 +246,13 @@ fn barrel(guns: &Guns, places: &Query<&GlobalTransform>, (who, hand): (SimId, u8
     Some((game_to_bevy().inverse() * way).normalize_or_zero())
 }
 
-/// A gunner charging a Power Blast or aiming a Sniper Shot this frame.
+/// Whether a gunner holds a feat's visual: it charges a Power Blast or
+/// steadies a Sniper Shot. A gun that is only aimed shows none.
+pub(crate) fn holds_feat(shooting: &sim::combat::specials::Shooting) -> bool {
+    shooting.charging_from.is_some() || shooting.steadying
+}
+
+/// A gunner charging a Power Blast or steadying a Sniper Shot this frame.
 struct Gunner {
     id: SimId,
     special: Special,
@@ -248,8 +263,8 @@ struct Gunner {
     forward: Vec3,
 }
 
-/// The gunners charging or aiming in `current`, the own one as it is at
-/// own time (`OwnFire::own`).
+/// The gunners charging a Power Blast or steadying a Sniper Shot in
+/// `current`, the own one as it is at own time (`OwnFire::own`).
 fn gunners(current: &Snapshot, objects: &Instances, fire: &OwnFire) -> Vec<Gunner> {
     current
         .entities
@@ -261,7 +276,7 @@ fn gunners(current: &Snapshot, objects: &Instances, fire: &OwnFire) -> Vec<Gunne
             };
             let ps = entity.player?;
             let shooting = entity.fighter.filter(|f| f.alive())?.shooting;
-            if shooting.charging_from.is_none() && !shooting.aiming {
+            if !holds_feat(&shooting) {
                 return None;
             }
             let sheet = cast::sheet(entity, objects);

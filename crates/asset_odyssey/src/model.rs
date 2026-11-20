@@ -111,6 +111,8 @@ pub struct MeshIr {
     pub lightmap: Option<String>,
     pub transparency_hint: u32,
     pub skinned: bool,
+    /// The mesh header's shadow flag: the mesh casts shadows.
+    pub shadow: bool,
     /// Rest-pose self-illumination, (0, 0, 0) when the node has none.
     pub self_illum: [f32; 3],
     /// Rest-pose alpha controller, 1 when absent.
@@ -579,6 +581,7 @@ impl ModelIr {
             lightmap,
             transparency_hint: mesh.transparency_hint,
             skinned: mesh.skin.is_some(),
+            shadow: mesh.shadow,
             skin: None,
             self_illum: first_row(source, SELF_ILLUM)
                 .filter(|row| row.len() >= 3)

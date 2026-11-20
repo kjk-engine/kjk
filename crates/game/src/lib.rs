@@ -21,6 +21,9 @@ macro_rules! outln {
 
 pub mod acting;
 mod aim_fx;
+mod aim_pose;
+#[cfg(feature = "probes")]
+pub mod aim_pose_probes;
 pub mod alignment_look;
 pub mod ambience;
 pub mod ambient_occlusion;
@@ -35,7 +38,8 @@ pub mod blade_fx;
 mod blaster_view;
 pub mod block_reticle_view;
 pub mod block_verdict;
-mod body_marks;
+pub mod body_marks;
+pub mod bolt_hits;
 pub mod by_hand;
 pub mod camera_tune;
 pub mod cast;
@@ -53,11 +57,13 @@ pub mod duel_view;
 pub mod effects_quality;
 mod emitter_view;
 mod executors;
+mod extract_gates;
 mod face;
 mod fade_view;
 mod feat_view;
 pub mod fight_rooms;
 mod first_person;
+mod fixed_bounds;
 pub mod flight_writer;
 pub mod floaty_view;
 mod floor_arena;
@@ -68,6 +74,8 @@ mod fx_model;
 mod gait;
 pub mod glow_shell;
 pub mod going_view;
+mod gpu_load;
+pub mod grapple_view;
 pub mod grass;
 mod grenade_view;
 mod ground_lean;
@@ -121,15 +129,22 @@ pub mod pick_view;
 pub mod play;
 pub mod play_view;
 mod power_fx;
+mod prepasses;
 #[cfg(feature = "probes")]
 mod probe_kit;
 pub mod progress;
+mod quad_list;
 mod ragdolls;
+pub mod recoil;
 pub mod report;
 pub mod reticle_view;
 mod rulebook_text;
 pub use minigame_view::takes_view;
+#[cfg(feature = "probes")]
+pub use prepasses::load_check_probes;
 pub use ragdolls::doll_fits;
+#[cfg(feature = "probes")]
+pub use ui_view::hide_probes;
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
@@ -155,6 +170,7 @@ pub mod session_flow;
 pub mod settings;
 pub mod setup;
 pub use settings::{key_bindings, key_rows};
+pub use warmup::LATE_PIPELINE;
 mod severing;
 pub mod shader_checks;
 pub mod shadow_tiles;
@@ -183,6 +199,7 @@ pub mod target_view;
 pub mod temporal;
 mod terminal;
 pub mod transcript;
+mod transforms;
 mod ui_composite;
 mod ui_input;
 pub mod ui_material;
@@ -209,6 +226,13 @@ pub mod workbench_view;
 use std::path::Path;
 
 use vfs::Game;
+
+/// The memory is kept only where both kinds of things have the same size and
+/// alignment. Otherwise the new list starts with no memory.
+pub(crate) fn emptied<T, U>(mut list: Vec<T>) -> Vec<U> {
+    list.clear();
+    list.into_iter().filter_map(|_| None).collect()
+}
 
 /// The network conditions for this side: `--netem`, else `KJK_NETEM`, else
 /// a perfect network.

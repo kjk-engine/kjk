@@ -279,7 +279,10 @@ the games' own compiled scripts; nothing of them is in the repo.
   (toward a side, or toward 50 and no further; TSL's party others move
   with the player's character unless its fourth argument is TRUE).
   `GetLastHostileActor` is the last to attack the object or cast a harmful
-  power at it, never a dead or destroyed one. `GetPartyLeader` is
+  power at it, never a dead or destroyed one. A character out of combat
+  has none. TSL's executable clears it when a creature's combat state
+  ends, which `CancelCombat` and a surrender also do. K1's is taken to do
+  the same [verify], since its duelists talk after a stun duel. `GetPartyLeader` is
   party member 0: the companion made leader, else the first seat's
   character (`WORLD-STATE.md`: each seat still moves its own body); `GetUserActionsPending` is
   always false (a seat's commands act at once, never queued).
