@@ -44,7 +44,9 @@
 //! # How a vertex follows the chains
 //!
 //! A skirt vertex follows the two kept chains on either side of its angle,
-//! each by how near its angle is. Along a chain it follows the bone at its
+//! each by how near its angle is, when at most one chain is missing
+//! between them. Across a wider gap it follows the nearer chain. Along a
+//! chain it follows the bone at its
 //! height, blended with the next bone near each joint. A vertex keeps at
 //! most 4 bones, the ones with the most weight.
 //!
@@ -99,7 +101,6 @@ const BETWEEN_MIN: usize = 3;
 const BETWEEN_WIDTH: f32 = 0.06;
 const BETWEEN_DROP: f32 = 0.25;
 const BOTH_LEGS: f32 = 0.2;
-/// The bones of each leg, from the hip down.
 const LEGS: [[&str; 3]; 2] = [
     ["lthigh_g", "lshin_g", "lfoot_g"],
     ["rthigh_g", "rshin_g", "rfoot_g"],
@@ -144,9 +145,6 @@ pub struct Skirt {
     /// (metres). It is near 0 when the skin's inverse binds agree with the
     /// rest pose.
     pub drift: f32,
-    /// For each mesh with moved vertices, its index in `ModelIr::meshes`
-    /// and each vertex's share moved to the chains, from 0 to 1.
-    pub shares: Vec<(usize, Vec<f32>)>,
 }
 
 impl Skirt {
@@ -179,7 +177,7 @@ fn matrix(m: Mat4) -> Matrix {
 }
 
 /// A skin vertex of one mesh, as the skirt sees it.
-struct Found {
+struct SkirtVertex {
     mesh: usize,
     vertex: usize,
     /// Its rest place in the model's space.
@@ -191,7 +189,7 @@ struct Found {
 }
 
 /// The height below which `share` of the weight of `near` lies.
-fn height_at(near: &[(&Found, f32)], share: f32) -> f32 {
+fn height_at(near: &[(&SkirtVertex, f32)], share: f32) -> f32 {
     let mut heights: Vec<(f32, f32)> = near.iter().map(|&(v, weight)| (v.at.z, weight)).collect();
     heights.sort_by(|a, b| a.0.total_cmp(&b.0));
     let total: f32 = heights.iter().map(|&(_, weight)| weight).sum();
@@ -233,9 +231,12 @@ struct Hang {
 
 /// The chains' bones that a skirt vertex at angle `theta` and height `z`
 /// follows, each with its weight. The weights add up to 1. The vertex
-/// follows the kept chains on either side of its angle when they are
-/// neighbours on the ring, each by how near its angle is, or else the
-/// nearer one. Along a chain, it follows the bone at its height, blended
+/// follows the kept chains on either side of its angle, each by how near
+/// its angle is, when at most one chain is missing between them. A KOTOR 1
+/// Jedi robe has no chain at the hips, where the skirt lies near the legs,
+/// and its cloth there must not tear between front and back. Across a
+/// wider gap, such as the open front of a KOTOR 2 robe, the vertex follows
+/// the nearer chain. Along a chain, it follows the bone at its height, blended
 /// with the next bone near each joint.
 fn chain_weights(hangs: &[Hang], chains: &[Chain], theta: f32, z: f32) -> Vec<(usize, f32)> {
     let step = TAU / CHAINS as f32;
@@ -249,7 +250,7 @@ fn chain_weights(hangs: &[Hang], chains: &[Chain], theta: f32, z: f32) -> Vec<(u
         .expect("two chains or more");
     let (to_after, to_before) = (ahead(hangs[after].angle), behind(hangs[before].angle));
     let gap = to_after + to_before;
-    let sides = if after != before && gap <= step * 1.01 {
+    let sides = if after != before && gap <= step * 2.01 {
         vec![(before, to_after / gap), (after, to_before / gap)]
     } else if to_after < to_before {
         vec![(after, 1.0)]
@@ -324,7 +325,7 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
         })
         .collect();
 
-    let mut skirt: Vec<Found> = Vec::new();
+    let mut skirt: Vec<SkirtVertex> = Vec::new();
     for (index, mesh) in model.meshes.iter().enumerate() {
         let Some(skin) = &mesh.skin else { continue };
         let binds: Vec<Mat4> = (skin.joints.iter().zip(&skin.inverse_binds))
@@ -364,7 +365,7 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
                 Source::Legs => 0.0,
             };
             if share > 0.0 {
-                skirt.push(Found {
+                skirt.push(SkirtVertex {
                     mesh: index,
                     vertex,
                     at,
@@ -374,7 +375,7 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
             }
         }
     }
-    let between = |v: &&Found| {
+    let between = |v: &&SkirtVertex| {
         v.both_legs
             && (v.at.x - place(pelvis).x).abs() < BETWEEN_WIDTH
             && v.at.z < hips - BETWEEN_DROP
@@ -389,7 +390,6 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
         return None;
     }
 
-    // The ring of chains.
     let centre = place(pelvis);
     let angle_of = |at: Vec3| (at.x - centre.x).atan2(at.y - centre.y);
     let radius_of = |at: Vec3| (at - centre).truncate().length();
@@ -397,7 +397,7 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
     let mut hangs: Vec<Hang> = Vec::new();
     for k in 0..CHAINS {
         let angle = k as f32 * step;
-        let near: Vec<(&Found, f32)> = skirt
+        let near: Vec<(&SkirtVertex, f32)> = skirt
             .iter()
             .map(|v| {
                 (
@@ -450,7 +450,6 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
         return None;
     }
 
-    // The chains' bones, after the model's own nodes.
     let parent = robe.first().map_or(pelvis, |tree| tree.attach);
     let mut chains = Vec::with_capacity(hangs.len());
     for (k, hang) in hangs.iter().enumerate() {
@@ -514,8 +513,6 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
             reference.map(|slot| worlds[skin.joints[slot]] * mat4(&skin.inverse_binds[slot]));
     }
 
-    // Each skirt vertex onto the chains.
-    let mut shares: Vec<(usize, Vec<f32>)> = Vec::new();
     let mut drift: f32 = 0.0;
     let mut vertices = 0;
     for v in &skirt {
@@ -524,7 +521,6 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
         };
         let bones = chain_weights(&hangs, &chains, angle_of(v.at), v.at.z);
         let mesh = &mut model.meshes[v.mesh];
-        let positions = mesh.positions.len();
         let mesh_world = worlds[mesh.node];
         let Some(skin) = mesh.skin.as_mut() else {
             continue;
@@ -560,6 +556,7 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
         }
         let mut new_slots = [0u16; 4];
         let mut new_weights = [0f32; 4];
+        let mut fits = true;
         for (k, &(node, weight)) in merged.iter().enumerate() {
             let slot = match skin.joints.iter().position(|&n| n == node) {
                 Some(slot) => slot,
@@ -572,8 +569,15 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
                     skin.joints.len() - 1
                 }
             };
-            new_slots[k] = u16::try_from(slot).unwrap_or(0);
+            let Ok(slot) = u16::try_from(slot) else {
+                fits = false;
+                break;
+            };
+            new_slots[k] = slot;
             new_weights[k] = weight / total;
+        }
+        if !fits {
+            continue;
         }
         let p = Vec3::from_array(mesh.positions[v.vertex]);
         let now: Vec3 = (0..4)
@@ -587,78 +591,11 @@ pub fn generate(model: &mut ModelIr) -> Option<Skirt> {
         skin.vertex_joints[v.vertex] = new_slots;
         skin.vertex_weights[v.vertex] = new_weights;
         vertices += 1;
-        let at = match shares.iter().position(|(mesh, _)| *mesh == v.mesh) {
-            Some(at) => at,
-            None => {
-                shares.push((v.mesh, vec![0.0; positions]));
-                shares.len() - 1
-            }
-        };
-        shares[at].1[v.vertex] = v.share;
     }
-    shares.sort_by_key(|(mesh, _)| *mesh);
     Some(Skirt {
         source,
         chains,
         vertices,
         drift,
-        shares,
     })
-}
-
-#[doc(hidden)]
-pub fn debug_low(model: &ModelIr) {
-    let pelvis = model.node_index(asset_odyssey::hooks::PELVIS).unwrap();
-    let worlds: Vec<Mat4> = model.nodes.iter().map(|node| mat4(&node.world)).collect();
-    let c = worlds[pelvis].w_axis.truncate();
-    for (index, mesh) in model.meshes.iter().enumerate() {
-        let Some(skin) = &mesh.skin else { continue };
-        let names: Vec<&str> = skin
-            .joints
-            .iter()
-            .map(|&j| model.nodes[j].name.as_str())
-            .collect();
-        if !names.iter().any(|n| n.contains("robe")) {
-            continue;
-        }
-        let mut rows = Vec::new();
-        for (vertex, p) in mesh.positions.iter().enumerate() {
-            let p = Vec3::from_array(*p);
-            let mut at = Vec3::ZERO;
-            let mut desc = String::new();
-            for k in 0..4 {
-                let slot = usize::from(skin.vertex_joints[vertex][k]);
-                let w = skin.vertex_weights[vertex][k];
-                if w <= 0.0 {
-                    continue;
-                }
-                at += (worlds[skin.joints[slot]] * mat4(&skin.inverse_binds[slot]))
-                    .transform_point3(p)
-                    * w;
-                desc += &format!("{}:{:.2} ", names[slot], w);
-            }
-            let a = (at.x - c.x).atan2(at.y - c.y).to_degrees();
-            rows.push((at.z, a, desc, (at - c).truncate().length()));
-        }
-        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
-        println!("mesh {index}: lowest");
-        for r in rows.iter().take(12) {
-            println!("  z {:.2} angle {:.0} r {:.2} {}", r.0, r.1, r.3, r.2);
-        }
-        let mut hist = std::collections::BTreeMap::new();
-        for r in &rows {
-            *hist
-                .entry(((r.1 / 15.0).round() * 15.0) as i32)
-                .or_insert((0, f32::MAX, f32::MIN)) = {
-                let e = hist
-                    .get(&(((r.1 / 15.0).round() * 15.0) as i32))
-                    .copied()
-                    .unwrap_or((0, f32::MAX, f32::MIN));
-                (e.0 + 1, e.1.min(r.0), e.2.max(r.0))
-            };
-        }
-        for (a, (n, lo, hi)) in hist {
-            println!("  angle {a}: {n} vertices, z {lo:.2} to {hi:.2}");
-        }
-    }
 }

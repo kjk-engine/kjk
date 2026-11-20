@@ -6763,8 +6763,8 @@ mod loose_parts {
         name == "3dgui" || name.starts_with("mainmenu")
     }
 
-    /// Every humanoid model that gets generated skirt chains, with what it
-    /// gets, one model and one line a model, by name.
+    /// Every humanoid model that gets generated skirt chains, by name. Each
+    /// model's name is on one line, and what it gets is on the next.
     pub fn skirts(base: &Resolver, index: &vfs::DirIndex) -> String {
         let mut names = BTreeSet::new();
         for layer in base.every_layer(index).iter() {

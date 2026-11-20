@@ -904,7 +904,6 @@ fn hung_straight() -> Probe {
 /// The least share of their distance at rest that two points of different
 /// chains of the probes' skirt keep.
 const APART_KEPT: f32 = 0.35;
-/// How many chains hang in the probes' skirt, and how many bones each has.
 const SKIRT_CHAINS: usize = 8;
 const SKIRT_BONES: usize = 3;
 

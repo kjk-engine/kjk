@@ -25,6 +25,7 @@
 
 use bevy::asset::{RenderAssetUsages, load_internal_asset, uuid_handle};
 use bevy::mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef};
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::{
@@ -50,14 +51,18 @@ pub const PUSH_LOCATION: u32 = 9;
 /// Its location in the shadow tiles' pass (`shadow_tiles.wgsl`).
 pub(crate) const SHADOW_PUSH_LOCATION: u32 = 8;
 
-/// The leg capsules of one wearer.
+/// `loose_legs.wgsl`'s `LEG_CAPSULES`: the thighs, the shins and the feet.
 pub(crate) const CAPSULES: usize = 6;
 
 /// One entry of `LEGS`: the capsules this frame, then the frame before.
 /// Each capsule is two `vec4`s, its ends with its radius in the first's w.
-pub(crate) type Entry = [[[f32; 4]; 2]; 2 * CAPSULES];
+type Entry = [[[f32; 4]; 2]; 2 * CAPSULES];
 
 pub(crate) const ENTRY_BYTES: usize = std::mem::size_of::<Entry>();
+
+// `loose_legs.wgsl`'s `Legs` holds `LEG_CAPSULES` capsules of 32 bytes for
+// each of the two frames.
+const _: () = assert!(ENTRY_BYTES == 2 * CAPSULES * 32);
 
 /// How many models of a scene can have an entry. A model past the last
 /// one is not pushed.
@@ -95,18 +100,69 @@ pub fn init_legs(app: &mut App) {
         .insert(&LEGS, list);
 }
 
-/// The entries written this frame, each with its model.
+/// How far out of a leg capsule's radius a pushed vertex is put (metres).
+/// The capsules are the size of the limbs, and the cloth lies on them.
+pub(crate) const CLOTH_OFF_LEG: f32 = 0.01;
+
+/// A leg capsule in the world: its ends, its radius in its node's space,
+/// and its node's scale, which grows both the radius and the depth that a
+/// vertex rests inside it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LegCapsule {
+    pub(crate) ends: [Vec3; 2],
+    pub(crate) radius: f32,
+    pub(crate) scale: f32,
+}
+
+impl LegCapsule {
+    /// A capsule of radius 0, which pushes nothing.
+    pub(crate) const NONE: LegCapsule = LegCapsule {
+        ends: [Vec3::ZERO; 2],
+        radius: 0.0,
+        scale: 0.0,
+    };
+
+    /// As `loose_legs.wgsl` reads it: the first end with the radius,
+    /// `CLOTH_OFF_LEG` added and scaled, then the second end with the
+    /// scale.
+    fn packed(self) -> [[f32; 4]; 2] {
+        let [a, b] = self.ends;
+        [
+            [a.x, a.y, a.z, (self.radius + CLOTH_OFF_LEG) * self.scale],
+            [b.x, b.y, b.z, self.scale],
+        ]
+    }
+}
+
+/// The entries to send this frame, each with its model, and each model's
+/// capsules sent last, which are the next entry's frame before.
 #[derive(Resource, Default)]
 pub(crate) struct LegWrites {
     entries: Vec<(usize, Entry)>,
+    last: HashMap<usize, [LegCapsule; CAPSULES]>,
 }
 
 impl LegWrites {
-    /// Writes the entry of model `model`. A model past `ENTRIES` is left
-    /// out.
-    pub(crate) fn write(&mut self, model: usize, entry: Entry) {
-        if model < ENTRIES {
-            self.entries.push((model, entry));
+    /// Sends model `model`'s capsules this frame, with those it sent the
+    /// frame before. A model past `ENTRIES` is left out.
+    pub(crate) fn set(&mut self, model: usize, now: [LegCapsule; CAPSULES]) {
+        if model >= ENTRIES {
+            return;
+        }
+        let was = self.last.insert(model, now).unwrap_or(now);
+        let mut entry: Entry = [[[0.0; 4]; 2]; 2 * CAPSULES];
+        for (packed, capsule) in entry.iter_mut().zip(now.iter().chain(&was)) {
+            *packed = capsule.packed();
+        }
+        self.entries.push((model, entry));
+    }
+
+    /// Empties model `model`'s entry, for a model that no longer wears a
+    /// garment the solver moves. Its index may come back for another model.
+    pub(crate) fn free(&mut self, model: usize) {
+        if model < ENTRIES && self.last.remove(&model).is_some() {
+            self.entries
+                .push((model, [LegCapsule::NONE.packed(); 2 * CAPSULES]));
         }
     }
 }
@@ -141,8 +197,8 @@ fn write_legs(
     }
 }
 
-/// Gives a mesh with the `PUSH` attribute this module's vertex shader.
-/// Whether it did.
+/// Gives a mesh with the `PUSH` attribute this module's vertex shader. It
+/// returns whether the mesh has the attribute.
 pub(crate) fn pushed(
     descriptor: &mut RenderPipelineDescriptor,
     layout: &MeshVertexBufferLayoutRef,

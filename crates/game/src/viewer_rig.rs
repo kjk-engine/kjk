@@ -157,7 +157,7 @@ fn load_with(
     let (glm, gla, gla_path) = viewer_ja::glm_and_gla(&files, JA_BODY)?;
     let mut notes = Vec::new();
     let mut cache = BTreeMap::new();
-    crate::loose_parts::choose(options.loose.as_ref());
+    crate::loose_parts::solve_in_viewer(options.loose.as_ref());
     let body = viewer::cached(&mut cache, &resolver, options.body)?
         .ok_or(format!("{}.mdl: not found", options.body))?;
     let loose = crate::loose_parts::viewed(options.loose.as_ref(), &mut cache, &resolver, &body)?;

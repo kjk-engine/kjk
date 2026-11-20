@@ -12,7 +12,7 @@
 // pushes it in the main pass.
 
 #import kjk::sway::{SwayVertex, last_slot}
-#import kjk::loose_legs::{Legs, out_of}
+#import kjk::loose_legs::{Legs, out_of_legs}
 
 struct Draw {
     // Its tile. A tile has two of `joints`, at twice its number. The first
@@ -106,14 +106,9 @@ fn vertex(in: Vertex) -> Out {
         + in.joint_weights.z * joints[min(s + in.joint_indices.z, last)]
         + in.joint_weights.w * joints[min(s + in.joint_indices.w, last)];
 #ifdef LOOSE_PUSH
-    // Pushed out of its wearer's legs, as the main pass pushes it.
     var world = skin * vec4<f32>(in.position, 1.0);
-    if draw.wearer < arrayLength(&legs) && in.push.x > 0.0 {
-        var at = world.xyz;
-        for (var i = 0u; i < 6u; i += 1u) {
-            at = out_of(at, legs[draw.wearer].now[i], in.push);
-        }
-        world = vec4<f32>(at, 1.0);
+    if draw.wearer < arrayLength(&legs) {
+        world = vec4<f32>(out_of_legs(world.xyz, legs[draw.wearer].now, in.push), 1.0);
     }
 #else
     let world = skin * vec4<f32>(in.position, 1.0);

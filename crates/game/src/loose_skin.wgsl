@@ -17,7 +17,7 @@
     skinning,
     view_transformations::position_world_to_clip,
 }
-#import kjk::loose_legs::{Legs, out_of}
+#import kjk::loose_legs::{Legs, out_of_legs}
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::prepass_io::{Vertex, VertexOutput}
 #else
@@ -36,28 +36,6 @@ fn wearer(instance_index: u32) -> u32 {
         return NO_WEARER;
     }
     return tag & ~OWNER_TAG;
-}
-
-fn pushed(at: vec3<f32>, slot: u32, push: vec2<f32>) -> vec3<f32> {
-    var p = at;
-    if slot == NO_WEARER || push.x <= 0.0 {
-        return p;
-    }
-    for (var i = 0u; i < 6u; i += 1u) {
-        p = out_of(p, wearers[slot].now[i], push);
-    }
-    return p;
-}
-
-fn pushed_before(at: vec3<f32>, slot: u32, push: vec2<f32>) -> vec3<f32> {
-    var p = at;
-    if slot == NO_WEARER || push.x <= 0.0 {
-        return p;
-    }
-    for (var i = 0u; i < 6u; i += 1u) {
-        p = out_of(p, wearers[slot].was[i], push);
-    }
-    return p;
 }
 
 @vertex
@@ -81,7 +59,11 @@ fn vertex(
         world_from_local,
         vec4<f32>(vertex.position, 1.0)
     );
-    out.world_position = vec4<f32>(pushed(skinned.xyz, slot, push), 1.0);
+    var at = skinned.xyz;
+    if slot != NO_WEARER {
+        at = out_of_legs(at, wearers[slot].now, push);
+    }
+    out.world_position = vec4<f32>(at, 1.0);
     out.position = position_world_to_clip(out.world_position.xyz);
 #ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
     out.unclipped_depth = out.position.z;
@@ -127,7 +109,11 @@ fn vertex(
         previous_from_local,
         vec4<f32>(vertex.position, 1.0)
     );
-    out.previous_world_position = vec4<f32>(pushed_before(before.xyz, slot, push), 1.0);
+    var was = before.xyz;
+    if slot != NO_WEARER {
+        was = out_of_legs(was, wearers[slot].was, push);
+    }
+    out.previous_world_position = vec4<f32>(was, 1.0);
 #endif
 #else
 #ifdef VERTEX_NORMALS

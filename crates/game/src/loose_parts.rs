@@ -74,11 +74,13 @@ fn running() -> bool {
 }
 
 /// Gives the body model `ir` its generated skirt chains
-/// (`asset_ja::loose::skirt`) while the solver runs. Every reader of a
-/// model calls it once, as the model is read, before anything looks at the
-/// model's nodes. With the solver off, a KOTOR 2 robe keeps its robe bones
+/// (`asset_ja::loose::skirt`) while the solver runs. The model cache of
+/// play and the viewers (`viewer::cached`) and the model viewer call it
+/// once, as they read a model, before anything looks at the model's nodes.
+/// The menus and the effects read their models without it, and the solver
+/// does not move them. With the solver off, a KOTOR 2 robe keeps its robe bones
 /// and their keys, and a KOTOR 1 robe stays on its legs.
-pub(crate) fn dress(ir: &mut ModelIr) {
+pub(crate) fn add_skirt_chains(ir: &mut ModelIr) {
     if !running() {
         return;
     }
@@ -88,9 +90,9 @@ pub(crate) fn dress(ir: &mut ModelIr) {
 }
 
 /// Turns the solver on or off for a viewer's run, from its loose part
-/// options, before it reads its model (`dress`). A viewer without them
+/// options, before it reads its model (`add_skirt_chains`). A viewer without them
 /// leaves the run as it was.
-pub(crate) fn choose(loose: Option<&Loose>) {
+pub(crate) fn solve_in_viewer(loose: Option<&Loose>) {
     if let Some(loose) = loose {
         solve_in_this_run(loose.sim);
     }
@@ -282,9 +284,6 @@ impl Model {
     }
 }
 
-/// How far out of a leg capsule's radius a pushed vertex is put (metres).
-/// The capsules are the size of the limbs, and the cloth lies on them.
-const CLOTH_OFF_LEG: f32 = 0.01;
 /// How much nearer to a capsule's axis than at rest a vertex that rests
 /// inside the capsule may come before it is pushed (metres).
 const INSIDE_MARGIN: f32 = 0.005;
@@ -292,7 +291,7 @@ const INSIDE_MARGIN: f32 = 0.005;
 /// The `loose_skin::PUSH` attribute of each mesh of `ir` that the bones
 /// `moved` move, from the leg capsules `legs` in the rest pose. A vertex's
 /// share is the sum of its weights on the moved bones. Its depth is how far
-/// it rests inside the capsule it is deepest in, with `CLOTH_OFF_LEG`
+/// it rests inside the capsule it is deepest in, with `loose_skin::CLOTH_OFF_LEG`
 /// added to the radius, plus `INSIDE_MARGIN`.
 fn pushes(
     ir: &ModelIr,
@@ -346,7 +345,7 @@ fn pushes(
                         .iter()
                         .map(|&([a, b], radius)| {
                             let from_axis = at.distance(ragdoll::closest_on_segment(at, a, b));
-                            radius + CLOTH_OFF_LEG - from_axis + INSIDE_MARGIN
+                            radius + crate::loose_skin::CLOTH_OFF_LEG - from_axis + INSIDE_MARGIN
                         })
                         .fold(0.0, f32::max);
                     [share.min(1.0), depth]
@@ -358,15 +357,23 @@ fn pushes(
 }
 
 /// The `loose_skin::PUSH` attribute of mesh `mesh` of `ir`, when the solver
-/// moves it (`Model::pushes`). It is `None` while the solver is off, for a
-/// model it does not move and for a mesh with no vertex on a moved bone.
+/// moves it (`Model::pushes`). It is `None` while the solver or the push
+/// is off, for a model it does not move and for a mesh with no vertex on a
+/// moved bone.
 pub(crate) fn push(ir: &ModelIr, mesh: usize) -> Option<Vec<[f32; 2]>> {
-    if !running() {
+    if !running() || !pushing() {
         return None;
     }
     let models = MODELS.lock().unwrap_or_else(|e| e.into_inner());
     let model = models.get(&ir.name.to_ascii_lowercase())?.as_ref()?;
     model.pushes.get(mesh)?.clone()
+}
+
+/// Whether robes and capes are pushed out of the legs on the GPU in this
+/// run. `KJK_LOOSE_PUSH=off` turns it off, to weigh its cost in a bench.
+fn pushing() -> bool {
+    static PUSHING: OnceLock<bool> = OnceLock::new();
+    *PUSHING.get_or_init(|| std::env::var("KJK_LOOSE_PUSH").as_deref() != Ok("off"))
 }
 
 /// Each body model's solver, by model name (`worn`).
@@ -451,7 +458,7 @@ pub(crate) fn viewed(
     ir: &ModelIr,
 ) -> Result<Option<Loose>, String> {
     let sim = loose.is_some_and(|loose| loose.sim);
-    choose(loose);
+    solve_in_viewer(loose);
     Ok(match loose {
         Some(loose) if sim => Some(Loose {
             chain: crate::viewer::chain_clips(cache, resolver, ir)?,
@@ -559,8 +566,6 @@ struct State {
     last: Option<(u64, f64)>,
     /// The body's model in the scene's models (`Worn::model`).
     model: usize,
-    /// Its leg capsules in the world, the frame before.
-    legs: Option<[[[f32; 4]; 2]; crate::loose_skin::CAPSULES]>,
 }
 
 impl State {
@@ -570,7 +575,6 @@ impl State {
             wearer: wearer.clone(),
             last: None,
             model,
-            legs: None,
         }
     }
 
@@ -767,40 +771,34 @@ fn solve(
     }
 }
 
-/// Writes the leg capsules of every solved body in the world, now and the
-/// frame before, to its model's entry of `loose_skin::LEGS`. It runs after
-/// Bevy has placed every node, so the capsules are where the skin puts the
-/// legs. A capsule's radius grows with its node's scale. A freed entry gets
-/// capsules of radius 0, which push nothing.
+/// Sends the leg capsules of every solved body in the world to its model's
+/// entry of `loose_skin::LEGS`, and empties the entries of the models
+/// freed. It runs after Bevy has placed every node, so the capsules are
+/// where the skin puts the legs.
 fn place_legs(
     mut solving: ResMut<Solving>,
     globals: Query<&GlobalTransform>,
     mut writes: ResMut<crate::loose_skin::LegWrites>,
 ) {
-    use crate::loose_skin::CAPSULES;
+    use crate::loose_skin::{CAPSULES, LegCapsule};
     let solving = &mut *solving;
     for model in solving.freed.drain(..) {
-        writes.write(model, [[[0.0; 4]; 2]; 2 * CAPSULES]);
+        writes.free(model);
     }
-    for state in solving.states.values_mut() {
-        let mut now = [[[0.0f32; 4]; 2]; CAPSULES];
-        for (capsule, &(node, ends, radius)) in now.iter_mut().zip(&state.wearer.model.legs) {
+    for state in solving.states.values() {
+        let mut capsules = [LegCapsule::NONE; CAPSULES];
+        for (capsule, &(node, ends, radius)) in capsules.iter_mut().zip(&state.wearer.model.legs) {
             let Some(global) = (state.wearer.nodes.get(node)).and_then(|&n| globals.get(n).ok())
             else {
                 continue;
             };
-            let scale = global.affine().matrix3.x_axis.length();
-            let [a, b] = ends.map(|end| global.transform_point(end));
-            *capsule = [
-                [a.x, a.y, a.z, (radius + CLOTH_OFF_LEG) * scale],
-                [b.x, b.y, b.z, 0.0],
-            ];
+            *capsule = LegCapsule {
+                ends: ends.map(|end| global.transform_point(end)),
+                radius,
+                scale: global.affine().matrix3.x_axis.length(),
+            };
         }
-        let was = state.legs.replace(now).unwrap_or(now);
-        let mut entry = [[[0.0f32; 4]; 2]; 2 * CAPSULES];
-        entry[..CAPSULES].copy_from_slice(&now);
-        entry[CAPSULES..].copy_from_slice(&was);
-        writes.write(state.model, entry);
+        writes.set(state.model, capsules);
     }
 }
 
