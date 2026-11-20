@@ -1223,6 +1223,7 @@ pub(super) fn scripts(
         lost,
         broke,
         opened,
+        removed,
     } in &battered.0
     {
         if attacked {
@@ -1246,6 +1247,13 @@ pub(super) fn scripts(
         if broke && !opened {
             state.last.insert((object.0, script::last::KILLER), by.0);
             raise(&view, state, ObjectId(object.0), Hook::Death, None);
+        }
+        if removed {
+            out.changes.push(Change::Destroy {
+                who: ObjectId(object.0),
+                ms: rules::world::timings::KILLED_PLACEABLE_MS,
+                going: None,
+            });
         }
     }
     // The 107per turret's bolts that met the area's things: each one's

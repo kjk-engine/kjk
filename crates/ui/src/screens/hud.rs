@@ -49,6 +49,9 @@
 //! ready check's banner is its own layer (`banner`), in the combat
 //! message's place. KOTOR 2's feedback option "Hide Quick Menu Buttons"
 //! hides the eight menu buttons and their backing (`MENU_BUTTONS`).
+//! A character who knows a lightsaber Form or a Force Form has KOTOR 2's
+//! Form slot at the right end of the action bar, inside its frame: the icon
+//! of the Form in use and the next-Form key (`FORM`, `HudView::form`).
 
 use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
@@ -1727,7 +1730,9 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     let Some(hud) = vm.hud.as_ref() else {
         return;
     };
-    let controls = hud.bar.iter().enumerate().filter_map(|(nth, slot)| {
+    let slots = (hud.bar.iter().enumerate()).map(|(nth, slot)| (nth.to_string(), slot));
+    let form = hud.form.iter().map(|slot| (FORM.to_string(), slot));
+    let controls = slots.chain(form).filter_map(|(nth, slot)| {
         let button = gui.find(&format!("BTN_ACTION{nth}"))?;
         let icon = gui.find(&format!("LBL_ACTION{nth}"))?;
         Some((slot, [button, icon]))
@@ -1782,7 +1787,7 @@ const BAR_SLOTS: usize = 10;
 /// lists it (`state`). The frame round the row (`BAR_FRAME`) is one step
 /// wider for each slot after the sixth of the `shown` slots, so it stands
 /// round every slot the HUD draws.
-pub fn bar_extra(gui: &mut Gui, shown: usize) {
+pub fn bar_extra(gui: &mut Gui, shown: usize, form: bool) {
     let left = |nth: usize| {
         gui.find(&format!("BTN_ACTION{nth}"))
             .map(|slot| slot.extent.left)
@@ -1798,21 +1803,32 @@ pub fn bar_extra(gui: &mut Gui, shown: usize) {
         else {
             continue;
         };
-        let copies: Vec<Control> = (LAYOUT_SLOTS..BAR_SLOTS)
-            .map(|nth| {
-                let mut copy = gui.controls[at].clone();
-                copy.tag = format!("{prefix}{nth}");
-                shift_all(&mut copy, (step * (nth - last) as i32, 0));
-                copy
-            })
+        let copy = |tag: String, nth: usize| {
+            let mut copy = gui.controls[at].clone();
+            copy.tag = tag;
+            shift_all(&mut copy, (step * (nth - last) as i32, 0));
+            copy
+        };
+        let mut copies: Vec<Control> = (LAYOUT_SLOTS..BAR_SLOTS)
+            .map(|nth| copy(format!("{prefix}{nth}"), nth))
             .collect();
+        // The Form slot stands one step after the last slot shown.
+        copies.push(copy(
+            format!("{prefix}{FORM}"),
+            shown.clamp(LAYOUT_SLOTS, BAR_SLOTS),
+        ));
         gui.controls.splice(at + 1..at + 1, copies);
     }
-    let more = shown.clamp(LAYOUT_SLOTS, BAR_SLOTS) - LAYOUT_SLOTS;
+    let more = shown.clamp(LAYOUT_SLOTS, BAR_SLOTS) - LAYOUT_SLOTS + usize::from(form);
     if let Some(frame) = (gui.controls.iter_mut()).find(|control| control.tag == BAR_FRAME) {
         frame.extent.width += step * more as i32;
     }
 }
+
+/// The tag ending of KOTOR 2's Form slot (`BTN_ACTIONFORM` and
+/// `LBL_ACTIONFORM`), which `bar_extra` makes from the sixth slot's frame
+/// and icon. It shows the Form in use (`HudView::form`).
+pub const FORM: &str = "FORM";
 
 /// The frame round the row of action slots.
 const BAR_FRAME: &str = "LBL_MOULDING3";
@@ -1832,8 +1848,17 @@ pub fn bar_cross(gui: &mut Gui) {
         return;
     };
     let gap = (second.left - first.left - first.width).max(0);
-    let (places, [_, tall]) = cross([first.width, first.height], gap);
+    let (places, [wide, tall]) = cross([first.width, first.height], gap);
     let top = first.top + first.height - tall;
+    // The Form slot stands right of the cross, level with its middle row.
+    let form = (gui.find(&format!("BTN_ACTION{FORM}")))
+        .map(|slot| slot.extent)
+        .map(|from| {
+            (
+                first.left + wide + gap - from.left,
+                top + places[1][1] - from.top,
+            )
+        });
     let moves: Vec<(i32, i32)> = (0..CROSS_SLOTS)
         .map(|nth| {
             let from = extent(nth).unwrap_or(first);
@@ -1847,6 +1872,12 @@ pub fn bar_cross(gui: &mut Gui) {
             .find_map(|prefix| control.tag.strip_prefix(prefix)?.parse::<usize>().ok());
         if let Some(by) = slot.and_then(|slot| moves.get(slot)) {
             shift_all(control, *by);
+        }
+        let formed = ["BTN_ACTION", "LBL_ACTION"]
+            .iter()
+            .any(|prefix| control.tag.strip_prefix(prefix) == Some(FORM));
+        if let Some(by) = form.filter(|_| formed) {
+            shift_all(control, by);
         }
     }
 }
@@ -2133,6 +2164,24 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     };
     if tag == BAR_FRAME && vm.pad_playing {
         return hidden;
+    }
+    let form = |prefix: &str| tag.strip_prefix(prefix) == Some(FORM);
+    if form("BTN_ACTION") || form("LBL_ACTION") {
+        let label = form("LBL_ACTION");
+        return match hud.form {
+            Some(BarSlot {
+                icon: Some(icon),
+                dim,
+                ..
+            }) if label => ControlState {
+                fill: Some(icon),
+                text: Some(Vec::new()),
+                dimmed: dim,
+                ..ControlState::default()
+            },
+            Some(_) if !label => ControlState::default(),
+            _ => hidden,
+        };
     }
     if let Some(slot) = slot("BTN_ACTION") {
         return match hud.bar.get(slot) {

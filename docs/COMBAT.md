@@ -748,7 +748,12 @@ Where TSL's rules meet our fight, TSL's win (the owner's call,
   Shien +2, Niman +1); Juyo +4 to a critical's confirmation and an extra
   attack a round, multiplying a weapon hit's budget as Speed's do. A Force
   power's damage, duration and saves under a Form are its impact script's
-  (`k_sp1_generic` asks `IsFormActive`).
+  (`k_sp1_generic` asks `IsFormActive`). The HUD's Form slot stands at the
+  right end of the action bar, inside its frame. It shows the icon of the
+  Form in use (its `spells.2da` icon) and the next-Form key, and the icon is
+  dimmed while a lightsaber Form has no lightsaber to work with
+  (`hud::form_slot`). The equip page's attack modifier counts the Form's
+  attack bonus against an enemy who holds no lightsaber (issue 617).
 - **Costs** (`ForceRules::cost`, `CSWSpell::GetAdjustedForcePoints`): a
   party member's power of a side (`goodevil` `G`, `E`) × `forceadjust.2da`'s
   multiplier at its alignment's tenth, one above 1 eased 0.05 a point of

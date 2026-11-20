@@ -166,6 +166,8 @@ struct HudPlaced {
     /// How many action slots the HUD shows. The frame round the row is as
     /// wide as they are (`hud::bar_extra`).
     slots: usize,
+    /// The HUD shows KOTOR 2's Form slot, inside the frame after the slots.
+    form: bool,
 }
 
 /// KOTOR's HUD as kept between frames (`draw_hud`): all of it but what
@@ -1209,6 +1211,7 @@ fn hud_gui(
         target_top: target_top(ui),
         cross: ui.vm.pad_playing,
         slots: ui.vm.hud.as_ref().map_or(0, |hud| hud.bar.len()),
+        form: ui.vm.hud.as_ref().is_some_and(|hud| hud.form.is_some()),
     };
     let (layout, source, _) = ui.hud.as_ref()?.as_ref()?;
     if let Some((last, gui, stretch)) = &ui.hud_placed
@@ -1221,7 +1224,7 @@ fn hud_gui(
     if from.target_top {
         ui::screens::hud::to_top(&mut gui);
     }
-    ui::screens::hud::bar_extra(&mut gui, from.slots);
+    ui::screens::hud::bar_extra(&mut gui, from.slots, from.form);
     if from.cross {
         ui::screens::hud::bar_cross(&mut gui);
     }
