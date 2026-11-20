@@ -502,7 +502,12 @@ impl Solver {
             .take()
             .expect("a step after the first has the frame before");
         for k in 0..substeps {
-            self.substep(&before, (anchor, capsules, floor), (share(k), share(k + 1)));
+            let last = k + 1 == substeps;
+            self.substep(
+                &before,
+                (anchor, capsules, floor),
+                (share(k), share(k + 1), last),
+            );
         }
         let finite = self
             .positions
@@ -565,12 +570,15 @@ impl Solver {
     }
 
     /// One substep, from share `from` to share `to` of the way from the
-    /// frame before to this one.
+    /// frame before to this one. The frame's `last` substep also keeps the
+    /// trees of each garment apart (`Apart`). Two chains cannot pass through
+    /// each other in one frame, and in every substep the test doubled the
+    /// solver's time on a robe of 10 chains.
     fn substep(
         &mut self,
         before: &Before,
         (anchor, capsules, floor): (Frame, &[Capsule], Option<f32>),
-        (from, to): (f32, f32),
+        (from, to, last): (f32, f32, bool),
     ) {
         let h = 1.0 / self.settings.rate;
         let anchor_from = blend(before.anchor, anchor, from);
@@ -620,6 +628,11 @@ impl Solver {
         }
         for _ in 0..self.settings.passes.max(1) {
             self.constrain(h);
+        }
+        if last {
+            for index in 0..self.apart.len() {
+                keep_apart(&mut self.positions, &self.points, self.apart[index]);
+            }
         }
         self.limit(anchor_to, floor);
         if tracing {
@@ -754,9 +767,6 @@ impl Solver {
             for &distance in list {
                 keep_distance(&mut self.positions, &self.points, distance, scale);
             }
-        }
-        for index in 0..self.apart.len() {
-            keep_apart(&mut self.positions, &self.points, self.apart[index]);
         }
         for index in 0..self.points.len() {
             if let Some(drive) = self.points[index].drive {

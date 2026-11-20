@@ -344,7 +344,7 @@ A KOTOR 2 robe hangs from 3 or 4 chains of robe bones. The skin between two
 chains is only blended between them, so a leg that swings between two
 chains passes through the robe. While the solver runs, each body model
 with a skirt gets its own ring of chains when it is read, before anything
-looks at its nodes (`game::loose_parts::dress`).
+looks at its nodes (`game::loose_parts::add_skirt_chains`).
 
 - A KOTOR 2 robe's skirt is the cloth of its robe skirt bones. A model
   without them has a skirt when its legs mesh has at least 30 vertices
@@ -523,7 +523,10 @@ and capes in play" below), and so does the viewers' `--sim` option.
   links join, directly or through other trees. A point keeps away only from
   the bones beside it, at most 1.5 times as far at rest as that tree's
   nearest bone. Without this, two chains of a robe passed through each
-  other, and an upside down robe gathered its hem into one point.
+  other, and an upside down robe gathered its hem into one point. The test
+  is made once a frame, in the frame's last substep. Two chains cannot pass
+  through each other in one frame, and in every substep the test doubled
+  the solver's time on a robe of 10 chains.
 - The pelvis, the belly and the chest are a backstop. A point more than
   half a radius deep in one of them, on the far side from its target, is
   put back on its target's side. A point that a fast move took into the
