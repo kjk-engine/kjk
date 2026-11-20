@@ -1435,7 +1435,10 @@ fn assets(
         .resizable(true)
         .default_size(TILE + 90.0)
         .show(root, |ui| {
-            ui.horizontal(|ui| {
+            // The panel's width before anything is laid out in it: a row
+            // wider than the panel would widen what is left of it.
+            let width = ui.available_width();
+            ui.horizontal_wrapped(|ui| {
                 for (tab, label) in [
                     (Tab::Placeables, "Placeables"),
                     (Tab::Creatures, "Creatures"),
@@ -1526,8 +1529,12 @@ fn assets(
                     search.is_empty() || label.to_ascii_lowercase().contains(&search)
                 })
                 .collect();
-            let width = ui.available_width();
-            let per_row = ((width / (TILE + 12.0)).floor() as usize).max(1);
+            // A tile takes its width, its frame's margins and the space
+            // after it.
+            let stride = TILE
+                + egui::Frame::group(ui.style()).total_margin().sum().x
+                + ui.spacing().item_spacing.x;
+            let per_row = ((width / stride).floor() as usize).max(1);
             let rows = items.len().div_ceil(per_row);
             let mut placed: Option<Asset> = None;
             egui::ScrollArea::vertical().auto_shrink(false).show_rows(
