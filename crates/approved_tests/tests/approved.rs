@@ -4472,7 +4472,9 @@ fn scene_mode() {
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
 /// a break's freeze and the ready check, and what enters a trigger; the sim
-/// alone.
+/// alone. The check that the view and the shots agree on whom a player's
+/// shot stops on (`shots_stop_as_drawn`: the hostile, never the neutral,
+/// the other player only with friendly fire full) awaits approval.
 #[test]
 fn party_calls() {
     probed("party", &sim::party::probes(), 20);
