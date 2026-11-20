@@ -1,8 +1,8 @@
-//! What a mind needs to choose a Force power, an item or a grenade of its
-//! own (`combat::choose`). This module lists the options the mind has now.
-//! It reads what the mind sees of its target and of its allies. It finds
-//! the members of each side of the party's fight. It also writes the line
-//! of the choice log.
+//! What a mind needs to choose a Force power, an item, a grenade or a feat
+//! line of its own (`combat::choose`). This module lists the options the
+//! mind has now. It reads what the mind sees of its target and of its
+//! allies. It finds the members of each side of the party's fight. It also
+//! writes the lines of the choice log.
 
 use std::collections::BTreeMap;
 
@@ -11,11 +11,16 @@ use collision::UNIT;
 use super::Seen;
 use crate::combat::Fighter;
 use crate::combat::ai::{self, Cast};
-use crate::combat::choose::{self, Choice, Foes, Kind, Member, Option_, Reason, Scene, Target};
+use crate::combat::bar::FeatLine;
+use crate::combat::choose::{
+    self, Choice, FeatSight, FeatWhy, Foes, Kind, Member, Option_, Reason, Scene, Target,
+};
 use crate::combat::force::{self, Power};
 use crate::combat::gear;
+use crate::combat::picks::{self, Picks};
+use crate::combat::saber::{Kit, Style};
 use crate::combat::sheet::Sheet;
-use crate::combat::{grenades, items};
+use crate::combat::{grenades, items, pace};
 use crate::math::{self, Vec3};
 use crate::snapshot::SimId;
 
@@ -356,6 +361,68 @@ pub(super) fn member(entry: &Seen) -> Member {
         level: entry.sheet.level,
         health: entry.health,
         boss: entry.boss,
+    }
+}
+
+/// What a mind with id `me` sees of its target `entry`, `distance_m` meters
+/// away, that decides its feat line (`choose::feat_line`). A target blocks
+/// often when it holds its block now or holds a lit lightsaber.
+pub(super) fn feat_sight(entry: &Seen, me: SimId, distance_m: f32) -> FeatSight {
+    FeatSight {
+        blocks: entry.blocking || matches!(entry.arms, pace::Arms::Saber { lit: true }),
+        tired: entry.tired,
+        staggered: entry.reeling,
+        charging: entry.charging_at == Some(me),
+        still: entry.still,
+        distance_m,
+    }
+}
+
+/// How a mind changes its feat line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FeatChange {
+    /// A single blade fights in this style.
+    Style(Style),
+    /// The weapon in hand uses the line of this `feat.2da` row
+    /// (`Picks::steer`).
+    Line(u16),
+}
+
+/// The feat line a mind with `sheet` and `fighter` takes against a target
+/// it sees as `sight`, why, and how it changes to it. None when the line in
+/// use is already that line, when the player picked the weapon's line, or
+/// when the weapon in hand has no line.
+pub(super) fn feat_change(
+    sheet: &Sheet,
+    fighter: &Fighter,
+    sight: &FeatSight,
+) -> Option<(FeatLine, FeatWhy, FeatChange)> {
+    let hand = fighter.hand;
+    let kit = Kit::of(sheet);
+    if let Some(blade) = kit.blade(hand).filter(|_| kit.forced_style(hand).is_none()) {
+        let singles = kit.singles(blade);
+        let has = |line| choose::style_of(line).is_some_and(|style| singles.contains(&style));
+        let (line, why) = choose::feat_line(sight, false, has)?;
+        let style = choose::style_of(line)?;
+        let saber = &fighter.saber;
+        let in_use = saber.queued.or(saber.style);
+        return (in_use != Some(style)).then_some((line, why, FeatChange::Style(style)));
+    }
+    let melee = picks::chooses_melee(sheet, hand)?;
+    if Picks::player_picked(sheet, hand) {
+        return None;
+    }
+    let (line, why) = choose::feat_line(sight, !melee, |line| line.known(sheet).is_some())?;
+    let row = line.known(sheet)?;
+    (Picks::in_use(sheet, hand) != Some(line)).then_some((line, why, FeatChange::Line(row)))
+}
+
+/// Writes a feat choice to the standard error when the choice log is on.
+/// The line has the time, the chooser's tag, what it did with the line
+/// (`what`), the line and the reason.
+pub(super) fn log_feat(tag: &str, now: u64, what: &str, line: FeatLine, why: FeatWhy) {
+    if choose::logging() {
+        eprintln!("choice {now} ms {tag} Feat {what} {line:?}: {}", why.text());
     }
 }
 

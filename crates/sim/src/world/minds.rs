@@ -39,6 +39,7 @@ use super::{
 };
 use crate::combat::ai::FeatUse;
 use crate::combat::ai::{self, Cast, Mind, Task};
+use crate::combat::bar::FeatLine;
 use crate::combat::choose;
 use crate::combat::items;
 use crate::combat::mind;
@@ -1321,7 +1322,7 @@ pub(super) fn think(
                     // so the talent, which lasts its round, goes on the next.
                     let mut chosen = me;
                     if Picks::choose(&mut chosen, fighter.hand, row) {
-                        feat_talents.0.push((id.0, fighter.hand, row));
+                        feat_talents.0.push((id.0, fighter.hand, row, false));
                     } else {
                         match ai::feat_use(row, &me, &fighter_now, gun_special, saber_rules.duel())
                         {
@@ -1359,14 +1360,12 @@ pub(super) fn think(
         // die yet, so the scene never went on.
         let attacks_only = scripts.state.party.ai_styles.get(&id.0.0)
             == Some(&crate::script::party::NPC_AISTYLE_MELEE_ATTACK);
-        if !talent_ends_step
-            && (companion || own_choice || (!in_party && !attacks_only))
+        let chooses = (companion || own_choice || (!in_party && !attacks_only))
             && !leading
             && calm
             && engaged
-            && looking
-            && ready
-        {
+            && looking;
+        if !talent_ends_step && chooses && ready {
             let fighter_now = *fighter;
             let hostile_row = |row: u16| library.and_then(|library| library.hostile(row));
             // Its side. A party member's side is the party. Any other
@@ -1527,6 +1526,57 @@ pub(super) fn think(
                     cast_into(&mut fighter.mind, &mut command, special, now, dice);
                 }
                 None => {}
+            }
+        }
+        // Its feat line of its own choice, where scripts run
+        // (`ai.choices.feats`). A feat that its script's talent used this
+        // step decides instead. A single blade takes the line's style at
+        // once, and the swing under way plays on. A style queued the way the
+        // style key queues one waits for the weapon to be ready, which a
+        // creature that chains its swings never is. Another weapon's line is
+        // kept in the scripts' step.
+        let script_feat = matches!(talent, Some(Use::Feat(_)));
+        if chooses
+            && !own_choice
+            && !script_feat
+            && let Some(entry) = target
+        {
+            let tag = facts.map_or("", |facts| facts.tag.as_str());
+            let sight = choices::feat_sight(&entry, id.0, distance(&entry.ps) * UNIT);
+            let change = choices::feat_change(&me, fighter, &sight)
+                .filter(|_| !choose::feat_kept(now, fighter.mind.feat_at));
+            if let Some((line, why, change)) = change {
+                match change {
+                    choices::FeatChange::Style(style) => {
+                        fighter.saber.style = Some(style);
+                        fighter.saber.queued = None;
+                    }
+                    choices::FeatChange::Line(row) => {
+                        feat_talents.0.push((id.0, fighter.hand, row, true));
+                    }
+                }
+                fighter.mind.feat_at = now.max(1);
+                choices::log_feat(tag, now, "takes", line, why);
+            }
+            // A gunner fires the special of the line in use when the line's
+            // reason holds and it used nothing else on this look. It then
+            // waits a round, as after a script's feat talent.
+            let line = gun_special.and_then(|special| {
+                (FeatLine::ALL.into_iter()).find(|line| line.rows().contains(&special.row()))
+            });
+            let why = line.and_then(|line| choose::feat_reason(line, &sight));
+            if let (Some(line), Some(why)) = (line, why)
+                && ready
+                && fighter.mind.cast_after <= now
+            {
+                let fighter_now = *fighter;
+                let bar = specials::Bar::of(&me, &fighter_now, saber_rules.duel());
+                let special = ai::choose_special(gun_special, bar);
+                if cast_into(&mut fighter.mind, &mut command, special, now, dice) {
+                    let mind = &mut fighter.mind;
+                    mind.cast_after = mind.cast_after.max(now + ROUND_MS);
+                    choices::log_feat(tag, now, "fires", line, why);
+                }
             }
         }
         // A Force Push its mind starts itself (`Pace::request_push`, or to push

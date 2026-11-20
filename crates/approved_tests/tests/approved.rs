@@ -6140,6 +6140,19 @@ fn choice_feat_picks() {
     probed("feat steering", &sim::picks_probes::steer_probes(), 1);
 }
 
+/// The feat line a fighter chooses itself in a fight (`kjk sim probes
+/// --only "feat choices"`). An enemy with a single lightsaber fights in the
+/// strong style against a lit lightsaber, in the fast style against a tired
+/// target, and in the medium style otherwise. It keeps the fast style for 6
+/// seconds after its target stops being tired. A companion with two
+/// lightsabers takes Flurry against a tired enemy, and keeps a line the
+/// player picked. An enemy with a pistol takes Rapid Shot against a close
+/// target and fires it. (proposed 2026-11-20, awaiting approval)
+#[test]
+fn feat_choices() {
+    probed("feat choices", &sim::feat_choice_probes::probes(), 7);
+}
+
 /// Whether a fight is intense for the party (`sim::combat::choose`), how
 /// long it stays intense, and how many items of a kind a companion keeps.
 /// An enemy finds an intense fight with the sides swapped, and casts an

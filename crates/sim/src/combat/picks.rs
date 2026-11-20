@@ -270,13 +270,17 @@ impl Picks {
         Self::marked(sheet, hand, before)
     }
 
+    /// Whether the player picked the line of the weapon in `hand`.
+    pub fn player_picked(sheet: &Sheet, hand: u8) -> bool {
+        slot(sheet, hand).is_some_and(|slot| sheet.picks.player & slot.bit() != 0)
+    }
+
     /// The combat AI's choice (`combat::choose::feat_line`): makes the line
     /// of feat `row` the feat attack the weapon in `hand` uses. The AI never
     /// changes a line the player picked for that weapon, and never turns a
     /// line off. Whether it changed.
     pub fn steer(sheet: &mut Sheet, hand: u8, row: u16) -> bool {
-        let player = slot(sheet, hand).is_some_and(|slot| sheet.picks.player & slot.bit() != 0);
-        !player && sheet.knows(row) && Self::put(sheet, hand, row, false)
+        !Self::player_picked(sheet, hand) && sheet.knows(row) && Self::put(sheet, hand, row, false)
     }
 
     /// Makes the line of feat `row` the one the weapon in `hand` uses. For

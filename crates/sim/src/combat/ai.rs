@@ -129,6 +129,9 @@ pub struct Mind {
     /// indexed by `combat::choose::SideKind as usize`). Zero means never.
     /// Its allies read it (`combat::choose::side_allows`).
     pub used_at: [u64; 5],
+    /// When it last changed its feat line or saber style of its own choice
+    /// (sim ms, `combat::choose::feat_kept`). Zero means never.
+    pub feat_at: u64,
 }
 
 impl Mind {
@@ -183,6 +186,7 @@ impl Mind {
         for at in self.used_at {
             out.u64(at);
         }
+        out.u64(self.feat_at);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Mind, DecodeError> {
@@ -237,6 +241,13 @@ impl Mind {
             } else {
                 [0; 5]
             },
+            // A snapshot from before the field reads a mind that never
+            // changed its feat line.
+            feat_at: if input.since(crate::since::snapshot::AI_CHOICES_FEATS) {
+                input.u64()?
+            } else {
+                0
+            },
         })
     }
 }
@@ -247,9 +258,10 @@ pub fn probes() -> crate::probe::Checks {
     vec![("intense_until_kept", intense_until_kept())]
 }
 
-/// A mind written now reads back with `intense_until` and `used_at` kept. A
-/// mind written before the fields came in reads `intense_until == 0` and
-/// `used_at` all zero, as a default mind has.
+/// A mind written now reads back with `intense_until`, `used_at` and
+/// `feat_at` kept. A mind written before `feat_at` came in reads
+/// `feat_at == 0`. A mind written before `intense_until` and `used_at` came
+/// in reads them as zero too, as a default mind has.
 #[cfg(feature = "probes")]
 fn intense_until_kept() -> Result<String, String> {
     use crate::wire::Versions;
@@ -257,33 +269,45 @@ fn intense_until_kept() -> Result<String, String> {
         cast_after: 3_000,
         intense_until: 12_000,
         used_at: [1_000, 0, 2_000, 0, 3_000],
+        feat_at: 4_000,
         ..Mind::default()
     };
     let mut out = Writer::default();
     mind.encode(&mut out);
     let bytes = out.0;
     let again = Mind::decode(&mut Reader::new("mind", &bytes)).map_err(|e| e.to_string())?;
-    // The fields are the last six times of eight bytes each, so the old
-    // layout is the rest.
-    let old = &bytes[..bytes.len() - 6 * 8];
-    let before = crate::since::snapshot::AI_CHOICES_COMPANIONS.1 - 1;
-    let versions = Versions {
-        snapshot: before,
-        ..Versions::THIS_BUILD
+    let mut wrong = Vec::new();
+    if again != mind {
+        wrong.push(format!("read back {again:?}"));
+    }
+    // Each version gate, with the times of eight bytes each that came in
+    // with it and after it. The bytes before them are the old layout.
+    let older = |since: crate::wire::Since, times: usize| -> Result<Mind, String> {
+        let versions = Versions {
+            snapshot: since.1 - 1,
+            ..Versions::THIS_BUILD
+        };
+        let old = &bytes[..bytes.len() - times * 8];
+        let mut input = Reader::new("mind", old).with_versions(versions);
+        let read = Mind::decode(&mut input).map_err(|e| e.to_string())?;
+        input.finish().map_err(|e| e.to_string())?;
+        Ok(read)
     };
-    let mut input = Reader::new("mind", old).with_versions(versions);
-    let older = Mind::decode(&mut input).map_err(|e| e.to_string())?;
-    let whole = input.finish();
-    crate::probe::check(
-        again == mind
-            && older.intense_until == 0
-            && older.used_at == [0; 5]
-            && older.cast_after == mind.cast_after
-            && whole.is_ok()
-            && Mind::default().intense_until == 0
-            && Mind::default().used_at == [0; 5],
-        format!("read back {again:?}; from snapshot version {before} {older:?}, rest {whole:?}"),
-    )
+    let before_feats = older(crate::since::snapshot::AI_CHOICES_FEATS, 1)?;
+    if before_feats != (Mind { feat_at: 0, ..mind }) {
+        wrong.push(format!("before feat_at {before_feats:?}"));
+    }
+    let before_choices = older(crate::since::snapshot::AI_CHOICES_COMPANIONS, 7)?;
+    let calm = Mind {
+        intense_until: 0,
+        used_at: [0; 5],
+        feat_at: 0,
+        ..mind
+    };
+    if before_choices != calm {
+        wrong.push(format!("before intense_until {before_choices:?}"));
+    }
+    crate::probe::check(wrong.is_empty(), format!("wrong: {wrong:?}"))
 }
 
 /// How long a creature that has just spotted a foe takes to act (ms), less

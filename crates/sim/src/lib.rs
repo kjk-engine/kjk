@@ -130,6 +130,8 @@ pub use world::enemy_choice_probes;
 pub use world::facing_probes;
 pub use world::falls;
 #[cfg(feature = "probes")]
+pub use world::feat_choice_probes;
+#[cfg(feature = "probes")]
 pub use world::feats;
 #[cfg(feature = "probes")]
 pub use world::floor_probes;
