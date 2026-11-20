@@ -874,6 +874,50 @@ impl Sides {
     }
 }
 
+/// The bodies other than its own that `shooter`'s shots may stop on in
+/// `world` now, by entity number (`SimId`), as `fire` picks them:
+/// `Targets::met_by`, then `Sides::met` (the shot's trace skips the
+/// shooter's own body). The probes hold the view's
+/// `Snapshot::shot_stops_on` to it.
+#[cfg(feature = "probes")]
+pub(crate) fn stopped_by(world: &mut World, shooter: SimId) -> Vec<u32> {
+    let level = world.resource::<Static>().0.clone();
+    let mut actors = world.query::<(
+        &Id,
+        Option<&Avatar>,
+        Option<&Object>,
+        Option<&PlayerSheet>,
+        &Player,
+        &Fighting,
+    )>();
+    let scripts = world.resource::<scripts::Scripts>();
+    let sides = sides_of(
+        &level,
+        scripts,
+        (actors.iter(world)).map(|(id, avatar, object, sheet, _, fighting)| {
+            (id.0, avatar, object, sheet, fighting)
+        }),
+    );
+    let targets = Targets::of(
+        level.friendly_fire,
+        (actors.iter(world)).map(|(id, avatar, object, _, player, fighting)| {
+            (
+                id.0,
+                &player.0,
+                object_bulk(object),
+                fighting.0.alive(),
+                in_party(avatar, &fighting.0),
+            )
+        }),
+    );
+    let mut stopped: Vec<u32> = (sides.met(shooter, targets.met_by(shooter)).iter())
+        .map(|body| body.entity & !BODY)
+        .filter(|&entity| entity != shooter.0)
+        .collect();
+    stopped.sort();
+    stopped
+}
+
 /// `Sides` of the characters `actors` holds, with what scripts changed of
 /// the factions' standing.
 pub(super) fn sides_of<'a>(

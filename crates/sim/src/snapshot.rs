@@ -1727,6 +1727,46 @@ impl Snapshot {
         crate::world::party_member(entity) && !self.benched(entity)
     }
 
+    /// Whether a shot that `shooter` fires may stop on `target`'s body, as
+    /// the sim decides it for its shots (`world::firing`): its crosshair's
+    /// line passes through every other body. With friendly fire off, a
+    /// party member's shot passes through the party (`Targets::met_by`).
+    /// A shot stops on a character only if the shooter's mind attacks it,
+    /// both are in the party, or the two are hostile by faction
+    /// (`Sides::met`). So it passes through a neutral, such as a bantha,
+    /// and through an ally that is not in the party. A body with no side
+    /// (no fight or no sheet) stops it. `instances` is
+    /// `Instances::in_snapshot` of this snapshot in `level`.
+    pub fn shot_stops_on(
+        &self,
+        (level, instances): (&crate::Level, &crate::Instances),
+        shooter: &EntityState,
+        target: &EntityState,
+    ) -> bool {
+        use crate::combat::{FriendlyFire, Relation};
+        let party = [shooter, target].map(|entity| self.in_party(entity));
+        if level.friendly_fire() == FriendlyFire::Off && party == [true, true] {
+            return false;
+        }
+        let side = |entity: &EntityState, party: bool| {
+            let fighter = entity.fighter.as_ref()?;
+            let sheet = (entity.sheet)
+                .or_else(|| instances.of_entity(entity).and_then(|facts| facts.sheet))?;
+            Some(crate::module::Side {
+                id: entity.id.0,
+                faction: fighter.faction.unwrap_or(sheet.faction),
+                party,
+            })
+        };
+        let (Some(from), Some(to)) = (side(shooter, party[0]), side(target, party[1])) else {
+            return true;
+        };
+        let standing = level.module().map(|module| self.standings(module));
+        shooter.fighter.as_ref().and_then(|fighter| fighter.target) == Some(target.id)
+            || (from.party && to.party)
+            || crate::module::relation(standing, from, to) == Relation::Hostile
+    }
+
     /// Why the map page's return to the Ebon Hawk is refused now, as K1's
     /// executable checks it each time the page shows (`Transit::refused`):
     /// the area keeps the party from leaving (`barred`: its transit

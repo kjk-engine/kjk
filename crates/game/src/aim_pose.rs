@@ -60,13 +60,19 @@ pub(crate) const NEAREST_SIGHT: f32 = 1.0 / UNIT;
 /// The point under the player's crosshair (units, game space): where the
 /// crosshair's line (`sim::combat::mind::crosshair`, along `player`'s view)
 /// first meets the level (`level` with the doors as `states` has them) or
-/// a living body of `snapshot` other than `me`. A line that meets nothing
-/// ends `sim::combat::weapons::HITSCAN_RANGE` out. The sim sends the
-/// player's bolts from the muzzle to this same point
-/// (`sim::world::firing`), so a barrel aimed at it points where the shots
-/// go. The point is never nearer than `NEAREST_SIGHT` along the line. With
-/// the camera looking steeply down, the guns aim further out and higher
-/// than the crosshair's point (`held_aim`).
+/// a living body of `snapshot` that `me`'s shots stop on
+/// (`sim::Snapshot::shot_stops_on`). A line that meets nothing ends
+/// `sim::combat::weapons::HITSCAN_RANGE` out. The sim sends the player's
+/// bolts from the muzzle to this same point (`sim::world::firing`), so a
+/// barrel aimed at it points where the shots go. The line passes through
+/// party members and neutrals, as the shots do. It starts beside the head,
+/// where the camera stands over the shoulder, so it often grazes a
+/// companion walking beside the player. A body's box is wider than the
+/// body drawn in it. Stopped on such a box a metre or two out, the barrel
+/// swung toward a point beside the head and stood up like a horn. The
+/// point is never nearer than `NEAREST_SIGHT` along the line. With the
+/// camera looking steeply down, the guns aim further out and higher than
+/// the crosshair's point (`held_aim`).
 pub(crate) fn sighted(
     (level, states): (&sim::Level, Option<&[u8]>),
     snapshot: &Snapshot,
@@ -74,8 +80,12 @@ pub(crate) fn sighted(
     player: &MotionState,
 ) -> Vec3 {
     let objects = Instances::in_snapshot(level, snapshot);
+    let shooter = snapshot.entities.iter().find(|e| e.id == me);
     let bodies: Vec<collision::Body> = (snapshot.entities.iter())
         .filter(|e| e.id != me && e.fighter.is_some_and(|f| f.alive()))
+        .filter(|e| {
+            shooter.is_none_or(|shooter| snapshot.shot_stops_on((level, &objects), shooter, e))
+        })
         .filter_map(|e| {
             let ps = e.player?;
             Some(sim::body(e.id, &ps, sim::bulk_of(objects.of_entity(e))))
