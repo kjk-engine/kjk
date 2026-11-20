@@ -41,6 +41,7 @@ const GROUPS: &[Group] = &[
     ("flinch", kjk_game::acting::flinch_probes),
     ("kept on", kjk_game::acting::kept_probes),
     ("creature_attack", kjk_game::acting::attack_probes),
+    ("baton swing view", kjk_game::acting::baton_swing_probes),
     ("damage numbers", kjk_game::floaty_view::damage_probes),
     (
         "status summary option",
@@ -160,6 +161,8 @@ const GROUPS: &[Group] = &[
     ("sheath", sim::strikes::sheath_probes),
     ("blade taken", sim::strikes::blade_taken_probes),
     ("bystander", sim::strikes::bystander_probes),
+    ("fists", sim::strikes::fist_probes),
+    ("baton", sim::strikes::baton_probes),
     ("minds", sim::minds_probes),
     ("pace", sim::pace_probes::probes),
     ("party fights", sim::party_fights_probes::probes),

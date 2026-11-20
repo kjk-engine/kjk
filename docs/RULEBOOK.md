@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `4b1c17a6a806ac1e`.
+Edition `1fcf2ba393d15cbe`.
 
 ## Contents
 
@@ -45,6 +45,7 @@ Edition `4b1c17a6a806ac1e`.
   - [Sonic Weapons](#weapons-sonic)
   - [Bolts in Flight](#weapons-flight)
   - [Unarmed Combat](#weapons-unarmed)
+  - [Baton Swings](#weapons-baton)
   - [Bloom and Kick](#weapons-bloom)
   - [Aiming](#weapons-aim)
 - [Feats](#feats)
@@ -736,6 +737,11 @@ share of damage, so the punches of one round deal as much damage together
 as the single punch of Jedi Academy's rules. Weapon effects that trigger on
 a hit trigger by the same share, so they do not trigger more often in a
 round.
+
+With a stun baton or a plasma torch in hand, hold [Attack] to swing it. The
+character swings first one way and then the other, and each swing flows into
+the next. The character can walk while swinging. A baton swings about four
+times a round, and each hit deals about a quarter of a round's damage.
 
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
@@ -1739,6 +1745,50 @@ An unarmed attack threatens a critical hit on the highest 1 result of the d20. A
 An unarmed critical hit multiplies the damage roll by 2.
 
 <sub>Source: KOTOR's unarmed strike. Code: `sim::combat::sheet::Weapon::UNARMED`.</sub>
+
+### <a id="weapons-baton"></a>Baton Swings
+
+A character with a stun baton or a plasma torch swings it with KOTOR's two
+baton swings, first one and then the other, for as long as Attack is held.
+Each swing flows into the next. Each hit deals a part of a round's damage
+that matches how long its swing takes, so the damage over a round stays the
+same as one hit a round.
+
+<a id="weapons-baton-g1a1-hit-ms"></a>**First Baton Swing Hit** = **0.53 seconds** (`533 ms`) · `weapons.baton.g1a1_hit_ms`
+
+The first baton swing hits 0.53 seconds after it starts.
+
+<sub>Source: the Hit event of g1a1 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms). Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-g1a2-hit-ms"></a>**Second Baton Swing Hit** = **0.53 seconds** (`533 ms`) · `weapons.baton.g1a2_hit_ms`
+
+The second baton swing hits 0.53 seconds after it starts.
+
+<sub>Source: the Hit event of g1a2 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms). Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-next-after-hit-ms"></a>**Next Baton Swing** = **0.25 seconds** (`250 ms`) · `weapons.baton.next_after_hit_ms`
+
+While Attack is held, the next baton swing starts 0.25 seconds after the last swing hits.
+
+<sub>Source: ours, tuned by watching. Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-blend-ms"></a>**Baton Swing Blend** = **0.15 seconds** (`150 ms`) · `weapons.baton.blend_ms`
+
+One baton swing fades into the next over 0.15 seconds.
+
+<sub>Source: ours, tuned by watching. Code: `kjk_game::acting::BatonSwings`.</sub>
+
+<a id="weapons-baton-aim-turn-deg"></a>**Baton Swing Aim** = **30 deg** · `weapons.baton.aim_turn_deg`
+
+A character's torso turns 30 deg to the left during a baton swing, so the swing strikes straight ahead. KOTOR's own swings strike about 30 degrees to the right of where the character faces.
+
+<sub>Source: ours, measured from above in the arena. Code: `kjk_game::acting::swing_tracks`.</sub>
+
+<a id="weapons-baton-follow-through-pct"></a>**Baton Follow-Through** = **35%** · `weapons.baton.follow_through_pct`
+
+After a baton swing hits, the arm and torso move on only 35% as far as in KOTOR's own swing. KOTOR's second swing carries the baton on around the head to the left shoulder.
+
+<sub>Source: ours, tuned by watching. Code: `kjk_game::acting::swing_tracks`.</sub>
 
 ### <a id="weapons-bloom"></a>Bloom and Kick
 

@@ -2245,14 +2245,15 @@ enum Look {
     /// JA's animations retargeted onto a KOTOR body; by weapon slot, the
     /// rig that grips the slot's blade while it is out.
     /// `acted`: its KOTOR clips for scripts' animations, and what it shows
-    /// of them (`acting`) and of its grenade throws; a player's body its own
-    /// clips out of a fight (`gait`).
+    /// of them (`acting`), of its grenade throws and of its stun baton's
+    /// swings; a player's body its own clips out of a fight (`gait`).
     Retargeted {
         rig: Arc<BodyRig>,
         gripped: [Option<Arc<BodyRig>>; 2],
         acted: acting::Bound,
         shows: Box<acting::Shows>,
         throw: acting::Throw,
+        baton: acting::BatonSwings,
         draw: Box<acting::Once>,
         flinch: Box<acting::Flinch>,
         gait: Option<Box<crate::gait::Gait>>,
@@ -2271,6 +2272,7 @@ impl Look {
             acted,
             shows: Box::default(),
             throw: acting::Throw::default(),
+            baton: acting::BatonSwings::default(),
             draw: Box::default(),
             flinch: Box::default(),
             gait: None,
@@ -6089,6 +6091,7 @@ fn place<T: Transforms>(
             acted,
             shows,
             throw,
+            baton,
             draw,
             flinch,
             gait,
@@ -6101,6 +6104,8 @@ fn place<T: Transforms>(
             shows.follow(acting, (still, moving, at.alive, world_held), ms);
             hear(heard, shows, (acted, figure.breath.wield), ms);
             throw.follow(at.fighter.as_ref(), figure.launcher);
+            // A stun baton (wield 1) swings KOTOR's own swings.
+            baton.follow(at.fighter.as_ref(), figure.breath.wield == 1, ms);
             // A player's own body (its gait) keeps JA's; JA's own pain,
             // drawn on the pose, is the flinch where the sim plays it.
             let pained = gait.is_some() || pained(&at.state);
@@ -6365,6 +6370,7 @@ fn place<T: Transforms>(
                         .turn((target, ms), (Some(level), tilt, sight), bone, transforms);
                 }
             };
+            let swung = baton.shown(acted, ms);
             // A body a blast throws keeps its JA pose, which its ragdoll
             // starts from (`as_drawn_dead`).
             let whole = under <= 1.0 - WHOLE && gripping.is_none() && aims.is_empty();
@@ -6380,7 +6386,9 @@ fn place<T: Transforms>(
                     .breath
                     .follow(acted, false, (ms, stance::phase(body.root)));
                 lay(
-                    &mut shown.into_iter().chain(throw.shown(acted, ms)),
+                    &mut (shown.into_iter())
+                        .chain(throw.shown(acted, ms))
+                        .chain(swung),
                     transforms,
                 );
                 head(figure, transforms, level);
@@ -6495,7 +6503,9 @@ fn place<T: Transforms>(
                 (ms, to_model),
             );
             lay(
-                &mut shown.into_iter().chain(throw.shown(acted, ms)),
+                &mut (shown.into_iter())
+                    .chain(throw.shown(acted, ms))
+                    .chain(swung),
                 transforms,
             );
             let heading = ja_head_heading(&figure.g2, &ja);

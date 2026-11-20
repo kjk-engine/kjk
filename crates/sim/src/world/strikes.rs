@@ -49,9 +49,15 @@
 //! punches of a round deal one round's damage.
 //!
 //! A stun baton (`baseitems.2da` row 1, TSL's plasma torch among them: no
-//! blade the weapon step swings, `combat::saber::Held::Other`) strikes as
-//! the fists do, its blow a hit of the baton itself, so the party breaks a
-//! door with it as with any blow (`objects`; the torch's Door Cutting).
+//! blade the weapon step swings, `combat::saber::Held::Other`) swings
+//! KOTOR's own baton swings, `g1a1` and `g1a2` in turn (`baton_swing`; the
+//! view draws them on the upper body), reaching as the fists do. Each swing
+//! begins a short while after the last one's blow
+//! (`rules::weapons::baton`), so a held attack swings without a stop, and
+//! each blow is paced by that interval (`blow_cadence_ms`): the swings of a
+//! round deal one round's damage. Its blow is a hit of the baton itself, so
+//! the party breaks a door with it as with any blow (`objects`; the
+//! torch's Door Cutting).
 //!
 //! A humanoid's fists and stun baton carry the melee feat line chosen for
 //! them (`Picks::hands`, the next-feat key), as KOTOR's action menu offers
@@ -180,6 +186,36 @@ pub(crate) fn punch(chain: u8) -> Anim {
     }
 }
 
+/// A stun baton's swing (TSL's plasma torch's too): KOTOR's own clip,
+/// when its blow hits (ms into it), and how long until the next swing
+/// begins while attack is held (ms; `rules::weapons::baton`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BatonSwing {
+    pub clip: &'static str,
+    pub hit_ms: u16,
+    pub interval_ms: u16,
+}
+
+/// The swing thrown after `chain` swings: `g1a1`, then `g1a2`, in turn.
+pub fn baton_swing(chain: u8) -> BatonSwing {
+    use rules::weapons::baton;
+    let (clip, hit_ms) = match chain.is_multiple_of(2) {
+        true => ("g1a1", baton::G1A1_HIT_MS),
+        false => ("g1a2", baton::G1A2_HIT_MS),
+    };
+    BatonSwing {
+        clip,
+        hit_ms,
+        interval_ms: hit_ms + baton::NEXT_AFTER_HIT_MS,
+    }
+}
+
+/// The cadence a humanoid's blow is paced by (`damage::pace`): a baton
+/// swing's interval, else a whole round.
+fn blow_cadence_ms(swing: Option<BatonSwing>) -> u32 {
+    swing.map_or(CADENCE_MS as u32, |swing| u32::from(swing.interval_ms))
+}
+
 /// When `anim`'s blow lands (ms into it): halfway, the fist out; half a
 /// round where the table lacks it.
 pub(crate) fn punch_hit_ms(anims: &AnimTable, anim: Anim) -> u16 {
@@ -272,26 +308,34 @@ pub(super) fn strikes(
         }
         let personal_space = facts.map_or(0.0, |facts| facts.personal_space);
         let beast = facts.and_then(|facts| facts.strike);
+        // A stun baton (or TSL's plasma torch) swings KOTOR's own baton
+        // swings. The one under way is the one before the chain's next.
+        let swings = beast.is_none() && in_hand.delivery == Delivery::Baton;
+        let baton = swings.then(|| baton_swing(fighter.saber.chain.wrapping_add(1)));
         // Under the Advanced rules bare hands chain their punches
-        // (`chained`); under JA's they throw one a round.
+        // (`chained`). Under JA's they throw one a round.
         let chains = beast.is_none()
             && in_hand.delivery == Delivery::Unarmed
             && scene.saber_rules(&talking.0, id.0, rules.0).duel();
         let pressed = fighter.last_command.buttons & buttons::ATTACK != 0;
         let keys = fighter.fists;
         fighter.fists.held = pressed;
-        // A punch under way is the one before the chain's next; a stun
-        // baton's (or TSL's plasma torch's) is a blow of what is in hand.
-        let (strike, space) = match beast {
-            Some(strike) => (strike, personal_space),
-            None => (
+        // A punch under way is likewise the one before the chain's next. A
+        // baton's blow is one of what is in hand.
+        let (strike, space) = match (beast, baton) {
+            (Some(strike), _) => (strike, personal_space),
+            (None, Some(swing)) => (
                 Strike {
-                    weapon: (in_hand.delivery == Delivery::Baton).then_some(in_hand),
-                    ..fists(punch_hit_ms(
-                        anims,
-                        punch(fighter.saber.chain.wrapping_add(1)),
-                    ))
+                    weapon: Some(in_hand),
+                    ..fists(swing.hit_ms)
                 },
+                humanoid_space(personal_space),
+            ),
+            (None, None) => (
+                fists(punch_hit_ms(
+                    anims,
+                    punch(fighter.saber.chain.wrapping_add(1)),
+                )),
                 humanoid_space(personal_space),
             ),
         };
@@ -314,9 +358,11 @@ pub(super) fn strikes(
         let wait = fighter.weapon_wait_ms;
         // The punch under way, the chain's last.
         let thrown = punch(fighter.saber.chain.wrapping_add(1));
-        let base = match chains {
-            true => chained(anims, thrown),
-            false => CADENCE_MS,
+        // A baton swing lasts its interval, and a chained punch its clip.
+        let base = match (baton, chains) {
+            (Some(swing), _) => i32::from(swing.interval_ms),
+            (None, true) => chained(anims, thrown),
+            (None, false) => CADENCE_MS,
         };
         let round = round_ms(&sheet, beast.map(|strike| strike.hit_ms), base);
         if wait > 0 {
@@ -324,6 +370,12 @@ pub(super) fn strikes(
             if chains && pressed && !keys.held {
                 fighter.fists.queued = true;
             }
+            // A baton's blow lands only in a swing it began, not as a timer
+            // a grenade's throw or a weapon change raised runs down.
+            let swinging = baton.is_none_or(|swing| {
+                fighter.swung_at > 0
+                    && now.saturating_sub(fighter.swung_at) <= u64::from(swing.interval_ms)
+            });
             // The blow, the step the attack passes its hit moment. A chained
             // punch's lands only in the punch itself (`punched_at`), not as
             // a kick out of it runs the timer down past the mark.
@@ -335,7 +387,7 @@ pub(super) fn strikes(
                 }
                 false => {
                     let mark = (round - i32::from(strike.hit_ms)).max(1);
-                    wait <= mark && wait + msec > mark
+                    swinging && wait <= mark && wait + msec > mark
                 }
             };
             let foe = match beast {
@@ -370,9 +422,10 @@ pub(super) fn strikes(
                     target: foe.id,
                     source: Source::Weapon {
                         weapon,
-                        cadence_ms: match beast {
-                            Some(_) => cadence(round, true),
-                            None => cadence(base, false),
+                        cadence_ms: match (beast, baton) {
+                            (Some(_), _) => cadence(round, true),
+                            (None, Some(_)) => blow_cadence_ms(baton),
+                            (None, None) => cadence(base, false),
                         },
                         share: 1000,
                         area: false,
@@ -409,10 +462,12 @@ pub(super) fn strikes(
             continue;
         }
         // A new attack; the timer's overrun carries into it, so the rounds
-        // keep their length. A chained punch lasts as long as its own clip.
-        let next = match chains {
-            true => chained(anims, punch(fighter.saber.chain)),
-            false => base,
+        // keep their length. A baton's next swing lasts its own interval,
+        // and a chained punch as long as its own clip.
+        let next = match (swings, chains) {
+            (true, _) => i32::from(baton_swing(fighter.saber.chain).interval_ms),
+            (false, true) => chained(anims, punch(fighter.saber.chain)),
+            (false, false) => base,
         };
         fighter.weapon_wait_ms =
             wait.max(-msec) + round_ms(&sheet, beast.map(|strike| strike.hit_ms), next);
@@ -432,7 +487,12 @@ pub(super) fn strikes(
             if in_hand.delivery == Delivery::Unarmed {
                 fighter.punched_at = now;
             }
-            motion::react(&mut player.0, anims, punch(chain), true);
+            // A baton's swing is KOTOR's own clip, which the view draws on
+            // the upper body. Fists throw JA's punch.
+            match swings {
+                true => fighter.swung_at = now,
+                false => motion::react(&mut player.0, anims, punch(chain), true),
+            }
         }
     }
 }
@@ -450,9 +510,10 @@ pub(super) fn feat_line(sheet: &crate::combat::Sheet, beast: bool) -> (Kit, Mele
 /// How long an attack lasts (ms). A beast's (`beast`, its model's hit
 /// moment) takes `beasts::EVERY_MS`, or as long as its hit moment where
 /// that comes later. A humanoid's punch takes `base`: KOTOR's round, or a
-/// chained punch's own clip (`chained`). It is shorter by the attack speed
-/// the line chosen for the fists carries (`Kit::line_speed`, Flurry's), and
-/// its blow still deals the damage of `base` (`cadence`).
+/// chained punch's own clip (`chained`). A baton swing takes its interval.
+/// It is shorter by the attack speed the line chosen for the fists or baton
+/// carries (`Kit::line_speed`, Flurry's), and its blow still deals the
+/// damage of `base` (`cadence`).
 fn round_ms(sheet: &crate::combat::Sheet, beast: Option<u16>, base: i32) -> i32 {
     if let Some(hit_ms) = beast {
         return beasts::EVERY_MS.max(i32::from(hit_ms));
@@ -550,5 +611,6 @@ fn in_front(
 mod probes;
 #[cfg(feature = "probes")]
 pub use probes::{
-    blade_taken_probes, bystander_probes, fist_probes, hold_probes, probes, sheath_probes,
+    baton_probes, blade_taken_probes, bystander_probes, fist_probes, hold_probes, probes,
+    sheath_probes,
 };

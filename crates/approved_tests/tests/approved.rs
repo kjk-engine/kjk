@@ -3892,6 +3892,18 @@ fn fists_brawl() {
     probed("fists", &sim::strikes::fist_probes(), 7);
 }
 
+/// Baton swings (proposed 2026-11-18): on the proving ground a player
+/// holding a stun baton, attack held, swings KOTOR's two baton swings in
+/// turn, each starting its interval after the last and hitting at the
+/// swing's own hit moment, each hit paced by that interval so a round deals
+/// one round's damage; no punch shows on the torso; a foe with a baton
+/// closes in and swings back the same way; two runs end the same. The sim
+/// alone.
+#[test]
+fn baton_swings() {
+    probed("baton", &sim::strikes::baton_probes(), 7);
+}
+
 /// The player's blows on a creature that is not its foe (issue #341): on
 /// the proving ground the player, bare-handed, holds attack at a neutral
 /// creature for 12 s. Its punches meet the creature, which loses no hit
