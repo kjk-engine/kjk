@@ -421,9 +421,13 @@ fights in the strong style against a target that blocks often, in the
 fast style against a tired or staggered target, and in the medium style
 otherwise. Two blades, a staff, fists and a stun baton take the matching
 feat line through `Picks::steer`. A gun takes Rapid Shot, Sniper Shot or
-Power Blast by its own reasons and fires the special when that reason
-holds. A changed line is kept for 6 seconds. A line the player picked
-with the next-feat key stays. A feat line that a generic combat script
+Power Blast by its own reasons, and Power Blast when no reason holds. It
+fires the special of the line in use when that line's reason holds or the
+line is its fallback. A single blade's new style is queued. The swing
+under way keeps its style, and a creature takes the new one as its next
+swing begins, in a chain too. A changed line is kept for 6 seconds, until
+the character switches weapon sets. A line the player picked with the
+next-feat key or the action bar stays. A feat line that a generic combat script
 picks becomes a plain attack on the same target; two creatures outside the party whose scripts attack
 fight in KOTOR's combat rounds (`minds::begin_round`, the hit model every
 weapon hit shares: `damage::odds`, `damage::critical`,

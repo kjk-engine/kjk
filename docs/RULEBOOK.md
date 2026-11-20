@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `635c94297d5269f7`.
+Edition `42785cc3b4e471f1`.
 
 ## Contents
 
@@ -8366,8 +8366,9 @@ the fast style against a tired or staggered target, and in the medium style
 otherwise. Two blades, a double-bladed weapon, fists and a stun baton take the
 feat line of the same three reasons. A gun takes Rapid Shot against a close
 target or one that charges at the character, Sniper Shot against a far target
-that stands still, and Power Blast against a target that does not block. A
-target blocks often when it holds its block or holds a lit lightsaber. A line
+that stands still, and Power Blast against a target that does not block.
+When none of these reasons holds, a gun takes Power Blast, or else the first
+other line the character knows. A target blocks often when it holds its block or holds a lit lightsaber. A line
 that the player picked for a companion with the next-feat key stays until the
 player changes it.
 
@@ -8381,13 +8382,13 @@ After a character changes its saber style or its feat line, it keeps the new one
 
 A gunner takes Rapid Shot against a target within 5 meters.
 
-<sub>Source: the builder's call of 20 November 2026. Code: `sim::combat::choose::gun_reason`.</sub>
+<sub>Source: the builder's call of 20 November 2026. Code: `sim::combat::choose::feat_reason`.</sub>
 
 <a id="ai-choices-feats-far-m"></a>**Far Target for Sniper Shot** = **15 m** · `ai.choices.feats.far_m`
 
 A gunner takes Sniper Shot against a target that stands still at least 15 meters away.
 
-<sub>Source: the builder's call of 20 November 2026. Code: `sim::combat::choose::gun_reason`.</sub>
+<sub>Source: the builder's call of 20 November 2026. Code: `sim::combat::choose::feat_reason`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

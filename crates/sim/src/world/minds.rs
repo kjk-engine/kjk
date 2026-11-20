@@ -1530,11 +1530,11 @@ pub(super) fn think(
         }
         // Its feat line of its own choice, where scripts run
         // (`ai.choices.feats`). A feat that its script's talent used this
-        // step decides instead. A single blade takes the line's style at
-        // once, and the swing under way plays on. A style queued the way the
-        // style key queues one waits for the weapon to be ready, which a
-        // creature that chains its swings never is. Another weapon's line is
-        // kept in the scripts' step.
+        // step decides instead. A single blade's style is queued. The swing
+        // under way keeps its style, and the new one applies when the
+        // weapon is ready or, for a creature that chains its swings, as its
+        // next swing begins (`motion::saber`). Another weapon's line is kept
+        // in the scripts' step.
         let script_feat = matches!(talent, Some(Use::Feat(_)));
         if chooses
             && !own_choice
@@ -1547,10 +1547,7 @@ pub(super) fn think(
                 .filter(|_| !choose::feat_kept(now, fighter.mind.feat_at));
             if let Some((line, why, change)) = change {
                 match change {
-                    choices::FeatChange::Style(style) => {
-                        fighter.saber.style = Some(style);
-                        fighter.saber.queued = None;
-                    }
+                    choices::FeatChange::Style(style) => fighter.saber.queued = Some(style),
                     choices::FeatChange::Line(row) => {
                         feat_talents.0.push((id.0, fighter.hand, row, true));
                     }
@@ -1559,12 +1556,16 @@ pub(super) fn think(
                 choices::log_feat(tag, now, "takes", line, why);
             }
             // A gunner fires the special of the line in use when the line's
-            // reason holds and it used nothing else on this look. It then
-            // waits a round, as after a script's feat talent.
+            // reason holds, or when it is the line it falls back on. It fires
+            // only when it used nothing else on this look, and when no talent
+            // of its script holds this step. It then waits a round, as after
+            // a script's feat talent.
             let line = gun_special.and_then(|special| FeatLine::of(special.row()));
-            let why = line.and_then(|line| choose::feat_reason(line, &sight));
+            let knows = |line: FeatLine| line.known(&me).is_some();
+            let why = line.and_then(|line| choose::fire_reason(line, &sight, knows));
             if let (Some(line), Some(why)) = (line, why)
                 && ready
+                && !talent_ends_step
                 && fighter.mind.cast_after <= now
             {
                 let fighter_now = *fighter;

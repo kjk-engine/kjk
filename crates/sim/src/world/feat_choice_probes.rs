@@ -14,11 +14,17 @@
 //!   against a player who neither blocks nor is tired;
 //! - the same enemy keeps the fast style for 6 seconds after the player
 //!   is no longer tired, and then takes the medium style;
+//! - the same enemy, when it chooses the medium style while it chains its
+//!   swings, takes it as a new move begins and within 2.5 seconds;
 //! - a companion with two lightsabers takes Flurry against a tired enemy;
 //! - a companion whose line the player picked with the next-feat key keeps
 //!   that line against the same enemy;
+//! - an enemy with two lightsabers, and an enemy with a pistol, whose line
+//!   changed 1 second in, change no line for 6 seconds after that;
 //! - an enemy with a pistol takes Rapid Shot against the player 3 m away,
-//!   and fires it.
+//!   and fires it;
+//! - an enemy with a pistol that knows only Power Blast fires it at a
+//!   creature with a lit lightsaber.
 
 use super::{Fighting, Id, SimWorld};
 use crate::combat::Sheet;
@@ -65,12 +71,16 @@ enum Arms {
     Saber,
     TwoSabers,
     Pistol,
+    /// A pistol, knowing only Power Blast.
+    BlastPistol,
 }
 
 /// A case. It says what the fighter holds, whether it is a companion,
 /// whether the player picked its line, the style it starts in, whether its
-/// target holds a lit lightsaber, and until when its target is tired (sim
-/// ms). It says how long the case runs and what it must see.
+/// target holds a lit lightsaber, until when its target is tired (sim
+/// ms), and when the fighter last changed its line before the case began
+/// (`Mind::feat_at`, 0 for never). It says how long the case runs and what
+/// it must see.
 struct Case {
     name: &'static str,
     arms: Arms,
@@ -79,6 +89,7 @@ struct Case {
     start_style: Option<Style>,
     target_saber: bool,
     tired_until: u64,
+    changed_at: u64,
     seconds: u64,
     wanted: fn(&Ran) -> bool,
 }
@@ -91,6 +102,7 @@ const PLAIN: Case = Case {
     start_style: None,
     target_saber: false,
     tired_until: 0,
+    changed_at: 0,
     seconds: 4,
     wanted: |_| false,
 };
@@ -98,8 +110,13 @@ const PLAIN: Case = Case {
 /// What a case saw.
 #[derive(Debug, Default)]
 struct Ran {
-    /// Each style the fighter's single blade took, and when (sim ms).
-    styles: Vec<(u64, Style)>,
+    /// Each style the fighter's single blade took, when (sim ms), and
+    /// whether a new move of its blade began on that step.
+    styles: Vec<(u64, Style, bool)>,
+    /// Each style the fighter's mind queued for its single blade, and when.
+    queued: Vec<(u64, Style)>,
+    /// Each line the fighter's two blades and its pistol took, and when.
+    lines: Vec<(u64, Melee, Option<usize>)>,
     /// The line of the fighter's two blades at the end.
     blades: Option<Melee>,
     /// The gun line the fighter chose for its pistol at the end.
@@ -107,28 +124,59 @@ struct Ran {
     /// The fighter pressed its weapon's other mode, which fires a gun's
     /// feat special.
     fired: bool,
+    /// It did so while its target held a lit lightsaber.
+    fired_at_saber: bool,
 }
+
+impl Ran {
+    /// The last style the fighter's single blade took.
+    fn last_style(&self) -> Option<Style> {
+        self.styles.last().map(|(_, style, _)| *style)
+    }
+
+    /// When the single blade first took `wanted` after `after` (sim ms).
+    fn style_at(&self, wanted: Style, after: u64) -> Option<u64> {
+        (self.styles.iter())
+            .find(|(at, style, _)| *style == wanted && *at > after)
+            .map(|(at, _, _)| *at)
+    }
+
+    /// When the fighter's lines first matched `wanted` after `after`.
+    fn line_at(&self, wanted: fn(Melee, Option<usize>) -> bool, after: u64) -> Option<u64> {
+        (self.lines.iter())
+            .find(|(at, blades, gun)| *at > after && wanted(*blades, *gun))
+            .map(|(at, _, _)| *at)
+    }
+}
+
+/// The time a fighter keeps a changed line (`ai.choices.feats.hold_ms`).
+const HOLD: u64 = rules::ai::choices::feats::HOLD_MS;
+
+/// How soon after a style is chosen a fighter that chains its swings takes
+/// it, at the start of its next swing (sim ms). A swing of the probe's
+/// fighter, with its wind-up and its return, takes less than this.
+const NEXT_SWING_MS: u64 = 2_500;
 
 /// The tired case's target is tired until 3 seconds in.
 const TIRED_MS: u64 = 3_000;
 
-const CASES: [Case; 7] = [
+const CASES: [Case; 11] = [
     Case {
         name: "single_blade_strong_against_a_saber",
         target_saber: true,
-        wanted: |ran| ran.styles.last().map(|(_, style)| *style) == Some(Style::Strong),
+        wanted: |ran| ran.last_style() == Some(Style::Strong),
         ..PLAIN
     },
     Case {
         name: "single_blade_fast_against_a_tired_target",
         tired_until: FOREVER,
-        wanted: |ran| ran.styles.last().map(|(_, style)| *style) == Some(Style::Fast),
+        wanted: |ran| ran.last_style() == Some(Style::Fast),
         ..PLAIN
     },
     Case {
         name: "single_blade_medium_otherwise",
         start_style: Some(Style::Fast),
-        wanted: |ran| ran.styles.last().map(|(_, style)| *style) == Some(Style::Medium),
+        wanted: |ran| ran.last_style() == Some(Style::Medium),
         ..PLAIN
     },
     Case {
@@ -136,15 +184,31 @@ const CASES: [Case; 7] = [
         tired_until: TIRED_MS,
         seconds: 12,
         wanted: |ran| {
-            let hold = rules::ai::choices::feats::HOLD_MS;
-            let at = |wanted: Style, after: u64| {
-                (ran.styles.iter())
+            // When the mind chose each style, which the blade takes as its
+            // next swing begins.
+            let chosen = |wanted: Style, after: u64| {
+                (ran.queued.iter())
                     .find(|(at, style)| *style == wanted && *at > after)
                     .map(|(at, _)| *at)
             };
-            let fast = at(Style::Fast, 0);
-            let medium = fast.and_then(|fast| at(Style::Medium, fast));
-            matches!((fast, medium), (Some(fast), Some(medium)) if fast < TIRED_MS && medium >= fast + hold)
+            let fast = chosen(Style::Fast, 0);
+            let medium = fast.and_then(|fast| chosen(Style::Medium, fast));
+            matches!((fast, medium), (Some(fast), Some(medium)) if medium >= fast + HOLD)
+        },
+        ..PLAIN
+    },
+    Case {
+        name: "single_blade_style_waits_for_the_next_swing",
+        tired_until: TIRED_MS,
+        seconds: 12,
+        wanted: |ran| {
+            // The medium style is chosen when the hold after the fast one
+            // ends, while the fighter chains its swings. It applies as a
+            // new move begins, and soon.
+            let fast = ran.style_at(Style::Fast, 0).unwrap_or(0);
+            let medium =
+                (ran.styles.iter()).find(|(at, style, _)| *style == Style::Medium && *at > fast);
+            matches!(medium, Some((at, _, true)) if *at < fast + HOLD + NEXT_SWING_MS)
         },
         ..PLAIN
     },
@@ -166,9 +230,39 @@ const CASES: [Case; 7] = [
         ..PLAIN
     },
     Case {
+        name: "two_blades_line_kept_six_seconds",
+        arms: Arms::TwoSabers,
+        tired_until: FOREVER,
+        changed_at: 1_000,
+        seconds: 9,
+        wanted: |ran| {
+            let flurry = ran.line_at(|blades, _| blades == Melee::Flurry, 0);
+            flurry.is_some_and(|at| at >= 1_000 + HOLD)
+        },
+        ..PLAIN
+    },
+    Case {
         name: "gunner_rapid_shot_against_a_close_target",
         arms: Arms::Pistol,
         wanted: |ran| ran.gun == Some(1) && ran.fired,
+        ..PLAIN
+    },
+    Case {
+        name: "gunner_line_kept_six_seconds",
+        arms: Arms::Pistol,
+        changed_at: 1_000,
+        seconds: 9,
+        wanted: |ran| {
+            let rapid = ran.line_at(|_, gun| gun == Some(1), 0);
+            rapid.is_some_and(|at| at >= 1_000 + HOLD)
+        },
+        ..PLAIN
+    },
+    Case {
+        name: "gunner_power_blast_against_a_lightsaber",
+        arms: Arms::BlastPistol,
+        target_saber: true,
+        wanted: |ran| ran.fired_at_saber,
         ..PLAIN
     },
 ];
@@ -179,6 +273,7 @@ fn fighter_sheet(case: &Case) -> Sheet {
         Arms::Saber => (Delivery::Saber(SaberShape::Single), 1, &MELEE),
         Arms::TwoSabers => (Delivery::Saber(SaberShape::Single), 2, &MELEE),
         Arms::Pistol => (Delivery::Blaster(Blaster::Pistol), 1, &GUN),
+        Arms::BlastPistol => (Delivery::Blaster(Blaster::Pistol), 1, &GUN[..1]),
     };
     let mut sheet = holding(delivery, hands, known);
     sheet.max_hp = HP;
@@ -213,10 +308,9 @@ fn run(case: &Case) -> Result<Ran, String> {
             )
         })
     };
-    let at = if case.arms == Arms::Pistol {
-        CLOSE_AT
-    } else {
-        FIGHTER_AT
+    let at = match case.arms {
+        Arms::Pistol | Arms::BlastPistol => CLOSE_AT,
+        Arms::Saber | Arms::TwoSabers => FIGHTER_AT,
     };
     data.placements
         .push(creature(FIGHTER, at, fighter_sheet(case)));
@@ -282,6 +376,7 @@ fn run(case: &Case) -> Result<Ran, String> {
     }
     stage(&mut world, case, (fighter, target), true);
     let mut ran = Ran::default();
+    let mut last_move = None;
     let steps = case.seconds * 1000 / u64::from(MSEC);
     for step in 1..=steps {
         let now = step * u64::from(MSEC);
@@ -299,14 +394,30 @@ fn run(case: &Case) -> Result<Ran, String> {
         };
         // A sheet nothing changed stays the placement's.
         let sheet = entity.sheet.unwrap_or_else(|| fighter_sheet(case));
-        let style = fighting.saber.style;
-        if let Some(style) = style.filter(|style| ran.styles.last().map(|(_, s)| s) != Some(style))
+        let saber = fighting.saber;
+        if let Some(style) = saber
+            .queued
+            .filter(|style| ran.queued.last().map(|(_, s)| s) != Some(style))
         {
-            ran.styles.push((now, style));
+            ran.queued.push((now, style));
         }
-        ran.blades = Some(sheet.picks.blades()[0]);
-        ran.gun = sheet.picks.gun(Blaster::Pistol);
-        ran.fired |= fighting.last_command.buttons & buttons::ALT_ATTACK != 0;
+        let moved = last_move.replace(saber.current_move) != Some(saber.current_move);
+        if let Some(style) = saber.style.filter(|style| ran.last_style() != Some(*style)) {
+            ran.styles.push((now, style, moved));
+        }
+        let lines = (sheet.picks.blades()[0], sheet.picks.gun(Blaster::Pistol));
+        if ran.lines.last().map(|(_, blades, gun)| (*blades, *gun)) != Some(lines) {
+            ran.lines.push((now, lines.0, lines.1));
+        }
+        ran.blades = Some(lines.0);
+        ran.gun = lines.1;
+        let fired = fighting.last_command.buttons & buttons::ALT_ATTACK != 0;
+        let lit = (snapshot.entities.iter())
+            .find(|entity| entity.id == target)
+            .and_then(|entity| entity.fighter)
+            .is_some_and(|target| target.saber.on);
+        ran.fired |= fired;
+        ran.fired_at_saber |= fired && lit;
     }
     Ok(ran)
 }
@@ -347,6 +458,7 @@ fn stage(world: &mut SimWorld, case: &Case, (fighter, target): (SimId, SimId), f
             if case.start_style.is_some() {
                 fighting.saber.style = case.start_style;
             }
+            fighting.mind.feat_at = case.changed_at;
         } else if id.0 == target && has_foe(case) {
             fighting.target = Some(fighter);
             fighting.combat_until = FOREVER;

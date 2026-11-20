@@ -2233,8 +2233,9 @@ the fast style against a tired or staggered target, and in the medium style
 otherwise. Two blades, a double-bladed weapon, fists and a stun baton take the
 feat line of the same three reasons. A gun takes Rapid Shot against a close
 target or one that charges at the character, Sniper Shot against a far target
-that stands still, and Power Blast against a target that does not block. A
-target blocks often when it holds its block or holds a lit lightsaber. A line
+that stands still, and Power Blast against a target that does not block.
+When none of these reasons holds, a gun takes Power Blast, or else the first
+other line the character knows. A target blocks often when it holds its block or holds a lit lightsaber. A line
 that the player picked for a companion with the next-feat key stays until the
 player changes it.
 """
@@ -2258,7 +2259,7 @@ unit = "m"
 range = [0.0, 50.0]
 summary = "A gunner takes Rapid Shot against a target within {ai.choices.feats.close_m:bare} meters."
 source = "the builder's call of 20 November 2026"
-see = "sim::combat::choose::gun_reason"
+see = "sim::combat::choose::feat_reason"
 
 [choices.feats.far_m]
 name = "Far Target for Sniper Shot"
@@ -2268,7 +2269,7 @@ unit = "m"
 range = [0.0, 100.0]
 summary = "A gunner takes Sniper Shot against a target that stands still at least {ai.choices.feats.far_m:bare} meters away."
 source = "the builder's call of 20 November 2026"
-see = "sim::combat::choose::gun_reason"
+see = "sim::combat::choose::feat_reason"
 
 [choices.reasons.blade]
 name = "Buffs for a Blade"

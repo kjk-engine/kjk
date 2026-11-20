@@ -1033,6 +1033,17 @@ impl Move<'_, '_> {
             row.chain_attack
         };
 
+        // A style queued for a body no seat's keys act through (a mind's
+        // choice, `ai.choices.feats`) applies as its next swing begins, in a
+        // chain too, whose weapon is never ready between swings. A seat's
+        // queued style still waits for the weapon to be ready
+        // (`style_button`).
+        if !arms.keyed
+            && (next.start() || next.transition())
+            && let Some(style) = arms.fighter.saber.queued.take()
+        {
+            arms.fighter.saber.style = Some(style);
+        }
         self.begin_saber_move(arms, next);
         let table_anim = next.data().anim;
         if both_legs && self.ps.torso.anim == table_anim {

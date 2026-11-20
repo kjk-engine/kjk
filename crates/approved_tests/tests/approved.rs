@@ -4182,6 +4182,10 @@ fn companion_talents() {
 /// combat script queues are dropped, because the engine chooses them. A
 /// feat from the same script becomes an attack on the feat's target,
 /// because the engine chooses the enemy's feat line (changed 2026-11-20).
+/// A feat the same script uses at a location becomes an attack on the
+/// enemy's own target. A creature its scripts set to attack with its weapon
+/// only keeps the feat. A gunner fires no feat special while a power talent
+/// of its script holds, and fires one when none does (added 2026-11-21).
 /// A droid's own weapon from the same script is kept. A power or a feat
 /// from a script outside the list of generic combat scripts is kept, and
 /// so is a power from a script that is not the enemy's AI hook. A power
@@ -4192,7 +4196,7 @@ fn enemy_talents() {
     probed(
         "enemy talents",
         &sim::companion_talent_probes::enemy_probes(),
-        8,
+        12,
     );
 }
 
@@ -5975,13 +5979,16 @@ fn choice_waits() {
 /// reason holds. A gunner takes Rapid Shot against a close or charging
 /// target, Sniper Shot against a far target that stands still, and Power
 /// Blast against a target that does not block. A gunner with no line whose
-/// reason holds takes none. A changed line is kept for exactly the hold.
-/// (proposed 2026-11-20, awaiting approval)
+/// reason holds falls back on Power Blast, or else on the first other line
+/// it knows (changed 2026-11-21). A gunner fires the special of its line in
+/// use when that line's reason holds or when it is the line it falls back
+/// on. A changed line is kept for exactly the hold. (proposed 2026-11-20,
+/// awaiting approval)
 #[test]
 fn choice_feats() {
     use rules::ai::choices::feats::{CLOSE_M, FAR_M, HOLD_MS};
     use sim::combat::bar::FeatLine::{self, *};
-    use sim::combat::choose::{FeatSight, FeatWhy, feat_kept, feat_line};
+    use sim::combat::choose::{FeatSight, FeatWhy, feat_kept, feat_line, fire_reason};
     let mid = (CLOSE_M + FAR_M) / 2.0;
     let plain = FeatSight {
         distance_m: mid,
@@ -5990,13 +5997,18 @@ fn choice_feats() {
     let all: &[FeatLine] = &FeatLine::ALL;
     let no_flurry: &[FeatLine] = &[PowerAttack, CriticalStrike];
     let blast_only: &[FeatLine] = &[PowerBlast];
+    let blast_and_rapid: &[FeatLine] = &[PowerBlast, RapidShot];
+    let blocking = FeatSight {
+        blocks: true,
+        ..plain
+    };
     let cases: [(
         &str,
         FeatSight,
         bool,
         &[FeatLine],
         Option<(FeatLine, FeatWhy)>,
-    ); 12] = [
+    ); 14] = [
         (
             "plain melee",
             plain,
@@ -6089,13 +6101,17 @@ fn choice_feats() {
         ),
         (
             "blocking at middle distance",
-            FeatSight {
-                blocks: true,
-                ..plain
-            },
+            blocking,
             true,
             blast_only,
-            None,
+            Some((PowerBlast, FeatWhy::Plain)),
+        ),
+        (
+            "blocking, Rapid Shot known but not close",
+            blocking,
+            true,
+            blast_and_rapid,
+            Some((PowerBlast, FeatWhy::Plain)),
         ),
         (
             "far but moving",
@@ -6105,12 +6121,51 @@ fn choice_feats() {
             },
             true,
             &[SniperShot],
-            None,
+            Some((SniperShot, FeatWhy::Plain)),
         ),
+        ("no gun line", plain, true, &[], None),
     ];
     for (name, sight, gun, known, expected) in cases {
         let got = feat_line(&sight, gun, |line| known.contains(&line));
         assert_eq!(got, expected, "{name}");
+    }
+    let close_blocker = FeatSight {
+        distance_m: CLOSE_M,
+        ..blocking
+    };
+    let fires: [(&str, FeatLine, FeatSight, &[FeatLine], Option<FeatWhy>); 4] = [
+        (
+            "its own reason",
+            PowerBlast,
+            plain,
+            blast_and_rapid,
+            Some(FeatWhy::NotBlocking),
+        ),
+        (
+            "the fallback",
+            PowerBlast,
+            blocking,
+            blast_and_rapid,
+            Some(FeatWhy::Plain),
+        ),
+        (
+            "a better line has a reason",
+            PowerBlast,
+            close_blocker,
+            blast_and_rapid,
+            None,
+        ),
+        (
+            "not the fallback",
+            RapidShot,
+            blocking,
+            blast_and_rapid,
+            None,
+        ),
+    ];
+    for (name, line, sight, known, expected) in fires {
+        let got = fire_reason(line, &sight, |line| known.contains(&line));
+        assert_eq!(got, expected, "fires: {name}");
     }
     let changed = 1_000;
     for (now, changed_at, expected) in [
@@ -6131,7 +6186,9 @@ fn choice_feats() {
 /// of two blades, a staff and a pistol. It does not set a line the
 /// character does not know, a pistol's line already in use, or a line on a
 /// single blade, whose style is its line. It never changes a line the
-/// player picked with the next-feat key. Its own choice leaves no mark, so
+/// player picked with the next-feat key or the action bar, also when the
+/// player clicked the line already in use (added 2026-11-21). Its own
+/// choice leaves no mark, so
 /// it may change the line again. The player's mark comes back from its
 /// bytes, and old bytes read no mark. (proposed 2026-11-20, awaiting
 /// approval)
@@ -6144,13 +6201,18 @@ fn choice_feat_picks() {
 /// --only "feat choices"`). An enemy with a single lightsaber fights in the
 /// strong style against a lit lightsaber, in the fast style against a tired
 /// target, and in the medium style otherwise. It keeps the fast style for 6
-/// seconds after its target stops being tired. A companion with two
-/// lightsabers takes Flurry against a tired enemy, and keeps a line the
-/// player picked. An enemy with a pistol takes Rapid Shot against a close
-/// target and fires it. (proposed 2026-11-20, awaiting approval)
+/// seconds after its target stops being tired. A style it chooses while it
+/// chains its swings applies as a new swing begins, within 2.5 seconds, and
+/// never in the middle of a swing. A companion with two lightsabers takes
+/// Flurry against a tired enemy, and keeps a line the player picked. An
+/// enemy with two lightsabers and an enemy with a pistol change no line
+/// for 6 seconds after a change. An enemy with a pistol takes Rapid Shot
+/// against a close target and fires it. An enemy that knows only Power
+/// Blast fires it at a creature with a lit lightsaber. (proposed
+/// 2026-11-20, awaiting approval)
 #[test]
 fn feat_choices() {
-    probed("feat choices", &sim::feat_choice_probes::probes(), 7);
+    probed("feat choices", &sim::feat_choice_probes::probes(), 11);
 }
 
 /// Whether a fight is intense for the party (`sim::combat::choose`), how

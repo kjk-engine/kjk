@@ -502,6 +502,14 @@ const GUN_ORDER: [FeatLine; 3] = [
     FeatLine::SniperShot,
     FeatLine::PowerBlast,
 ];
+/// The gun lines in the order a gunner falls back on them when no gun
+/// line's reason holds. Power Blast comes first, as Critical Strike is the
+/// melee line that needs no reason.
+const GUN_FALLBACK: [FeatLine; 3] = [
+    FeatLine::PowerBlast,
+    FeatLine::RapidShot,
+    FeatLine::SniperShot,
+];
 
 /// Why `line` suits a target the character sees as `sight`, if it does.
 /// Flurry suits a staggered or tired target. Power Attack suits a target
@@ -531,18 +539,43 @@ pub fn feat_reason(line: FeatLine, sight: &FeatSight) -> Option<FeatWhy> {
 /// The feat line a character takes against a target it sees as `sight`,
 /// and why. A gunner (`gun`) takes a gun line, any other fighter a melee
 /// line. It is the first line in the order of preference that the
-/// character `knows` and whose reason holds. None when no such line is
-/// left.
+/// character `knows` and whose reason holds. When no gun line's reason
+/// holds, a gunner takes the first line it knows in the order Power Blast,
+/// Rapid Shot, Sniper Shot, for the reason `FeatWhy::Plain`. A target with
+/// a lit lightsaber blocks, so without this a gunner that knows only Power
+/// Blast would never use it against a Jedi. None when the character knows
+/// no line of the kind.
 pub fn feat_line(
     sight: &FeatSight,
     gun: bool,
     knows: impl Fn(FeatLine) -> bool,
 ) -> Option<(FeatLine, FeatWhy)> {
     let order = if gun { GUN_ORDER } else { MELEE_ORDER };
-    order
+    let reasoned = order
         .into_iter()
         .filter(|line| knows(*line))
-        .find_map(|line| Some((line, feat_reason(line, sight)?)))
+        .find_map(|line| Some((line, feat_reason(line, sight)?)));
+    let fallback = || {
+        (GUN_FALLBACK.into_iter())
+            .find(|line| gun && knows(*line))
+            .map(|line| (line, FeatWhy::Plain))
+    };
+    reasoned.or_else(fallback)
+}
+
+/// Why a gunner that `knows` some gun lines fires the special of `line`,
+/// the line in use, at a target it sees as `sight`. It fires when the
+/// line's own reason holds (`feat_reason`), or when the line is the one it
+/// falls back on (`feat_line`). None when it does not fire.
+pub fn fire_reason(
+    line: FeatLine,
+    sight: &FeatSight,
+    knows: impl Fn(FeatLine) -> bool,
+) -> Option<FeatWhy> {
+    feat_reason(line, sight).or_else(|| {
+        let fallback = feat_line(sight, true, knows) == Some((line, FeatWhy::Plain));
+        fallback.then_some(FeatWhy::Plain)
+    })
 }
 
 /// The saber style a single blade fights in for the melee line `line`.
