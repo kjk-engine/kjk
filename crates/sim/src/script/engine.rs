@@ -2915,11 +2915,17 @@ impl Engine<'_> {
                     // `leaves_talent_to_chooser` says so. A power cast while
                     // a conversation holds the world (above) is kept. The
                     // script chose whom a feat is used on, so it attacks
-                    // that target with the line the engine chose.
+                    // that target with the line the engine chose. A feat
+                    // used at a location, or on the character itself, is
+                    // used on whom it fights, so it attacks that one.
                     Some(talent) if self.leaves_talent_to_chooser(caller, talent) => {
                         self.log_own_talent(caller, talent, false);
-                        match talent {
-                            Use::Feat(_) if target != ObjectId::INVALID && target != caller => {
+                        let fought = || self.character(caller).and_then(|c| c.target);
+                        let on = Some(target)
+                            .filter(|on| *on != ObjectId::INVALID && *on != caller)
+                            .or_else(fought);
+                        match (talent, on) {
+                            (Use::Feat(_), Some(target)) => {
                                 let passive = false;
                                 self.queue(caller, Action::Attack { target, passive })
                             }

@@ -24,6 +24,12 @@
 //! - the same script's feat becomes an attack on the feat's target, and the
 //!   script keeps a droid's own weapon;
 //! - a feat from a script that is not in the list is kept;
+//! - a generic script's feat used at a location becomes an attack on the
+//!   enemy's own target;
+//! - a creature its scripts set to attack with its weapon only keeps the
+//!   generic script's feat;
+//! - a gunner whose script's power talent holds, unpaid, fires no feat
+//!   special meanwhile, and the same gunner without a talent fires one;
 //! - a power from a script that is not in the list of generic combat
 //!   scripts is kept, and so is a power from a script that is not the
 //!   enemy's AI hook, such as a conversation's;
@@ -96,6 +102,10 @@ object GetObjectByTag(string sTag, int nNth);
 object GetFirstPC();
 // 5
 talent TalentSpell(int nSpell);
+// 6
+void ActionUseTalentAtLocation(talent tChosenTalent, location lTargetLocation);
+// 7
+location GetLocation(object oObject);
 "#;
 
 /// The scripts. Each uses a talent or casts a power once.
@@ -107,6 +117,7 @@ const FOUND_ON_PC: &str = "probe_found_on_pc";
 const FOUND_MEDPAC: &str = "probe_found_medpac";
 const FOUND_FEAT: &str = "probe_found_feat";
 const FOUND_FEAT_ON_PC: &str = "probe_found_feat_on_pc";
+const FEAT_HERE: &str = "k_def_probe_feat_here";
 const STUN_RAY_ON_FOE: &str = "probe_stun_ray_on_foe";
 const SHIELD_ON_SELF: &str = "probe_shield_on_self";
 
@@ -168,6 +179,13 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
         (FOUND_MEDPAC, used(found(HEALING), Expr::Me)),
         (FOUND_FEAT, used(found(FEATS), foe())),
         (FOUND_FEAT_ON_PC, used(found(FEATS), pc())),
+        (
+            FEAT_HERE,
+            vec![call(
+                "ActionUseTalentAtLocation",
+                [found(FEATS), call("GetLocation", [Expr::Me])],
+            )],
+        ),
         (STUN_RAY_ON_FOE, used(named(STUN_RAY), foe())),
         (SHIELD_ON_SELF, used(named(SHIELD), Expr::Me)),
         (GENERIC_POWER, used(named(POWER), pc())),
@@ -183,9 +201,15 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
 }
 
 /// A Jedi who knows `POWER` and has `FEAT`. A droid has the droid flag as
-/// well.
-fn jedi(droid: bool) -> Sheet {
-    let mut jedi = Sheet::dev_jedi();
+/// well. A gunner holds a pistol instead and knows Power Blast too.
+fn jedi(droid: bool, gunner: bool) -> Sheet {
+    use crate::combat::sheet::{Blaster, Delivery, feats};
+    let mut jedi = if gunner {
+        let pistol = Delivery::Blaster(Blaster::Pistol);
+        super::picks_probes::holding(pistol, 1, &[feats::POWER_BLAST[0]])
+    } else {
+        Sheet::dev_jedi()
+    };
     jedi.powers = Rows::default().with(POWER);
     jedi.feats = jedi.feats.with(FEAT);
     if droid {
@@ -215,8 +239,10 @@ enum Caller {
 
 /// A case. It names its script and who runs it. It says whether the script
 /// is the caller's AI hook (its heartbeat) or a plain script. It says
-/// whether the companion is hurt first and whether the companion is a
-/// droid. It says what the case must see.
+/// whether the caller is hurt first and whether the caller is a droid. It
+/// says whether the caller holds a pistol (`gunner`), whether the enemy is
+/// hostile and aims at the player from the start (`aims`), and whether its scripts set it to attack with its weapon
+/// only. It says what the case must see.
 struct Case {
     name: &'static str,
     script: &'static str,
@@ -224,6 +250,9 @@ struct Case {
     hooked: bool,
     hurt: bool,
     droid: bool,
+    gunner: bool,
+    aims: bool,
+    attacks_only: bool,
     wanted: fn(&Seen) -> bool,
 }
 
@@ -236,6 +265,9 @@ const PLAIN: Case = Case {
     hooked: true,
     hurt: false,
     droid: false,
+    gunner: false,
+    aims: false,
+    attacks_only: false,
     wanted: |_| false,
 };
 
@@ -249,6 +281,11 @@ struct Seen {
     attack: bool,
     /// The caller's intent used `FEAT`.
     feat: bool,
+    /// The caller fired a gun's feat special on a step on which its intent
+    /// held a talent other than a feat.
+    fired_with_talent: bool,
+    /// The caller fired a gun's feat special.
+    fired: bool,
     /// The medpacs the party had at the end.
     medpacs: u16,
 }
@@ -262,6 +299,8 @@ fn run(case: &Case) -> Result<Seen, String> {
     let size = usize::from(POWER.max(MEDPAC).max(STUN_RAY).max(SHIELD)) + 1;
     data.force_costs = vec![0; size];
     data.force_costs[usize::from(POWER)] = 1;
+    use crate::combat::sheet::factions;
+    data.repute = crate::module::Repute::at_war([factions::PLAYER, factions::HOSTILE_1]);
     let [x, y, z] = data.entry.position;
     let first = u32::try_from(data.placements.len()).map_err(|error| error.to_string())?;
     for (n, (tag, caller)) in [(MATE, Caller::Mate), (FOE, Caller::Foe)]
@@ -274,10 +313,10 @@ fn run(case: &Case) -> Result<Seen, String> {
             Vec::new()
         };
         let at = [x + 1.5 * (n as f32 + 1.0), y, z];
-        let droid = case.droid && caller == case.caller;
+        let own = caller == case.caller;
         data.placements.push(Placement::Own(ObjectData {
             scripts: hooks,
-            ..ObjectData::creature(tag, tag, at, jedi(droid))
+            ..ObjectData::creature(tag, tag, at, jedi(case.droid && own, case.gunner && own))
         }));
     }
     let mut spells = vec![Talent::default(); size];
@@ -343,12 +382,20 @@ fn run(case: &Case) -> Result<Seen, String> {
     if !state.party.join(0, mate.0) {
         return Err("the companion did not join".into());
     }
+    let player = start.body(Seat(0)).ok_or("no player")?.id;
     let foe = start
         .entities
         .iter_mut()
         .find(find(first + 1))
-        .ok_or("no enemy")?
-        .id;
+        .ok_or("no enemy")?;
+    if case.aims
+        && let Some(fighter) = foe.fighter.as_mut()
+    {
+        fighter.faction = Some(factions::HOSTILE_1);
+        fighter.target = Some(player);
+        fighter.combat_until = u64::MAX / 2;
+    }
+    let foe = foe.id;
     let medpacs = state
         .make_item(&items, "medpac", PARTY, MEDPACS, None)
         .ok_or("no medpac")?;
@@ -359,6 +406,10 @@ fn run(case: &Case) -> Result<Seen, String> {
     state
         .pending
         .push(Pending::new(case.script, ObjectId(caller.0)));
+    if case.attacks_only {
+        let style = crate::script::party::NPC_AISTYLE_MELEE_ATTACK;
+        state.party.ai_styles.insert(caller.0, style);
+    }
     let mut world = SimWorld::from_snapshot(&start, level).map_err(|error| error.to_string())?;
     world.set_script_state(state);
     let mut seen = Seen {
@@ -366,11 +417,23 @@ fn run(case: &Case) -> Result<Seen, String> {
         cast: false,
         attack: false,
         feat: false,
+        fired_with_talent: false,
+        fired: false,
         medpacs: MEDPACS,
     };
     for _ in 0..STEPS {
-        step(&mut world);
+        let snapshot = step(&mut world);
+        let fired = (snapshot.entities.iter())
+            .find(|entity| entity.id == caller)
+            .and_then(|entity| entity.fighter)
+            .is_some_and(|f| f.last_command.buttons & crate::input::buttons::ALT_ATTACK != 0);
         let state = world.script_state();
+        let talent = state
+            .intents
+            .get(&caller.0)
+            .and_then(|intent| intent.talent);
+        seen.fired_with_talent |= fired && matches!(talent, Some(Use::Power(_)));
+        seen.fired |= fired;
         let queue = state.actions.get(&caller.0).map_or(&[][..], Vec::as_slice);
         // Queued at the end of a step, or begun and done within one.
         let did = |kind: &str| {
@@ -390,11 +453,11 @@ fn run(case: &Case) -> Result<Seen, String> {
     Ok(seen)
 }
 
-fn step(world: &mut SimWorld) {
+fn step(world: &mut SimWorld) -> crate::Snapshot {
     let mut input = TickInput::default();
     input.insert(Seat(0), Command::default());
     let tick = world.tick() + 1;
-    crate::step(world, tick, &input, MSEC, StepReason::Authority);
+    crate::step(world, tick, &input, MSEC, StepReason::Authority)
 }
 
 /// The cases (see the module documentation).
@@ -472,7 +535,7 @@ const ENEMY: Case = Case {
     caller: Caller::Foe,
     ..PLAIN
 };
-const ENEMY_CASES: [Case; 7] = [
+const ENEMY_CASES: [Case; 11] = [
     Case {
         name: "generic_power_dropped",
         script: GENERIC_POWER,
@@ -483,6 +546,37 @@ const ENEMY_CASES: [Case; 7] = [
         name: "generic_feat_becomes_attack",
         script: GENERIC_FEAT,
         wanted: |seen| seen.attack && !seen.talent && !seen.feat,
+        ..ENEMY
+    },
+    Case {
+        name: "generic_feat_at_a_location_attacks_the_target",
+        script: FEAT_HERE,
+        aims: true,
+        wanted: |seen| seen.attack && !seen.talent && !seen.feat,
+        ..ENEMY
+    },
+    Case {
+        name: "attacks_only_keeps_generic_feat",
+        script: GENERIC_FEAT,
+        attacks_only: true,
+        wanted: |seen| seen.feat,
+        ..ENEMY
+    },
+    Case {
+        name: "gunner_fires_no_special_beside_a_kept_power_talent",
+        script: NAMED_ON_PC,
+        gunner: true,
+        aims: true,
+        wanted: |seen| seen.talent && !seen.fired_with_talent,
+        ..ENEMY
+    },
+    Case {
+        name: "gunner_fires_its_special",
+        script: IMPACT,
+        hooked: false,
+        gunner: true,
+        aims: true,
+        wanted: |seen| seen.fired,
         ..ENEMY
     },
     Case {
@@ -544,8 +638,8 @@ fn checked<'a>(cases: impl Iterator<Item = &'a Case>) -> Checks {
                 check(
                     (case.wanted)(&seen),
                     format!(
-                        "talent queued {}, cast queued {}, attack queued {}, feat intended {}, medpacs {} of {MEDPACS}",
-                        seen.talent, seen.cast, seen.attack, seen.feat, seen.medpacs
+                        "talent queued {}, cast queued {}, attack queued {}, feat intended {}, fired {} ({} beside a talent), medpacs {} of {MEDPACS}",
+                        seen.talent, seen.cast, seen.attack, seen.feat, seen.fired, seen.fired_with_talent, seen.medpacs
                     ),
                 )
             });
