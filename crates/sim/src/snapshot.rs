@@ -3064,6 +3064,7 @@ pub(crate) fn decode_sheet(input: &mut Reader) -> Result<Sheet, DecodeError> {
             input,
             items,
             input.since(crate::since::snapshot::FIX_FORCE_CYCLE),
+            input.since(crate::since::snapshot::AI_CHOICES_FEATS),
         )?;
     }
     if input.since(crate::since::snapshot::FEAT_ACTION_BAR) {

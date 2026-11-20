@@ -6,7 +6,9 @@
 //! weapon, and the next-feat key (`Action::NextFeat`) moves on the one the
 //! weapon in hand uses. A feat attack on the action bar chooses its own
 //! line, or turns it off (`Action::Feat`, `Picks::set`). A creature's script
-//! chooses by its talent (`Picks::choose`).
+//! chooses by its talent (`Picks::choose`). The combat AI chooses a line in
+//! a fight (`Picks::steer`), but never one that the player picked with the
+//! next-feat key or the action bar (`Picks::player`).
 //!
 //! - A gun's alternate fire takes the chosen line (`Special::of`). Until one
 //!   is chosen, it takes the first line the character knows. The cycle goes
@@ -86,6 +88,19 @@ enum Slot {
     Hands,
 }
 
+impl Slot {
+    /// The slot's bit in `Picks::player`. The gun types come first, then
+    /// two blades, a double-bladed weapon, and fists or a stun baton.
+    fn bit(self) -> u16 {
+        let at = match self {
+            Slot::Gun(blaster) => blaster as usize,
+            Slot::Blades(at) => GUNS + at,
+            Slot::Hands => GUNS + 2,
+        };
+        1 << at
+    }
+}
+
 fn slot(sheet: &Sheet, hand: u8) -> Option<Slot> {
     let kit = Kit::of(sheet);
     match kit.held(hand) {
@@ -128,6 +143,10 @@ pub struct Picks {
     /// The `spells.2da` row of the kind each key uses (by `Shelf`), none for
     /// what it uses by itself.
     items: [Option<u16>; Shelf::ALL.len()],
+    /// The slots whose line the player picked (`Slot::bit`), with the
+    /// next-feat key or the action bar. The combat AI never changes such a
+    /// line (`steer`).
+    player: u16,
 }
 
 /// What stands for no pick in the bytes.
@@ -223,7 +242,17 @@ impl Picks {
             }
             None => {}
         }
-        sheet.picks != before
+        Self::marked(sheet, hand, before)
+    }
+
+    /// Whether the player's pick for the weapon in `hand` changed the picks
+    /// from `before`. A change marks the weapon's slot as the player's.
+    fn marked(sheet: &mut Sheet, hand: u8, before: Picks) -> bool {
+        let changed = sheet.picks != before;
+        if let Some(slot) = slot(sheet, hand).filter(|_| changed) {
+            sheet.picks.player |= slot.bit();
+        }
+        changed
     }
 
     /// Makes `line` the feat attack in use for the weapon in `hand`. For
@@ -232,11 +261,28 @@ impl Picks {
     /// a gun's alternate fire can never be turned off, and choosing the line
     /// a gun uses already changes nothing. False when nothing changed: the
     /// weapon cannot use the line, the sheet does not know it, or a gun
-    /// uses it already.
+    /// uses it already. A change marks the slot as the player's.
     pub fn set(sheet: &mut Sheet, hand: u8, line: FeatLine) -> bool {
-        let Some(row) = line.known(sheet) else {
-            return false;
-        };
+        let before = sheet.picks;
+        if let Some(row) = line.known(sheet) {
+            Self::put(sheet, hand, row, true);
+        }
+        Self::marked(sheet, hand, before)
+    }
+
+    /// The combat AI's choice (`combat::choose::feat_line`): makes the line
+    /// of feat `row` the feat attack the weapon in `hand` uses. The AI never
+    /// changes a line the player picked for that weapon, and never turns a
+    /// line off. Whether it changed.
+    pub fn steer(sheet: &mut Sheet, hand: u8, row: u16) -> bool {
+        let player = slot(sheet, hand).is_some_and(|slot| sheet.picks.player & slot.bit() != 0);
+        !player && sheet.knows(row) && Self::put(sheet, hand, row, false)
+    }
+
+    /// Makes the line of feat `row` the one the weapon in `hand` uses. For
+    /// blades and empty hands, when `toggle` is set and the line is in use
+    /// already, the line is turned off. Whether it changed.
+    fn put(sheet: &mut Sheet, hand: u8, row: u16, toggle: bool) -> bool {
         match slot(sheet, hand) {
             Some(Slot::Gun(blaster)) => {
                 let Some(at) = Special::line_of(row) else {
@@ -258,6 +304,9 @@ impl Picks {
                 let Some(chosen) = sheet.picks.melee(melee) else {
                     return false;
                 };
+                if *chosen == wanted && !toggle {
+                    return false;
+                }
                 *chosen = if *chosen == wanted {
                     Melee::None
                 } else {
@@ -339,6 +388,12 @@ impl Picks {
     }
 
     pub(crate) fn encode(&self, out: &mut Writer) {
+        self.encode_as(out, true);
+    }
+
+    /// Its bytes, with the slots the player picked only when `with_player`,
+    /// as a build from before them wrote it.
+    pub(crate) fn encode_as(&self, out: &mut Writer, with_player: bool) {
         out.bytes(&self.guns);
         for line in self.blades {
             out.u8(line as u8);
@@ -347,14 +402,19 @@ impl Picks {
             out.u16(row.unwrap_or(NO_ITEM));
         }
         out.u8(self.hands as u8);
+        if with_player {
+            out.u16(self.player);
+        }
     }
 
     /// Its bytes; `with_items` where they hold the item picks, `with_hands`
-    /// where they hold the line fists carry (none before).
+    /// where they hold the line fists carry (none before), `with_player`
+    /// where they hold the slots the player picked (none before).
     pub(crate) fn decode(
         input: &mut Reader,
         with_items: bool,
         with_hands: bool,
+        with_player: bool,
     ) -> Result<Picks, DecodeError> {
         let guns: [u8; GUNS] = input.array()?;
         let at = input.at();
@@ -381,11 +441,13 @@ impl Picks {
             }
             false => Melee::None,
         };
+        let player = if with_player { input.u16()? } else { 0 };
         Ok(Picks {
             guns,
             blades,
             hands,
             items,
+            player,
         })
     }
 }

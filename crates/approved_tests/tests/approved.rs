@@ -6122,6 +6122,20 @@ fn choice_feats() {
     }
 }
 
+/// The feat line the combat AI sets on a weapon (`kjk sim probes --only
+/// "feat steering"`, `sim::combat::picks::Picks::steer`). The AI sets the line
+/// of two blades, a staff and a pistol. It does not set a line the
+/// character does not know, a pistol's line already in use, or a line on a
+/// single blade, whose style is its line. It never changes a line the
+/// player picked with the next-feat key. Its own choice leaves no mark, so
+/// it may change the line again. The player's mark comes back from its
+/// bytes, and old bytes read no mark. (proposed 2026-11-20, awaiting
+/// approval)
+#[test]
+fn choice_feat_picks() {
+    probed("feat steering", &sim::picks_probes::steer_probes(), 1);
+}
+
 /// Whether a fight is intense for the party (`sim::combat::choose`), how
 /// long it stays intense, and how many items of a kind a companion keeps.
 /// An enemy finds an intense fight with the sides swapped, and casts an
