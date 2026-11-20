@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `da7c493544b0e3f1`.
+Edition `e2760c2f23f922ac`.
 
 ## Contents
 
@@ -1887,6 +1887,24 @@ The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon F
 A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
 
 <sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
+
+<a id="feats-two-weapon-superior-main"></a>**Superior Two-Weapon Fighting, Main Hand** = **1 points / 2 points / 2 points** (`1 / 2 / 2 points`) · `feats.two_weapon.superior_main`
+
+I **1 points** · II **2 points** · III **2 points**
+
+In KOTOR 2, Superior Two-Weapon Fighting I reduces the main hand's penalty by 1 more. Superior Two-Weapon Fighting II and III reduce it by 2 more.
+
+These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply to blasters as well as to melee weapons and lightsabers.
+
+<sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 with the first feat, +2 with the second or third) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
+
+<a id="feats-two-weapon-superior-off"></a>**Superior Two-Weapon Fighting, Off Hand** = **0 points / 0 points / 1 points** (`0 / 0 / 1 points`) · `feats.two_weapon.superior_off`
+
+I **0 points** · II **0 points** · III **1 points**
+
+In KOTOR 2, Superior Two-Weapon Fighting III reduces the off hand's penalty by 1. The first two ranks leave the off hand's penalty as it is.
+
+<sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 to the off hand with the third feat only) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
@@ -9542,20 +9560,23 @@ party member's influence allows.
 
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
-based on the main character's level and the enemy's challenge rating.
+based on the level that the main character's experience has reached and
+the enemy's challenge rating.
 Quests and conversations award experience as the story advances. A
 character needs 1,000 experience for level 2 and 190,000 experience for
 level 20. The highest level is 50 in both games.
 
-Every player sees each gain or loss of experience. In KOTOR 2, the
+Every player sees each gain or loss of experience. In both games, the
 experience for a defeated enemy comes from a table. The game looks up the
 row for the level that the main character's experience has reached, and
-the column for the enemy's challenge rating. The table stops at row and
-column 30, so a higher level or rating
-counts as the last one. An enemy that scales with the party has a
-challenge rating equal to the main character's level when the enemy
-appeared, plus the change set by its scaling. The game then multiplies the
-result by its experience percentage and rounds it up.
+the column for the enemy's challenge rating. The row does not depend on
+the levels the character has taken, so a character who puts off a level-up
+gains no more experience than one who takes it. In KOTOR 2, the table stops
+at row and column 30, so a higher level
+or rating counts as the last one. In KOTOR 2, an enemy that scales with the
+party has a challenge rating equal to the main character's level when the
+enemy appeared, plus the change set by its scaling. The game then
+multiplies the result by its experience percentage and rounds it up.
 
 <a id="progression-experience-tsl-most"></a>**KOTOR 2 Experience Table Limit** = **30** · `progression.experience.tsl_most`
 

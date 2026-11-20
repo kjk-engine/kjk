@@ -103,6 +103,9 @@ pub(crate) fn row_words(new: bool) -> (usize, usize) {
 /// Feat rows (`feat.2da`) combat and the skills read.
 pub mod feats {
     pub const TWO_WEAPON_FIGHTING: [u16; 3] = [3, 9, 85];
+    /// TSL's Superior Two-Weapon Fighting I to III (the Weapon Master's
+    /// and the Marauder's).
+    pub const SUPERIOR_TWO_WEAPON: [u16; 3] = [159, 160, 161];
     pub const CRITICAL_STRIKE: [u16; 3] = [8, 19, 81];
     pub const FLURRY: [u16; 2] = [11, 91];
     /// Master Flurry (`WHIRLWIND_ATTACK`), Flurry's third line.
