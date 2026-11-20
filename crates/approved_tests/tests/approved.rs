@@ -6002,13 +6002,16 @@ fn choice_feats() {
         blocks: true,
         ..plain
     };
-    let cases: [(
-        &str,
+    // A case's name, what the character sees, whether it holds a gun, the
+    // lines it knows, and the line and reason it takes.
+    type Case<'a> = (
+        &'a str,
         FeatSight,
         bool,
-        &[FeatLine],
+        &'a [FeatLine],
         Option<(FeatLine, FeatWhy)>,
-    ); 14] = [
+    );
+    let cases: [Case; 14] = [
         (
             "plain melee",
             plain,
@@ -6133,7 +6136,16 @@ fn choice_feats() {
         distance_m: CLOSE_M,
         ..blocking
     };
-    let fires: [(&str, FeatLine, FeatSight, &[FeatLine], Option<FeatWhy>); 4] = [
+    // A case's name, the line in use, what the gunner sees, the lines it
+    // knows, and why it fires.
+    type Fire<'a> = (
+        &'a str,
+        FeatLine,
+        FeatSight,
+        &'a [FeatLine],
+        Option<FeatWhy>,
+    );
+    let fires: [Fire; 4] = [
         (
             "its own reason",
             PowerBlast,
