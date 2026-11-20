@@ -193,6 +193,14 @@ pub(crate) enum Verb {
         /// the sun cannot bring to its level stays darker
         #[arg(long)]
         no_even: bool,
+        /// With --gpu, a room its lamps cannot bring to its level takes its
+        /// own stored light for the rest, and not an even light
+        #[arg(long)]
+        fill_stored: bool,
+        /// With --gpu, the least a room's lamps are scaled by (0.5 when
+        /// left out)
+        #[arg(long)]
+        least: Option<f32>,
         /// With --sun, the meshes that send the sun's and the sky's light
         /// down into their room, by their node's name, with spaces between
         #[arg(long)]
@@ -618,6 +626,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             sun_fit,
             weigh,
             no_even,
+            fill_stored,
+            least,
             skylights,
             out,
         } => {
@@ -668,6 +678,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 sun_fit,
                 weigh,
                 no_even,
+                fill_stored,
+                least,
                 skylights: (skylights.iter())
                     .flat_map(|names| names.split_whitespace())
                     .map(str::to_string)

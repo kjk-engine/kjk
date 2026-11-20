@@ -121,3 +121,28 @@ share = 1.0
 of = "lit"
 even = false
 sun = { toward = [0.826, 0.412, 0.385], colour = [1.30, 1.21, 1.03], toward2 = [0.959, -0.029, 0.282], colour2 = [1.51, 1.39, 1.18], sky = [0.39, 0.33, 0.27], width = 0.01 }
+
+# The Dune Sea on Tatooine (`tat_m18aa`) has no entry, because it has no
+# lightmap to bake. None of the 78 meshes of its five rooms names one, and
+# `detail-bake` stops with "no lightmap on a room". Anchorhead's entry was
+# tried on it unchanged on 19 November 2026.
+
+# The Sand People Enclave on Tatooine. Anchorhead's entry does not fit it.
+# The enclave's sky shows the two suns low in the south-east, about 53
+# degrees to the right of where Anchorhead's sky shows them, and its stored
+# lightmaps are darker. A bake with Anchorhead's entry unchanged was 1.7
+# times as bright as today (a mean of 80 against 47 over 14 views), and its
+# shadows fell away from the suns in the sky.
+# So the entry has the enclave's own numbers, made by Anchorhead's method.
+# The two ways are measured from pictures of the sky. The area's files hold
+# a hidden light that reaches 18,000 metres within 3 degrees of the lower
+# sun, and the best fit of `--sun-fit` is 0.612, -0.612, 0.500, between the
+# two suns and above them (fit 0.662).
+# The stored lightmaps under the open sky are 0.535, 0.491, 0.404 in the sun
+# and 0.194, 0.176, 0.155 out of it. Each sun gives level ground half of
+# the difference, and the colours are 1.3 times that, as in Anchorhead.
+[modules.tat_m20aa]
+share = 1.0
+of = "lit"
+even = false
+sun = { toward = [0.831, -0.418, 0.367], colour = [0.76, 0.70, 0.57], toward2 = [0.594, -0.749, 0.292], colour2 = [0.84, 0.78, 0.63], sky = [0.31, 0.28, 0.25], width = 0.01 }

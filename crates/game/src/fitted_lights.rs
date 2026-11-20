@@ -572,12 +572,15 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
         let texture = name(model, mesh_index);
         let door = doors.contains(&model);
         // A texture the data does not name is a screen or a panel
-        // (`unnamed`). A door is never a named kind.
+        // (`unnamed`). A door is never a named kind. A texture the data
+        // calls no lamp sheds nothing on a door either: the wooden gates
+        // of the Sand People's huts are orange enough to pass as a force
+        // field.
         let (kind, named) = match game.get(&(texture.clone(), on)) {
             Some(Some(kind)) if !door => (kind, true),
+            Some(None) => continue,
             None => (&unnamed, false),
-            _ if door => (&unnamed, false),
-            _ => continue,
+            Some(Some(_)) => (&unnamed, false),
         };
         let placed = &loaded.models[model];
         let mesh = &placed.ir.meshes[mesh_index];

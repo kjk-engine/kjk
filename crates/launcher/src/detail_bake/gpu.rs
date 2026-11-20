@@ -153,6 +153,19 @@ pub(crate) struct GpuOptions {
     /// light generated for the rooms. we want them naturally dark in the
     /// sides and then have the skylight come down in the middle".
     pub no_even: bool,
+    /// The light a room takes where its lamps cannot reach its level is the
+    /// room's own stored light, scaled, and not an even one. A room with no
+    /// lamp that the level art shows was lit by lamps the games never
+    /// shipped, and its stored lightmaps are all that is left of them. The
+    /// even light made such rooms flat and grey, and no light left them
+    /// black. The owner said of the Korriban tomb on 20 November 2026: "it
+    /// seems to be some light they have baked in there from the ceiling",
+    /// "We should make that one stronger and work with that".
+    pub fill_stored: bool,
+    /// The least a room's lamps are scaled by in `b`, where it is not
+    /// `B_LEAST`. A ship's dark rooms have lamps that are too bright at
+    /// half their strength.
+    pub least: Option<f32>,
     /// A room's level is its level where the game lights it today: each
     /// texel counts by its stored level, in the room's target and in what
     /// the lamps are scaled to. A bake that reaches a room's plain mean is
@@ -1242,7 +1255,7 @@ pub(super) fn bake_lights(
                     .and_then(|room| stated.get(&room).copied())
                     .unwrap_or_else(|| without_stored(texels) * factor)
             },
-            Some((B_LEAST, B_MOST)),
+            Some((options.least.unwrap_or(B_LEAST), B_MOST)),
             &eased_level,
         );
         // A room whose lamps do not reach its level at the most scale takes
@@ -1256,6 +1269,24 @@ pub(super) fn bake_lights(
                 .or_default()
                 .push(i);
         }
+        // What the fill shows at each texel for a fill of 1: the same
+        // everywhere, or the room's stored light with a mean of 1 over the
+        // room (`GpuOptions::fill_stored`).
+        let mut pattern = vec![Vec3::ONE; count];
+        if options.fill_stored {
+            for texels in texels_of_room.values() {
+                let stored: Vec<Vec3> = (texels.iter())
+                    .map(|&i| stored_at(&points[i]).powf(GAMMA))
+                    .collect();
+                let mean = stored.iter().map(|s| luma(*s)).sum::<f32>() / texels.len() as f32;
+                if mean > 1e-6 {
+                    for (&i, s) in texels.iter().zip(&stored) {
+                        pattern[i] = *s / mean;
+                    }
+                }
+            }
+        }
+        let fill_most = if options.fill_stored { 4.0f32 } else { 1.0 };
         let mut even_of_room: HashMap<String, (f32, f32)> = HashMap::new();
         for room in &rooms.rooms {
             if options.no_even || room.scale < B_MOST || room.after >= room.target {
@@ -1278,7 +1309,7 @@ pub(super) fn bake_lights(
                     .iter()
                     .map(|&i| {
                         lit_weights[i]
-                            * luma(eased_level(sun_light[i] + lamps_alone[i] * scale + Vec3::splat(fill)))
+                            * luma(eased_level(sun_light[i] + lamps_alone[i] * scale + pattern[i] * fill))
                     })
                     .sum::<f32>()
                     / weight
@@ -1300,7 +1331,7 @@ pub(super) fn bake_lights(
             // said: "its too dark in the jedi masters area. i guess the sun
             // isnt hitting it or something? its too dark overall everywhere".
             if mean_of(fill, scale) < room.target - 1e-4 {
-                let (mut low, mut high) = (fill, 1.0f32);
+                let (mut low, mut high) = (fill, fill_most);
                 for _ in 0..30 {
                     let middle = 0.5 * (low + high);
                     if mean_of(middle, scale) < room.target {
@@ -1325,7 +1356,7 @@ pub(super) fn bake_lights(
             .map(|i| {
                 let map = points[i].map;
                 let (fill, scale) = even[map].unwrap_or((0.0, rooms.scale[map]));
-                eased_level(sun_light[i] + lamps_alone[i] * scale + Vec3::splat(fill))
+                eased_level(sun_light[i] + lamps_alone[i] * scale + pattern[i] * fill)
             })
             .collect();
         (rooms, shown)

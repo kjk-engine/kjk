@@ -1030,3 +1030,12 @@ form = "glows"
 lamp = false
 says = "Not a light. It lights nothing."
 reason = "A proposal the owner has not seen. The texture is the trim of the enclave's ceiling grilles and wall arches. The files make a grille glow at a fifth in place of baked light. As an unnamed glowing texture it took 186 lights in danm13, and they lit the grilles' dark bars away."
+
+[[fitting]]
+game = "k1"
+texture = "lta_dor03"
+on = "placeable"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture is the wooden gate of the Sand People's huts. The files make it glow in place of baked light. Its orange wood passed as a force field, so it took 136 lights in tat_m20aa, and each hut had an orange pool at its gate."

@@ -1496,3 +1496,8 @@ dark = true
 texture = "lda_trim03"
 on = "room"
 lamp = false
+
+[[kind]]
+texture = "lta_dor03"
+on = "placeable"
+lamp = false
