@@ -24,7 +24,6 @@
 //! the pictures the owner approved and the game agree.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::OnceLock;
 
 use asset_odyssey::texture::{Encoding, TextureIr};
 use bevy::math::{Mat4, Vec2, Vec3};
@@ -191,6 +190,7 @@ pub struct Light {
 }
 
 /// What a kind of fitting does (an entry of `data/lights/<game>.toml`).
+#[derive(Clone)]
 struct Kind {
     form: String,
     colour: Vec3,
@@ -425,12 +425,45 @@ pub fn switched_on(
     t * t * (3.0 - 2.0 * t)
 }
 
-fn kinds() -> &'static [Kinds; 2] {
-    static KINDS: OnceLock<[Kinds; 2]> = OnceLock::new();
-    KINDS.get_or_init(|| {
+/// Each game's kinds, read once (from `KJK_LIGHT_DATA` or the copy built
+/// in), with the entries a program set since (`set_kinds`).
+static KINDS: std::sync::RwLock<Option<std::sync::Arc<[Kinds; 2]>>> = std::sync::RwLock::new(None);
+
+fn kinds() -> std::sync::Arc<[Kinds; 2]> {
+    if let Some(kinds) = KINDS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
+        return kinds.clone();
+    }
+    let read = std::sync::Arc::new(
         [("k1.toml", TABLES[0]), ("tsl.toml", TABLES[1])]
-            .map(|(name, text)| read_kinds(&data_text(name, text)).unwrap_or(Kinds::new()))
-    })
+            .map(|(name, text)| read_kinds(&data_text(name, text)).unwrap_or(Kinds::new())),
+    );
+    *KINDS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(read.clone());
+    read
+}
+
+/// Puts the `[[kind]]` entries of `text` (in the layout of
+/// `data/lights/<game>.toml`) in place of `game`'s (`k1` or `tsl`) entries
+/// for the same kinds, in the scenes drawn from now on. The level editor
+/// sets a kind it edits, so its view shows the change before it is saved.
+pub fn set_kinds(game: &str, text: &str) -> Result<(), String> {
+    let index = match game {
+        "k1" => 0,
+        "tsl" => 1,
+        _ => return Err(format!("{game} is not k1 or tsl")),
+    };
+    let entries = read_kinds(text).ok_or("the kinds do not read")?;
+    let mut all = (*kinds()).clone();
+    all[index].extend(entries);
+    *KINDS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(std::sync::Arc::new(all));
+    Ok(())
 }
 
 fn number(item: Option<&toml_edit::Item>) -> Option<f32> {
@@ -643,14 +676,15 @@ pub(crate) fn falloff(distance: f32, radius: f32) -> f32 {
 pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
     explained(loaded)
         .into_iter()
-        .map(|(light, _)| light)
+        .map(|(light, _, _)| light)
         .collect()
 }
 
 /// `lights`, each with where it comes from: its kind's texture for a
 /// fitting's light, `placed` for one placed by hand, `hidden lamp` for a
-/// room's hidden lamp. The level editor shows them.
-pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String)> {
+/// room's hidden lamp; and whether its fitting is on a placeable (the
+/// kind's `on`). The level editor shows them.
+pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String, bool)> {
     let doors: BTreeSet<usize> = loaded.doors.iter().map(|door| door.model).collect();
     // The doors are among them. A door sheds light only as a force field
     // (`FIELD_CHROMA`).
@@ -660,7 +694,8 @@ pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String)> {
     let room_of = |model: usize| (loaded.rooms.iter()).position(|room| room.model == Some(model));
     // The glowing meshes of rooms and placeables: the model, the mesh,
     // and whether it is on a placeable.
-    let [k1, tsl] = kinds();
+    let all = kinds();
+    let [k1, tsl] = &*all;
     // A kind that shines where its mesh does not glow (`always`).
     let always = |texture: &str, on: bool| {
         let key = (texture.to_ascii_lowercase(), on);
@@ -721,6 +756,8 @@ pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String)> {
     let mut found = Vec::new();
     // What each light is from, for `KJK_FITTED_DUMP`.
     let mut sources: Vec<String> = Vec::new();
+    // Whether each light's fitting is on a placeable.
+    let mut on_placeable: Vec<bool> = Vec::new();
     // The room each light is in, where it is from a room's own mesh.
     let mut rooms: Vec<Option<usize>> = Vec::new();
     // The rooms that have a fitting's light.
@@ -860,6 +897,7 @@ pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String)> {
             }
         }
         sources.extend((before..found.len()).map(|_| name(model, mesh_index)));
+        on_placeable.resize(found.len(), on);
         rooms.resize(found.len(), room);
     }
     found.extend(placed(module_of(&loaded.name)));
@@ -878,7 +916,10 @@ pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String)> {
     if let Ok(path) = std::env::var("KJK_FITTED_DUMP") {
         dump(loaded, &found, &sources, &switched, &path);
     }
-    found.into_iter().zip(sources).collect()
+    on_placeable.resize(found.len(), false);
+    (found.into_iter().zip(sources).zip(on_placeable))
+        .map(|((light, source), on)| (light, source, on))
+        .collect()
 }
 
 /// What `light` gives a surface at `at` that faces `normal`, by its
