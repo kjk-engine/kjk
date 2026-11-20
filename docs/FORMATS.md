@@ -10,8 +10,9 @@ Pure parsers over `&[u8]`; no file I/O. Containers are in [`VFS.md`](VFS.md).
 | SSF V1.1 | `ssf` | yes | every copy |
 | TPC, TGA, TXI | `texture`, `txi`, `dxt` | no | every copy; PNG export |
 | MDL/MDX | `mdl` (reader), `asset_odyssey::model` (IR) | no | every copy parsed and converted |
-| LYT, VIS | `lyt`, `vis` | no | every copy |
-| WOK, PWK, DWK (walkmeshes) | `bwm` | no | every copy |
+| LYT, VIS | `lyt`, `vis` | yes, the same reading in the games' layout | every copy |
+| WOK, PWK, DWK (walkmeshes) | `bwm` | yes | every copy |
+| ERF, MOD, SAV, HAK | `erf` | yes, the same resources (no localized strings or build date) | every archive |
 | LIP | `lip` | no | every copy |
 
 ```bash
