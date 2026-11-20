@@ -354,7 +354,7 @@ pub(super) fn fire(
         // keeps to that pace (C2), and they spread by its aim. A body a seat
         // plays (its avatar, a companion it drives, the one leading the
         // party) shoots as its player.
-        let creature = creature(avatar.is_some(), fighter, lent, id.0);
+        let creature = creature(avatar.map(|avatar| avatar.0), lent, id.0);
         let troop = fighter.mind.troop;
         let paced = (creature && troop.pace_ms > 0).then_some(troop.pace_ms);
         // The aim moves before the trigger, so a shot on the step the gun
@@ -676,8 +676,8 @@ pub(super) fn fire(
 
 /// Whether the body `id` is a creature that its mind plays: one no seat
 /// plays (`world::played`).
-pub(super) fn creature(avatar: bool, fighter: &Fighter, lent: Option<SimId>, id: SimId) -> bool {
-    !super::played(avatar, fighter.mind.driver.is_some(), lent, id)
+pub(super) fn creature(avatar: Option<Seat>, lent: Option<SimId>, id: SimId) -> bool {
+    !super::played(avatar, id, lent)
 }
 
 /// Whether `command` raises the gun in `fighter`'s hand at `now`. The body

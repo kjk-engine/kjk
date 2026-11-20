@@ -509,6 +509,7 @@ pub(super) fn hurt(
     // A held character's saving throw each round to break free (C11): the
     // roll told to its own seat, "Saved" floated over it, and the hold's
     // looks ended with it.
+    let lent = super::lent(&scripts.state.party);
     for (id, avatar, object, sheet, _, fighting) in actors.iter_mut() {
         let fighter = &mut fighting.0;
         if !fighter.alive() || fighter.force.due(now).is_none() {
@@ -522,8 +523,8 @@ pub(super) fn hurt(
         let Some(rolled) = fighter.force.roll_free(now, d20, |index| sheet.save(index)) else {
             continue;
         };
-        if let Some(avatar) = avatar {
-            notices.0.push((avatar.0, save_notice(rolled)));
+        if let Some(seat) = super::keyed_by(avatar.map(|avatar| avatar.0), id.0, lent) {
+            notices.0.push((seat, save_notice(rolled)));
         }
         if rolled.saved {
             end_looks(fighter, end, now);
@@ -678,7 +679,9 @@ pub(super) fn hurt(
                 spent.push(by);
                 !scripts::perceived(&scripts.state, hit.target.0, hit.attacker.0)
             });
-        let attacker_seat = attacker.and_then(|by| actors[by].1.map(|avatar| avatar.0));
+        let attacker_seat = attacker.and_then(|by| {
+            super::keyed_by(actors[by].1.map(|avatar| avatar.0), actors[by].0.0, lent)
+        });
         let (target_sheet, target_side) = who[at];
         let target_party = target_side.party;
         // A creature outside the party lands its attack on its target
@@ -757,11 +760,9 @@ pub(super) fn hurt(
             _ => 0,
         };
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
-        // Whether a player plays it: a seat's own character, the companion a
-        // seat drives, or the companion leading the party in the first
-        // seat's place (`lent`, which has no avatar of its own). A body a
-        // player plays never flinches and is never caught unaware.
-        let played = avatar.is_some() || lent == Some(hit.target);
+        // A body a seat plays (`world::played`) never flinches and is never
+        // caught unaware.
+        let played = super::played(avatar.map(|avatar| avatar.0), hit.target, lent);
         // The dead take nothing more; the downed nothing but the story's
         // death.
         let death = matches!(hit.source, Source::Death);

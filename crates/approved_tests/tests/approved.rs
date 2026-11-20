@@ -4456,13 +4456,15 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 /// The `led_own_walked_by_script` check was added and approved on
 /// 2026-11-12. A script's move of the player's own character walks it while
 /// a companion leads, as Hendar's gate in K1's Undercity needs. The
-/// `played_bodies_agree` check was proposed on 2026-11-20 and is not yet
-/// approved. The views take a companion leading the party for a body a
-/// seat plays, as the sim's shots do, so a disruptor's beam is drawn along
-/// its crosshair line.
+/// `played_bodies_agree`, `leader_bolts_break_a_crate` and
+/// `leader_blows_on_a_tank_count` checks were proposed on 2026-11-20 and
+/// are not yet approved. A companion leading the party is played by its
+/// player, in the sim and in its views: its bolts break a locked crate,
+/// and its blows on a hostile stasis tank it aims at hurt the tank. The
+/// player's own character standing meanwhile is played by its mind.
 #[test]
 fn guests_drive_companions() {
-    probed("drivers", &sim::drivers::probes(), 39);
+    probed("drivers", &sim::drivers::probes(), 41);
 }
 
 /// Conversations in co-op (I31): `sim::coop_talk::probes`, every phase's

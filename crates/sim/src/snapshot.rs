@@ -1720,15 +1720,20 @@ impl Snapshot {
             .or_else(|| self.own(seat))
     }
 
-    /// Whether a seat plays `entity` (`world::played`), with the companion
-    /// leading the party taken from `leading`.
+    /// The seat whose commands act through `entity`: `body` read the other
+    /// way, as the sim's `world::keyed_by` reads its `acting_body`. None for
+    /// a creature its mind plays, and for the leader's own character while
+    /// a companion leads or it is benched.
+    pub fn seat_of(&self, entity: &EntityState) -> Option<Seat> {
+        (0..self.seats())
+            .map(Seat)
+            .find(|seat| self.body(*seat).is_some_and(|body| body.id == entity.id))
+    }
+
+    /// Whether a seat plays `entity` (`seat_of`), as the sim's
+    /// `world::played` has it.
     pub fn played(&self, entity: &EntityState) -> bool {
-        crate::world::played(
-            matches!(entity.kind, Kind::Avatar(_)),
-            entity.fighter.is_some_and(|f| f.mind.driver.is_some()),
-            self.leading,
-            entity.id,
-        )
+        self.seat_of(entity).is_some()
     }
 
     /// Whether a conversation holds the world (S1, `Told::holds_world` of

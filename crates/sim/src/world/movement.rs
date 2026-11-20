@@ -577,6 +577,7 @@ pub(super) fn move_actors(
             .map(|_| Avatar(LEADER_SEAT));
         let stands = avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT) && lent.is_some();
         let seat = avatar.or(leads.as_ref()).filter(|_| !scripted && !stands);
+        let plays = super::played(avatar.map(|avatar| avatar.0), id.0, lent);
         // A script's lit saber is one act: `SetOverrideLightsaberState`
         // powers it once and holds nothing. The game decides again from the
         // next fight (`SetCombatState`), and the party's goes out once no
@@ -711,7 +712,7 @@ pub(super) fn move_actors(
         } else {
             let fighter = &fighting.0;
             let now = clock.time_ms;
-            let creature = super::firing::creature(avatar.is_some(), fighter, lent, id.0);
+            let creature = super::firing::creature(avatar.map(|avatar| avatar.0), lent, id.0);
             let command = command_for(&inputs.0, seat, &player.0, fighter, now);
             // The aim step reads the body's own sheet (`sheet_of`: a player's,
             // or the one a creature's equipment changed), and only for a body
@@ -947,7 +948,7 @@ pub(super) fn move_actors(
         // Chuundar's throne room Freyyr, come up beside the player at a
         // slanting wall, held it with his box's corner on either side, a
         // pocket no walk got out of.
-        let inside = clear_of(&met_as(&mine, avatar.is_some()), bodies);
+        let inside = clear_of(&met_as(&mine, plays), bodies);
         let bodies = inside.bodies.as_ref();
         let before = player.0.origin;
         let standing_in = props
@@ -1090,7 +1091,7 @@ pub(super) fn move_actors(
         // moved others' ways and a player's walk turned back and forth).
         if stepped.is_none() {
             let maxs_z = player.0.maxs_z;
-            let seated = avatar.is_some();
+            let seated = plays;
             let spaces = |entity: u32| {
                 let theirs = pushable
                     .binary_search_by_key(&SimId(entity & !BODY), |(id, ..)| *id)
@@ -1245,7 +1246,7 @@ pub(super) fn move_actors(
         idle::check(
             &mut player.0,
             &mut fighting.0,
-            (&command, avatar.is_some()),
+            (&command, plays),
             &kit,
             &level.0.anims,
             (clock.time_ms, clock.msec),

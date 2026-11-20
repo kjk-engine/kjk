@@ -75,6 +75,13 @@ pub(super) fn fly(
         .map(|(id, .., player, _)| (id.0, player.0.origin))
         .collect();
     let find = |id: SimId| origins.binary_search_by_key(&id, |(own, _)| *own).ok();
+    // Whether a seat plays each, in the same order: its bolts break what a
+    // player's do, and its blade turns bolts as a player's.
+    let lent = super::lent(&scripts.state.party);
+    let played: Vec<bool> = actors
+        .iter()
+        .map(|(id, avatar, ..)| super::played(avatar.map(|avatar| avatar.0), id.0, lent))
+        .collect();
     // The living's bodies, what a blast reaches.
     let chests: Vec<Reached> = actors
         .iter()
@@ -185,7 +192,7 @@ pub(super) fn fly(
             let fate = saw
                 .then(|| {
                     sabers::bolt_block(
-                        (rules, avatar.is_some()),
+                        (rules, played[at_target]),
                         &mut fighting.0,
                         &player.0,
                         &sheet,
@@ -224,7 +231,7 @@ pub(super) fn fly(
         // (rulebook 5.6), but its owner's.
         let mut bodies = shots.met(bolt.owner, targets.met_by(bolt.owner));
         bodies.extend(blades.bodies(bolt.owner));
-        let player = find(bolt.owner).is_some_and(|at| actors[at].1.is_some());
+        let player = find(bolt.owner).is_some_and(|at| played[at]);
         if player {
             bodies.extend(bashable.iter().cloned());
         }
@@ -285,7 +292,7 @@ pub(super) fn fly(
                 // under either rule set.
                 // An NPC that turned many bolts lately may let this one
                 // through, onto its body, under either rule set.
-                let npc = avatar.is_none();
+                let npc = !played[at_target];
                 let rng = &mut streams.authority;
                 let overwhelmed =
                     npc && sabers::overwhelmed(&fighting.0, &sheet, (clock.tick, clock.msec), rng);
@@ -293,7 +300,7 @@ pub(super) fn fly(
                 let fate = (!overwhelmed)
                     .then(|| {
                         sabers::bolt_block(
-                            (rules, avatar.is_some()),
+                            (rules, played[at_target]),
                             &mut fighting.0,
                             &player.0,
                             &sheet,
