@@ -847,6 +847,17 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
             ui.checkbox(&mut state.show_collision, "Collision")
                 .on_hover_text("F2: walkable floor green, solid surfaces orange, edge walls blue");
             lighting_menu(ui, state);
+            if let Some(job) = &state.bake_job {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Baking {} ({} s): {}",
+                        job.label,
+                        job.started.elapsed().as_secs(),
+                        job.status
+                    ))
+                    .small(),
+                );
+            }
             ui.checkbox(&mut state.show_nav, "Nav").on_hover_text(
                 "F3: the navigation mesh the game's characters find their way over, \
                  each island its own colour; red under furniture, purple under a door \
@@ -2272,6 +2283,27 @@ fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
         ui.separator();
         ui.checkbox(&mut state.show_lights, "Show lights   F4");
         ui.checkbox(&mut state.show_levels, "Room levels");
+        ui.separator();
+        let baking = state.bake_job.is_some();
+        if ui
+            .add_enabled(!baking, egui::Button::new("Bake now"))
+            .on_hover_text(
+                "Saves, then bakes the area's lightmaps from its fitted lights as the view has them, \
+                 as data/lights/bake.toml sets the module; the bake is shown when it is done",
+            )
+            .clicked()
+        {
+            state.pending_command = Some("bake".into());
+            ui.close();
+        }
+        if state.setup.bakes.len() >= 2
+            && ui
+                .button("Compare with the bake before")
+                .on_hover_text("Shows the newest bake and the one before it in turn")
+                .clicked()
+        {
+            state.pending_command = Some("bake compare".into());
+        }
         if ui
             .button("Walk   F7")
             .on_hover_text("Saves, then walks the level in play's walk mode, lit as the view is")

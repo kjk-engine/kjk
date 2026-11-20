@@ -164,6 +164,35 @@ module whose bake aimed at a share of each room's level is set to aim at
 the file (`bake.toml`'s `levels`); a room the file has no line for keeps
 the share's level in the bake.
 
+### Bakes
+
+**Bake now** (in the Lighting menu, `edit bake`) bakes the area's
+lightmaps from its fitted lights as the editor has them, so lights can be
+added, kinds and levels changed, and the area baked again until it looks
+right. It does what `tools/light-kinds/bake.sh` does, with the editor's
+own scene in place of a launch of the game:
+
+1. The project is saved, so the light data holds the editor's lights,
+   kinds and levels.
+2. The scene's lights are written to a dump (`lights-<label>.txt`), as
+   the game writes them for `KJK_FITTED_DUMP` under the live lights
+   (`fitted_lights::dump_lights`).
+3. `kjk detail-bake --gpu` runs on a thread of its own, set as
+   `bake.toml` sets the module (its sun, skylights and even light): a
+   module with a levels file bakes once, held to it; a module with a
+   share bakes twice, first to measure each room's level and then held
+   to the share of it, at most its ceiling.
+
+The editor keeps working while it bakes; the toolbar says how far the bake
+is. A bake of the Dantooine enclave takes about 11 seconds, the Ebon
+Hawk's two passes about 13. The bake lands where the scripts put theirs,
+`target/light-kinds/game/bake-<module>/bake/<label>` in the kjk checkout
+(the label is the date and time, ending in `ed`), with its dump, levels
+and logs beside it. When it is done, the view shows it (Baked) and the
+Lighting menu lists it first. **Compare with the bake before** (`edit bake
+compare`) shows the newest bake and the one before it in turn. Walk takes
+the bake shown.
+
 **Walk** (F7, in the Lighting menu) saves, then starts play's walk mode
 (`kjk play --walk`) on the level, lit as the view is: with
 `KJK_FITTED_LIGHTS` and `KJK_DETAIL_BAKE` set from the view, and
@@ -488,6 +517,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit kind strength S`, `reach R`, `colour R G B`, `cone C`, `lamp on`, `lamp off`, `reason TEXT` | changes the kind of the selected fitted light |
 | `edit level ROOM LEVEL`, `edit level ROOM none` | sets or takes away the level a room of the bake aims at |
 | `edit ui levels on`, `edit ui levels off` | opens or closes the Room levels window |
+| `edit bake` | saves, then bakes the area's lightmaps from its lights and shows the bake when it is done |
+| `edit bake compare` | shows the newest bake and the one before it in turn |
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit audit` | saves, then runs `kjk collision audit` on the project |

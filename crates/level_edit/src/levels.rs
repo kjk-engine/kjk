@@ -78,6 +78,12 @@ pub struct BakeEntry {
     /// Whether the even light fills what the lamps cannot.
     pub even: bool,
     pub sun: bool,
+    /// The sun and sky as `kjk detail-bake --sun` takes them: the numbers
+    /// of `toward`, `colour`, `sky`, `toward2` and `colour2`, then `width`,
+    /// as `tools/light-kinds/bake.sh` passes them.
+    pub sun_args: Option<String>,
+    /// The sun's skylights as `--skylights` takes them, by node name.
+    pub skylights: Option<String>,
 }
 
 /// `module`'s bake as `bake.toml`'s text says it, `[default]`'s where it
@@ -108,7 +114,84 @@ pub fn bake_entry(text: &str, module: &str) -> BakeEntry {
             .and_then(Item::as_bool)
             .unwrap_or(true),
         sun: table.is_some_and(|table| table.get("sun").is_some()),
+        sun_args: table.and_then(|table| sun_args(table.get("sun")?)),
+        skylights: table
+            .and_then(|table| table.get("sun")?.get("skylights")?.as_array())
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|name| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .filter(|names| !names.is_empty()),
     }
+}
+
+/// A `sun`'s numbers for `--sun`.
+fn sun_args(sun: &Item) -> Option<String> {
+    let mut words: Vec<String> = Vec::new();
+    for key in ["toward", "colour", "sky", "toward2", "colour2"] {
+        if let Some(array) = sun.get(key).and_then(Item::as_array) {
+            for value in array.iter() {
+                let number = value
+                    .as_float()
+                    .or_else(|| value.as_integer().map(|value| value as f64))?;
+                words.push(number.to_string());
+            }
+        }
+    }
+    if let Some(width) = sun.get("width") {
+        let width = width
+            .as_float()
+            .or_else(|| width.as_integer().map(|value| value as f64))?;
+        words.push(width.to_string());
+    }
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// The levels a module whose bake aims at a share of each room's level
+/// gives its rooms: `share` times the room's level of kind `of` in the log
+/// of a first bake (`kjk detail-bake --gpu`), and at most `ceiling`. The
+/// log's lines are `name: original O, colour R G B, lit L` for `original`
+/// and `lit`, and `name: N, live L; ...` for `live`. Empty when the log
+/// has none.
+pub fn levels_from_log(
+    log: &str,
+    of: &str,
+    share: f32,
+    ceiling: Option<f32>,
+) -> BTreeMap<String, f32> {
+    let mut levels = BTreeMap::new();
+    for line in log.lines() {
+        let Some((room, rest)) = line.trim_start().split_once(": ") else {
+            continue;
+        };
+        if room.contains(' ') {
+            continue;
+        }
+        let level = match of {
+            "lit" if rest.starts_with("original ") => rest
+                .rsplit_once("lit ")
+                .and_then(|(_, number)| number.trim().parse::<f32>().ok()),
+            "live" => rest.split_once(", live ").and_then(|(count, after)| {
+                count.parse::<u64>().ok()?;
+                after.split(';').next()?.trim().parse::<f32>().ok()
+            }),
+            "original" => rest
+                .strip_prefix("original ")
+                .and_then(|after| after.split(',').next()?.trim().parse::<f32>().ok()),
+            _ => None,
+        };
+        if let Some(level) = level {
+            let aimed = share * level;
+            levels.insert(
+                room.to_ascii_lowercase(),
+                ceiling.map_or(aimed, |most| aimed.min(most)),
+            );
+        }
+    }
+    levels
 }
 
 /// `text` (a `bake.toml`) with `module`'s bake aiming at the levels of

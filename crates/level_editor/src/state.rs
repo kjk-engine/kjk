@@ -237,6 +237,11 @@ pub struct EditorState {
     pub(crate) levels_original: BTreeMap<String, f32>,
     pub(crate) room_measures: Option<Vec<RoomMeasure>>,
     pub(crate) show_levels: bool,
+    /// A bake running (`bake`), and the label of one asked for, which
+    /// starts when the scene is next drawn (it bakes from the scene's
+    /// lights).
+    pub(crate) bake_job: Option<crate::bake::BakeJob>,
+    bake_request: Option<String>,
     shown_lights: (
         kjk_game::fitted_lights::Mode,
         Option<PathBuf>,
@@ -315,6 +320,8 @@ impl EditorState {
             levels_original,
             room_measures: None,
             show_levels: false,
+            bake_job: None,
+            bake_request: None,
             shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false, None),
             nav_facts: None,
             dragging: false,
@@ -953,6 +960,15 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             scene.models.push(Placed::at(overlay, [0.0; 3]));
         }
     }
+    // A bake asked for starts from the scene's lights, before the editor's
+    // markers join the scene.
+    if let Some(label) = state.bake_request.take() {
+        match start_bake(state, &scene, label) {
+            Ok(job) => state.bake_job = Some(job),
+            Err(why) => state.say(format!("the bake did not start: {why}")),
+        }
+    }
+
     // Each room's level, measured once, from the stored lightmaps.
     if state.show_levels
         && state.room_measures.is_none()
@@ -1104,11 +1120,35 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
 /// The scene drawn again once the edits have stopped for a moment.
 pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
     state.quiet = state.quiet.saturating_add(1);
+    // A bake that ended is shown.
+    let ended = state.bake_job.as_mut().and_then(crate::bake::BakeJob::poll);
+    if let Some(ended) = ended {
+        let job = state.bake_job.take().expect("polled above");
+        let seconds = job.started.elapsed().as_secs();
+        match ended {
+            Ok(bake) => {
+                state.setup.bakes.retain(|had| *had != bake);
+                state.setup.bakes.insert(0, bake.clone());
+                state.bake = Some(bake);
+                state.light_view = kjk_game::fitted_lights::Mode::Baked;
+                state.say(format!(
+                    "bake {} done in {seconds} s: {}",
+                    job.label, job.status
+                ));
+            }
+            Err(why) => state.say(format!(
+                "bake {} failed after {seconds} s: {why}",
+                job.label
+            )),
+        }
+    }
+    let asked = state.bake_request.is_some();
     // The Room levels window measures the rooms when a scene is drawn.
     let measure = state.show_levels
         && state.room_measures.is_none()
         && state.light_view != kjk_game::fitted_lights::Mode::Baked;
     let stale = measure
+        || asked
         || state.built != state.editor.changes()
         || state.shown_collision != state.show_collision
         || state.shown_nav != state.show_nav
@@ -1855,6 +1895,27 @@ pub(crate) fn command(
             };
             state.apply(Edit::SetLevel(room.to_string(), level));
         }
+        ["bake"] => {
+            if state.bake_job.is_some() || state.bake_request.is_some() {
+                return Err("a bake is running".into());
+            }
+            command(state, &["save"], cameras)?;
+            state.bake_request = Some(crate::bake::label_now());
+            state.quiet = SETTLE_FRAMES;
+        }
+        ["bake", "compare"] => {
+            let [newest, before, ..] = state.setup.bakes.as_slice() else {
+                return Err("there are not two bakes of this area to compare".into());
+            };
+            let other = if state.bake.as_ref() == Some(newest) {
+                before.clone()
+            } else {
+                newest.clone()
+            };
+            state.say(format!("showing the bake {}", other.display()));
+            state.bake = Some(other);
+            state.light_view = kjk_game::fitted_lights::Mode::Baked;
+        }
         ["walk"] => {
             command(state, &["save"], cameras)?;
             walk(state)?;
@@ -1980,6 +2041,44 @@ pub(crate) fn command(
         _ => return Err("not an edit command (docs/LEVEL-EDIT.md lists them)".into()),
     }
     Ok(())
+}
+
+/// Starts a bake of the area from `scene`'s lights (`bake`): its dump is
+/// written first, then `kjk detail-bake` runs on a thread of its own.
+fn start_bake(
+    state: &EditorState,
+    scene: &LoadedScene,
+    label: String,
+) -> Result<crate::bake::BakeJob, String> {
+    let project = &state.editor.project;
+    let light_data = (state.setup.light_data.clone())
+        .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+    let root = crate::checkout_of(&state.setup.program)
+        .ok_or("the kjk checkout this editor was built in was not found")?;
+    let folder = crate::bake::folder_of(&root, &project.module);
+    std::fs::create_dir_all(&folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+    let dump = folder.join(format!("lights-{label}.txt"));
+    kjk_game::fitted_lights::dump_lights(scene, &dump.to_string_lossy());
+    if !dump.is_file() {
+        return Err(format!(
+            "the lights' dump {} was not written",
+            dump.display()
+        ));
+    }
+    let entry = std::fs::read_to_string(light_data.join("bake.toml"))
+        .map(|text| level_edit::levels::bake_entry(&text, &project.module))
+        .map_err(|error| format!("bake.toml: {error}"))?;
+    Ok(crate::bake::BakeJob::start(crate::bake::Plan {
+        program: state.setup.program.clone(),
+        project: project.name.clone(),
+        module: project.module.clone(),
+        game: project.game.clone(),
+        light_data,
+        entry,
+        folder,
+        label,
+        dump,
+    }))
 }
 
 /// The kind of fitting of the selected light the game places (a fitted

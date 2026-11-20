@@ -5,6 +5,7 @@
 //! NAME` plays. It never writes into a game install. Started with no
 //! module, it lists the projects and the levels to pick from (`picker`).
 
+mod bake;
 mod file;
 mod picker;
 mod script_view;
@@ -230,13 +231,19 @@ fn light_data() -> Option<PathBuf> {
         .find(|folder| folder.join("fittings.toml").is_file())
 }
 
-/// The bakes of `area` that `tools/light-kinds` made beside the light data
+/// The kjk checkout `program` (`target/<profile>/kjk`) was built in.
+pub(crate) fn checkout_of(program: &Path) -> Option<PathBuf> {
+    program
+        .ancestors()
+        .find(|folder| folder.join("Cargo.toml").is_file() && folder.join("data").is_dir())
+        .map(Path::to_path_buf)
+}
+
+/// The bakes of `area` made in the kjk checkout at `root`, by
+/// `tools/light-kinds` or the editor
 /// (`target/light-kinds/game/<folder>/bake/<label>/<area>/b`), the newest
 /// first.
-fn bakes_of(light_data: &Path, area: &str) -> Vec<PathBuf> {
-    let Some(root) = light_data.parent().and_then(Path::parent) else {
-        return Vec::new();
-    };
+pub(crate) fn bakes_of(root: &Path, area: &str) -> Vec<PathBuf> {
     let games = root.join("target").join("light-kinds").join("game");
     let mut found: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
     for folder in std::fs::read_dir(games).into_iter().flatten().flatten() {
@@ -346,9 +353,9 @@ fn setup(
     let stores = sorted(ResType::UTM);
     let rooms = room_library(&resolver);
     let light_data = light_data();
-    let bakes = light_data
-        .as_deref()
-        .map_or_else(Vec::new, |folder| bakes_of(folder, &active.project.area));
+    let program = kjk_program()?;
+    let bakes =
+        checkout_of(&program).map_or_else(Vec::new, |root| bakes_of(&root, &active.project.area));
     let ja = level_edit::active::ja_stack(&discovery);
     let models = ja.as_ref().map_or_else(Vec::new, |stack| {
         level_edit::active::models_under(stack, "models/map_objects/")
@@ -371,6 +378,6 @@ fn setup(
         rooms,
         light_data,
         bakes,
-        program: kjk_program()?,
+        program,
     })
 }

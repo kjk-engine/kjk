@@ -6698,6 +6698,34 @@ fn level_edit_light_rules() {
         Some("levels/danm13.txt")
     );
 
+    // A first bake's log gives each room the share of its level, at most
+    // the ceiling; a sun's numbers are passed as `bake.sh` passes them.
+    let log = "  each room's original level, ...
+                   m12aa_01b: original 0.2000, colour 0.2 0.2 0.2, lit 0.5000
+                   m12aa_01c: original 0.1000, colour 0.1 0.1 0.1, lit 0.2000
+                   m12aa_01b: 1200, live 0.3000; a 0.2 0.2 x1.0; b 0.2 0.2 0.2 x1.0
+";
+    let lit = level_edit::levels::levels_from_log(log, "lit", 0.6, Some(0.22));
+    assert_eq!(lit.get("m12aa_01b"), Some(&0.22));
+    assert!((lit["m12aa_01c"] - 0.12).abs() < 1e-6);
+    let original = level_edit::levels::levels_from_log(log, "original", 1.0, None);
+    assert_eq!(original.get("m12aa_01c"), Some(&0.1));
+    let live = level_edit::levels::levels_from_log(log, "live", 1.0, None);
+    assert_eq!(live.len(), 1);
+    assert_eq!(live.get("m12aa_01b"), Some(&0.3));
+    let sunny = "[modules.danm13]
+                 levels = \"levels/danm13.txt\"
+                 even = false
+                 sun = { toward = [0.383, 0.663, 0.643], colour = [1.07, 0.96, 0.6], sky = [0.42, 0.44, 0.3], width = 0.01, skylights = [\"sky01\", \"sky02\"] }
+";
+    let entry = bake_entry(sunny, "danm13");
+    assert!(!entry.even);
+    assert_eq!(
+        entry.sun_args.as_deref(),
+        Some("0.383 0.663 0.643 1.07 0.96 0.6 0.42 0.44 0.3 0.01")
+    );
+    assert_eq!(entry.skylights.as_deref(), Some("sky01 sky02"));
+
     let mut editor = Editor::new(Project::new(
         &std::env::temp_dir().join("kjk-light-rules"),
         "k1",
