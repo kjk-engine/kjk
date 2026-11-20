@@ -18,6 +18,7 @@ pub mod anim_audit;
 mod cli_host;
 mod cli_join;
 mod cli_play;
+mod cli_project;
 mod installs_report;
 mod levels;
 #[cfg(feature = "probes")]
@@ -101,6 +102,8 @@ probes!(
     probe,
     real_mods_probes,
     remote_census,
+    detail_bake,
+    light_kinds,
     room_light_fit,
     room_lights,
     routines_verbs,
@@ -202,6 +205,11 @@ struct Cli {
     /// resolution put back (when a display setting stops the game starting)
     #[arg(long, global = true)]
     reset_display: bool,
+    /// Play or edit a level editor project by its name (docs/LEVEL-EDIT.md).
+    /// Its folder is read over the install's override folder, and its
+    /// Jedi Academy props and collision boxes join its area
+    #[arg(long, global = true)]
+    project: Option<String>,
 }
 
 fn parse_size(text: &str) -> Result<(u32, u32), String> {
@@ -631,6 +639,13 @@ pub fn run() -> ExitCode {
     if cli.reset_display {
         kjk_game::display::reset();
     }
+    // A project is read before any install is opened.
+    if let Some(name) = &cli.project
+        && let Err(error) = cli_project::activate(name)
+    {
+        eprintln!("--project {name}: {error}");
+        return ExitCode::from(2);
+    }
     // The runs that play (a module, the menu, a session) read the installs:
     // opened on threads now, they are read while the rest starts.
     if matches!(
@@ -878,6 +893,8 @@ fn play(script: &str, headless: bool, size: (u32, u32), scene: runtime::Scene) -
         size,
         games: Box::new(|| games_manifest(&discover())),
         scene,
+        plugins: None,
+        asks_before_closing: false,
     };
     let exit = runtime::run(options);
     if setup::finished() && !headless {

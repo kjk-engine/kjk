@@ -497,6 +497,8 @@ impl Installer {
         });
         let mut scene = scene?;
         scene.sound = sound;
+        // A level editor project's Jedi Academy props (`--project`).
+        crate::project_props::add_active(&mut scene, self.game, module);
         Ok((scene, started.elapsed().as_secs_f64() * 1000.0))
     }
 

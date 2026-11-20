@@ -6,6 +6,11 @@
 //! Key record (24 bytes): resref (16), resource id (u32), type (u16),
 //! reserved (u16). Resource record (8 bytes): data offset, data size. The two
 //! lists run in parallel: key `i` describes resource `i`.
+//!
+//! `write` makes an archive from resources: no localized strings, the key
+//! list after the header, the resource list after it, then the data in the
+//! keys' order. The build date is left at zero, so the same resources make
+//! the same bytes.
 
 use crate::reader::Reader;
 use crate::{ArchiveEntry, FormatError, ResType, resref};
@@ -107,4 +112,70 @@ impl Erf {
             entries,
         })
     }
+}
+
+/// An archive of `kind` holding `resources` (resref, type, bytes), in their
+/// order (above). Refused when a resref is longer than 16 bytes or two
+/// resources share a resref and a type.
+pub fn write(kind: ErfKind, resources: &[(String, ResType, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for (resref, restype, _) in resources {
+        if resref.len() > 16 || !resref.is_ascii() {
+            return Err(format!(
+                "{resref:?} is not a resref of 16 characters at most"
+            ));
+        }
+        if !seen.insert((resref.to_ascii_lowercase(), restype.0)) {
+            return Err(format!("{resref}.{restype} is in the archive twice"));
+        }
+    }
+    let count = resources.len();
+    let keys = HEADER_LEN;
+    let records = keys + count * KEY_RECORD;
+    let mut at = records + count * RESOURCE_RECORD;
+    let mut out = Vec::with_capacity(
+        at + resources
+            .iter()
+            .map(|(_, _, bytes)| bytes.len())
+            .sum::<usize>(),
+    );
+    let tag: &[u8; 4] = match kind {
+        ErfKind::Erf => b"ERF ",
+        ErfKind::Mod => b"MOD ",
+        ErfKind::Sav => b"SAV ",
+        ErfKind::Hak => b"HAK ",
+    };
+    out.extend_from_slice(tag);
+    out.extend_from_slice(b"V1.0");
+    for word in [
+        0,
+        0,
+        count as u32,
+        HEADER_LEN as u32,
+        keys as u32,
+        records as u32,
+        0,
+        0,
+        u32::MAX,
+    ] {
+        out.extend_from_slice(&word.to_le_bytes());
+    }
+    out.resize(HEADER_LEN, 0);
+    for (id, (resref, restype, _)) in resources.iter().enumerate() {
+        let mut name = [0u8; 16];
+        name[..resref.len()].copy_from_slice(resref.to_ascii_lowercase().as_bytes());
+        out.extend_from_slice(&name);
+        out.extend_from_slice(&(id as u32).to_le_bytes());
+        out.extend_from_slice(&(restype.0 as u16).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+    }
+    for (_, _, bytes) in resources {
+        out.extend_from_slice(&(at as u32).to_le_bytes());
+        out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        at += bytes.len();
+    }
+    for (_, _, bytes) in resources {
+        out.extend_from_slice(bytes);
+    }
+    Ok(out)
 }

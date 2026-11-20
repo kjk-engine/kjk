@@ -1061,3 +1061,22 @@ pub fn unpack_quaternion(word: u32) -> [f32; 4] {
     };
     [x, y, z, w]
 }
+
+/// A copy of the model file `mdl` under another name: the name in its
+/// header (32 bytes) is `name`, and nothing else changes. The level editor
+/// copies a room's model this way when it places the room somewhere new,
+/// since the room's walkmesh goes by the model's name. Refused when `name`
+/// does not fit the header or the file is too short to have one.
+pub fn renamed(mdl: &[u8], name: &str) -> Result<Vec<u8>, FormatError> {
+    if mdl.len() < DATA + 196 {
+        return Err(truncated(DATA + 196, mdl.len()));
+    }
+    if name.len() >= 32 || !name.is_ascii() {
+        return Err(unsupported(format!("{name:?} does not fit a model's name")));
+    }
+    let mut copy = mdl.to_vec();
+    let field = &mut copy[DATA + 8..DATA + 40];
+    field.fill(0);
+    field[..name.len()].copy_from_slice(name.as_bytes());
+    Ok(copy)
+}

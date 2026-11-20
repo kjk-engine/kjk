@@ -352,16 +352,22 @@ impl AreaCache {
         // the area is built for, and its table changes, are the book's.
         let edition = rules::EDITION.to_le_bytes();
         let collision = [request.collision.code()];
+        // A level editor project changes the area: its bakes are its own.
+        let project = level_edit::active::digest(&request.game, &request.module);
+        let mut parts: Vec<&[u8]> = vec![
+            &bakes.world,
+            request.game.as_bytes(),
+            request.module.as_bytes(),
+            &clearance,
+            &edition,
+            &collision,
+        ];
+        if let Some(project) = &project {
+            parts.push(project);
+        }
         let key = store::Key::of(
             &format!("{AREA_FORMAT}/{}", collision_odyssey::BUILDER),
-            &[
-                &bakes.world,
-                request.game.as_bytes(),
-                request.module.as_bytes(),
-                &clearance,
-                &edition,
-                &collision,
-            ],
+            &parts,
         );
         let kind = format!("bake/{}/{AREA_FORMAT}", request.game);
         let area = bakes
@@ -772,6 +778,8 @@ pub fn plan_with(
 fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<Area, PlanError> {
     let clip = collision_odyssey::built_in_clip(&request.game, &request.module)
         .map_err(PlanError::Data)?;
+    // A level editor project's boxes and solid props (`level_edit`).
+    let clip = level_edit::active::clip_for(&request.game, &request.module, clip);
     let surfaces = collision_odyssey::Surfaces::read(source).ok_or(PlanError::NoSurfaces)?;
     let loader = collision_odyssey::Loader { source };
     let built = collision_odyssey::build_area(
@@ -781,7 +789,8 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
         clip.as_ref(),
         &request.collision.options(),
     );
-    let walkable = built.nav_faces();
+    // A level editor project's changes to the navigation mesh.
+    let walkable = level_edit::active::nav_faces(&request.game, &request.module, built.nav_faces());
     let mut nav = collision::nav::NavMesh::build(&walkable, sim::walk::CLEARANCE * collision::UNIT);
     nav.mark(&built.level);
     Ok(Area {

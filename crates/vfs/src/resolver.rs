@@ -17,7 +17,9 @@
 //! 4. ERFs of priority 1: `patch.erf`
 //! 5. `override/`: its top level, then (TSL only) its subfolders one level
 //!    down, in name order; the first file of a name wins. Over it, each
-//!    Steam Workshop item's `override/`, its top level alone
+//!    Steam Workshop item's `override/`, its top level alone, and over
+//!    those a level editor project's folder while a run plays one
+//!    (`project`)
 //!
 //! So `override/` beats everything a module brings, which is how the games
 //! take a mod's DLG, NCS or UTC for a module's own.
@@ -627,6 +629,11 @@ impl Resolver {
                 resolver.push(layer);
             }
         }
+        // A level editor project's folder, over every `override/`
+        // (`project`): only while a run plays or edits one.
+        if let Some(layer) = crate::project::layer(game) {
+            resolver.push(layer);
+        }
         resolver.stack_rulebook();
         resolver.stack_rows();
         Ok(resolver)
@@ -955,6 +962,13 @@ impl Resolver {
                     .or_else(|| name.strip_suffix(".mod"))?;
                 (!stem.ends_with("_s")).then(|| stem.to_string())
             })
+            .chain(index.project_modules().keys().filter_map(|key| {
+                Some(
+                    key.strip_prefix("modules/")?
+                        .strip_suffix(".mod")?
+                        .to_string(),
+                )
+            }))
             .collect();
         names.sort();
         names.dedup();

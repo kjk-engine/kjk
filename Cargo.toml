@@ -28,6 +28,8 @@ store = { path = "crates/store" }
 ui = { path = "crates/ui" }
 saves = { path = "crates/saves" }
 edit = { path = "crates/edit" }
+level_edit = { path = "crates/level_edit" }
+level_editor = { path = "crates/level_editor" }
 game = { path = "crates/game" }
 rules = { path = "crates/rules" }
 bumps = { path = "crates/bumps" }

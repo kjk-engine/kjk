@@ -42,6 +42,127 @@ pub(crate) fn open(
     Ok((game, index, resolver))
 }
 
+/// `kjk script try`: `script` run once for the object tagged `on` (else
+/// the player) in `module` installed headless, then `seconds` stepped, and
+/// what happened from the run on printed: the trace, conversation lines,
+/// faults and scripts named but missing. The script is read through the
+/// install's layers (a project's folder first) and added to the module's
+/// library, so it runs where nothing names it yet.
+pub fn try_one(
+    discovery: &Discovery,
+    game: &str,
+    module: &str,
+    script: &str,
+    on: Option<&str>,
+    seconds: f32,
+) -> ExitCode {
+    let go = || -> Result<bool, String> {
+        let (game, _, resolver) = open(discovery, game)?;
+        let script = script.trim_end_matches(".ncs").to_ascii_lowercase();
+        let bytes = resolver
+            .read(&script, ResType::NCS)
+            .ok_or(format!("{script}.ncs is not found (compile it first)"))?;
+        let ncs = Ncs::parse(&bytes).map_err(|error| format!("{script}.ncs: {error}"))?;
+        let mut probe = crate::probe::Probe::new(discovery, game, module, |level| {
+            let library = level.scripts().ok_or("the module has no scripts")?;
+            Ok((**library).clone().with_script(&script, ncs))
+        })?;
+        let (caller, named) = match on {
+            None => (probe.me, "the player".to_string()),
+            Some(tag) => {
+                let level = probe.world.level().clone();
+                let data = level.module().ok_or("the module did not install")?;
+                let index = data
+                    .objects()
+                    .position(|object| object.tag.eq_ignore_ascii_case(tag))
+                    .ok_or(format!("no object of {module} is tagged {tag}"))?
+                    as u32;
+                let id = probe
+                    .world
+                    .snapshot()
+                    .entities
+                    .iter()
+                    .find(|entity| matches!(entity.kind, sim::Kind::Object(_, at) if at == index))
+                    .map(|entity| entity.id)
+                    .ok_or(format!("{tag} is not in the world"))?;
+                (id, tag.to_string())
+            }
+        };
+        let report = probe.world.script_report();
+        let before = (
+            report.trace_lines().len(),
+            report.talk.len(),
+            report.faults.len(),
+            report.runaways.len(),
+            report.aborted.len(),
+            report.missing.clone(),
+        );
+        probe.queue(&script, caller);
+        let ticks = ((seconds.max(0.0) * sim::TICK_HZ as f32) as u64).max(2);
+        probe.step(ticks);
+        let report = probe.world.script_report();
+        outln!(
+            "{script} ran for {named} in {module}, then {:.1} s stepped",
+            ticks as f32 / sim::TICK_HZ as f32
+        );
+        let ran = report.runs.get(&script).copied().unwrap_or(0);
+        if ran == 0 {
+            outln!("  it did not run");
+        }
+        outln!("  trace:");
+        for line in report.trace_lines().iter().skip(before.0) {
+            outln!("    {line}");
+        }
+        let talk: Vec<_> = report.talk.iter().skip(before.1).collect();
+        if !talk.is_empty() {
+            outln!("  conversation:");
+            for line in talk {
+                outln!("    {line:?}");
+            }
+        }
+        let mut bad = false;
+        for (title, list, from) in [
+            ("faults", &report.faults, before.2),
+            ("stopped at the instruction limit", &report.runaways, before.3),
+            ("stopped at an argument of the wrong type", &report.aborted, before.4),
+        ] {
+            let new: Vec<&String> = list.iter().skip(from).collect();
+            if !new.is_empty() {
+                bad = true;
+                outln!("  {title}:");
+                for each in new {
+                    outln!("    {each}");
+                }
+            }
+        }
+        let missing: Vec<&String> = report
+            .missing
+            .iter()
+            .filter(|(name, count)| before.5.get(*name) != Some(count))
+            .map(|(name, _)| name)
+            .collect();
+        if !missing.is_empty() {
+            outln!(
+                "  scripts named that the module does not have: {}",
+                missing
+                    .iter()
+                    .map(|name| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        Ok(ran > 0 && !bad)
+    };
+    match go() {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 /// The game's routines and constants, from its `nwscript.nss`.
 pub(crate) fn catalog(resolver: &Resolver) -> Result<Catalog, String> {
     let nss = ResType::NSS;
@@ -872,6 +993,165 @@ pub fn coverage(discovery: &Discovery, game: &str, module: &str, options: &Cover
             crate::collision_verbs::write_facts(facts);
             ExitCode::SUCCESS
         }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `kjk script compile`: every script source of the install that has a
+/// body (`main` or `StartingConditional`) compiled by kjk's compiler
+/// (`script_ncs::compile`), and compared with the compiled script the
+/// install ships. A script is the same to the byte, the same but for the
+/// routines' numbers (the games' scripts were compiled against an older
+/// `nwscript.nss` than the one shipped, so some numbers moved), different,
+/// or not compiled. With a script named, its two listings are shown from
+/// where they part.
+pub fn compile(discovery: &Discovery, game: &str, script: Option<&str>) -> ExitCode {
+    let run = || -> Result<(), String> {
+        let (_, _, resolver) = open(discovery, game)?;
+        let catalog = catalog(&resolver)?;
+        let read_source = |name: &str| resolver.read(name, ResType::NSS);
+        let names: Vec<String> = match script {
+            Some(name) => vec![name.trim_end_matches(".nss").to_ascii_lowercase()],
+            None => {
+                let mut names = resolver.names(ResType::NSS);
+                names.sort();
+                names.dedup();
+                names
+            }
+        };
+        let numbers_out = |ncs: &Ncs| -> Vec<Op> {
+            ncs.code
+                .iter()
+                .map(|instruction| match &instruction.op {
+                    Op::Action { args, .. } => Op::Action {
+                        routine: 0,
+                        args: *args,
+                    },
+                    op => op.clone(),
+                })
+                .collect()
+        };
+        let (mut same, mut numbers, mut differ, mut alone) = (0usize, 0usize, Vec::new(), 0usize);
+        let mut failed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut sources = 0usize;
+        // How the different scripts part: our instruction and the game's.
+        let mut partings: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for name in &names {
+            if name == "nwscript" {
+                continue;
+            }
+            let Some(source) = read_source(name) else {
+                return Err(format!("{name}.nss: not in the install"));
+            };
+            if !script_ncs::compile::has_entry(&source) {
+                continue;
+            }
+            sources += 1;
+            let ours = match script_ncs::compile::compile(name, &source, &read_source, &catalog) {
+                Ok(ours) => ours,
+                Err(error) => {
+                    let kind: String = error.what.split_whitespace().take(5).collect::<Vec<_>>().join(" ");
+                    failed.entry(kind).or_default().push(error.to_string());
+                    continue;
+                }
+            };
+            let Some(theirs) = resolver.read(name, ncs_type()) else {
+                alone += 1;
+                continue;
+            };
+            let written = ours.write();
+            if written == theirs {
+                same += 1;
+                continue;
+            }
+            let Ok(shipped) = Ncs::parse(&theirs) else {
+                differ.push((name.clone(), 0));
+                continue;
+            };
+            let (a, b) = (numbers_out(&ours), numbers_out(&shipped));
+            if a == b {
+                numbers += 1;
+                continue;
+            }
+            // Where they part, jumps' distances aside: a different length
+            // earlier moves every jump over it.
+            let shape = |ops: &[Op]| -> Vec<Op> {
+                ops.iter()
+                    .map(|op| match op {
+                        Op::Jmp(_) => Op::Jmp(0),
+                        Op::Jsr(_) => Op::Jsr(0),
+                        Op::Jz(_) => Op::Jz(0),
+                        Op::Jnz(_) => Op::Jnz(0),
+                        op => op.clone(),
+                    })
+                    .collect()
+            };
+            let (sa, sb) = (shape(&a), shape(&b));
+            let at = sa.iter().zip(&sb).position(|(x, y)| x != y).unwrap_or(sa.len().min(sb.len()));
+            let kind = |op: Option<&Op>| -> String {
+                op.map_or_else(
+                    || "the end".to_string(),
+                    |op| format!("{op:?}").split(['(', ' ', '{']).next().unwrap_or("").to_string(),
+                )
+            };
+            partings
+                .entry(format!("ours {} / the game's {}", kind(sa.get(at)), kind(sb.get(at))))
+                .or_insert_with(Vec::new)
+                .push(name.clone());
+            differ.push((name.clone(), at));
+            if script.is_some() {
+                for (label, ops) in [("ours", &a), ("the game's", &b)] {
+                    outln!("; {label} at {at}:");
+                    for (n, op) in ops.iter().enumerate().skip(at.saturating_sub(8)).take(14) {
+                        outln!("    {n:5} {op:?}");
+                    }
+                }
+            }
+            // KJK_NSS_LISTING names a folder for both whole listings, to
+            // compare with a diff tool.
+            if let (Some(_), Some(folder)) = (script, std::env::var_os("KJK_NSS_LISTING")) {
+                let folder = std::path::PathBuf::from(folder);
+                for (side, ncs) in [("ours", &ours), ("game", &shipped)] {
+                    let path = folder.join(format!("{name}.{side}.txt"));
+                    let listing = script_ncs::disasm::listing(ncs, Some(&catalog));
+                    if let Err(error) = std::fs::write(&path, listing) {
+                        outln!("{}: {error}", path.display());
+                    }
+                }
+                outln!("; {name}: the listings are in {}", folder.display());
+            }
+        }
+        let compiled = same + numbers + differ.len() + alone;
+        outln!(
+            "{game}: {sources} scripts with a body; compiled {compiled}, not compiled {}",
+            sources - compiled
+        );
+        outln!("  the same to the byte: {same}");
+        outln!("  the same but for routine numbers: {numbers}");
+        outln!("  different: {}", differ.len());
+        outln!("  with no compiled copy in the install: {alone}");
+        for (name, at) in differ.iter().take(12) {
+            outln!("    {name} parts at instruction {at}");
+        }
+        let mut parted: Vec<(&String, &Vec<String>)> = partings.iter().collect();
+        parted.sort_by_key(|(_, names)| std::cmp::Reverse(names.len()));
+        for (how, names) in parted.iter().take(12) {
+            let some: Vec<&str> = names.iter().take(3).map(String::as_str).collect();
+            outln!("  parting {}: {how} (as in {})", names.len(), some.join(", "));
+        }
+        let mut kinds: Vec<(&String, &Vec<String>)> = failed.iter().collect();
+        kinds.sort_by_key(|(_, all)| std::cmp::Reverse(all.len()));
+        for (kind, all) in kinds.iter().take(15) {
+            outln!("  not compiled, {} like: {}", all.len(), all[0]);
+            let _ = kind;
+        }
+        Ok(())
+    };
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
             ExitCode::FAILURE

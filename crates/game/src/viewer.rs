@@ -775,7 +775,7 @@ pub fn texture_facts(
 /// One that is there but does not read is warned of, once a name, and
 /// drawn as a missing one. One larger than the GPU takes is reduced to fit
 /// (`scene::fit_to_gpu`).
-pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
+pub fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let parsed = resolver.read_texture(name)?;
     let decoded = (parsed.as_ref().ok()).and_then(|texture| {
         let txi = texture_txi(Some(texture), |restype| resolver.read(name, restype));
@@ -793,9 +793,89 @@ pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
             warn!("texture {name} does not read, drawn as missing: {why}");
         }
     }
+    let decoded = decoded.map(|texture| detail_baked(name, texture));
     let fitted =
         (decoded.as_ref()).and_then(|texture| crate::scene::fit_to_gpu(texture, Some(name)));
     fitted.or(decoded)
+}
+
+/// `texture`, or the larger lightmap `kjk detail-bake` made of it
+/// (`docs/LIGHTING-PLAN.md`, step 10). `KJK_DETAIL_BAKE` names the folder
+/// of one area's baked lightmaps. A texture the folder has no PNG for is
+/// drawn as stored. The baked lightmap keeps the stored one's facts and has
+/// one level, because a smaller level would mix the light of faces that
+/// lie side by side on the lightmap.
+/// The stored lightmaps a baked one is drawn in the place of
+/// (`detail_baked`), by name in lower case.
+static STORED_LIGHTMAPS: std::sync::Mutex<BTreeMap<String, TextureIr>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// The lightmap the game's data stores under `name`, where a baked one is
+/// drawn in its place. The fitted lights are levelled against the stored
+/// light (`fitted_lights::level`), whichever lightmap the rooms show.
+pub(crate) fn stored_lightmap(name: &str) -> Option<TextureIr> {
+    STORED_LIGHTMAPS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&name.to_ascii_lowercase())
+        .cloned()
+}
+
+/// The folder of baked lightmaps a program set (`set_bake_folder`); unset,
+/// the one `KJK_DETAIL_BAKE` names.
+static BAKE_FOLDER: std::sync::RwLock<Option<Option<std::path::PathBuf>>> =
+    std::sync::RwLock::new(None);
+
+/// Draws the rooms' lightmaps from `folder`'s bake (`detail_baked`) in the
+/// scenes drawn from now on, or (`None`) as stored. The level editor's
+/// lighting view sets it.
+pub fn set_bake_folder(folder: Option<std::path::PathBuf>) {
+    *BAKE_FOLDER
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(folder);
+}
+
+fn bake_folder() -> Option<std::path::PathBuf> {
+    if let Some(set) = BAKE_FOLDER
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
+        return set.clone();
+    }
+    std::env::var_os("KJK_DETAIL_BAKE")
+        .filter(|folder| !folder.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
+fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
+    let Some(folder) = bake_folder() else {
+        return texture;
+    };
+    let path = folder.join(format!("{}.png", name.to_ascii_lowercase()));
+    if texture.cube || texture.frames > 1 || !path.is_file() {
+        return texture;
+    }
+    match image::open(&path) {
+        Ok(picture) => {
+            let picture = picture.into_rgba8();
+            STORED_LIGHTMAPS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(name.to_ascii_lowercase(), texture.clone());
+            TextureIr {
+                width: picture.width(),
+                height: picture.height(),
+                encoding: asset_odyssey::texture::Encoding::Rgba8,
+                mips: vec![picture.into_raw()],
+                ..texture
+            }
+        }
+        Err(error) => {
+            warn!("baked lightmap {} does not read: {error}", path.display());
+            texture
+        }
+    }
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {
@@ -1432,6 +1512,26 @@ pub fn module_scene(
             lightning: crate::weather::lightning(resolver, game, &area.weather).map(Arc::new),
         },
     })
+}
+
+/// The models of a creature made from `template`, standing at the origin
+/// facing +X in its rest pose: its body, its head and its weapons, as an
+/// area's scene places them (`CreatureLoad::place`). Empty when its look
+/// does not resolve. For pictures of one creature (the level editor's
+/// thumbnails).
+pub fn creature_models(
+    resolver: &Resolver,
+    game: Game,
+    template: &str,
+) -> Result<Vec<Placed>, String> {
+    let mut models = Vec::new();
+    CreatureLoad::default().place(
+        (resolver, game),
+        (0, template),
+        ([0.0; 3], 0.0),
+        &mut models,
+    )?;
+    Ok(models)
 }
 
 /// A body model wearing `texture` (`appearance.2da`'s, when the install

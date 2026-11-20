@@ -63,6 +63,7 @@ mod fade_view;
 mod feat_view;
 pub mod fight_rooms;
 mod first_person;
+pub mod fitted_lights;
 mod fixed_bounds;
 pub mod flight_writer;
 pub mod floaty_view;
@@ -148,6 +149,7 @@ pub use ui_view::hide_probes;
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
+pub mod project_props;
 pub mod ray_structures;
 mod remote_view;
 pub mod render_facts;
@@ -212,6 +214,7 @@ mod view_rng;
 pub mod viewer;
 pub mod viewer_ja;
 pub mod viewer_rig;
+pub mod walk;
 mod wardrobe;
 mod warmup;
 mod weapon_set_view;
@@ -696,6 +699,10 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
 /// then the folders the player chose in the setup (`setup`, kept in the
 /// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
 /// directory, then `default_var`.
+/// The commit this game was built from (`stamp.rs`), for programs built on
+/// it (the level editor's projects say which kjk wrote them).
+pub const GIT_SHA: &str = env!("KJK_GIT_SHA");
+
 pub fn discover() -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));

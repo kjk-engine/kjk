@@ -71,7 +71,7 @@ pub struct SceneContent(pub Box<LoadedScene>);
 /// The camera's direction in game space, kept so the fly controls and
 /// `camera` commands agree on it.
 #[derive(Component)]
-pub(crate) struct FlyCamera {
+pub struct FlyCamera {
     yaw: f32,
     pitch: f32,
 }
@@ -197,7 +197,7 @@ fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
     bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
 }
 
-pub(crate) fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
+pub fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
     points.into_iter().fold(None, |span, at| match span {
         None => Some((at, at)),
         Some((low, high)) => Some((low.min(at), high.max(at))),
@@ -217,7 +217,7 @@ fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
 
 /// The model's corners in its own frame, before it is placed: the lowest
 /// and the highest of its meshes' vertices at rest.
-pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
+pub fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
     span(placed.ir.meshes.iter().flat_map(|mesh| {
         let node = to_mat4(&placed.ir.nodes[mesh.node].world);
         mesh.positions
@@ -414,11 +414,11 @@ impl Plugin for ScenePlugin {
 
 /// The game's Z-up space to Bevy's Y-up: game +Z becomes +Y and game +Y
 /// becomes -Z (Bevy's forward).
-pub(crate) fn game_to_bevy() -> Quat {
+pub fn game_to_bevy() -> Quat {
     Quat::from_rotation_x(-FRAC_PI_2)
 }
 
-pub(crate) fn to_mat4(m: &Matrix) -> Mat4 {
+pub fn to_mat4(m: &Matrix) -> Mat4 {
     Mat4::from_cols_array_2d(&[
         [m[0][0], m[1][0], m[2][0], m[3][0]],
         [m[0][1], m[1][1], m[2][1], m[3][1]],
@@ -442,7 +442,7 @@ fn camera_transform(pose: &CameraPose) -> Transform {
 
 /// Where a placed model's root sits in game space: its offset, turned by
 /// its facing, then its attachment (a head's `headhook`).
-pub(crate) fn placement(placed: &Placed) -> Mat4 {
+pub fn placement(placed: &Placed) -> Mat4 {
     let frame = Mat4::from_rotation_translation(
         Quat::from_rotation_z(placed.facing),
         Vec3::from_array(placed.offset),
@@ -666,19 +666,56 @@ fn apply_camera_request(
     }
 }
 
+/// How the fly controls take the keys and the mouse, where a program sets
+/// it (the level editor). Without it, W, A, S, D, Q and E always fly and the
+/// right mouse button looks.
+#[derive(Resource, Default)]
+pub struct FlyControls {
+    /// The keys fly only while the right mouse button is held, as in a
+    /// scene editor's viewport: the same keys pick tools otherwise.
+    pub keys_need_look: bool,
+    /// Nothing moves the camera: a text field has the keys, or the pointer
+    /// is over a panel.
+    pub paused: bool,
+}
+
 /// WASD to move, Q/E down and up, Shift faster, right mouse button to look.
+/// In walk mode (`walk`) the mouse also looks while the game holds the
+/// cursor, and nothing moves while a screen is open (a bug report's box
+/// takes typing).
 fn fly(
     time: Res<Time>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     buttons: Option<Res<ButtonInput<MouseButton>>>,
     motion: Option<Res<AccumulatedMouseMotion>>,
+    controls: Option<Res<FlyControls>>,
+    (screens, windows): (
+        Option<Res<crate::ui_view::UiOpen>>,
+        Query<&bevy::window::CursorOptions, With<bevy::window::PrimaryWindow>>,
+    ),
     mut cameras: Query<(&mut Transform, &mut FlyCamera)>,
 ) {
     let (Some(keys), Some(buttons), Some(motion)) = (keys, buttons, motion) else {
         return;
     };
+    if controls.as_ref().is_some_and(|controls| controls.paused) {
+        return;
+    }
+    let walk = crate::walk::on();
+    if walk && screens.is_some_and(|open| open.0) {
+        return;
+    }
+    let grabbed = walk
+        && windows
+            .iter()
+            .any(|cursor| cursor.grab_mode != bevy::window::CursorGrabMode::None);
+    let keys_fly = !controls
+        .as_ref()
+        .is_some_and(|controls| controls.keys_need_look)
+        || buttons.pressed(MouseButton::Right)
+        || grabbed;
     for (mut transform, mut fly) in &mut cameras {
-        if buttons.pressed(MouseButton::Right) {
+        if buttons.pressed(MouseButton::Right) || grabbed {
             fly.yaw -= motion.delta.x * 0.15;
             let most = crate::sim_host::pitch_limit();
             fly.pitch = (fly.pitch - motion.delta.y * 0.15).clamp(-most, most);
@@ -699,7 +736,7 @@ fn fly(
             (KeyCode::KeyE, Vec3::Z),
             (KeyCode::KeyQ, -Vec3::Z),
         ] {
-            if keys.pressed(key) {
+            if keys_fly && keys.pressed(key) {
                 step += direction;
             }
         }
@@ -936,8 +973,12 @@ impl AnimatedMaterials {
 }
 
 /// How fast an animated surface (water, screens) scrolls: its texture's
-/// direction scaled by this each second. Our chosen speed.
-const UV_ANIMATION_SPEED: f32 = 250.0;
+/// direction scaled by this each second. It is KotOR.js's speed
+/// (`ShaderOdysseyModel.ts`). It was reone's 250 until the owner said of
+/// Peragus's force cage on 18 November 2026: "the force cage animation is
+/// moving way too fast". [verify: the games' own rate; neither engine's
+/// number is measured against the executable.]
+const UV_ANIMATION_SPEED: f32 = 50.0;
 
 /// Every light in the scene, and the ones the shader gets now (`None`
 /// until the scene's first are picked).
@@ -1408,8 +1449,22 @@ impl<'t> Spawner<'t> {
         // both sides, a JA shader's `cull none`), and a mesh whose textures
         // say nothing is drawn from both sides.
         let culled = !facts.iter().all(|facts| facts.decal || facts.two_sided);
+        // Under the fitted lights' trial a room's lamp that the files do
+        // not set to glow glows by how lit its stored lightmap shows it.
+        let switched = if is_room {
+            crate::fitted_lights::switched_on(part, || {
+                let name = part.lightmap.as_deref()?;
+                crate::viewer::stored_lightmap(name).or_else(|| self.irs.get(name).cloned())
+            })
+        } else {
+            0.0
+        };
         let lighting = Lighting {
-            self_illum: part.self_illum,
+            self_illum: if switched > 0.0 {
+                [switched * crate::fitted_lights::SWITCHED_GLOW; 3]
+            } else {
+                part.self_illum
+            },
             ambient: part.ambient,
             diffuse: part.diffuse,
             alpha: part.alpha,
@@ -1472,6 +1527,7 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
+                    .lamp_texels(switched > 0.0)
                     .culled(culled)
                 };
                 let material = match whole {
@@ -1943,6 +1999,125 @@ pub(crate) fn spawn_scene(
             light_rooms.push(room);
         }
     }
+    // `KJK_FOUND_LIGHTS=<file>`: the lights of that file join the area's
+    // lamps (`kjk room-light-fit --found`, step 10). Shadows are cast from
+    // them too. A trial's switch.
+    if loaded.lit
+        && let Ok(path) = std::env::var("KJK_FOUND_LIGHTS")
+    {
+        match std::fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<Vec<serde_json::Value>>(&text).map_err(|e| e.to_string())
+            }) {
+            Ok(found) => {
+                let three = |value: &serde_json::Value| -> Option<Vec3> {
+                    let v = value.as_array()?;
+                    Some(Vec3::new(
+                        v.first()?.as_f64()? as f32,
+                        v.get(1)?.as_f64()? as f32,
+                        v.get(2)?.as_f64()? as f32,
+                    ))
+                };
+                // The files' lamps and the sun stay: the found lights hold
+                // the light they do not explain.
+                for light in &found {
+                    let (Some(at), Some(colour), Some(radius)) = (
+                        three(&light["at"]),
+                        three(&light["colour"]),
+                        light["radius"].as_f64(),
+                    ) else {
+                        continue;
+                    };
+                    // `"rooms": true`: the light reaches the rooms' baked
+                    // surfaces too, as a fight's light does. `"way"` and
+                    // `"half"` make it a strip: its direction and half its
+                    // length in metres (the light kinds' trial).
+                    let rooms = light["rooms"].as_bool().unwrap_or(false);
+                    let way = three(&light["way"])
+                        .map(|way| (game_to_bevy() * way).normalize_or_zero())
+                        .unwrap_or(Vec3::ZERO);
+                    let half = light["half"].as_f64().unwrap_or(0.0) as f32;
+                    // `"aim"` and `"cone"`: the way it shines and how
+                    // narrow (`GpuLight::aim`).
+                    let aim = three(&light["aim"])
+                        .map(|aim| (game_to_bevy() * aim).normalize_or_zero())
+                        .unwrap_or(Vec3::ZERO);
+                    let cone = light["cone"].as_f64().unwrap_or(0.0) as f32;
+                    lights.push(GpuLight {
+                        position_radius: (game_to_bevy() * at).extend(radius as f32),
+                        color_multiplier: colour.extend(1.0),
+                        // A light that reaches the rooms reaches every
+                        // placeable too, the static ones included, as a
+                        // fight's light does.
+                        kind: UVec4::new(
+                            0,
+                            if rooms {
+                                crate::material::LIGHT_DYNAMIC_ALL
+                            } else {
+                                2
+                            },
+                            if rooms {
+                                crate::material::LIGHT_COMBAT
+                            } else {
+                                0
+                            },
+                            0,
+                        ),
+                        way: way.extend(half),
+                        aim: aim.extend(cone),
+                        ..Default::default()
+                    });
+                    light_rooms.push(None);
+                }
+                info!("KJK_FOUND_LIGHTS: {} lights from {path}", lights.len());
+            }
+            Err(error) => warn!("KJK_FOUND_LIGHTS: {path}: {error}"),
+        }
+    }
+    // `KJK_FITTED_LIGHTS=on`: the area's own light fittings shine
+    // (`fitted_lights`). They reach the rooms and every object, as a
+    // fight's light does. A trial's switch.
+    if crate::fitted_lights::wanted() {
+        let fitted = if loaded.lit {
+            crate::fitted_lights::lights(loaded)
+        } else {
+            Vec::new()
+        };
+        info!("KJK_FITTED_LIGHTS: {} lights", fitted.len());
+        let placed: Vec<crate::fitted_lights::GridLight> = (fitted.iter())
+            .map(|light| crate::fitted_lights::GridLight {
+                position_radius: (game_to_bevy() * light.at).extend(light.radius),
+                colour: light.colour,
+                way: (game_to_bevy() * light.way)
+                    .normalize_or_zero()
+                    .extend(light.half),
+                aim: (game_to_bevy() * light.aim)
+                    .normalize_or_zero()
+                    .extend(light.cone),
+                // It stays out of the rooms not linked with its own.
+                room: culling.fight.room_of(&loaded.rooms, light.at),
+            })
+            .collect();
+        // For each room, the rooms whose lights reach it: those that do
+        // not keep their lights from it.
+        let rooms = loaded.rooms.len().min(crate::material::VIS_ROOMS);
+        let linked: Vec<UVec4> = (0..rooms)
+            .map(|room| {
+                let mut bits = [0u32; 4];
+                for from in 0..rooms {
+                    let unseen = culling.fight.unseen(from).to_array();
+                    if unseen[room / 32] & (1 << (room % 32)) == 0 {
+                        bits[from / 32] |= 1 << (from % 32);
+                    }
+                }
+                UVec4::from_array(bits)
+            })
+            .collect();
+        if let Some(mut buffer) = stores.buffers.get_mut(&crate::fitted_lights::GRID) {
+            buffer.data = Some(crate::fitted_lights::grid(&placed, &linked));
+        }
+    }
     let root = commands
         .spawn((
             Transform::from_rotation(game_to_bevy()),
@@ -2244,11 +2419,16 @@ fn find_player(
 ) {
     let Some(scene) = scene else { return };
     let rooms = &scene.0.rooms;
-    let feet = presented.as_ref().and_then(|presented| {
-        let current = presented.0.current();
-        let seat = seat.as_ref().map_or(sim::Seat(0), |seat| seat.0);
-        crate::script_fx::feet(current, current.body(seat)?.id)
-    });
+    // In walk mode the player stands still and the camera is where the
+    // player would be.
+    let feet = presented
+        .as_ref()
+        .filter(|_| !crate::walk::on())
+        .and_then(|presented| {
+            let current = presented.0.current();
+            let seat = seat.as_ref().map_or(sim::Seat(0), |seat| seat.0);
+            crate::script_fx::feet(current, current.body(seat)?.id)
+        });
     let under_eye = || {
         let eye = game_to_bevy().inverse() * cameras.iter().next()?.translation;
         let floor = floor_at(rooms, eye.x, eye.y).map_or(eye.z - EYE_HEIGHT, |(_, z)| z);

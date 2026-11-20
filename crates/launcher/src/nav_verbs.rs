@@ -125,7 +125,7 @@ pub fn nav(
             return ExitCode::FAILURE;
         }
     };
-    let walkable = loaded.collision.nav_faces();
+    let walkable = loaded.nav_faces();
     let started = Instant::now();
     let mut mesh = NavMesh::build(&walkable, sim::walk::CLEARANCE * UNIT);
     let tagged = mesh.mark(&loaded.collision.level);

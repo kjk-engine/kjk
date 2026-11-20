@@ -1,7 +1,7 @@
 //! VIS: which rooms can be seen from which, as text. A line with a room
 //! name and a count starts a room; the following one-word lines are the
 //! rooms visible from it. Names are lowercased. This is how both references
-//! read it.
+//! read it. `Visibility::write` writes it back in the games' own layout.
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Visibility {
@@ -38,5 +38,24 @@ impl Visibility {
             .iter()
             .find(|(name, _)| name == room)
             .map(|(_, seen)| seen.as_slice())
+    }
+
+    /// The visibility as a file (above).
+    pub fn write(&self) -> Vec<u8> {
+        let mut out = String::new();
+        for (room, seen) in &self.rooms {
+            out += &format!(
+                "{room} {}
+",
+                seen.len()
+            );
+            for other in seen {
+                out += &format!(
+                    "  {other}
+"
+                );
+            }
+        }
+        out.into_bytes()
     }
 }

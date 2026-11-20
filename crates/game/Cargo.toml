@@ -22,6 +22,7 @@ movie.workspace = true
 bevy.workspace = true
 bevy_post_process.workspace = true
 vfs.workspace = true
+level_edit.workspace = true
 fmt_odyssey.workspace = true
 script_ncs.workspace = true
 store.workspace = true

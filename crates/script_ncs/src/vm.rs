@@ -264,11 +264,13 @@ pub trait Host {
 
 /// A routine's parameters with their defaults resolved (OBJECT_SELF as
 /// `ObjectId(0)`, put in for the caller at the call).
+#[derive(Clone)]
 struct Prepared {
     params: Vec<(Type, Option<Value>)>,
 }
 
 /// The routines, ready to call: the catalog and each routine's defaults.
+#[derive(Clone)]
 pub struct Routines {
     catalog: Arc<Catalog>,
     prepared: Vec<Prepared>,
@@ -342,6 +344,7 @@ pub struct Finished {
 }
 
 /// A program ready to run: its instructions and where each starts.
+#[derive(Clone)]
 pub struct Program {
     pub ncs: Ncs,
 }

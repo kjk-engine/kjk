@@ -1045,6 +1045,14 @@ impl PlayerInput<'_, '_> {
     }
 
     pub(crate) fn read(&self) -> Read {
+        // In walk mode the keys and the mouse move the camera, never the
+        // player.
+        if crate::walk::on() {
+            return Read {
+                actions: None,
+                turn: None,
+            };
+        }
         let headless = self.headless.0;
         let held = self.movie_up() || self.screens.as_ref().is_some_and(|open| open.0);
         let feel = self
@@ -2882,6 +2890,10 @@ fn advance(
         }),
     );
     facts.0.insert("net".into(), authority.solo.facts());
+    if let Some(project) = level_edit::active::get() {
+        let facts_of = project_facts(project, &authority.world, &authority.last);
+        facts.0.insert("project".into(), facts_of);
+    }
 
     let first = authority
         .lifecycle
@@ -3005,4 +3017,56 @@ fn write_session(
             Err(error) => error!(target: "sim", "{}: {error}", path.display()),
         }
     }
+}
+
+/// What a dump says of a level editor project in play (`--project`): its
+/// name and module, and where the area's objects and the players stand.
+fn project_facts(
+    project: &level_edit::active::Active,
+    world: &sim::SimWorld,
+    last: &sim::Snapshot,
+) -> serde_json::Value {
+    let module = world.level().module();
+    let mut objects = Vec::new();
+    let mut players = Vec::new();
+    for entity in &last.entities {
+        match entity.kind {
+            sim::Kind::Object(_, number) => {
+                let Some(facts) = module.and_then(|module| module.object(number as usize)) else {
+                    continue;
+                };
+                let scripts: Vec<&(String, String)> = facts
+                    .scripts
+                    .iter()
+                    .filter(|(_, script)| !script.is_empty())
+                    .collect();
+                objects.push(serde_json::json!({
+                    "tag": facts.tag,
+                    "template": facts.template,
+                    "position": entity.position,
+                    "useable": facts.useable,
+                    "container": facts.container,
+                    "items": facts.inventory.len(),
+                    "scripts": scripts,
+                }));
+            }
+            sim::Kind::Avatar(_) => players.push(serde_json::json!({
+                "position": entity.position,
+                "velocity": entity.velocity,
+            })),
+            _ => {}
+        }
+    }
+    serde_json::json!({
+        "name": project.project.name,
+        "game": project.project.game,
+        "module": project.project.module,
+        "props": project.project.kjk.props.len(),
+        "boxes": project.project.kjk.boxes.len(),
+        "added_hulls": project.added.hulls.len(),
+        "added_triangles": project.added.triangles.len(),
+        "notes": project.notes,
+        "objects": objects,
+        "players": players,
+    })
 }

@@ -263,6 +263,7 @@ fn box_placed() -> Result<String, String> {
         &ShadowBox {
             low: Vec3::ZERO,
             high: Vec3::new(2.0, 1.0, 1.0),
+            round: false,
         },
         &root,
     );

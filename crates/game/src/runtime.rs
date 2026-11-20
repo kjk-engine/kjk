@@ -34,7 +34,17 @@ pub struct RunOptions {
     /// to the manifest when the run ends.
     pub games: Box<dyn FnOnce() -> serde_json::Value + Send>,
     pub scene: Scene,
+    /// What a program built on the game adds to its app (the level editor's
+    /// plugins, `crates/level_editor`), after the game's own.
+    pub plugins: Option<AddPlugins>,
+    /// The program decides what a request to close the window does (the
+    /// level editor asks first about changes not saved); without it the
+    /// window closes.
+    pub asks_before_closing: bool,
 }
+
+/// Adds a program's own plugins to the game's app (`RunOptions::plugins`).
+pub type AddPlugins = Box<dyn FnOnce(&mut App) + Send>;
 
 /// What the run shows.
 pub enum Scene {
@@ -172,6 +182,7 @@ pub fn run(options: RunOptions) -> AppExit {
     } else {
         app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
             primary_window: Some(game_window()),
+            close_when_requested: !options.asks_before_closing,
             ..default()
         }))
         .add_plugins(crate::window_icon::WindowIconPlugin)
@@ -319,6 +330,9 @@ pub fn run(options: RunOptions) -> AppExit {
         )
             .chain(),
     );
+    if let Some(plugins) = options.plugins {
+        plugins(&mut app);
+    }
     if menu {
         app.add_systems(Startup, crate::crash::notice);
     }

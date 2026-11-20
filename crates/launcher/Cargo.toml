@@ -21,6 +21,7 @@ game.workspace = true
 bevy.workspace = true
 clap.workspace = true
 vfs.workspace = true
+level_edit.workspace = true
 fmt_odyssey.workspace = true
 script_ncs.workspace = true
 store.workspace = true
@@ -45,6 +46,16 @@ serde.workspace = true
 serde_json.workspace = true
 saves.workspace = true
 image.workspace = true
+# `kjk detail-bake --gpu`: its own device with ray queries, the same wgpu
+# and features Bevy builds.
+wgpu = { version = "29.0.4", default-features = false, features = [
+    "wgsl",
+    "dx12",
+    "metal",
+    "vulkan",
+    "naga-ir",
+    "fragile-send-sync-non-atomic-wasm",
+] }
 # `kjk report`: a player's bug report opened.
 zip = { version = "9", default-features = false, features = ["deflate"] }
 

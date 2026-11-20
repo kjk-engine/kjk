@@ -12,6 +12,7 @@ asset_odyssey.workspace = true
 collision.workspace = true
 collision_odyssey.workspace = true
 fmt_odyssey.workspace = true
+level_edit.workspace = true
 script_ncs.workspace = true
 sim.workspace = true
 rules.workspace = true

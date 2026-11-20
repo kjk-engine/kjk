@@ -120,6 +120,7 @@ fn laid_over(report: Start, given: Start) -> Start {
     start.gold = given.gold.or(start.gold);
     start.alignment = given.alignment.or(start.alignment);
     start.xp = given.xp.or(start.xp);
+    start.walk = start.walk || given.walk;
     if given.by_hand.talk.is_some() {
         start.by_hand.talk = given.by_hand.talk;
         start.by_hand.dialog = given.by_hand.dialog;
