@@ -853,9 +853,7 @@ fn entries(
         let at = shelf as usize;
         listed.chosen[at].and_then(|chosen| listed.kinds[at].get(chosen).cloned())
     });
-    let kits = library.map_or(0, |library| {
-        sim::traps::party_kits(&snapshot.goods, library.items())
-    });
+    let mine = library.and_then(|library| sim::traps::laid_kit(&snapshot.goods, library.items()));
     let shown = listed
         .list
         .iter()
@@ -868,7 +866,7 @@ fn entries(
             ui::vm::WheelEntry {
                 group: *group,
                 kinds: kinds.min(usize::from(u8::MAX)) as u8,
-                ..crate::hud::bar_entry(ui, *content, means, &chosen, kits)
+                ..crate::hud::bar_entry(ui, *content, means, &chosen, mine.as_ref())
             }
         })
         .collect();

@@ -944,7 +944,12 @@ pub mod probes {
         let stack = ui::screen::Stack::new(ui::screens::open);
         let mut gui = crate::ui_view::Ui::new(stack, Some(assets), Default::default(), true);
         let chosen = crate::hud::Chosen::default();
-        let name = crate::hud::bar_name(&mut gui, Content::Power(force::PULL), &sheet, &chosen);
+        let name = crate::hud::bar_name(
+            &mut gui,
+            Content::Power(force::PULL),
+            &sheet,
+            (&chosen, None),
+        );
         let told = |gui: &mut crate::ui_view::Ui, row| {
             crate::hud::bar_description(gui, Content::Power(row), &sheet, &chosen)
         };

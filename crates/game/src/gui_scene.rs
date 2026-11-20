@@ -689,6 +689,7 @@ fn placed_body(
         .place_appearance(
             (resolver, game),
             (u32::from(appearance), body, None, None),
+            None,
             crate::viewer::aligned_of(game, good_evil),
             at,
             models,

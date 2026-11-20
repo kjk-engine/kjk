@@ -63,7 +63,7 @@ impl Melee {
             .iter()
             .rev()
             .copied()
-            .find(|row| sheet.feats.has(*row))
+            .find(|row| sheet.knows(*row))
     }
 
     fn from_code(code: u8) -> Option<Melee> {

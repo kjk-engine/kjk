@@ -96,7 +96,7 @@ impl FeatLine {
             .iter()
             .rev()
             .copied()
-            .find(|row| sheet.feats.has(*row))
+            .find(|row| sheet.knows(*row))
     }
 
     /// Whether the weapon in `hand` can use the line (`combat::picks`). A

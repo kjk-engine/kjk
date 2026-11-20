@@ -829,6 +829,14 @@ pub struct Sheet {
 }
 
 impl Sheet {
+    /// Whether the character has feat `row`: one it learned, or one a worn
+    /// item gives it (a Bonus Feat property, as Davik's Visor gives Improved
+    /// Power Blast). A sheet `effects::sheet_now` made has both in `feats`;
+    /// a worn sheet keeps the items' in its gear.
+    pub fn knows(&self, row: u16) -> bool {
+        self.feats.has(row) || self.gear.feats.has(row)
+    }
+
     /// An ability's modifier: (score − 10) / 2, rounded down.
     pub fn modifier(&self, ability: Ability) -> i32 {
         (i32::from(self.abilities[ability as usize]) - 10).div_euclid(2)
