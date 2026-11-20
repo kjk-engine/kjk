@@ -49,6 +49,8 @@ pub enum Edit {
     Scale(usize, f32),
     /// A room of the install added to the project's new map.
     AddRoom(crate::map::Room),
+    /// A box given another role (`area::BoxRole`).
+    Role(usize, crate::area::BoxRole),
 }
 
 /// What a template change reads of the install: a template's bytes by
@@ -512,6 +514,14 @@ impl Editor {
                     .ok_or_else(|| missing(Target::Prop(at)))?;
                 prop.scale = scale;
                 Ok(Some(Target::Prop(at)))
+            }
+            Edit::Role(at, role) => {
+                let shape = kjk
+                    .boxes
+                    .get_mut(at)
+                    .ok_or_else(|| missing(Target::Box(at)))?;
+                shape.role = role;
+                Ok(Some(Target::Box(at)))
             }
             Edit::AddRoom(room) => {
                 if room.model.is_empty() || room.model.len() > git::RESREF_LEN {

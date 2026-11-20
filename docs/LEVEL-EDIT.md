@@ -104,6 +104,37 @@ project is active, its modules are in the install's index (`vfs::project`),
 so `kjk --project NAME play --stage NAME` plays the map like any module,
 and the picker lists it.
 
+## The navigation mesh
+
+The game's characters find their way over the navigation mesh, which play
+bakes from the area's walkable faces (`docs/NAV.md`). The player walks on
+the collision whatever the mesh holds. The toolbar's Nav switch (F3) draws
+the mesh the way play bakes it, with the project's changes: each island in
+its own colour, a face under furniture in red, a face under a door or a
+placeable in purple. The details panel then says how many faces, islands
+and portals the mesh has, and how many faces are not reached from the
+entry of a new map (else from the largest island). A character cannot get
+to those.
+
+A box's role (`level_edit::area::BoxRole`), picked in the details panel or
+with `edit role`, says what it does:
+
+| Role | Solid | The navigation mesh |
+|---|---|---|
+| Solid | yes | unchanged |
+| Solid, walked on (`walkable`) | yes | its top joins the mesh, so characters walk over a platform, a step or a bridge |
+| Nav blocker (`block`) | no | the mesh under it is cut away, so characters go round it |
+| Nav floor (`floor`) | no | its top joins the mesh, as floor where the walkmeshes leave a gap |
+
+The Collision shapes tab has a platform and a step that are walked on, a
+nav blocker and a nav floor. A blocker cuts the faces along its outline,
+seen from above (`collision_odyssey::footprints::cut`), and leaves out the
+pieces within its height. `kjk-area.toml` writes a box's role as `role`;
+a solid box has none, as before boxes had roles. Play, `kjk collision nav`
+and the containment audit bake the mesh with the active project's changes
+(`level_edit::nav`). An installed module without a project bakes as
+before.
+
 ## Where projects live
 
 A project is a folder in `projects` in kjk's own folder, beside the saves:
@@ -263,7 +294,8 @@ reads a script once and keeps it while the editor runs.
 - **The asset picker**, along the bottom, has eight tabs: the install's
   placeable templates, its creature templates, Jedi Academy's map objects
   (`models/map_objects/`), collision shapes (a ledge, a platform, a wall, a
-  pillar and a step), and the install's waypoint, trigger, sound and store
+  pillar, a step, a nav blocker and a nav floor), and the install's
+  waypoint, trigger, sound and store
   templates. A search box filters the tab. Each asset is a tile with a
   thumbnail; an object with no model of its own (a waypoint, a trigger, a
   sound, a store) has its marker instead. An asset dragged into the view is placed where the
@@ -273,9 +305,10 @@ reads a script once and keeps it while the editor runs.
   object has a marker: a small diamond in its kind's colour. Creatures are
   red, doors purple, placeables orange, triggers light blue, waypoints
   green, sounds pink, encounters white and stores yellow. Props get a pale
-  blue marker. Collision boxes are drawn as see-through cyan boxes, and a
-  trigger's or an encounter's outline as a see-through floor of its shape,
-  light blue or white. The 24
+  blue marker. A box is drawn see-through in its role's colour: a solid box
+  cyan, a walked-on box green-blue, a nav blocker red and a nav floor
+  green. A trigger's or an encounter's outline is drawn as a see-through
+  floor of its shape, light blue or white. The 24
   objects nearest the camera are labelled with their tag, the selected one
   in yellow. The selection has a gizmo for the tool: arrows and planes to
   move it, a ring to turn it about Z, and handles to scale a prop or to
@@ -310,6 +343,7 @@ so later runs show it at once and a changed file is drawn again.
 | Ctrl+S | save the project |
 | Enter | place the asset picked in the picker where the view's centre meets the level |
 | F2 | show or hide the collision: walkable walkmesh in green, other solid surfaces in orange, the walls along the walkmesh's open edges in blue |
+| F3 | show or hide the navigation mesh |
 | F5 | save, then start `kjk play` on the project in a window of its own, as a level 6 Jedi |
 | F6 | save, then run the containment audit on the project and list its result |
 | Escape | select nothing |
@@ -355,6 +389,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit flag useable on`, `edit flag inventory off` | sets the selected placeable's `Useable` or `HasInventory` |
 | `edit item add ITEM`, `edit item remove N` | adds an item template to the selected placeable's items, or removes its Nth, from 0 |
 | `edit collision on`, `edit collision off` | shows or hides the collision |
+| `edit nav on`, `edit nav off` | shows or hides the navigation mesh |
+| `edit role solid`, `walkable`, `block`, `floor` | gives the selected box a role |
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit audit` | saves, then runs `kjk collision audit` on the project |
@@ -405,9 +441,10 @@ a new perch.
   which the original game needs. Every room sees every room.
 - **KOTOR 2's rooms are not listed yet.** Its layouts are in its modules'
   archives, which the Rooms tab does not read.
-- **The game's characters do not use new geometry.** Navigation is baked
-  from the walkmesh alone (`docs/NAV.md`). A box or a prop is solid for
+- **Props are not in the navigation mesh.** A solid prop is solid for
   every body, but the game's characters do not path onto it or around it.
+  A walkable box or a nav blocker placed with it does that. Links for
+  jumps and drops between floors are not made yet.
 - **Props are lit wrongly.** A KOTOR room is lit by its lightmaps, which a
   Jedi Academy prop does not have. In a dark room the area's ambient light
   alone left a prop nearly black, so a prop gives itself some light of its

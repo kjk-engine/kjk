@@ -20,7 +20,7 @@ use bevy::prelude::*;
 use console::DumpFacts;
 use fmt_odyssey::ResType;
 use level_edit::editor::{ADDABLE, EDITABLE};
-use level_edit::{Change, CollisionBox, Edit, Editor, Entry, Kind, Prop, Target};
+use level_edit::{BoxRole, Change, CollisionBox, Edit, Editor, Entry, Kind, Prop, Target};
 use vfs::Game;
 use vfs::resolver::{Layer, Location, Rank, Resolver};
 
@@ -87,6 +87,22 @@ pub struct LibraryRoom {
     pub area: String,
 }
 
+/// What the editor found of the navigation mesh it drew.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct NavFacts {
+    pub(crate) faces: usize,
+    pub(crate) islands: usize,
+    pub(crate) portals: usize,
+    /// Where routes are counted from: a new map's entry, else the largest
+    /// island.
+    pub(crate) from: &'static str,
+    /// Faces of other islands than that one.
+    pub(crate) apart: usize,
+    /// Whether a new map's entry stands on no face of the mesh (routes are
+    /// then counted from the largest island).
+    pub(crate) entry_off: bool,
+}
+
 /// The files of a room's copy, by the copy's name, the room's model and
 /// how far the room moved (as bits).
 type MadeRooms = BTreeMap<(String, String, [u32; 3]), Vec<(String, ResType, Vec<u8>)>>;
@@ -116,6 +132,11 @@ pub struct EditorState {
     collision: Option<(u64, collision_odyssey::ModuleCollision)>,
     pub(crate) show_collision: bool,
     shown_collision: bool,
+    /// Whether the navigation mesh is drawn, and what was found of it when
+    /// it last was.
+    pub(crate) show_nav: bool,
+    shown_nav: bool,
+    pub(crate) nav_facts: Option<NavFacts>,
     /// A gizmo is being dragged: the scene is not drawn again until it is
     /// let go.
     pub(crate) dragging: bool,
@@ -146,6 +167,9 @@ impl EditorState {
             collision: None,
             show_collision: false,
             shown_collision: false,
+            show_nav: false,
+            shown_nav: false,
+            nav_facts: None,
             dragging: false,
             pending_pick: None,
             pending_command: None,
@@ -489,6 +513,21 @@ const BOX_FILL: (&str, [u8; 4]) = ("kjk-editor-box", [60, 230, 255, 110]);
 const TRIGGER_FILL: (&str, [u8; 4]) = ("kjk-editor-trigger-fill", [80, 220, 255, 70]);
 const ENCOUNTER_FILL: (&str, [u8; 4]) = ("kjk-editor-encounter-fill", [255, 255, 255, 60]);
 const WALK_FILL: (&str, [u8; 4]) = ("kjk-editor-walkable", [60, 255, 90, 90]);
+const WALKABLE_BOX: (&str, [u8; 4]) = ("kjk-editor-walkable-box", [80, 255, 170, 110]);
+const NAV_BLOCK_BOX: (&str, [u8; 4]) = ("kjk-editor-nav-block", [255, 60, 60, 90]);
+const NAV_FLOOR_BOX: (&str, [u8; 4]) = ("kjk-editor-nav-floor", [120, 255, 60, 90]);
+/// The navigation mesh's islands, each its own colour in turn.
+const NAV_ISLANDS: [(&str, [u8; 4]); 6] = [
+    ("kjk-editor-nav-0", [70, 200, 255, 120]),
+    ("kjk-editor-nav-1", [255, 210, 60, 120]),
+    ("kjk-editor-nav-2", [190, 110, 255, 120]),
+    ("kjk-editor-nav-3", [60, 255, 160, 120]),
+    ("kjk-editor-nav-4", [255, 140, 200, 120]),
+    ("kjk-editor-nav-5", [255, 255, 255, 120]),
+];
+/// A face under furniture, and one under a door or a placeable.
+const NAV_COVERED: (&str, [u8; 4]) = ("kjk-editor-nav-covered", [200, 30, 30, 150]);
+const NAV_HELD: (&str, [u8; 4]) = ("kjk-editor-nav-held", [130, 40, 160, 150]);
 const SOLID_FILL: (&str, [u8; 4]) = ("kjk-editor-solid", [255, 130, 60, 60]);
 const WALL_FILL: (&str, [u8; 4]) = ("kjk-editor-wall", [90, 120, 255, 80]);
 
@@ -550,8 +589,15 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     }
 
     // Markers and boxes.
-    let mut textures: Vec<(&str, [u8; 4])> =
-        vec![PROP_MARKER, BOX_FILL, TRIGGER_FILL, ENCOUNTER_FILL];
+    let mut textures: Vec<(&str, [u8; 4])> = vec![
+        PROP_MARKER,
+        BOX_FILL,
+        WALKABLE_BOX,
+        NAV_BLOCK_BOX,
+        NAV_FLOOR_BOX,
+        TRIGGER_FILL,
+        ENCOUNTER_FILL,
+    ];
     textures.extend(Kind::ALL.map(kind_colour));
     for (entry, models) in entries.iter().zip(models_of) {
         let (texture, _) = kind_colour(entry.kind);
@@ -612,11 +658,17 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             yaw: 0.0,
             ..shape.clone()
         };
+        let fill = match shape.role {
+            BoxRole::Solid => BOX_FILL.0,
+            BoxRole::Walkable => WALKABLE_BOX.0,
+            BoxRole::NavBlock => NAV_BLOCK_BOX.0,
+            BoxRole::NavFloor => NAV_FLOOR_BOX.0,
+        };
         let model = scene.models.len();
         scene.models.push(Placed {
             facing: shape.yaw.to_radians(),
             ..Placed::at(
-                flat_model("box", &local.triangles(), BOX_FILL.0, true),
+                flat_model("box", &local.triangles(), fill, true),
                 shape.centre,
             )
         });
@@ -671,6 +723,67 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             scene.models.push(Placed::at(overlay, [0.0; 3]));
         }
     }
+    // The navigation mesh, as play bakes it with the project's changes
+    // (`level_edit::nav`).
+    state.nav_facts = None;
+    if state.show_nav {
+        textures.extend(NAV_ISLANDS);
+        textures.extend([NAV_COVERED, NAV_HELD]);
+        let boxes = state.editor.project.kjk.boxes.clone();
+        let entry = state.editor.project.map.as_ref().map(|map| map.entry);
+        if let Some(built) = state.collision() {
+            let floor = level_edit::nav::edited(built.collision.nav_faces(), &boxes);
+            let mut nav =
+                collision::nav::NavMesh::build(&floor, sim::walk::CLEARANCE * collision::UNIT);
+            nav.mark(&built.collision.level);
+            let mut sizes = vec![0usize; nav.islands];
+            for face in &nav.faces {
+                sizes[face.island as usize] += 1;
+            }
+            let largest = (0..sizes.len()).max_by_key(|&island| sizes[island]);
+            let at_entry = entry
+                .and_then(|entry| nav.locate(entry, 1.0, 1.0))
+                .map(|face| nav.faces[face as usize].island);
+            let entry_off = entry.is_some() && at_entry.is_none();
+            let (main, from) = match at_entry {
+                Some(island) => (Some(island), "the entry"),
+                None => (largest.map(|island| island as u32), "the largest island"),
+            };
+            let mut groups: BTreeMap<&str, Vec<[[f32; 3]; 3]>> = BTreeMap::new();
+            for face in &nav.faces {
+                let texture = if face.covered {
+                    NAV_COVERED.0
+                } else if face.entity.is_some() {
+                    NAV_HELD.0
+                } else {
+                    NAV_ISLANDS[face.island as usize % NAV_ISLANDS.len()].0
+                };
+                groups.entry(texture).or_default().push(
+                    face.corners
+                        .map(|corner| [corner[0], corner[1], corner[2] + 0.04]),
+                );
+            }
+            let mut overlay = flat_model("nav", &[], NAV_ISLANDS[0].0, true);
+            overlay.meshes.clear();
+            for (texture, triangles) in groups {
+                let mut part = flat_model("nav", &triangles, texture, true);
+                overlay.meshes.append(&mut part.meshes);
+            }
+            scene.models.push(Placed::at(overlay, [0.0; 3]));
+            state.nav_facts = Some(NavFacts {
+                faces: nav.faces.len(),
+                islands: nav.islands,
+                portals: nav.portals(),
+                from,
+                apart: nav
+                    .faces
+                    .iter()
+                    .filter(|face| Some(face.island) != main)
+                    .count(),
+                entry_off,
+            });
+        }
+    }
     for (name, rgba) in textures {
         scene
             .textures
@@ -679,6 +792,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     state.drawn = drawn;
     state.built = state.editor.changes();
     state.shown_collision = state.show_collision;
+    state.shown_nav = state.show_nav;
     state.redraws += 1;
     info!(
         target: "editor",
@@ -691,8 +805,9 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
 /// The scene drawn again once the edits have stopped for a moment.
 pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
     state.quiet = state.quiet.saturating_add(1);
-    let stale =
-        state.built != state.editor.changes() || state.shown_collision != state.show_collision;
+    let stale = state.built != state.editor.changes()
+        || state.shown_collision != state.show_collision
+        || state.shown_nav != state.show_nav;
     if !stale || state.quiet < SETTLE_FRAMES || state.dragging {
         return;
     }
@@ -1301,7 +1416,20 @@ pub(crate) fn command(
                 centre,
                 size,
                 yaw,
+                role: BoxRole::Solid,
             }));
+        }
+        ["role", word] => {
+            let Target::Box(at) = selected(state)? else {
+                return Err("only a box has a role".into());
+            };
+            let role =
+                BoxRole::from_word(word).ok_or("role takes solid, walkable, block or floor")?;
+            state.apply(Edit::Role(at, role));
+        }
+        ["nav", on @ ("on" | "off")] => {
+            state.show_nav = *on == "on";
+            state.quiet = SETTLE_FRAMES;
         }
         ["script", label, script] => {
             let target = selected(state)?;
@@ -1549,6 +1677,7 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
                 "index": at,
                 "name": shape.map(|b| b.name.clone()),
                 "size": shape.map(|b| b.size),
+                "role": shape.map(|b| b.role.word()),
                 "position": position,
                 "facing": facing,
             })
@@ -1613,6 +1742,14 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
             "selected": state.editor.selected.map(|target| describe(&state, target)),
             "props": (0..project.kjk.props.len()).map(|at| describe(&state, Target::Prop(at))).collect::<Vec<_>>(),
             "boxes": (0..project.kjk.boxes.len()).map(|at| describe(&state, Target::Box(at))).collect::<Vec<_>>(),
+            "nav": state.nav_facts.as_ref().map(|nav| serde_json::json!({
+                "faces": nav.faces,
+                "islands": nav.islands,
+                "portals": nav.portals,
+                "from": nav.from,
+                "apart": nav.apart,
+                "entry_off": nav.entry_off,
+            })),
             "prop_models": state.prop_models.iter().map(|(path, read)| match read {
                 Ok(model) => serde_json::json!({
                     "model": path,

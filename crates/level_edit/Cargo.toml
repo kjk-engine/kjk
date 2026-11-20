@@ -11,6 +11,7 @@ description = "A level editor project of a KOTOR area, its edits with undo and r
 asset_odyssey.workspace = true
 blake3.workspace = true
 collision.workspace = true
+collision_odyssey.workspace = true
 fmt_ja.workspace = true
 fmt_odyssey.workspace = true
 store.workspace = true

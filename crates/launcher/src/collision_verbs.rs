@@ -39,6 +39,12 @@ pub struct Loaded {
 }
 
 impl Loaded {
+    /// The area's walkable faces as the navigation mesh is baked from
+    /// them: with the active project's changes (`level_edit::nav`).
+    pub fn nav_faces(&self) -> Vec<[[f32; 3]; 3]> {
+        level_edit::active::nav_faces(self.game.key(), &self.module.name, self.collision.nav_faces())
+    }
+
     pub fn area(&self) -> &asset_odyssey::module::AreaIr {
         &self.module.areas[self.area]
     }

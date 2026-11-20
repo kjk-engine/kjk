@@ -788,7 +788,8 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
         clip.as_ref(),
         &request.collision.options(),
     );
-    let walkable = built.nav_faces();
+    // A level editor project's changes to the navigation mesh.
+    let walkable = level_edit::active::nav_faces(&request.game, &request.module, built.nav_faces());
     let mut nav = collision::nav::NavMesh::build(&walkable, sim::walk::CLEARANCE * collision::UNIT);
     nav.mark(&built.level);
     Ok(Area {

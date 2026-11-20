@@ -102,7 +102,7 @@ pub fn models_under(stack: &vfs::ja::JaStack, folder: &str) -> Vec<String> {
 pub fn collision_of(project: &Project, stack: Option<&vfs::ja::JaStack>) -> (Added, Vec<String>) {
     let mut added = Added::default();
     let mut notes = Vec::new();
-    for shape in &project.kjk.boxes {
+    for shape in project.kjk.boxes.iter().filter(|shape| shape.role.solid()) {
         added.hulls.push(shape.hull());
     }
     for prop in project.kjk.props.iter().filter(|prop| prop.solid) {
@@ -165,5 +165,15 @@ pub fn clip_for(game: &str, module: &str, clip: Option<ClipFile>) -> Option<Clip
     match added(game, module) {
         Some(added) => Some(with_added(clip, added)),
         None => clip,
+    }
+}
+
+/// `floor` (an area's walkable faces) as the active project changes the
+/// navigation mesh of `game`'s `module` (`nav::edited`); as it is when no
+/// project is active or it edits another module.
+pub fn nav_faces(game: &str, module: &str, floor: Vec<[[f32; 3]; 3]>) -> Vec<[[f32; 3]; 3]> {
+    match added(game, module).and(get()) {
+        Some(active) => crate::nav::edited(floor, &active.project.kjk.boxes),
+        None => floor,
     }
 }

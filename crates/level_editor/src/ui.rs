@@ -13,7 +13,7 @@ use bevy_egui::{
 };
 use console::{CameraPose, CameraRequest, ConsoleQueue};
 use level_edit::editor::EDITABLE;
-use level_edit::{Change, CollisionBox, Edit, Kind, Prop, Target};
+use level_edit::{BoxRole, Change, CollisionBox, Edit, Kind, Prop, Target};
 use transform_gizmo_egui::math::Transform as GizmoTransform;
 use transform_gizmo_egui::{
     EnumSet, Gizmo, GizmoConfig, GizmoExt, GizmoMode, GizmoOrientation, GizmoResult, mint,
@@ -54,14 +54,26 @@ enum Tab {
     Stores,
 }
 
-/// Collision boxes ready to place: a name, and a size in metres.
-const SHAPES: [(&str, [f32; 3]); 5] = [
-    ("Ledge", [2.0, 1.0, 0.3]),
-    ("Platform", [4.0, 4.0, 0.3]),
-    ("Wall", [3.0, 0.2, 3.0]),
-    ("Pillar", [1.0, 1.0, 3.0]),
-    ("Step", [1.0, 1.0, 0.5]),
+/// Boxes ready to place: a name, a size in metres and a role.
+const SHAPES: [(&str, [f32; 3], BoxRole); 7] = [
+    ("Ledge", [2.0, 1.0, 0.3], BoxRole::Solid),
+    ("Platform", [4.0, 4.0, 0.3], BoxRole::Walkable),
+    ("Wall", [3.0, 0.2, 3.0], BoxRole::Solid),
+    ("Pillar", [1.0, 1.0, 3.0], BoxRole::Solid),
+    ("Step", [1.0, 1.0, 0.5], BoxRole::Walkable),
+    ("Nav blocker", [2.0, 2.0, 2.0], BoxRole::NavBlock),
+    ("Nav floor", [2.0, 2.0, 0.1], BoxRole::NavFloor),
 ];
+
+/// A role's name in the panel.
+fn role_label(role: BoxRole) -> &'static str {
+    match role {
+        BoxRole::Solid => "Solid",
+        BoxRole::Walkable => "Solid, walked on",
+        BoxRole::NavBlock => "Nav blocker",
+        BoxRole::NavFloor => "Nav floor",
+    }
+}
 
 /// What the picker hands over: an asset by kind and name, or a shape.
 #[derive(Debug, Clone, PartialEq)]
@@ -513,17 +525,18 @@ fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3], snapping: bool) {
             }));
         }
         Asset::Shape(at_shape) => {
-            let (stem, size) = SHAPES[*at_shape];
+            let (stem, size, role) = SHAPES[*at_shape];
             let name = state
                 .editor
                 .project
                 .kjk
-                .free_name(&stem.to_ascii_lowercase());
+                .free_name(&stem.to_ascii_lowercase().replace(' ', "-"));
             state.apply(Edit::AddBox(CollisionBox {
                 name,
                 centre: [at[0], at[1], at[2] + size[2] * 0.5],
                 size,
                 yaw: 0.0,
+                role,
             }));
         }
     }
@@ -683,6 +696,9 @@ fn shortcuts(
     if pressed(KeyCode::F2) {
         state.show_collision = !state.show_collision;
     }
+    if pressed(KeyCode::F3) {
+        state.show_nav = !state.show_nav;
+    }
     if pressed(KeyCode::F5) {
         state::run(state, &["play"], cameras);
     }
@@ -779,6 +795,11 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
             }
             ui.checkbox(&mut state.show_collision, "Collision")
                 .on_hover_text("F2: walkable floor green, solid surfaces orange, edge walls blue");
+            ui.checkbox(&mut state.show_nav, "Nav").on_hover_text(
+                "F3: the navigation mesh the game's characters find their way over, \
+                 each island its own colour; red under furniture, purple under a door \
+                 or placeable",
+            );
             ui.separator();
             let project = &state.editor.project;
             ui.label(format!(
@@ -1089,6 +1110,23 @@ fn details(
                                                 edits.push(Edit::Resize(at, size));
                                             }
                                         });
+                                        ui.end_row();
+                                        ui.label("Role");
+                                        let mut role = shape.role;
+                                        egui::ComboBox::from_id_salt("box role")
+                                            .selected_text(role_label(role))
+                                            .show_ui(ui, |ui| {
+                                                for each in BoxRole::ALL {
+                                                    ui.selectable_value(
+                                                        &mut role,
+                                                        each,
+                                                        role_label(each),
+                                                    );
+                                                }
+                                            });
+                                        if role != shape.role {
+                                            state.apply(Edit::Role(at, role));
+                                        }
                                         ui.end_row();
                                     }
                                 }
@@ -1469,6 +1507,27 @@ fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState)
 }
 
 fn messages(ui: &mut egui::Ui, state: &EditorState) {
+    if state.show_nav
+        && let Some(nav) = &state.nav_facts
+    {
+        ui.separator();
+        ui.label(egui::RichText::new("Navigation").strong());
+        ui.label(format!(
+            "{} faces in {} islands, {} portals.",
+            nav.faces, nav.islands, nav.portals
+        ));
+        if nav.entry_off {
+            ui.label("The entry stands on no face of the mesh.");
+        }
+        ui.label(if nav.apart == 0 {
+            format!("Every face is reached from {}.", nav.from)
+        } else {
+            format!(
+                "{} faces are not reached from {}: the game's characters cannot get there.",
+                nav.apart, nav.from
+            )
+        });
+    }
     ui.separator();
     ui.label(egui::RichText::new("Messages").strong());
     for message in state.messages.iter().rev().take(6) {
@@ -1601,7 +1660,7 @@ fn assets(
                 Tab::Shapes => SHAPES
                     .iter()
                     .enumerate()
-                    .map(|(at, (name, size))| {
+                    .map(|(at, (name, size, _))| {
                         (
                             Asset::Shape(at),
                             format!("{name} {}x{}x{} m", size[0], size[1], size[2]),

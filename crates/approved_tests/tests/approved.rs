@@ -6553,6 +6553,95 @@ fn prepass_readers_declared() {
     println!("{} prepass readers, each declared", readers.len());
 }
 
+/// A project's changes to the navigation mesh (`level_edit::nav`,
+/// proposed 2026-11-20, awaiting approval), on a floor the test makes: a
+/// square 4 m on a side, of two triangles. A blocker 1 m square over its
+/// middle cuts the floor along its outline and leaves out the part inside
+/// it: the floor left is 15 square metres, and no face's middle lies
+/// inside the blocker. A walkable box and a floor box each add their top's
+/// two triangles. A floor box far off is an island of its own in the mesh
+/// baked from them. A blocker 3 m above the floor leaves it whole. Only
+/// solid and walkable boxes join the collision. Roles read back from
+/// `kjk-area.toml` as written, and a solid box is written as before boxes
+/// had roles. No installs.
+#[test]
+fn level_edit_nav_edits() {
+    use level_edit::{BoxRole, CollisionBox, KjkArea, Project, git, nav};
+
+    let floor = vec![
+        [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [4.0, 4.0, 0.0]],
+        [[0.0, 0.0, 0.0], [4.0, 4.0, 0.0], [0.0, 4.0, 0.0]],
+    ];
+    let area = |faces: &[[[f32; 3]; 3]]| -> f32 {
+        faces
+            .iter()
+            .map(|[a, b, c]| {
+                ((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])).abs() * 0.5
+            })
+            .sum()
+    };
+    let shape = |name: &str, centre: [f32; 3], size: [f32; 3], role: BoxRole| CollisionBox {
+        name: name.into(),
+        centre,
+        size,
+        yaw: 0.0,
+        role,
+    };
+    let blocker = shape("post", [2.0, 2.0, 1.0], [1.0, 1.0, 2.0], BoxRole::NavBlock);
+    let cut = nav::edited(floor.clone(), std::slice::from_ref(&blocker));
+    assert!(
+        (area(&cut) - 15.0).abs() < 1e-3,
+        "floor left {}",
+        area(&cut)
+    );
+    assert!(cut.iter().all(|face| {
+        let middle: [f32; 3] =
+            std::array::from_fn(|axis| (face[0][axis] + face[1][axis] + face[2][axis]) / 3.0);
+        !blocker.holds(middle)
+    }));
+    let high = shape("high", [2.0, 2.0, 4.0], [1.0, 1.0, 2.0], BoxRole::NavBlock);
+    assert_eq!(nav::edited(floor.clone(), &[high]), floor);
+
+    let walkable = shape("step", [1.0, 1.0, 0.25], [1.0, 1.0, 0.5], BoxRole::Walkable);
+    let far = shape("far", [20.0, 20.0, 0.0], [2.0, 2.0, 0.1], BoxRole::NavFloor);
+    let added = nav::edited(floor.clone(), &[walkable.clone(), far.clone()]);
+    assert_eq!(added.len(), 6);
+    assert_eq!(&added[2..4], &walkable.top());
+    let mesh = collision::nav::NavMesh::build(&added, 0.0);
+    assert!(mesh.islands >= 2, "the far floor is an island of its own");
+
+    let kjk = KjkArea {
+        boxes: vec![
+            shape("wall", [0.0; 3], [1.0; 3], BoxRole::Solid),
+            walkable,
+            blocker,
+            far,
+        ],
+        ..KjkArea::default()
+    };
+    let text = kjk.write();
+    assert_eq!(
+        text.matches("role = ").count(),
+        3,
+        "a solid box has no role line"
+    );
+    assert_eq!(KjkArea::parse(&text).unwrap(), kjk);
+    let mut project = Project::new(
+        &std::env::temp_dir().join("kjk-nav-edits"),
+        "k1",
+        "ebo_m12aa",
+        "m12aa",
+        git::empty(),
+    );
+    project.kjk = kjk;
+    let (added, _) = level_edit::active::collision_of(&project, None);
+    assert_eq!(added.hulls.len(), 2, "the solid and the walkable box");
+    println!(
+        "a 1 m blocker leaves {} square metres of a 16 m² floor",
+        area(&cut)
+    );
+}
+
 /// A new map in the level editor (`level_edit::map`, proposed 2026-11-20,
 /// awaiting approval), on rooms and an area the test makes. A walkmesh
 /// writes back to the same reading, and moved, its vertices, planes and
@@ -6886,6 +6975,7 @@ fn level_edit_round_trip() {
             centre: [4.0, 4.0, 2.0],
             size: [2.0, 1.0, 0.3],
             yaw: 30.0,
+            role: level_edit::BoxRole::Solid,
         }))
         .unwrap();
     assert!(

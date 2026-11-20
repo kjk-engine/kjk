@@ -16,7 +16,11 @@
 //! centre = [12.0, 4.0, 2.5]
 //! size = [2.0, 1.0, 0.25]
 //! yaw = 0.0
+//! role = "walkable"
 //! ```
+//!
+//! A box's `role` says what it does (`BoxRole`); a box without one is
+//! solid.
 //!
 //! Positions and sizes are metres in KOTOR's space (Z up). `yaw` is degrees
 //! from +X, turning left. A prop's model is a path inside Jedi Academy's
@@ -47,7 +51,8 @@ pub struct Prop {
     pub solid: bool,
 }
 
-/// A box of invisible collision: solid for every body and every shot.
+/// A box the area adds, invisible in play: by its role, solid collision,
+/// or a change to where the game's characters find their way.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CollisionBox {
     pub name: String,
@@ -55,6 +60,55 @@ pub struct CollisionBox {
     /// Its whole length along its own X, Y and Z, each above 0.
     pub size: [f32; 3],
     pub yaw: f32,
+    pub role: BoxRole,
+}
+
+/// What a box does. The navigation mesh is the floor the game's
+/// characters find their way over (`docs/NAV.md`); a player walks on the
+/// collision whatever the mesh holds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BoxRole {
+    /// Solid for every body and every shot.
+    #[default]
+    Solid,
+    /// Solid, and its top joins the navigation mesh, so characters walk
+    /// over it: a platform, a step, a bridge.
+    Walkable,
+    /// Not solid. The navigation mesh under it is cut away, so characters
+    /// go round it.
+    NavBlock,
+    /// Not solid. Its top joins the navigation mesh: floor for the
+    /// characters where the walkmeshes leave a gap, such as between two
+    /// rooms that do not meet edge to edge.
+    NavFloor,
+}
+
+impl BoxRole {
+    pub const ALL: [BoxRole; 4] = [
+        BoxRole::Solid,
+        BoxRole::Walkable,
+        BoxRole::NavBlock,
+        BoxRole::NavFloor,
+    ];
+
+    /// Its name in `kjk-area.toml` and in `edit role`.
+    pub fn word(self) -> &'static str {
+        match self {
+            BoxRole::Solid => "solid",
+            BoxRole::Walkable => "walkable",
+            BoxRole::NavBlock => "block",
+            BoxRole::NavFloor => "floor",
+        }
+    }
+
+    pub fn from_word(word: &str) -> Option<BoxRole> {
+        BoxRole::ALL.into_iter().find(|role| role.word() == word)
+    }
+
+    /// Whether bodies and shots meet it.
+    pub fn solid(self) -> bool {
+        matches!(self, BoxRole::Solid | BoxRole::Walkable)
+    }
 }
 
 /// The smallest side a box may have, in metres: thinner than a triangle's
@@ -113,6 +167,20 @@ impl CollisionBox {
             faces,
             edges,
         }
+    }
+
+    /// Its top's two triangles, wound up.
+    pub fn top(&self) -> [[[f32; 3]; 3]; 2] {
+        let c = self.corners();
+        [[c[4], c[5], c[7]], [c[4], c[7], c[6]]]
+    }
+
+    /// Whether `point` lies inside it.
+    pub fn holds(&self, point: [f32; 3]) -> bool {
+        let (sin, cos) = trig::sin_cos_deg(self.yaw);
+        let d = [0, 1, 2].map(|axis| point[axis] - self.centre[axis]);
+        let local = [d[0] * cos + d[1] * sin, -d[0] * sin + d[1] * cos, d[2]];
+        (0..3).all(|axis| local[axis].abs() <= self.size[axis] * 0.5)
     }
 
     /// Its twelve triangles, each wound to face out, for drawing.
@@ -250,6 +318,12 @@ impl KjkArea {
                 centre: triple(table.get("centre"), "a box's centre")?,
                 size: triple(table.get("size"), "a box's size")?,
                 yaw: number(table.get("yaw"), "a box's yaw")?,
+                role: match table.get("role") {
+                    None => BoxRole::Solid,
+                    Some(item) => item.as_str().and_then(BoxRole::from_word).ok_or_else(|| {
+                        bad("a box's role is not solid, walkable, block or floor")
+                    })?,
+                },
             });
         }
         Ok(area)
@@ -283,6 +357,10 @@ impl KjkArea {
                 triple(shape.size),
                 shape.yaw,
             ));
+            // A solid box is written as before boxes had roles.
+            if shape.role != BoxRole::Solid {
+                out.push_str(&format!("role = {}\n", quote(shape.role.word())));
+            }
         }
         out
     }

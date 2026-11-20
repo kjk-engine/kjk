@@ -24,6 +24,7 @@ game.workspace = true
 level_edit.workspace = true
 script_ncs.workspace = true
 serde_json.workspace = true
+sim.workspace = true
 store.workspace = true
 vfs.workspace = true
 # The system's fonts for the panels, as the save editor reads them.
