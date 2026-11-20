@@ -414,7 +414,17 @@ creature that fights chooses its own powers, items and grenades
 items that the games' generic combat scripts (`k_ai_master`, the `k_def_`
 and `k_hen_` scripts, `data/ai_generic_scripts.txt`) pick for a creature
 are left to that choice. The characters of one side wait for each other
-before they use the same kind of thing (`ai.choices.side_wait_ms`); two creatures outside the party whose scripts attack
+before they use the same kind of thing (`ai.choices.side_wait_ms`). The
+same characters choose their own feat line where scripts run
+(`choose::feat_line`, the rulebook's Choosing Feats). A single blade
+fights in the strong style against a target that blocks often, in the
+fast style against a tired or staggered target, and in the medium style
+otherwise. Two blades, a staff, fists and a stun baton take the matching
+feat line through `Picks::steer`. A gun takes Rapid Shot, Sniper Shot or
+Power Blast by its own reasons and fires the special when that reason
+holds. A changed line is kept for 6 seconds. A line the player picked
+with the next-feat key stays. A feat line that a generic combat script
+picks becomes a plain attack on the same target; two creatures outside the party whose scripts attack
 fight in KOTOR's combat rounds (`minds::begin_round`, the hit model every
 weapon hit shares: `damage::odds`, `damage::critical`,
 `damage::weapon_damage`); a gunner beyond its

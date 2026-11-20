@@ -335,9 +335,7 @@ impl Picks {
                 picks.melee(melee).copied()?.held(sheet)?
             }
         };
-        FeatLine::ALL
-            .into_iter()
-            .find(|line| line.rows().contains(&row))
+        FeatLine::of(row)
     }
 
     /// A script's talent: the line of feat `row` chosen for the weapon in

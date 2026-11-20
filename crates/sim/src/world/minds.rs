@@ -1561,9 +1561,7 @@ pub(super) fn think(
             // A gunner fires the special of the line in use when the line's
             // reason holds and it used nothing else on this look. It then
             // waits a round, as after a script's feat talent.
-            let line = gun_special.and_then(|special| {
-                (FeatLine::ALL.into_iter()).find(|line| line.rows().contains(&special.row()))
-            });
+            let line = gun_special.and_then(|special| FeatLine::of(special.row()));
             let why = line.and_then(|line| choose::feat_reason(line, &sight));
             if let (Some(line), Some(why)) = (line, why)
                 && ready

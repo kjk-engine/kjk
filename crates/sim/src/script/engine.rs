@@ -1879,7 +1879,7 @@ impl Engine<'_> {
         let generic = || (self.event.ai_script.as_deref()).is_some_and(generic_combat_script);
         match talent {
             Use::Feat(row) => {
-                let line = FeatLine::ALL.iter().any(|line| line.rows().contains(&row));
+                let line = FeatLine::of(row).is_some();
                 let attacks_only = self.state.party.ai_styles.get(&who.0)
                     == Some(&super::party::NPC_AISTYLE_MELEE_ATTACK);
                 line && !attacks_only && (party || generic())
