@@ -1,16 +1,21 @@
 //! How the combat AI chooses a Force power, an item or a grenade of its own
 //! (`ai.choices`). Each option a character can use now is scored from 0 to
 //! 1 against what the character sees. The best option that passes the
-//! threshold is used. This module is pure. The caller gathers the facts
-//! and passes `pick` in. The same inputs always lead to the same choice.
+//! threshold is used. The AI also chooses its feat line, the saber style of
+//! a single blade, by the reasons in `feat_line` (`ai.choices.feats`). This
+//! module is pure. The caller gathers the facts and passes `pick` in. The
+//! same inputs always lead to the same choice.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use rules::ai::choices;
+use rules::ai::choices::feats;
 use rules::ai::choices::reasons;
 use rules::ai::choices::wait_ms;
 
+use crate::combat::bar::FeatLine;
 use crate::combat::pace::Tier;
+use crate::combat::saber::Style;
 pub use crate::combat::spells::Kind;
 use crate::combat::spells::kind_of_row;
 
@@ -434,6 +439,129 @@ pub fn does_something(row: u16, mark: Mark) -> bool {
 pub fn wise_for(row: u16, own_health: f32) -> bool {
     use crate::combat::force::{self, Power};
     !matches!(force::of_row(row), Some((Power::Rage, _))) || own_health >= choices::RAGE_ABOVE
+}
+
+/// What a character sees of its target that decides its feat line
+/// (`ai.choices.feats`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct FeatSight {
+    /// The target holds its block now, or holds a lit lightsaber.
+    pub blocks: bool,
+    /// The target is tired. Only the Advanced rules make a fighter tired.
+    pub tired: bool,
+    pub staggered: bool,
+    /// The target charges at the character, or winds up a charge at it.
+    pub charging: bool,
+    /// The target stands still.
+    pub still: bool,
+    /// How far away the target stands (metres).
+    pub distance_m: f32,
+}
+
+/// Why a character takes a feat line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FeatWhy {
+    Blocks,
+    Tired,
+    Staggered,
+    /// No other reason holds. The medium style and Critical Strike need none.
+    Plain,
+    Close,
+    Charging,
+    FarAndStill,
+    NotBlocking,
+}
+
+impl FeatWhy {
+    /// The reason as the choice log writes it.
+    pub fn text(self) -> &'static str {
+        match self {
+            FeatWhy::Blocks => "the target blocks often",
+            FeatWhy::Tired => "the target is tired",
+            FeatWhy::Staggered => "the target is staggered",
+            FeatWhy::Plain => "no other line has a reason",
+            FeatWhy::Close => "the target is close",
+            FeatWhy::Charging => "the target charges at the character",
+            FeatWhy::FarAndStill => "the target is far away and stands still",
+            FeatWhy::NotBlocking => "the target does not block",
+        }
+    }
+}
+
+/// The melee lines in the order the character prefers them when their
+/// reasons hold. Critical Strike always has a reason, so it comes last.
+const MELEE_ORDER: [FeatLine; 3] = [
+    FeatLine::Flurry,
+    FeatLine::PowerAttack,
+    FeatLine::CriticalStrike,
+];
+/// The gun lines in the order the character prefers them when their
+/// reasons hold.
+const GUN_ORDER: [FeatLine; 3] = [
+    FeatLine::RapidShot,
+    FeatLine::SniperShot,
+    FeatLine::PowerBlast,
+];
+
+/// Why `line` suits a target the character sees as `sight`, if it does.
+/// Flurry suits a staggered or tired target. Power Attack suits a target
+/// that blocks often. Critical Strike suits any target. Rapid Shot suits a
+/// target that charges at the character or stands within
+/// `ai.choices.feats.close_m` (5 meters). Sniper Shot suits a target that
+/// stands still at least `ai.choices.feats.far_m` (15 meters) away. Power
+/// Blast suits a target that does not block.
+pub fn feat_reason(line: FeatLine, sight: &FeatSight) -> Option<FeatWhy> {
+    let when = |holds: bool, why: FeatWhy| holds.then_some(why);
+    match line {
+        FeatLine::Flurry => {
+            when(sight.staggered, FeatWhy::Staggered).or_else(|| when(sight.tired, FeatWhy::Tired))
+        }
+        FeatLine::PowerAttack => when(sight.blocks, FeatWhy::Blocks),
+        FeatLine::CriticalStrike => Some(FeatWhy::Plain),
+        FeatLine::RapidShot => when(sight.charging, FeatWhy::Charging)
+            .or_else(|| when(sight.distance_m <= feats::CLOSE_M, FeatWhy::Close)),
+        FeatLine::SniperShot => when(
+            sight.still && sight.distance_m >= feats::FAR_M,
+            FeatWhy::FarAndStill,
+        ),
+        FeatLine::PowerBlast => when(!sight.blocks, FeatWhy::NotBlocking),
+    }
+}
+
+/// The feat line a character takes against a target it sees as `sight`,
+/// and why. A gunner (`gun`) takes a gun line, any other fighter a melee
+/// line. It is the first line in the order of preference that the
+/// character `knows` and whose reason holds. None when no such line is
+/// left.
+pub fn feat_line(
+    sight: &FeatSight,
+    gun: bool,
+    knows: impl Fn(FeatLine) -> bool,
+) -> Option<(FeatLine, FeatWhy)> {
+    let order = if gun { GUN_ORDER } else { MELEE_ORDER };
+    order
+        .into_iter()
+        .filter(|line| knows(*line))
+        .find_map(|line| Some((line, feat_reason(line, sight)?)))
+}
+
+/// The saber style a single blade fights in for the melee line `line`.
+/// Power Attack is the strong style, Critical Strike the medium style and
+/// Flurry the fast style. A gun line has none.
+pub fn style_of(line: FeatLine) -> Option<Style> {
+    match line {
+        FeatLine::PowerAttack => Some(Style::Strong),
+        FeatLine::CriticalStrike => Some(Style::Medium),
+        FeatLine::Flurry => Some(Style::Fast),
+        FeatLine::PowerBlast | FeatLine::RapidShot | FeatLine::SniperShot => None,
+    }
+}
+
+/// Whether a style or line that the chooser changed at `changed_at` (sim
+/// ms, 0 for never) is still kept at `now`. It is kept for
+/// `ai.choices.feats.hold_ms` (6 seconds) after the change.
+pub fn feat_kept(now: u64, changed_at: u64) -> bool {
+    changed_at != 0 && now < changed_at.saturating_add(feats::HOLD_MS)
 }
 
 /// A living character on one side of a fight, as the test for an intense

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e7ed7d240fe35d4b`.
+Edition `635c94297d5269f7`.
 
 ## Contents
 
@@ -8355,6 +8355,39 @@ FORCE_POWER_SPEED_BURST **8** · FORCE_POWER_KNIGHT_SPEED **34** · FORCE_POWER_
 Burst of Speed, Fury and Wookiee Rage are used only by a character that fights in melee itself. A character with a lightsaber, a sword, a vibroblade, a stun baton or empty hands fights in melee. A character with a gun does not. Their rows in `spells.2da` are 8 / 34 / 37 / 164 / 165 / 166 / 271 / 272 / 273.
 
 <sub>Source: the owner's call of 19 November 2026. Code: `sim::combat::choose::fits`.</sub>
+
+#### <a id="ai-choices-feats"></a>Choosing Feats
+
+A character that chooses its own Force powers also chooses its feat line in a
+fight. With a single blade the line is the saber style. Power Attack is the
+strong style, Critical Strike the medium style and Flurry the fast style. The
+character fights in the strong style against a target that blocks often, in
+the fast style against a tired or staggered target, and in the medium style
+otherwise. Two blades, a double-bladed weapon, fists and a stun baton take the
+feat line of the same three reasons. A gun takes Rapid Shot against a close
+target or one that charges at the character, Sniper Shot against a far target
+that stands still, and Power Blast against a target that does not block. A
+target blocks often when it holds its block or holds a lit lightsaber. A line
+that the player picked for a companion with the next-feat key stays until the
+player changes it.
+
+<a id="ai-choices-feats-hold-ms"></a>**Feat Line Kept** = **6 seconds** (`6000 ms`) · `ai.choices.feats.hold_ms`
+
+After a character changes its saber style or its feat line, it keeps the new one for at least 6 seconds.
+
+<sub>Source: the design of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Feats. Code: `sim::combat::choose::feat_kept`.</sub>
+
+<a id="ai-choices-feats-close-m"></a>**Close Target for Rapid Shot** = **5 m** · `ai.choices.feats.close_m`
+
+A gunner takes Rapid Shot against a target within 5 meters.
+
+<sub>Source: the builder's call of 20 November 2026. Code: `sim::combat::choose::gun_reason`.</sub>
+
+<a id="ai-choices-feats-far-m"></a>**Far Target for Sniper Shot** = **15 m** · `ai.choices.feats.far_m`
+
+A gunner takes Sniper Shot against a target that stands still at least 15 meters away.
+
+<sub>Source: the builder's call of 20 November 2026. Code: `sim::combat::choose::gun_reason`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

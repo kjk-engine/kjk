@@ -2222,6 +2222,54 @@ summary = "Force Valor, Battle Meditation, Force Body and Inspire Followers are 
 source = "the owner's call of 19 November 2026"
 see = "sim::combat::choose::fits"
 
+[choices.feats]
+title = "Choosing Feats"
+summary = """
+A character that chooses its own Force powers also chooses its feat line in a
+fight. With a single blade the line is the saber style. Power Attack is the
+strong style, Critical Strike the medium style and Flurry the fast style. The
+character fights in the strong style against a target that blocks often, in
+the fast style against a tired or staggered target, and in the medium style
+otherwise. Two blades, a double-bladed weapon, fists and a stun baton take the
+feat line of the same three reasons. A gun takes Rapid Shot against a close
+target or one that charges at the character, Sniper Shot against a far target
+that stands still, and Power Blast against a target that does not block. A
+target blocks often when it holds its block or holds a lit lightsaber. A line
+that the player picked for a companion with the next-feat key stays until the
+player changes it.
+"""
+applies = ["kind:creature", "kind:companion", "kind:lightsaber", "kind:melee", "kind:blaster"]
+
+[choices.feats.hold_ms]
+name = "Feat Line Kept"
+type = "u64"
+value = 6000
+unit = "ms"
+range = [0, 60000]
+summary = "After a character changes its saber style or its feat line, it keeps the new one for at least {ai.choices.feats.hold_ms:s}."
+source = "the design of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Feats"
+see = "sim::combat::choose::feat_kept"
+
+[choices.feats.close_m]
+name = "Close Target for Rapid Shot"
+type = "f32"
+value = 5.0
+unit = "m"
+range = [0.0, 50.0]
+summary = "A gunner takes Rapid Shot against a target within {ai.choices.feats.close_m:bare} meters."
+source = "the builder's call of 20 November 2026"
+see = "sim::combat::choose::gun_reason"
+
+[choices.feats.far_m]
+name = "Far Target for Sniper Shot"
+type = "f32"
+value = 15.0
+unit = "m"
+range = [0.0, 100.0]
+summary = "A gunner takes Sniper Shot against a target that stands still at least {ai.choices.feats.far_m:bare} meters away."
+source = "the builder's call of 20 November 2026"
+see = "sim::combat::choose::gun_reason"
+
 [choices.reasons.blade]
 name = "Buffs for a Blade"
 type = "u16"

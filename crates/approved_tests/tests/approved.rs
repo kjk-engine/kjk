@@ -5963,6 +5963,165 @@ fn choice_waits() {
     }
 }
 
+/// The feat line the combat AI takes against its target
+/// (`sim::combat::choose::feat_line`, `ai.choices.feats`). Each row is one
+/// case. A fighter takes Flurry against a staggered or tired target, Power
+/// Attack against a target that blocks, and Critical Strike otherwise. A
+/// fighter that does not know the preferred line takes the next line whose
+/// reason holds. A gunner takes Rapid Shot against a close or charging
+/// target, Sniper Shot against a far target that stands still, and Power
+/// Blast against a target that does not block. A gunner with no line whose
+/// reason holds takes none. A changed line is kept for exactly the hold.
+/// (proposed 2026-11-20, awaiting approval)
+#[test]
+fn choice_feats() {
+    use rules::ai::choices::feats::{CLOSE_M, FAR_M, HOLD_MS};
+    use sim::combat::bar::FeatLine::{self, *};
+    use sim::combat::choose::{FeatSight, FeatWhy, feat_kept, feat_line};
+    let mid = (CLOSE_M + FAR_M) / 2.0;
+    let plain = FeatSight {
+        distance_m: mid,
+        ..FeatSight::default()
+    };
+    let all: &[FeatLine] = &FeatLine::ALL;
+    let no_flurry: &[FeatLine] = &[PowerAttack, CriticalStrike];
+    let blast_only: &[FeatLine] = &[PowerBlast];
+    let cases: [(
+        &str,
+        FeatSight,
+        bool,
+        &[FeatLine],
+        Option<(FeatLine, FeatWhy)>,
+    ); 12] = [
+        (
+            "plain melee",
+            plain,
+            false,
+            all,
+            Some((CriticalStrike, FeatWhy::Plain)),
+        ),
+        (
+            "staggered",
+            FeatSight {
+                staggered: true,
+                blocks: true,
+                ..plain
+            },
+            false,
+            all,
+            Some((Flurry, FeatWhy::Staggered)),
+        ),
+        (
+            "tired",
+            FeatSight {
+                tired: true,
+                ..plain
+            },
+            false,
+            all,
+            Some((Flurry, FeatWhy::Tired)),
+        ),
+        (
+            "blocks",
+            FeatSight {
+                blocks: true,
+                ..plain
+            },
+            false,
+            all,
+            Some((PowerAttack, FeatWhy::Blocks)),
+        ),
+        (
+            "staggered blocker without Flurry",
+            FeatSight {
+                staggered: true,
+                blocks: true,
+                ..plain
+            },
+            false,
+            no_flurry,
+            Some((PowerAttack, FeatWhy::Blocks)),
+        ),
+        ("no melee line", plain, false, &[], None),
+        (
+            "close",
+            FeatSight {
+                distance_m: CLOSE_M,
+                ..plain
+            },
+            true,
+            all,
+            Some((RapidShot, FeatWhy::Close)),
+        ),
+        (
+            "charging",
+            FeatSight {
+                charging: true,
+                distance_m: FAR_M,
+                still: true,
+                ..plain
+            },
+            true,
+            all,
+            Some((RapidShot, FeatWhy::Charging)),
+        ),
+        (
+            "far and still",
+            FeatSight {
+                distance_m: FAR_M,
+                still: true,
+                ..plain
+            },
+            true,
+            all,
+            Some((SniperShot, FeatWhy::FarAndStill)),
+        ),
+        (
+            "not blocking",
+            plain,
+            true,
+            all,
+            Some((PowerBlast, FeatWhy::NotBlocking)),
+        ),
+        (
+            "blocking at middle distance",
+            FeatSight {
+                blocks: true,
+                ..plain
+            },
+            true,
+            blast_only,
+            None,
+        ),
+        (
+            "far but moving",
+            FeatSight {
+                distance_m: FAR_M,
+                ..plain
+            },
+            true,
+            &[SniperShot],
+            None,
+        ),
+    ];
+    for (name, sight, gun, known, expected) in cases {
+        let got = feat_line(&sight, gun, |line| known.contains(&line));
+        assert_eq!(got, expected, "{name}");
+    }
+    let changed = 1_000;
+    for (now, changed_at, expected) in [
+        (changed + HOLD_MS - 1, changed, true),
+        (changed + HOLD_MS, changed, false),
+        (changed, 0, false),
+    ] {
+        assert_eq!(
+            feat_kept(now, changed_at),
+            expected,
+            "at {now} ms after a change at {changed_at}"
+        );
+    }
+}
+
 /// Whether a fight is intense for the party (`sim::combat::choose`), how
 /// long it stays intense, and how many items of a kind a companion keeps.
 /// An enemy finds an intense fight with the sides swapped, and casts an
