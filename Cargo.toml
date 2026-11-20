@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+# Crates of others carried here with a change (third_party/README.md), not
+# the workspace's own: built as `[patch.crates-io]` gives them.
+exclude = ["third_party/*"]
 
 [workspace.package]
 edition = "2024"
@@ -149,3 +152,11 @@ incremental = false
 lto = "fat"
 codegen-units = 1
 strip = true
+
+# The level editor's move, rotate and scale handles (transform-gizmo-egui),
+# carried in third_party/ with egui's own fonts left out: crates.io's ask for
+# egui's default features, which ship fonts under OFL-1.1 and the Ubuntu
+# font licence, licences kjk does not take (about.toml).
+[patch.crates-io]
+transform-gizmo = { path = "third_party/transform-gizmo" }
+transform-gizmo-egui = { path = "third_party/transform-gizmo-egui" }

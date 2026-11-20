@@ -2882,7 +2882,6 @@ dependencies = [
  "bytemuck",
  "ecolor 0.36.2",
  "emath 0.36.2",
- "epaint_default_fonts",
  "font-types 0.12.7",
  "harfrust 0.12.0",
  "log",
@@ -2921,12 +2920,6 @@ dependencies = [
  "unicode-segmentation",
  "vello_cpu 0.2.0",
 ]
-
-[[package]]
-name = "epaint_default_fonts"
-version = "0.36.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "773fa9c96dd0dbef887e39d0ed6177f141cce4d68e6041df77570aa3702dfa13"
 
 [[package]]
 name = "equivalent"
@@ -6762,8 +6755,6 @@ dependencies = [
 [[package]]
 name = "transform-gizmo"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcd9584531c33435ec2e9c2f194a27e60c65a36a2168f0519e1483e06934c8ec"
 dependencies = [
  "ahash",
  "ecolor 0.36.2",
@@ -6778,8 +6769,6 @@ dependencies = [
 [[package]]
 name = "transform-gizmo-egui"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54832e69fb355472e05a768d88616459cd7cc321512a2f2d988bca201bdebc67"
 dependencies = [
  "egui 0.36.2",
  "transform-gizmo",
