@@ -335,7 +335,37 @@ The rule leaves out these parts on purpose.
 - A rigid mesh that hangs alone, or one that hangs from a skinned bone,
   such as Talia's `frontflappiece`. It rides on its parent.
 - The KOTOR 1 Jedi robes. Their skirts are part of the legs mesh and have
-  no bones.
+  no bones. While the solver runs, they get generated chains (see
+  "Generated skirt chains" below).
+
+### Generated skirt chains (`asset_ja::loose::skirt`)
+
+A KOTOR 2 robe hangs from 3 or 4 chains of robe bones. The skin between two
+chains is only blended between them, so a leg that swings between two
+chains passes through the robe. While the solver runs, each body model
+with a skirt gets its own ring of chains when it is read, before anything
+looks at its nodes (`game::loose_parts::dress`).
+
+- A KOTOR 2 robe's skirt is the cloth of its robe skirt bones. A model
+  without them has a skirt when its legs mesh has at least 30 vertices
+  far from the legs, and at least 3 vertices that both legs carry hang
+  across the middle of the body, 25 cm or more below the hips. Trousers,
+  bulky bodies and suits have only the inside of each leg there. A vertex
+  within 8 cm of a leg's line stays on the leg, and one beyond 15 cm moves
+  to the chains entirely.
+- Up to 10 chains of 3 bones hang at even angles around the pelvis. A
+  chain is kept only where the skirt has enough cloth. It runs from the top
+  of the skirt near its angle down to the hem, and each joint sits on the
+  cloth.
+- The new bones come after the model's own nodes. Each skirt vertex
+  follows the two chains on either side of its angle, and the bone at its
+  height along each. Its weight on the robe bones, or its share far from
+  the legs, moves to the chains. Every vertex rests where it rested before.
+- The finder then finds the new bones as robe skirt bones, and links each
+  chain to its neighbours through their shared skin.
+
+The approved test `loose_bones` lists the generated chains of every
+humanoid model of both games.
 
 ### Kinds of garment
 
@@ -485,7 +515,15 @@ and capes in play" below), and so does the viewers' `--sim` option.
   bone, up to 130 m in one substep. Such a contact is now only partly
   cleared, and the free point's own capsule test does the rest.
 - A point that hangs from a pinned root ends each substep at its bone's
-  length from the root, so a push from a capsule only turns its bone.
+  length from the root, so a push from a capsule only turns its bone. It is
+  pushed out and put back at its length up to three more times, so it ends
+  outside a capsule next to the root.
+- Each free point keeps at least half its rest distance from the bones of
+  every other tree of its garment. The trees of a garment are those that
+  links join, directly or through other trees. A point keeps away only from
+  the bones beside it, at most 1.5 times as far at rest as that tree's
+  nearest bone. Without this, two chains of a robe passed through each
+  other, and an upside down robe gathered its hem into one point.
 - The pelvis, the belly and the chest are a backstop. A point more than
   half a radius deep in one of them, on the far side from its target, is
   put back on its target's side. A point that a fast move took into the
@@ -507,9 +545,12 @@ faults that once left a robe flared or bunched in play. A capsule over a
 pinned root must not throw the point below it. A point outside its maximum
 distance must come back within one substep. A turn of the placed node that
 the bones undo must not swing the points. A spin of the trunk inside a
-still skeleton must be felt only by the inertia share. A last probe checks
-that a target with a hang of 1 hangs straight down under a leaning body.
-It prints the cost of one body of 32 points.
+still skeleton must be felt only by the inertia share. A probe checks that
+a target with a hang of 1 hangs straight down under a leaning body. Three
+probes hang a skirt of eight linked chains around the legs while a leg
+kicks through it, while the body hangs upside down and while it flips. No
+two points of different chains may come nearer than 35% of their rest
+distance. The test prints the cost of one body of 32 points.
 
 ## Robes and capes in play (`game::loose_parts`)
 
@@ -552,6 +593,16 @@ in one place, `SIMULATED`.
   5 m in one frame, and when a cutscene cuts to its next staged line. A
   camera cut inside one staged line does not reset them.
 - The floor is the walkmesh height last found under the body.
+- After skinning, the vertex shader pushes each vertex of a moved robe or
+  cape out of its wearer's six leg capsules (`game::loose_skin`). A
+  vertex's push is its share of the garment, the sum of its weights on the
+  moved bones, so the waist is not pushed. A vertex that rests inside a
+  leg capsule keeps that much less than the capsule's radius. The capsules
+  are written each frame, after Bevy places the nodes, for each body's
+  model. The prepass pushes the vertex with the frame before's capsules too,
+  for the motion vectors, and the shadow tiles push it as the main pass
+  does. A pushed mesh is left out of its model's shadow meshes.
 - `KJK_LOOSE=off` turns the solver off for the run, and the clips keep
-  their keys on every loose bone, as before. The bench reports the
+  their keys on every loose bone, as before. No skirt gets generated
+  chains, and no vertex is pushed. The bench reports the
   solver's time and work as `loose` (`docs/RUN.md`).
