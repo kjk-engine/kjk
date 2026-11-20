@@ -4163,9 +4163,11 @@ fn power_rows() {
 /// "companion talents"`). A companion's own AI drops every Force power it
 /// queues as a talent, whether the script named the power or found it. A
 /// power the script casts with `ActionCastSpellAtObject` is still cast. A
-/// companion keeps a medpac, a feat, and a droid's own weapon. It keeps a
-/// talent that another script queues for it. A droid drops its shield. An
-/// enemy keeps every talent.
+/// companion keeps a medpac and a droid's own weapon. A feat becomes an
+/// attack on the feat's target, because the engine chooses the companion's
+/// feat line (changed 2026-11-20, awaiting approval). It keeps a talent
+/// that another script queues for it. A droid drops its shield. An enemy
+/// keeps every talent.
 #[test]
 fn companion_talents() {
     probed(
@@ -4178,7 +4180,9 @@ fn companion_talents() {
 /// The talents an enemy's combat scripts queue (`kjk sim probes --only
 /// "enemy talents"`). A Force power and a medpac that an enemy's generic
 /// combat script queues are dropped, because the engine chooses them. A
-/// feat and a droid's own weapon from the same script are kept. A power
+/// feat from the same script becomes an attack on the feat's target,
+/// because the engine chooses the enemy's feat line (changed 2026-11-20).
+/// A droid's own weapon from the same script is kept. A power or a feat
 /// from a script outside the list of generic combat scripts is kept, and
 /// so is a power from a script that is not the enemy's AI hook. A power
 /// from each boss script that the survey of 19 November 2026 found is
@@ -4188,7 +4192,7 @@ fn enemy_talents() {
     probed(
         "enemy talents",
         &sim::companion_talent_probes::enemy_probes(),
-        7,
+        8,
     );
 }
 

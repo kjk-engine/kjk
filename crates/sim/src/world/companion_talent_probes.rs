@@ -10,8 +10,8 @@
 //! - an enemy's AI hook keeps a power it names and a power it found;
 //! - a hurt companion's AI hook that uses a medpac still uses it, and the
 //!   party then has one medpac fewer;
-//! - a companion's AI hook that uses a feat still has that feat in its
-//!   intent, because the engine chooses no feats yet;
+//! - a companion's AI hook that uses a feat attacks the feat's target
+//!   instead, because the engine chooses the companion's feat line;
 //! - a script that is not the companion's AI hook and uses a power for the
 //!   companion still queues the talent;
 //! - a droid companion's AI hook keeps its stun ray, which is one of the
@@ -21,7 +21,9 @@
 //! talents"`) are run the same way:
 //! - an enemy's generic combat script drops a Force power and a medpac,
 //!   because the engine chooses both for an enemy;
-//! - the same script keeps a feat, and a droid's own weapon;
+//! - the same script's feat becomes an attack on the feat's target, and the
+//!   script keeps a droid's own weapon;
+//! - a feat from a script that is not in the list is kept;
 //! - a power from a script that is not in the list of generic combat
 //!   scripts is kept, and so is a power from a script that is not the
 //!   enemy's AI hook, such as a conversation's;
@@ -104,6 +106,7 @@ const NAMED_ON_PC: &str = "probe_named_on_pc";
 const FOUND_ON_PC: &str = "probe_found_on_pc";
 const FOUND_MEDPAC: &str = "probe_found_medpac";
 const FOUND_FEAT: &str = "probe_found_feat";
+const FOUND_FEAT_ON_PC: &str = "probe_found_feat_on_pc";
 const STUN_RAY_ON_FOE: &str = "probe_stun_ray_on_foe";
 const SHIELD_ON_SELF: &str = "probe_shield_on_self";
 
@@ -164,6 +167,7 @@ fn scripts() -> Result<Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, String> {
         (FOUND_ON_PC, used(found(POWERS), pc())),
         (FOUND_MEDPAC, used(found(HEALING), Expr::Me)),
         (FOUND_FEAT, used(found(FEATS), foe())),
+        (FOUND_FEAT_ON_PC, used(found(FEATS), pc())),
         (STUN_RAY_ON_FOE, used(named(STUN_RAY), foe())),
         (SHIELD_ON_SELF, used(named(SHIELD), Expr::Me)),
         (GENERIC_POWER, used(named(POWER), pc())),
@@ -241,6 +245,8 @@ struct Seen {
     talent: bool,
     /// The caller queued a cast.
     cast: bool,
+    /// The caller queued an attack.
+    attack: bool,
     /// The caller's intent used `FEAT`.
     feat: bool,
     /// The medpacs the party had at the end.
@@ -358,6 +364,7 @@ fn run(case: &Case) -> Result<Seen, String> {
     let mut seen = Seen {
         talent: false,
         cast: false,
+        attack: false,
         feat: false,
         medpacs: MEDPACS,
     };
@@ -372,6 +379,7 @@ fn run(case: &Case) -> Result<Seen, String> {
         };
         seen.talent |= did("talent");
         seen.cast |= did("cast");
+        seen.attack |= did("attack");
         seen.feat |= state
             .intents
             .get(&caller.0)
@@ -431,9 +439,9 @@ const CASES: [Case; 10] = [
         ..PLAIN
     },
     Case {
-        name: "companion_keeps_found_feat",
+        name: "companion_attacks_instead_of_found_feat",
         script: FOUND_FEAT,
-        wanted: |seen| seen.feat,
+        wanted: |seen| seen.attack && !seen.talent && !seen.feat,
         ..PLAIN
     },
     Case {
@@ -464,7 +472,7 @@ const ENEMY: Case = Case {
     caller: Caller::Foe,
     ..PLAIN
 };
-const ENEMY_CASES: [Case; 6] = [
+const ENEMY_CASES: [Case; 7] = [
     Case {
         name: "generic_power_dropped",
         script: GENERIC_POWER,
@@ -472,8 +480,14 @@ const ENEMY_CASES: [Case; 6] = [
         ..ENEMY
     },
     Case {
-        name: "generic_feat_kept",
+        name: "generic_feat_becomes_attack",
         script: GENERIC_FEAT,
+        wanted: |seen| seen.attack && !seen.talent && !seen.feat,
+        ..ENEMY
+    },
+    Case {
+        name: "feat_outside_the_list_kept",
+        script: FOUND_FEAT_ON_PC,
         wanted: |seen| seen.feat,
         ..ENEMY
     },
@@ -530,8 +544,8 @@ fn checked<'a>(cases: impl Iterator<Item = &'a Case>) -> Checks {
                 check(
                     (case.wanted)(&seen),
                     format!(
-                        "talent queued {}, cast queued {}, feat intended {}, medpacs {} of {MEDPACS}",
-                        seen.talent, seen.cast, seen.feat, seen.medpacs
+                        "talent queued {}, cast queued {}, attack queued {}, feat intended {}, medpacs {} of {MEDPACS}",
+                        seen.talent, seen.cast, seen.attack, seen.feat, seen.medpacs
                     ),
                 )
             });

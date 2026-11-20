@@ -1845,40 +1845,52 @@ impl Engine<'_> {
     /// Whether a talent that `who`'s own AI queues is left to the engine's
     /// chooser (`combat::choose`) and dropped. Only a talent that `who`'s
     /// own AI run queues can be dropped. A talent that another script
-    /// queues, such as a conversation's, is kept. A feat is kept, because
-    /// the engine chooses no feats yet. A droid's own weapon
+    /// queues, such as a conversation's, is kept. A droid's own weapon
     /// (`spells::droid_weapon`) is kept, because the chooser does not offer
     /// droid weapons yet.
     ///
-    /// The engine chooses a party member's Force powers and grenades. So a
-    /// Force power or an item spell of a party member is dropped. This is
-    /// true however the script made the talent, by name (`TalentSpell`) or
-    /// by search (`GetCreatureTalentBest`). A party member's healing item (a
-    /// medpac, or a repair kit for a droid) is kept, so the original script
-    /// still decides when a hurt companion heals.
+    /// The engine chooses a party member's Force powers, grenades and feat
+    /// lines. So a Force power, an item spell or a feat line of a party
+    /// member is dropped. This is true however the script made the talent,
+    /// by name (`TalentSpell`) or by search (`GetCreatureTalentBest`). A
+    /// party member's healing item (a medpac, or a repair kit for a droid)
+    /// is kept, so the original script still decides when a hurt companion
+    /// heals.
     ///
-    /// The engine also chooses the Force powers and items of every other
-    /// creature. A Force power or an item spell of such a creature, its
-    /// healing items too, is dropped when the script that began its AI run
+    /// The engine also chooses the Force powers, items and feat lines of
+    /// every other creature. Such a talent of such a creature, its healing
+    /// items too, is dropped when the script that began its AI run
     /// (`Event::ai_script`) is one of the games' generic combat scripts
     /// (`generic_combat_script`). A boss's own script is not in that list,
     /// so the boss still casts its set pieces.
+    ///
+    /// A feat is left to the chooser only when it belongs to one of the six
+    /// feat lines the chooser picks (`FeatLine`), such as Flurry or Rapid
+    /// Shot. A creature its scripts set to attack with its weapon only
+    /// (`NPC_AISTYLE_MELEE_ATTACK`) keeps its feats, because it chooses
+    /// nothing.
     fn leaves_talent_to_chooser(&self, who: ObjectId, talent: Use) -> bool {
+        use crate::combat::bar::FeatLine;
         use crate::combat::{items, spells};
-        let Use::Power(row) = talent else {
-            return false;
-        };
-        if self.event.ai != Some(who) || spells::droid_weapon(row) {
+        if self.event.ai != Some(who) {
             return false;
         }
-        if self.character(who).is_some_and(|c| c.party) {
-            let heals = matches!(
+        let party = self.character(who).is_some_and(|c| c.party);
+        let generic = || (self.event.ai_script.as_deref()).is_some_and(generic_combat_script);
+        match talent {
+            Use::Feat(row) => {
+                let line = FeatLine::ALL.iter().any(|line| line.rows().contains(&row));
+                let attacks_only = self.state.party.ai_styles.get(&who.0)
+                    == Some(&super::party::NPC_AISTYLE_MELEE_ATTACK);
+                line && !attacks_only && (party || generic())
+            }
+            Use::Power(row) if spells::droid_weapon(row) => false,
+            Use::Power(row) if party => !matches!(
                 items::use_of(row),
                 Some(items::Use::Heal { .. } | items::Use::Squad { .. })
-            );
-            return !heals;
+            ),
+            Use::Power(_) => generic(),
         }
-        (self.event.ai_script.as_deref()).is_some_and(generic_combat_script)
     }
 
     /// Writes one line to the choice log (`combat::choose::logging`) for a
@@ -2901,10 +2913,18 @@ impl Engine<'_> {
                     }
                     // A talent of a creature's own AI is not queued when
                     // `leaves_talent_to_chooser` says so. A power cast while
-                    // a conversation holds the world (above) is kept.
+                    // a conversation holds the world (above) is kept. The
+                    // script chose whom a feat is used on, so it attacks
+                    // that target with the line the engine chose.
                     Some(talent) if self.leaves_talent_to_chooser(caller, talent) => {
                         self.log_own_talent(caller, talent, false);
-                        Value::Int(0)
+                        match talent {
+                            Use::Feat(_) if target != ObjectId::INVALID && target != caller => {
+                                let passive = false;
+                                self.queue(caller, Action::Attack { target, passive })
+                            }
+                            _ => Value::Int(0),
+                        }
                     }
                     Some(talent) if target != ObjectId::INVALID => {
                         self.log_own_talent(caller, talent, true);
