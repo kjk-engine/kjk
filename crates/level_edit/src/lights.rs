@@ -99,15 +99,7 @@ impl PlacedLight {
     /// The light as a table, its numbers as short as they read back the
     /// same. `head` comes first (a `[[placed]]` table's game and area).
     pub fn table(&self, head: &[(&str, &str)]) -> Table {
-        // An f32's shortest form, so 0.2 is written as 0.2.
-        let float = |v: f32| value(v.to_string().parse::<f64>().unwrap_or(f64::from(v)));
-        let triple = |v: [f32; 3]| {
-            let mut array = toml_edit::Array::new();
-            for x in v {
-                array.push(x.to_string().parse::<f64>().unwrap_or(f64::from(x)));
-            }
-            value(array)
-        };
+        let triple = triple_value;
         let mut table = Table::new();
         for (key, text) in head {
             table.insert(key, value(*text));
@@ -132,6 +124,34 @@ impl PlacedLight {
         }
         table
     }
+}
+
+/// A number as TOML in an f32's shortest form, so 0.2 is written as 0.2.
+pub(crate) fn float(v: f32) -> Item {
+    value(v.to_string().parse::<f64>().unwrap_or(f64::from(v)))
+}
+
+/// Three numbers as a TOML list, each in an f32's shortest form.
+pub(crate) fn triple_value(v: [f32; 3]) -> Item {
+    let mut array = toml_edit::Array::new();
+    for x in v {
+        array.push(x.to_string().parse::<f64>().unwrap_or(f64::from(x)));
+    }
+    value(array)
+}
+
+/// A TOML text cut at its table headers: the text before the first
+/// header, then each table from its header line to the next header line.
+/// Joined again they are the text.
+pub(crate) fn blocks(text: &str) -> Vec<String> {
+    let mut blocks: Vec<String> = vec![String::new()];
+    for line in text.split_inclusive('\n') {
+        if line.trim_start().starts_with('[') {
+            blocks.push(String::new());
+        }
+        blocks.last_mut().expect("one at least").push_str(line);
+    }
+    blocks
 }
 
 /// Whether a `[[placed]]` table is `game`'s and `area`'s.
@@ -165,15 +185,7 @@ pub fn write_placed(
     area: &str,
     lights: &[PlacedLight],
 ) -> Result<String, String> {
-    // The file's blocks: the text before the first header, then each
-    // table from its header line to the next header line.
-    let mut blocks: Vec<String> = vec![String::new()];
-    for line in text.split_inclusive('\n') {
-        if line.trim_start().starts_with('[') {
-            blocks.push(String::new());
-        }
-        blocks.last_mut().expect("one at least").push_str(line);
-    }
+    let mut blocks = blocks(text);
     let ours = |block: &str| {
         block.trim_start().starts_with("[[placed]]")
             && block

@@ -36,6 +36,12 @@ pub struct Project {
     pub templates: BTreeMap<String, Template>,
     /// The map the project makes, when its module is its own (`map`).
     pub map: Option<NewMap>,
+    /// The kinds of light fitting changed in the editor (`kinds`), saved to
+    /// the light data, never to the project's folder.
+    pub kinds: Vec<crate::kinds::KindEdit>,
+    /// The level each room of the bake aims at (`levels`), as the editor
+    /// has it; saved to the light data's levels file.
+    pub levels: BTreeMap<String, f32>,
 }
 
 /// Something wrong with a project. A problem that `blocks` stops the save;
@@ -77,6 +83,8 @@ impl Project {
             kjk: KjkArea::default(),
             templates: BTreeMap::new(),
             map: None,
+            kinds: Vec::new(),
+            levels: BTreeMap::new(),
         }
     }
 

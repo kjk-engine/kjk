@@ -6553,6 +6553,173 @@ fn prepass_readers_declared() {
     println!("{} prepass readers, each declared", readers.len());
 }
 
+/// Kinds of light fitting and the bake's room levels changed in the level
+/// editor (`level_edit::kinds`, `level_edit::levels`, proposed 2026-11-20,
+/// awaiting approval), on rule files the test makes. A kind's `[[kind]]`
+/// entry changes in place, its fields keeping their places, and every
+/// other line stays; a kind made no lamp keeps only its name. Its
+/// `[[fitting]]` changes in place with its other fields kept, or is added
+/// at the end. A levels file keeps every line but the changed room's, loses
+/// a room that has no level any more, and gains a new room at its end. A
+/// module whose bake aimed at a share of each room's level aims at its
+/// levels file instead, and a module with no entry gets one. In the editor
+/// a kind's change and a room's level are undone. No installs.
+#[test]
+fn level_edit_light_rules() {
+    use level_edit::kinds::{KindEdit, read_kind, write_fitting, write_kind};
+    use level_edit::levels::{bake_entry, read_levels, with_levels_file, write_levels};
+    use level_edit::{Edit, Editor, Project, git};
+
+    let kinds = "# The kinds.\n\
+                 \n\
+                 [[kind]]\n\
+                 texture = \"lda_lite01\"\n\
+                 on = \"room\"\n\
+                 form = \"panel\"\n\
+                 colour = [1.0, 0.93, 0.76]\n\
+                 reach = 2.5\n\
+                 strength = 1.1\n\
+                 cone = 0.2\n\
+                 \n\
+                 [[kind]]\n\
+                 texture = \"plc_bed1\"\n\
+                 on = \"placeable\"\n\
+                 lamp = false\n";
+    let mut kind = read_kind(kinds, "lda_lite01", false).unwrap();
+    assert_eq!(kind.strength, 1.1);
+    assert!(
+        read_kind(kinds, "lda_lite01", true).is_none(),
+        "not on placeables"
+    );
+    kind.colour = [0.3, 0.5, 1.0];
+    kind.strength = 2.5;
+    let written = write_kind(kinds, &kind).unwrap();
+    let changed: Vec<&str> = written
+        .lines()
+        .zip(kinds.lines())
+        .filter(|(new, old)| new != old)
+        .map(|(new, _)| new)
+        .collect();
+    assert_eq!(changed, ["colour = [0.3, 0.5, 1.0]", "strength = 2.5"]);
+    assert_eq!(read_kind(&written, "lda_lite01", false).unwrap(), kind);
+    let off = KindEdit {
+        lamp: false,
+        ..kind.clone()
+    };
+    assert!(
+        !read_kind(&write_kind(kinds, &off).unwrap(), "lda_lite01", false)
+            .unwrap()
+            .lamp
+    );
+
+    let fittings = "[rules]\n\
+                    strong = 1.1\n\
+                    \n\
+                    [[fitting]]\n\
+                    game = \"k1\"\n\
+                    texture = \"lda_lite01\"\n\
+                    on = \"room\"\n\
+                    form = \"panel\"\n\
+                    colour = [1.0, 0.93, 0.76]\n\
+                    reach = 2.5\n\
+                    strength = 1.1\n\
+                    cone = 0.2\n\
+                    says = \"A warm pool.\"\n\
+                    reason = \"Warmer than stored.\"\n";
+    let told = KindEdit {
+        reason: "Blue for the test.".into(),
+        ..kind.clone()
+    };
+    let fitted = write_fitting(fittings, "k1", &told).unwrap();
+    let keys: Vec<&str> = fitted
+        .lines()
+        .skip(4)
+        .filter_map(|line| line.split(" = ").next())
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "game", "texture", "on", "form", "colour", "reach", "strength", "cone", "says",
+            "reason"
+        ]
+    );
+    assert!(fitted.contains("reason = \"Blue for the test.\""));
+    assert!(fitted.starts_with("[rules]\nstrong = 1.1\n\n[[fitting]]"));
+    let other = KindEdit {
+        texture: "lda_lite02".into(),
+        ..kind.clone()
+    };
+    let added = write_fitting(fittings, "k1", &other).unwrap();
+    assert!(
+        added.starts_with(fittings),
+        "a new kind's fitting goes at the end"
+    );
+    assert!(added.ends_with("cone = 0.2\n"));
+
+    let levels = "# Approved.\n\
+                  m13aa_01a 0.7184\n\
+                  m13aa_02a 0.4756\n\
+                  m13aa_02b 0.169\n";
+    let mut wanted = read_levels(levels);
+    assert_eq!(wanted.len(), 3);
+    wanted.insert("m13aa_01a".into(), 0.65);
+    wanted.remove("m13aa_02a");
+    wanted.insert("m13aa_09z".into(), 0.3);
+    assert_eq!(
+        write_levels(Some(levels), &wanted, "unused"),
+        "# Approved.\nm13aa_01a 0.6500\nm13aa_02b 0.169\nm13aa_09z 0.3000\n"
+    );
+
+    let bake = "[default]\n\
+                share = 1.0\n\
+                of = \"lit\"\n\
+                \n\
+                [modules.101per]\n\
+                share = 0.6\n\
+                ceiling = 0.22\n\
+                of = \"live\"\n";
+    assert_eq!(bake_entry(bake, "101per").share, Some(0.6));
+    assert!(!bake_entry(bake, "danm13").own);
+    let held = with_levels_file(bake, "101per", "levels/101per.txt").unwrap();
+    let entry = bake_entry(&held, "101per");
+    assert_eq!(
+        (
+            entry.share,
+            entry.ceiling,
+            entry.levels.as_deref(),
+            entry.of.as_str()
+        ),
+        (None, None, Some("levels/101per.txt"), "live")
+    );
+    let new = with_levels_file(bake, "danm13", "levels/danm13.txt").unwrap();
+    assert!(new.starts_with(bake));
+    assert_eq!(
+        bake_entry(&new, "danm13").levels.as_deref(),
+        Some("levels/danm13.txt")
+    );
+
+    let mut editor = Editor::new(Project::new(
+        &std::env::temp_dir().join("kjk-light-rules"),
+        "k1",
+        "danm13",
+        "m13aa",
+        git::empty(),
+    ));
+    editor.apply(Edit::SetKind(kind.clone())).unwrap();
+    editor
+        .apply(Edit::SetLevel("M13AA_01A".into(), Some(0.5)))
+        .unwrap();
+    assert_eq!(editor.project.levels.get("m13aa_01a"), Some(&0.5));
+    assert!(
+        editor
+            .apply(Edit::SetLevel("m13aa_01a".into(), Some(9.0)))
+            .is_err()
+    );
+    assert!(editor.undo() && editor.undo());
+    assert!(editor.project.kinds.is_empty() && editor.project.levels.is_empty());
+    println!("a kind and a room's level written, every other line kept");
+}
+
 /// Lights placed by hand in the level editor (`level_edit::lights`,
 /// proposed 2026-11-20, awaiting approval), on a `fittings.toml` the test
 /// makes: comments, a `[[fitting]]` and the `[[placed]]` lights of two

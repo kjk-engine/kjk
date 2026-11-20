@@ -111,6 +111,86 @@ pub(crate) struct NavFacts {
     pub(crate) entry_off: bool,
 }
 
+/// A room's level as its stored lightmaps show it, about as `kjk
+/// detail-bake` measures it: `original` is the mean of their texels' levels,
+/// and `lit` the same mean with each texel counted by its own level. The
+/// bake counts only the texels a surface covers; this counts every texel
+/// of the room's lightmaps, so it is a guide.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RoomMeasure {
+    pub(crate) room: String,
+    pub(crate) original: f32,
+    pub(crate) lit: f32,
+}
+
+/// Each room's level from the lightmaps of `scene` (`RoomMeasure`).
+fn measure_rooms(scene: &LoadedScene) -> Vec<RoomMeasure> {
+    use asset_odyssey::texture::Encoding;
+    let luma = |texture: &asset_odyssey::texture::TextureIr| -> Option<Vec<f32>> {
+        // Its first level no wider or taller than 128 texels.
+        let size = |level: usize| {
+            (
+                (texture.width as usize >> level).max(1),
+                (texture.height as usize >> level).max(1),
+            )
+        };
+        let level = (0..texture.mips.len())
+            .find(|&level| size(level).0.max(size(level).1) <= 128)
+            .or(texture.mips.len().checked_sub(1))?;
+        let (width, height) = size(level);
+        let data = &texture.mips[level];
+        let rgba = match texture.encoding {
+            Encoding::Rgba8 => data.clone(),
+            Encoding::Bc1 | Encoding::Bc1Holes => {
+                fmt_odyssey::dxt::decode(data, width, height, false)?
+            }
+            Encoding::Bc3 => fmt_odyssey::dxt::decode(data, width, height, true)?,
+        };
+        Some(
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .take(width * height)
+                .map(|[r, g, b, _]| {
+                    (0.2126 * f32::from(*r) + 0.7152 * f32::from(*g) + 0.0722 * f32::from(*b))
+                        / 255.0
+                })
+                .collect(),
+        )
+    };
+    let mut out = Vec::new();
+    for room in &scene.rooms {
+        let Some(model) = room.model.and_then(|model| scene.models.get(model)) else {
+            continue;
+        };
+        let names: std::collections::BTreeSet<&String> = model
+            .ir
+            .meshes
+            .iter()
+            .filter_map(|mesh| mesh.lightmap.as_ref())
+            .collect();
+        let (mut sum, mut squares, mut count) = (0.0f64, 0.0f64, 0usize);
+        for name in names {
+            let Some(levels) = scene.textures.get(name.as_str()).and_then(luma) else {
+                continue;
+            };
+            for level in levels {
+                sum += f64::from(level);
+                squares += f64::from(level * level);
+                count += 1;
+            }
+        }
+        if count > 0 {
+            out.push(RoomMeasure {
+                room: room.name.to_ascii_lowercase(),
+                original: (sum / count as f64) as f32,
+                lit: (squares / sum.max(1e-9)) as f32,
+            });
+        }
+    }
+    out
+}
+
 /// The files of a room's copy, by the copy's name, the room's model and
 /// how far the room moved (as bits).
 type MadeRooms = BTreeMap<(String, String, [u32; 3]), Vec<(String, ResType, Vec<u8>)>>;
@@ -146,6 +226,17 @@ pub struct EditorState {
     pub(crate) light_view: kjk_game::fitted_lights::Mode,
     pub(crate) bake: Option<PathBuf>,
     pub(crate) show_lights: bool,
+    /// Each kind of fitting the editor changed, as the light data held it
+    /// before: what the view shows again when the change is undone.
+    pub(crate) kind_originals: BTreeMap<(String, bool), level_edit::kinds::KindEdit>,
+    /// The module's bake as `bake.toml` says it, the levels its file held
+    /// when the editor opened (or last saved), each room's level from its
+    /// stored lightmaps (measured once, when the Room levels window first
+    /// opens), and whether that window is open.
+    pub(crate) bake_entry: level_edit::levels::BakeEntry,
+    pub(crate) levels_original: BTreeMap<String, f32>,
+    pub(crate) room_measures: Option<Vec<RoomMeasure>>,
+    pub(crate) show_levels: bool,
     shown_lights: (
         kjk_game::fitted_lights::Mode,
         Option<PathBuf>,
@@ -187,6 +278,21 @@ impl EditorState {
             project.kjk.lights =
                 level_edit::lights::read_placed(&text, &project.game, &project.module)?;
         }
+        // The module's bake, and the levels its rooms aim at.
+        let (bake_entry, levels_original) = match &setup.light_data {
+            Some(folder) => {
+                let entry = std::fs::read_to_string(folder.join("bake.toml"))
+                    .map(|text| level_edit::levels::bake_entry(&text, &project.module))
+                    .unwrap_or_else(|_| level_edit::levels::BakeEntry::default());
+                let levels = (entry.levels.as_ref())
+                    .and_then(|file| std::fs::read_to_string(folder.join(file)).ok())
+                    .map(|text| level_edit::levels::read_levels(&text))
+                    .unwrap_or_else(BTreeMap::new);
+                (entry, levels)
+            }
+            None => (level_edit::levels::BakeEntry::default(), BTreeMap::new()),
+        };
+        project.levels = levels_original.clone();
         let editor = Editor::new(project);
         let mut state = EditorState {
             setup,
@@ -204,6 +310,11 @@ impl EditorState {
             light_view: kjk_game::fitted_lights::mode(),
             bake: None,
             show_lights: false,
+            kind_originals: BTreeMap::new(),
+            bake_entry,
+            levels_original,
+            room_measures: None,
+            show_levels: false,
             shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false, None),
             nav_facts: None,
             dragging: false,
@@ -638,6 +749,22 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
                 .collect(),
         ),
     );
+    // The kinds of fitting changed, and the ones changed back.
+    let mut kinds = String::new();
+    for (key, original) in &state.kind_originals {
+        let kind = (state.editor.project.kinds)
+            .iter()
+            .find(|kind| (kind.texture.clone(), kind.placeable) == *key)
+            .unwrap_or(original);
+        kinds.push_str(&level_edit::kinds::kind_entry(kind));
+        kinds.push('\n');
+    }
+    if !kinds.is_empty()
+        && let Err(why) =
+            kjk_game::fitted_lights::set_kinds(&state.editor.project.game.clone(), &kinds)
+    {
+        state.say(format!("the kinds changed do not read: {why}"));
+    }
     let resolver = state.resolver();
     let ir = ModuleIr::build(&module, &ResolverSource(&resolver))
         .map_err(|refusal| format!("{module}: {refusal:?}"))?;
@@ -826,17 +953,29 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             scene.models.push(Placed::at(overlay, [0.0; 3]));
         }
     }
+    // Each room's level, measured once, from the stored lightmaps.
+    if state.show_levels
+        && state.room_measures.is_none()
+        && state.light_view != kjk_game::fitted_lights::Mode::Baked
+    {
+        state.room_measures = Some(measure_rooms(&scene));
+    }
+
     // The lights: each a marker in its colour, the selected one with its
     // reach drawn round it. The game's own are read from the scene as play
     // places them (`fitted_lights::explained`).
     state.editor.seen_lights.clear();
     if state.show_lights {
         let found = kjk_game::fitted_lights::explained(&scene);
-        state.editor.seen_lights = found
+        let fitted: Vec<_> = found
             .iter()
-            .filter(|(_, source)| source != "placed")
-            .map(|(light, source)| (light.placed(), source.clone()))
+            .filter(|(_, source, _)| source != "placed")
             .collect();
+        state.editor.seen_lights = fitted
+            .iter()
+            .map(|(light, source, _)| (light.placed(), source.clone()))
+            .collect();
+        state.editor.seen_on_placeable = fitted.iter().map(|(_, _, on)| *on).collect();
         let placed: Vec<(Target, level_edit::PlacedLight)> = (state.editor.project.kjk.lights)
             .iter()
             .enumerate()
@@ -965,7 +1104,12 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
 /// The scene drawn again once the edits have stopped for a moment.
 pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
     state.quiet = state.quiet.saturating_add(1);
-    let stale = state.built != state.editor.changes()
+    // The Room levels window measures the rooms when a scene is drawn.
+    let measure = state.show_levels
+        && state.room_measures.is_none()
+        && state.light_view != kjk_game::fitted_lights::Mode::Baked;
+    let stale = measure
+        || state.built != state.editor.changes()
         || state.shown_collision != state.show_collision
         || state.shown_nav != state.show_nav
         || state.shown_lights
@@ -1686,6 +1830,31 @@ pub(crate) fn command(
             }
             state.apply(Edit::SetLight(at, light));
         }
+        ["kind", field, rest @ ..] => {
+            let mut kind = selected_kind(state)?;
+            match (*field, rest) {
+                ("strength", [s]) => kind.strength = number(s)?,
+                ("reach", [r]) => kind.reach = number(r)?,
+                ("colour", [r, g, b]) => kind.colour = [number(r)?, number(g)?, number(b)?],
+                ("cone", [c]) => kind.cone = number(c)?,
+                ("lamp", [on @ ("on" | "off")]) => kind.lamp = *on == "on",
+                ("reason", words) => kind.reason = words.join(" "),
+                _ => {
+                    return Err(
+                        "kind strength S, reach R, colour R G B, cone C, lamp on|off or reason TEXT"
+                            .into(),
+                    );
+                }
+            }
+            set_kind(state, kind);
+        }
+        ["level", room, level] => {
+            let level = match *level {
+                "none" => None,
+                level => Some(number(level)?),
+            };
+            state.apply(Edit::SetLevel(room.to_string(), level));
+        }
         ["walk"] => {
             command(state, &["save"], cameras)?;
             walk(state)?;
@@ -1813,6 +1982,80 @@ pub(crate) fn command(
     Ok(())
 }
 
+/// The kind of fitting of the selected light the game places (a fitted
+/// light): as the editor has changed it, else as the light data holds it,
+/// else the general rules' faint light for a texture the data does not
+/// name.
+pub(crate) fn selected_kind(state: &EditorState) -> Result<level_edit::kinds::KindEdit, String> {
+    let Target::Fitted(at) = selected(state)? else {
+        return Err("only a light the game places at a fitting has a kind".into());
+    };
+    let (_, texture) = state
+        .editor
+        .seen_lights
+        .get(at)
+        .ok_or("the light is gone")?;
+    if texture == "hidden lamp" {
+        return Err("a room's hidden lamp has no kind".into());
+    }
+    let placeable = state
+        .editor
+        .seen_on_placeable
+        .get(at)
+        .copied()
+        .unwrap_or(false);
+    kind_of(state, texture, placeable)
+}
+
+/// The kind `texture` (on placeables or rooms) as the editor has it.
+pub(crate) fn kind_of(
+    state: &EditorState,
+    texture: &str,
+    placeable: bool,
+) -> Result<level_edit::kinds::KindEdit, String> {
+    if let Some(kind) = (state.editor.project.kinds)
+        .iter()
+        .find(|kind| kind.texture == texture && kind.placeable == placeable)
+    {
+        return Ok(kind.clone());
+    }
+    let folder = state
+        .setup
+        .light_data
+        .as_ref()
+        .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+    let path = folder.join(format!("{}.toml", state.editor.project.game));
+    let text =
+        std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(
+        level_edit::kinds::read_kind(&text, texture, placeable).unwrap_or(
+            level_edit::kinds::KindEdit {
+                texture: texture.to_string(),
+                placeable,
+                lamp: true,
+                form: "faint".into(),
+                colour: [1.0; 3],
+                reach: 3.0,
+                strength: 0.5,
+                cone: 0.2,
+                reason: String::new(),
+            },
+        ),
+    )
+}
+
+/// Changes a kind of fitting (`Edit::SetKind`), keeping how the light data
+/// held it the first time, for the view to show again on undo.
+pub(crate) fn set_kind(state: &mut EditorState, kind: level_edit::kinds::KindEdit) {
+    let key = (kind.texture.clone(), kind.placeable);
+    if !state.kind_originals.contains_key(&key)
+        && let Ok(original) = kind_of(state, &kind.texture, kind.placeable)
+    {
+        state.kind_originals.insert(key, original);
+    }
+    state.apply(Edit::SetKind(kind));
+}
+
 /// A light placed by hand of a ready shape at `at`: a lamp that shines all
 /// ways, a spotlight straight down, a panel's light that shines along +X,
 /// or a strip 1 m long each way along X.
@@ -1901,6 +2144,83 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
         written.len(),
         state.editor.project.folder.display()
     ));
+    // The kinds of fitting changed go to the light data: their `[[kind]]`
+    // entries, which the game reads, and a `[[fitting]]` each, which
+    // `kinds.py` reads.
+    let changed: Vec<level_edit::kinds::KindEdit> = (state.editor.project.kinds)
+        .iter()
+        .filter(|kind| {
+            state
+                .kind_originals
+                .get(&(kind.texture.clone(), kind.placeable))
+                .is_none_or(|original| original != *kind)
+        })
+        .cloned()
+        .collect();
+    if !changed.is_empty() {
+        let folder = (state.setup.light_data.clone())
+            .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+        let game = state.editor.project.game.clone();
+        let kinds_path = folder.join(format!("{game}.toml"));
+        let fittings_path = folder.join("fittings.toml");
+        let read = |path: &std::path::Path| {
+            std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
+        };
+        let (mut kinds_text, mut fittings_text) = (read(&kinds_path)?, read(&fittings_path)?);
+        for kind in &changed {
+            kinds_text = level_edit::kinds::write_kind(&kinds_text, kind)?;
+            fittings_text = level_edit::kinds::write_fitting(&fittings_text, &game, kind)?;
+        }
+        for (path, text) in [(&kinds_path, kinds_text), (&fittings_path, fittings_text)] {
+            std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+        for kind in &changed {
+            state
+                .kind_originals
+                .insert((kind.texture.clone(), kind.placeable), kind.clone());
+        }
+        let message = format!(
+            "saved {} kinds of fitting to {} and {}",
+            changed.len(),
+            kinds_path.display(),
+            fittings_path.display()
+        );
+        state.say(message);
+    }
+    // The levels the bake's rooms aim at go to the module's levels file,
+    // which `bake.toml` names (and is made to name, the first time).
+    if state.editor.project.levels != state.levels_original {
+        let folder = (state.setup.light_data.clone())
+            .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+        let module = state.editor.project.module.clone();
+        let file =
+            (state.bake_entry.levels.clone()).unwrap_or_else(|| format!("levels/{module}.txt"));
+        let path = folder.join(&file);
+        let old = std::fs::read_to_string(&path).ok();
+        let text = level_edit::levels::write_levels(
+            old.as_deref(),
+            &state.editor.project.levels,
+            &format!(
+                "The level each room of {module} aims at in the bake, of its {} level, set in kjk's level editor.",
+                state.bake_entry.of
+            ),
+        );
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+        if state.bake_entry.levels.is_none() {
+            let bake = folder.join("bake.toml");
+            let text = std::fs::read_to_string(&bake)
+                .map_err(|error| format!("{}: {error}", bake.display()))?;
+            let text = level_edit::levels::with_levels_file(&text, &module, &file)?;
+            std::fs::write(&bake, &text).map_err(|error| format!("{}: {error}", bake.display()))?;
+            state.bake_entry = level_edit::levels::bake_entry(&text, &module);
+        }
+        state.levels_original = state.editor.project.levels.clone();
+        state.say(format!("saved the rooms' levels to {}", path.display()));
+    }
     // An installed level's lights placed by hand go to the light data's
     // `fittings.toml`, where the game reads them.
     let project = &state.editor.project;

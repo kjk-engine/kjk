@@ -58,6 +58,11 @@ pub enum Edit {
     Role(usize, crate::area::BoxRole),
     /// A light placed by hand added.
     AddLight(crate::lights::PlacedLight),
+    /// A kind of light fitting changed (`kinds`): every lamp of it, in
+    /// every level of the game.
+    SetKind(crate::kinds::KindEdit),
+    /// The level a room of the bake aims at, or (`None`) none.
+    SetLevel(String, Option<f32>),
     /// A light placed by hand changed (its colour, reach, cone, strip or
     /// reason; `Move` and `Turn` place and aim it).
     SetLight(usize, crate::lights::PlacedLight),
@@ -101,6 +106,8 @@ struct State {
     kjk: crate::area::KjkArea,
     templates: std::collections::BTreeMap<String, crate::template::Template>,
     map: Option<crate::map::NewMap>,
+    kinds: Vec<crate::kinds::KindEdit>,
+    levels: std::collections::BTreeMap<String, f32>,
     selected: Option<Target>,
 }
 
@@ -112,6 +119,8 @@ pub struct Editor {
     /// with where it comes from (`Target::Fitted`). Not part of the
     /// project.
     pub seen_lights: Vec<(crate::lights::PlacedLight, String)>,
+    /// Whether each of `seen_lights` is from a fitting on a placeable.
+    pub seen_on_placeable: Vec<bool>,
     undo: Vec<State>,
     redo: Vec<State>,
     /// Counts every change of the project (edits, undos, redos), so a view
@@ -127,6 +136,7 @@ impl Editor {
             project,
             selected: None,
             seen_lights: Vec::new(),
+            seen_on_placeable: Vec::new(),
             undo: Vec::new(),
             redo: Vec::new(),
             changes: 0,
@@ -212,6 +222,8 @@ impl Editor {
             kjk: self.project.kjk.clone(),
             templates: self.project.templates.clone(),
             map: self.project.map.clone(),
+            kinds: self.project.kinds.clone(),
+            levels: self.project.levels.clone(),
             selected: self.selected,
         }
     }
@@ -221,6 +233,8 @@ impl Editor {
         self.project.kjk = state.kjk;
         self.project.templates = state.templates;
         self.project.map = state.map;
+        self.project.kinds = state.kinds;
+        self.project.levels = state.levels;
         self.selected = state.selected;
         self.changes += 1;
     }
@@ -250,6 +264,8 @@ impl Editor {
         self.project.kjk = state.kjk;
         self.project.templates = state.templates;
         self.project.map = state.map;
+        self.project.kinds = state.kinds;
+        self.project.levels = state.levels;
         self.selected = state.selected;
     }
 
@@ -567,6 +583,38 @@ impl Editor {
                     .ok_or_else(|| missing(Target::Prop(at)))?;
                 prop.scale = scale;
                 Ok(Some(Target::Prop(at)))
+            }
+            Edit::SetLevel(room, level) => {
+                match level {
+                    Some(level) if level.is_finite() && (0.0..=4.0).contains(&level) => {
+                        self.project.levels.insert(room.to_ascii_lowercase(), level);
+                    }
+                    Some(_) => return Err("a room's level is from 0 to 4".into()),
+                    None => {
+                        self.project.levels.remove(&room.to_ascii_lowercase());
+                    }
+                }
+                Ok(self.selected)
+            }
+            Edit::SetKind(kind) => {
+                let numbers = kind
+                    .colour
+                    .iter()
+                    .chain([&kind.reach, &kind.strength, &kind.cone]);
+                if !numbers.copied().all(f32::is_finite) || kind.reach <= 0.0 {
+                    return Err(
+                        "a kind's numbers must be finite, and it must reach some way".into(),
+                    );
+                }
+                let kinds = &mut self.project.kinds;
+                match kinds
+                    .iter_mut()
+                    .find(|had| had.texture == kind.texture && had.placeable == kind.placeable)
+                {
+                    Some(had) => *had = kind,
+                    None => kinds.push(kind),
+                }
+                Ok(self.selected)
             }
             Edit::AddLight(light) => {
                 light_problem(&light)?;

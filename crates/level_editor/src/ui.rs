@@ -615,6 +615,7 @@ fn panels(
             ["tab", "sounds"] => ui.tab = Tab::Sounds,
             ["tab", "stores"] => ui.tab = Tab::Stores,
             ["tab", "lights"] => ui.tab = Tab::Lights,
+            ["levels", on @ ("on" | "off")] => state.show_levels = *on == "on",
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
             ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
             ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
@@ -654,6 +655,7 @@ fn panels(
     assets(&mut root, state, ui, &cameras);
     viewport(&mut root, state, ui, &cameras, looking);
     crate::file::dialogs(&ctx, state, &mut ui.file);
+    room_levels(&ctx, state);
     // The buttons' commands, run as their keys run them.
     if let Some(command) = state.pending_command.take() {
         let words: Vec<&str> = command.split_whitespace().collect();
@@ -1283,6 +1285,9 @@ fn details(
                     }
                     if let Target::Object(kind, index) = target {
                         behaviour(ui, state, ui_state, (kind, index));
+                    }
+                    if let Target::Fitted(_) = target {
+                        kind_section(ui, state);
                     }
                     ui.separator();
                     ui.horizontal(|ui| {
@@ -2138,7 +2143,9 @@ fn light_rows(
     changed: &mut dyn FnMut(level_edit::PlacedLight),
 ) {
     let mut light = light.clone();
-    let before = light.clone();
+    // Only what a widget says the user changed is an edit: a colour made
+    // again every frame from its hue would round, and be an edit each frame.
+    let mut touched = false;
     // The colour as a hue at full strength, and its strength apart.
     let strength = light.colour.iter().fold(0.0f32, |a, b| a.max(*b));
     let mut hue = light.colour.map(|value| {
@@ -2149,62 +2156,60 @@ fn light_rows(
         }
     });
     let mut power = strength;
+    let mut recoloured = false;
     ui.label("Colour");
     ui.horizontal(|ui| {
-        ui.color_edit_button_rgb(&mut hue);
-        ui.add(
-            egui::DragValue::new(&mut power)
-                .range(0.0..=4.0)
-                .speed(0.01)
-                .prefix("strength "),
-        );
+        recoloured |= ui.color_edit_button_rgb(&mut hue).changed();
+        recoloured |= ui
+            .add(
+                egui::DragValue::new(&mut power)
+                    .range(0.0..=4.0)
+                    .speed(0.01)
+                    .prefix("strength "),
+            )
+            .changed();
     });
     ui.end_row();
-    // Only a colour the user changed is made again from its hue and
-    // strength: made every frame, its rounding would be an edit.
-    let (hue_before, power_before) = (
-        before.colour.map(|value| {
-            if strength > 0.0 {
-                value / strength
-            } else {
-                1.0
-            }
-        }),
-        strength,
-    );
-    if hue != hue_before || power != power_before {
+    if recoloured {
         light.colour = hue.map(|value| value * power);
+        touched = true;
     }
     ui.label("Reach");
-    ui.add(
-        egui::DragValue::new(&mut light.radius)
-            .range(0.1..=50.0)
-            .speed(0.05)
-            .suffix(" m"),
-    );
+    touched |= ui
+        .add(
+            egui::DragValue::new(&mut light.radius)
+                .range(0.1..=50.0)
+                .speed(0.05)
+                .suffix(" m"),
+        )
+        .changed();
     ui.end_row();
     ui.label("Cone");
-    ui.add(egui::Slider::new(&mut light.cone, 0.0..=0.9))
-        .on_hover_text("0 shines all ways, 0.2 the half in front of a panel, 0.7 a spotlight");
+    touched |= ui
+        .add(egui::Slider::new(&mut light.cone, 0.0..=0.9))
+        .on_hover_text("0 shines all ways, 0.2 the half in front of a panel, 0.7 a spotlight")
+        .changed();
     if light.cone > 0.0 && light.aim == [0.0; 3] {
         light.aim = [0.0, 0.0, -1.0];
     }
     ui.end_row();
     ui.label("Strip");
-    ui.add(
-        egui::DragValue::new(&mut light.half)
-            .range(0.0..=20.0)
-            .speed(0.05)
-            .suffix(" m each way"),
-    );
+    touched |= ui
+        .add(
+            egui::DragValue::new(&mut light.half)
+                .range(0.0..=20.0)
+                .speed(0.05)
+                .suffix(" m each way"),
+        )
+        .changed();
     if light.half > 0.0 && light.way == [0.0; 3] {
         light.way = [1.0, 0.0, 0.0];
     }
     ui.end_row();
     ui.label("Reason");
-    ui.text_edit_singleline(&mut light.reason);
+    touched |= ui.text_edit_singleline(&mut light.reason).changed();
     ui.end_row();
-    if light != before {
+    if touched {
         changed(light);
     }
 }
@@ -2266,6 +2271,7 @@ fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
         }
         ui.separator();
         ui.checkbox(&mut state.show_lights, "Show lights   F4");
+        ui.checkbox(&mut state.show_levels, "Room levels");
         if ui
             .button("Walk   F7")
             .on_hover_text("Saves, then walks the level in play's walk mode, lit as the view is")
@@ -2287,4 +2293,156 @@ fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
             .weak(),
         );
     });
+}
+
+/// The selected fitted light's kind of fitting, changed for every lamp of
+/// it in every level of the game: whether it is a lamp, its strength,
+/// reach, colour and cone, and why it was changed.
+fn kind_section(ui: &mut egui::Ui, state: &mut EditorState) {
+    let kind = match state::selected_kind(state) {
+        Ok(kind) => kind,
+        Err(why) => {
+            ui.label(egui::RichText::new(why).small().weak());
+            return;
+        }
+    };
+    ui.separator();
+    ui.label(egui::RichText::new(format!("Kind {} (on {}s)", kind.texture, kind.on())).strong());
+    ui.label(
+        egui::RichText::new("A change lights every lamp of this kind, in every level.")
+            .small()
+            .weak(),
+    );
+    let mut changed = kind.clone();
+    // Only what a widget says the user changed is an edit (`light_rows`).
+    let mut touched = false;
+    egui::Grid::new("kind").num_columns(2).show(ui, |ui| {
+        ui.label("Lamp");
+        touched |= ui.checkbox(&mut changed.lamp, "sheds light").changed();
+        ui.end_row();
+        ui.label("Form");
+        ui.label(changed.form.as_str());
+        ui.end_row();
+        ui.label("Strength");
+        touched |= ui
+            .add_enabled(
+                changed.lamp,
+                egui::DragValue::new(&mut changed.strength)
+                    .range(0.0..=4.0)
+                    .speed(0.01),
+            )
+            .changed();
+        ui.end_row();
+        ui.label("Reach");
+        touched |= ui
+            .add_enabled(
+                changed.lamp,
+                egui::DragValue::new(&mut changed.reach)
+                    .range(0.1..=20.0)
+                    .speed(0.05)
+                    .suffix(" m"),
+            )
+            .changed();
+        ui.end_row();
+        ui.label("Colour");
+        ui.add_enabled_ui(changed.lamp, |ui| {
+            touched |= ui.color_edit_button_rgb(&mut changed.colour).changed();
+        });
+        ui.end_row();
+        ui.label("Cone");
+        touched |= ui
+            .add_enabled(
+                changed.lamp,
+                egui::Slider::new(&mut changed.cone, 0.0..=0.9),
+            )
+            .changed();
+        ui.end_row();
+        ui.label("Reason");
+        touched |= ui.text_edit_singleline(&mut changed.reason).changed();
+        ui.end_row();
+    });
+    if touched {
+        state::set_kind(state, changed);
+    }
+}
+
+/// The Room levels window: each room's level as its stored lightmaps show
+/// it, and the level the bake aims it at, changed here and saved to the
+/// module's levels file.
+fn room_levels(ctx: &egui::Context, state: &mut EditorState) {
+    if !state.show_levels {
+        return;
+    }
+    let mut open = true;
+    let mut edits: Vec<(String, Option<f32>)> = Vec::new();
+    egui::Window::new("Room levels")
+        .open(&mut open)
+        .default_width(420.0)
+        .show(ctx, |ui| {
+            let entry = &state.bake_entry;
+            let source = match (&entry.levels, entry.share) {
+                (Some(file), _) => format!("aims at the levels of {file}"),
+                (None, Some(share)) => format!(
+                    "aims at {share} times each room's level{}",
+                    entry.ceiling.map_or_else(String::new, |most| format!(", {most} at most"))
+                ),
+                (None, None) => "has no bake setting".into(),
+            };
+            ui.label(format!(
+                "The bake of {} {source}, of the {} level{}{}.",
+                state.editor.project.module,
+                entry.of,
+                if entry.even { "" } else { ", with no even light" },
+                if entry.sun { ", under its sun" } else { "" },
+            ));
+            ui.label(
+                egui::RichText::new(
+                    "Stored and lit are each room's level from its stored lightmaps, about as the bake measures them. A target set here makes the module aim at its file's levels.",
+                )
+                .small()
+                .weak(),
+            );
+            let Some(measures) = state.room_measures.clone() else {
+                ui.label("Measuring the rooms (not in the Baked view)...");
+                return;
+            };
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::Grid::new("levels").num_columns(4).striped(true).show(ui, |ui| {
+                    for title in ["Room", "Stored", "Lit", "Target"] {
+                        ui.label(egui::RichText::new(title).strong());
+                    }
+                    ui.end_row();
+                    for measure in measures {
+                        ui.label(&measure.room);
+                        ui.label(format!("{:.3}", measure.original));
+                        ui.label(format!("{:.3}", measure.lit));
+                        match state.editor.project.levels.get(&measure.room).copied() {
+                            Some(mut level) => {
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .add(egui::DragValue::new(&mut level).range(0.0..=4.0).speed(0.002).max_decimals(4))
+                                        .changed()
+                                    {
+                                        edits.push((measure.room.clone(), Some(level)));
+                                    }
+                                    if ui.small_button("x").on_hover_text("No target").clicked() {
+                                        edits.push((measure.room.clone(), None));
+                                    }
+                                });
+                            }
+                            None => {
+                                if ui.small_button("Set").on_hover_text("Aims at its lit level as it is").clicked() {
+                                    edits.push((measure.room.clone(), Some(measure.lit)));
+                                }
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+            });
+        });
+    state.show_levels = open;
+    for (room, level) in edits {
+        state.apply(Edit::SetLevel(room, level));
+    }
 }

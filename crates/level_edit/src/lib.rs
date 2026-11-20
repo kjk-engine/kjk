@@ -19,6 +19,8 @@ pub mod active;
 pub mod area;
 pub mod editor;
 pub mod git;
+pub mod kinds;
+pub mod levels;
 pub mod lights;
 pub mod map;
 pub mod nav;

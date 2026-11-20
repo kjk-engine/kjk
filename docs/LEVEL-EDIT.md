@@ -132,6 +132,19 @@ hand.
   aim about Z), copied and deleted, with undo. Its details set its colour
   and strength, reach, cone, strip and the reason it is there.
 
+- **A kind of fitting** is changed from one of its lights. A fitted
+  light's details show its kind (its glowing texture, on rooms or on
+  placeables): whether it is a lamp, its form, strength, reach, colour
+  and cone, and a reason. A change lights every lamp of the kind at once,
+  in every level of the game, with undo. A room's hidden lamp has no kind.
+- **Room levels** (in the Lighting menu) is a window of the area's rooms
+  with each room's level from its stored lightmaps, `Stored` (their mean)
+  and `Lit` (the mean with each texel counted by its own level), about as
+  `kjk detail-bake` measures them, and the level the bake aims the room at
+  (`Target`). A target is set from the room's lit level, changed, or
+  taken away, with undo. The window says how the module's bake is set in
+  `bake.toml`.
+
 An installed level's lights placed by hand are the `[[placed]]` tables of
 the light data's `fittings.toml` whose `area` is its module. The light
 data is the folder `KJK_LIGHT_DATA` names, else the `data/lights` of the
@@ -139,6 +152,17 @@ kjk checkout the editor was built in; the Lighting menu names it. Saving
 replaces that area's tables and leaves every other line of the file as it
 was, so the change is a diff the lighting's maintainer reviews. A new
 map's lights placed by hand are `[[light]]` tables of its `kjk-area.toml`.
+
+A changed kind is saved to the light data twice, so the two files agree:
+its `[[kind]]` entry of `k1.toml` or `tsl.toml`, which the game reads, and
+a `[[fitting]]` of `fittings.toml` with the same numbers and the reason,
+which `tools/light-kinds/kinds.py` reads when it writes those entries
+again. An existing `[[fitting]]` for the kind is changed in place, its
+other fields kept. The rooms' targets are saved to the module's levels
+file (`levels/<module>.txt`), each line kept but the changed rooms'. A
+module whose bake aimed at a share of each room's level is set to aim at
+the file (`bake.toml`'s `levels`); a room the file has no line for keeps
+the share's level in the bake.
 
 **Walk** (F7, in the Lighting menu) saves, then starts play's walk mode
 (`kjk play --walk`) on the level, lit as the view is: with
@@ -150,7 +174,8 @@ while a program runs (`fitted_lights::set_mode`, and
 `KJK_FITTED_LIGHTS=lamps` for Lamps only), the bake shown can too
 (`viewer::set_bake_folder`), the rule data is read from `KJK_LIGHT_DATA`
 when it names a folder, and a program can set an area's lights placed by
-hand (`fitted_lights::set_placed`). Lights placed by hand are matched to
+hand (`fitted_lights::set_placed`) and a game's kinds
+(`fitted_lights::set_kinds`). Lights placed by hand are matched to
 the module play's scene is named for (`play pmbal in danm13`).
 
 ## The navigation mesh
@@ -460,6 +485,9 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit light colour R G B`, `radius R`, `cone C`, `strip HALF`, `reason TEXT` | changes the selected light placed by hand |
 | `edit light copy` | copies the selected fitted light as a light placed by hand |
 | `edit walk` | saves, then starts play's walk mode lit as the view is |
+| `edit kind strength S`, `reach R`, `colour R G B`, `cone C`, `lamp on`, `lamp off`, `reason TEXT` | changes the kind of the selected fitted light |
+| `edit level ROOM LEVEL`, `edit level ROOM none` | sets or takes away the level a room of the bake aims at |
+| `edit ui levels on`, `edit ui levels off` | opens or closes the Room levels window |
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit audit` | saves, then runs `kjk collision audit` on the project |
