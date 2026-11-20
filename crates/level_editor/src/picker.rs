@@ -26,10 +26,11 @@ struct Module {
 }
 
 /// A project found in the projects' folder.
-struct Found {
-    name: String,
-    game: String,
-    module: String,
+#[derive(Debug, Clone)]
+pub(crate) struct Found {
+    pub(crate) name: String,
+    pub(crate) game: String,
+    pub(crate) module: String,
     /// When its folder last changed, for the newest first.
     changed: Option<std::time::SystemTime>,
 }
@@ -158,7 +159,7 @@ fn read_names(
 }
 
 /// The projects in the projects' folder, the newest first.
-fn projects() -> Vec<Found> {
+pub(crate) fn projects() -> Vec<Found> {
     let Some(folder) = level_edit::projects_folder(|var| std::env::var(var).ok()) else {
         return Vec::new();
     };

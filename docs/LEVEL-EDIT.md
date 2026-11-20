@@ -276,10 +276,21 @@ reads a script once and keeps it while the editor runs.
 
 ## The editor's window
 
-- **The toolbar**, along the top, picks the tool (Select, Move, Rotate,
-  Scale), turns snapping on and sets its steps, and has Undo, Redo, Save,
-  Play and Audit, and the Collision switch. It also names the project and
-  says when it has changes that are not saved.
+- **The toolbar**, along the top, has the File menu, picks the tool
+  (Select, Move, Rotate, Scale), turns snapping on and sets its steps, and
+  has Undo, Redo, Save, Play and Audit, and the Collision and Nav switches.
+  It also names the project and says when it has changes that are not
+  saved.
+- **The File menu** opens another level without starting the editor by
+  hand. "Open level..." shows the picker, "Open recent" lists the other
+  projects, newest first, and "New map..." asks a name and makes a new map
+  whose light, fog and sound are this level's (a new map's own base, for a
+  new map). It also saves and quits. A project is opened once in a
+  process, so the editor starts again on what was picked and this window
+  closes.
+- **Leaving with changes not saved** asks first: Save, Don't save or
+  Cancel. Opening another level, Quit and closing the window all ask.
+  Nothing is saved without asking; Save, Ctrl+S, Play and Audit save.
 - **The outliner**, on the left, lists every object the area places,
   grouped by kind, then the props and the collision boxes. A search box
   filters it by tag and template. A click selects an object, and a
@@ -400,6 +411,10 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
 | `edit ui view SCRIPT`, `edit ui view` | opens the script viewer on the script, or closes it |
 | `edit ui view tab source`, `summary`, `listing` | picks the viewer's tab |
+| `edit ui file open [PROJECT]` | opens the picker, or the project, in a new editor (a headless run names it instead) |
+| `edit ui file new NAME` | makes the new map NAME from this level in a new editor |
+| `edit ui quit` | closes the editor |
+| `edit ui confirm save`, `discard`, `cancel` | answers the question asked before leaving with changes not saved |
 | `edit add room MODEL [X Y Z]` | adds the install's room to a new map, its floor's middle at the point or where the view's centre meets the level |
 | `edit select room N`, `edit select entry` | selects a new map's room (from 0) or its entry |
 | `edit seam` | moves the selected room to meet the nearest seam |

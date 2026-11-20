@@ -1465,28 +1465,7 @@ pub(crate) fn command(
             state.show_collision = *on == "on";
             state.quiet = SETTLE_FRAMES;
         }
-        ["save"] => {
-            let made_by = format!("kjk {}", kjk_game::GIT_SHA);
-            let warnings: Vec<String> = state
-                .editor
-                .project
-                .problems()
-                .into_iter()
-                .filter(|problem| !problem.blocks)
-                .map(|problem| problem.what)
-                .collect();
-            for warning in warnings {
-                state.say(warning);
-            }
-            let resolver = state.setup.resolver.clone();
-            let read = |name: &str, restype: ResType| resolver.read(name, restype);
-            let written = state.editor.save_with(&made_by, &read)?;
-            state.say(format!(
-                "saved {} files to {}",
-                written.len(),
-                state.editor.project.folder.display()
-            ));
-        }
+        ["save"] => save(state)?,
         ["play"] => {
             command(state, &["save"], cameras)?;
             let project = state.editor.project.clone();
@@ -1568,6 +1547,32 @@ pub(crate) fn command(
         }
         _ => return Err("not an edit command (docs/LEVEL-EDIT.md lists them)".into()),
     }
+    Ok(())
+}
+
+/// Saves the project (`Editor::save_with`), saying its warnings and what
+/// was written.
+pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
+    let made_by = format!("kjk {}", kjk_game::GIT_SHA);
+    let warnings: Vec<String> = state
+        .editor
+        .project
+        .problems()
+        .into_iter()
+        .filter(|problem| !problem.blocks)
+        .map(|problem| problem.what)
+        .collect();
+    for warning in warnings {
+        state.say(warning);
+    }
+    let resolver = state.setup.resolver.clone();
+    let read = |name: &str, restype: ResType| resolver.read(name, restype);
+    let written = state.editor.save_with(&made_by, &read)?;
+    state.say(format!(
+        "saved {} files to {}",
+        written.len(),
+        state.editor.project.folder.display()
+    ));
     Ok(())
 }
 

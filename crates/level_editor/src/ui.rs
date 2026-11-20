@@ -89,6 +89,8 @@ enum Asset {
 #[derive(Resource)]
 pub struct UiState {
     pub tool: Tool,
+    /// The File menu's and the prompt's state (`file`).
+    pub(crate) file: crate::file::FileState,
     snapping: bool,
     snap_distance: f32,
     snap_angle: f32,
@@ -135,6 +137,7 @@ impl Default for UiState {
     fn default() -> UiState {
         UiState {
             tool: Tool::Move,
+            file: crate::file::FileState::default(),
             snapping: false,
             snap_distance: STEP_M,
             snap_angle: TURN_DEG,
@@ -162,8 +165,9 @@ impl Default for UiState {
 }
 
 /// Adds the editor to the game's app: its state, egui, and the systems.
-pub fn install(app: &mut App, state: EditorState) {
+pub fn install(app: &mut App, state: EditorState, headless: bool) {
     app.insert_resource(state)
+        .insert_resource(crate::file::Headless(headless))
         // Enhanced lighting: the scene's camera is HDR, whose texture egui
         // draws on (`attach_egui`).
         .insert_resource(kjk_game::rolloff::LightingMode::Enhanced)
@@ -191,7 +195,9 @@ pub fn install(app: &mut App, state: EditorState) {
             )
                 .chain(),
         )
-        .add_systems(EguiPrimaryContextPass, panels);
+        .add_systems(EguiPrimaryContextPass, panels)
+        .add_systems(Update, crate::file::close_requests)
+        .add_systems(Last, crate::file::leave);
 }
 
 /// egui draws on the scene's camera. The scene's cameras keep stored,
@@ -592,10 +598,14 @@ fn panels(
                     _ => ViewTab::Source,
                 }
             }
-            _ => state.say(format!(
-                "edit ui {}: takes tool, tab, search, find or snap",
-                words.join(" ")
-            )),
+            words => {
+                if !crate::file::command(state, &mut ui.file, words) {
+                    state.say(format!(
+                        "edit ui {}: takes tool, tab, search, find, snap, view, file, quit or confirm",
+                        words.join(" ")
+                    ));
+                }
+            }
         }
     }
     let looking = buttons
@@ -614,6 +624,7 @@ fn panels(
     details(&mut root, state, ui, &mut camera_request, &cameras);
     assets(&mut root, state, ui, &cameras);
     viewport(&mut root, state, ui, &cameras, looking);
+    crate::file::dialogs(&ctx, state, &mut ui.file);
     // The buttons' commands, run as their keys run them.
     if let Some(command) = state.pending_command.take() {
         state::run(state, &[command.as_str()], &cameras);
@@ -737,6 +748,8 @@ fn frame_selection(
 fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
     egui::Panel::top("toolbar").show(root, |ui| {
         ui.horizontal(|ui| {
+            crate::file::menu(ui, state, ui_state);
+            ui.separator();
             for (tool, label, key) in [
                 (Tool::Select, "Select", "Q"),
                 (Tool::Move, "Move", "W"),

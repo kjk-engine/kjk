@@ -892,6 +892,7 @@ fn play(script: &str, headless: bool, size: (u32, u32), scene: runtime::Scene) -
         games: Box::new(|| games_manifest(&discover())),
         scene,
         plugins: None,
+        asks_before_closing: false,
     };
     let exit = runtime::run(options);
     if setup::finished() && !headless {

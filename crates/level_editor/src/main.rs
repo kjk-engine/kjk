@@ -5,6 +5,7 @@
 //! NAME` plays. It never writes into a game install. Started with no
 //! module, it lists the projects and the levels to pick from (`picker`).
 
+mod file;
 mod picker;
 mod script_view;
 mod state;
@@ -93,6 +94,7 @@ fn main() -> ExitCode {
                 games: Box::new(|| serde_json::Value::Null),
                 scene: runtime::Scene::Loaded(Box::default()),
                 plugins: Some(Box::new(move |app| picker::install(app, headless))),
+                asks_before_closing: false,
             });
         }
         _ => {
@@ -118,14 +120,16 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let headless = cli.headless;
     run(runtime::RunOptions {
         commands,
         script,
-        headless: cli.headless,
+        headless,
         size,
         games: Box::new(|| serde_json::Value::Null),
         scene: runtime::Scene::Loaded(Box::new(scene)),
-        plugins: Some(Box::new(move |app| ui::install(app, state))),
+        plugins: Some(Box::new(move |app| ui::install(app, state, headless))),
+        asks_before_closing: true,
     })
 }
 
