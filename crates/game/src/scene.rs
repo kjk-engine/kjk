@@ -1499,6 +1499,9 @@ impl<'t> Spawner<'t> {
             if let Some(push) = crate::loose_parts::push(&placed.ir, index) {
                 mesh.insert_attribute(crate::loose_skin::PUSH, push);
             }
+            if let Some(paint) = crate::loose_parts::paint(&placed.ir, index) {
+                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, paint);
+            }
         }
         // A skinned danglymesh is left at rest, since the dangly shaders do not
         // skin. The model reader never makes one (`fmt_odyssey::mdl::NODE_TYPES`).

@@ -100,6 +100,16 @@ pub fn init_legs(app: &mut App) {
         .insert(&LEGS, list);
 }
 
+/// Whether the bodies the robe solver moves are drawn in flat colours, a
+/// debugging aid: `KJK_LOOSE_PAINT=1`. The robe or cape is magenta, each
+/// boot green, and everything else black, with no light, so that a
+/// recording can count the boot's pixels that show through the robe
+/// (`loose_parts::paint`).
+pub(crate) fn painted() -> bool {
+    static PAINTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PAINTED.get_or_init(|| std::env::var("KJK_LOOSE_PAINT").as_deref() == Ok("1"))
+}
+
 /// How far out of a leg capsule's radius a pushed vertex is put (metres).
 /// The capsules are the size of the limbs, and the cloth lies on them.
 pub(crate) const CLOTH_OFF_LEG: f32 = 0.01;

@@ -220,6 +220,9 @@ pub(crate) struct Model {
     /// For each mesh of the model, the `loose_skin::PUSH` attribute of a
     /// mesh that the solver moves, or `None`.
     pushes: Vec<Option<Vec<[f32; 2]>>>,
+    /// For each skinned mesh of the model, its colours under
+    /// `KJK_LOOSE_PAINT` (`paint`).
+    paints: Vec<Option<Vec<[f32; 4]>>>,
 }
 
 impl Model {
@@ -258,6 +261,7 @@ impl Model {
             .flat_map(|body| body.legs())
             .take(crate::loose_skin::CAPSULES)
             .collect();
+        let feet_of = body.clone();
         let settings = Settings {
             trace: traced().is_some(),
             ..Settings::default()
@@ -271,17 +275,80 @@ impl Model {
         let moved: Vec<usize> = simulated(&found).flat_map(bones_of).collect();
         let bones = moved.iter().map(|&node| (node, rest[node].2)).collect();
         let pushes = pushes(ir, &moved, &legs);
+        let feet: Vec<usize> = (feet_of.iter())
+            .flat_map(|body| body.legs())
+            .enumerate()
+            .filter(|(index, _)| index % 3 == 2)
+            .map(|(_, (node, ..))| node)
+            .collect();
+        let paints = if crate::loose_skin::painted() {
+            paints(ir, &moved, &feet)
+        } else {
+            Vec::new()
+        };
         Some(Model {
             solver,
             bones,
             legs,
             pushes,
+            paints,
         })
     }
 
     pub(crate) fn bones(&self) -> &[(usize, Quat)] {
         &self.bones
     }
+}
+
+/// The colours of each skinned mesh of `ir` under `KJK_LOOSE_PAINT`: a
+/// vertex that the bones `moved` carry by half or more is magenta, one that
+/// the feet `feet` carry by half or more is green, and any other is black.
+fn paints(ir: &ModelIr, moved: &[usize], feet: &[usize]) -> Vec<Option<Vec<[f32; 4]>>> {
+    ir.meshes
+        .iter()
+        .map(|mesh| {
+            let skin = mesh.skin.as_ref()?;
+            let share = |vertex: usize, nodes: &[usize]| {
+                let (Some(slots), Some(weights)) = (
+                    skin.vertex_joints.get(vertex),
+                    skin.vertex_weights.get(vertex),
+                ) else {
+                    return 0.0;
+                };
+                (slots.iter().zip(weights))
+                    .filter(|&(&slot, _)| {
+                        (skin.joints.get(usize::from(slot)))
+                            .is_some_and(|node| nodes.contains(node))
+                    })
+                    .map(|(_, &weight)| weight)
+                    .sum::<f32>()
+            };
+            Some(
+                (0..mesh.positions.len())
+                    .map(|vertex| {
+                        if share(vertex, moved) >= 0.5 {
+                            [1.0, 0.0, 1.0, 1.0]
+                        } else if share(vertex, feet) >= 0.5 {
+                            [0.0, 1.0, 0.0, 1.0]
+                        } else {
+                            [0.0, 0.0, 0.0, 1.0]
+                        }
+                    })
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+/// The colours of mesh `mesh` of `ir` under `KJK_LOOSE_PAINT`, when the
+/// solver moves the model (`paints`).
+pub(crate) fn paint(ir: &ModelIr, mesh: usize) -> Option<Vec<[f32; 4]>> {
+    if !running() || !crate::loose_skin::painted() {
+        return None;
+    }
+    let models = MODELS.lock().unwrap_or_else(|e| e.into_inner());
+    let model = models.get(&ir.name.to_ascii_lowercase())?.as_ref()?;
+    model.paints.get(mesh)?.clone()
 }
 
 /// How much nearer to a capsule's axis than at rest a vertex that rests

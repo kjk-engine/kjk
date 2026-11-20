@@ -1573,6 +1573,15 @@ fn add_fight_light(lighting: vec3<f32>, added: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+#ifdef LOOSE_PAINT
+    // `KJK_LOOSE_PAINT`: a body the robe solver moves in its flat colours,
+    // everything else black (`loose_skin::painted`).
+#ifdef VERTEX_COLORS
+    return vec4<f32>(in.color.rgb, 1.0);
+#else
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+#endif
+#endif
 #ifdef RAY_QUERIES
     ray_pixel = floor(in.position.xy);
 #endif

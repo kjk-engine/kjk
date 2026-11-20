@@ -1779,6 +1779,9 @@ impl Material for OdysseyMaterial {
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.blend;
             }
+            if crate::loose_skin::painted() {
+                fragment.shader_defs.push("LOOSE_PAINT".into());
+            }
             // A surface of the opaque pass is in the prepass the occlusion
             // is worked out from, so it takes the occlusion. What is truly
             // see-through is not, and takes none (`ambient_occlusion`).
