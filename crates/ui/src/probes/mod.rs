@@ -110,6 +110,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::skill_bonuses());
     checks.extend(menus::equip_dresses_members());
     checks.extend(menus::equip_swaps_sets());
+    checks.extend(menus::equip_droid_slots());
     checks.extend(menus::equip_headgear_eye());
     checks.extend(menus::character_stance());
     checks.extend(menus::equip_lists_as_kotor());

@@ -178,6 +178,9 @@ pub struct CharacterView {
     /// The slots its body has locked (`sim::inventory::slots::locked`'s
     /// mask: TSL's one-handed Kreia's off hands).
     pub locked: u32,
+    /// It is a droid (`racialtypes.2da` row 5). The equip page then shows
+    /// the droid's icons and names for its slots.
+    pub droid: bool,
     /// The party's credits.
     pub credits: i32,
 }
