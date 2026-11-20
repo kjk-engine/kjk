@@ -480,7 +480,7 @@ pub(super) fn objects(
         // or a stray shot at Malak that crosses a stasis tank does not kill
         // its Jedi.
         let aimed = attacker.is_some_and(|(id, avatar, _, _, player, _)| {
-            super::played(avatar.map(|avatar| avatar.0), id.0, lent) && aims_at(&player.0, &facts)
+            super::played(id.0, avatar, lent) && aims_at(&player.0, &facts)
         });
         let attacked =
             aimed && Regard::of(&level.0, &scripts.state).attacks(target, &facts, &object.state);

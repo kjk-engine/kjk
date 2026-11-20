@@ -1720,18 +1720,28 @@ impl Snapshot {
             .or_else(|| self.own(seat))
     }
 
-    /// The seat whose commands act through `entity`: `body` read the other
-    /// way, as the sim's `world::keyed_by` reads its `acting_body`. None for
-    /// a creature its mind plays, and for the leader's own character while
-    /// a companion leads or it is benched.
+    /// The seat whose commands act through `entity`, if any. It is worked
+    /// out by the sim's own rule (`world::keyed_by`) from the seat the body
+    /// carries (`carried`) and the companion leading the party (`leading`).
+    /// A creature its mind plays has none. The leader's own character has
+    /// none while a companion leads or while it is benched.
     pub fn seat_of(&self, entity: &EntityState) -> Option<Seat> {
-        (0..self.seats())
-            .map(Seat)
-            .find(|seat| self.body(*seat).is_some_and(|body| body.id == entity.id))
+        crate::world::keyed_by(self.carried(entity), entity.id, self.leading)
     }
 
-    /// Whether a seat plays `entity` (`seat_of`), as the sim's
-    /// `world::played` has it.
+    /// The seat `entity` carries, as the sim's `Avatar` component has it. A
+    /// companion carries the seat that drives it, a guest's or the first
+    /// seat's after a switch. A seat's own character carries its seat
+    /// unless that seat drives another body, which leaves it benched.
+    fn carried(&self, entity: &EntityState) -> Option<Seat> {
+        let driver = entity.fighter.and_then(|fighter| fighter.mind.driver);
+        driver.or(match entity.kind {
+            Kind::Avatar(seat) if self.driven(seat).is_none() => Some(seat),
+            _ => None,
+        })
+    }
+
+    /// Whether a seat plays `entity` (`seat_of`).
     pub fn played(&self, entity: &EntityState) -> bool {
         self.seat_of(entity).is_some()
     }

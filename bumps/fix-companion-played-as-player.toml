@@ -1,2 +1,3 @@
-# The sim's hash moves on purpose: why.
-sim = "a companion leading the party is played as its player everywhere the sim asks: its bolts break what a player's do, its blade turns bolts as a player's, its blows on a placeable count as aimed, it slides along the bodies it touches, its notices go to its seat, and GetFactionLeader names it; the player's own character standing meanwhile is played by its mind"
+# A companion a player controls now acts as the player in the sim, and the
+# player's own character standing aside meanwhile acts as a creature.
+sim = "A companion leading the party is played by its player wherever the sim asks. Its bolts break what a player's bolts break. Its lightsaber turns bolts as a player's does. Its blows on a placeable it aims at count as attacks. It slides along the bodies it touches. Its saving throw notices and its Sneak Attack line go to its player. GetFactionLeader names it. The player's own character, standing while a companion leads, is played by its mind: it can flinch, it turns bolts as a creature does, and its blows on a placeable no longer count as aimed."

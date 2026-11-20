@@ -80,7 +80,7 @@ pub(super) fn fly(
     let lent = super::lent(&scripts.state.party);
     let played: Vec<bool> = actors
         .iter()
-        .map(|(id, avatar, ..)| super::played(avatar.map(|avatar| avatar.0), id.0, lent))
+        .map(|(id, avatar, ..)| super::played(id.0, *avatar, lent))
         .collect();
     // The living's bodies, what a blast reaches.
     let chests: Vec<Reached> = actors

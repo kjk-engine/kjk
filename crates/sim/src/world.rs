@@ -1462,16 +1462,19 @@ pub fn lent(party: &crate::script::party::Party) -> Option<SimId> {
         .map(SimId)
 }
 
-/// Whether a seat plays the body `id`: whether a seat's commands act
-/// through it (`keyed_by`). Those are a seat's own character, a companion
-/// a seat drives or is switched to (each carrying the seat as `avatar`),
-/// and the companion leading the party (`lent`). The leader's own
-/// character is not played while a companion leads: its mind plays it.
-/// A played body acts as its player: it shoots along its crosshair line,
-/// its bolts break what a player's do, and its blows on a placeable count
-/// as aimed. The views read the same from a snapshot (`Snapshot::played`).
-pub(crate) fn played(avatar: Option<Seat>, id: SimId, lent: Option<SimId>) -> bool {
-    keyed_by(avatar, id, lent).is_some()
+/// Whether a seat plays the body `id`, which carries `avatar`. A seat
+/// plays it when a seat's commands act through it (`keyed_by`). Those
+/// bodies are a seat's own character, a companion a seat drives or is
+/// switched to, and the companion leading the party (`lent`).
+///
+/// While a companion leads, the leader's own character is not played. Its
+/// mind plays it. A played body acts as its player does. It shoots along
+/// its crosshair line, its bolts break what a player's bolts break, and
+/// its blows on a placeable count as aimed. Every other body is a creature
+/// its mind plays. The views read the same from a snapshot
+/// (`Snapshot::played`).
+fn played(id: SimId, avatar: Option<&Avatar>, lent: Option<SimId>) -> bool {
+    keyed_by(avatar.map(|avatar| avatar.0), id, lent).is_some()
 }
 
 /// The body seat `seat`'s commands act through: its own (`own`: its

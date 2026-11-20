@@ -762,7 +762,7 @@ pub(super) fn hurt(
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
         // A body a seat plays (`world::played`) never flinches and is never
         // caught unaware.
-        let played = super::played(avatar.map(|avatar| avatar.0), hit.target, lent);
+        let played = super::played(hit.target, *avatar, lent);
         // The dead take nothing more; the downed nothing but the story's
         // death.
         let death = matches!(hit.source, Source::Death);

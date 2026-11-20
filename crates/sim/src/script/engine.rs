@@ -2600,9 +2600,7 @@ impl Engine<'_> {
                         })
                         .1
                 } else {
-                    // The member the first seat controls (`controlled_pcs`:
-                    // the companion leading, while one does), else the
-                    // first a seat drives.
+                    // While a companion leads, `controlled_pcs` puts it first.
                     let controlled = self.controlled_pcs().first().copied();
                     let members: Vec<_> = members
                         .map(|thing| {
