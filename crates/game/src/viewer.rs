@@ -818,14 +818,35 @@ pub(crate) fn stored_lightmap(name: &str) -> Option<TextureIr> {
         .cloned()
 }
 
+/// The folder of baked lightmaps a program set (`set_bake_folder`); unset,
+/// the one `KJK_DETAIL_BAKE` names.
+static BAKE_FOLDER: std::sync::RwLock<Option<Option<std::path::PathBuf>>> =
+    std::sync::RwLock::new(None);
+
+/// Draws the rooms' lightmaps from `folder`'s bake (`detail_baked`) in the
+/// scenes drawn from now on, or (`None`) as stored. The level editor's
+/// lighting view sets it.
+pub fn set_bake_folder(folder: Option<std::path::PathBuf>) {
+    *BAKE_FOLDER
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(folder);
+}
+
+fn bake_folder() -> Option<std::path::PathBuf> {
+    if let Some(set) = BAKE_FOLDER
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
+        return set.clone();
+    }
+    std::env::var_os("KJK_DETAIL_BAKE")
+        .filter(|folder| !folder.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
-    static FOLDER: std::sync::LazyLock<Option<std::path::PathBuf>> =
-        std::sync::LazyLock::new(|| {
-            std::env::var_os("KJK_DETAIL_BAKE")
-                .filter(|folder| !folder.is_empty())
-                .map(std::path::PathBuf::from)
-        });
-    let Some(folder) = FOLDER.as_ref() else {
+    let Some(folder) = bake_folder() else {
         return texture;
     };
     let path = folder.join(format!("{}.png", name.to_ascii_lowercase()));

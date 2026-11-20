@@ -33,23 +33,149 @@ use fmt_odyssey::dxt;
 use crate::scene::{placement, to_mat4};
 use crate::viewer::LoadedScene;
 
-/// Whether the trial is on (`KJK_FITTED_LIGHTS` set to anything but `off`).
-pub fn wanted() -> bool {
-    static WANTED: OnceLock<bool> = OnceLock::new();
-    *WANTED.get_or_init(|| std::env::var("KJK_FITTED_LIGHTS").is_ok_and(|value| value != "off"))
+/// How the rooms are lit. A run starts with the mode `KJK_FITTED_LIGHTS`
+/// names: unset or `off` is `Off`, `baked` is `Baked`, `lamps` is
+/// `LampsOnly`, and anything else is `Live`. A program may change it while
+/// it runs (`set_mode`, the level editor's lighting view); the next scene
+/// drawn takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// The game's stored lightmaps alone.
+    Off,
+    /// The trial: the rooms keep half of their stored light, and the
+    /// fitted lights give the rest.
+    Live,
+    /// The rooms keep none of their stored light: only the fitted lights
+    /// show, to see what each one does.
+    LampsOnly,
+    /// The rooms show a bake of the fitted lights in place of their live
+    /// light. The baked lightmaps are the ones `KJK_DETAIL_BAKE` names (or
+    /// `viewer::set_bake_folder`), made by `kjk detail-bake --lights`. The
+    /// rooms' lightmapped surfaces then show the baked lightmap whole and
+    /// take no fitted light. Doors, placeables and characters are lit as
+    /// under `Live`.
+    Baked,
 }
 
-/// Whether the rooms show a bake of the fitted lights in place of their
-/// live light (`KJK_FITTED_LIGHTS=baked`). The baked lightmaps are the ones
-/// `KJK_DETAIL_BAKE` names, made by `kjk detail-bake --lights`. The rooms'
-/// lightmapped surfaces then show the baked lightmap whole and take no
-/// fitted light. Doors, placeables and characters are lit as under `on`.
+static MODE: std::sync::RwLock<Option<Mode>> = std::sync::RwLock::new(None);
+
+/// The mode the rooms are lit in now.
+pub fn mode() -> Mode {
+    if let Some(mode) = *MODE
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        return mode;
+    }
+    let mode = match std::env::var("KJK_FITTED_LIGHTS").as_deref() {
+        Err(_) | Ok("off") => Mode::Off,
+        Ok("baked") => Mode::Baked,
+        Ok("lamps") => Mode::LampsOnly,
+        Ok(_) => Mode::Live,
+    };
+    set_mode(mode);
+    mode
+}
+
+/// Lights the rooms in `mode` from the next scene drawn on.
+pub fn set_mode(mode: Mode) {
+    *MODE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
+}
+
+/// Whether the fitted lights shine (any mode but `Off`).
+pub fn wanted() -> bool {
+    mode() != Mode::Off
+}
+
+/// Whether the rooms show a bake of the fitted lights (`Mode::Baked`).
 pub fn baked() -> bool {
-    static BAKED: OnceLock<bool> = OnceLock::new();
-    *BAKED.get_or_init(|| std::env::var("KJK_FITTED_LIGHTS").is_ok_and(|value| value == "baked"))
+    mode() == Mode::Baked
+}
+
+/// The value of `shadows.debug` the mode asks of the shader
+/// (`odyssey.wgsl`): 7 for `Live`, 8 for `Baked`, 9 for `LampsOnly`, 0 for
+/// `Off`.
+pub fn shader_trial() -> u32 {
+    match mode() {
+        Mode::Off => 0,
+        Mode::Live => 7,
+        Mode::Baked => 8,
+        Mode::LampsOnly => 9,
+    }
+}
+
+/// The text of a rule file of `data/lights/` (`name`, such as
+/// `fittings.toml`): the one in the folder `KJK_LIGHT_DATA` names, where it
+/// names one that holds it, else the copy built into the program. The
+/// level editor saves its lights to such a folder, and play started from it
+/// reads them there.
+fn data_text(name: &str, built_in: &'static str) -> std::borrow::Cow<'static, str> {
+    std::env::var_os("KJK_LIGHT_DATA")
+        .filter(|folder| !folder.is_empty())
+        .and_then(|folder| std::fs::read_to_string(std::path::Path::new(&folder).join(name)).ok())
+        .map_or(
+            std::borrow::Cow::Borrowed(built_in),
+            std::borrow::Cow::Owned,
+        )
+}
+
+/// The lights placed by hand that a program sets for an area in place of
+/// `fittings.toml`'s (`set_placed`), by the area's name in lower case.
+static PLACED: std::sync::RwLock<BTreeMap<String, Vec<Light>>> =
+    std::sync::RwLock::new(BTreeMap::new());
+
+/// Gives the area `area` these lights placed by hand in place of the ones
+/// `fittings.toml` holds for it, or (`None`) the file's again. The level
+/// editor sets the lights it edits, so its view shows them before they are
+/// saved.
+pub fn set_placed(area: &str, lights: Option<Vec<Light>>) {
+    let mut placed = PLACED
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match lights {
+        Some(lights) => {
+            placed.insert(area.to_ascii_lowercase(), lights);
+        }
+        None => {
+            placed.remove(&area.to_ascii_lowercase());
+        }
+    }
+}
+
+impl Light {
+    /// A light placed by hand in the level editor (`level_edit::lights`).
+    pub fn of_placed(light: &level_edit::PlacedLight) -> Light {
+        Light {
+            at: Vec3::from_array(light.at),
+            colour: Vec3::from_array(light.colour),
+            radius: light.radius,
+            way: Vec3::from_array(light.way),
+            half: light.half,
+            aim: Vec3::from_array(light.aim),
+            cone: light.cone,
+        }
+    }
+
+    /// The light as the level editor shows it.
+    pub fn placed(&self) -> level_edit::PlacedLight {
+        level_edit::PlacedLight {
+            at: self.at.to_array(),
+            colour: self.colour.to_array(),
+            radius: self.radius,
+            aim: self.aim.to_array(),
+            cone: self.cone,
+            way: self.way.to_array(),
+            half: self.half,
+            texture: String::new(),
+            reason: String::new(),
+        }
+    }
 }
 
 /// A light of a fitting, in game space.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Light {
     pub at: Vec3,
     pub colour: Vec3,
@@ -301,7 +427,10 @@ pub fn switched_on(
 
 fn kinds() -> &'static [Kinds; 2] {
     static KINDS: OnceLock<[Kinds; 2]> = OnceLock::new();
-    KINDS.get_or_init(|| TABLES.map(|text| read_kinds(text).unwrap_or(Kinds::new())))
+    KINDS.get_or_init(|| {
+        [("k1.toml", TABLES[0]), ("tsl.toml", TABLES[1])]
+            .map(|(name, text)| read_kinds(&data_text(name, text)).unwrap_or(Kinds::new()))
+    })
 }
 
 fn number(item: Option<&toml_edit::Item>) -> Option<f32> {
@@ -357,10 +486,29 @@ fn read_kinds(text: &str) -> Option<Kinds> {
     Some(kinds)
 }
 
+/// The module a scene's name names. Play's scene is named for the
+/// player's body and the module (`play pmbal in danm13`, `play::compose`);
+/// a module's own scene is named for the module alone.
+fn module_of(scene: &str) -> &str {
+    scene.rsplit(" in ").next().unwrap_or(scene)
+}
+
 /// The lights placed by hand in the area `area` (`[[placed]]` in
 /// `fittings.toml`).
 fn placed(area: &str) -> Vec<Light> {
-    let Ok(doc) = toml_edit::Document::parse(FITTINGS) else {
+    if let Some(set) = PLACED
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&area.to_ascii_lowercase())
+    {
+        return set.clone();
+    }
+    // A level editor project's new map keeps its own (`level_edit`).
+    if let Some(lights) = level_edit::active::map_lights(area) {
+        return lights.iter().map(Light::of_placed).collect();
+    }
+    let text = data_text("fittings.toml", FITTINGS);
+    let Ok(doc) = toml_edit::Document::parse(text.as_ref()) else {
         return Vec::new();
     };
     let Some(tables) = (doc.get("placed")).and_then(toml_edit::Item::as_array_of_tables) else {
@@ -493,6 +641,16 @@ pub(crate) fn falloff(distance: f32, radius: f32) -> f32 {
 /// rule data knows, the lights placed by hand in its area, and the rooms'
 /// hidden lamps (the module doc).
 pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
+    explained(loaded)
+        .into_iter()
+        .map(|(light, _)| light)
+        .collect()
+}
+
+/// `lights`, each with where it comes from: its kind's texture for a
+/// fitting's light, `placed` for one placed by hand, `hidden lamp` for a
+/// room's hidden lamp. The level editor shows them.
+pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String)> {
     let doors: BTreeSet<usize> = loaded.doors.iter().map(|door| door.model).collect();
     // The doors are among them. A door sheds light only as a force field
     // (`FIELD_CHROMA`).
@@ -704,7 +862,7 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
         sources.extend((before..found.len()).map(|_| name(model, mesh_index)));
         rooms.resize(found.len(), room);
     }
-    found.extend(placed(&loaded.name));
+    found.extend(placed(module_of(&loaded.name)));
     sources.resize(found.len(), "placed".to_string());
     let fittings = found.len();
     found.extend(fill(loaded, &lit_rooms));
@@ -720,7 +878,7 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
     if let Ok(path) = std::env::var("KJK_FITTED_DUMP") {
         dump(loaded, &found, &sources, &switched, &path);
     }
-    found
+    found.into_iter().zip(sources).collect()
 }
 
 /// What `light` gives a surface at `at` that faces `normal`, by its

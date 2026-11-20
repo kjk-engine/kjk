@@ -1324,7 +1324,7 @@ fn room_light_visibility(position: vec3<f32>, near: Near) -> f32 {
         // Under the fitted lights' trials a placeable's source is at least
         // `FITTED_BOX_SOURCE` wide, so its shadow is soft away from its foot.
         var source = room.w;
-        if shadows.debug == 7u || shadows.debug == 8u {
+        if shadows.debug >= 7u && shadows.debug <= 9u {
             source = max(source, FITTED_BOX_SOURCE);
         }
         let centre = b.centre.xyz - position;
@@ -1885,9 +1885,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let room_kept = room_light_kept(open, base.rgb);
     // `KJK_SHADOW_DEBUG=7`: the rooms keep half of their baked light (the
     // light kinds' trial). 8 is the same trial with the fitted lights baked
-    // into the rooms' lightmaps (`fitted_lights::baked`).
-    let trial = shadows.debug == 7u || shadows.debug == 8u;
-    let dimmed = select(1.0, 0.5, trial);
+    // into the rooms' lightmaps (`fitted_lights::baked`). 9 keeps none of
+    // it, so only the fitted lights show (`fitted_lights::Mode::LampsOnly`).
+    let trial = shadows.debug >= 7u && shadows.debug <= 9u;
+    let dimmed = select(select(1.0, 0.5, trial), 0.0, shadows.debug == 9u);
     // Under 8 a room's lightmap is the bake. It is shown whole, and it is
     // stored at 1 / `BAKED_GAIN` of its level so a level above 1 fits.
     let baked_room = shadows.debug == 8u && (params.flags & ROOM) != 0u
@@ -2104,8 +2105,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             return vec4<f32>(vec3<f32>(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4)), 1.0);
         }
         // The area's light fittings lose as much to these shadows as the
-        // baked light does (below).
-        unshadowed = saturate(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4));
+        // baked light does (below). With none of the baked light kept
+        // (`KJK_SHADOW_DEBUG=9`, the level editor's Lamps only) there is no
+        // share to take, and the fittings keep all of theirs.
+        unshadowed = select(
+            saturate(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4)),
+            1.0,
+            shadows.debug == 9u,
+        );
         lighting = shaded;
     }
     // A fight's lights on a room's baked light: a bolt's pool on the floor,
