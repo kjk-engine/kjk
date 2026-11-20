@@ -459,6 +459,10 @@ pub struct Applied {
     /// The save its target last failed against its creator in the script
     /// run that applied it, for a hold's roll each round (C11).
     pub save: Option<crate::combat::force::HoldSave>,
+    /// Whether a mine that a character laid applied it. Its `by` is then
+    /// that character, and its damage is that character's attack, which the
+    /// options' damage multipliers scale.
+    pub laid: bool,
 }
 
 impl Applied {
@@ -519,6 +523,7 @@ impl Applied {
         out.u8(u8::from(self.save.is_some()));
         out.u8(save.index);
         out.u32(save.dc as u32);
+        out.u8(u8::from(self.laid));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Applied, DecodeError> {
@@ -549,6 +554,7 @@ impl Applied {
             } else {
                 None
             },
+            laid: input.since(crate::since::save::FIX_WEAPONS_MINES_2026_11_20) && input.u8()? != 0,
         })
     }
 }
@@ -781,6 +787,7 @@ impl Strike {
             id: 0,
             at: None,
             save: None,
+            laid: false,
         }
     }
 }

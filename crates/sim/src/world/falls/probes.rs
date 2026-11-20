@@ -304,6 +304,7 @@ impl Run {
             id: 0,
             at: None,
             save: None,
+            laid: false,
         };
         let mut scripts = self
             .world
