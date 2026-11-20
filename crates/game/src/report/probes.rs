@@ -30,6 +30,7 @@ pub fn probes() -> Checks {
         ("report_log_tail", log_tail(&root.join("run"))),
         ("crashed_run_forgotten_in_play", forgotten()),
         ("issue_form_filled_in", filled_in()),
+        ("screenshot_key", screenshot_key()),
     ];
     let _ = std::fs::remove_dir_all(&root);
     checks
@@ -270,5 +271,88 @@ fn forgotten() -> Result<String, String> {
     check(
         !world.contains_resource::<CrashedRun>(),
         "a game's start forgets the crashed run".into(),
+    )
+}
+
+/// The screenshot key: Print Screen by default, kept while a screen or a
+/// conversation has the keys, and taken on a release with no press (all
+/// Windows sends for Print Screen) but only once for a press and its release.
+fn screenshot_key() -> Result<String, String> {
+    use crate::pad::{Taken, bit, open_keys};
+    use crate::settings::{Binding, Input, KeyMap, Mods};
+    use bevy::input::ButtonState::{Pressed, Released};
+    let map = KeyMap::default();
+    let print = map.binding(Action::Screenshot);
+    let ctrl_f11 = Binding::named("Ctrl+F11");
+    let kept = [Taken::Screens, Taken::Talk].map(|taken| {
+        open_keys(taken, &map).is_some_and(|open| open & bit(Action::Screenshot) != 0)
+    });
+    // Each case: the binding, the action read as pressed, the keys typed in
+    // each frame, and whether each frame asks for a picture.
+    let cases: [(&str, Option<Binding>, bool, Vec<Vec<_>>, Vec<bool>); 5] = [
+        (
+            "a release alone (Windows)",
+            print,
+            false,
+            vec![vec![(KeyCode::PrintScreen, Released)]],
+            vec![true],
+        ),
+        (
+            "a press, then its release",
+            print,
+            true,
+            vec![
+                vec![(KeyCode::PrintScreen, Pressed)],
+                vec![(KeyCode::PrintScreen, Released)],
+            ],
+            vec![true, false],
+        ),
+        (
+            "another key's release",
+            print,
+            false,
+            vec![vec![(KeyCode::F11, Released)]],
+            vec![false],
+        ),
+        (
+            "Ctrl+F11 released without Ctrl",
+            ctrl_f11,
+            false,
+            vec![vec![(KeyCode::F11, Released)]],
+            vec![false],
+        ),
+        (
+            "no binding",
+            None,
+            false,
+            vec![vec![(KeyCode::PrintScreen, Released)]],
+            vec![false],
+        ),
+    ];
+    let wrong: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(name, binding, pressed, frames, wanted)| {
+            let mut down = false;
+            let got: Vec<bool> = frames
+                .into_iter()
+                .enumerate()
+                .map(|(frame, typed)| {
+                    super::shot_asked(
+                        pressed && frame == 0,
+                        binding,
+                        Mods::default(),
+                        typed,
+                        &mut down,
+                    )
+                })
+                .collect();
+            (got != wanted).then(|| format!("{name}: {got:?}, wanted {wanted:?}"))
+        })
+        .collect();
+    check(
+        print.map(|binding| binding.input) == Some(Input::Key(KeyCode::PrintScreen))
+            && kept == [true, true]
+            && wrong.is_empty(),
+        format!("bound to {print:?}; kept over a screen and a conversation {kept:?}; {wrong:?}"),
     )
 }
