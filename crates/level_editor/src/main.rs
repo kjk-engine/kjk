@@ -355,6 +355,7 @@ fn setup(
     let rooms = room_library(&resolver);
     let light_data = light_data();
     let program = kjk_program()?;
+    let tools = has_tools(&program);
     let bakes =
         checkout_of(&program).map_or_else(Vec::new, |root| bakes_of(&root, &active.project.area));
     let ja = level_edit::active::ja_stack(&discovery);
@@ -380,5 +381,15 @@ fn setup(
         light_data,
         bakes,
         program,
+        tools,
     })
+}
+
+/// Whether `program` (kjk) has the verbs that check and measure: its help
+/// names `detail-bake` only in a build with the `probes` feature.
+fn has_tools(program: &Path) -> bool {
+    std::process::Command::new(program)
+        .arg("--help")
+        .output()
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains("detail-bake"))
 }

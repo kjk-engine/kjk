@@ -84,7 +84,15 @@ pub struct EditSetup {
     /// The `kjk` that `edit play` and `edit audit` start: the one beside
     /// this program.
     pub program: PathBuf,
+    /// Whether that `kjk` has the verbs that check and measure (its
+    /// `probes` feature, a build from source): the containment audit and
+    /// the bake. A player's build, as a release package holds, has not.
+    pub tools: bool,
 }
+
+/// Why the audit and the bake are not there with a player's build of kjk.
+pub(crate) const NO_TOOLS: &str = "the kjk beside the editor is a player's build, without the \
+     audit and the bake: they come with kjk built from source (docs/BUILD.md)";
 
 /// A room of the install that a new map can place: its model, where its
 /// own area's layout places it, and that area.
@@ -1996,6 +2004,7 @@ pub(crate) fn command(
             };
             state.apply(Edit::SetLevel(room.to_string(), level));
         }
+        ["bake"] | ["audit"] if !state.setup.tools => return Err(NO_TOOLS.into()),
         ["bake"] => {
             if state.bake_job.is_some() || state.bake_request.is_some() {
                 return Err("a bake is running".into());

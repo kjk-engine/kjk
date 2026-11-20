@@ -1,7 +1,7 @@
 //! The script viewer as a place to write scripts: the project's scripts
 //! held as drafts while they are edited, written to the project's folder
 //! (`NAME.nss`), compiled (`level_edit::scripts`) and tried
-//! (`kjk script try`, which runs one in the module installed headless and
+//! (`kjk try-script`, which runs one in the module installed headless and
 //! prints its trace) on a thread of its own.
 
 use std::path::{Path, PathBuf};
@@ -121,7 +121,7 @@ pub struct Try {
 }
 
 /// How a try went: whether the script ran without a fault, and what `kjk
-/// script try` printed.
+/// try-script` printed.
 #[derive(Debug, Clone)]
 pub struct Outcome {
     pub script: String,
@@ -139,8 +139,7 @@ impl Try {
             command.args([
                 "--project",
                 &plan.project,
-                "script",
-                "try",
+                "try-script",
                 &plan.game,
                 &plan.module,
                 &plan.script,
@@ -152,7 +151,7 @@ impl Try {
             }
             let result = command
                 .output()
-                .map_err(|error| format!("kjk script try did not start: {error}"))
+                .map_err(|error| format!("kjk try-script did not start: {error}"))
                 .map(|output| {
                     let mut lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
                         .lines()

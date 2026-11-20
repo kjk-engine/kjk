@@ -58,6 +58,12 @@ takes `--cmds`, `--headless` and `--size`, as `kjk` does (`docs/RUN.md`).
 The Play and Audit buttons start the `kjk` program that lies beside
 `kjk-level-editor`, so both are built into the same folder.
 
+A release package (`cargo xtask dist`, `docs/RELEASE.md`) holds
+`kjk-level-editor` beside `kjk`. Its `kjk` is a player's build, without the
+verbs that check and measure, so the editor greys out Audit and Bake there
+(it asks `kjk --help` once as it starts). Everything else works, Try
+included.
+
 `--project NAME` works with every `kjk` verb that loads a module: `kjk
 play`, `kjk host`, the collision verbs and the scripted runs. It is one of
 kjk's global options, so it may stand before or after the verb.
@@ -426,9 +432,9 @@ the editor.
 - **Save** writes the scripts changed to the project's folder, and
   **Compile** writes and compiles them all.
 - **Try for** saves the project, compiles, and runs the script once in the
-  module installed without a window (`kjk script try`), for the selected
-  object (as `OBJECT_SELF`, by its tag) or, with nothing selected, for the
-  player. It then steps on 3 s, for what the script delays. The Try tab
+  module installed without a window (`kjk try-script`, in every build of
+  kjk), for the selected object (as `OBJECT_SELF`, by its tag) or, with
+  nothing selected, for the player. It then steps on 3 s, for what the script delays. The Try tab
   shows what happened from the run on, its own run in bold and the
   module's scripts that ran beside it faint: each routine called with its
   arguments and what it gave, what was said to the player, faults, and

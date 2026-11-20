@@ -1020,13 +1020,6 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             ScriptVerb::Compile { game, script } => {
                 script_verbs::compile(&discover(), &game, script.as_deref())
             }
-            ScriptVerb::Try {
-                game,
-                module,
-                script,
-                on,
-                seconds,
-            } => script_verbs::try_one(&discover(), &game, &module, &script, on.as_deref(), seconds),
             ScriptVerb::Effects { game, module } => {
                 effects_verbs::effects(&discover(), &game, &module)
             }
@@ -1966,25 +1959,6 @@ pub(crate) enum ScriptVerb {
         game: String,
         /// One script's resref, e.g. k_con_atdant
         script: Option<String>,
-    },
-    /// Run one compiled script in a module installed headless (with
-    /// --project, the project's own script, as the level editor's Run does)
-    /// for an object or the player, then step on: the trace of what it and
-    /// the scripts it set off called, the conversation lines, and faults
-    Try {
-        /// k1 or tsl
-        game: String,
-        /// The module, e.g. ebo_m12aa
-        module: String,
-        /// The script's resref, e.g. kje_hello
-        script: String,
-        /// The tag of the object it runs for (OBJECT_SELF); the player
-        /// when left out
-        #[arg(long)]
-        on: Option<String>,
-        /// How long to step on after it runs, for what it delays
-        #[arg(long, default_value_t = 2.0)]
-        seconds: f32,
     },
     /// Decode every compiled script of an install, write each back, and
     /// check every routine call against the game's nwscript.nss

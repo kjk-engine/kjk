@@ -13,7 +13,15 @@
 //! The save editor (`kjk-save-editor`, `crates/save_editor`) is built from
 //! the same commit in a cargo run of its own (so kjk's build is the same
 //! with or without it) and staged beside kjk: `kjk Save Editor.app` on
-//! macOS, with its own `THIRD-PARTY-LICENSES-save-editor.html`.
+//! macOS, with its own `THIRD-PARTY-LICENSES-save-editor.html`. The level
+//! editor (`kjk-level-editor`, `crates/level_editor`, docs/LEVEL-EDIT.md)
+//! is built and staged the same way, with
+//! `THIRD-PARTY-LICENSES-level-editor.html`.
+//!
+//! The version in the package's name is the release tag at the commit:
+//! `v0.20.0` names `kjk-v0.20.0-…`, and a level editor release tag
+//! (`kjk-editor-0.20.0`) names `kjk-editor-0.20.0-…`. Elsewhere it is
+//! `git describe` from the last `v…` tag.
 //!
 //! Everything goes to `target/packages/`. `--skip-build` packs the
 //! programs the last run built; `--pgo <profile>` builds kjk with a profile
@@ -88,6 +96,17 @@ itself. Every change is listed and can be undone, the save is checked
 before it is written, and the save as it was is kept beside it
 (<id>.backup-<time>). On the Steam Deck it runs in Desktop Mode.
 
+Level editor
+------------
+kjk-level-editor (kjk Level Editor.app on macOS) changes a KOTOR area or
+makes a new map from its rooms, saved into a project of its own, never into
+the game: objects, Jedi Academy props, collision boxes, the navigation mesh,
+lights placed by hand, and scripts written, compiled and tried in it. Play
+starts kjk on the project. Started with nothing, it lists the projects and
+the levels to pick from. Projects are kept in the projects folder beside
+the saves (Windows %APPDATA%\\kjk\\projects). The containment audit and
+the light bake come with kjk built from source.
+
 Movies need ffmpeg on the PATH; without it they are skipped.
 
 Co-op: friends join by the host's address, as on a LAN; over the internet
@@ -100,7 +119,8 @@ Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
 their respective owners; kjk is not affiliated with or endorsed by
 them. kjk is MIT licensed (LICENSE); NOTICE credits the projects read
 as references, and THIRD-PARTY-LICENSES.html lists the libraries it is
-built from (THIRD-PARTY-LICENSES-save-editor.html the save editor's).
+built from (THIRD-PARTY-LICENSES-save-editor.html the save editor's,
+THIRD-PARTY-LICENSES-level-editor.html the level editor's).
 ";
 
 /// `LEGAL_README` in a package with NVIDIA's files, which LICENSE does not
@@ -111,7 +131,8 @@ their respective owners; kjk is not affiliated with or endorsed by
 them. kjk's own code is MIT licensed (LICENSE); the NVIDIA files are not
 (see DLSS below). NOTICE credits the projects read as references, and
 THIRD-PARTY-LICENSES.html lists the libraries it is built from
-(THIRD-PARTY-LICENSES-save-editor.html the save editor's).
+(THIRD-PARTY-LICENSES-save-editor.html the save editor's,
+THIRD-PARTY-LICENSES-level-editor.html the level editor's).
 ";
 
 /// What the readme adds in a package built with `--dlss`.
@@ -164,7 +185,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         &["--no-default-features"]
     };
     // Each program and the features it is built (and its licences read) with.
-    let programs = [(KJK, kjk_features), (EDITOR, &[])];
+    let programs = [(KJK, kjk_features), (EDITOR, &[]), (LEVEL_EDITOR, &[])];
     let root = repo_root();
     let packages = target_dir(&root).join("packages");
     create(&packages)?;
@@ -229,7 +250,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             Err(format!("dist: {} is not built", built.display()))
         }
     };
-    let builds = [built(&KJK)?, built(&EDITOR)?];
+    let builds = [built(&KJK)?, built(&EDITOR)?, built(&LEVEL_EDITOR)?];
 
     let version = version()?;
     let os = match std::env::consts::OS {
@@ -244,7 +265,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     std::fs::create_dir_all(&stage).map_err(|error| format!("{}: {error}", stage.display()))?;
 
-    for (program, built) in [KJK, EDITOR].iter().zip(&builds) {
+    for (program, built) in [KJK, EDITOR, LEVEL_EDITOR].iter().zip(&builds) {
         if os == "macos" {
             let app = stage.join(program.app).join("Contents");
             let binaries = app.join("MacOS");
@@ -382,6 +403,17 @@ const EDITOR: Program = Program {
     name: "kjk Save Editor",
     id: "io.github.kjk.save-editor",
     category: "public.app-category.utilities",
+};
+
+const LEVEL_EDITOR: Program = Program {
+    binary: "kjk-level-editor",
+    package: "level_editor",
+    manifest: "crates/level_editor/Cargo.toml",
+    licences: "THIRD-PARTY-LICENSES-level-editor.html",
+    app: "kjk Level Editor.app",
+    name: "kjk Level Editor",
+    id: "io.github.kjk.level-editor",
+    category: "public.app-category.developer-tools",
 };
 
 /// The sources' paths the program carries (in its panics) name no machine:
@@ -526,6 +558,8 @@ fn build_dir(root: &Path, program: &Program) -> PathBuf {
     let target = target_dir(root);
     if program.package == EDITOR.package {
         target.join("editor")
+    } else if program.package == LEVEL_EDITOR.package {
+        target.join("level-editor")
     } else {
         target
     }
@@ -534,6 +568,20 @@ fn build_dir(root: &Path, program: &Program) -> PathBuf {
 /// The version: the last release tag (`v…`) and the commits since (`git
 /// describe`), else the commit.
 fn version() -> Result<String, String> {
+    // A level editor release (`kjk-editor-0.20.0`), named without its
+    // `kjk-`: the package is `kjk-editor-0.20.0-<os>-<arch>`.
+    if let Ok(tag) = git(&[
+        "describe",
+        "--tags",
+        "--exact-match",
+        "--match",
+        "kjk-editor-*",
+    ]) {
+        let tag = String::from_utf8_lossy(&tag).trim().to_string();
+        if let Some(version) = tag.strip_prefix("kjk-") {
+            return Ok(version.to_string());
+        }
+    }
     let described = git(&["describe", "--tags", "--match", "v*", "--always", "--dirty"])?;
     Ok(String::from_utf8_lossy(&described).trim().to_string())
 }

@@ -853,7 +853,13 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
                     "audit",
                 ),
             ] {
-                if ui.button(label).on_hover_text(hint).clicked() {
+                let there = command != "audit" || state.setup.tools;
+                if ui
+                    .add_enabled(there, egui::Button::new(label))
+                    .on_hover_text(hint)
+                    .on_disabled_hover_text(crate::state::NO_TOOLS)
+                    .clicked()
+                {
                     state.pending_command = Some(command.to_string());
                 }
             }
@@ -2662,11 +2668,16 @@ fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
         ui.separator();
         let baking = state.bake_job.is_some();
         if ui
-            .add_enabled(!baking, egui::Button::new("Bake now"))
+            .add_enabled(!baking && state.setup.tools, egui::Button::new("Bake now"))
             .on_hover_text(
                 "Saves, then bakes the area's lightmaps from its fitted lights as the view has them, \
                  as data/lights/bake.toml sets the module; the bake is shown when it is done",
             )
+            .on_disabled_hover_text(if baking {
+                "A bake is running."
+            } else {
+                crate::state::NO_TOOLS
+            })
             .clicked()
         {
             state.pending_command = Some("bake".into());

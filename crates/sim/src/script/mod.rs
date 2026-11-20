@@ -1852,7 +1852,7 @@ impl Library {
 
     /// This library with the script `name` added, or put in place of the
     /// one of that name, and in its digest: a script written in the level
-    /// editor run where nothing names it yet (`kjk script try`).
+    /// editor run where nothing names it yet (`kjk try-script`).
     pub fn with_script(mut self, name: &str, ncs: Ncs) -> Library {
         let bytes = ncs.write();
         let mut out = crate::wire::Writer::default();

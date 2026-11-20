@@ -28,6 +28,7 @@ mod resources;
 pub mod rig_measure;
 mod rules_page;
 mod run_folder;
+mod script_try;
 mod show;
 mod texture_export;
 
@@ -465,6 +466,25 @@ enum Command {
     #[cfg(feature = "probes")]
     #[command(flatten)]
     Verb(verbs::Verb),
+    /// Run one compiled script once in a module installed headless (with
+    /// --project, the project's own script, as the level editor's Try does)
+    /// for an object or the player, then step on: the trace of what it and
+    /// the scripts it set off called, the conversation lines, and faults
+    TryScript {
+        /// k1 or tsl
+        game: String,
+        /// The module, e.g. ebo_m12aa
+        module: String,
+        /// The script's resref, e.g. kje_hello
+        script: String,
+        /// The tag of the object it runs for (OBJECT_SELF); the player
+        /// when left out
+        #[arg(long)]
+        on: Option<String>,
+        /// How long to step on after it runs, for what it delays
+        #[arg(long, default_value_t = 2.0)]
+        seconds: f32,
+    },
     /// Copy one resource out of the install, after precedence.
     Extract {
         /// k1, tsl or ja
@@ -813,6 +833,13 @@ pub fn run() -> ExitCode {
             module,
             out,
         }) => texture_export::run(&discover(), &game, &resref, module.as_deref(), out),
+        Some(Command::TryScript {
+            game,
+            module,
+            script,
+            on,
+            seconds,
+        }) => script_try::run(&discover(), &game, &module, &script, on.as_deref(), seconds),
         Some(Command::Extract {
             game,
             resource,
