@@ -4685,11 +4685,12 @@ fn encounters_count_drivers() {
 /// A death's XP read from either game's `xptable.2da` heading, and TSL's
 /// death XP as its executable works it out (`session::journal::probes`); no
 /// install. The same probes also read a `global.jrl` with one bad quest name
-/// and check that every quest is still read, and read KOTOR 2's global
-/// catalogue as its executable does (the first row of a name decides).
+/// and check that every quest is still read, read a quest that keeps its own
+/// words in place of talk-table lines, and read KOTOR 2's global catalogue as
+/// its executable does (the first row of a name decides).
 #[test]
 fn kill_xp_tables() {
-    probed("kill xp tables", &session::journal::probes(), 5);
+    probed("kill xp tables", &session::journal::probes(), 6);
 }
 
 /// Minigames in co-op (`docs/MINIGAMES.md`):

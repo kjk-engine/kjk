@@ -9,16 +9,23 @@ use asset_odyssey::module::Source;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gff::{Gff, GffValue};
 use sim::combat::balance::Balance;
-use sim::script::journal::{Quest, QuestEntry, Quests};
+use sim::script::journal::{JournalText, Quest, QuestEntry, Quests};
 use sim::script::xp::Experience;
 
 use crate::sheets::Tables;
 
-/// A talk-table line a field names, `u32::MAX` for none.
-fn strref(value: Option<&GffValue>) -> u32 {
+/// A field's text: the talk-table line it names (`u32::MAX` for none) and
+/// its own first string, which a mod's quests carry in place of a line.
+fn journal_text(value: Option<&GffValue>) -> JournalText {
     match value {
-        Some(GffValue::LocString(text)) => text.strref,
-        _ => u32::MAX,
+        Some(GffValue::LocString(text)) => JournalText {
+            strref: text.strref,
+            own: (text.strings.first()).map_or_else(Vec::new, |(_, words)| words.clone()),
+        },
+        _ => JournalText {
+            strref: u32::MAX,
+            own: Vec::new(),
+        },
     }
 }
 
@@ -42,14 +49,14 @@ pub fn quests(source: &dyn Source) -> Quests {
                 Some(QuestEntry {
                     id: u32::try_from(entry.int("ID")?).ok()?,
                     end: entry.int("End").unwrap_or(0) != 0,
-                    text: strref(entry.get("Text")),
+                    text: journal_text(entry.get("Text")),
                     xp: entry.float("XP_Percentage").unwrap_or(0.0),
                 })
             })
             .collect();
         let field = |label: &str, none: i64| category.int(label).unwrap_or(none);
         let quest = Quest {
-            name: strref(category.get("Name")),
+            name: journal_text(category.get("Name")),
             priority: field("Priority", 0).clamp(0, i64::from(u32::MAX)) as u32,
             planet: field("PlanetID", -1) as i32,
             plot: field("PlotIndex", -1) as i32,
@@ -176,6 +183,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             .collect();
     checks.push(("xp_death_tsl", tsl_death()));
     checks.push(("journal_bad_field", journal_bad_field()));
+    checks.push(("journal_own_words", journal_own_words()));
     checks.push(("globals_first_row_wins", globals_first_row_wins()));
     checks
 }
@@ -306,14 +314,93 @@ fn journal_bad_field() -> Result<String, String> {
         .0
         .iter()
         .map(|(tag, quest)| {
-            let entries = quest.entries.iter().map(|entry| (entry.id, entry.text));
-            (tag.clone(), quest.name, entries.collect())
+            let entries = (quest.entries.iter()).map(|entry| (entry.id, entry.text.strref));
+            (tag.clone(), quest.name.strref, entries.collect())
         })
         .collect();
     let wanted = vec![
         ("tel_bad".to_string(), u32::MAX, vec![(10, 8)]),
         ("tel_czerka".to_string(), 5, vec![(10, 7)]),
     ];
+    let what = format!("{seen:?}");
+    if seen == wanted {
+        Ok(what)
+    } else {
+        Err(format!("{what}, wanted {wanted:?}"))
+    }
+}
+
+/// A `global.jrl` whose quest keeps its name and its entry's text in the
+/// fields themselves, naming no talk-table line, as M4-78EP's quests do
+/// (#525). The journal shows those words. A quest that names a line shows
+/// the line's words. These quests had shown no name and no text, so a
+/// player saw no journal entry change on M4-78.
+fn journal_own_words() -> Result<String, String> {
+    use asset_odyssey::made::Files;
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, LocString};
+    let field = |label: &str, value| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let text = |strref, words: &str| {
+        let strings = if words.is_empty() {
+            Vec::new()
+        } else {
+            vec![(0, words.as_bytes().to_vec())]
+        };
+        GffValue::LocString(LocString { strref, strings })
+    };
+    let quest = |tag: &str, name: GffValue, entry: GffValue| GffStruct {
+        id: 0,
+        fields: vec![
+            field("Tag", GffValue::String(tag.as_bytes().to_vec())),
+            field("Name", name),
+            field(
+                "EntryList",
+                GffValue::List(vec![GffStruct {
+                    id: 0,
+                    fields: vec![field("ID", GffValue::Dword(30)), field("Text", entry)],
+                }]),
+            ),
+        ],
+    };
+    let jrl = Gff {
+        file_type: *b"JRL ",
+        root: GffStruct {
+            id: u32::MAX,
+            fields: vec![field(
+                "Categories",
+                GffValue::List(vec![
+                    quest(
+                        "radiation",
+                        text(u32::MAX, "Radiation Leak"),
+                        text(u32::MAX, "Go speak to IS-02."),
+                    ),
+                    quest("tel_czerka", text(5, ""), text(7, "")),
+                ]),
+            )],
+        },
+    };
+    let files = Files([("global.jrl".to_string(), jrl.write())].into());
+    let quests = quests(&files);
+    let talk_table = |strref: u32| Some(format!("line {strref}").into_bytes());
+    let seen: Vec<(String, String, String)> = quests
+        .0
+        .iter()
+        .map(|(tag, quest)| {
+            let words =
+                |text: &JournalText| String::from_utf8_lossy(&text.words(talk_table)).into_owned();
+            let entry = quest
+                .entry(30)
+                .map_or_else(String::new, |entry| words(&entry.text));
+            (tag.clone(), words(&quest.name), entry)
+        })
+        .collect();
+    let wanted = [
+        ("radiation", "Radiation Leak", "Go speak to IS-02."),
+        ("tel_czerka", "line 5", "line 7"),
+    ]
+    .map(|(tag, name, entry)| (tag.to_string(), name.to_string(), entry.to_string()));
     let what = format!("{seen:?}");
     if seen == wanted {
         Ok(what)
