@@ -204,7 +204,12 @@ fn tokens(source: &str) -> Vec<(Token, &str)> {
                     _ => end += 1,
                 }
             }
-            (Token::String, end.min(rest.len()))
+            // An escape may stand before a character of more than one byte.
+            let mut end = end.min(rest.len());
+            while !rest.is_char_boundary(end) {
+                end += 1;
+            }
+            (Token::String, end)
         } else if bytes[at].is_ascii_alphabetic() || bytes[at] == b'_' || bytes[at] == b'#' {
             let end = rest
                 .char_indices()

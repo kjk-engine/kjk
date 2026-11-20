@@ -242,6 +242,14 @@ pub struct EditorState {
     /// viewer reads them again.
     pub(crate) script_errors: BTreeMap<String, String>,
     pub(crate) script_round: u32,
+    /// The scripts written in the script viewer, by name, as they are being
+    /// edited (`script_edit`), and the names of the scripts in the
+    /// project's folder.
+    pub(crate) drafts: BTreeMap<String, crate::script_edit::Draft>,
+    pub(crate) project_scripts: std::collections::BTreeSet<String>,
+    /// A script being tried (`script try`), and how the last try went.
+    pub(crate) script_try: Option<crate::script_edit::Try>,
+    pub(crate) tried: Option<crate::script_edit::Outcome>,
     /// A bake running (`bake`), and the label of one asked for, which
     /// starts when the scene is next drawn (it bakes from the scene's
     /// lights).
@@ -303,6 +311,7 @@ impl EditorState {
             None => (level_edit::levels::BakeEntry::default(), BTreeMap::new()),
         };
         project.levels = levels_original.clone();
+        let project_scripts = crate::script_edit::project_scripts(&project.folder);
         let editor = Editor::new(project);
         let mut state = EditorState {
             setup,
@@ -327,6 +336,10 @@ impl EditorState {
             show_levels: false,
             script_errors: BTreeMap::new(),
             script_round: 0,
+            drafts: BTreeMap::new(),
+            project_scripts,
+            script_try: None,
+            tried: None,
             bake_job: None,
             bake_request: None,
             shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false, None),
@@ -347,6 +360,67 @@ impl EditorState {
 /// Turns the editor on: `setup`'s scene is drawn, and the keys, clicks and
 /// `edit` commands edit it.
 impl EditorState {
+    /// Whether anything is not saved: the project's edits, or a script
+    /// written in the viewer.
+    pub(crate) fn unsaved(&self) -> bool {
+        self.editor.unsaved() || self.drafts.values().any(crate::script_edit::Draft::changed)
+    }
+
+    /// Writes every script changed in the viewer to the project's folder.
+    pub(crate) fn write_drafts(&mut self) -> Result<(), String> {
+        let folder = self.editor.project.folder.clone();
+        std::fs::create_dir_all(&folder)
+            .map_err(|error| format!("{}: {error}", folder.display()))?;
+        let mut written = 0;
+        for (name, draft) in &mut self.drafts {
+            if draft.changed() {
+                crate::script_edit::write(&folder, name, draft)?;
+                written += 1;
+            }
+        }
+        if written > 0 {
+            self.project_scripts = crate::script_edit::project_scripts(&folder);
+            self.say(format!("wrote {written} scripts"));
+        }
+        Ok(())
+    }
+
+    /// The script `name` held as a draft: the project's own, read from its
+    /// folder, else a copy of the install's source, else a new one.
+    pub(crate) fn draft_of(&mut self, name: &str) -> Result<(), String> {
+        if self.drafts.contains_key(name) {
+            return Ok(());
+        }
+        if let Some(problem) = crate::script_edit::name_problem(name) {
+            return Err(problem);
+        }
+        let text_of = |bytes: Vec<u8>| bytes.into_iter().map(char::from).collect::<String>();
+        let own = std::fs::read(self.editor.project.folder.join(format!("{name}.nss")))
+            .ok()
+            .map(text_of);
+        let draft = match own {
+            Some(text) => crate::script_edit::Draft {
+                saved: text.clone(),
+                text,
+            },
+            None => {
+                let text = self
+                    .setup
+                    .resolver
+                    .read(name, ResType::NSS)
+                    .map(text_of)
+                    .unwrap_or_else(|| crate::script_edit::template(name, false));
+                // Not in the folder yet: it is written at the next save.
+                crate::script_edit::Draft {
+                    text,
+                    saved: String::new(),
+                }
+            }
+        };
+        self.drafts.insert(name.to_string(), draft);
+        Ok(())
+    }
+
     pub(crate) fn say(&mut self, message: impl Into<String>) {
         let message = message.into();
         info!(target: "editor", "{message}");
@@ -1149,6 +1223,26 @@ pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
             )),
         }
     }
+    // A try that ended is shown.
+    let tried = state
+        .script_try
+        .as_ref()
+        .and_then(crate::script_edit::Try::poll);
+    if let Some(tried) = tried {
+        state.script_try = None;
+        match tried {
+            Ok(outcome) => {
+                let how = if outcome.ok {
+                    "ran"
+                } else {
+                    "did not run cleanly"
+                };
+                state.say(format!("{} {how}", outcome.script));
+                state.tried = Some(outcome);
+            }
+            Err(why) => state.say(why),
+        }
+    }
     let asked = state.bake_request.is_some();
     // The Room levels window measures the rooms when a scene is drawn.
     let measure = state.show_levels
@@ -1931,6 +2025,20 @@ pub(crate) fn command(
             state.show_nav = *on == "on";
             state.quiet = SETTLE_FRAMES;
         }
+        ["script", "new", name] => new_script(state, name, false)?,
+        ["script", "new", name, "conditional"] => new_script(state, name, true)?,
+        ["script", "edit", name] => {
+            let name = name.to_ascii_lowercase();
+            state.draft_of(&name)?;
+            state.pending_ui.push(vec!["view".into(), name]);
+        }
+        ["script", "write"] => state.write_drafts()?,
+        ["script", "compile"] => {
+            state.write_drafts()?;
+            compile_scripts(state);
+        }
+        ["script", "try", name] => try_script(state, name, None, cameras)?,
+        ["script", "try", name, tag] => try_script(state, name, Some(tag), cameras)?,
         ["script", label, script] => {
             let target = selected(state)?;
             let script = if *script == "-" { "" } else { script };
@@ -2229,6 +2337,59 @@ pub(crate) fn walk(state: &mut EditorState) -> Result<(), String> {
 
 /// Saves the project (`Editor::save_with`), saying its warnings and what
 /// was written.
+/// A new script of the project, `name`, opened in the viewer: a `main`, or
+/// a conversation's `StartingConditional`.
+fn new_script(state: &mut EditorState, name: &str, conditional: bool) -> Result<(), String> {
+    let name = name.to_ascii_lowercase();
+    if state.project_scripts.contains(&name) || state.drafts.contains_key(&name) {
+        return Err(format!("the project has a script {name} already"));
+    }
+    if let Some(problem) = crate::script_edit::name_problem(&name) {
+        return Err(problem);
+    }
+    state.drafts.insert(
+        name.clone(),
+        crate::script_edit::Draft {
+            text: crate::script_edit::template(&name, conditional),
+            saved: String::new(),
+        },
+    );
+    state.say(format!("new script {name}"));
+    state.pending_ui.push(vec!["view".into(), name]);
+    Ok(())
+}
+
+/// Saves (which writes and compiles the scripts), then tries `name` for the
+/// object tagged `on` (else the player) in the module installed headless.
+fn try_script(
+    state: &mut EditorState,
+    name: &str,
+    on: Option<&str>,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    if state.script_try.is_some() {
+        return Err("a script is being tried".into());
+    }
+    let name = name.to_ascii_lowercase();
+    command(state, &["save"], cameras)?;
+    if let Some(why) = state.script_errors.get(&name) {
+        return Err(format!("{name} did not compile: {why}"));
+    }
+    let project = &state.editor.project;
+    let plan = crate::script_edit::Plan {
+        program: state.setup.program.clone(),
+        project: project.name.clone(),
+        game: project.game.clone(),
+        module: project.module.clone(),
+        script: name.clone(),
+        on: on.map(str::to_string),
+        seconds: 3.0,
+    };
+    state.script_try = Some(crate::script_edit::Try::start(plan));
+    state.say(format!("trying {name} for {}", on.unwrap_or("the player")));
+    Ok(())
+}
+
 /// Compiles the project's scripts (`level_edit::scripts`) and says how it
 /// went: each mistake, with its file and line.
 fn compile_scripts(state: &mut EditorState) {
@@ -2273,6 +2434,7 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
     let resolver = state.setup.resolver.clone();
     let read = |name: &str, restype: ResType| resolver.read(name, restype);
     let written = state.editor.save_with(&made_by, &read)?;
+    state.write_drafts()?;
     state.say(format!(
         "saved {} files to {}",
         written.len(),
@@ -2570,7 +2732,7 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
             "game": project.game,
             "module": project.module,
             "area": project.area,
-            "unsaved": state.editor.unsaved(),
+            "unsaved": state.unsaved(),
             "undo": state.editor.undo_depth(),
             "redo": state.editor.redo_depth(),
             "counts": counts,

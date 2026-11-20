@@ -134,6 +134,10 @@ pub struct UiState {
     /// The script the viewer shows, its tab, and the scripts read so far.
     viewing: Option<String>,
     view_tab: ViewTab,
+    /// The name typed for a new script in the Scripts menu.
+    new_script: String,
+    /// The viewer is in a window of its own, not under the details.
+    viewer_window: bool,
     read_scripts: BTreeMap<String, crate::script_view::ScriptView>,
     /// The editor's `script_round` the scripts above were read at.
     read_round: u32,
@@ -145,6 +149,8 @@ enum ViewTab {
     Source,
     Summary,
     Listing,
+    /// What the last try of the script said (`script try`).
+    Try,
 }
 
 impl Default for UiState {
@@ -173,6 +179,8 @@ impl Default for UiState {
             completing: None,
             viewing: None,
             view_tab: ViewTab::Source,
+            new_script: String::new(),
+            viewer_window: false,
             read_scripts: BTreeMap::new(),
             read_round: 0,
         }
@@ -624,10 +632,12 @@ fn panels(
             ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
             ["view"] => ui.viewing = None,
             ["view", script] => ui.viewing = Some(script.to_ascii_lowercase()),
+            ["view", "window", on @ ("on" | "off")] => ui.viewer_window = *on == "on",
             ["view", "tab", tab] => {
                 ui.view_tab = match *tab {
                     "summary" => ViewTab::Summary,
                     "listing" => ViewTab::Listing,
+                    "try" => ViewTab::Try,
                     _ => ViewTab::Source,
                 }
             }
@@ -850,6 +860,7 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
             ui.checkbox(&mut state.show_collision, "Collision")
                 .on_hover_text("F2: walkable floor green, solid surfaces orange, edge walls blue");
             lighting_menu(ui, state);
+            scripts_menu(ui, state, ui_state);
             if let Some(job) = &state.bake_job {
                 ui.label(
                     egui::RichText::new(format!(
@@ -1087,7 +1098,18 @@ fn details(
         .resizable(true)
         .default_size(320.0)
         .show(root, |ui| {
-            if ui_state.viewing.is_some() {
+            if ui_state.viewing.is_some() && ui_state.viewer_window {
+                // A window of its own over the view, for writing a script.
+                let mut open = true;
+                egui::Window::new("Script")
+                    .default_size([760.0, 640.0])
+                    .resizable(true)
+                    .open(&mut open)
+                    .show(ctx, |ui| script_viewer(ui, state, ui_state));
+                if !open {
+                    ui_state.viewing = None;
+                }
+            } else if ui_state.viewing.is_some() {
                 egui::Panel::bottom("script viewer")
                     .resizable(true)
                     .default_size(320.0)
@@ -1461,7 +1483,10 @@ fn behaviour(
                 .typed
                 .entry(label.clone())
                 .or_insert_with(|| script.clone());
-            let known = typed.is_empty() || state.setup.scripts.binary_search(typed).is_ok();
+            let known = typed.is_empty()
+                || state.setup.scripts.binary_search(typed).is_ok()
+                || state.project_scripts.contains(typed.as_str())
+                || state.drafts.contains_key(typed.as_str());
             let mut field = egui::TextEdit::singleline(typed)
                 .desired_width(150.0)
                 .hint_text("none");
@@ -1571,10 +1596,82 @@ fn behaviour(
     }
 }
 
+/// The Scripts menu: the project's own scripts, each opened in the
+/// viewer, and a new one made.
+fn scripts_menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
+    ui.menu_button("Scripts", |ui| {
+        let mut names: Vec<String> = state.project_scripts.iter().cloned().collect();
+        names.extend(state.drafts.keys().cloned());
+        names.sort();
+        names.dedup();
+        if names.is_empty() {
+            ui.label("The project has no scripts of its own yet.");
+        }
+        for name in names {
+            let changed = state
+                .drafts
+                .get(&name)
+                .is_some_and(crate::script_edit::Draft::changed);
+            let label = if changed {
+                format!("{name} (not saved)")
+            } else {
+                name.clone()
+            };
+            if ui.button(label).clicked() {
+                state.pending_command = Some(format!("script edit {name}"));
+                ui_state.view_tab = ViewTab::Source;
+                ui.close();
+            }
+        }
+        ui.separator();
+        ui.label("A new script, named 1 to 16 lowercase letters, digits and _:");
+        ui.add(
+            egui::TextEdit::singleline(&mut ui_state.new_script)
+                .hint_text("kje_door_opens")
+                .desired_width(160.0),
+        );
+        let name = ui_state.new_script.trim().to_ascii_lowercase();
+        let problem = crate::script_edit::name_problem(&name);
+        ui.horizontal(|ui| {
+            for (label, hint, conditional) in [
+                (
+                    "New",
+                    "A main, run on an event: OnUsed, OnEnter, OnDeath.",
+                    false,
+                ),
+                (
+                    "New condition",
+                    "A StartingConditional, which answers TRUE to show a conversation's line.",
+                    true,
+                ),
+            ] {
+                if ui
+                    .add_enabled(problem.is_none(), egui::Button::new(label))
+                    .on_hover_text(hint)
+                    .on_disabled_hover_text(problem.clone().unwrap_or_else(String::new))
+                    .clicked()
+                {
+                    state.pending_command = Some(if conditional {
+                        format!("script new {name} conditional")
+                    } else {
+                        format!("script new {name}")
+                    });
+                    ui_state.view_tab = ViewTab::Source;
+                    ui_state.new_script.clear();
+                    ui.close();
+                }
+            }
+        });
+    });
+}
+
 /// The script viewer: what the script `UiState::viewing` names does, as its
 /// source, a summary of its compiled form, or its listing
-/// (`script_view`).
-fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState) {
+/// (`script_view`). A script of the project, or a copy of one of the
+/// install's, is written here (`script_edit`), then saved, compiled, tried
+/// in the module headless and given to the selected object's event, each
+/// by an `edit script` command.
+fn script_viewer(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
     let Some(name) = ui_state.viewing.clone() else {
         return;
     };
@@ -1594,26 +1691,55 @@ fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState)
                 &name,
             )
         });
+    let changed = state
+        .drafts
+        .get(&name)
+        .is_some_and(crate::script_edit::Draft::changed);
     // The name and Close on one row, the tabs on the next, so that the
     // header fits a narrow panel.
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(&name).strong().monospace());
+        if changed {
+            ui.label(egui::RichText::new("not saved").small().weak());
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button("Close").clicked() {
                 ui_state.viewing = None;
             }
+            let (label, hint) = if ui_state.viewer_window {
+                ("Dock", "Puts the viewer back under the details.")
+            } else {
+                (
+                    "Window",
+                    "Opens the viewer in a window of its own, with room to write.",
+                )
+            };
+            if ui.small_button(label).on_hover_text(hint).clicked() {
+                ui_state.viewer_window = !ui_state.viewer_window;
+            }
         });
     });
+    let drafted = state.drafts.contains_key(&name);
+    let tried_here = state
+        .tried
+        .as_ref()
+        .is_some_and(|tried| tried.script == name)
+        || state
+            .script_try
+            .as_ref()
+            .is_some_and(|run| run.script == name);
     // A tab the script has nothing for shows the next that it has.
     let tab = match ui_state.view_tab {
-        ViewTab::Source if view.source.is_none() => ViewTab::Summary,
+        ViewTab::Source if view.source.is_none() && !drafted => ViewTab::Summary,
+        ViewTab::Try if !tried_here => ViewTab::Source,
         tab => tab,
     };
     ui.horizontal(|ui| {
         for (each, label, there) in [
-            (ViewTab::Source, "Source", view.source.is_some()),
+            (ViewTab::Source, "Source", view.source.is_some() || drafted),
             (ViewTab::Summary, "Summary", view.listing.is_some()),
             (ViewTab::Listing, "Listing", view.listing.is_some()),
+            (ViewTab::Try, "Try", tried_here),
         ] {
             ui.add_enabled_ui(there, |ui| {
                 if ui.selectable_label(tab == each, label).clicked() {
@@ -1623,6 +1749,9 @@ fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState)
         }
     });
     let from = match (&view.source, &view.compiled_from) {
+        _ if drafted && tab == ViewTab::Source => {
+            "Written here, and saved to the project's folder.".to_string()
+        }
         (Some((_, layer)), _) if tab == ViewTab::Source => format!("Source from {layer}."),
         (_, Some(layer)) => format!(
             "Compiled, from {layer}.{}",
@@ -1638,22 +1767,59 @@ fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState)
     if let Some(problem) = &view.problem {
         ui.label(format!("It does not read: {problem}"));
     }
-    if let Some(why) = state.script_errors.get(&name) {
+    let error = state.script_errors.get(&name).cloned();
+    if let Some(why) = &error {
         ui.colored_label(
             ui.visuals().error_fg_color,
-            format!("It did not compile at the last save: {why}"),
+            format!("It did not compile: {why}"),
         );
     }
-    egui::ScrollArea::both()
-        .auto_shrink(false)
-        .show(ui, |ui| match tab {
-            ViewTab::Source => {
+    match tab {
+        ViewTab::Source if drafted => {
+            script_tools(ui, state, &name);
+            let error_line = error.as_deref().and_then(|why| {
+                let rest = why.strip_prefix(&format!("{name}.nss line "))?;
+                let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+                digits.parse::<usize>().ok()
+            });
+            let Some(draft) = state.drafts.get_mut(&name) else {
+                return;
+            };
+            let writing = script_text(ui, &mut draft.text, error_line);
+            // Ctrl+S while writing saves the scripts (the editor's own keys
+            // are off while a text field has them).
+            if writing
+                && ui.input(|input| input.modifiers.command && input.key_pressed(egui::Key::S))
+            {
+                state.pending_command = Some("script write".into());
+            }
+        }
+        ViewTab::Source => {
+            let own = view
+                .source
+                .as_ref()
+                .is_some_and(|(_, layer)| layer == "the project");
+            let (label, hint) = if own {
+                ("Edit", "Writes the project's script here.")
+            } else {
+                (
+                    "Edit a copy in the project",
+                    "Copies the install's source into the project, where it is written here; \
+                     saved and compiled, it runs in the place of the install's script.",
+                )
+            };
+            if ui.button(label).on_hover_text(hint).clicked() {
+                state.pending_command = Some(format!("script edit {name}"));
+            }
+            egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                 if let Some((source, _)) = &view.source {
                     let job = crate::script_view::highlighted(source, ui.visuals().dark_mode);
                     ui.add(egui::Label::new(job).extend());
                 }
-            }
-            ViewTab::Summary => {
+            });
+        }
+        ViewTab::Summary => {
+            egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                 ui.label(egui::RichText::new("Engine routines it calls").strong());
                 if view.calls.is_empty() {
                     ui.label("none");
@@ -1674,16 +1840,201 @@ fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState)
                 for string in &view.strings {
                     ui.label(egui::RichText::new(format!("{string:?}")).monospace());
                 }
-            }
-            ViewTab::Listing => {
+            });
+        }
+        ViewTab::Listing => {
+            egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
                 if let Some(listing) = &view.listing {
                     ui.add(
                         egui::Label::new(egui::RichText::new(listing).monospace().size(11.0))
                             .extend(),
                     );
                 }
+            });
+        }
+        ViewTab::Try => tried(ui, state, &name),
+    }
+}
+
+/// The selected object, its tag and the events of its behaviour, for
+/// trying a script for it and giving it one.
+fn selected_events(state: &EditorState) -> Option<(String, Vec<String>)> {
+    let Some(Target::Object(kind, index)) = state.editor.selected else {
+        return None;
+    };
+    let entry = state.editor.entry(kind, index)?;
+    let gff = state.behaviour_source(kind, &entry)?;
+    let events = level_edit::template::scripts(&gff)
+        .into_iter()
+        .map(|(label, _)| label)
+        .collect();
+    Some((state.tag_of(&entry), events))
+}
+
+/// The row over a script being written: Save, Compile, Try and Give to.
+fn script_tools(ui: &mut egui::Ui, state: &mut EditorState, name: &str) {
+    let selected = selected_events(state);
+    let tag = selected
+        .as_ref()
+        .map(|(tag, _)| tag.clone())
+        .filter(|tag| !tag.is_empty());
+    let mut ask = None;
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .button("Save")
+            .on_hover_text("Writes the scripts changed here to the project's folder.")
+            .clicked()
+        {
+            ask = Some("script write".to_string());
+        }
+        if ui
+            .button("Compile")
+            .on_hover_text("Writes the scripts, then compiles every script of the project.")
+            .clicked()
+        {
+            ask = Some("script compile".to_string());
+        }
+        let trying = state.script_try.is_some();
+        let whom = tag.as_deref().unwrap_or("the player");
+        if ui
+            .add_enabled(!trying, egui::Button::new(format!("Try for {whom}")))
+            .on_hover_text(format!(
+                "Saves the project, compiles, then runs {name} once in the module, without a \
+                 window, as {whom}'s script (OBJECT_SELF), and steps on 3 s: what it called is \
+                 under Try. Select an object to try it for that object."
+            ))
+            .clicked()
+        {
+            ask = Some(match &tag {
+                Some(tag) => format!("script try {name} {tag}"),
+                None => format!("script try {name}"),
+            });
+        }
+        match &selected {
+            Some((_, events)) if !events.is_empty() => {
+                ui.menu_button("Give to", |ui| {
+                    for event in events {
+                        if ui
+                            .button(event)
+                            .on_hover_text(format!("The selected object runs {name} on {event}."))
+                            .clicked()
+                        {
+                            ask = Some(format!("script {event} {name}"));
+                            ui.close();
+                        }
+                    }
+                });
             }
+            _ => {
+                ui.add_enabled(false, egui::Button::new("Give to"))
+                    .on_disabled_hover_text(
+                        "Select a placeable, creature, door or trigger to give it this script.",
+                    );
+            }
+        }
+    });
+    if let Some(ask) = ask {
+        state.pending_command = Some(ask);
+    }
+}
+
+/// A script's text, written in place: coloured, with its lines numbered,
+/// the line of a mistake in red. Whether it has the keys.
+fn script_text(ui: &mut egui::Ui, text: &mut String, error_line: Option<usize>) -> bool {
+    let font = egui::FontId::monospace(12.0);
+    let dark = ui.visuals().dark_mode;
+    let weak = ui.visuals().weak_text_color();
+    let red = ui.visuals().error_fg_color;
+    egui::ScrollArea::both()
+        .id_salt("script text")
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let lines = text.split('\n').count();
+                let mut numbers = egui::text::LayoutJob::default();
+                for line in 1..=lines {
+                    let last = line == lines;
+                    numbers.append(
+                        &format!("{line:>4}{}", if last { "" } else { "\n" }),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: font.clone(),
+                            color: if Some(line) == error_line { red } else { weak },
+                            ..Default::default()
+                        },
+                    );
+                }
+                ui.add(egui::Label::new(numbers).selectable(false));
+                let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _: f32| {
+                    let job = crate::script_view::highlighted(text.as_str(), dark);
+                    ui.fonts_mut(|fonts| fonts.layout_job(job))
+                };
+                ui.add(
+                    egui::TextEdit::multiline(text)
+                        .id_salt("script text field")
+                        .code_editor()
+                        .frame(egui::Frame::NONE)
+                        .margin(egui::Margin::ZERO)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(24)
+                        .lock_focus(true)
+                        .layouter(&mut layouter),
+                )
+                .has_focus()
+            })
+            .inner
+        })
+        .inner
+}
+
+/// The Try tab: a try running, or what the last one of the script said.
+fn tried(ui: &mut egui::Ui, state: &EditorState, name: &str) {
+    if let Some(run) = state.script_try.as_ref().filter(|run| run.script == name) {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(format!(
+                "Trying {name} for {} ({} s): the module is being installed.",
+                run.on.as_deref().unwrap_or("the player"),
+                run.started.elapsed().as_secs()
+            ));
         });
+        return;
+    }
+    let Some(outcome) = state.tried.as_ref().filter(|tried| tried.script == name) else {
+        return;
+    };
+    let whom = outcome.on.as_deref().unwrap_or("the player");
+    if outcome.ok {
+        ui.label(format!("{name} ran for {whom} without a fault."));
+    } else {
+        ui.colored_label(
+            ui.visuals().error_fg_color,
+            format!("{name} did not run cleanly for {whom}."),
+        );
+    }
+    let ours = format!("run {name} ");
+    egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+        // The script's own run stands out from the module's scripts that
+        // ran beside it.
+        let mut own = false;
+        for line in &outcome.lines {
+            let trimmed = line.trim_start();
+            let at_run = trimmed
+                .split_once("s ")
+                .is_some_and(|(_, rest)| rest.starts_with("run "));
+            if at_run {
+                own = trimmed.contains(&ours);
+            }
+            let text = egui::RichText::new(line).monospace().size(11.0);
+            let text = if own || !at_run && !line.starts_with("    ") {
+                text.strong()
+            } else {
+                text.weak()
+            };
+            ui.add(egui::Label::new(text).extend());
+        }
+    });
 }
 
 fn messages(ui: &mut egui::Ui, state: &EditorState) {

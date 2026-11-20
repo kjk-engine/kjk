@@ -384,8 +384,9 @@ from its folder each time, so one written since the editor opened shows.
 ### The project's own scripts
 
 A project can bring scripts of its own. Each is a `NAME.nss` file at the
-top of the project's folder, written in any text editor, its name at most
-16 characters and best lowercase. Every save compiles each one that has a
+top of the project's folder, its name 1 to 16 lowercase letters, digits
+and `_`, written in the script viewer or in any text editor. Every save
+compiles each one that has a
 `main` or a `StartingConditional` to `NAME.ncs` beside it, with kjk's
 compiler (`script_ncs::compile`, `docs/SCRIPTS.md`). Play and Walk save
 first, so they always run what the source says. A file of functions alone
@@ -399,8 +400,44 @@ files, so a script named as one of the game's runs in its place.
 
 A script with a mistake is not compiled. The save says so with its file
 and line (for a `;` left out, `kje_broken.nss line 4` and the word it
-is missing before), the script viewer shows it in red, and the `.ncs` it
-had stays as it was. `level_edit::scripts` does the work.
+is missing before), the script viewer shows it in red with its line's
+number, and the `.ncs` it had stays as it was. `level_edit::scripts` does
+the work.
+
+### Writing a script in the editor
+
+The script viewer is also where a script is written, so that the loop of
+writing it, giving it to an object, compiling it and trying it stays in
+the editor.
+
+- **Scripts** in the toolbar lists the project's own scripts, each opened
+  in the viewer, and makes a new one from the name typed: **New** makes a
+  `main`, run on an event, and **New condition** a `StartingConditional`,
+  which answers `TRUE` to show a conversation's line. A new script starts
+  from a few lines that tell the player it ran.
+- A script of the install opens read only, with **Edit a copy in the
+  project**. The copy is the project's from then on, and once saved it
+  runs in the place of the install's script of that name.
+- The Source tab of a script being written is an editor: coloured as the
+  viewer colours source, its lines numbered, a mistake's line in red.
+  Ctrl+S saves the scripts while it has the keys, and the editor's own
+  keys are off meanwhile. A script changed and not saved counts as a
+  change, so leaving asks first.
+- **Save** writes the scripts changed to the project's folder, and
+  **Compile** writes and compiles them all.
+- **Try for** saves the project, compiles, and runs the script once in the
+  module installed without a window (`kjk script try`), for the selected
+  object (as `OBJECT_SELF`, by its tag) or, with nothing selected, for the
+  player. It then steps on 3 s, for what the script delays. The Try tab
+  shows what happened from the run on, its own run in bold and the
+  module's scripts that ran beside it faint: each routine called with its
+  arguments and what it gave, what was said to the player, faults, and
+  scripts named that the module does not have. A try takes a few seconds,
+  most of them the module's install.
+- **Give to** lists the selected object's events. One clicked gives it the
+  script, as typing its name into the event's field does.
+- **Window** opens the viewer in a window of its own over the view, with
+  room to write, and **Dock** puts it back under the details.
 
 ## The editor's window
 
@@ -527,6 +564,10 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit prop MODEL [X Y Z [SCALE]]` | places a Jedi Academy model (`models/map_objects/...md3`), solid |
 | `edit box [CX CY CZ SX SY SZ [YAW]]` | places a collision box: its centre, its size and its yaw |
 | `edit script LABEL SCRIPT` | sets the selected object's event script (`OnUsed`, `ScriptHeartbeat`); `-` for none |
+| `edit script new NAME`, `edit script new NAME conditional` | makes a script of the project, a `main` or a `StartingConditional`, and opens it in the viewer |
+| `edit script edit NAME` | opens a script to be written: the project's own, else a copy of the install's |
+| `edit script write`, `edit script compile` | writes the scripts changed in the viewer; compile also compiles the project's scripts |
+| `edit script try NAME`, `edit script try NAME TAG` | saves, compiles, then runs the script for the player or the object tagged TAG in the module, headless; its trace is under the viewer's Try tab |
 | `edit flag useable on`, `edit flag inventory off` | sets the selected placeable's `Useable` or `HasInventory` |
 | `edit item add ITEM`, `edit item remove N` | adds an item template to the selected placeable's items, or removes its Nth, from 0 |
 | `edit collision on`, `edit collision off` | shows or hides the collision |
@@ -552,7 +593,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui search TEXT`, `edit ui find TEXT` | sets the asset picker's or the outliner's search |
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
 | `edit ui view SCRIPT`, `edit ui view` | opens the script viewer on the script, or closes it |
-| `edit ui view tab source`, `summary`, `listing` | picks the viewer's tab |
+| `edit ui view window on`, `edit ui view window off` | the viewer in a window of its own, or under the details |
+| `edit ui view tab source`, `summary`, `listing`, `try` | picks the viewer's tab |
 | `edit ui file open [PROJECT]` | opens the picker, or the project, in a new editor (a headless run names it instead) |
 | `edit ui file new NAME` | makes the new map NAME from this level in a new editor |
 | `edit ui quit` | closes the editor |

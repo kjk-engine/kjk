@@ -75,6 +75,15 @@ the games' own compiled scripts; nothing of them is in the repo.
   block it leaves that way.
 - The level editor compiles a project's scripts when it saves
   (`LEVEL-EDIT.md`).
+- `kjk [--project P] script try <game> <module> SCRIPT [--on TAG]
+  [--seconds N]` runs one compiled script once in the module installed
+  headless, for the object tagged TAG (else the player), then steps on N
+  seconds (2 by default). The script is read through the install's layers,
+  a project's folder first, and added to the module's library
+  (`Library::with_script`), so it runs where nothing names it yet. It
+  prints the trace from the run on, conversation lines, faults and the
+  scripts named but missing, and fails when the script did not run or
+  faulted. The level editor's Try runs it.
 
 ## In the sim (`sim::script`, `world::scripts`)
 - A module's plan carries a `Library` (`Level::with_scripts`, in its

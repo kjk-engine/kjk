@@ -42,6 +42,127 @@ pub(crate) fn open(
     Ok((game, index, resolver))
 }
 
+/// `kjk script try`: `script` run once for the object tagged `on` (else
+/// the player) in `module` installed headless, then `seconds` stepped, and
+/// what happened from the run on printed: the trace, conversation lines,
+/// faults and scripts named but missing. The script is read through the
+/// install's layers (a project's folder first) and added to the module's
+/// library, so it runs where nothing names it yet.
+pub fn try_one(
+    discovery: &Discovery,
+    game: &str,
+    module: &str,
+    script: &str,
+    on: Option<&str>,
+    seconds: f32,
+) -> ExitCode {
+    let go = || -> Result<bool, String> {
+        let (game, _, resolver) = open(discovery, game)?;
+        let script = script.trim_end_matches(".ncs").to_ascii_lowercase();
+        let bytes = resolver
+            .read(&script, ResType::NCS)
+            .ok_or(format!("{script}.ncs is not found (compile it first)"))?;
+        let ncs = Ncs::parse(&bytes).map_err(|error| format!("{script}.ncs: {error}"))?;
+        let mut probe = crate::probe::Probe::new(discovery, game, module, |level| {
+            let library = level.scripts().ok_or("the module has no scripts")?;
+            Ok((**library).clone().with_script(&script, ncs))
+        })?;
+        let (caller, named) = match on {
+            None => (probe.me, "the player".to_string()),
+            Some(tag) => {
+                let level = probe.world.level().clone();
+                let data = level.module().ok_or("the module did not install")?;
+                let index = data
+                    .objects()
+                    .position(|object| object.tag.eq_ignore_ascii_case(tag))
+                    .ok_or(format!("no object of {module} is tagged {tag}"))?
+                    as u32;
+                let id = probe
+                    .world
+                    .snapshot()
+                    .entities
+                    .iter()
+                    .find(|entity| matches!(entity.kind, sim::Kind::Object(_, at) if at == index))
+                    .map(|entity| entity.id)
+                    .ok_or(format!("{tag} is not in the world"))?;
+                (id, tag.to_string())
+            }
+        };
+        let report = probe.world.script_report();
+        let before = (
+            report.trace_lines().len(),
+            report.talk.len(),
+            report.faults.len(),
+            report.runaways.len(),
+            report.aborted.len(),
+            report.missing.clone(),
+        );
+        probe.queue(&script, caller);
+        let ticks = ((seconds.max(0.0) * sim::TICK_HZ as f32) as u64).max(2);
+        probe.step(ticks);
+        let report = probe.world.script_report();
+        outln!(
+            "{script} ran for {named} in {module}, then {:.1} s stepped",
+            ticks as f32 / sim::TICK_HZ as f32
+        );
+        let ran = report.runs.get(&script).copied().unwrap_or(0);
+        if ran == 0 {
+            outln!("  it did not run");
+        }
+        outln!("  trace:");
+        for line in report.trace_lines().iter().skip(before.0) {
+            outln!("    {line}");
+        }
+        let talk: Vec<_> = report.talk.iter().skip(before.1).collect();
+        if !talk.is_empty() {
+            outln!("  conversation:");
+            for line in talk {
+                outln!("    {line:?}");
+            }
+        }
+        let mut bad = false;
+        for (title, list, from) in [
+            ("faults", &report.faults, before.2),
+            ("stopped at the instruction limit", &report.runaways, before.3),
+            ("stopped at an argument of the wrong type", &report.aborted, before.4),
+        ] {
+            let new: Vec<&String> = list.iter().skip(from).collect();
+            if !new.is_empty() {
+                bad = true;
+                outln!("  {title}:");
+                for each in new {
+                    outln!("    {each}");
+                }
+            }
+        }
+        let missing: Vec<&String> = report
+            .missing
+            .iter()
+            .filter(|(name, count)| before.5.get(*name) != Some(count))
+            .map(|(name, _)| name)
+            .collect();
+        if !missing.is_empty() {
+            outln!(
+                "  scripts named that the module does not have: {}",
+                missing
+                    .iter()
+                    .map(|name| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        Ok(ran > 0 && !bad)
+    };
+    match go() {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 /// The game's routines and constants, from its `nwscript.nss`.
 pub(crate) fn catalog(resolver: &Resolver) -> Result<Catalog, String> {
     let nss = ResType::NSS;

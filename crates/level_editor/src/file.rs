@@ -38,7 +38,7 @@ pub(crate) struct FileState {
 
 /// Leaves by `leave`, asking first when there are changes not saved.
 pub(crate) fn want(state: &EditorState, file: &mut FileState, leave: Leave) {
-    if state.editor.unsaved() {
+    if state.unsaved() {
         file.asking = Some(leave);
     } else {
         file.leaving = Some(leave);

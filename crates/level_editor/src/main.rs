@@ -8,6 +8,7 @@
 mod bake;
 mod file;
 mod picker;
+mod script_edit;
 mod script_view;
 mod state;
 mod thumbs;
