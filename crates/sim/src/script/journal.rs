@@ -30,7 +30,7 @@ impl JournalText {
     /// (`dialogue_view::node_text`); empty when it has neither.
     pub fn words(&self, line: impl FnOnce(u32) -> Option<Vec<u8>>) -> Vec<u8> {
         if self.own.is_empty() {
-            line(self.strref).unwrap_or_default()
+            line(self.strref).unwrap_or_else(Vec::new)
         } else {
             self.own.clone()
         }
