@@ -288,6 +288,7 @@ crates/sim/src/combat/sheet.rs SONIC  # a damageflags bit; iprp_damagetype.2da r
 crates/sim/src/combat/sheet.rs STEALTH  # skills.2da row
 crates/sim/src/combat/sheet.rs STEALTH_RUN  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs STEALTH_UNIT  # a bit flag
+crates/sim/src/combat/sheet.rs SUPERIOR_TWO_WEAPON  # feat.2da row(s): KOTOR 2's
 crates/sim/src/combat/sheet.rs TARGETING  # feat.2da row(s): KOTOR 2's, lent to KOTOR 1
 crates/sim/src/combat/sheet.rs TOUGHNESS  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs TREAT_INJURY  # skills.2da row

@@ -5,6 +5,9 @@
 //!   bolt from its own hand's muzzle (`hand_muzzle`);
 //! - each hand rolls with its own two-weapon penalty
 //!   (`passive::hand_attack`);
+//! - each rank of Two-Weapon Fighting and of TSL's Superior Two-Weapon
+//!   Fighting leaves the two pistols the penalties the feats' descriptions
+//!   give for a balanced off-hand weapon, before the two pistols' aim;
 //! - the hand keys take neither gun down (both are out);
 //! - a trigger let go banks no shot;
 //! - a pair broken mid-fight fires its one gun from the right, at its
@@ -196,9 +199,10 @@ fn gaps(fired: &[Fired]) -> Vec<u64> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 15] = [
+    let cases: [(&'static str, Case); 16] = [
         ("pair_hands_alternate", alternate),
         ("pair_hands_to_hit", to_hit),
+        ("pair_two_weapon_ranks", ranks),
         ("pair_keys_do_nothing", keys),
         ("pair_release_banks_nothing", release),
         ("pair_broken_fires_right", broken),
@@ -264,6 +268,43 @@ fn to_hit() -> Result<String, String> {
     check(
         same(&right) && same(&left) && apart == wanted && wanted > 0,
         format!("right {right:?}, left {left:?}: apart {apart}, wanted {wanted}"),
+    )
+}
+
+/// The two pistols' to hit in each hand by the two-weapon feats a sheet
+/// knows, less the two pistols' aim (`rules::weapons::pistol::PAIR_AIM`, the
+/// owner's): the main hand's and the off hand's totals that the feats'
+/// descriptions give with a balanced weapon in the off hand. A pistol is
+/// small, so both games' executables count it as balanced.
+fn ranks() -> Result<String, String> {
+    let twf = &feats::TWO_WEAPON_FIGHTING;
+    let superior = &feats::SUPERIOR_TWO_WEAPON;
+    let cases: [(&[u16], &[u16], [i32; 2]); 7] = [
+        (&[], &[], [-4, -10]),
+        (&twf[..1], &[], [-4, -6]),
+        (&twf[..2], &[], [-2, -4]),
+        (twf, &[], [0, -2]),
+        (twf, &superior[..1], [1, -2]),
+        (twf, &superior[..2], [2, -2]),
+        (twf, superior, [2, -1]),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(lines, more, games)| {
+            let sheet = trained(&[*lines, *more].concat());
+            let got = [0, 1]
+                .map(|hand| passive::hand_attack(&sheet, hand) - rules::weapons::pistol::PAIR_AIM);
+            (got != *games)
+                .then(|| format!("feats {lines:?} {more:?}: {got:?}, the games' {games:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        if wrong.is_empty() {
+            format!("{} ranks as the feats' descriptions give them", cases.len())
+        } else {
+            wrong.join("; ")
+        },
     )
 }
 
