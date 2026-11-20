@@ -328,6 +328,53 @@ fn end_on_lost_device(
     exit.write(bevy::app::AppExit::error());
 }
 
+/// What the player is told when the only graphics adapter that Vulkan,
+/// DirectX 12 or Metal offered is a software renderer.
+pub const SOFTWARE_ONLY: &str = "kjk could not find a graphics card that supports Vulkan or DirectX 12, so it has to close. The only graphics adapter it found is a software renderer, which draws on the processor and is far too slow to run the game. Updating the graphics driver may help. A graphics card with no Vulkan or DirectX 12 driver cannot run kjk.";
+
+/// The variable that lets a run with a window draw on a software renderer
+/// anyway (`refuses_adapter`).
+const ALLOW_SOFTWARE: &str = "KJK_SOFTWARE_RENDERER";
+
+/// Whether a run must refuse its render adapter. A run with a window
+/// refuses a software renderer (`DeviceType::Cpu`), such as Windows'
+/// WARP, which wgpu picks when no Vulkan or DirectX 12 driver reaches a
+/// graphics card. It would show a black window for minutes. A headless
+/// run draws on any adapter, because a test machine may have only a
+/// software one. `KJK_SOFTWARE_RENDERER=1` lets a run with a window try.
+pub(crate) fn refuses_adapter(device: wgpu::DeviceType, headless: bool, allowed: bool) -> bool {
+    device == wgpu::DeviceType::Cpu && !headless && !allowed
+}
+
+/// Ends a run with a window whose render adapter is a software renderer
+/// (`refuses_adapter`). The log says why, and a player's run shows
+/// `SOFTWARE_ONLY` in a dialog.
+pub fn refuse_software_adapter(
+    adapter: bevy::prelude::Res<bevy::render::renderer::RenderAdapterInfo>,
+    headless: bevy::prelude::Res<crate::scene::Headless>,
+    player: Option<bevy::prelude::Res<PlayerRun>>,
+    mut exit: bevy::prelude::MessageWriter<bevy::app::AppExit>,
+) {
+    let allowed = std::env::var(ALLOW_SOFTWARE).is_ok_and(|value| value == "1");
+    if !refuses_adapter(adapter.device_type, headless.0, allowed) {
+        return;
+    }
+    bevy::log::error!(
+        adapter = %adapter.name,
+        backend = ?adapter.backend,
+        "the only graphics adapter found is a software renderer, so the game ends \
+         ({ALLOW_SOFTWARE}=1 runs on it anyway)"
+    );
+    if player.is_some_and(|player| player.0) {
+        rfd::MessageDialog::new()
+            .set_title("kjk")
+            .set_description(SOFTWARE_ONLY)
+            .set_level(rfd::MessageLevel::Error)
+            .show();
+    }
+    exit.write(bevy::app::AppExit::error());
+}
+
 /// `KJK_LOSE_DEVICE=N` (probes only): loses the render device on the render
 /// world's Nth frame, as a driver that stops responding loses it. wgpu then
 /// calls the callback at once and makes the device invalid. Here the
