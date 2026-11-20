@@ -128,7 +128,7 @@ impl Special {
     /// `sheet`'s special of `line`, at the highest of its rows held.
     fn of_line(sheet: &Sheet, line: usize) -> Option<Special> {
         let (special, rows) = FEAT_LINES[line];
-        let tier = rows.iter().rposition(|row| sheet.feats.has(*row))?;
+        let tier = rows.iter().rposition(|row| sheet.knows(*row))?;
         Some(special(tier as u8 + 1))
     }
 

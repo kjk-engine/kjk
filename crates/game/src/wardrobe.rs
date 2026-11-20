@@ -113,7 +113,12 @@ impl Wardrobe {
             return look.clone();
         }
         let resolver = self.setup.resources.get()?;
-        let look = crate::persona::wear(&resolver, &mut self.tables, worn.clone());
+        let owner = (worn.2.as_deref()).and_then(|item| self.setup.resources.owner(item));
+        let look = crate::persona::wear(
+            (&resolver, owner.as_deref()),
+            &mut self.tables,
+            worn.clone(),
+        );
         self.looks.insert(worn, look.clone());
         look
     }
