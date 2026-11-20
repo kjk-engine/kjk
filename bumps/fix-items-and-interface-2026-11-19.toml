@@ -1,2 +1,0 @@
-[formats]
-replay = "a seat may set the mine kit it chose on a lock (`Action::Mine::kit`, new action code 68)."
