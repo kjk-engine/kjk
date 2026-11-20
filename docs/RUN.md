@@ -21,6 +21,7 @@ KJK_EXTRACT_GATES=off kjk …           # every one of Bevy's extract systems ru
 KJK_DANGLY=off kjk …                  # no danglymesh sways: hair, flaps and hoods stay at rest, to weigh the sway's cost in a bench (`game::dangly`)
 KJK_LOOSE=off kjk …                   # no robe and cape solver: robe skirts and capes play their clips' keys as before, to weigh the solver's cost in a bench (`game::loose_parts`)
 KJK_LOOSE_PUSH=off kjk …              # the solver runs, but no robe or cape is pushed out of the legs on the GPU, to weigh the push's cost in a bench (`game::loose_skin`)
+KJK_LOOSE_TUNE=damping=12,cape.bend=5e-4 kjk …  # the robes' and capes' default values changed for the run, for tuning: reach, max_distance, stretch, bend, drive, damping, inertia, radius, hang and link, for robes and capes, or for one kind with robe. or cape. before the name (`asset_ja::loose::physics::tune`)
 KJK_LOOSE_TRACE=t.jsonl kjk play …    # the robe and cape solver writes one JSON line per body per frame, and one per substep from KJK_LOOSE_TRACE_FROM to KJK_LOOSE_TRACE_TO seconds of game time; the log lists each model's points (`game::loose_parts`)
 KJK_LOOSE_OVERLAY=1 kjk play …        # draws the robe solver's capsules, points, bones and targets over a body in play; KJK_LOOSE_GHOST=0.5 fades that body (`game::loose_view`)
 KJK_SIDE_CAM=90,3.2,1,8,40 kjk play --camera side …  # places the side camera: yaw around the player from the side, distance, height, pitch and field of view, here behind the player

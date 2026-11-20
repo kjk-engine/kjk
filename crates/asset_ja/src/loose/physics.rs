@@ -30,6 +30,8 @@
 //! adds it to each body capsule. It is not the point's own fit to the
 //! capsules, which the collision step works out.
 
+use std::sync::OnceLock;
+
 use super::{Cause, Kind};
 
 /// One kind of garment's default values.
@@ -200,11 +202,98 @@ const LOAD_MAX: f32 = 2.0;
 const NEAR_SOFTER: f32 = 4.0;
 
 pub fn defaults(kind: Kind) -> Defaults {
-    DEFAULTS
+    let mut d = DEFAULTS
         .iter()
         .find(|(k, _)| *k == kind)
         .map(|(_, d)| *d)
-        .expect("every kind has defaults")
+        .expect("every kind has defaults");
+    for &(only, field, value) in TUNED.get().map_or(&[][..], Vec::as_slice) {
+        if only.is_none_or(|only| only == kind) {
+            *field_of(&mut d, field) = value;
+        }
+    }
+    d
+}
+
+/// The changes to the defaults of robes and capes for the run (`tune`).
+static TUNED: OnceLock<Vec<(Option<Kind>, Field, f32)>> = OnceLock::new();
+
+/// A value of `Defaults` that the tuning can change.
+#[derive(Debug, Clone, Copy)]
+enum Field {
+    Reach,
+    MaxDistance,
+    Stretch,
+    Bend,
+    Drive,
+    Damping,
+    Inertia,
+    Radius,
+    Hang,
+    Link,
+}
+
+fn field_of(d: &mut Defaults, field: Field) -> &mut f32 {
+    match field {
+        Field::Reach => &mut d.reach_share,
+        Field::MaxDistance => &mut d.max_distance,
+        Field::Stretch => &mut d.stretch,
+        Field::Bend => &mut d.bend,
+        Field::Drive => &mut d.drive,
+        Field::Damping => &mut d.damping,
+        Field::Inertia => &mut d.inertia,
+        Field::Radius => &mut d.radius,
+        Field::Hang => &mut d.hang,
+        Field::Link => &mut d.link,
+    }
+}
+
+/// Changes the defaults of robes and capes for the run, a tuning aid. The
+/// game calls it once, before it reads any model, with `KJK_LOOSE_TUNE`.
+/// `spec` is a list of `name=value` pairs split by commas, such as
+/// `damping=12,cape.bend=5e-4`. A name alone changes robes and capes, and
+/// `robe.` or `cape.` before it changes one kind. The names are `reach`
+/// (`reach_share`), `max_distance`, `stretch`, `bend`, `drive`, `damping`,
+/// `inertia`, `radius`, `hang` and `link`. It gives back the pairs it does
+/// not understand. A second call changes nothing.
+pub fn tune(spec: &str) -> Vec<String> {
+    let mut changes = Vec::new();
+    let mut not_understood = Vec::new();
+    for pair in spec
+        .split(',')
+        .map(str::trim)
+        .filter(|pair| !pair.is_empty())
+    {
+        let change = pair.split_once('=').and_then(|(name, value)| {
+            let value = value.trim().parse::<f32>().ok().filter(|v| v.is_finite())?;
+            let (kinds, name): (&[Kind], &str) = match name.trim().split_once('.') {
+                Some(("robe", name)) => (&[Kind::RobeSkirt], name),
+                Some(("cape", name)) => (&[Kind::Cape], name),
+                Some(_) => return None,
+                None => (&[Kind::RobeSkirt, Kind::Cape], name.trim()),
+            };
+            let field = match name {
+                "reach" => Field::Reach,
+                "max_distance" => Field::MaxDistance,
+                "stretch" => Field::Stretch,
+                "bend" => Field::Bend,
+                "drive" => Field::Drive,
+                "damping" => Field::Damping,
+                "inertia" => Field::Inertia,
+                "radius" => Field::Radius,
+                "hang" => Field::Hang,
+                "link" => Field::Link,
+                _ => return None,
+            };
+            Some(kinds.iter().map(move |&kind| (Some(kind), field, value)))
+        });
+        match change {
+            Some(change) => changes.extend(change),
+            None => not_understood.push(pair.to_string()),
+        }
+    }
+    let _ = TUNED.set(changes);
+    not_understood
 }
 
 /// The physics values of one point, for the solver. The fields and their

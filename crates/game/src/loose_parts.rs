@@ -376,6 +376,19 @@ fn pushing() -> bool {
     *PUSHING.get_or_init(|| std::env::var("KJK_LOOSE_PUSH").as_deref() != Ok("off"))
 }
 
+/// The robe and cape values changed for the run, a tuning aid:
+/// `KJK_LOOSE_TUNE` (`asset_ja::loose::physics::tune`).
+fn tune() {
+    let Ok(spec) = std::env::var("KJK_LOOSE_TUNE") else {
+        return;
+    };
+    let not_understood = finder::physics::tune(&spec);
+    info!("robes and capes tuned: {spec}");
+    if !not_understood.is_empty() {
+        warn!("KJK_LOOSE_TUNE does not understand {not_understood:?}");
+    }
+}
+
 /// Each body model's solver, by model name (`worn`).
 static MODELS: Mutex<BTreeMap<String, Option<Arc<Model>>>> = Mutex::new(BTreeMap::new());
 
@@ -813,6 +826,7 @@ pub(crate) struct LoosePartsPlugin;
 impl Plugin for LoosePartsPlugin {
     fn build(&self, app: &mut App) {
         solve_in_this_run(wanted());
+        tune();
         app.init_resource::<Solving>()
             .init_resource::<DebugView>()
             .add_systems(
