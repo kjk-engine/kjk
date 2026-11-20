@@ -112,7 +112,9 @@ One rank in a class skill takes {progression.levels.skill_cost[0]:bare}
 skill point. One rank in a cross-class skill takes
 {progression.levels.skill_cost[1]:bare} skill points. A Class Skill feat
 makes its skill a class skill for the character, whatever the class. A
-class skill can
+character with two classes keeps the class skills of both. A Scoundrel who
+becomes a Jedi Sentinel still has Stealth as a class skill. A class skill
+can
 have at most as many ranks as the character's level plus
 {progression.levels.rank_cap_over:bare}. A cross-class skill can have at
 most that number divided by {progression.levels.cross_class_cap_divisor:bare}.

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `ba48925866da487a`.
+Edition `da7c493544b0e3f1`.
 
 ## Contents
 
@@ -9621,7 +9621,9 @@ One rank in a class skill takes 1
 skill point. One rank in a cross-class skill takes
 2 skill points. A Class Skill feat
 makes its skill a class skill for the character, whatever the class. A
-class skill can
+character with two classes keeps the class skills of both. A Scoundrel who
+becomes a Jedi Sentinel still has Stealth as a class skill. A class skill
+can
 have at most as many ranks as the character's level plus
 3. A cross-class skill can have at
 most that number divided by 2.

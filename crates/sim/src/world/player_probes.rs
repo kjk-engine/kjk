@@ -258,6 +258,7 @@ pub fn creation() -> Checks {
     checks.push(planned(&classes));
     checks.push(banked(&classes));
     checks.push(class_skill_feat(&classes));
+    checks.push(first_class_skills(&classes));
 
     let mut world = world(Vec::new(), "", Catalog::default());
     let made_world = world.create(&made(vec![PICKED]));
@@ -415,6 +416,44 @@ fn class_skill_feat(classes: &Classes) -> (&'static str, Result<String, String>)
         check(
             with == Some((2, 0)) && without.is_none() && shown == (Some(true), Some(false)),
             format!("with the feat {with:?}, without {without:?}; picks show {shown:?}"),
+        ),
+    )
+}
+
+/// A character made in class 0 (the first four skills its class skills)
+/// who takes up class 1 (only the last four) keeps the first class's
+/// skills as class skills at its first level of class 1. A rank of skill 0
+/// (4 ranks already, so 5, past the cross-class most of 2) and a rank of
+/// skill 2 cost a point each: the level's 2 points buy both. The level's
+/// picks (the level-up screen's) show skills of both classes.
+fn first_class_skills(classes: &Classes) -> (&'static str, Result<String, String>) {
+    let mut classes = classes.clone();
+    classes.classes[1].class_skills = std::array::from_fn(|skill| skill >= 4);
+    let made = creation::sheet(&classes, &made(vec![PICKED]), 2);
+    let Ok((sheet, mut career, _)) = made else {
+        return ("the first class's skills kept", Err(format!("{made:?}")));
+    };
+    career.push((1, 0));
+    let mut choices = Choices {
+        class: 1,
+        ability: None,
+        skills: [0; SKILLS],
+        feats: Vec::new(),
+        powers: Vec::new(),
+    };
+    choices.skills[0] = 1;
+    choices.skills[2] = 1;
+    let taken = classes
+        .taken(&sheet, &career, &choices, 0)
+        .map(|(after, career, left)| (after.skills, career, left));
+    let shown = classes.picks(&sheet, &career, 1).map(|p| p.class_skills);
+    (
+        "a second class keeps the first class's skills as class skills",
+        check(
+            taken.as_ref().is_ok_and(|(skills, career, left)| {
+                skills[0] == 5 && skills[2] == 1 && *career == vec![(0, 1), (1, 1)] && *left == 0
+            }) && shown == Some([true; SKILLS]),
+            format!("taken {taken:?}, picks show {shown:?}"),
         ),
     )
 }
