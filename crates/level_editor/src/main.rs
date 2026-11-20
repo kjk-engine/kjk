@@ -216,6 +216,48 @@ fn make_map(
     Ok(project)
 }
 
+/// The fitted lights' rule data (`data/lights`) that lights placed by hand
+/// are saved to: the folder `KJK_LIGHT_DATA` names, else the one of the
+/// kjk checkout this program was built in (`target/<profile>/` lies in
+/// it).
+fn light_data() -> Option<PathBuf> {
+    if let Some(folder) = std::env::var_os("KJK_LIGHT_DATA").filter(|folder| !folder.is_empty()) {
+        return Some(PathBuf::from(folder));
+    }
+    let me = std::env::current_exe().ok()?;
+    me.ancestors()
+        .map(|folder| folder.join("data").join("lights"))
+        .find(|folder| folder.join("fittings.toml").is_file())
+}
+
+/// The bakes of `area` that `tools/light-kinds` made beside the light data
+/// (`target/light-kinds/game/<folder>/bake/<label>/<area>/b`), the newest
+/// first.
+fn bakes_of(light_data: &Path, area: &str) -> Vec<PathBuf> {
+    let Some(root) = light_data.parent().and_then(Path::parent) else {
+        return Vec::new();
+    };
+    let games = root.join("target").join("light-kinds").join("game");
+    let mut found: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    for folder in std::fs::read_dir(games).into_iter().flatten().flatten() {
+        for label in std::fs::read_dir(folder.path().join("bake"))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let bake = label.path().join(area).join("b");
+            if bake.is_dir() {
+                let when = std::fs::metadata(&bake)
+                    .and_then(|meta| meta.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                found.push((when, bake));
+            }
+        }
+    }
+    found.sort_by_key(|(when, _)| std::cmp::Reverse(*when));
+    found.into_iter().map(|(_, bake)| bake).collect()
+}
+
 /// Every room of the install that a new map can place: each room of every
 /// area's layout that has a model, the first layout's place for it.
 fn room_library(resolver: &Resolver) -> Vec<state::LibraryRoom> {
@@ -303,6 +345,10 @@ fn setup(
     let sounds = sorted(ResType::UTS);
     let stores = sorted(ResType::UTM);
     let rooms = room_library(&resolver);
+    let light_data = light_data();
+    let bakes = light_data
+        .as_deref()
+        .map_or_else(Vec::new, |folder| bakes_of(folder, &active.project.area));
     let ja = level_edit::active::ja_stack(&discovery);
     let models = ja.as_ref().map_or_else(Vec::new, |stack| {
         level_edit::active::models_under(stack, "models/map_objects/")
@@ -323,6 +369,8 @@ fn setup(
         sounds,
         stores,
         rooms,
+        light_data,
+        bakes,
         program: kjk_program()?,
     })
 }

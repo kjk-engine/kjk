@@ -242,7 +242,7 @@ impl Project {
         let mut files = vec![
             (PROJECT_FILE.to_string(), project.into_bytes()),
             (format!("{}.git", self.area), self.git.write()),
-            (AREA_FILE.to_string(), self.kjk.write().into_bytes()),
+            (AREA_FILE.to_string(), self.own_kjk().write().into_bytes()),
         ];
         for (resref, made) in &self.templates {
             files.push((
@@ -292,7 +292,7 @@ impl Project {
         let git = self.git.write();
         hasher.update(&(git.len() as u64).to_le_bytes());
         hasher.update(&git);
-        hasher.update(self.kjk.write().as_bytes());
+        hasher.update(self.own_kjk().write().as_bytes());
         for (resref, made) in &self.templates {
             let bytes = made.gff.write();
             for part in [resref.as_bytes(), &bytes] {
@@ -307,6 +307,19 @@ impl Project {
             }
         }
         *hasher.finalize().as_bytes()
+    }
+
+    /// What the project's `kjk-area.toml` holds: its kjk-only content, the
+    /// lights placed by hand left out for an installed level, whose lights
+    /// are saved to `data/lights/fittings.toml` (`lights::write_placed`).
+    pub fn own_kjk(&self) -> KjkArea {
+        if self.map.is_some() {
+            return self.kjk.clone();
+        }
+        KjkArea {
+            lights: Vec::new(),
+            ..self.kjk.clone()
+        }
     }
 
     /// The map's ARE with its rooms' list made from its rooms.

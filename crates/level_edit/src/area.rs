@@ -36,6 +36,10 @@ use collision::trig;
 pub struct KjkArea {
     pub props: Vec<Prop>,
     pub boxes: Vec<CollisionBox>,
+    /// The lights placed by hand (`lights`). A new map keeps them here as
+    /// `[[light]]` tables; an installed level's are saved to
+    /// `data/lights/fittings.toml` instead (`Project::save`).
+    pub lights: Vec<crate::lights::PlacedLight>,
 }
 
 /// A Jedi Academy model placed in the area.
@@ -326,6 +330,10 @@ impl KjkArea {
                 },
             });
         }
+        for table in tables("light") {
+            area.lights
+                .push(crate::lights::PlacedLight::read(table).map_err(bad)?);
+        }
         Ok(area)
     }
 
@@ -361,6 +369,9 @@ impl KjkArea {
             if shape.role != BoxRole::Solid {
                 out.push_str(&format!("role = {}\n", quote(shape.role.word())));
             }
+        }
+        for light in &self.lights {
+            out.push_str(&format!("\n[[light]]\n{}", light.table(&[])));
         }
         out
     }

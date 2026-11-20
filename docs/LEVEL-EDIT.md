@@ -104,6 +104,55 @@ project is active, its modules are in the install's index (`vfs::project`),
 so `kjk --project NAME play --stage NAME` plays the map like any module,
 and the picker lists it.
 
+## Lights
+
+The fitted lights (`game::fitted_lights`, `docs/LIGHTING-PLAN.md`) put a
+light at every lamp the level art shows, from the rule data of
+`data/lights/`. The editor shows them live and edits the lights placed by
+hand.
+
+- **The Lighting menu** picks how the view lights the rooms: **Game** (the
+  stored lightmaps), **Fitted live** (half the stored light and the fitted
+  lights, as `KJK_FITTED_LIGHTS=on` plays), **Lamps only** (none of the
+  stored light, so each light's pool shows on its own) and **Baked** (a
+  bake of `kjk detail-bake`, picked from the bakes `tools/light-kinds`
+  made of the area). The scene is drawn again in the mode picked.
+- **Show lights** (F4) draws every light as a marker in its colour: a
+  large one for a light placed by hand, a small one for a light the game
+  places at a fitting. The selected light shows its reach as a
+  see-through sphere. The outliner's Lights lists the lights placed by
+  hand and the game's own by where they come from: the glowing texture of
+  their fitting, or `hidden lamp` for a room's hidden lamp.
+- **A fitted light** is the game's and is not changed. Its details say
+  where it comes from, its colour, reach, cone and strip. "Copy as a
+  placed light" makes an editable copy of it.
+- **A light placed by hand** is placed from the asset picker's Lights tab
+  (a lamp that shines all ways, a spot straight down, a panel that shines
+  one way, a strip), moved and turned with the gizmo (turning turns its
+  aim about Z), copied and deleted, with undo. Its details set its colour
+  and strength, reach, cone, strip and the reason it is there.
+
+An installed level's lights placed by hand are the `[[placed]]` tables of
+the light data's `fittings.toml` whose `area` is its module. The light
+data is the folder `KJK_LIGHT_DATA` names, else the `data/lights` of the
+kjk checkout the editor was built in; the Lighting menu names it. Saving
+replaces that area's tables and leaves every other line of the file as it
+was, so the change is a diff the lighting's maintainer reviews. A new
+map's lights placed by hand are `[[light]]` tables of its `kjk-area.toml`.
+
+**Walk** (F7, in the Lighting menu) saves, then starts play's walk mode
+(`kjk play --walk`) on the level, lit as the view is: with
+`KJK_FITTED_LIGHTS` and `KJK_DETAIL_BAKE` set from the view, and
+`KJK_LIGHT_DATA` set to the folder the lights were saved to.
+
+What the editor needs of the game for this: the lighting mode can change
+while a program runs (`fitted_lights::set_mode`, and
+`KJK_FITTED_LIGHTS=lamps` for Lamps only), the bake shown can too
+(`viewer::set_bake_folder`), the rule data is read from `KJK_LIGHT_DATA`
+when it names a folder, and a program can set an area's lights placed by
+hand (`fitted_lights::set_placed`). Lights placed by hand are matched to
+the module play's scene is named for (`play pmbal in danm13`).
+
 ## The navigation mesh
 
 The game's characters find their way over the navigation mesh, which play
@@ -355,6 +404,8 @@ so later runs show it at once and a changed file is drawn again.
 | Enter | place the asset picked in the picker where the view's centre meets the level |
 | F2 | show or hide the collision: walkable walkmesh in green, other solid surfaces in orange, the walls along the walkmesh's open edges in blue |
 | F3 | show or hide the navigation mesh |
+| F4 | show or hide the lights |
+| F7 | save, then walk the level in play's walk mode, lit as the view is |
 | F5 | save, then start `kjk play` on the project in a window of its own, as a level 6 Jedi |
 | F6 | save, then run the containment audit on the project and list its result |
 | Escape | select nothing |
@@ -402,6 +453,13 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit collision on`, `edit collision off` | shows or hides the collision |
 | `edit nav on`, `edit nav off` | shows or hides the navigation mesh |
 | `edit role solid`, `walkable`, `block`, `floor` | gives the selected box a role |
+| `edit light view game`, `live`, `lamps`, `baked [FOLDER]` | lights the view's rooms so |
+| `edit lights on`, `edit lights off` | shows or hides the lights |
+| `edit add light point`, `spot`, `panel`, `strip` `[X Y Z]` | places a light by hand |
+| `edit select light N`, `edit select fitted N` | selects a light placed by hand, or the game's (from 0) |
+| `edit light colour R G B`, `radius R`, `cone C`, `strip HALF`, `reason TEXT` | changes the selected light placed by hand |
+| `edit light copy` | copies the selected fitted light as a light placed by hand |
+| `edit walk` | saves, then starts play's walk mode lit as the view is |
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit audit` | saves, then runs `kjk collision audit` on the project |

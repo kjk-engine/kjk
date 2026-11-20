@@ -43,6 +43,7 @@ pub enum Tool {
 /// The asset picker's tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
+    Lights,
     Rooms,
     Placeables,
     Creatures,
@@ -65,6 +66,15 @@ const SHAPES: [(&str, [f32; 3], BoxRole); 7] = [
     ("Nav floor", [2.0, 2.0, 0.1], BoxRole::NavFloor),
 ];
 
+/// The Lights tab's ready lights: a shape (`state::light_shape`) and its
+/// name.
+const LIGHT_SHAPES: [(&str, &str); 4] = [
+    ("point", "Lamp, all ways"),
+    ("spot", "Spot, straight down"),
+    ("panel", "Panel, one way"),
+    ("strip", "Strip, 2 m"),
+];
+
 /// A role's name in the panel.
 fn role_label(role: BoxRole) -> &'static str {
     match role {
@@ -83,6 +93,8 @@ enum Asset {
     /// An object with no model of its own: a waypoint, a trigger, a sound
     /// or a store, by its template.
     Object(Kind, String),
+    /// A light placed by hand of a ready shape (`state::light_shape`).
+    Light(&'static str),
 }
 
 /// The window's own state, apart from the project's.
@@ -384,7 +396,11 @@ fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform
     let scale = match target {
         Target::Prop(at) => Vec3::splat(state.editor.project.kjk.props.get(at)?.scale),
         Target::Box(at) => Vec3::from_array(state.editor.project.kjk.boxes.get(at)?.size),
-        Target::Object(..) | Target::Room(_) | Target::Entry => Vec3::ONE,
+        Target::Object(..)
+        | Target::Room(_)
+        | Target::Entry
+        | Target::Light(_)
+        | Target::Fitted(_) => Vec3::ONE,
     };
     let p = Vec3::from_array(position).as_dvec3();
     let r = bevy::math::DQuat::from_rotation_z(f64::from(facing).to_radians());
@@ -436,7 +452,11 @@ fn gizmo_edits(target: Target, result: &GizmoResult, moved: &GizmoTransform) -> 
                     at,
                     s.map(|side| side.max(level_edit::area::SMALLEST_SIDE)),
                 )],
-                Target::Object(..) | Target::Room(_) | Target::Entry => Vec::new(),
+                Target::Object(..)
+                | Target::Room(_)
+                | Target::Entry
+                | Target::Light(_)
+                | Target::Fitted(_) => Vec::new(),
             }
         }
     }
@@ -465,7 +485,10 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
         (Tool::Scale, Target::Box(_)) => {
             Some(GizmoMode::ScaleX | GizmoMode::ScaleY | GizmoMode::ScaleZ)
         }
-        (Tool::Scale, Target::Object(..) | Target::Room(_) | Target::Entry) => None,
+        (Tool::Scale, Target::Object(..) | Target::Room(_) | Target::Entry | Target::Light(_)) => {
+            None
+        }
+        (_, Target::Fitted(_)) => None,
     }
 }
 
@@ -530,6 +553,11 @@ fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3], snapping: bool) {
                 solid: true,
             }));
         }
+        Asset::Light(shape) => {
+            if let Some(light) = state::light_shape(shape, at) {
+                state.apply(Edit::AddLight(light));
+            }
+        }
         Asset::Shape(at_shape) => {
             let (stem, size, role) = SHAPES[*at_shape];
             let name = state
@@ -586,6 +614,7 @@ fn panels(
             ["tab", "triggers"] => ui.tab = Tab::Triggers,
             ["tab", "sounds"] => ui.tab = Tab::Sounds,
             ["tab", "stores"] => ui.tab = Tab::Stores,
+            ["tab", "lights"] => ui.tab = Tab::Lights,
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
             ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
             ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
@@ -627,7 +656,8 @@ fn panels(
     crate::file::dialogs(&ctx, state, &mut ui.file);
     // The buttons' commands, run as their keys run them.
     if let Some(command) = state.pending_command.take() {
-        state::run(state, &[command.as_str()], &cameras);
+        let words: Vec<&str> = command.split_whitespace().collect();
+        state::run(state, &words, &cameras);
     }
 
     // The keys, when no text field has them and the camera is not flying.
@@ -709,6 +739,12 @@ fn shortcuts(
     }
     if pressed(KeyCode::F3) {
         state.show_nav = !state.show_nav;
+    }
+    if pressed(KeyCode::F4) {
+        state.show_lights = !state.show_lights;
+    }
+    if pressed(KeyCode::F7) {
+        state::run(state, &["walk"], cameras);
     }
     if pressed(KeyCode::F5) {
         state::run(state, &["play"], cameras);
@@ -808,6 +844,7 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
             }
             ui.checkbox(&mut state.show_collision, "Collision")
                 .on_hover_text("F2: walkable floor green, solid surfaces orange, edge walls blue");
+            lighting_menu(ui, state);
             ui.checkbox(&mut state.show_nav, "Nav").on_hover_text(
                 "F3: the navigation mesh the game's characters find their way over, \
                  each island its own colour; red under furniture, purple under a door \
@@ -958,6 +995,56 @@ fn outliner(
                             }
                             if row.double_clicked() {
                                 clicked = Some((Target::Entry, true));
+                            }
+                        });
+                }
+                // The lights: those placed by hand, then the game's own by
+                // where they come from (shown while the lights are drawn).
+                let placed: Vec<(usize, String)> = (state.editor.project.kjk.lights)
+                    .iter()
+                    .enumerate()
+                    .map(|(at, light)| {
+                        let named = if light.reason.is_empty() {
+                            format!("light {at}")
+                        } else {
+                            light.reason.clone()
+                        };
+                        (at, named)
+                    })
+                    .filter(|(_, text)| matches(text))
+                    .collect();
+                let mut sources: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+                for (at, (_, source)) in state.editor.seen_lights.iter().enumerate() {
+                    if matches(source) {
+                        sources.entry(source.clone()).or_default().push(at);
+                    }
+                }
+                if !placed.is_empty() || !sources.is_empty() {
+                    let fitted: usize = sources.values().map(Vec::len).sum();
+                    egui::CollapsingHeader::new(format!("Lights ({})", placed.len() + fitted))
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            let mut row = |ui: &mut egui::Ui, target: Target, text: String| {
+                                let row = ui
+                                    .selectable_label(state.editor.selected == Some(target), text);
+                                if row.clicked() {
+                                    clicked = Some((target, false));
+                                }
+                                if row.double_clicked() {
+                                    clicked = Some((target, true));
+                                }
+                            };
+                            for (at, text) in placed {
+                                row(ui, Target::Light(at), text);
+                            }
+                            for (source, lights) in sources {
+                                egui::CollapsingHeader::new(format!("{source} ({})", lights.len()))
+                                    .id_salt(("fitted", source.clone()))
+                                    .show(ui, |ui| {
+                                        for at in lights {
+                                            row(ui, Target::Fitted(at), format!("{source} #{at}"));
+                                        }
+                                    });
                             }
                         });
                 }
@@ -1143,6 +1230,43 @@ fn details(
                                         ui.end_row();
                                     }
                                 }
+                                Target::Light(at) => {
+                                    if let Some(light) =
+                                        state.editor.project.kjk.lights.get(at).cloned()
+                                    {
+                                        light_rows(ui, &light, &mut |changed| {
+                                            edits.push(Edit::SetLight(at, changed))
+                                        });
+                                    }
+                                }
+                                Target::Fitted(at) => {
+                                    if let Some((light, source)) =
+                                        state.editor.seen_lights.get(at).cloned()
+                                    {
+                                        ui.label("Source");
+                                        ui.label(source);
+                                        ui.end_row();
+                                        ui.label("Colour");
+                                        ui.label(format!(
+                                            "{:.2} {:.2} {:.2}",
+                                            light.colour[0], light.colour[1], light.colour[2]
+                                        ));
+                                        ui.end_row();
+                                        ui.label("Reach");
+                                        ui.label(format!("{:.1} m", light.radius));
+                                        ui.end_row();
+                                        if light.cone > 0.0 {
+                                            ui.label("Cone");
+                                            ui.label(format!("{:.2}", light.cone));
+                                            ui.end_row();
+                                        }
+                                        if light.half > 0.0 {
+                                            ui.label("Strip");
+                                            ui.label(format!("{:.1} m each way", light.half));
+                                            ui.end_row();
+                                        }
+                                    }
+                                }
                                 Target::Object(..) | Target::Room(_) | Target::Entry => {}
                             }
                         });
@@ -1179,6 +1303,14 @@ fn details(
                                 .clicked()
                         {
                             state.pending_command = Some("seam".into());
+                        }
+                        if let Target::Fitted(_) = target
+                            && ui
+                                .button("Copy as a placed light")
+                                .on_hover_text("An editable copy, saved with the level's lights")
+                                .clicked()
+                        {
+                            state.pending_command = Some("light copy".into());
                         }
                         if ui.button("Frame").on_hover_text("F").clicked() {
                             frame_selection(state, camera_request, cameras);
@@ -1595,6 +1727,7 @@ fn assets(
                     (Tab::Triggers, "Triggers"),
                     (Tab::Sounds, "Sounds"),
                     (Tab::Stores, "Stores"),
+                    (Tab::Lights, "Lights"),
                 ]) {
                     if ui.selectable_value(&mut ui_state.tab, tab, label).changed() {
                         ui_state.thumbnails.forget_wanted();
@@ -1669,6 +1802,10 @@ fn assets(
                             room.model.clone(),
                         )
                     })
+                    .collect(),
+                Tab::Lights => LIGHT_SHAPES
+                    .iter()
+                    .map(|(shape, label)| (Asset::Light(shape), label.to_string()))
                     .collect(),
                 Tab::Shapes => SHAPES
                     .iter()
@@ -1807,6 +1944,14 @@ fn tile(
                         egui::Color32::from_rgb(r, g, b),
                         egui::Stroke::NONE,
                     ));
+                }
+                Asset::Light(_) => {
+                    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                    ui.painter().circle_filled(
+                        rect.center(),
+                        rect.width() * 0.22,
+                        egui::Color32::from_rgb(255, 230, 160),
+                    );
                 }
                 Asset::Shape(_) => {
                     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -1982,4 +2127,164 @@ fn labels(painter: &egui::Painter, state: &EditorState, camera: &Camera, eye: &G
         painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(140));
         painter.galley(rect.min + egui::vec2(2.0, 2.0), galley, colour);
     }
+}
+
+/// The rows of the details panel for a light placed by hand: its colour
+/// and strength, reach, cone, strip and reason. A change hands the light
+/// as changed to `changed`.
+fn light_rows(
+    ui: &mut egui::Ui,
+    light: &level_edit::PlacedLight,
+    changed: &mut dyn FnMut(level_edit::PlacedLight),
+) {
+    let mut light = light.clone();
+    let before = light.clone();
+    // The colour as a hue at full strength, and its strength apart.
+    let strength = light.colour.iter().fold(0.0f32, |a, b| a.max(*b));
+    let mut hue = light.colour.map(|value| {
+        if strength > 0.0 {
+            value / strength
+        } else {
+            1.0
+        }
+    });
+    let mut power = strength;
+    ui.label("Colour");
+    ui.horizontal(|ui| {
+        ui.color_edit_button_rgb(&mut hue);
+        ui.add(
+            egui::DragValue::new(&mut power)
+                .range(0.0..=4.0)
+                .speed(0.01)
+                .prefix("strength "),
+        );
+    });
+    ui.end_row();
+    // Only a colour the user changed is made again from its hue and
+    // strength: made every frame, its rounding would be an edit.
+    let (hue_before, power_before) = (
+        before.colour.map(|value| {
+            if strength > 0.0 {
+                value / strength
+            } else {
+                1.0
+            }
+        }),
+        strength,
+    );
+    if hue != hue_before || power != power_before {
+        light.colour = hue.map(|value| value * power);
+    }
+    ui.label("Reach");
+    ui.add(
+        egui::DragValue::new(&mut light.radius)
+            .range(0.1..=50.0)
+            .speed(0.05)
+            .suffix(" m"),
+    );
+    ui.end_row();
+    ui.label("Cone");
+    ui.add(egui::Slider::new(&mut light.cone, 0.0..=0.9))
+        .on_hover_text("0 shines all ways, 0.2 the half in front of a panel, 0.7 a spotlight");
+    if light.cone > 0.0 && light.aim == [0.0; 3] {
+        light.aim = [0.0, 0.0, -1.0];
+    }
+    ui.end_row();
+    ui.label("Strip");
+    ui.add(
+        egui::DragValue::new(&mut light.half)
+            .range(0.0..=20.0)
+            .speed(0.05)
+            .suffix(" m each way"),
+    );
+    if light.half > 0.0 && light.way == [0.0; 3] {
+        light.way = [1.0, 0.0, 0.0];
+    }
+    ui.end_row();
+    ui.label("Reason");
+    ui.text_edit_singleline(&mut light.reason);
+    ui.end_row();
+    if light != before {
+        changed(light);
+    }
+}
+
+/// The toolbar's Lighting menu: how the view lights the rooms, which bake
+/// the Baked view shows, whether the lights are drawn, and walk mode.
+fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
+    use kjk_game::fitted_lights::Mode;
+    ui.menu_button("Lighting", |ui| {
+        for (mode, label, hint) in [
+            (Mode::Off, "Game", "The game's stored lightmaps"),
+            (
+                Mode::Live,
+                "Fitted live",
+                "Half the stored light and the fitted lights, as the trial plays",
+            ),
+            (
+                Mode::LampsOnly,
+                "Lamps only",
+                "None of the stored light: only what the fitted lights give",
+            ),
+            (
+                Mode::Baked,
+                "Baked",
+                "A bake of the fitted lights in the rooms' lightmaps",
+            ),
+        ] {
+            if ui
+                .radio(state.light_view == mode, label)
+                .on_hover_text(hint)
+                .clicked()
+            {
+                state.light_view = mode;
+                if mode == Mode::Baked && state.bake.is_none() {
+                    state.bake = state.setup.bakes.first().cloned();
+                }
+            }
+        }
+        if !state.setup.bakes.is_empty() {
+            ui.menu_button("Bake shown", |ui| {
+                for bake in state.setup.bakes.clone() {
+                    let label = bake
+                        .ancestors()
+                        .nth(2)
+                        .and_then(|folder| folder.file_name())
+                        .map_or_else(
+                            || bake.display().to_string(),
+                            |name| name.to_string_lossy().into_owned(),
+                        );
+                    if ui
+                        .radio(state.bake.as_ref() == Some(&bake), label)
+                        .clicked()
+                    {
+                        state.bake = Some(bake);
+                        state.light_view = Mode::Baked;
+                    }
+                }
+            });
+        }
+        ui.separator();
+        ui.checkbox(&mut state.show_lights, "Show lights   F4");
+        if ui
+            .button("Walk   F7")
+            .on_hover_text("Saves, then walks the level in play's walk mode, lit as the view is")
+            .clicked()
+        {
+            state.pending_command = Some("walk".into());
+            ui.close();
+        }
+        ui.separator();
+        ui.label(
+            egui::RichText::new(match &state.setup.light_data {
+                Some(folder) => format!(
+                    "Placed lights are saved to {}",
+                    folder.join("fittings.toml").display()
+                ),
+                None => "No light data folder found (set KJK_LIGHT_DATA)".to_string(),
+            })
+            .small()
+            .weak(),
+        );
+    });
 }

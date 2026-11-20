@@ -6553,6 +6553,152 @@ fn prepass_readers_declared() {
     println!("{} prepass readers, each declared", readers.len());
 }
 
+/// Lights placed by hand in the level editor (`level_edit::lights`,
+/// proposed 2026-11-20, awaiting approval), on a `fittings.toml` the test
+/// makes: comments, a `[[fitting]]` and the `[[placed]]` lights of two
+/// areas. One area's lights read back with their reason, and replacing
+/// them leaves every other line of the file as it was, the other area's
+/// lights and the comments included; the new lights read back as written,
+/// and writing them again changes nothing. A light the file does not have
+/// yet goes at the end. In the editor a light is added, moved, turned (its
+/// aim turns about Z, its height kept), copied and deleted, and undone. A
+/// new map keeps its lights in `kjk-area.toml`; an installed level's are
+/// left out of it. No installs.
+#[test]
+fn level_edit_fitted_lights() {
+    use level_edit::lights::{read_placed, write_placed};
+    use level_edit::{Edit, Editor, KjkArea, PlacedLight, Project, Target, git};
+
+    let file = "# The rules.\n\
+                [rules]\n\
+                strong = 1.1\n\
+                \n\
+                # A kind that differs.\n\
+                [[fitting]]\n\
+                game = \"k1\"\n\
+                texture = \"lza_lit01\"\n\
+                strength = 1.7\n\
+                \n\
+                [[placed]]\n\
+                game = \"tsl\"\n\
+                area = \"602dan\"\n\
+                at = [-27.5, -3.2, 12.8]\n\
+                colour = [1.0, 0.96, 0.88]\n\
+                radius = 7.0\n\
+                reason = \"Daylight from the windows.\"\n\
+                \n\
+                [[placed]]\n\
+                game = \"k1\"\n\
+                area = \"danm13\"\n\
+                at = [1.0, 2.0, 3.0]\n\
+                colour = [0.8, 0.24, 0.2]\n\
+                radius = 5.0\n\
+                aim = [0.0, 0.0, -1.0]\n\
+                cone = 0.7\n\
+                reason = \"A lamp the art shows.\"\n\
+                \n\
+                [[placed]]\n\
+                game = \"tsl\"\n\
+                area = \"221tel\"\n\
+                at = [-33.657, -9.177, 4.675]\n\
+                colour = [0.8, 0.24, 0.2]\n\
+                radius = 5.0\n";
+    let enclave = read_placed(file, "k1", "danm13").unwrap();
+    assert_eq!(enclave.len(), 1);
+    assert_eq!(enclave[0].reason, "A lamp the art shows.");
+    assert_eq!(enclave[0].cone, 0.7);
+    let lights = vec![
+        PlacedLight {
+            at: [4.0, 5.0, 2.5],
+            colour: [1.0, 0.9, 0.7],
+            radius: 6.0,
+            reason: "Light for the council.".into(),
+            ..PlacedLight::default()
+        },
+        PlacedLight {
+            at: [8.0, 5.0, 3.0],
+            radius: 4.0,
+            aim: [0.0, 0.0, -1.0],
+            cone: 0.7,
+            way: [1.0, 0.0, 0.0],
+            half: 1.5,
+            ..PlacedLight::default()
+        },
+    ];
+    let written = write_placed(file, "k1", "danm13", &lights).unwrap();
+    assert_eq!(read_placed(&written, "k1", "danm13").unwrap(), lights);
+    let others = |text: &str| -> String {
+        // The text without danm13's tables.
+        let mut kept = String::new();
+        for block in text.split("\n[[placed]]\n") {
+            if !block.contains("area = \"danm13\"") {
+                kept.push_str(block);
+                kept.push('|');
+            }
+        }
+        kept
+    };
+    assert_eq!(
+        others(&written),
+        others(file),
+        "the rest of the file is kept"
+    );
+    assert_eq!(
+        write_placed(&written, "k1", "danm13", &lights).unwrap(),
+        written
+    );
+    let new = write_placed(file, "k1", "end_m01aa", &lights[..1]).unwrap();
+    assert!(new.starts_with(file), "a new area's lights go at the end");
+    assert_eq!(read_placed(&new, "k1", "end_m01aa").unwrap(), lights[..1]);
+
+    let mut editor = Editor::new(Project::new(
+        &std::env::temp_dir().join("kjk-fitted-lights"),
+        "k1",
+        "danm13",
+        "m13aa",
+        git::empty(),
+    ));
+    editor.apply(Edit::AddLight(lights[0].clone())).unwrap();
+    editor
+        .apply(Edit::Move(Target::Light(0), [1.0, 1.0, 2.0]))
+        .unwrap();
+    editor.apply(Edit::Turn(Target::Light(0), 90.0)).unwrap();
+    let turned = &editor.project.kjk.lights[0];
+    assert!(turned.aim[0].abs() < 1e-6 && (turned.aim[1] - 1.0).abs() < 1e-6);
+    editor.apply(Edit::Duplicate(Target::Light(0))).unwrap();
+    assert_eq!(editor.project.kjk.lights.len(), 2);
+    editor.apply(Edit::Delete(Target::Light(1))).unwrap();
+    assert!(
+        editor
+            .apply(Edit::AddLight(PlacedLight {
+                radius: 0.0,
+                ..PlacedLight::default()
+            }))
+            .is_err()
+    );
+    assert!(
+        editor
+            .apply(Edit::Move(Target::Fitted(0), [0.0; 3]))
+            .is_err()
+    );
+    // The delete, the copy, the turn and the move undone.
+    assert!(editor.undo() && editor.undo() && editor.undo() && editor.undo());
+    assert_eq!(editor.project.kjk.lights[0].at, [4.0, 5.0, 2.5]);
+
+    let area = KjkArea {
+        lights: lights.clone(),
+        ..KjkArea::default()
+    };
+    assert_eq!(KjkArea::parse(&area.write()).unwrap(), area);
+    let mut installed = editor.project.clone();
+    installed.kjk = area.clone();
+    assert!(installed.own_kjk().lights.is_empty());
+    println!(
+        "{} lights written for danm13, the rest of the file kept",
+        lights.len()
+    );
+}
+
 /// A project's changes to the navigation mesh (`level_edit::nav`,
 /// proposed 2026-11-20, awaiting approval), on a floor the test makes: a
 /// square 4 m on a side, of two triangles. A blocker 1 m square over its

@@ -20,6 +20,11 @@ pub enum Target {
     Room(usize),
     /// Where the player starts in the project's new map.
     Entry,
+    /// A light placed by hand (`KjkArea::lights`).
+    Light(usize),
+    /// A light the game places itself at a fitting, as the view last drew
+    /// it (`Editor::seen_lights`): shown and inspected, not changed.
+    Fitted(usize),
 }
 
 /// One change to the project.
@@ -51,6 +56,11 @@ pub enum Edit {
     AddRoom(crate::map::Room),
     /// A box given another role (`area::BoxRole`).
     Role(usize, crate::area::BoxRole),
+    /// A light placed by hand added.
+    AddLight(crate::lights::PlacedLight),
+    /// A light placed by hand changed (its colour, reach, cone, strip or
+    /// reason; `Move` and `Turn` place and aim it).
+    SetLight(usize, crate::lights::PlacedLight),
 }
 
 /// What a template change reads of the install: a template's bytes by
@@ -98,6 +108,10 @@ struct State {
 pub struct Editor {
     pub project: Project,
     pub selected: Option<Target>,
+    /// The lights the game places itself, as the view last drew them, each
+    /// with where it comes from (`Target::Fitted`). Not part of the
+    /// project.
+    pub seen_lights: Vec<(crate::lights::PlacedLight, String)>,
     undo: Vec<State>,
     redo: Vec<State>,
     /// Counts every change of the project (edits, undos, redos), so a view
@@ -112,6 +126,7 @@ impl Editor {
         Editor {
             project,
             selected: None,
+            seen_lights: Vec::new(),
             undo: Vec::new(),
             redo: Vec::new(),
             changes: 0,
@@ -160,6 +175,16 @@ impl Editor {
                 .map
                 .as_ref()
                 .map(|map| (map.entry, map.entry_facing)),
+            Target::Light(at) => self
+                .project
+                .kjk
+                .lights
+                .get(at)
+                .map(|light| (light.at, aim_facing(light.aim))),
+            Target::Fitted(at) => self
+                .seen_lights
+                .get(at)
+                .map(|(light, _)| (light.at, aim_facing(light.aim))),
         }
     }
 
@@ -339,6 +364,10 @@ impl Editor {
 
     fn editable(target: Target) -> Result<(), String> {
         match target {
+            Target::Fitted(_) => Err(
+                "the game places this light at a fitting; copy it as a placed light to change it"
+                    .into(),
+            ),
             Target::Object(kind, _) if !EDITABLE.contains(&kind) => Err(format!(
                 "a {kind:?} cannot be changed in the editor: only creatures, placeables and waypoints"
             )),
@@ -368,6 +397,8 @@ impl Editor {
                         .map(|room| room.position = to)
                         .is_some(),
                     Target::Entry => map.as_mut().map(|map| map.entry = to).is_some(),
+                    Target::Light(at) => kjk.lights.get_mut(at).map(|l| l.at = to).is_some(),
+                    Target::Fitted(_) => false,
                 };
                 moved.then_some(Some(target)).ok_or_else(|| missing(target))
             }
@@ -389,8 +420,20 @@ impl Editor {
                     }
                     Target::Prop(at) => kjk.props.get_mut(at).map(|p| p.yaw = degrees).is_some(),
                     Target::Box(at) => kjk.boxes.get_mut(at).map(|b| b.yaw = degrees).is_some(),
-                    Target::Room(_) => false,
+                    Target::Room(_) | Target::Fitted(_) => false,
                     Target::Entry => map.as_mut().map(|map| map.entry_facing = degrees).is_some(),
+                    // A light's aim turns about Z, its height kept; one that
+                    // shines all ways or straight down takes a level aim.
+                    Target::Light(at) => kjk
+                        .lights
+                        .get_mut(at)
+                        .map(|light| {
+                            let (sin, cos) = degrees.to_radians().sin_cos();
+                            let flat = (light.aim[0].powi(2) + light.aim[1].powi(2)).sqrt();
+                            let flat = if flat > 0.01 { flat } else { 1.0 };
+                            light.aim = [cos * flat, sin * flat, light.aim[2]];
+                        })
+                        .is_some(),
                 };
                 turned
                     .then_some(Some(target))
@@ -423,6 +466,12 @@ impl Editor {
                         Ok(Some(Target::Room(rooms.len() - 1)))
                     }
                     Target::Entry => Err("a map has one entry".into()),
+                    Target::Light(at) => {
+                        let copy = kjk.lights.get(at).ok_or_else(|| missing(target))?.clone();
+                        kjk.lights.push(copy);
+                        Ok(Some(Target::Light(kjk.lights.len() - 1)))
+                    }
+                    Target::Fitted(_) => Err("a fitted light is not copied here".into()),
                 }
             }
             Edit::Delete(target) => {
@@ -440,6 +489,10 @@ impl Editor {
                         (at < rooms.len()).then(|| rooms.remove(at)).is_some()
                     }
                     Target::Entry => return Err("a map's entry is moved, not deleted".into()),
+                    Target::Light(at) => (at < kjk.lights.len())
+                        .then(|| kjk.lights.remove(at))
+                        .is_some(),
+                    Target::Fitted(_) => false,
                 };
                 gone.then_some(None).ok_or_else(|| missing(target))
             }
@@ -514,6 +567,20 @@ impl Editor {
                     .ok_or_else(|| missing(Target::Prop(at)))?;
                 prop.scale = scale;
                 Ok(Some(Target::Prop(at)))
+            }
+            Edit::AddLight(light) => {
+                light_problem(&light)?;
+                kjk.lights.push(light);
+                Ok(Some(Target::Light(kjk.lights.len() - 1)))
+            }
+            Edit::SetLight(at, light) => {
+                light_problem(&light)?;
+                let slot = kjk
+                    .lights
+                    .get_mut(at)
+                    .ok_or_else(|| missing(Target::Light(at)))?;
+                *slot = light;
+                Ok(Some(Target::Light(at)))
             }
             Edit::Role(at, role) => {
                 let shape = kjk
@@ -633,4 +700,34 @@ fn rooms(map: &mut Option<crate::map::NewMap>) -> Result<&mut Vec<crate::map::Ro
     map.as_mut()
         .map(|map| &mut map.rooms)
         .ok_or_else(|| "the project makes no new map".to_string())
+}
+
+/// The facing (degrees from +X) of a light's aim seen from above; 0 for a
+/// light that shines all ways or straight down.
+fn aim_facing(aim: [f32; 3]) -> f32 {
+    if aim[0].abs() < 1e-4 && aim[1].abs() < 1e-4 {
+        return 0.0;
+    }
+    aim[1].atan2(aim[0]).to_degrees()
+}
+
+/// What is wrong with a light placed by hand, if anything.
+fn light_problem(light: &crate::lights::PlacedLight) -> Result<(), String> {
+    let numbers = light
+        .at
+        .iter()
+        .chain(&light.colour)
+        .chain(&light.aim)
+        .chain(&light.way)
+        .chain([&light.radius, &light.cone, &light.half]);
+    if !numbers.copied().all(f32::is_finite) {
+        return Err("a light's numbers must be finite".into());
+    }
+    if light.radius <= 0.0 {
+        return Err("a light must reach some way".into());
+    }
+    if light.colour.iter().any(|value| *value < 0.0) {
+        return Err("a light's colour cannot be below 0".into());
+    }
+    Ok(())
 }

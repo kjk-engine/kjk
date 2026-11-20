@@ -177,3 +177,12 @@ pub fn nav_faces(game: &str, module: &str, floor: Vec<[[f32; 3]; 3]>) -> Vec<[[f
         None => floor,
     }
 }
+
+/// The lights placed by hand in the active project's new map, when
+/// `module` is it: the game reads them in place of `fittings.toml`'s
+/// (`game::fitted_lights`). An installed level's are saved to that file.
+pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]> {
+    let active = get()?;
+    (active.project.map.is_some() && active.project.module.eq_ignore_ascii_case(module))
+        .then_some(active.project.kjk.lights.as_slice())
+}

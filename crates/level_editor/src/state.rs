@@ -73,6 +73,14 @@ pub struct EditSetup {
     pub stores: Vec<String>,
     /// The install's rooms, for a new map (`LibraryRoom`).
     pub rooms: Vec<LibraryRoom>,
+    /// The folder of the fitted lights' rule data (`data/lights`) that an
+    /// installed level's lights placed by hand are saved to: the one
+    /// `KJK_LIGHT_DATA` names, else the kjk checkout's this program was
+    /// built in. `None` when neither is found.
+    pub light_data: Option<PathBuf>,
+    /// The bakes of the fitted lights found for this area (`kjk
+    /// detail-bake`): each folder of baked lightmaps, for the Baked view.
+    pub bakes: Vec<PathBuf>,
     /// The `kjk` that `edit play` and `edit audit` start: the one beside
     /// this program.
     pub program: PathBuf,
@@ -132,6 +140,18 @@ pub struct EditorState {
     collision: Option<(u64, collision_odyssey::ModuleCollision)>,
     pub(crate) show_collision: bool,
     shown_collision: bool,
+    /// How the view lights the rooms (`fitted_lights::Mode`), the bake the
+    /// Baked view shows, and whether the lights are drawn; with what the
+    /// scene was last drawn with.
+    pub(crate) light_view: kjk_game::fitted_lights::Mode,
+    pub(crate) bake: Option<PathBuf>,
+    pub(crate) show_lights: bool,
+    shown_lights: (
+        kjk_game::fitted_lights::Mode,
+        Option<PathBuf>,
+        bool,
+        Option<Target>,
+    ),
     /// Whether the navigation mesh is drawn, and what was found of it when
     /// it last was.
     pub(crate) show_nav: bool,
@@ -155,7 +175,19 @@ pub struct EditorState {
 impl EditorState {
     /// The state `setup` starts from, with its scene drawn.
     pub fn new(setup: EditSetup) -> Result<(EditorState, LoadedScene), String> {
-        let editor = Editor::new(setup.project.clone());
+        let mut project = setup.project.clone();
+        // An installed level's lights placed by hand are the light data's
+        // (`fittings.toml`), not the project's.
+        if project.map.is_none()
+            && let Some(folder) = &setup.light_data
+        {
+            let path = folder.join("fittings.toml");
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            project.kjk.lights =
+                level_edit::lights::read_placed(&text, &project.game, &project.module)?;
+        }
+        let editor = Editor::new(project);
         let mut state = EditorState {
             setup,
             editor,
@@ -169,6 +201,10 @@ impl EditorState {
             shown_collision: false,
             show_nav: false,
             shown_nav: false,
+            light_view: kjk_game::fitted_lights::mode(),
+            bake: None,
+            show_lights: false,
+            shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false, None),
             nav_facts: None,
             dragging: false,
             pending_pick: None,
@@ -476,6 +512,53 @@ fn flat_model(name: &str, triangles: &[[[f32; 3]; 3]], texture: &str, glow: bool
 }
 
 /// An octahedron of radius `r` about the origin: a marker.
+/// A light's marker texture: its name and its colour, the colour scaled so
+/// its strongest channel is full.
+fn light_texture(colour: [f32; 3]) -> (String, [u8; 4]) {
+    let most = colour.iter().fold(0.0f32, |a, b| a.max(*b)).max(1e-3);
+    let [r, g, b] = colour.map(|value| ((value / most).clamp(0.0, 1.0) * 255.0) as u8);
+    (
+        format!("kjk-editor-light-{r:02x}{g:02x}{b:02x}"),
+        [r, g, b, 255],
+    )
+}
+
+/// A texture's name for the scene's list, which holds `&'static str`s.
+/// The editor makes few colours, so the names it keeps are few.
+fn leak(name: String) -> &'static str {
+    static NAMES: std::sync::Mutex<BTreeMap<String, &'static str>> =
+        std::sync::Mutex::new(BTreeMap::new());
+    let mut names = NAMES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    names
+        .entry(name.clone())
+        .or_insert_with(|| Box::leak(name.into_boxed_str()))
+}
+
+/// A sphere of `radius` round the origin, of 12 slices and 8 stacks.
+fn sphere(radius: f32) -> Vec<[[f32; 3]; 3]> {
+    let point = |slice: usize, stack: usize| {
+        let around = slice as f32 / 12.0 * std::f32::consts::TAU;
+        let up = stack as f32 / 8.0 * std::f32::consts::PI;
+        [
+            radius * up.sin() * around.cos(),
+            radius * up.sin() * around.sin(),
+            radius * up.cos(),
+        ]
+    };
+    let mut out = Vec::new();
+    for slice in 0..12 {
+        for stack in 0..8 {
+            let (a, b) = (point(slice, stack), point(slice + 1, stack));
+            let (c, d) = (point(slice + 1, stack + 1), point(slice, stack + 1));
+            out.push([a, d, c]);
+            out.push([a, c, b]);
+        }
+    }
+    out
+}
+
 fn diamond(r: f32) -> Vec<[[f32; 3]; 3]> {
     let points = [
         [r, 0.0, 0.0],
@@ -534,8 +617,28 @@ const WALL_FILL: (&str, [u8; 4]) = ("kjk-editor-wall", [90, 120, 255, 80]);
 /// The scene of the project as it is now.
 fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     let started = std::time::Instant::now();
-    let resolver = state.resolver();
+    // The lighting the scene is drawn with: the view's mode, its bake, and
+    // the lights placed by hand as the project has them now.
     let module = state.editor.project.module.clone();
+    kjk_game::fitted_lights::set_mode(state.light_view);
+    kjk_game::viewer::set_bake_folder(match state.light_view {
+        kjk_game::fitted_lights::Mode::Baked => state.bake.clone(),
+        _ => None,
+    });
+    kjk_game::fitted_lights::set_placed(
+        &module,
+        Some(
+            state
+                .editor
+                .project
+                .kjk
+                .lights
+                .iter()
+                .map(kjk_game::fitted_lights::Light::of_placed)
+                .collect(),
+        ),
+    );
+    let resolver = state.resolver();
     let ir = ModuleIr::build(&module, &ResolverSource(&resolver))
         .map_err(|refusal| format!("{module}: {refusal:?}"))?;
     let area = EditorState::area_index(&ir, &state.editor.project.area).ok_or(format!(
@@ -723,6 +826,63 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             scene.models.push(Placed::at(overlay, [0.0; 3]));
         }
     }
+    // The lights: each a marker in its colour, the selected one with its
+    // reach drawn round it. The game's own are read from the scene as play
+    // places them (`fitted_lights::explained`).
+    state.editor.seen_lights.clear();
+    if state.show_lights {
+        let found = kjk_game::fitted_lights::explained(&scene);
+        state.editor.seen_lights = found
+            .iter()
+            .filter(|(_, source)| source != "placed")
+            .map(|(light, source)| (light.placed(), source.clone()))
+            .collect();
+        let placed: Vec<(Target, level_edit::PlacedLight)> = (state.editor.project.kjk.lights)
+            .iter()
+            .enumerate()
+            .map(|(at, light)| (Target::Light(at), light.clone()))
+            .chain(
+                (state.editor.seen_lights)
+                    .iter()
+                    .enumerate()
+                    .map(|(at, (light, _))| (Target::Fitted(at), light.clone())),
+            )
+            .collect();
+        for (target, light) in placed {
+            let texture = light_texture(light.colour);
+            let size = if matches!(target, Target::Light(_)) {
+                MARKER_R
+            } else {
+                MARKER_R * 0.6
+            };
+            let marker = scene.models.len();
+            scene.models.push(Placed::at(
+                flat_model("light", &diamond(size), &texture.0, true),
+                light.at,
+            ));
+            textures.push((leak(texture.0.clone()), texture.1));
+            drawn.things.push((target, Vec::new(), Some(marker)));
+            if state.editor.selected == Some(target) {
+                let (name, rgba) = light_texture(light.colour);
+                let reach = format!("{name}-reach");
+                scene.models.push(Placed::at(
+                    flat_model("reach", &sphere(light.radius), &reach, true),
+                    light.at,
+                ));
+                textures.push((leak(reach), [rgba[0], rgba[1], rgba[2], 40]));
+            }
+        }
+    }
+    state.shown_lights = (
+        state.light_view,
+        state.bake.clone(),
+        state.show_lights,
+        state
+            .editor
+            .selected
+            .filter(|target| matches!(target, Target::Light(_) | Target::Fitted(_))),
+    );
+
     // The navigation mesh, as play bakes it with the project's changes
     // (`level_edit::nav`).
     state.nav_facts = None;
@@ -807,7 +967,17 @@ pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
     state.quiet = state.quiet.saturating_add(1);
     let stale = state.built != state.editor.changes()
         || state.shown_collision != state.show_collision
-        || state.shown_nav != state.show_nav;
+        || state.shown_nav != state.show_nav
+        || state.shown_lights
+            != (
+                state.light_view,
+                state.bake.clone(),
+                state.show_lights,
+                state
+                    .editor
+                    .selected
+                    .filter(|target| matches!(target, Target::Light(_) | Target::Fitted(_))),
+            );
     if !stale || state.quiet < SETTLE_FRAMES || state.dragging {
         return;
     }
@@ -1331,6 +1501,15 @@ pub(crate) fn command(
             }
             state.quiet = 0;
         }
+        ["add", "light", shape, rest @ ..] => {
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            let light =
+                light_shape(shape, at).ok_or("add light takes point, spot, panel or strip")?;
+            state.apply(Edit::AddLight(light));
+        }
         ["add", "room", model, rest @ ..] => {
             let at = match rest {
                 [] => place_point(state, cameras),
@@ -1426,6 +1605,90 @@ pub(crate) fn command(
             let role =
                 BoxRole::from_word(word).ok_or("role takes solid, walkable, block or floor")?;
             state.apply(Edit::Role(at, role));
+        }
+        ["light", "view", view, rest @ ..] => {
+            use kjk_game::fitted_lights::Mode;
+            state.light_view = match *view {
+                "game" => Mode::Off,
+                "live" => Mode::Live,
+                "lamps" => Mode::LampsOnly,
+                "baked" => Mode::Baked,
+                _ => return Err("light view takes game, live, lamps or baked".into()),
+            };
+            if let [folder] = rest {
+                state.bake = Some(PathBuf::from(folder));
+            } else if state.light_view == Mode::Baked && state.bake.is_none() {
+                state.bake = state.setup.bakes.first().cloned();
+                if state.bake.is_none() {
+                    state.say("no bake of this area was found; name its folder");
+                }
+            }
+            state.quiet = SETTLE_FRAMES;
+        }
+        ["lights", on @ ("on" | "off")] => {
+            state.show_lights = *on == "on";
+            state.quiet = SETTLE_FRAMES;
+        }
+        ["select", "light", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.project.kjk.lights.len() {
+                return Err(format!("there is no placed light {at}"));
+            }
+            state.editor.selected = Some(Target::Light(at));
+        }
+        ["select", "fitted", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.seen_lights.len() {
+                return Err(format!(
+                    "there is no fitted light {at} (are the lights drawn?)"
+                ));
+            }
+            state.editor.selected = Some(Target::Fitted(at));
+        }
+        ["light", "copy"] => {
+            let Target::Fitted(at) = selected(state)? else {
+                return Err("only a fitted light is copied as a placed light".into());
+            };
+            let (mut light, source) = state.editor.seen_lights[at].clone();
+            light.reason = format!("Copied from the fitted light of {source}.");
+            state.apply(Edit::AddLight(light));
+        }
+        [
+            "light",
+            field @ ("colour" | "radius" | "cone" | "strip" | "reason"),
+            rest @ ..,
+        ] => {
+            let Target::Light(at) = selected(state)? else {
+                return Err("only a light placed by hand is changed".into());
+            };
+            let mut light = state.editor.project.kjk.lights[at].clone();
+            match (*field, rest) {
+                ("colour", [r, g, b]) => light.colour = [number(r)?, number(g)?, number(b)?],
+                ("radius", [r]) => light.radius = number(r)?,
+                ("cone", [c]) => {
+                    light.cone = number(c)?;
+                    if light.cone > 0.0 && light.aim == [0.0; 3] {
+                        light.aim = [0.0, 0.0, -1.0];
+                    }
+                }
+                ("strip", [half]) => {
+                    light.half = number(half)?;
+                    if light.half > 0.0 && light.way == [0.0; 3] {
+                        light.way = [1.0, 0.0, 0.0];
+                    }
+                }
+                ("reason", words) => light.reason = words.join(" "),
+                _ => {
+                    return Err(
+                        "light colour R G B, radius R, cone C, strip HALF or reason TEXT".into(),
+                    );
+                }
+            }
+            state.apply(Edit::SetLight(at, light));
+        }
+        ["walk"] => {
+            command(state, &["save"], cameras)?;
+            walk(state)?;
         }
         ["nav", on @ ("on" | "off")] => {
             state.show_nav = *on == "on";
@@ -1550,6 +1813,71 @@ pub(crate) fn command(
     Ok(())
 }
 
+/// A light placed by hand of a ready shape at `at`: a lamp that shines all
+/// ways, a spotlight straight down, a panel's light that shines along +X,
+/// or a strip 1 m long each way along X.
+pub(crate) fn light_shape(shape: &str, at: [f32; 3]) -> Option<level_edit::PlacedLight> {
+    let base = level_edit::PlacedLight {
+        at,
+        ..level_edit::PlacedLight::default()
+    };
+    Some(match shape {
+        "point" => base,
+        "spot" => level_edit::PlacedLight {
+            aim: [0.0, 0.0, -1.0],
+            cone: 0.7,
+            ..base
+        },
+        "panel" => level_edit::PlacedLight {
+            aim: [1.0, 0.0, 0.0],
+            cone: 0.2,
+            radius: 3.0,
+            ..base
+        },
+        "strip" => level_edit::PlacedLight {
+            way: [1.0, 0.0, 0.0],
+            half: 1.0,
+            ..base
+        },
+        _ => return None,
+    })
+}
+
+/// Starts play's walk mode (`kjk play --walk`) on the project, lit as the
+/// view is: its mode, its bake, and the light data the project saves to.
+pub(crate) fn walk(state: &mut EditorState) -> Result<(), String> {
+    use kjk_game::fitted_lights::Mode;
+    let project = state.editor.project.clone();
+    let mut walk = std::process::Command::new(&state.setup.program);
+    walk.args([
+        "--project",
+        &project.name,
+        "play",
+        "--stage",
+        &project.module,
+        "--walk",
+    ]);
+    walk.env(
+        "KJK_FITTED_LIGHTS",
+        match state.light_view {
+            Mode::Off => "off",
+            Mode::Live => "on",
+            Mode::LampsOnly => "lamps",
+            Mode::Baked => "baked",
+        },
+    );
+    if let (Mode::Baked, Some(bake)) = (state.light_view, &state.bake) {
+        walk.env("KJK_DETAIL_BAKE", bake);
+    }
+    if let Some(folder) = &state.setup.light_data {
+        walk.env("KJK_LIGHT_DATA", folder);
+    }
+    walk.spawn()
+        .map_err(|error| format!("kjk play --walk did not start: {error}"))?;
+    state.say(format!("walk mode started on {}", project.module));
+    Ok(())
+}
+
 /// Saves the project (`Editor::save_with`), saying its warnings and what
 /// was written.
 pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
@@ -1573,6 +1901,29 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
         written.len(),
         state.editor.project.folder.display()
     ));
+    // An installed level's lights placed by hand go to the light data's
+    // `fittings.toml`, where the game reads them.
+    let project = &state.editor.project;
+    if project.map.is_none()
+        && let Some(folder) = &state.setup.light_data
+    {
+        let path = folder.join("fittings.toml");
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let lights = &project.kjk.lights;
+        let had = level_edit::lights::read_placed(&text, &project.game, &project.module)?;
+        if had != *lights {
+            let new =
+                level_edit::lights::write_placed(&text, &project.game, &project.module, lights)?;
+            std::fs::write(&path, new).map_err(|error| format!("{}: {error}", path.display()))?;
+            let message = format!(
+                "saved {} lights placed by hand to {}",
+                lights.len(),
+                path.display()
+            );
+            state.say(message);
+        }
+    }
     Ok(())
 }
 
@@ -1705,6 +2056,31 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
             "position": position,
             "facing": facing,
         }),
+        Target::Light(at) => {
+            let light = state.editor.project.kjk.lights.get(at);
+            serde_json::json!({
+                "kind": "light",
+                "index": at,
+                "position": position,
+                "colour": light.map(|l| l.colour),
+                "radius": light.map(|l| l.radius),
+                "aim": light.map(|l| l.aim),
+                "cone": light.map(|l| l.cone),
+                "half": light.map(|l| l.half),
+                "reason": light.map(|l| l.reason.clone()),
+            })
+        }
+        Target::Fitted(at) => {
+            let seen = state.editor.seen_lights.get(at);
+            serde_json::json!({
+                "kind": "fitted light",
+                "index": at,
+                "position": position,
+                "source": seen.map(|(_, source)| source.clone()),
+                "colour": seen.map(|(l, _)| l.colour),
+                "radius": seen.map(|(l, _)| l.radius),
+            })
+        }
     }
 }
 
@@ -1747,6 +2123,17 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
             "selected": state.editor.selected.map(|target| describe(&state, target)),
             "props": (0..project.kjk.props.len()).map(|at| describe(&state, Target::Prop(at))).collect::<Vec<_>>(),
             "boxes": (0..project.kjk.boxes.len()).map(|at| describe(&state, Target::Box(at))).collect::<Vec<_>>(),
+            "lighting": {
+                "view": format!("{:?}", state.light_view),
+                "bake": state.bake.as_ref().map(|bake| bake.display().to_string()),
+                "placed": (0..project.kjk.lights.len()).map(|at| describe(&state, Target::Light(at))).collect::<Vec<_>>(),
+                "fitted": state.editor.seen_lights.len(),
+                "fitted_by_source": state.editor.seen_lights.iter().fold(BTreeMap::<String, usize>::new(), |mut counts, (_, source)| {
+                    *counts.entry(source.clone()).or_insert(0) += 1;
+                    counts
+                }),
+                "light_data": state.setup.light_data.as_ref().map(|folder| folder.display().to_string()),
+            },
             "nav": state.nav_facts.as_ref().map(|nav| serde_json::json!({
                 "faces": nav.faces,
                 "islands": nav.islands,
