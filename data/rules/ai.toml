@@ -1703,3 +1703,535 @@ range = [0, 60000]
 summary = "A creature that switched to its ranged weapon switches back to its melee weapon when its target has been within reach for {ai.duelling.reach.swap_back_ms:s}."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
 see = "sim::combat::pace::Pace::swaps_back"
+
+[choices]
+title = "Choosing Powers and Items"
+summary = """
+A companion chooses its own Force powers and grenades in a fight. Every
+other creature that fights chooses its own Force powers, items and grenades
+in the same way. A character scores each power, item and grenade it can use
+from 0 to 1. The score depends on what the character sees of its target, its
+allies and the fight. The character uses the choice with the best score when
+that score is at least {ai.choices.threshold:bare}. After each use the
+character waits before it uses another. Its tier sets how long it waits.
+"""
+applies = ["kind:creature", "kind:companion", "kind:force", "kind:grenade"]
+
+[choices.threshold]
+name = "Score Needed to Use a Choice"
+value = 0.5
+range = [0.0, 1.0]
+summary = "A character uses a Force power, an item or a grenade of its own choice only when the choice scores at least {ai.choices.threshold:bare} out of 1."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::choose::choose"
+
+[choices.tie]
+name = "Scores That Tie"
+value = 0.1
+range = [0.0, 1.0]
+summary = "Two choices whose scores differ by at most {ai.choices.tie:bare} count as equally good. The character then picks one of them at random, so that it does not always use the same one."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::choose::choose"
+
+[choices.wait_ms]
+title = "Wait After a Choice"
+summary = """
+A character that has used a Force power, an item or a grenade of its own
+choice waits before it uses another. The wait is a time between a least and a
+most number that its tier sets.
+"""
+
+[choices.wait_ms.ordinary]
+name = "Wait of an Ordinary Creature"
+type = "u64"
+value = [8000, 12000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 120000]
+summary = "An Ordinary creature waits {ai.choices.wait_ms.ordinary[0]:s} to {ai.choices.wait_ms.ordinary[1]:s} after a choice before it makes another."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits"
+see = "sim::combat::choose::wait_ms"
+
+[choices.wait_ms.skilled]
+name = "Wait of a Skilled Creature"
+type = "u64"
+value = [5000, 8000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 120000]
+summary = "A Skilled creature waits {ai.choices.wait_ms.skilled[0]:s} to {ai.choices.wait_ms.skilled[1]:s} after a choice before it makes another."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits"
+see = "sim::combat::choose::wait_ms"
+
+[choices.wait_ms.boss]
+name = "Wait of a Boss"
+type = "u64"
+value = [3000, 5000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 120000]
+summary = "A Boss waits {ai.choices.wait_ms.boss[0]:s} to {ai.choices.wait_ms.boss[1]:s} after a choice before it makes another."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits"
+see = "sim::combat::choose::wait_ms"
+
+[choices.cluster_targets]
+name = "Targets for a Blast"
+type = "u32"
+value = 2
+unit = "count"
+range = [1, 10]
+summary = "A character throws a grenade or uses a Force power that hits an area only when at least {ai.choices.cluster_targets:bare} enemies stand inside the blast and none of its allies do."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::choose::score"
+
+[choices.heal_below]
+name = "Health That Calls for a Heal"
+value = 0.5
+range = [0.0, 1.0]
+summary = "A character uses a healing power or a medpac only when it or one of its allies has less than {ai.choices.heal_below:bare} times its maximum hit points left."
+detail = "The lower that character's hit points are, the higher the heal scores."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::choose::score"
+
+[choices.opening_ms]
+name = "Opening of a Fight"
+type = "u64"
+value = 5000
+unit = "ms"
+range = [0, 60000]
+summary = "A character uses a Force power, a stim or a shield that strengthens it or its allies only in the first {ai.choices.opening_ms:s} of a fight, and only when that effect is not already running. A buff whose reason is an intense fight is the one exception. It may also be used after the opening while the fight is intense, when no other buff of that reason runs on the character (`ai.choices.reasons.intense`)."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::choose::score"
+
+[choices.keep_items]
+name = "Items a Companion Keeps"
+type = "u32"
+value = 2
+unit = "count"
+range = [0, 100]
+summary = "A companion never uses the last {ai.choices.keep_items:bare} items of a kind in the party's inventory. Each kind of grenade is counted on its own."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory"
+see = "sim::combat::choose::may_spend"
+
+[choices.side_wait_ms]
+title = "Wait for an Ally's Use"
+summary = """
+The uses of a character's own choice come in five kinds: a grenade, a Force
+power that hits an area, a power that disables, a heal and a buff. A
+character uses a kind only when no ally it can see used the same kind within
+that kind's wait. Companions and enemies both keep these waits.
+"""
+
+[choices.side_wait_ms.grenade]
+name = "Wait After an Ally's Grenade"
+type = "u64"
+value = 10000
+unit = "ms"
+range = [0, 120000]
+summary = "A character throws a grenade only when no ally it can see has thrown one in the last {ai.choices.side_wait_ms.grenade:s}."
+source = "docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Waits, and the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.side_wait_ms.area]
+name = "Wait After an Ally's Area Power"
+type = "u64"
+value = 8000
+unit = "ms"
+range = [0, 120000]
+summary = "A character uses a Force power that hits an area only when no ally it can see has used one in the last {ai.choices.side_wait_ms.area:s}."
+source = "the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.side_wait_ms.disable]
+name = "Wait After an Ally's Disabling Power"
+type = "u64"
+value = 6000
+unit = "ms"
+range = [0, 120000]
+summary = "A character uses a power that disables only when no ally it can see has used one in the last {ai.choices.side_wait_ms.disable:s}."
+source = "the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.side_wait_ms.heal]
+name = "Wait After an Ally's Heal"
+type = "u64"
+value = 4000
+unit = "ms"
+range = [0, 120000]
+summary = "A character uses a healing power or a medpac only when no ally it can see has used one in the last {ai.choices.side_wait_ms.heal:s}."
+source = "the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.side_wait_ms.buff]
+name = "Wait After an Ally's Buff"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 120000]
+summary = "A character uses a buff, a stim or a shield only when no ally it can see has used one in the last {ai.choices.side_wait_ms.buff:s}."
+source = "the designer's call of 19 November 2026"
+see = "sim::combat::choose::side_wait_ms"
+
+[choices.intense_strength_share]
+name = "Enemy Strength for an Intense Fight"
+value = 1.0
+unit = "×"
+range = [0.0, 10.0]
+summary = "A companion throws grenades only in an intense fight. A fight is intense when the enemies' strength is at least {ai.choices.intense_strength_share:bare} times the party's strength."
+detail = "A side's strength is the sum of each living character's level multiplied by the part of its hit points it has left. A Boss counts {ai.choices.intense_boss_factor:bare} times."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory"
+see = "sim::combat::choose::intense_now"
+
+[choices.intense_boss_factor]
+name = "Strength of a Boss"
+type = "f32"
+value = 2.0
+unit = "×"
+range = [1.0, 10.0]
+summary = "A Boss counts {ai.choices.intense_boss_factor:bare} times its level and hit points when the game decides whether a fight is intense."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory"
+see = "sim::combat::choose::intense_now"
+
+[choices.intense_hostiles]
+name = "Enemies for an Intense Fight"
+type = "u32"
+value = 4
+unit = "count"
+range = [1, 50]
+summary = "A fight is intense when at least {ai.choices.intense_hostiles:bare} enemies are alive in it."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory"
+see = "sim::combat::choose::intense_now"
+
+[choices.intense_hurt_below]
+name = "Party Health for an Intense Fight"
+value = 0.4
+range = [0.0, 1.0]
+summary = "A fight is intense when a member of the party has less than {ai.choices.intense_hurt_below:bare} times its maximum hit points left."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory"
+see = "sim::combat::choose::intense_now"
+
+[choices.intense_hold_ms]
+name = "Intense Fight Lasts"
+type = "u64"
+value = 10000
+unit = "ms"
+range = [0, 120000]
+summary = "A fight stays intense for {ai.choices.intense_hold_ms:s} after the last reason for it has ended."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Companions and the shared inventory"
+see = "sim::world::minds::think"
+
+[choices.rage_above]
+name = "Health for Rage"
+value = 0.5
+range = [0.0, 1.0]
+summary = "A character uses Rage only while it has at least {ai.choices.rage_above:bare} times its maximum hit points left."
+source = "the old rule minds.powers.rage_above of the chooser this one replaces, restored with the same value"
+see = "sim::combat::choose::wise_for"
+applies = ["spell:SPECIAL_ABILITY_RAGE"]
+
+[choices.kinds]
+title = "Kinds of Powers and Items"
+summary = """
+Each Force power, grenade and item that a character can use in a fight is one
+of five kinds. A disable stuns, holds, knocks down or slows its target. A
+damage power hurts one target. An area power or grenade hurts every enemy in a
+blast. A heal restores hit points. A buff strengthens the character or its
+allies. The lists below name every row of KOTOR 1's and KOTOR 2's own
+`spells.2da` that has a kind. A row of the games' own that the engine names
+and that is not in these lists is never chosen. A row from a mod that is not
+in these lists is scored by the talent category in its `spells.2da` row.
+"""
+detail = """
+KOTOR 1's rows are KOTOR 2's first rows, label for label. A Force power that
+KOTOR 2 lends to KOTOR 1 keeps its KOTOR 2 row. Rows that a character never
+chooses in a fight are left out. These are the powers used only in
+conversation (Affect Mind, Dominate Mind), the stealth powers and items, Force
+Sight, the powers that are always in effect (Force Deflection, Force
+Redirection, Precognition, Battle Precognition), Breath Control, the
+antidote, the saber forms, the creatures' special abilities and the story's
+own items.
+"""
+applies = ["kind:force", "kind:grenade", "kind:medpac", "kind:stim", "kind:shield"]
+
+[choices.kinds.disable]
+name = "Disables"
+type = "u16"
+value = [
+    7, 9, 12, 16, 19, 23, 26, 27, 29, 30, 31, 38, 44, 45, 46, 47, 48, 50, 92,
+    93, 116, 117, 122, 123, 124, 125, 144, 145, 146, 147, 148, 149, 181, 182,
+    184, 197, 198, 200, 201, 244, 245, 251, 252, 269, 281
+]
+labels = [
+    "FORCE_POWER_AFFLICTION", "FORCE_POWER_CHOKE", "FORCE_POWER_DROID_DISABLE",
+    "FORCE_POWER_FEAR", "FORCE_POWER_FORCE_BREACH", "FORCE_POWER_FORCE_PUSH",
+    "FORCE_POWER_FORCE_WAVE", "FORCE_POWER_FORCE_WHIRLWIND",
+    "FORCE_POWER_STASIS", "FORCE_POWER_HORROR", "FORCE_POWER_INSANITY",
+    "FORCE_POWER_PLAGUE", "FORCE_POWER_MASS_STASIS", "FORCE_POWER_SLOW",
+    "FORCE_POWER_STUN", "FORCE_POWER_DROID_STUN", "FORCE_POWER_SUPRESS_FORCE",
+    "FORCE_POWER_WOUND", "ITEM_ABILITY_GRENADE_ADHESIVE",
+    "ITEM_ABILITY_GRENADE_CRYOBAN", "DROID_ITEM_STUN_RAY_1",
+    "DROID_ITEM_STUN_RAY_2", "DROID_ITEM_CARBONITE_PROJECTOR_1",
+    "DROID_ITEM_CARBONITE_PROJECTOR_2", "DROID_ITEM_GRAVITY_GENERATOR_1",
+    "DROID_ITEM_GRAVITY_GENERATOR_2", "FORCE_POWER_CRUSH_OPPOSITION_I",
+    "FORCE_POWER_CRUSH_OPPOSITION_II", "FORCE_POWER_CRUSH_OPPOSITION_III",
+    "FORCE_POWER_CRUSH_OPPOSITION_IV", "FORCE_POWER_CRUSH_OPPOSITION_V",
+    "FORCE_POWER_CRUSH_OPPOSITION_VI", "FORCE_POWER_MIND_TRICK",
+    "FORCE_POWER_BEAST_TRICK", "FORCE_POWER_BEAST_CONFUSION",
+    "ITEM_ABILITY_DART_PARALYSIS", "ITEM_ABILITY_DART_TRANQUILIZER",
+    "FORCE_POWER_CONFUSION", "FORCE_POWER_DROID_TRICK",
+    "DROID_ITEM_CARBONITE_PROJECTOR_3", "DROID_ITEM_CARBONITE_PROJECTOR_4",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_ADHESIVE",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_CRYOBAN", "FORCE_POWER_DROID_CONFUSION",
+    "DROID_ITEM_MULTI_SPECTRAL_EMITTER"
+]
+summary = "These Force powers, grenades, darts and droid weapons stun, hold, knock down, slow or weaken their target. A character uses one only on a target that is not already stunned, knocked down or slowed. Their rows in `spells.2da` are {ai.choices.kinds.disable:bare}."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::spells::kind_of_row"
+
+[choices.kinds.damage]
+name = "Damage Powers"
+type = "u16"
+value = [
+    4, 15, 32, 35, 43, 49, 118, 119, 153, 177, 195, 196, 199, 274, 275, 276, 278
+]
+labels = [
+    "FORCE_POWER_LIGHT_SABER_THROW_ADVANCED", "FORCE_POWER_DRAIN_LIFE",
+    "FORCE_POWER_KILL", "FORCE_POWER_LIGHTNING", "FORCE_POWER_SHOCK",
+    "FORCE_POWER_LIGHT_SABER_THROW", "DROID_ITEM_SHIELD_DISRUPTOR_1",
+    "DROID_ITEM_SHIELD_DISRUPTOR_2", "FORCE_POWER_DRAIN_FORCE",
+    "FORCE_POWER_FORCE_CRUSH", "ITEM_ABILITY_DART_POISON",
+    "ITEM_ABILITY_DART_KYBER", "ITEM_ABILITY_DART_LAWN",
+    "DROID_ITEM_ION_BLAST_I", "DROID_ITEM_ION_BLAST_II",
+    "DROID_ITEM_ION_BLAST_III", "DROID_ITEM_CHARGE_ARM"
+]
+summary = "These Force powers, darts and droid weapons hurt one target. A character uses one when its target is outside the reach of its weapon, or is staggered. Their rows in `spells.2da` are {ai.choices.kinds.damage:bare}."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::spells::kind_of_row"
+
+[choices.kinds.area_damage]
+name = "Area Damage"
+type = "u16"
+value = [
+    11, 13, 25, 87, 88, 89, 90, 91, 94, 95, 120, 121, 154, 155, 159, 160, 161,
+    185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 246, 247, 248, 249, 250,
+    253, 254, 255, 256, 277, 279, 280
+]
+labels = [
+    "FORCE_POWER_DEATH_FIELD", "FORCE_POWER_DROID_DESTROY",
+    "FORCE_POWER_FORCE_STORM", "ITEM_ABILITY_GRENADE_FRAGMENTATION",
+    "ITEM_ABILITY_GRENADE_STUN", "ITEM_ABILITY_GRENADE_THERMAL_DETONATOR",
+    "ITEM_ABILITY_GRENADE_POISON", "ITEM_ABILITY_GRENADE_SONIC",
+    "ITEM_ABILITY_GRENADE_FIRE", "ITEM_ABILITY_GRENADE_ION",
+    "DROID_ITEM_FLAME_THROWER_1", "DROID_ITEM_FLAME_THROWER_2",
+    "FORCE_POWER_IMPROVED_DRAIN_FORCE", "FORCE_POWER_MASTER_DRAIN_FORCE",
+    "FORCE_POWER_FORCE_SCREAM", "FORCE_POWER_IMPROVED_FORCE_SCREAM",
+    "FORCE_POWER_MASTER_FORCE_SCREAM", "ITEM_ABILITY_ROCKET_EXPLOSIVE",
+    "ITEM_ABILITY_GRENADE_SONIC_2", "ITEM_ABILITY_GRENADE_SONIC_3",
+    "DROID_ITEM_FLAME_THROWER_3", "DROID_ITEM_FLAME_THROWER_4",
+    "ITEM_ABILITY_ROCKET_PIERCING", "ITEM_ABILITY_ROCKET_POISON",
+    "ITEM_ABILITY_ROCKET_ION", "ITEM_ABILITY_ROCKET_PLASMA",
+    "ITEM_ABILITY_ROCKET_CONCUSSION",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_FRAGMENTATION",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_STUN",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_THERMAL_DETONATOR",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_POISON",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_SONIC", "ITEM_ABILITY_GRENADE_LAUNCHED_FIRE",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_ION",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_2",
+    "ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_3", "DROID_ITEM_PLASMA_THROWER",
+    "DROID_ITEM_TOXIN_EMITTER", "DROID_ITEM_BIO_ASSAULT_SPRAY"
+]
+summary = "These Force powers, grenades, rockets and droid weapons hurt every enemy in an area. A character uses one only when at least {ai.choices.cluster_targets:bare} enemies stand inside the area and none of its allies do. Their rows in `spells.2da` are {ai.choices.kinds.area_damage:bare}."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::spells::kind_of_row"
+
+[choices.kinds.heal]
+name = "Heals"
+type = "u16"
+value = [
+    10, 28, 64, 65, 66, 84, 127, 128, 129, 134, 173, 174, 175
+]
+labels = [
+    "FORCE_POWER_CURE", "FORCE_POWER_HEAL", "ITEM_ABILITY_MED_PACK",
+    "ITEM_ABILITY_ADVANCED_MED_PACK", "ITEM_ABILITY_LIFE_SUPPORT_KIT",
+    "ITEM_ABILITY_DROID_REPAIR_KIT", "ITEM_ABILITY_DROID_REPAIR_KIT_ADV",
+    "ITEM_ABILITY_DROID_CONSTRUCTION_KIT", "ITEM_ABILITY_RECOVERY_STIM",
+    "FORCE_POWER_MASTER_HEAL", "FORCE_POWER_REVITALIZE",
+    "FORCE_POWER_IMPROVED_REVITALIZE", "FORCE_POWER_MASTER_REVITALIZE"
+]
+summary = "These Force powers, medpacs, repair kits and stims restore hit points. A character uses one when it or an ally has less than {ai.choices.heal_below:bare} times its maximum hit points left. Their rows in `spells.2da` are {ai.choices.kinds.heal:bare}."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::spells::kind_of_row"
+
+[choices.kinds.buff]
+name = "Buffs"
+type = "u16"
+value = [
+    8, 17, 18, 20, 22, 24, 33, 34, 36, 37, 40, 41, 42, 69, 70, 71, 72, 73, 74,
+    75, 76, 77, 99, 100, 101, 102, 103, 104, 105, 106, 107, 110, 111, 112, 113,
+    114, 115, 132, 133, 135, 136, 137, 138, 139, 140, 141, 142, 143, 150, 151,
+    152, 164, 165, 166, 167, 168, 169, 170, 171, 172, 180, 257, 271, 272, 273
+]
+labels = [
+    "FORCE_POWER_SPEED_BURST", "FORCE_POWER_FORCE_ARMOR",
+    "FORCE_POWER_FORCE_AURA", "FORCE_POWER_FORCE_IMMUNITY",
+    "FORCE_POWER_FORCE_VALOR", "FORCE_POWER_FORCE_SHIELD",
+    "FORCE_POWER_KNIGHT_VALOR", "FORCE_POWER_KNIGHT_SPEED",
+    "FORCE_POWER_MASTER_VALOR", "FORCE_POWER_SPEED_MASTERY",
+    "FORCE_POWER_RESIST_ENERGY_2", "FORCE_POWER_RESIST_FORCE",
+    "FORCE_POWER_RESIST_ENERGY_1", "ITEM_ABILITY_ADRENAL_SHOT_STRENGTH",
+    "ITEM_ABILITY_ADRENAL_SHOT_ALACRITY", "ITEM_ABILITY_ADRENAL_SHOT_STAMINA",
+    "ITEM_ABILITY_HYPER_ADRENAL_SHOT_STRENGTH",
+    "ITEM_ABILITY_HYPER_ADRENAL_SHOT_ALACRITY",
+    "ITEM_ABILITY_HYPER_ADRENAL_SHOT_STAMINA", "ITEM_ABILITY_COMBAT_SHOT_1",
+    "ITEM_ABILITY_COMBAT_SHOT_2", "ITEM_ABILITY_COMBAT_SHOT_3",
+    "ITEM_ABILITY_ENERGY_SHIELD", "ITEM_ABILITY_SITH_ENERGY_SHIELD",
+    "ITEM_ABILITY_ARKANIAN_ENERGY_SHIELD", "ITEM_ABILITY_ECHANI_SHIELD",
+    "ITEM_ABILITY_MANDLORIAN_MELEE_SHIELD",
+    "ITEM_ABILITY_MANDLORIAN_POWER_SHIELD",
+    "ITEM_ABILITY_ECHANI_DUELING_SHIELD", "ITEM_ABILITY_YUSANIS_DUELING_SHIELD",
+    "ITEM_ABILITY_VERPINE_ENERGY_SHIELD", "DROID_ITEM_ENERGY_SHIELD_1",
+    "DROID_ITEM_ENERGY_SHIELD_2", "DROID_ITEM_ENERGY_SHIELD_3",
+    "DROID_ITEM_HAZARD_SHIELD_1", "DROID_ITEM_HAZARD_SHIELD_2",
+    "DROID_ITEM_HAZARD_SHIELD_3", "ITEM_ABILITY_HEAT_SHIELD",
+    "FORCE_POWER_MASTER_ENERGY_RESISTANCE", "FORCE_POWER_FORCE_BARRIER",
+    "FORCE_POWER_IMPROVED_FORCE_BARRIER", "FORCE_POWER_MASTER_FORCE_BARRIER",
+    "FORCE_POWER_BATTLE_MEDITATION_PC",
+    "FORCE_POWER_IMPROVED_BATTLE_MEDITATION_PC",
+    "FORCE_POWER_MASTER_BATTLE_MEDITATION_PC", "FORCE_POWER_BAT_MED_ENEMY",
+    "FORCE_POWER_IMP_BAT_MED_ENEMY", "FORCE_POWER_MAS_BAT_MED_ENEMY",
+    "FORCE_POWER_FORCE_BODY", "FORCE_POWER_IMPROVED_FORCE_BODY",
+    "FORCE_POWER_MASTER_FORCE_BODY", "FORCE_POWER_FURY",
+    "FORCE_POWER_IMPROVED_FURY", "FORCE_POWER_MASTER_FURY",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_I", "FORCE_POWER_INSPIRE_FOLLOWERS_II",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_III", "FORCE_POWER_INSPIRE_FOLLOWERS_IV",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_V", "FORCE_POWER_INSPIRE_FOLLOWERS_VI",
+    "FORCE_POWER_FORCE_ENLIGHTENMENT", "ITEM_ABILITY_DREXL_SHIELD",
+    "WOOKIEE_RAGE_I", "WOOKIEE_RAGE_II", "WOOKIEE_RAGE_III"
+]
+summary = "These Force powers, stims and shields strengthen the character or its allies. A character uses one only when its reason fits the fight (`ai.choices.reasons`). A buff whose reason is an intense fight may also be used after the opening while the fight is intense, when no other buff of that reason runs on the character. Every other buff is used only in the first {ai.choices.opening_ms:s} of a fight. Their rows in `spells.2da` are {ai.choices.kinds.buff:bare}."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::spells::kind_of_row"
+
+[choices.kinds.droids_only]
+name = "Only Against Droids"
+type = "u16"
+value = [
+    12, 13, 47, 84, 95, 127, 128, 192, 201, 254, 269, 274, 275, 276
+]
+labels = [
+    "FORCE_POWER_DROID_DISABLE", "FORCE_POWER_DROID_DESTROY",
+    "FORCE_POWER_DROID_STUN", "ITEM_ABILITY_DROID_REPAIR_KIT",
+    "ITEM_ABILITY_GRENADE_ION", "ITEM_ABILITY_DROID_REPAIR_KIT_ADV",
+    "ITEM_ABILITY_DROID_CONSTRUCTION_KIT", "ITEM_ABILITY_ROCKET_ION",
+    "FORCE_POWER_DROID_TRICK", "ITEM_ABILITY_GRENADE_LAUNCHED_ION",
+    "FORCE_POWER_DROID_CONFUSION", "DROID_ITEM_ION_BLAST_I",
+    "DROID_ITEM_ION_BLAST_II", "DROID_ITEM_ION_BLAST_III"
+]
+summary = "These rows work only on droids. A character uses one of these Force powers, grenades, rockets or droid weapons only against droids. A character uses one of these repair kits only on a droid ally. Their rows in `spells.2da` are {ai.choices.kinds.droids_only:bare}."
+source = "the designer's call of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section The chooser"
+see = "sim::combat::spells::kind_of_row"
+
+[choices.kinds.never]
+name = "Never Chosen"
+type = "u16"
+value = [156, 157, 158, 178, 179, 183, 270]
+labels = [
+    "FORCE_POWER_FORCE_CAMOUFLAGE", "FORCE_POWER_IMPROVED_FORCE_CAMOUFLAGE",
+    "FORCE_POWER_MASTER_FORCE_CAMOUFLAGE", "FORCE_POWER_PRECOGNITION",
+    "FORCE_POWER_BATTLE_PRECOGNITION", "XXXFORCE_POWER_IMPROVED_BEAST_CONTROL",
+    "FORCE_POWER_BREATH_CONTROL"
+]
+summary = "A character never chooses these rows of KOTOR 2's own `spells.2da` in a fight. Force Camouflage and its higher ranks are stealth powers. Force Precognition and Battle Precognition are always in effect. Breath Control is a utility power. Row 183 is a row the game does not use. Their rows are {ai.choices.kinds.never:bare}."
+source = "the coordinator's ruling of 19 November 2026 on the kinds of the games' own rows"
+see = "sim::combat::choose::kind_of"
+
+[choices.reasons]
+title = "Buffs That Fit the Fight"
+summary = """
+Each buff power has one reason. A character uses the buff
+only while its reason is true. The lists below name the rows of each reason.
+A buff in no list, such as Force Aura, a stim, a shield or a buff from a mod,
+is always fit. A buff is also never used while its effect, or the effect of a
+higher rank of the same power, already runs on the character.
+"""
+detail = """
+The hostiles a reason looks at are the living hostiles in the party's fight.
+These are the hostiles that aim at a member of the party, and the hostiles a
+member of the party aims at. A character outside the party also counts the
+hostiles that aim at it and the one it aims at. Force Aura, Force Shield and
+Force Armor raise the character's Defense and saving throws, and they lessen
+the damage of every weapon hit, so they fit every fight. Force Enlightenment
+casts several buffs at once and fits every fight too.
+"""
+applies = ["kind:force"]
+
+[choices.reasons.energy]
+name = "Buffs Against Energy"
+type = "u16"
+value = [40, 42, 133]
+labels = [
+    "FORCE_POWER_RESIST_ENERGY_2", "FORCE_POWER_RESIST_ENERGY_1",
+    "FORCE_POWER_MASTER_ENERGY_RESISTANCE"
+]
+summary = "Energy Resistance resists energy, electrical, sonic, fire and cold damage. A character uses it only when a hostile in the fight holds a weapon that deals one of these damage types, or knows a lightning power. The damage that a property of the weapon adds counts too. Blasters and lightsabers both deal energy damage. Its rows in `spells.2da` are {ai.choices.reasons.energy:bare}."
+source = "the owner's call of 19 November 2026, and the damage types in both games' impact script k_sp1_generic for these rows"
+see = "sim::combat::choose::fits"
+
+[choices.reasons.physical]
+name = "Buffs Against Physical Damage"
+type = "u16"
+value = [135, 136, 137]
+labels = [
+    "FORCE_POWER_FORCE_BARRIER", "FORCE_POWER_IMPROVED_FORCE_BARRIER",
+    "FORCE_POWER_MASTER_FORCE_BARRIER"
+]
+summary = "Force Barrier resists bludgeoning, piercing and slashing damage. A character uses it only when a hostile in the fight is a beast, or holds a weapon that deals one of these damage types. A vibroblade and empty hands count, and a lightsaber does not. Its rows in `spells.2da` are {ai.choices.reasons.physical:bare}."
+source = "the owner's call of 19 November 2026, and the damage types in KOTOR 2's impact script k_sp1_generic for these rows"
+see = "sim::combat::choose::fits"
+
+[choices.reasons.force_users]
+name = "Buffs Against Force Powers"
+type = "u16"
+value = [20, 41]
+labels = ["FORCE_POWER_FORCE_IMMUNITY", "FORCE_POWER_RESIST_FORCE"]
+summary = "Force Resistance and Force Immunity guard against Force powers. A character uses one only when a hostile in the fight knows a Force power that it uses on its foes, which is a disable, a damage power or an area power (`ai.choices.kinds`). Their rows in `spells.2da` are {ai.choices.reasons.force_users:bare}."
+source = "the owner's call of 19 November 2026"
+see = "sim::combat::choose::fits"
+
+[choices.reasons.intense]
+name = "Buffs for an Intense Fight"
+type = "u16"
+value = [
+    22, 33, 36, 138, 139, 140, 141, 142, 143, 150, 151, 152, 167, 168, 169,
+    170, 171, 172
+]
+labels = [
+    "FORCE_POWER_FORCE_VALOR", "FORCE_POWER_KNIGHT_VALOR",
+    "FORCE_POWER_MASTER_VALOR", "FORCE_POWER_BATTLE_MEDITATION_PC",
+    "FORCE_POWER_IMPROVED_BATTLE_MEDITATION_PC",
+    "FORCE_POWER_MASTER_BATTLE_MEDITATION_PC", "FORCE_POWER_BAT_MED_ENEMY",
+    "FORCE_POWER_IMP_BAT_MED_ENEMY", "FORCE_POWER_MAS_BAT_MED_ENEMY",
+    "FORCE_POWER_FORCE_BODY", "FORCE_POWER_IMPROVED_FORCE_BODY",
+    "FORCE_POWER_MASTER_FORCE_BODY", "FORCE_POWER_INSPIRE_FOLLOWERS_I",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_II", "FORCE_POWER_INSPIRE_FOLLOWERS_III",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_IV", "FORCE_POWER_INSPIRE_FOLLOWERS_V",
+    "FORCE_POWER_INSPIRE_FOLLOWERS_VI"
+]
+summary = "Force Valor, Battle Meditation, Force Body and Inspire Followers are used only while the fight is intense for the party (`ai.choices.intense_hostiles` and the rules after it). In the first {ai.choices.opening_ms:s} of the fight, a character may use any of them. After that, a character uses one only while no buff of this list runs on it, so it keeps one of them up at a time. Their rows in `spells.2da` are {ai.choices.reasons.intense:bare}."
+source = "the owner's call of 19 November 2026"
+see = "sim::combat::choose::fits"
+
+[choices.reasons.blade]
+name = "Buffs for a Blade"
+type = "u16"
+value = [8, 34, 37, 164, 165, 166, 271, 272, 273]
+labels = [
+    "FORCE_POWER_SPEED_BURST", "FORCE_POWER_KNIGHT_SPEED",
+    "FORCE_POWER_SPEED_MASTERY", "FORCE_POWER_FURY",
+    "FORCE_POWER_IMPROVED_FURY", "FORCE_POWER_MASTER_FURY", "WOOKIEE_RAGE_I",
+    "WOOKIEE_RAGE_II", "WOOKIEE_RAGE_III"
+]
+summary = "Burst of Speed, Fury and Wookiee Rage are used only by a character that fights in melee itself. A character with a lightsaber, a sword, a vibroblade, a stun baton or empty hands fights in melee. A character with a gun does not. Their rows in `spells.2da` are {ai.choices.reasons.blade:bare}."
+source = "the owner's call of 19 November 2026"
+see = "sim::combat::choose::fits"

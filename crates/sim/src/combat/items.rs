@@ -593,6 +593,34 @@ impl Pack {
             })
     }
 
+    /// The grenade row this character is about to throw. It is the row its
+    /// mind queued, or else the row its charge will throw when the button
+    /// is let go (`grenades::pull`). A player's charge throws the kind the player
+    /// picked, else the first kind left.
+    pub fn throwing(&self, sheet: &Sheet, now: u64) -> Option<u16> {
+        let grenade = |row: &u16| use_of(*row) == Some(Use::Grenade);
+        self.queued.filter(grenade).or_else(|| {
+            self.charging_from?;
+            let (_, carried) = self.keyed(sheet, Shelf::Grenade, now)?;
+            Some(carried.row)
+        })
+    }
+
+    /// How many items of `row` this character has used or is about to
+    /// throw that its holder's goods still count. A use leaves `used` and
+    /// the goods together (`world::item_uses`), so the two never count the
+    /// same item. A throw about to leave the hand is counted until it does.
+    pub fn not_yet_taken(&self, sheet: &Sheet, row: u16, now: u64) -> u8 {
+        let used = sheet
+            .items
+            .iter()
+            .zip(self.used)
+            .filter(|(carried, _)| carried.is_some_and(|carried| carried.row == row))
+            .map(|(_, used)| used)
+            .fold(0, u8::saturating_add);
+        used.saturating_add(u8::from(self.throwing(sheet, now) == Some(row)))
+    }
+
     /// The kind of `items` of `row`, if it has one left, and which it is.
     pub fn left_of(&self, items: &[Option<Carried>; KINDS], row: u16) -> Option<(usize, Carried)> {
         items.iter().enumerate().find_map(|(at, carried)| {

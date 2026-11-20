@@ -173,9 +173,11 @@ pub(super) fn diagnose(
                 .and_then(|entity| entity.fighter)
                 .map_or_else(String::new, |fighter| {
                     format!(
-                        "; HP {}, its mind {:?}, walker {:?}, forward {}, moving {:?}",
+                        "; HP {}, its mind {:?}, its pack's queued row {:?} and use {:?}, walker {:?}, forward {}, moving {:?}",
                         fighter.hp / 100,
                         fighter.mind.task,
+                        fighter.pack.queued,
+                        fighter.pack.using,
                         fighter
                             .mind
                             .walker

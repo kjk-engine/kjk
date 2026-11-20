@@ -10,6 +10,10 @@ use crate::combat::Sheet;
 use crate::combat::sheet::Delivery;
 use crate::wire::{DecodeError, Reader, Writer};
 
+/// The scripts' `NPC_AISTYLE_MELEE_ATTACK`: a creature set to it attacks
+/// with its weapon and uses no talent (`k_ai_master`).
+pub const NPC_AISTYLE_MELEE_ATTACK: i32 = 2;
+
 /// The most followers beside the leader.
 pub const FOLLOWERS: usize = rules::progression::party::FOLLOWERS;
 

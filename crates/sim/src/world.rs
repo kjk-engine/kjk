@@ -95,7 +95,13 @@ pub mod bloom_shot_probes;
 #[cfg(feature = "probes")]
 pub mod bulk_probes;
 #[cfg(feature = "probes")]
+pub mod choice_probes;
+#[cfg(feature = "probes")]
+pub mod companion_talent_probes;
+#[cfg(feature = "probes")]
 pub mod effects_probes;
+#[cfg(feature = "probes")]
+pub mod enemy_choice_probes;
 #[cfg(feature = "probes")]
 pub mod floor_probes;
 #[cfg(feature = "probes")]

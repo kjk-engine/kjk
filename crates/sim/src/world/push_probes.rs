@@ -71,11 +71,15 @@ struct Run {
 }
 
 /// A melee fighter of `faction`: the soldier with its melee weapon alone.
+/// The fighter carries no items. The foe would raise its energy shield at
+/// the start of the fight, and it would then reach the companions about
+/// 2.5 seconds later, after the 8 seconds the probe watches.
 fn fighter(faction: u8) -> Sheet {
     let soldier = Sheet::dev_soldier();
     Sheet {
         faction,
         weapons: [soldier.weapons[1], None],
+        items: Default::default(),
         ..soldier
     }
 }

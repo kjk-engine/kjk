@@ -444,6 +444,35 @@ pub(super) fn own_ai(view: &View, who: ObjectId, script: &str) -> bool {
         .any(|hook| view.hook(who, *hook).as_deref() == Some(script))
 }
 
+/// The games' generic combat scripts, one name a line
+/// (`data/ai_generic_scripts.txt`).
+const GENERIC_SCRIPTS: &str = include_str!("../../../../data/ai_generic_scripts.txt");
+/// The scripts whose talents an enemy always keeps, one name a line
+/// (`data/ai_kept_scripts.txt`).
+const KEPT_SCRIPTS: &str = include_str!("../../../../data/ai_kept_scripts.txt");
+
+/// Whether `script` is named in `list`, in any case. A name in the list
+/// that ends in `*` matches every script whose name begins with the rest.
+/// Empty lines and lines that begin with `#` are skipped.
+fn listed(list: &str, script: &str) -> bool {
+    let script = script.to_ascii_lowercase();
+    list.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .any(|line| match line.strip_suffix('*') {
+            Some(start) => script.starts_with(start),
+            None => script == line,
+        })
+}
+
+/// Whether `script` is one of the games' generic combat scripts and not one
+/// whose talents are always kept. An enemy's Force powers and items from
+/// such a script are left to the engine's chooser
+/// (`Engine::leaves_talent_to_chooser`).
+pub(super) fn generic_combat_script(script: &str) -> bool {
+    listed(GENERIC_SCRIPTS, script) && !listed(KEPT_SCRIPTS, script)
+}
+
 /// A creature's AI event hooks: what they queue on a companion a guest
 /// drives is skipped (`Engine::own_ai_on_driven`).
 const AI_HOOKS: [Hook; 9] = [
@@ -1821,6 +1850,79 @@ impl Engine<'_> {
         driven && fights && self.event.ai == Some(who)
     }
 
+    /// Whether a talent that `who`'s own AI queues is left to the engine's
+    /// chooser (`combat::choose`) and dropped. Only a talent that `who`'s
+    /// own AI run queues can be dropped. A talent that another script
+    /// queues, such as a conversation's, is kept. A feat is kept, because
+    /// the engine chooses no feats yet. A droid's own weapon
+    /// (`spells::droid_weapon`) is kept, because the chooser does not offer
+    /// droid weapons yet.
+    ///
+    /// The engine chooses a party member's Force powers and grenades. So a
+    /// Force power or an item spell of a party member is dropped. This is
+    /// true however the script made the talent, by name (`TalentSpell`) or
+    /// by search (`GetCreatureTalentBest`). A party member's healing item (a
+    /// medpac, or a repair kit for a droid) is kept, so the original script
+    /// still decides when a hurt companion heals.
+    ///
+    /// The engine also chooses the Force powers and items of every other
+    /// creature. A Force power or an item spell of such a creature, its
+    /// healing items too, is dropped when the script that began its AI run
+    /// (`Event::ai_script`) is one of the games' generic combat scripts
+    /// (`generic_combat_script`). A boss's own script is not in that list,
+    /// so the boss still casts its set pieces.
+    fn leaves_talent_to_chooser(&self, who: ObjectId, talent: Use) -> bool {
+        use crate::combat::{items, spells};
+        let Use::Power(row) = talent else {
+            return false;
+        };
+        if self.event.ai != Some(who) || spells::droid_weapon(row) {
+            return false;
+        }
+        if self.character(who).is_some_and(|c| c.party) {
+            let heals = matches!(
+                items::use_of(row),
+                Some(items::Use::Heal { .. } | items::Use::Squad { .. })
+            );
+            return !heals;
+        }
+        (self.event.ai_script.as_deref()).is_some_and(generic_combat_script)
+    }
+
+    /// Writes one line to the choice log (`combat::choose::logging`) for a
+    /// talent that a creature outside the party queues from its own AI
+    /// event. The line names the creature's tag, the script that began the
+    /// event (`Event::ai_script`), and the power's `spells.2da` row or the
+    /// feat's `feat.2da` row. An item spell's line also names the item's
+    /// use. The line says whether the talent was queued (`queued`) or left
+    /// to the engine's chooser. The log only writes lines. It never changes
+    /// what is queued.
+    fn log_own_talent(&self, who: ObjectId, talent: Use, queued: bool) {
+        use crate::combat::{choose, items};
+        let party = self.character(who).is_some_and(|c| c.party);
+        if !choose::logging() || party || self.event.ai != Some(who) {
+            return;
+        }
+        let tag = self.instance(who).map_or("", |facts| facts.tag.as_str());
+        let script = self.event.ai_script.as_deref().unwrap_or("");
+        let what = match talent {
+            Use::Power(row) => match items::use_of(row) {
+                Some(used) => format!("item spell {row} ({used:?})"),
+                None => format!("power {row}"),
+            },
+            Use::Feat(row) => format!("feat {row}"),
+        };
+        let fate = if queued {
+            "queued"
+        } else {
+            "left to the chooser"
+        };
+        eprintln!(
+            "talent {} ms {tag} from {script}: {what}, {fate}",
+            self.view.now_ms
+        );
+    }
+
     /// Where one standing at `from` flees `threat` to, `range` from it,
     /// and facing that way: straight away, else turned ever further from
     /// that (`rules::scripts::moves::away`'s steps) until a way leads
@@ -2805,7 +2907,15 @@ impl Engine<'_> {
                         };
                         self.queue(caller, cast)
                     }
+                    // A talent of a creature's own AI is not queued when
+                    // `leaves_talent_to_chooser` says so. A power cast while
+                    // a conversation holds the world (above) is kept.
+                    Some(talent) if self.leaves_talent_to_chooser(caller, talent) => {
+                        self.log_own_talent(caller, talent, false);
+                        Value::Int(0)
+                    }
                     Some(talent) if target != ObjectId::INVALID => {
+                        self.log_own_talent(caller, talent, true);
                         self.queue(caller, Action::Talent { talent, target })
                     }
                     _ => Value::Int(0),
@@ -2821,6 +2931,7 @@ impl Engine<'_> {
                         && self.has_talent(caller, Use::Feat(feat))
                         && view.thing(object(args, 1)).is_some() =>
                 {
+                    self.log_own_talent(caller, Use::Feat(feat), true);
                     let action = Action::Talent {
                         talent: Use::Feat(feat),
                         target: object(args, 1),

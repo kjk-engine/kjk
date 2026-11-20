@@ -109,6 +109,10 @@ pub use world::bloom_shot_probes;
 #[cfg(feature = "probes")]
 pub use world::bulk_probes;
 pub use world::charting;
+#[cfg(feature = "probes")]
+pub use world::choice_probes;
+#[cfg(feature = "probes")]
+pub use world::companion_talent_probes;
 pub use world::containers;
 #[cfg(feature = "probes")]
 pub use world::coop_items;
@@ -120,6 +124,8 @@ pub use world::doorway_probes;
 pub use world::drivers;
 #[cfg(feature = "probes")]
 pub use world::effects_probes;
+#[cfg(feature = "probes")]
+pub use world::enemy_choice_probes;
 #[cfg(feature = "probes")]
 pub use world::facing_probes;
 pub use world::falls;
