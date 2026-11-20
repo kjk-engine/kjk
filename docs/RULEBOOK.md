@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e2760c2f23f922ac`.
+Edition `4b1c17a6a806ac1e`.
 
 ## Contents
 
@@ -9910,6 +9910,12 @@ A character's damaged script runs at most once every 0.5 seconds. The character'
 In KOTOR 2, a creature can flourish its weapon again 1 second after its last flourish.
 
 <sub>Source: TSL's executable (its client's cooldown). Code: `sim::world::scripts::apply`.</sub>
+
+<a id="world-timings-killed-placeable-ms"></a>**Destroyed Placeables** = **2 seconds** (`2000 ms`) · `world.timings.killed_placeable_ms`
+
+A placeable that a script kills with a death effect plays its death animation and is removed from the area 2 seconds later. Nothing blocks the way where it stood after that.
+
+<sub>Source: TSL's executable (its death effect on a placeable). Code: `sim::world::scripts::scripts`.</sub>
 
 ### <a id="world-factions"></a>Factions
 
