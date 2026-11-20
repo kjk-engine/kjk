@@ -72,13 +72,6 @@ pub struct Body {
     pub(crate) parts: Vec<Part>,
 }
 
-/// How far a foot's capsule reaches back past the ankle, over the heel
-/// (metres). The ragdoll's foot starts at the ankle and runs forward over
-/// the toes, and a boot's heel sticks out behind it. A robe kept out of
-/// the capsule alone shows the heel through its back when the foot kicks
-/// up behind in a run.
-const HEEL: f32 = 0.07;
-
 /// How much less than its rest distance from a capsule's axis a point
 /// keeps, when it starts closer than the capsule's radius (metres).
 const INSIDE_MARGIN: f32 = 0.005;
@@ -101,14 +94,6 @@ impl Body {
                 continue;
             };
             index_of[index] = Some(parts.len());
-            let leg = matches!(part.group, Group::LegLeft | Group::LegRight);
-            let end = leg && !(template.parts.iter()).any(|other| other.parent == Some(index));
-            let ends = if end {
-                let back = (ends[0] - ends[1]).normalize_or_zero() * HEEL;
-                [ends[0] + back, ends[1]]
-            } else {
-                ends
-            };
             parts.push(Part {
                 node: part.node,
                 ends,
@@ -116,7 +101,7 @@ impl Body {
                 parent: part.parent.and_then(|parent| index_of[parent]),
                 trunk: part.group == Group::Core,
                 name: part.name,
-                leg,
+                leg: matches!(part.group, Group::LegLeft | Group::LegRight),
             });
         }
         Body { parts }
