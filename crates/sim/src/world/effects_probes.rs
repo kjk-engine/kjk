@@ -447,6 +447,7 @@ fn put_by(
             id,
             at: None,
             save: None,
+            laid: false,
         })
     });
 }
@@ -1185,6 +1186,7 @@ fn faction_modifier() -> Result<String, String> {
                 id,
                 at: None,
                 save: None,
+                laid: false,
             })
         });
     }

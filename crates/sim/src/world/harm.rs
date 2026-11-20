@@ -204,7 +204,7 @@ pub(super) fn hurt(
                         damage_type: row,
                         cast: applied.cast(),
                         shot: blade,
-                        staged: !applied.cast(),
+                        staged: !applied.cast() && !applied.laid,
                     });
                 }
                 // The story's death (I30 P13): a party member's too.

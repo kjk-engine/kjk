@@ -1447,6 +1447,13 @@ impl Engine<'_> {
             }
             _ => (target, at),
         };
+        // A mine that a character laid applies its effects as that
+        // character, as a grenade's effects are its thrower's. Its damage is
+        // then the character's own: the options' damage multipliers scale it
+        // like any other attack, and the player who laid it sees the damage
+        // number. A mine the area placed has no creator and stays its own.
+        let layer = self.state.traps.get(&by.0).and_then(|trap| trap.creator);
+        let by = layer.map_or(by, ObjectId);
         let effect = match carried.len() {
             1 => carried.remove(0),
             _ => Effect::Linked(carried),
@@ -1475,6 +1482,7 @@ impl Engine<'_> {
             id,
             at,
             save,
+            laid: layer.is_some(),
         });
     }
 
