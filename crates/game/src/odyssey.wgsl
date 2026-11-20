@@ -2065,6 +2065,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 // 2026 and said: "all npcs are very dark".
                 lighting = min(vec3<f32>(1.0), kept + ambient_sum * BAKED_GAIN_PROBES
                     + max(vec3<f32>(0.0), diffuse_sum - own) * dimmed);
+            } else if shadows.debug == 8u && (params.flags & PROBED) != 0u {
+                // A model that no probe is near keeps all of the area's
+                // ambient and lamps, as it does today. The rooms show
+                // their bake whole, so nothing is left to match by halving
+                // it. A race track has no walkable floor and so no probe
+                // near its swoop bike. The owner said on 20 November 2026:
+                // "the swoop vehicle in the racing minigames is very dark".
+                lighting = min(vec3<f32>(1.0), kept + lamps);
             }
         }
         if enhanced {

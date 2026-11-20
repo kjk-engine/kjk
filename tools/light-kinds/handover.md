@@ -337,8 +337,14 @@ Open after this round.
 - The swoop bike in the racing areas (`371nar`, `211tel`) is very dark
   under the baked mode. The owner said on 20 November 2026 that it "should
   be illuminated by some lights along the track or something". The bake
-  does not light the bike. The game's live lamps do, and the track has
-  none near the start. Nobody has looked into it yet.
+  does not light the bike. A model takes the room's light from the light
+  probes, which stand over walkable floor, and a race track has none. The
+  baked mode then gave the bike half of the area's ambient and lamps. Now
+  a model that no probe is near keeps all of it, as it does today
+  (`odyssey.wgsl`). The bike is as bright as today on both tracks
+  (`target/light-kinds/batch/swoop.png`). It is not brighter than today,
+  and the track's baked light does not reach it. That would need probes
+  over a track's floor. The owner has not seen the result.
 
 The owner said "Yes, write them" to the settings on 20 November 2026. They
 are in `data/lights/bake.toml` as `fill`, `most` and `least`, and `bake.sh`
