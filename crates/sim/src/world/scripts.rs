@@ -1694,8 +1694,15 @@ pub(super) fn scripts(
             || scripts.open != open
             || scripts.gathered.as_ref() != Some(&from)
         {
+            // The companions waiting at a base are on the pages and the
+            // upgrade bench too, so all they wear is shown, not only what
+            // is drawn on them (a weapon in their second set).
+            let mut shown = members.clone();
+            if crate::script::party::at_base(&module.name) {
+                shown.extend(scripts.state.party.waiting_creatures());
+            }
             let goods = scripts.state.goods(
-                &members,
+                &shown,
                 from.here.iter().copied(),
                 &open,
                 &from.containers,
