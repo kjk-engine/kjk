@@ -289,7 +289,7 @@ fn screenshot_key() -> Result<String, String> {
     });
     // Each case: the binding, the action read as pressed, the keys typed in
     // each frame, and whether each frame asks for a picture.
-    let cases: [(&str, Option<Binding>, bool, Vec<Vec<_>>, Vec<bool>); 5] = [
+    let cases = [
         (
             "a release alone (Windows)",
             print,
