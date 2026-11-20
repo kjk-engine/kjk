@@ -685,6 +685,23 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
 /// room's hidden lamp; and whether its fitting is on a placeable (the
 /// kind's `on`). The level editor shows them.
 pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String, bool)> {
+    explain(loaded, std::env::var("KJK_FITTED_DUMP").ok().as_deref())
+}
+
+/// Writes `loaded`'s lights to `path` as `KJK_FITTED_DUMP` would have the
+/// game write them, for `kjk detail-bake --lights`, lit as under the live
+/// trial (`Mode::Live`) whatever the mode is now. The level editor bakes
+/// from its own scene this way, with no game launched.
+pub fn dump_lights(loaded: &LoadedScene, path: &str) {
+    let before = mode();
+    if !matches!(before, Mode::Live) {
+        set_mode(Mode::Live);
+    }
+    explain(loaded, Some(path));
+    set_mode(before);
+}
+
+fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, bool)> {
     let doors: BTreeSet<usize> = loaded.doors.iter().map(|door| door.model).collect();
     // The doors are among them. A door sheds light only as a force field
     // (`FIELD_CHROMA`).
@@ -913,8 +930,8 @@ pub fn explained(loaded: &LoadedScene) -> Vec<(Light, String, bool)> {
     }
     level(loaded, &mut found, &rooms, fittings);
 
-    if let Ok(path) = std::env::var("KJK_FITTED_DUMP") {
-        dump(loaded, &found, &sources, &switched, &path);
+    if let Some(path) = dump_to {
+        dump(loaded, &found, &sources, &switched, path);
     }
     on_placeable.resize(found.len(), false);
     (found.into_iter().zip(sources).zip(on_placeable))
