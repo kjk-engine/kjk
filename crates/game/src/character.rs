@@ -672,6 +672,7 @@ fn view(
         owned: carried,
         worn,
         locked: wearer.map_or(0, |wearer| wearer.locked),
+        droid: sheet.race == sim::combat::sheet::races::DROID,
         credits: goods.gold,
         xp: 0,
         next_xp: None,
