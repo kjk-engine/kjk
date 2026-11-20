@@ -1,0 +1,123 @@
+{
+ "tsl-glowing_surface_of_a_room_dan_leaf02": {
+  "view": [
+   -33.0,
+   4.0,
+   9.0,
+   0.0,
+   30.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_har_wl01": {
+  "view": [
+   41.33,
+   21.81,
+   0.6,
+   -150,
+   0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_sstn2": {
+  "view": [
+   121.9,
+   448.6,
+   -3.0,
+   -30.6,
+   -4.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_koltoglass": {
+  "view": [
+   10.9,
+   -27.0,
+   1.3,
+   90.0,
+   0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_leh_scre02": {
+  "example": 0,
+  "view": [
+   44.6,
+   47.3,
+   3.9,
+   180.0,
+   -40.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_marker1": {
+  "view": [
+   68.1,
+   -11.0,
+   12.5,
+   -90.0,
+   -37.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt01": {
+  "example": 1
+ },
+ "tsl-glowing_surface_of_a_room_tel_lt03": {
+  "view": [
+   -64.4,
+   -29.0,
+   1.9,
+   -180.0,
+   -9.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_unwal07": {
+  "view": [
+   -31.0,
+   11.9,
+   10.0,
+   -180,
+   -4
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_lt04": {
+  "dim": false
+ },
+ "tsl-glowing_surface_of_a_room_dan_trim04": {
+  "view": [
+   -31.0,
+   15.2,
+   10.0,
+   0,
+   0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_dan_wall07": {
+  "view": [
+   -30.5,
+   0.19,
+   10.0,
+   -180,
+   -4
+  ]
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_kolpuz": {
+  "view": [
+   -2.5,
+   -6.45,
+   11.3,
+   0.0,
+   -26.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_nar_cr8s": {
+  "dim": false
+ },
+ "tsl-glowing_surface_of_a_placeable_plc_holoart1a": {
+  "view": [
+   10.9,
+   -27.0,
+   1.3,
+   90.0,
+   0.0
+  ]
+ },
+ "tsl-glowing_surface_of_a_room_tel_st01": {
+  "dim": false
+ }
+}

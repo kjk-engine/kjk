@@ -94,6 +94,15 @@ const FLAT_SHARE: f32 = 0.35;
 /// model shows only those few thin pieces.
 const LEAST_FILL: f32 = 0.5;
 
+/// A placeable whose model covers less than this share of its box's face,
+/// seen along any one axis, casts as the rounded shape that fits in its box
+/// (`BOX_ROUND`). Such a placeable is a standing droid or a machine on
+/// legs: its box's corners stand well beyond it. The owner saw a standing
+/// droid's shadow on Peragus on 18 November 2026 and said: "this shadow is
+/// square which is wrong". With no shadow at all he said: "this droid (and
+/// other placeables) are missing shadows".
+const BOXY_FILL: f32 = 0.7;
+
 /// `fill` draws a model's outline on a grid of this many cells a side.
 const FILL_GRID: usize = 16;
 
@@ -254,6 +263,9 @@ const MOST_KEPT: u32 = 256;
 /// `GpuBox::tiles.z` when the box itself casts (`odyssey.wgsl`'s
 /// `BOX_CASTS`).
 const BOX_CASTS: u32 = 1;
+/// Set in `GpuBox::tiles.z` when the box casts as the rounded shape that
+/// fits in it (`odyssey.wgsl`'s `BOX_ROUND`, `BOXY_FILL`).
+const BOX_ROUND: u32 = 2;
 
 /// A capsule as the shader reads it. It is the segment from `a` to `b`
 /// (Bevy world space), and `a.w` is its radius.
@@ -314,6 +326,8 @@ pub struct TileOnly;
 pub struct ShadowBox {
     pub low: Vec3,
     pub high: Vec3,
+    /// It casts as the rounded shape that fits in the box (`BOXY_FILL`).
+    pub round: bool,
 }
 
 /// How many placeables of a scene got a box, and how many were left out as
@@ -360,12 +374,14 @@ impl BoxTally {
             self.flat += 1;
             return None;
         }
-        if fill(triangles, low, high).min_element() < LEAST_FILL {
+        let least = fill(triangles, low, high).min_element();
+        let round = least < BOXY_FILL;
+        if least < LEAST_FILL {
             self.sparse += 1;
-            return Some((ShadowBox { low, high }, false));
+            return Some((ShadowBox { low, high, round }, false));
         }
         self.boxed += 1;
-        Some((ShadowBox { low, high }, true))
+        Some((ShadowBox { low, high, round }, true))
     }
 
     /// The counts, for the dump's scene facts.
@@ -732,7 +748,11 @@ fn tiles_wanted() -> (bool, bool) {
     })
 }
 
-/// `KJK_SHADOW_DEBUG` set. The rooms then show their shadows alone.
+/// `KJK_SHADOW_DEBUG` set. The rooms then show their shadows alone. `7` is
+/// the light kinds' trial instead: the rooms keep half of their baked
+/// light, so a light added by `KJK_FOUND_LIGHTS` shows how it shines. `8`
+/// is the fitted lights' trial with a bake of their light in the rooms'
+/// lightmaps (`fitted_lights::baked`).
 struct ShadowDebug(u32);
 
 impl Default for ShadowDebug {
@@ -743,7 +763,14 @@ impl Default for ShadowDebug {
             Ok("4") => 4,
             Ok("5") => 5,
             Ok("6") => 6,
+            Ok("7") => 7,
             Ok(_) => 1,
+            // The fitted lights' trial keeps half of the baked light too:
+            // the fittings' own lights make up the rest.
+            // `KJK_FITTED_LIGHTS=baked` is the same trial with the rooms'
+            // light baked (`fitted_lights::baked`).
+            Err(_) if crate::fitted_lights::baked() => 8,
+            Err(_) if crate::fitted_lights::wanted() => 7,
             Err(_) => 0,
         })
     }
@@ -1103,7 +1130,12 @@ pub(crate) fn world_box(shadow: &ShadowBox, placed: &GlobalTransform) -> GpuBox 
         y: (turn * Vec3::Y).extend(half.y),
         z: (turn * Vec3::Z).extend(half.z),
         unseen: UVec4::ZERO,
-        tiles: UVec4::new(0, 0, BOX_CASTS, 0),
+        tiles: UVec4::new(
+            0,
+            0,
+            BOX_CASTS | if shadow.round { BOX_ROUND } else { 0 },
+            0,
+        ),
     }
 }
 
@@ -1220,7 +1252,7 @@ fn place_boxes(
     }
     // A placeable that casts from its tiles alone and got none casts
     // nothing, except under Ultra.
-    now.retain(|(_, _, gpu, _)| ultra || gpu.tiles.z == BOX_CASTS || gpu.tiles.y > 0);
+    now.retain(|(_, _, gpu, _)| ultra || gpu.tiles.z & BOX_CASTS != 0 || gpu.tiles.y > 0);
     list.count = now.len() as u32;
     crate::render_facts::note(crate::render_facts::Fact::Boxes, list.count);
     crate::render_facts::note(crate::render_facts::Fact::KeptTiles, list.tile_count);
@@ -1611,7 +1643,7 @@ fn upload(
         let (_, _, gpu, tile_lights) = &boxes.shown[index];
         // A placeable that casts from its tiles alone casts nothing under a
         // fight's light, except under Ultra, where it casts from its meshes.
-        let fights = if gpu.tiles.z == BOX_CASTS || settings == ShadowSettings::Ultra {
+        let fights = if gpu.tiles.z & BOX_CASTS != 0 || settings == ShadowSettings::Ultra {
             settings.fight_lights()
         } else {
             0

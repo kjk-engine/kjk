@@ -1045,6 +1045,14 @@ impl PlayerInput<'_, '_> {
     }
 
     pub(crate) fn read(&self) -> Read {
+        // In walk mode the keys and the mouse move the camera, never the
+        // player.
+        if crate::walk::on() {
+            return Read {
+                actions: None,
+                turn: None,
+            };
+        }
         let headless = self.headless.0;
         let held = self.movie_up() || self.screens.as_ref().is_some_and(|open| open.0);
         let feel = self

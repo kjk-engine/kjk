@@ -790,9 +790,68 @@ pub fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
             warn!("texture {name} does not read, drawn as missing: {why}");
         }
     }
+    let decoded = decoded.map(|texture| detail_baked(name, texture));
     let fitted =
         (decoded.as_ref()).and_then(|texture| crate::scene::fit_to_gpu(texture, Some(name)));
     fitted.or(decoded)
+}
+
+/// `texture`, or the larger lightmap `kjk detail-bake` made of it
+/// (`docs/LIGHTING-PLAN.md`, step 10). `KJK_DETAIL_BAKE` names the folder
+/// of one area's baked lightmaps. A texture the folder has no PNG for is
+/// drawn as stored. The baked lightmap keeps the stored one's facts and has
+/// one level, because a smaller level would mix the light of faces that
+/// lie side by side on the lightmap.
+/// The stored lightmaps a baked one is drawn in the place of
+/// (`detail_baked`), by name in lower case.
+static STORED_LIGHTMAPS: std::sync::Mutex<BTreeMap<String, TextureIr>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// The lightmap the game's data stores under `name`, where a baked one is
+/// drawn in its place. The fitted lights are levelled against the stored
+/// light (`fitted_lights::level`), whichever lightmap the rooms show.
+pub(crate) fn stored_lightmap(name: &str) -> Option<TextureIr> {
+    STORED_LIGHTMAPS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&name.to_ascii_lowercase())
+        .cloned()
+}
+
+fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
+    static FOLDER: std::sync::LazyLock<Option<std::path::PathBuf>> =
+        std::sync::LazyLock::new(|| {
+            std::env::var_os("KJK_DETAIL_BAKE")
+                .filter(|folder| !folder.is_empty())
+                .map(std::path::PathBuf::from)
+        });
+    let Some(folder) = FOLDER.as_ref() else {
+        return texture;
+    };
+    let path = folder.join(format!("{}.png", name.to_ascii_lowercase()));
+    if texture.cube || texture.frames > 1 || !path.is_file() {
+        return texture;
+    }
+    match image::open(&path) {
+        Ok(picture) => {
+            let picture = picture.into_rgba8();
+            STORED_LIGHTMAPS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(name.to_ascii_lowercase(), texture.clone());
+            TextureIr {
+                width: picture.width(),
+                height: picture.height(),
+                encoding: asset_odyssey::texture::Encoding::Rgba8,
+                mips: vec![picture.into_raw()],
+                ..texture
+            }
+        }
+        Err(error) => {
+            warn!("baked lightmap {} does not read: {error}", path.display());
+            texture
+        }
+    }
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {

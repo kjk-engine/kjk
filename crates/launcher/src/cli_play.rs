@@ -152,6 +152,15 @@ pub(crate) struct Start {
     /// The party's XP at the start (by hand, until saves load)
     #[arg(long)]
     pub(crate) xp: Option<i32>,
+    /// Walk mode, for looking around a module without playing it. The
+    /// module runs with none of its scripts, so no conversation, cutscene or
+    /// trigger starts. Every creature is neutral, so no fight starts. The
+    /// player stands at the arrival. The camera flies through walls and
+    /// doors: WASD moves, E and Q go up and down, Shift goes faster, and the
+    /// mouse looks. F12 still makes a bug report, which says where the
+    /// camera is
+    #[arg(long, conflicts_with = "replay")]
+    pub(crate) walk: bool,
     #[command(flatten)]
     pub(crate) by_hand: Box<ByHand>,
 }
@@ -267,11 +276,15 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         gold,
         alignment,
         xp,
+        walk,
         by_hand,
     } = start;
     let stage = stage.unwrap_or_else(|| "course".to_string());
     if let Some(rules) = saber_rules {
         kjk_game::settings::hold_saber_rules(rules);
+    }
+    if walk {
+        kjk_game::walk::hold();
     }
     let ByHand {
         skills,

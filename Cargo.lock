@@ -4076,6 +4076,7 @@ dependencies = [
  "store",
  "ui",
  "vfs",
+ "wgpu 29.0.4",
  "zip",
 ]
 
