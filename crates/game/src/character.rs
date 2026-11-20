@@ -495,9 +495,13 @@ fn damage(sheet: &Sheet, hand: usize) -> String {
 }
 
 /// Hand `hand`'s attack modifier on `sheet` (`damage::attack_bonus`), as
-/// the equip page shows it. It is `None` when the hand shows no weapon.
+/// the equip page shows it. It is `None` when the hand shows no weapon. It
+/// counts the attack bonus of KOTOR 2's Form in use against an enemy who
+/// holds no lightsaber (`forms::to_hit`): Shii-Cho's, Shien's and Niman's,
+/// but not Makashi's, which counts only against a lightsaber.
 fn attack(sheet: &Sheet, hand: usize) -> Option<i32> {
-    shown_weapon(sheet, hand).map(|weapon| sim::combat::damage::attack_bonus(sheet, &weapon))
+    let form = sim::combat::forms::to_hit(sheet, &Sheet::commoner());
+    shown_weapon(sheet, hand).map(|weapon| sim::combat::damage::attack_bonus(sheet, &weapon) + form)
 }
 
 /// The slots the equip page previews an item in: the hands and the body.

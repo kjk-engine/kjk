@@ -613,6 +613,33 @@ fn bar_view(
     (slots, label)
 }
 
+/// KOTOR 2's Form slot for `sheet` (`ui::screens::hud::FORM`): none for a
+/// character who knows no Form. Otherwise it holds the `spells.2da` icon of
+/// the Form in use (none while no Form is in use) and the next-Form key
+/// (`form_view`). The icon is dimmed while the Form does nothing, as a
+/// lightsaber Form does without a lightsaber in the right hand.
+fn form_slot(
+    ui: &mut crate::ui_view::Ui,
+    sheet: &sim::combat::Sheet,
+    key: ui::vm::KeyLabel,
+) -> Option<ui::vm::BarSlot> {
+    use sim::combat::forms;
+    crate::form_view::known(sheet).next()?;
+    let icon = (sheet.form != 0)
+        .then(|| {
+            ui.assets
+                .as_mut()?
+                .cell("spells", usize::from(sheet.form), "iconresref")
+        })
+        .flatten();
+    Some(ui::vm::BarSlot {
+        icon,
+        key,
+        dim: forms::active(sheet) == 0,
+        ..ui::vm::BarSlot::default()
+    })
+}
+
 /// What KOTOR's HUD shows: the bars (Force only for a Force user), the
 /// portrait of the character played (the player's persona's, or a
 /// companion's template's while it leads or is driven) and the action bar
@@ -1102,8 +1129,10 @@ fn show(
                 .as_ref()
                 .and_then(|picking| picking.label(real.elapsed_secs())),
         );
+        let form = form_slot(ui, &sheet, prompts.label(Action::Form));
         ui.vm.hud = Some(ui::vm::HudView {
             minimap,
+            form,
             busy: busy(snapshot, own.0),
             solo: snapshot.solo,
             duel: duel.clone(),
@@ -1128,6 +1157,7 @@ fn show(
                 "power": power, "powers": choices, "shield": shield, "items": carried,
                 "icons": hud.icons.len(),
                 "solo": snapshot.solo,
+                "form": sheet.form,
                 "duel": duel.as_ref().map(|duel| serde_json::json!({
                     "points": duel.points.share,
                 })),

@@ -471,7 +471,7 @@ pub(super) fn action_bar() -> Vec<Check> {
         })
         .collect();
     let mut gui = root(800, 600, controls);
-    bar_extra(&mut gui, 6);
+    bar_extra(&mut gui, 6, false);
     let misplaced: Vec<String> = (0..10)
         .flat_map(|n| {
             [("BTN_ACTION", 100), ("LBL_ACTION", 103)].map(|(prefix, first)| {
@@ -691,6 +691,7 @@ pub(super) fn all() -> Vec<Check> {
             minimap: None,
             stealth: false,
             solo: false,
+            form: None,
             busy: None,
             poisoned: false,
             duel: None,

@@ -819,6 +819,11 @@ pub struct HudView {
     /// Its Stamina bar, while the Advanced rules are played and it holds a
     /// saber (`screens::hud::duel_bars`).
     pub duel: Option<DuelBars>,
+    /// KOTOR 2's Form slot, for a character who knows a lightsaber Form or a
+    /// Force Form: the icon of the Form in use and the next-Form key. Its
+    /// icon is dimmed while the Form does nothing, as a lightsaber Form
+    /// does without a lightsaber in the right hand (`screens::hud::FORM`).
+    pub form: Option<BarSlot>,
 }
 
 /// A fighter's one duel bar, which a player reads as Stamina: how much of
