@@ -6613,6 +6613,26 @@ fn loose_bones() {
             expected.lines().count()
         );
     }
+    for game in [vfs::Game::Kotor1, vfs::Game::Kotor2] {
+        let Some(install) = discovery.get(game) else {
+            continue;
+        };
+        let index = vfs::DirIndex::of_install(install).expect("the install indexes");
+        let base = vfs::resolver::Resolver::base(game, &index, vfs::resolver::TextureQuality::High)
+            .expect("the install opens");
+        let skirts = loose_parts::skirts(&base, &index);
+        println!("{} generated skirts:\n{skirts}", game.key());
+        let expected = match game {
+            vfs::Game::Kotor1 => loose_parts::SKIRTS_K1,
+            _ => loose_parts::SKIRTS_K2,
+        };
+        assert_eq!(
+            skirts,
+            expected,
+            "{}: the generated skirt chains differ from the approved list",
+            game.key()
+        );
+    }
     let (hood, cape) = (
         loose::physics::defaults(loose::Kind::Hood),
         loose::physics::defaults(loose::Kind::Cape),
@@ -6741,6 +6761,34 @@ mod loose_parts {
     /// The main menus' scenes, which hold copies of the characters.
     pub fn menu(name: &str) -> bool {
         name == "3dgui" || name.starts_with("mainmenu")
+    }
+
+    /// Every humanoid model that gets generated skirt chains, with what it
+    /// gets, one model and one line a model, by name.
+    pub fn skirts(base: &Resolver, index: &vfs::DirIndex) -> String {
+        let mut names = BTreeSet::new();
+        for layer in base.every_layer(index).iter() {
+            for (name, restype) in layer.resources.keys() {
+                if *restype == ResType::MDL {
+                    names.insert(name.to_ascii_lowercase());
+                }
+            }
+        }
+        let mut out = String::new();
+        for name in names {
+            let Some((mdl, mdx)) = bytes(base, &name) else {
+                continue;
+            };
+            let humanoid = Model::node_names(&mdl)
+                .is_ok_and(|names| asset_ja::rig::humanoid_names(names.iter().map(String::as_str)));
+            let Some(mut ir) = parse(&mdl, &mdx).filter(|_| humanoid) else {
+                continue;
+            };
+            if let Some(skirt) = loose::skirt::generate(&mut ir) {
+                out += &format!("{name}\n  {}\n", skirt.describe());
+            }
+        }
+        out
     }
 
     /// Every value a finite number of at least 0 in its range, and every
@@ -7109,5 +7157,186 @@ pmbnm
   robe skirt from torso_g: lrobe1_g > lrobe2_g > lrobe3_g (41 cm)
   robe skirt from torso_g: mrobe1_g > mrobe2_g > mrobe3_g (41 cm)
   links: skin lrobe1_g~mrobe1_g x3, skin rrobe1_g~mrobe1_g x3, around frobe1_g~lrobe1_g x3, around frobe1_g~rrobe1_g x3
+";
+
+    /// The generated skirt chains of every humanoid model of KOTOR 1
+    /// (`asset_ja::loose::skirt`).
+    pub const SKIRTS_K1: &str = "\
+c_jawa
+  skirt from legs: 6 chains of 3 bones at 0 36 144 180 216 324 degrees, 166 vertices, drift 0.0 mm
+l_alien02
+  skirt from legs: 5 chains of 3 bones at 0 72 108 180 252 degrees, 86 vertices, drift 0.0 mm
+l_alien03
+  skirt from legs: 4 chains of 3 bones at 0 36 180 324 degrees, 125 vertices, drift 0.0 mm
+l_wookie
+  skirt from legs: 6 chains of 3 bones at 36 72 108 252 288 324 degrees, 124 vertices, drift 0.0 mm
+mainmenu
+  skirt from robe bones: 7 chains of 3 bones at 72 108 144 180 216 252 288 degrees, 130 vertices, drift 0.0 mm
+mainmenu_model
+  skirt from robe bones: 7 chains of 3 bones at 72 108 144 180 216 252 288 degrees, 130 vertices, drift 0.0 mm
+n_darthband
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 196 vertices, drift 0.0 mm
+n_darthmalak
+  skirt from robe bones: 6 chains of 3 bones at 0 72 108 252 288 324 degrees, 130 vertices, drift 0.0 mm
+n_darthrevan
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 459 vertices, drift 0.0 mm
+n_darthrevanf
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 449 vertices, drift 0.0 mm
+n_darthrevanm
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 449 vertices, drift 0.0 mm
+n_sithappren
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 196 vertices, drift 0.0 mm
+n_tuskanf
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 367 vertices, drift 0.0 mm
+n_tusken
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 359 vertices, drift 0.0 mm
+n_tuskenf
+  skirt from legs: 9 chains of 3 bones at 0 36 72 144 180 216 252 288 324 degrees, 375 vertices, drift 0.0 mm
+p_bastilabb02
+  skirt from robe bones: 4 chains of 3 bones at 0 180 216 324 degrees, 96 vertices, drift 0.0 mm
+pfbil
+  skirt from legs: 5 chains of 3 bones at 36 144 180 216 252 degrees, 254 vertices, drift 0.0 mm
+pfbim
+  skirt from legs: 5 chains of 3 bones at 36 144 180 216 252 degrees, 238 vertices, drift 0.0 mm
+pfbis
+  skirt from legs: 3 chains of 3 bones at 144 180 216 degrees, 225 vertices, drift 0.0 mm
+pfbjl
+  skirt from legs: 9 chains of 3 bones at 0 36 72 144 180 216 252 288 324 degrees, 241 vertices, drift 0.0 mm
+pfbjm
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 224 vertices, drift 0.0 mm
+pfbjs
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 215 vertices, drift 0.0 mm
+pmbil
+  skirt from legs: 7 chains of 3 bones at 36 108 144 180 216 252 324 degrees, 253 vertices, drift 0.0 mm
+pmbim
+  skirt from legs: 4 chains of 3 bones at 144 180 216 324 degrees, 238 vertices, drift 0.0 mm
+pmbis
+  skirt from legs: 3 chains of 3 bones at 144 180 216 degrees, 229 vertices, drift 0.0 mm
+pmbjl
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 251 vertices, drift 0.0 mm
+pmbjm
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 251 vertices, drift 0.0 mm
+pmbjs
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 242 vertices, drift 0.0 mm
+";
+
+    /// The same for KOTOR 2.
+    pub const SKIRTS_K2: &str = "\
+c_jawa
+  skirt from legs: 6 chains of 3 bones at 0 36 144 180 216 324 degrees, 166 vertices, drift 0.0 mm
+k1_pfbim
+  skirt from legs: 5 chains of 3 bones at 36 144 180 216 252 degrees, 238 vertices, drift 0.0 mm
+l_alien02
+  skirt from legs: 5 chains of 3 bones at 0 72 108 180 252 degrees, 86 vertices, drift 0.0 mm
+l_alien03
+  skirt from legs: 4 chains of 3 bones at 0 36 180 324 degrees, 125 vertices, drift 0.0 mm
+l_wookie
+  skirt from legs: 6 chains of 3 bones at 36 72 108 252 288 324 degrees, 124 vertices, drift 0.0 mm
+mainmenu
+  skirt from robe bones: 7 chains of 3 bones at 72 108 144 180 216 252 288 degrees, 130 vertices, drift 0.0 mm
+mainmenu02
+  skirt from legs: 9 chains of 3 bones at 0 36 72 144 180 216 252 288 324 degrees, 172 vertices, drift 0.0 mm
+mainmenu03
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 161 vertices, drift 0.0 mm
+mainmenu04
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 151 vertices, drift 0.7 mm
+mainmenu06
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 161 vertices, drift 0.0 mm
+mainmenu_model
+  skirt from robe bones: 7 chains of 3 bones at 72 108 144 180 216 252 288 degrees, 130 vertices, drift 0.0 mm
+n_dansalvager
+  skirt from legs: 9 chains of 3 bones at 0 36 108 144 180 216 252 288 324 degrees, 222 vertices, drift 0.0 mm
+n_darkjhif
+  skirt from robe bones: 7 chains of 3 bones at 72 108 144 180 216 252 288 degrees, 174 vertices, drift 0.0 mm
+n_darkjhim
+  skirt from robe bones: 7 chains of 3 bones at 72 108 144 180 216 252 288 degrees, 179 vertices, drift 0.0 mm
+n_darkjlowm
+  skirt from legs: 9 chains of 3 bones at 36 72 108 144 180 216 252 288 324 degrees, 326 vertices, drift 0.0 mm
+n_darkjmidm
+  skirt from legs: 9 chains of 3 bones at 36 72 108 144 180 216 252 288 324 degrees, 329 vertices, drift 0.0 mm
+n_darthband
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 196 vertices, drift 0.0 mm
+n_darthmalak
+  skirt from robe bones: 6 chains of 3 bones at 0 72 108 252 288 324 degrees, 130 vertices, drift 0.0 mm
+n_darthnihilus
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 161 vertices, drift 0.0 mm
+n_darthrevan
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 459 vertices, drift 0.0 mm
+n_darthrevanf
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 449 vertices, drift 0.0 mm
+n_darthrevanm
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 449 vertices, drift 0.0 mm
+n_darthtraya
+  skirt from legs: 9 chains of 3 bones at 0 36 72 108 144 180 216 252 324 degrees, 172 vertices, drift 0.0 mm
+n_gand
+  skirt from legs: 6 chains of 3 bones at 0 36 72 180 288 324 degrees, 134 vertices, drift 0.0 mm
+n_jedirobem
+  skirt from robe bones: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 195 vertices, drift 0.0 mm
+n_ondcomf1
+  skirt from legs: 8 chains of 3 bones at 0 36 144 180 216 252 288 324 degrees, 125 vertices, drift 0.5 mm
+n_ondcomm1
+  skirt from legs: 9 chains of 3 bones at 0 36 72 144 180 216 252 288 324 degrees, 146 vertices, drift 2.3 mm
+n_quarren
+  skirt from legs: 3 chains of 3 bones at 0 36 324 degrees, 83 vertices, drift 0.0 mm
+n_sithappren
+  skirt from legs: 5 chains of 3 bones at 0 36 72 288 324 degrees, 190 vertices, drift 0.0 mm
+n_talia
+  skirt from robe bones: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 140 vertices, drift 0.0 mm
+n_tuskanf
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 367 vertices, drift 0.0 mm
+n_tusken
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 359 vertices, drift 0.0 mm
+n_tuskenf
+  skirt from legs: 9 chains of 3 bones at 0 36 72 144 180 216 252 288 324 degrees, 375 vertices, drift 0.0 mm
+p_atrisbb
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 244 vertices, drift 0.0 mm
+p_kreia1hbb
+  skirt from legs: 8 chains of 3 bones at 0 36 108 144 180 216 252 324 degrees, 152 vertices, drift 0.0 mm
+p_kreia1hstunt01
+  skirt from legs: 9 chains of 3 bones at 0 36 72 108 144 180 216 252 324 degrees, 153 vertices, drift 0.0 mm
+p_kreiabb
+  skirt from legs: 9 chains of 3 bones at 0 36 72 108 144 180 216 252 324 degrees, 153 vertices, drift 0.0 mm
+p_kreiaevil02
+  skirt from legs: 9 chains of 3 bones at 0 36 72 108 144 180 216 252 324 degrees, 151 vertices, drift 0.0 mm
+p_kreiaevil0hbb
+  skirt from legs: 9 chains of 3 bones at 0 36 72 108 144 180 216 252 324 degrees, 151 vertices, drift 0.0 mm
+p_kreiaevilbb
+  skirt from legs: 9 chains of 3 bones at 0 36 72 108 144 180 216 252 324 degrees, 151 vertices, drift 0.0 mm
+p_kreiastunt
+  skirt from legs: 9 chains of 3 bones at 0 36 72 108 144 180 216 252 324 degrees, 153 vertices, drift 0.0 mm
+p_visasbb
+  skirt from legs: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 221 vertices, drift 0.0 mm
+pfbil
+  skirt from legs: 5 chains of 3 bones at 36 144 180 216 252 degrees, 254 vertices, drift 0.0 mm
+pfbim
+  skirt from robe bones: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 224 vertices, drift 0.0 mm
+pfbis
+  skirt from legs: 3 chains of 3 bones at 144 180 216 degrees, 225 vertices, drift 0.0 mm
+pfbjl
+  skirt from legs: 9 chains of 3 bones at 0 36 72 144 180 216 252 288 324 degrees, 241 vertices, drift 0.0 mm
+pfbjm
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 224 vertices, drift 0.0 mm
+pfbjs
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 215 vertices, drift 0.0 mm
+pfbmm
+  skirt from robe bones: 7 chains of 3 bones at 72 108 144 180 216 252 288 degrees, 359 vertices, drift 0.0 mm
+pfbnm
+  skirt from robe bones: 9 chains of 3 bones at 36 72 108 144 180 216 252 288 324 degrees, 231 vertices, drift 0.0 mm
+pmbil
+  skirt from legs: 7 chains of 3 bones at 36 108 144 180 216 252 324 degrees, 253 vertices, drift 0.0 mm
+pmbim
+  skirt from robe bones: 10 chains of 3 bones at 0 36 72 108 144 180 216 252 288 324 degrees, 234 vertices, drift 0.0 mm
+pmbis
+  skirt from legs: 3 chains of 3 bones at 144 180 216 degrees, 229 vertices, drift 0.0 mm
+pmbjl
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 251 vertices, drift 0.0 mm
+pmbjm
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 251 vertices, drift 0.0 mm
+pmbjs
+  skirt from legs: 8 chains of 3 bones at 0 36 72 144 180 216 288 324 degrees, 242 vertices, drift 0.0 mm
+pmbmm
+  skirt from robe bones: 7 chains of 3 bones at 72 108 144 180 216 252 288 degrees, 359 vertices, drift 0.0 mm
+pmbnm
+  skirt from robe bones: 8 chains of 3 bones at 72 108 144 180 216 252 288 324 degrees, 238 vertices, drift 0.0 mm
 ";
 }

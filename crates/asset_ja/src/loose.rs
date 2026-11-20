@@ -68,6 +68,7 @@ use glam::{Mat3, Quat, Vec3};
 use crate::rig;
 
 pub mod physics;
+pub mod skirt;
 
 pub use physics::Physics;
 

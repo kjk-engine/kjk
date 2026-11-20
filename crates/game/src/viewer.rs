@@ -1083,7 +1083,9 @@ pub fn load_model_playing(
 ) -> Result<LoadedScene, String> {
     let game = game_of(game)?;
     let resolver = resolver(discovery, game, module)?;
-    let ir = model(&resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+    crate::loose_parts::choose(loose.as_ref());
+    let mut ir = model(&resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+    crate::loose_parts::dress(&mut ir);
     let playing = match clip_name {
         Some((wanted, from)) => {
             let holder = match from {
@@ -2107,7 +2109,11 @@ fn read_into<'c>(
     name: &str,
 ) -> Result<Option<&'c ModelIr>, String> {
     if !cache.contains_key(name) {
-        cache.insert(name.to_string(), model(resolver, name)?);
+        let mut read = model(resolver, name)?;
+        if let Some(ir) = read.as_mut() {
+            crate::loose_parts::dress(ir);
+        }
+        cache.insert(name.to_string(), read);
     }
     Ok(cache[name].as_ref())
 }

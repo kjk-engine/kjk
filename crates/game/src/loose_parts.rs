@@ -73,6 +73,29 @@ fn running() -> bool {
     SOLVING.load(Ordering::Relaxed)
 }
 
+/// Gives the body model `ir` its generated skirt chains
+/// (`asset_ja::loose::skirt`) while the solver runs. Every reader of a
+/// model calls it once, as the model is read, before anything looks at the
+/// model's nodes. With the solver off, a KOTOR 2 robe keeps its robe bones
+/// and their keys, and a KOTOR 1 robe stays on its legs.
+pub(crate) fn dress(ir: &mut ModelIr) {
+    if !running() {
+        return;
+    }
+    if let Some(skirt) = finder::skirt::generate(ir) {
+        debug!("{}: {}", ir.name, skirt.describe());
+    }
+}
+
+/// Turns the solver on or off for a viewer's run, from its loose part
+/// options, before it reads its model (`dress`). A viewer without them
+/// leaves the run as it was.
+pub(crate) fn choose(loose: Option<&Loose>) {
+    if let Some(loose) = loose {
+        solve_in_this_run(loose.sim);
+    }
+}
+
 /// What the finder found on one model, with no clips.
 struct Found {
     rig: finder::Rig,
@@ -324,9 +347,7 @@ pub(crate) fn viewed(
     ir: &ModelIr,
 ) -> Result<Option<Loose>, String> {
     let sim = loose.is_some_and(|loose| loose.sim);
-    if loose.is_some() {
-        solve_in_this_run(sim);
-    }
+    choose(loose);
     Ok(match loose {
         Some(loose) if sim => Some(Loose {
             chain: crate::viewer::chain_clips(cache, resolver, ir)?,
