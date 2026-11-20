@@ -2645,6 +2645,10 @@ pub enum Change {
     /// A player swapped `who`'s weapon sets (`Action::SwitchWeapons`): in a
     /// fight its weapon waits `combat::SWAP_MS` after what it was doing.
     Swapped { who: ObjectId },
+    /// `who`'s weapon sets were exchanged, by anyone (`State::switch_weapons`):
+    /// its mind may choose the feat line of the new weapon at once
+    /// (`Mind::feat_at` cleared).
+    WeaponSetsSwitched { who: ObjectId },
     /// A conversation began around `around`: its PC, or the body whose use
     /// started it; or the host joined one, around its owner (R5). Those
     /// `who` names, far off, come to it
