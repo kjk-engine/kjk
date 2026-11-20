@@ -20,7 +20,7 @@ use bevy::prelude::*;
 use console::DumpFacts;
 use fmt_odyssey::ResType;
 use level_edit::editor::{ADDABLE, EDITABLE};
-use level_edit::{CollisionBox, Edit, Editor, Entry, Kind, Prop, Target};
+use level_edit::{Change, CollisionBox, Edit, Editor, Entry, Kind, Prop, Target};
 use vfs::Game;
 use vfs::resolver::{Layer, Location, Rank, Resolver};
 
@@ -60,6 +60,10 @@ pub struct EditSetup {
     pub placeables: Vec<String>,
     pub creatures: Vec<String>,
     pub models: Vec<String>,
+    /// The install's compiled scripts and item templates, for the scripts
+    /// and items an object's template names.
+    pub scripts: Vec<String>,
+    pub items: Vec<String>,
     /// The `kjk` that `edit play` and `edit audit` start: the one beside
     /// this program.
     pub program: PathBuf,
@@ -162,25 +166,61 @@ impl EditorState {
             .position(|candidate| candidate.resref.eq_ignore_ascii_case(area))
     }
 
-    /// The resolver with the edited GIT over the project's folder.
+    /// The resolver with the edited GIT and the project's templates as
+    /// they are now (saved or not) over the project's folder.
     fn resolver(&self) -> Resolver {
-        let git = self.editor.project.git.write();
+        let held = |bytes: Vec<u8>| Location {
+            path: PathBuf::from("editor"),
+            offset: 0,
+            size: bytes.len() as u64,
+            held: Some(bytes.into()),
+        };
         let mut resources = BTreeMap::new();
-        let size = git.len() as u64;
         resources.insert(
             (self.editor.project.area.clone(), ResType::GIT),
-            Location {
-                path: PathBuf::from("editor"),
-                offset: 0,
-                size,
-                held: Some(git.into()),
-            },
+            held(self.editor.project.git.write()),
         );
+        for (resref, made) in &self.editor.project.templates {
+            resources.insert((resref.clone(), made.restype), held(made.gff.write()));
+        }
         self.setup.resolver.with_layer(Layer {
             name: "editor".into(),
             rank: Rank::Directory,
             resources,
         })
+    }
+
+    /// A template as the object would be made from it: the project's own
+    /// (saved or not), else the install's.
+    pub(crate) fn template_gff(
+        &self,
+        resref: &str,
+        restype: ResType,
+    ) -> Option<fmt_odyssey::gff::Gff> {
+        if let Some(made) = self.editor.project.templates.get(resref) {
+            return Some(made.gff.clone());
+        }
+        self.setup
+            .resolver
+            .read(resref, restype)
+            .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+    }
+
+    /// Makes `change` in the template of `target` (`Editor::change_template`).
+    pub(crate) fn change_template(&mut self, target: Target, change: Change) {
+        let resolver = &self.setup.resolver;
+        let read = |name: &str, restype: ResType| resolver.read(name, restype);
+        let taken = |name: &str| {
+            resolver.find(name, ResType::UTP).is_some()
+                || resolver.find(name, ResType::UTC).is_some()
+        };
+        if let Err(why) = self
+            .editor
+            .change_template(target, &change, (&read, &taken))
+        {
+            self.say(why);
+        }
+        self.quiet = 0;
     }
 
     /// The edited area's collision, with the project's boxes and solid
@@ -226,10 +266,7 @@ impl EditorState {
             return entry.tag.clone();
         }
         let (_, restype) = entry.kind.list_and_type();
-        self.setup
-            .resolver
-            .read(&entry.template, restype)
-            .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+        self.template_gff(&entry.template, restype)
             .and_then(|gff| {
                 gff.root
                     .bytes("Tag")
@@ -898,6 +935,36 @@ pub(crate) fn command(
                 yaw,
             }));
         }
+        ["script", label, script] => {
+            let target = selected(state)?;
+            let script = if *script == "-" { "" } else { script };
+            state.change_template(
+                target,
+                Change::Script(label.to_string(), script.to_string()),
+            );
+        }
+        [
+            "flag",
+            flag @ ("useable" | "inventory"),
+            on @ ("on" | "off"),
+        ] => {
+            let target = selected(state)?;
+            let label = if *flag == "useable" {
+                "Useable"
+            } else {
+                "HasInventory"
+            };
+            state.change_template(target, Change::Flag(label.to_string(), *on == "on"));
+        }
+        ["item", "add", item] => {
+            let target = selected(state)?;
+            state.change_template(target, Change::AddItem(item.to_ascii_lowercase()));
+        }
+        ["item", "remove", at] => {
+            let target = selected(state)?;
+            let at: usize = at.parse().map_err(|_| format!("{at:?} is not a number"))?;
+            state.change_template(target, Change::RemoveItem(at));
+        }
         ["collision", on @ ("on" | "off")] => {
             state.show_collision = *on == "on";
             state.quiet = SETTLE_FRAMES;
@@ -1053,6 +1120,24 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
     match target {
         Target::Object(kind, index) => {
             let entry = state.editor.entry(kind, index);
+            // What its template makes it do.
+            let behaviour = entry.as_ref().and_then(|entry| {
+                let restype = level_edit::template::restype(kind)?;
+                let gff = state.template_gff(&entry.template, restype)?;
+                let own = state.editor.project.templates.get(&entry.template);
+                let scripts: BTreeMap<String, String> = level_edit::template::scripts(&gff)
+                    .into_iter()
+                    .filter(|(_, script)| !script.is_empty())
+                    .collect();
+                Some(serde_json::json!({
+                    "project_template": own.is_some(),
+                    "copied_from": own.map(|made| made.from.clone()),
+                    "scripts": scripts,
+                    "useable": level_edit::template::flag(&gff, "Useable"),
+                    "holds_items": level_edit::template::flag(&gff, "HasInventory"),
+                    "items": level_edit::template::items(&gff),
+                }))
+            });
             serde_json::json!({
                 "kind": kind_name(kind),
                 "index": index,
@@ -1061,6 +1146,7 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
                 "position": position,
                 "facing": facing,
                 "editable": EDITABLE.contains(&kind),
+                "behaviour": behaviour,
             })
         }
         Target::Prop(at) => {

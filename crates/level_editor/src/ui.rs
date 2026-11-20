@@ -13,7 +13,7 @@ use bevy_egui::{
 };
 use console::{CameraPose, CameraRequest, ConsoleQueue};
 use level_edit::editor::EDITABLE;
-use level_edit::{CollisionBox, Edit, Kind, Prop, Target};
+use level_edit::{Change, CollisionBox, Edit, Kind, Prop, Target};
 use transform_gizmo_egui::math::Transform as GizmoTransform;
 use transform_gizmo_egui::{
     EnumSet, Gizmo, GizmoConfig, GizmoExt, GizmoMode, GizmoOrientation, GizmoResult, mint,
@@ -89,6 +89,14 @@ pub struct UiState {
     /// The view's part of the window, in points.
     viewport: egui::Rect,
     fonts_set: bool,
+    /// The behaviour section's text fields: each event's script, and the
+    /// item to add, as typed, for the selection they were typed for.
+    typed: BTreeMap<String, String>,
+    typed_for: Option<Target>,
+    /// The editor's count of changes when the fields were filled.
+    typed_at: u64,
+    /// The field whose matches are listed under the section.
+    completing: Option<String>,
 }
 
 impl Default for UiState {
@@ -110,6 +118,10 @@ impl Default for UiState {
             store: store::Store::open(),
             viewport: egui::Rect::NOTHING,
             fonts_set: false,
+            typed: BTreeMap::new(),
+            typed_for: None,
+            typed_at: 0,
+            completing: None,
         }
     }
 }
@@ -973,6 +985,12 @@ fn details(
             {
                 ui_state.dragging = false;
             }
+            if let Target::Object(kind, index) = target
+                && editable
+                && level_edit::template::restype(kind).is_some()
+            {
+                behaviour(ui, state, ui_state, (kind, index));
+            }
             ui.separator();
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(editable, |ui| {
@@ -989,6 +1007,205 @@ fn details(
             });
             messages(ui, state);
         });
+}
+
+/// The most matches listed under a script's or an item's field.
+const MATCHES: usize = 8;
+
+/// The field of the item to add, in `UiState::typed`.
+const ITEM_FIELD: &str = "item to add";
+
+/// The names in `names` that hold what `typed` holds, at most `MATCHES`.
+fn matches<'n>(names: &'n [String], typed: &str) -> Vec<&'n String> {
+    let needle = typed.to_ascii_lowercase();
+    names
+        .iter()
+        .filter(|name| !needle.is_empty() && name.contains(&needle) && **name != needle)
+        .take(MATCHES)
+        .collect()
+}
+
+/// What the selected placeable or creature does: its template, its event
+/// scripts, and a placeable's use and items. A change gives the object a
+/// template of its own (`level_edit::template`).
+fn behaviour(
+    ui: &mut egui::Ui,
+    state: &mut EditorState,
+    ui_state: &mut UiState,
+    (kind, index): (Kind, usize),
+) {
+    use level_edit::template;
+    let target = Target::Object(kind, index);
+    let Some(entry) = state.editor.entry(kind, index) else {
+        return;
+    };
+    let Some(restype) = template::restype(kind) else {
+        return;
+    };
+    let Some(gff) = state.template_gff(&entry.template, restype) else {
+        ui.label(format!("The template {} does not read.", entry.template));
+        return;
+    };
+    if ui_state.typed_for != Some(target) {
+        ui_state.typed.clear();
+        ui_state.completing = None;
+        ui_state.typed_for = Some(target);
+    }
+    // A change made elsewhere (an undo, a command) shows in the fields,
+    // unless one is being typed in.
+    let typing = ui.ctx().egui_wants_keyboard_input();
+    if ui_state.typed_at != state.editor.changes() && !typing {
+        ui_state.typed.retain(|label, _| label == ITEM_FIELD);
+        ui_state.typed_at = state.editor.changes();
+    }
+    ui.separator();
+    ui.label(egui::RichText::new("Behaviour").strong());
+    let users = state.editor.users(&entry.template);
+    let about = match state.editor.project.templates.get(&entry.template) {
+        Some(made) if users > 1 => format!(
+            "Template {}: this project's copy of {}, used by {users} objects. A change gives this object a copy of its own.",
+            entry.template, made.from
+        ),
+        Some(made) => format!(
+            "Template {}: this project's copy of {}.",
+            entry.template, made.from
+        ),
+        None => format!(
+            "Template {}: the game's. A change gives this object a copy of its own.",
+            entry.template
+        ),
+    };
+    ui.label(egui::RichText::new(about).small());
+    let mut changes: Vec<Change> = Vec::new();
+    let placeable = restype == fmt_odyssey::ResType::UTP;
+    if placeable {
+        ui.horizontal(|ui| {
+            for (label, shown, hint) in [
+                (
+                    "Useable",
+                    "Can be used",
+                    "The player can use it: open it, or run its OnUsed script.",
+                ),
+                (
+                    "HasInventory",
+                    "Holds items",
+                    "It is a container: using it opens its items.",
+                ),
+            ] {
+                let mut on = template::flag(&gff, label).unwrap_or(false);
+                if ui.checkbox(&mut on, shown).on_hover_text(hint).changed() {
+                    changes.push(Change::Flag(label.to_string(), on));
+                }
+            }
+        });
+    }
+    // Each event's script.
+    let scripts = template::scripts(&gff);
+    egui::Grid::new("scripts").num_columns(2).show(ui, |ui| {
+        for (label, script) in &scripts {
+            ui.label(label);
+            let typed = ui_state
+                .typed
+                .entry(label.clone())
+                .or_insert_with(|| script.clone());
+            let known = typed.is_empty() || state.setup.scripts.binary_search(typed).is_ok();
+            let mut field = egui::TextEdit::singleline(typed)
+                .desired_width(150.0)
+                .hint_text("none");
+            if !known {
+                field = field.text_color(egui::Color32::from_rgb(230, 120, 90));
+            }
+            let field = ui.add(field).on_hover_text(if known {
+                "The script this event runs. Type a compiled script's name."
+            } else {
+                "The install has no compiled script of this name."
+            });
+            if field.has_focus() {
+                ui_state.completing = Some(label.clone());
+            }
+            if field.lost_focus() && typed.to_ascii_lowercase() != *script {
+                changes.push(Change::Script(label.clone(), typed.to_ascii_lowercase()));
+            }
+            ui.end_row();
+        }
+    });
+    // The matches of the script being typed.
+    if let Some(label) = ui_state.completing.clone()
+        && scripts.iter().any(|(l, _)| *l == label)
+    {
+        let typed = ui_state
+            .typed
+            .get(&label)
+            .cloned()
+            .unwrap_or_else(String::new);
+        let found = matches(&state.setup.scripts, &typed);
+        if !found.is_empty() {
+            ui.label(egui::RichText::new(format!("Scripts for {label}")).small());
+            ui.horizontal_wrapped(|ui| {
+                for name in found {
+                    if ui.small_button(name.as_str()).clicked() {
+                        ui_state.typed.insert(label.clone(), name.clone());
+                        changes.push(Change::Script(label.clone(), name.clone()));
+                        ui_state.completing = None;
+                    }
+                }
+            });
+        }
+    }
+    // A placeable's items.
+    if placeable {
+        let items = template::items(&gff);
+        ui.label(format!("Items it starts with: {}", items.len()));
+        for (at, item) in items.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(item);
+                if ui.small_button("Remove").clicked() {
+                    changes.push(Change::RemoveItem(at));
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            let typed = ui_state
+                .typed
+                .entry(ITEM_FIELD.into())
+                .or_insert_with(String::new);
+            let field = ui.add(
+                egui::TextEdit::singleline(typed)
+                    .desired_width(150.0)
+                    .hint_text("an item template"),
+            );
+            if field.has_focus() {
+                ui_state.completing = Some(ITEM_FIELD.into());
+            }
+            let ready = state.setup.items.binary_search(typed).is_ok();
+            if ui
+                .add_enabled(ready, egui::Button::new("Add item"))
+                .clicked()
+            {
+                changes.push(Change::AddItem(typed.clone()));
+                typed.clear();
+            }
+        });
+        if ui_state.completing.as_deref() == Some(ITEM_FIELD) {
+            let typed = ui_state
+                .typed
+                .get(ITEM_FIELD)
+                .cloned()
+                .unwrap_or_else(String::new);
+            ui.horizontal_wrapped(|ui| {
+                for name in matches(&state.setup.items, &typed) {
+                    if ui.small_button(name.as_str()).clicked() {
+                        ui_state.typed.insert(ITEM_FIELD.into(), name.clone());
+                    }
+                }
+            });
+        }
+    }
+    for change in changes {
+        state.change_template(target, change);
+        // The script fields show the template as it now is.
+        ui_state.typed.retain(|label, _| label == ITEM_FIELD);
+    }
 }
 
 fn messages(ui: &mut egui::Ui, state: &EditorState) {

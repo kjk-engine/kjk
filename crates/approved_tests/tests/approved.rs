@@ -6720,6 +6720,98 @@ fn level_edit_round_trip() {
         "a 40-character tag is refused"
     );
     assert_eq!(std::fs::read(folder.join("m12aa.git")).unwrap(), before);
+
+    // An object's own template: a change copies the install's template
+    // (made here, with no scripts and no inventory) into the project under
+    // a new name, and points the object at it.
+    let utp = fmt_odyssey::gff::Gff {
+        file_type: *b"UTP ",
+        root: fmt_odyssey::gff::GffStruct {
+            id: u32::MAX,
+            fields: vec![
+                fmt_odyssey::gff::GffField {
+                    label: b"TemplateResRef".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::ResRef(b"plc_chair1".to_vec()),
+                },
+                fmt_odyssey::gff::GffField {
+                    label: b"OnUsed".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::ResRef(Vec::new()),
+                },
+                fmt_odyssey::gff::GffField {
+                    label: b"Useable".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::Byte(0),
+                },
+                fmt_odyssey::gff::GffField {
+                    label: b"HasInventory".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::Byte(0),
+                },
+            ],
+        },
+    };
+    let bytes = utp.write();
+    let read = |name: &str, _: fmt_odyssey::ResType| (name == "plc_chair1").then(|| bytes.clone());
+    let taken = |name: &str| name == "kje1_plc_chair1";
+    let chair = editor
+        .entries()
+        .into_iter()
+        .find(|entry| entry.template == "plc_chair1")
+        .expect("the added chair");
+    let chair = Target::Object(Kind::Placeable, chair.index);
+    let without = editor.project.clone();
+    for change in [
+        level_edit::Change::Flag("Useable".into(), true),
+        level_edit::Change::Flag("HasInventory".into(), true),
+        level_edit::Change::AddItem("g_i_credits001".into()),
+        level_edit::Change::Script("OnUsed".into(), "k_my_script".into()),
+    ] {
+        editor
+            .change_template(chair, &change, (&read, &taken))
+            .unwrap();
+    }
+    // The first free name: the install has the first.
+    let made = &editor.project.templates["kje2_plc_chair1"];
+    assert_eq!(made.from, "plc_chair1");
+    assert_eq!(
+        level_edit::template::flag(&made.gff, "HasInventory"),
+        Some(true)
+    );
+    assert_eq!(level_edit::template::items(&made.gff), ["g_i_credits001"]);
+    assert_eq!(
+        level_edit::template::scripts(&made.gff),
+        [("OnUsed".to_string(), "k_my_script".to_string())]
+    );
+    let Target::Object(_, index) = chair else {
+        unreachable!()
+    };
+    assert_eq!(
+        editor.entry(Kind::Placeable, index).unwrap().template,
+        "kje2_plc_chair1"
+    );
+    assert!(
+        editor
+            .change_template(
+                Target::Object(Kind::Waypoint, 0),
+                &level_edit::Change::Script("OnUsed".into(), String::new()),
+                (&read, &taken)
+            )
+            .is_err(),
+        "a waypoint has no template of its own"
+    );
+    editor.save("approved test").unwrap();
+    assert!(folder.join("kje2_plc_chair1.utp").is_file());
+    assert_eq!(
+        Project::open(&folder).unwrap().templates,
+        editor.project.templates,
+        "the template reads back as written"
+    );
+    // Undone to before the copy: the object is the install's template's
+    // again, and the save takes the copy out of the folder.
+    for _ in 0..4 {
+        assert!(editor.undo());
+    }
+    assert_eq!(editor.project, without);
+    editor.save("approved test").unwrap();
+    assert!(!folder.join("kje2_plc_chair1.utp").exists());
     let _ = std::fs::remove_dir_all(&folder);
 
     // No project is active in this process.

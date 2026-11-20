@@ -1,12 +1,15 @@
-//! A project's folder: `project.toml`, the area's `.git` file and
-//! `kjk-area.toml`, read and written.
+//! A project's folder: `project.toml`, the area's `.git` file,
+//! `kjk-area.toml` and the templates the project brings, read and written.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use fmt_odyssey::ResType;
 use fmt_odyssey::gff::Gff;
 
 use crate::area::{KjkArea, SCALES, SMALLEST_SIDE};
 use crate::git::{self, Kind, RESREF_LEN, TAG_LEN};
+use crate::template::{self, Template};
 
 /// The file that says what a project edits.
 pub const PROJECT_FILE: &str = "project.toml";
@@ -27,6 +30,9 @@ pub struct Project {
     pub area: String,
     pub git: Gff,
     pub kjk: KjkArea,
+    /// The placeable and creature templates the project brings, by resref
+    /// (`template`): each a file of the folder, `RESREF.utp` or `.utc`.
+    pub templates: BTreeMap<String, Template>,
 }
 
 /// Something wrong with a project. A problem that `blocks` stops the save;
@@ -66,6 +72,7 @@ impl Project {
             area: area.to_ascii_lowercase(),
             git,
             kjk: KjkArea::default(),
+            templates: BTreeMap::new(),
         }
     }
 
@@ -96,6 +103,7 @@ impl Project {
         };
         let mut project = Project::new(folder, &game, &module, &area, git);
         project.kjk = kjk;
+        project.templates = read_templates(folder)?;
         Ok(project)
     }
 
@@ -177,11 +185,25 @@ impl Project {
              game = {:?}\nmodule = {:?}\narea = {:?}\nmade_by = {:?}\n",
             self.game, self.module, self.area, made_by
         );
-        let files = [
+        let mut files = vec![
             (PROJECT_FILE.to_string(), project.into_bytes()),
             (format!("{}.git", self.area), self.git.write()),
             (AREA_FILE.to_string(), self.kjk.write().into_bytes()),
         ];
+        for (resref, made) in &self.templates {
+            files.push((
+                format!("{resref}.{}", template::extension(made.restype)),
+                made.gff.write(),
+            ));
+        }
+        // A template no object uses any more (an edit undone) leaves the
+        // folder.
+        for (resref, path) in template_files(&self.folder) {
+            if !self.templates.contains_key(&resref) {
+                std::fs::remove_file(&path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+            }
+        }
         let mut written = Vec::new();
         for (name, bytes) in files {
             let path = self.folder.join(name);
@@ -213,6 +235,52 @@ impl Project {
         hasher.update(&(git.len() as u64).to_le_bytes());
         hasher.update(&git);
         hasher.update(self.kjk.write().as_bytes());
+        for (resref, made) in &self.templates {
+            let bytes = made.gff.write();
+            for part in [resref.as_bytes(), &bytes] {
+                hasher.update(&(part.len() as u64).to_le_bytes());
+                hasher.update(part);
+            }
+        }
         *hasher.finalize().as_bytes()
     }
+}
+
+/// The templates in a project's folder (`RESREF.utp`, `RESREF.utc`) by
+/// resref, with their paths.
+fn template_files(folder: &Path) -> Vec<(String, PathBuf)> {
+    std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            let (resref, extension) = name.rsplit_once('.')?;
+            matches!(extension, "utp" | "utc").then(|| (resref.to_string(), entry.path()))
+        })
+        .collect()
+}
+
+/// The templates a project's folder holds.
+fn read_templates(folder: &Path) -> Result<BTreeMap<String, Template>, String> {
+    let mut templates = BTreeMap::new();
+    for (resref, path) in template_files(folder) {
+        let restype = if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("utc"))
+        {
+            ResType::UTC
+        } else {
+            ResType::UTP
+        };
+        let bytes = std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let gff = Gff::parse(&bytes).map_err(|error| format!("{}: {error}", path.display()))?;
+        let from = gff
+            .root
+            .resref("TemplateResRef")
+            .unwrap_or_else(String::new)
+            .to_ascii_lowercase();
+        templates.insert(resref, Template { restype, from, gff });
+    }
+    Ok(templates)
 }

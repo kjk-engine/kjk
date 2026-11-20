@@ -273,3 +273,22 @@ pub fn empty() -> Gff {
         },
     }
 }
+
+/// Points the entry at another template. False when the list has no such
+/// entry.
+pub fn set_template(git: &mut Gff, kind: Kind, index: usize, template: &str) -> bool {
+    let Some(item) = item_mut(git, kind, index) else {
+        return false;
+    };
+    let label = if kind == Kind::Store {
+        "ResRef"
+    } else {
+        "TemplateResRef"
+    };
+    set(
+        item,
+        label,
+        GffValue::ResRef(template.to_ascii_lowercase().into_bytes()),
+    );
+    true
+}

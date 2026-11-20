@@ -3027,10 +3027,19 @@ fn project_facts(
                 let Some(facts) = module.and_then(|module| module.object(number as usize)) else {
                     continue;
                 };
+                let scripts: Vec<&(String, String)> = facts
+                    .scripts
+                    .iter()
+                    .filter(|(_, script)| !script.is_empty())
+                    .collect();
                 objects.push(serde_json::json!({
                     "tag": facts.tag,
                     "template": facts.template,
                     "position": entity.position,
+                    "useable": facts.useable,
+                    "container": facts.container,
+                    "items": facts.inventory.len(),
+                    "scripts": scripts,
                 }));
             }
             sim::Kind::Avatar(_) => players.push(serde_json::json!({

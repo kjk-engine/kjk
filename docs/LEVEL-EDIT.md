@@ -68,7 +68,7 @@ Linux. `KJK_HOME` moves kjk's folder, and `KJK_PROJECTS` names another
 folder for the projects alone. A name is 1 to 64 letters, digits, `-` and
 `_`.
 
-The folder holds three files.
+The folder holds these files.
 
 - `project.toml` names the game, the module, the area and the kjk that
   wrote it.
@@ -76,6 +76,8 @@ The folder holds three files.
   KOTOR file, and the original games could read it.
 - `kjk-area.toml` holds what only kjk understands: the Jedi Academy props
   and the collision boxes. The original games never read it.
+- `kje1_metalbox001.utp` and the like are templates of the project's own
+  (below, "An object's behaviour"). They are KOTOR files too.
 
 A prop is stored as the path of its model inside Jedi Academy's archives.
 The project never holds a copy of a Jedi Academy file, so anyone who plays
@@ -104,6 +106,54 @@ Without `--project` none of this happens, and kjk reads, builds and plays
 every module as before. The sim's hash does not move, and no format
 changes.
 
+## An object's behaviour
+
+A placeable or a creature is made from its template (`.utp`, `.utc`). The
+area's object list gives the object a place and names its template. The
+games read nothing else from the list for such an object
+(`asset_odyssey::module`, `as_placed`). The template says what the object
+does:
+
+- the scripts it runs on each event: a placeable's `OnOpen`, `OnUsed`,
+  `OnHeartbeat` and the rest, a creature's `ScriptHeartbeat`,
+  `ScriptOnNotice`, `ScriptDeath` and the rest;
+- for a placeable, whether the player can use it (`Useable`) and whether
+  it is a container (`HasInventory`);
+- for a placeable, the items it starts with (`ItemList`).
+
+This is why a container the game placed opens and one placed from a
+generic template may not. The Ebon Hawk's metal boxes are made from the
+module's own `metalbox001`, which can be used and holds items. The
+install's `plc_footlker` is a footlocker for decoration: it cannot be used
+and holds nothing.
+
+The details panel's Behaviour section shows the selected placeable's or
+creature's template, its scripts, and a placeable's two flags and items.
+Each can be changed there.
+
+- A script's name is typed into its event's field. While a field is
+  typed in, the install's compiled scripts that match are listed under the
+  section, to click. A name the install has no compiled script of is shown
+  in orange; it is kept, for a script that comes later.
+- "Can be used" and "Holds items" set the placeable's `Useable` and
+  `HasInventory`.
+- An item is added by its template's name (`.uti`), with matches listed as
+  for scripts, and removed with its Remove button.
+
+The first change copies the object's template into the project under a new
+name: `kje`, a number, and the template's name, cut to 16 characters
+(`kje1_metalbox001`). The object is pointed at the copy, and the copy is
+changed. Later changes change the same copy. Duplicates of an object share
+its copy. A change to one object whose copy other objects share gives it a
+copy of its own first. A copy no object uses any more (an edit undone)
+leaves the project, and leaves the folder at the next save. Every change is
+one edit, undone and redone as the others are.
+
+Play makes the object from the copy, which the project's folder holds over
+the install's files. Nothing else in kjk changes for this. Doors,
+triggers, waypoints, sounds, encounters and stores keep their templates in
+the prototype.
+
 ## The editor's window
 
 - **The toolbar**, along the top, picks the tool (Select, Move, Rotate,
@@ -116,7 +166,8 @@ changes.
   double-click also moves the camera to it.
 - **The details panel**, on the right, shows the selected object's kind,
   template, tag or name, and its position and facing as numbers that can be
-  typed or dragged. A prop also has its scale, and a box its size. Below are
+  typed or dragged. A prop also has its scale, and a box its size. A
+  placeable or a creature has its Behaviour section (above). Below are
   Duplicate, Delete and Frame, the editor's last messages, and the
   containment audit's result.
 - **The asset picker**, along the bottom, has four tabs: the install's
@@ -202,6 +253,9 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit add placeable TEMPLATE [X Y Z]`, `edit add creature TEMPLATE [X Y Z]` | adds an object made from the template, at the point or where the view's centre meets the level |
 | `edit prop MODEL [X Y Z [SCALE]]` | places a Jedi Academy model (`models/map_objects/...md3`), solid |
 | `edit box [CX CY CZ SX SY SZ [YAW]]` | places a collision box: its centre, its size and its yaw |
+| `edit script LABEL SCRIPT` | sets the selected object's event script (`OnUsed`, `ScriptHeartbeat`); `-` for none |
+| `edit flag useable on`, `edit flag inventory off` | sets the selected placeable's `Useable` or `HasInventory` |
+| `edit item add ITEM`, `edit item remove N` | adds an item template to the selected placeable's items, or removes its Nth, from 0 |
 | `edit collision on`, `edit collision off` | shows or hides the collision |
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
@@ -213,10 +267,12 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 
 A dump (`dump NAME`) has an `editor` fact: the project, the counts of each
 kind of object, every object with its template, tag, position and facing,
-the selection, the props (with their bounds) and boxes, the depths of undo
-and redo, the last messages and the audit's result. In play, a dump has a
-`project` fact instead: the project's name, and where each of the area's
-objects and each player stands.
+the selection (a placeable's or a creature's with its behaviour), the props
+(with their bounds) and boxes, the depths of undo and redo, the last
+messages and the audit's result. In play, a dump has a `project` fact
+instead: the project's name, where each player stands, and each of the
+area's objects with where it stands, whether it can be used, whether it is
+a container, how many items it holds and its scripts.
 
 ## The containment audit
 

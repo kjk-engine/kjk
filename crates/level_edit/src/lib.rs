@@ -20,6 +20,7 @@ pub mod area;
 pub mod editor;
 pub mod git;
 pub mod project;
+pub mod template;
 
 use std::path::PathBuf;
 
@@ -27,6 +28,7 @@ pub use area::{CollisionBox, KjkArea, Prop};
 pub use editor::{Edit, Editor, Target};
 pub use git::{Entry, Kind};
 pub use project::{Problem, Project};
+pub use template::{Change, Template};
 
 /// The folder that holds the projects, as `var` (the environment) gives it.
 /// `KJK_PROJECTS` wins. Otherwise it is `projects` in kjk's own folder,

@@ -42,6 +42,13 @@ pub enum Edit {
     Scale(usize, f32),
 }
 
+/// What a template change reads of the install: a template's bytes by
+/// resref and type, and whether the install has a template of a name.
+pub type Install<'a> = (
+    &'a dyn Fn(&str, fmt_odyssey::ResType) -> Option<Vec<u8>>,
+    &'a dyn Fn(&str) -> bool,
+);
+
 /// The kinds of GIT object the editor moves, turns, copies and deletes:
 /// creatures, placeables and waypoints. Doors are left where their
 /// walkmesh is, and triggers, sounds, encounters and stores are shown
@@ -55,6 +62,7 @@ pub const ADDABLE: [Kind; 2] = [Kind::Creature, Kind::Placeable];
 struct State {
     git: fmt_odyssey::gff::Gff,
     kjk: crate::area::KjkArea,
+    templates: std::collections::BTreeMap<String, crate::template::Template>,
     selected: Option<Target>,
 }
 
@@ -138,6 +146,7 @@ impl Editor {
         State {
             git: self.project.git.clone(),
             kjk: self.project.kjk.clone(),
+            templates: self.project.templates.clone(),
             selected: self.selected,
         }
     }
@@ -145,6 +154,7 @@ impl Editor {
     fn restore(&mut self, state: State) {
         self.project.git = state.git;
         self.project.kjk = state.kjk;
+        self.project.templates = state.templates;
         self.selected = state.selected;
         self.changes += 1;
     }
@@ -172,7 +182,100 @@ impl Editor {
     fn restore_quietly(&mut self, state: State) {
         self.project.git = state.git;
         self.project.kjk = state.kjk;
+        self.project.templates = state.templates;
         self.selected = state.selected;
+    }
+
+    /// How many GIT objects use the template `resref`.
+    pub fn users(&self, resref: &str) -> usize {
+        self.entries()
+            .iter()
+            .filter(|entry| entry.template == resref)
+            .count()
+    }
+
+    /// Makes `change` in the template of the object `target`, kept for undo
+    /// as one edit (`template`). An object made from a template of the
+    /// install, or from one of the project's that other objects use too,
+    /// first gets a copy of its own: `read` gives a template's bytes as the
+    /// install has it, and `taken` says whether the install has a template
+    /// of a name, so a copy's name is new. Only placeables and creatures
+    /// are changed.
+    pub fn change_template(
+        &mut self,
+        target: Target,
+        change: &crate::template::Change,
+        (read, taken): Install<'_>,
+    ) -> Result<(), String> {
+        let before = self.state();
+        match self.change_template_in(target, change, (read, taken)) {
+            Ok(()) => {
+                self.undo.push(before);
+                self.redo.clear();
+                self.selected = Some(target);
+                self.changes += 1;
+                Ok(())
+            }
+            Err(why) => {
+                self.restore_quietly(before);
+                Err(why)
+            }
+        }
+    }
+
+    fn change_template_in(
+        &mut self,
+        target: Target,
+        change: &crate::template::Change,
+        (read, taken): Install<'_>,
+    ) -> Result<(), String> {
+        use crate::template::{self, Template};
+        let Target::Object(kind, index) = target else {
+            return Err("only a creature's or a placeable's template is changed".into());
+        };
+        let restype = template::restype(kind)
+            .ok_or("only a creature's or a placeable's template is changed")?;
+        let entry = self
+            .entry(kind, index)
+            .ok_or_else(|| format!("{target:?} does not exist"))?;
+        let own = self.project.templates.contains_key(&entry.template)
+            && self.users(&entry.template) == 1;
+        let resref = if own {
+            entry.template.clone()
+        } else {
+            let (gff, from) = match self.project.templates.get(&entry.template) {
+                Some(made) => (made.gff.clone(), made.from.clone()),
+                None => {
+                    let bytes = read(&entry.template, restype)
+                        .ok_or(format!("the template {} does not read", entry.template))?;
+                    let gff = fmt_odyssey::gff::Gff::parse(&bytes)
+                        .map_err(|error| format!("{}: {error}", entry.template))?;
+                    (gff, entry.template.clone())
+                }
+            };
+            let templates = &self.project.templates;
+            let name =
+                template::fresh_name(&from, |name| templates.contains_key(name) || taken(name));
+            self.project
+                .templates
+                .insert(name.clone(), Template { restype, from, gff });
+            git::set_template(&mut self.project.git, kind, index, &name);
+            name
+        };
+        let made = self
+            .project
+            .templates
+            .get_mut(&resref)
+            .expect("made above or found");
+        template::apply(&mut made.gff, restype, change)?;
+        // A copy no object uses any more is dropped.
+        let used: std::collections::BTreeSet<String> = self
+            .entries()
+            .into_iter()
+            .map(|entry| entry.template)
+            .collect();
+        self.project.templates.retain(|name, _| used.contains(name));
+        Ok(())
     }
 
     fn editable(target: Target) -> Result<(), String> {
