@@ -1973,12 +1973,23 @@ pub const POCKET: [f32; 3] = [0.12, 0.01, 0.045];
 /// Where the node the head hangs from (`headhook`) stands from the right
 /// shoulder joint at rest on Carth's body (`p_carthbb`), where `POCKET` was
 /// fitted (metres): up, and toward the body's middle. On a body whose head
-/// hangs elsewhere from its shoulder, the pocket moves as far, so the stock
-/// comes up toward the cheek as it does on Carth. A player woman's body
-/// (`pfbal`) hangs its head 4.9 cm higher and 0.3 cm further in. The rest
-/// pose is used, not the pose of the moment, so that breathing, the head's
-/// hold and a shot's turns do not move the pocket.
+/// hangs further in or out from its shoulder, the pocket moves as far in or
+/// out. On a body whose head hangs lower, the pocket moves as far down, so
+/// the stock stays under the cheek. On a body whose head hangs higher, the
+/// pocket comes up only part of the way (`HIGHER_HEAD_LIFT`). A player
+/// woman's body (`pfbal`) hangs its head 4.9 cm higher and 0.3 cm further
+/// in, and Mission's (`p_missionbb`) 4.1 cm higher. Raised the whole way,
+/// the stock came up level with the mouth. The rest pose is used, not the
+/// pose of the moment, so that breathing, the head's hold and a shot's
+/// turns do not move the pocket.
 const POCKET_FOR_HEAD: [f32; 2] = [0.0568, 0.1761];
+/// How much (a share) of the extra height of a head hanging higher than
+/// Carth's (`POCKET_FOR_HEAD`) the pocket comes up. On a woman's body it
+/// comes up half of her 4.9 cm, so the stock stays by the collarbone. The
+/// rest it does not come up, it moves out from the body's middle instead,
+/// so the trigger forearm, lower than it would be, stays out of her chest:
+/// at most 1.4 cm into it, against 0.9 cm before.
+const HIGHER_HEAD_LIFT: f32 = 0.5;
 
 /// The nearest (metres) a gun's grip stands ahead of the gun-side shoulder
 /// joint while its stock is in the shoulder (`POCKET`). A gun whose rear end
@@ -2050,6 +2061,15 @@ fn aim_turns(
     // A rifle at the shoulder: its stock in the shoulder, its barrel from
     // the muzzle that leaves to the target.
     let butt = aim.butt.filter(|_| aim.hold.is_none());
+    // How far (metres) the head hangs higher above the shoulder than
+    // Carth's, and further in.
+    let [higher, within] = arms.head.map_or([0.0; 2], |[high, within]| {
+        let [carth_high, carth_within] = POCKET_FOR_HEAD;
+        [high - carth_high, within - carth_within]
+    });
+    // How far (metres) the pocket stands under the cheek of a head that
+    // hangs higher than Carth's.
+    let under_cheek = higher.max(0.0) * (1.0 - HIGHER_HEAD_LIFT);
     let pocket = |direction: Vec3| {
         let level = (direction * Vec3::new(1.0, 1.0, 0.0)).normalize_or(Vec3::Y);
         let [ahead, up, inward] = POCKET;
@@ -2057,14 +2077,8 @@ fn aim_turns(
             Side::Right => level.cross(Vec3::Z) * -1.0,
             Side::Left => level.cross(Vec3::Z),
         };
-        let [up, inward] = match arms.head {
-            Some([high, within]) => {
-                let [carth_high, carth_within] = POCKET_FOR_HEAD;
-                [up + high - carth_high, inward + within - carth_within]
-            }
-            None => [up, inward],
-        };
-        shoulder + level * ahead + Vec3::Z * up + toward_middle * inward
+        let up = up + higher - under_cheek;
+        shoulder + level * ahead + Vec3::Z * up + toward_middle * (inward + within - under_cheek)
     };
     if let Some((butt, _)) = butt {
         let (stock, muzzle) = (globals[weapon].point(butt), muzzle);

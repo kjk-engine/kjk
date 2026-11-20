@@ -111,8 +111,9 @@ pub struct Held {
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<PowerClips>,
-    /// How the model lies when carried on the back (`back_lay`).
-    pub lay: Transform,
+    /// How the model lies when carried on the back, on the right side and
+    /// on the left (`back_lay`).
+    pub lay: [Transform; 2],
 }
 
 /// Where a blade leaves its hilt and which way it runs, in the hilt's space
@@ -133,8 +134,9 @@ pub struct Armed {
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<Power>,
-    /// How the model lies when carried on the back (`back_lay`).
-    pub lay: Transform,
+    /// How the model lies when carried on the back, on the right side and
+    /// on the left (`back_lay`).
+    pub lay: [Transform; 2],
 }
 
 impl Held {
@@ -1046,7 +1048,7 @@ pub fn arm(
             ends: Vec::new(),
             gun: GunShape::of(&placed.ir),
             power: PowerClips::of(&placed.ir),
-            lay: Transform::IDENTITY,
+            lay: [Transform::IDENTITY; 2],
         };
         if let Some((hilt, specs)) = kotor_blades(placed.ir.clone()) {
             // A JA hilt the settings name in its place (`Sabers::hilts`),
@@ -1256,23 +1258,51 @@ impl Stow {
             f32::to_radians(rz),
         ))
     }
+
+    /// The place (`place`) on the right side (`side` 0), or on the left
+    /// (`side` 1), mirrored across the body's x.
+    fn placed(self, side: usize) -> Transform {
+        let place = self.place();
+        if side == 0 {
+            return place;
+        }
+        Transform {
+            translation: place.translation * Vec3::new(-1.0, 1.0, 1.0),
+            rotation: Quat::from_xyzw(
+                place.rotation.x,
+                -place.rotation.y,
+                -place.rotation.z,
+                place.rotation.w,
+            ),
+            scale: place.scale,
+        }
+    }
 }
 
 /// How far past its place on the back a weapon's near end may reach
 /// (metres): a long hilt over the shoulder.
 const BACK_REACH: f32 = 0.2;
 
-/// How a weapon model lies on the back, under its `Stow::Back` place. The
-/// place is tuned for a blade, whose length runs along its model's +Z from
-/// the hilt and whose flat faces its ±X, against the back. A blade keeps
-/// that lie. Any other model, such as a gun whose barrel runs along its +Y,
-/// is turned to lie the same way. Its longest side runs along +Z, toward
-/// its end farther from its origin (a gun's muzzle). Its thinnest side
-/// faces ±X, against the back. A gun's top (`GunShape::up`) faces +Y, the
-/// way a blade's edge does. Any model is then moved down along its length
-/// until its near end reaches no more than `BACK_REACH` past the place, so
-/// a long gun's stock does not stand up past the shoulder.
-fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> Transform {
+/// How far (metres) a weapon on the back may reach in front of its place,
+/// into the body: half a blade's thickness, the depth the place was fitted
+/// with.
+const BACK_SINK: f32 = 0.01;
+
+/// How a weapon model lies on the back, under its `Stow::Back` place, on
+/// the right side and on the left. The place is tuned for a blade, whose
+/// length runs along its model's +Z from the hilt and whose flat faces its
+/// ±X, against the back. A blade keeps that lie. Any other model, such as
+/// a gun whose barrel runs along its +Y, is turned to lie the same way.
+/// Its longest side runs along +Z, toward its end farther from its origin
+/// (a gun's muzzle). Its thinnest side faces ±X, against the back. A gun's
+/// top (`GunShape::up`) faces +Y, the way a blade's edge does. Any model is
+/// then moved down along its length until its near end reaches no more
+/// than `BACK_REACH` past the place, so a long gun's stock does not stand
+/// up past the shoulder. Last, a model thicker than a blade is moved back
+/// off the body until no part of it reaches more than `BACK_SINK` in front
+/// of the place. A heavy repeating blaster placed by its middle, as a blade
+/// is, sank into the back, and only its stock and its muzzle showed.
+fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> [Transform; 2] {
     let (lo, hi) = model
         .meshes
         .iter()
@@ -1283,7 +1313,7 @@ fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> Transform {
             |(lo, hi), p| (lo.min(p), hi.max(p)),
         );
     if lo.x > hi.x {
-        return Transform::IDENTITY;
+        return [Transform::IDENTITY; 2];
     }
     let size = hi - lo;
     let by_size = |a: &Vec3, b: &Vec3| size.dot(*a).total_cmp(&size.dot(*b));
@@ -1308,7 +1338,28 @@ fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> Transform {
     // How far its near end reaches behind its origin, along its length.
     let behind = -lo.dot(length).min(hi.dot(length));
     let down = (behind - BACK_REACH).max(0.0);
-    Transform::from_translation(Vec3::Z * down).with_rotation(rotation)
+    let laid = Transform::from_translation(Vec3::Z * down).with_rotation(rotation);
+    let corners = (0..8).map(|corner: u8| {
+        let pick = |bit: u8, low: f32, high: f32| if corner & bit == 0 { low } else { high };
+        laid.transform_point(Vec3::new(
+            pick(1, lo.x, hi.x),
+            pick(2, lo.y, hi.y),
+            pick(4, lo.z, hi.z),
+        ))
+    });
+    std::array::from_fn(|side| {
+        // The way into the body (the node's +Y) as the model lies.
+        let into = Stow::Back.placed(side).rotation.inverse() * Vec3::Y;
+        let deepest = corners
+            .clone()
+            .map(|corner| corner.dot(into))
+            .fold(f32::NEG_INFINITY, f32::max);
+        let back = (deepest - BACK_SINK).max(0.0);
+        Transform {
+            translation: laid.translation - into * back,
+            ..laid
+        }
+    })
 }
 
 /// Where `body` carries a `stow`ed weapon (right, left): its node and the
@@ -1320,23 +1371,12 @@ pub fn stow_nodes(body: &ModelIr, ja: bool, stow: Stow) -> [Option<(usize, Trans
     if ja {
         return [None, None];
     }
-    let place = stow.place();
-    let mirrored = Transform {
-        translation: place.translation * Vec3::new(-1.0, 1.0, 1.0),
-        rotation: Quat::from_xyzw(
-            place.rotation.x,
-            -place.rotation.y,
-            -place.rotation.z,
-            place.rotation.w,
-        ),
-        scale: place.scale,
-    };
     let names = stow.nodes();
     let lies_on = stow.lies_on().and_then(|name| body.node_index(name));
     let rest = |node: usize| crate::scene::to_mat4(&body.nodes[node].world);
     std::array::from_fn(|side| {
         let node = body.node_index(names[side])?;
-        let place = if side == 0 { place } else { mirrored };
+        let place = stow.placed(side);
         Some(match lies_on {
             Some(on) => (
                 on,
@@ -1417,8 +1457,9 @@ struct Wield {
     hung: Hung,
     /// A powered item's clips (`Power`).
     power: Option<Power>,
-    /// How it lies when carried on the back (`back_lay`).
-    lay: Transform,
+    /// How it lies when carried on the back, on the right side and on the
+    /// left (`back_lay`).
+    lay: [Transform; 2],
 }
 
 /// Where a weapon model hangs: the hand that holds it in a fight, where it
@@ -1630,9 +1671,10 @@ impl Wielded {
             // On the back it lies along its length (`back_lay`); a
             // double-bladed one is turned the same way but stays held by
             // its middle.
+            let lay = armed.lay[usize::from(slot == 1)];
             let lay = match stow {
-                Some(Stow::Back) => armed.lay,
-                Some(Stow::Staff) => Transform::from_rotation(armed.lay.rotation),
+                Some(Stow::Back) => lay,
+                Some(Stow::Staff) => Transform::from_rotation(lay.rotation),
                 _ => Transform::IDENTITY,
             };
             let belt = stow
@@ -2083,9 +2125,12 @@ pub fn view_probes() -> sim::probe::Checks {
 /// How weapons lie on the back (`back_lay`), on boxes shaped like KOTOR's
 /// models. A blaster rifle's barrel runs along its +Y, its top along +Z
 /// and its stock 0.12 m behind its grip: it is turned so its barrel runs
-/// along +Z and its top along +Y, and stays where it is. A sword's blade
-/// already runs along +Z and keeps its lie. A bowcaster's stock reaches
-/// 0.3 m behind its grip, so it moves 0.1 m down its length.
+/// along +Z and its top along +Y. It is 4 cm thick, so it moves 1 cm back
+/// off the body, on either side. A sword's blade already runs along +Z,
+/// is 2 cm thick and keeps its lie. A bowcaster's stock reaches 0.3 m
+/// behind its grip, so it moves 0.1 m down its length, and it is 6 cm
+/// thick, so it moves 2 cm back off the body. A heavy repeating
+/// blaster 14 cm thick moves 6 cm back off the body.
 #[cfg(feature = "probes")]
 fn back_lays() -> Result<String, String> {
     let boxed = |lo: [f32; 3], hi: [f32; 3]| {
@@ -2110,16 +2155,29 @@ fn back_lays() -> Result<String, String> {
     let rifle = back_lay(&boxed([-0.02, -0.12, -0.1], [0.02, 0.6, 0.05]), Some(&gun));
     let sword = back_lay(&boxed([-0.01, -0.03, -0.1], [0.01, 0.03, 0.9]), None);
     let bowcaster = back_lay(&boxed([-0.2, -0.3, -0.03], [0.2, 0.5, 0.03]), Some(&gun));
+    let heavy = back_lay(&boxed([-0.07, -0.1, -0.15], [0.07, 0.7, 0.1]), Some(&gun));
     let near = |a: Vec3, b: Vec3| a.distance(b) < 1e-4;
-    let rifle_ok = near(rifle.rotation * Vec3::Y, Vec3::Z)
-        && near(rifle.rotation * Vec3::Z, Vec3::Y)
-        && near(rifle.translation, Vec3::ZERO);
-    let sword_ok = sword == Transform::IDENTITY;
-    let bowcaster_ok =
-        near(bowcaster.translation, Vec3::Z * 0.1) && near(bowcaster.rotation * Vec3::Y, Vec3::Z);
+    // How far each lay moves the model off the body, on each side.
+    let off = |lay: [Transform; 2]| {
+        [0, 1].map(|side| {
+            let into = Stow::Back.placed(side).rotation.inverse() * Vec3::Y;
+            -(lay[side].translation.dot(into))
+        })
+    };
+    let near_each = |got: [f32; 2], want: f32| got.iter().all(|got| (got - want).abs() < 1e-4);
+    let rifle_ok = rifle
+        .iter()
+        .all(|lay| near(lay.rotation * Vec3::Y, Vec3::Z) && near(lay.rotation * Vec3::Z, Vec3::Y))
+        && near_each(off(rifle), 0.01);
+    let sword_ok = sword == [Transform::IDENTITY; 2];
+    let bowcaster_ok = bowcaster
+        .iter()
+        .all(|lay| (lay.translation.z - 0.1).abs() < 1e-4 && near(lay.rotation * Vec3::Y, Vec3::Z))
+        && near_each(off(bowcaster), 0.02);
+    let heavy_ok = near_each(off(heavy), 0.06);
     sim::probe::check(
-        rifle_ok && sword_ok && bowcaster_ok,
-        format!("rifle {rifle:?}, sword {sword:?}, bowcaster {bowcaster:?}"),
+        rifle_ok && sword_ok && bowcaster_ok && heavy_ok,
+        format!("rifle {rifle:?}, sword {sword:?}, bowcaster {bowcaster:?}, heavy {heavy:?}"),
     )
 }
 
