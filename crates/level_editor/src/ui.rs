@@ -104,6 +104,18 @@ pub struct UiState {
     typed_at: u64,
     /// The field whose matches are listed under the section.
     completing: Option<String>,
+    /// The script the viewer shows, its tab, and the scripts read so far.
+    viewing: Option<String>,
+    view_tab: ViewTab,
+    read_scripts: BTreeMap<String, crate::script_view::ScriptView>,
+}
+
+/// The script viewer's tabs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ViewTab {
+    Source,
+    Summary,
+    Listing,
 }
 
 impl Default for UiState {
@@ -129,6 +141,9 @@ impl Default for UiState {
             typed_for: None,
             typed_at: 0,
             completing: None,
+            viewing: None,
+            view_tab: ViewTab::Source,
+            read_scripts: BTreeMap::new(),
         }
     }
 }
@@ -538,6 +553,15 @@ fn panels(
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
             ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
             ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
+            ["view"] => ui.viewing = None,
+            ["view", script] => ui.viewing = Some(script.to_ascii_lowercase()),
+            ["view", "tab", tab] => {
+                ui.view_tab = match *tab {
+                    "summary" => ViewTab::Summary,
+                    "listing" => ViewTab::Listing,
+                    _ => ViewTab::Source,
+                }
+            }
             _ => state.say(format!(
                 "edit ui {}: takes tool, tab, search, find or snap",
                 words.join(" ")
@@ -869,155 +893,179 @@ fn details(
     let ctx = &ctx;
     egui::Panel::right("details")
         .resizable(true)
-        .default_size(280.0)
+        .default_size(320.0)
         .show(root, |ui| {
-            ui.heading("Details");
-            let Some(target) = state.editor.selected else {
-                ui.label("Nothing is selected. Click an object in the view or the outliner.");
-                messages(ui, state);
-                return;
-            };
-            let facts = state::describe(state, target);
-            let text = |key: &str| facts[key].as_str().map(str::to_string);
-            egui::Grid::new("facts").num_columns(2).show(ui, |ui| {
-                for (label, value) in [
-                    ("Kind", text("kind")),
-                    ("Template", text("template")),
-                    ("Tag", text("tag")),
-                    ("Name", text("name")),
-                    ("Model", text("model")),
-                ] {
-                    if let Some(value) = value {
-                        ui.label(label);
-                        ui.label(value);
-                        ui.end_row();
-                    }
-                }
-            });
-            let editable = match target {
-                Target::Object(kind, _) => EDITABLE.contains(&kind),
-                _ => true,
-            };
-            if !editable {
-                ui.label("Doors, triggers, sounds, encounters and stores are shown only.");
+            if ui_state.viewing.is_some() {
+                egui::Panel::bottom("script viewer")
+                    .resizable(true)
+                    .default_size(320.0)
+                    .show(ui, |ui| script_viewer(ui, state, ui_state));
             }
-            ui.separator();
-            let Some((mut position, mut facing)) = state.editor.placement(target) else {
-                return;
-            };
-            let mut edits: Vec<Edit> = Vec::new();
-            let mut dragging = false;
-            let mut released = false;
-            ui.add_enabled_ui(editable, |ui| {
-                egui::Grid::new("placement").num_columns(2).show(ui, |ui| {
-                    ui.label("Position");
-                    ui.horizontal(|ui| {
-                        let mut moved = false;
-                        for (axis, label) in ["X", "Y", "Z"].iter().enumerate() {
-                            let response = ui.add(
-                                egui::DragValue::new(&mut position[axis])
-                                    .prefix(format!("{label} "))
-                                    .speed(0.01)
-                                    .max_decimals(3),
-                            );
-                            moved |= response.changed();
-                            dragging |= response.dragged();
-                            released |= response.drag_stopped() || response.lost_focus();
-                        }
-                        if moved {
-                            edits.push(Edit::Move(target, position));
-                        }
-                    });
-                    ui.end_row();
-                    ui.label("Facing");
-                    let response = ui.add(
-                        egui::DragValue::new(&mut facing)
-                            .speed(0.5)
-                            .suffix("°")
-                            .max_decimals(1),
-                    );
-                    if response.changed() {
-                        edits.push(Edit::Turn(target, facing));
-                    }
-                    dragging |= response.dragged();
-                    released |= response.drag_stopped() || response.lost_focus();
-                    ui.end_row();
-                    match target {
-                        Target::Prop(at) => {
-                            if let Some(prop) = state.editor.project.kjk.props.get(at).cloned() {
-                                let mut scale = prop.scale;
-                                ui.label("Scale");
-                                let response = ui.add(
-                                    egui::DragValue::new(&mut scale)
-                                        .range(
-                                            level_edit::area::SCALES.0..=level_edit::area::SCALES.1,
-                                        )
-                                        .speed(0.01),
-                                );
-                                if response.changed() {
-                                    edits.push(Edit::Scale(at, scale));
-                                }
-                                dragging |= response.dragged();
-                                released |= response.drag_stopped() || response.lost_focus();
+            // The details scroll above the viewer, which keeps its own part.
+            egui::ScrollArea::vertical()
+                .auto_shrink(false)
+                .show(ui, |ui| {
+                    ui.heading("Details");
+                    let Some(target) = state.editor.selected else {
+                        ui.label(
+                            "Nothing is selected. Click an object in the view or the outliner.",
+                        );
+                        messages(ui, state);
+                        return;
+                    };
+                    let facts = state::describe(state, target);
+                    let text = |key: &str| facts[key].as_str().map(str::to_string);
+                    egui::Grid::new("facts").num_columns(2).show(ui, |ui| {
+                        for (label, value) in [
+                            ("Kind", text("kind")),
+                            ("Template", text("template")),
+                            ("Tag", text("tag")),
+                            ("Name", text("name")),
+                            ("Model", text("model")),
+                        ] {
+                            if let Some(value) = value {
+                                ui.label(label);
+                                ui.label(value);
                                 ui.end_row();
                             }
                         }
-                        Target::Box(at) => {
-                            if let Some(shape) = state.editor.project.kjk.boxes.get(at).cloned() {
-                                let mut size = shape.size;
-                                ui.label("Size");
-                                ui.horizontal(|ui| {
-                                    let mut sized = false;
-                                    for (axis, label) in ["X", "Y", "Z"].iter().enumerate() {
+                    });
+                    let editable = match target {
+                        Target::Object(kind, _) => EDITABLE.contains(&kind),
+                        _ => true,
+                    };
+                    if !editable {
+                        ui.label("Doors, triggers, sounds, encounters and stores are shown only.");
+                    }
+                    ui.separator();
+                    let Some((mut position, mut facing)) = state.editor.placement(target) else {
+                        return;
+                    };
+                    let mut edits: Vec<Edit> = Vec::new();
+                    let mut dragging = false;
+                    let mut released = false;
+                    ui.add_enabled_ui(editable, |ui| {
+                        egui::Grid::new("placement").num_columns(2).show(ui, |ui| {
+                            ui.label("Position");
+                            ui.horizontal(|ui| {
+                                let mut moved = false;
+                                for (axis, label) in ["X", "Y", "Z"].iter().enumerate() {
+                                    let response = ui.add(
+                                        egui::DragValue::new(&mut position[axis])
+                                            .prefix(format!("{label} "))
+                                            .speed(0.01)
+                                            .max_decimals(3),
+                                    );
+                                    moved |= response.changed();
+                                    dragging |= response.dragged();
+                                    released |= response.drag_stopped() || response.lost_focus();
+                                }
+                                if moved {
+                                    edits.push(Edit::Move(target, position));
+                                }
+                            });
+                            ui.end_row();
+                            ui.label("Facing");
+                            let response = ui.add(
+                                egui::DragValue::new(&mut facing)
+                                    .speed(0.5)
+                                    .suffix("°")
+                                    .max_decimals(1),
+                            );
+                            if response.changed() {
+                                edits.push(Edit::Turn(target, facing));
+                            }
+                            dragging |= response.dragged();
+                            released |= response.drag_stopped() || response.lost_focus();
+                            ui.end_row();
+                            match target {
+                                Target::Prop(at) => {
+                                    if let Some(prop) =
+                                        state.editor.project.kjk.props.get(at).cloned()
+                                    {
+                                        let mut scale = prop.scale;
+                                        ui.label("Scale");
                                         let response = ui.add(
-                                            egui::DragValue::new(&mut size[axis])
-                                                .prefix(format!("{label} "))
-                                                .range(level_edit::area::SMALLEST_SIDE..=100.0)
-                                                .speed(0.01)
-                                                .suffix(" m"),
+                                            egui::DragValue::new(&mut scale)
+                                                .range(
+                                                    level_edit::area::SCALES.0
+                                                        ..=level_edit::area::SCALES.1,
+                                                )
+                                                .speed(0.01),
                                         );
-                                        sized |= response.changed();
+                                        if response.changed() {
+                                            edits.push(Edit::Scale(at, scale));
+                                        }
                                         dragging |= response.dragged();
                                         released |=
                                             response.drag_stopped() || response.lost_focus();
+                                        ui.end_row();
                                     }
-                                    if sized {
-                                        edits.push(Edit::Resize(at, size));
+                                }
+                                Target::Box(at) => {
+                                    if let Some(shape) =
+                                        state.editor.project.kjk.boxes.get(at).cloned()
+                                    {
+                                        let mut size = shape.size;
+                                        ui.label("Size");
+                                        ui.horizontal(|ui| {
+                                            let mut sized = false;
+                                            for (axis, label) in ["X", "Y", "Z"].iter().enumerate()
+                                            {
+                                                let response = ui.add(
+                                                    egui::DragValue::new(&mut size[axis])
+                                                        .prefix(format!("{label} "))
+                                                        .range(
+                                                            level_edit::area::SMALLEST_SIDE..=100.0,
+                                                        )
+                                                        .speed(0.01)
+                                                        .suffix(" m"),
+                                                );
+                                                sized |= response.changed();
+                                                dragging |= response.dragged();
+                                                released |= response.drag_stopped()
+                                                    || response.lost_focus();
+                                            }
+                                            if sized {
+                                                edits.push(Edit::Resize(at, size));
+                                            }
+                                        });
+                                        ui.end_row();
                                     }
-                                });
-                                ui.end_row();
+                                }
+                                Target::Object(..) => {}
                             }
+                        });
+                    });
+                    for edit in edits {
+                        drag_edit(state, ui_state, edit);
+                    }
+                    if released
+                        || (!dragging
+                            && !ui_state.gizmo.is_focused()
+                            && !ctx.egui_is_using_pointer())
+                    {
+                        ui_state.dragging = false;
+                    }
+                    if let Target::Object(kind, index) = target {
+                        behaviour(ui, state, ui_state, (kind, index));
+                    }
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.add_enabled_ui(editable, |ui| {
+                            if ui.button("Duplicate").on_hover_text("Ctrl+D").clicked() {
+                                state.pending_command = Some("duplicate".into());
+                            }
+                            if ui.button("Delete").on_hover_text("Delete").clicked() {
+                                state.pending_command = Some("delete".into());
+                            }
+                        });
+                        if ui.button("Frame").on_hover_text("F").clicked() {
+                            frame_selection(state, camera_request, cameras);
                         }
-                        Target::Object(..) => {}
-                    }
+                    });
+                    messages(ui, state);
                 });
-            });
-            for edit in edits {
-                drag_edit(state, ui_state, edit);
-            }
-            if released
-                || (!dragging && !ui_state.gizmo.is_focused() && !ctx.egui_is_using_pointer())
-            {
-                ui_state.dragging = false;
-            }
-            if let Target::Object(kind, index) = target {
-                behaviour(ui, state, ui_state, (kind, index));
-            }
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.add_enabled_ui(editable, |ui| {
-                    if ui.button("Duplicate").on_hover_text("Ctrl+D").clicked() {
-                        state.pending_command = Some("duplicate".into());
-                    }
-                    if ui.button("Delete").on_hover_text("Delete").clicked() {
-                        state.pending_command = Some("delete".into());
-                    }
-                });
-                if ui.button("Frame").on_hover_text("F").clicked() {
-                    frame_selection(state, camera_request, cameras);
-                }
-            });
-            messages(ui, state);
         });
 }
 
@@ -1135,7 +1183,7 @@ fn behaviour(
     }
     // Each event's script.
     let scripts = template::scripts(&gff);
-    egui::Grid::new("scripts").num_columns(2).show(ui, |ui| {
+    egui::Grid::new("scripts").num_columns(3).show(ui, |ui| {
         for (label, script) in &scripts {
             ui.label(label);
             let typed = ui_state
@@ -1159,6 +1207,16 @@ fn behaviour(
             }
             if field.lost_focus() && typed.to_ascii_lowercase() != *script {
                 changes.push(Change::Script(label.clone(), typed.to_ascii_lowercase()));
+            }
+            if !script.is_empty() {
+                let viewed = ui_state.viewing.as_deref() == Some(script.as_str());
+                if ui
+                    .selectable_label(viewed, "View")
+                    .on_hover_text("Shows what the script does, under the details.")
+                    .clicked()
+                {
+                    ui_state.viewing = (!viewed).then(|| script.clone());
+                }
             }
             ui.end_row();
         }
@@ -1240,6 +1298,105 @@ fn behaviour(
         // The script fields show the template as it now is.
         ui_state.typed.retain(|label, _| label == ITEM_FIELD);
     }
+}
+
+/// The script viewer: what the script `UiState::viewing` names does, as its
+/// source, a summary of its compiled form, or its listing
+/// (`script_view`).
+fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState) {
+    let Some(name) = ui_state.viewing.clone() else {
+        return;
+    };
+    let view = ui_state
+        .read_scripts
+        .entry(name.clone())
+        .or_insert_with(|| {
+            crate::script_view::read(&state.setup.resolver, state.setup.catalog.as_ref(), &name)
+        });
+    // The name and Close on one row, the tabs on the next, so that the
+    // header fits a narrow panel.
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(&name).strong().monospace());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button("Close").clicked() {
+                ui_state.viewing = None;
+            }
+        });
+    });
+    // A tab the script has nothing for shows the next that it has.
+    let tab = match ui_state.view_tab {
+        ViewTab::Source if view.source.is_none() => ViewTab::Summary,
+        tab => tab,
+    };
+    ui.horizontal(|ui| {
+        for (each, label, there) in [
+            (ViewTab::Source, "Source", view.source.is_some()),
+            (ViewTab::Summary, "Summary", view.listing.is_some()),
+            (ViewTab::Listing, "Listing", view.listing.is_some()),
+        ] {
+            ui.add_enabled_ui(there, |ui| {
+                if ui.selectable_label(tab == each, label).clicked() {
+                    ui_state.view_tab = each;
+                }
+            });
+        }
+    });
+    let from = match (&view.source, &view.compiled_from) {
+        (Some((_, layer)), _) if tab == ViewTab::Source => format!("Source from {layer}."),
+        (_, Some(layer)) => format!(
+            "Compiled, from {layer}.{}",
+            if view.source.is_none() {
+                " The install has no source of it."
+            } else {
+                ""
+            }
+        ),
+        (_, None) => "The install has no compiled script of this name.".to_string(),
+    };
+    ui.label(egui::RichText::new(from).small().weak());
+    if let Some(problem) = &view.problem {
+        ui.label(format!("It does not read: {problem}"));
+    }
+    egui::ScrollArea::both()
+        .auto_shrink(false)
+        .show(ui, |ui| match tab {
+            ViewTab::Source => {
+                if let Some((source, _)) = &view.source {
+                    let job = crate::script_view::highlighted(source, ui.visuals().dark_mode);
+                    ui.add(egui::Label::new(job).extend());
+                }
+            }
+            ViewTab::Summary => {
+                ui.label(egui::RichText::new("Engine routines it calls").strong());
+                if view.calls.is_empty() {
+                    ui.label("none");
+                }
+                for (call, count) in &view.calls {
+                    let times = if *count > 1 {
+                        format!("   ({count} times)")
+                    } else {
+                        String::new()
+                    };
+                    ui.label(egui::RichText::new(format!("{call}{times}")).monospace());
+                }
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Strings it uses").strong());
+                if view.strings.is_empty() {
+                    ui.label("none");
+                }
+                for string in &view.strings {
+                    ui.label(egui::RichText::new(format!("{string:?}")).monospace());
+                }
+            }
+            ViewTab::Listing => {
+                if let Some(listing) = &view.listing {
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(listing).monospace().size(11.0))
+                            .extend(),
+                    );
+                }
+            }
+        });
 }
 
 fn messages(ui: &mut egui::Ui, state: &EditorState) {

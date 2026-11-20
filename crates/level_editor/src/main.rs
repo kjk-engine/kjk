@@ -6,6 +6,7 @@
 //! module, it lists the projects and the levels to pick from (`picker`).
 
 mod picker;
+mod script_view;
 mod state;
 mod thumbs;
 mod ui;
@@ -196,6 +197,7 @@ fn setup(game: &str, module: &str, project: Option<&str>) -> Result<state::EditS
     let placeables = sorted(ResType::UTP);
     let creatures = sorted(ResType::UTC);
     let scripts = sorted(ResType::NCS);
+    let catalog = script_view::catalog(&resolver);
     let items = sorted(ResType::UTI);
     let waypoints = sorted(ResType::UTW);
     let triggers = sorted(ResType::UTT);
@@ -214,6 +216,7 @@ fn setup(game: &str, module: &str, project: Option<&str>) -> Result<state::EditS
         creatures,
         models,
         scripts,
+        catalog,
         items,
         waypoints,
         triggers,

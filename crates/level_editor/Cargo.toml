@@ -22,6 +22,7 @@ fmt_ja.workspace = true
 fmt_odyssey.workspace = true
 game.workspace = true
 level_edit.workspace = true
+script_ncs.workspace = true
 serde_json.workspace = true
 store.workspace = true
 vfs.workspace = true

@@ -4115,6 +4115,7 @@ dependencies = [
  "game",
  "level_edit",
  "save_editor",
+ "script_ncs",
  "serde_json",
  "store",
  "transform-gizmo-egui",

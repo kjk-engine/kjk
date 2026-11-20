@@ -177,6 +177,27 @@ place is made by copying a waypoint (Ctrl+D), moving the copy, and typing
 its new tag, or by placing a waypoint from the asset picker's Waypoints tab
 and typing its tag.
 
+### What a script does
+
+Each script in the Behaviour section has a View button. It opens the script
+viewer at the bottom of the details panel, which has three tabs.
+
+- **Source** shows the script's source (`.nss`), coloured, where the
+  install has it. KOTOR 1's install holds the source of most of its
+  scripts in `chitin.key`.
+- **Summary** reads the compiled script (`.ncs`). It lists the engine
+  routines the script calls, each with its prototype from the game's
+  `nwscript.nss` and how many times it is called, and the strings the
+  script uses: tags, templates and the names of globals. A module's own
+  scripts are often shipped compiled only, and the summary tells what such
+  a script does at a glance.
+- **Listing** is the compiled script's whole listing, from kjk's
+  disassembler (`script_ncs::disasm`).
+
+The viewer says which layer each file came from: the project, a module or
+the install. A script with no source opens on its summary. The viewer
+reads a script once and keeps it while the editor runs.
+
 ## The editor's window
 
 - **The toolbar**, along the top, picks the tool (Select, Move, Rotate,
@@ -192,7 +213,8 @@ and typing its tag.
   typed or dragged. A prop also has its scale, and a box its size. An
   object of the area has its Behaviour section (above). Below are
   Duplicate, Delete and Frame, the editor's last messages, and the
-  containment audit's result.
+  containment audit's result. The panel scrolls. The script viewer, when it
+  is open, keeps the panel's lower part, and its top edge can be dragged.
 - **The asset picker**, along the bottom, has eight tabs: the install's
   placeable templates, its creature templates, Jedi Academy's map objects
   (`models/map_objects/`), collision shapes (a ledge, a platform, a wall, a
@@ -295,6 +317,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui tab placeables`, `creatures`, `props`, `shapes`, `waypoints`, `triggers`, `sounds`, `stores` | shows a tab of the asset picker |
 | `edit ui search TEXT`, `edit ui find TEXT` | sets the asset picker's or the outliner's search |
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
+| `edit ui view SCRIPT`, `edit ui view` | opens the script viewer on the script, or closes it |
+| `edit ui view tab source`, `summary`, `listing` | picks the viewer's tab |
 
 A dump (`dump NAME`) has an `editor` fact: the project, the counts of each
 kind of object, every object with its template, tag, position and facing,

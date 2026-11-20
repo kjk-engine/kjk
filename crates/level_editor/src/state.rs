@@ -63,6 +63,8 @@ pub struct EditSetup {
     /// The install's compiled scripts and item templates, for the scripts
     /// and items an object's template names.
     pub scripts: Vec<String>,
+    /// The game's routines, from its `nwscript.nss`, for the script viewer.
+    pub catalog: Option<script_ncs::Catalog>,
     pub items: Vec<String>,
     /// The install's waypoint, trigger, sound and store templates.
     pub waypoints: Vec<String>,
