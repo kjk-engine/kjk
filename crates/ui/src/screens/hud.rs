@@ -2167,18 +2167,20 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     }
     let form = |prefix: &str| tag.strip_prefix(prefix) == Some(FORM);
     if form("BTN_ACTION") || form("LBL_ACTION") {
+        let label = form("LBL_ACTION");
         return match hud.form {
-            Some(BarSlot { icon, dim, .. }) if form("LBL_ACTION") => match icon {
-                Some(icon) => ControlState {
-                    fill: Some(icon),
-                    text: Some(Vec::new()),
-                    dimmed: dim,
-                    ..ControlState::default()
-                },
-                None => hidden,
+            Some(BarSlot {
+                icon: Some(icon),
+                dim,
+                ..
+            }) if label => ControlState {
+                fill: Some(icon),
+                text: Some(Vec::new()),
+                dimmed: dim,
+                ..ControlState::default()
             },
-            Some(_) => ControlState::default(),
-            None => hidden,
+            Some(_) if !label => ControlState::default(),
+            _ => hidden,
         };
     }
     if let Some(slot) = slot("BTN_ACTION") {
