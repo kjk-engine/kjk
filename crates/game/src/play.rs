@@ -423,6 +423,7 @@ pub fn compose(
         name,
         models,
         textures,
+        images: Default::default(),
         missing: body.missing.clone(),
         missing_body_textures: Vec::new(),
         default_envmap: None,
