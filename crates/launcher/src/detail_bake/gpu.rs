@@ -166,6 +166,12 @@ pub(crate) struct GpuOptions {
     /// `B_LEAST`. A ship's dark rooms have lamps that are too bright at
     /// half their strength.
     pub least: Option<f32>,
+    /// The most a room's lamps are scaled by in `b`, where it is not
+    /// `B_MOST`. A room's level counts its bright texels most, and where
+    /// its lamps do not reach those, the most scale lights the rest of the
+    /// room far above today. The Ebon Hawk's hold came out at 70 against
+    /// today's 19 so.
+    pub most: Option<f32>,
     /// A room's level is its level where the game lights it today: each
     /// texel counts by its stored level, in the room's target and in what
     /// the lamps are scaled to. A bake that reaches a room's plain mean is
@@ -1243,6 +1249,7 @@ pub(super) fn bake_lights(
         let factor = B_MEAN / mean(&|i| stored_level(unshadowed[i])).max(1e-6);
         let stated = read_levels(options.levels.as_deref())?;
         let room_of = |texels: &[usize]| texels.first().map(|&i| room_name(&maps[points[i].map]));
+        let b_most = options.most.unwrap_or(B_MOST);
         let rooms = room_levels(
             &maps,
             &points,
@@ -1255,7 +1262,7 @@ pub(super) fn bake_lights(
                     .and_then(|room| stated.get(&room).copied())
                     .unwrap_or_else(|| without_stored(texels) * factor)
             },
-            Some((options.least.unwrap_or(B_LEAST), B_MOST)),
+            Some((options.least.unwrap_or(B_LEAST), b_most)),
             &eased_level,
         );
         // A room whose lamps do not reach its level at the most scale takes
@@ -1289,7 +1296,7 @@ pub(super) fn bake_lights(
         let fill_most = if options.fill_stored { 4.0f32 } else { 1.0 };
         let mut even_of_room: HashMap<String, (f32, f32)> = HashMap::new();
         for room in &rooms.rooms {
-            if options.no_even || room.scale < B_MOST || room.after >= room.target {
+            if options.no_even || room.scale < b_most || room.after >= room.target {
                 continue;
             }
             let (mut low, mut high) = (0.0f32, 1.0f32);
@@ -1314,7 +1321,7 @@ pub(super) fn bake_lights(
                     .sum::<f32>()
                     / weight
             };
-            let (mut low, mut high) = (0.0f32, B_MOST);
+            let (mut low, mut high) = (0.0f32, b_most);
             for _ in 0..30 {
                 let middle = 0.5 * (low + high);
                 if mean_of(fill, middle) < room.target {

@@ -16,7 +16,7 @@
 # for each room), and the bake under bake/<label>.
 # KJK_BAKE_SUN, where it is set, is the area's sun for detail-bake's --sun,
 # and KJK_BAKE_SKYLIGHTS its skylights for --skylights. KJK_BAKE_EVEN is
-# --no-even for a module without the even light.
+# the module's other flags: --no-even, --fill-stored, --least and --most.
 # bake.sh sets it from data/lights/bake.toml.
 [ $# -eq 6 ] || [ $# -eq 7 ] || { sed -n '2,20p' "$0"; exit 2; }
 . "$(dirname "$0")/bake-env.sh" "$1"

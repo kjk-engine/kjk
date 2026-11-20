@@ -13,6 +13,7 @@
 # level of the room the file holds. The result is bake/<label>
 # in the area's folder, and levels-<label>.txt there holds the levels used.
 # A module with a sun in data/lights/bake.toml is baked with it.
+# Its `even`, `fill`, `least` and `most` there become detail-bake's flags.
 [ $# -ge 2 ] && [ $# -le 4 ] || { sed -n '2,15p' "$0"; exit 2; }
 module=$1 game=$2 label=${3:-$(date +%m%d-%H%M)} folder=${4:-bake-$1}
 . "$(dirname "$0")/bake-env.sh" "$folder"
@@ -44,7 +45,14 @@ PY
 KJK_BAKE_EVEN=$(python -I - "$ROOT/data/lights/bake.toml" "$module" <<'PY'
 import sys, tomllib
 data = tomllib.load(open(sys.argv[1], 'rb'))
-print('' if data.get('modules', {}).get(sys.argv[2], {}).get('even', True) else '--no-even')
+entry = data.get('modules', {}).get(sys.argv[2], {})
+flags = [] if entry.get('even', True) else ['--no-even']
+if entry.get('fill') == 'stored':
+    flags.append('--fill-stored')
+for key in ('least', 'most'):
+    if key in entry:
+        flags += ['--' + key, str(entry[key])]
+print(' '.join(flags))
 PY
 )
 export KJK_BAKE_SUN KJK_BAKE_SKYLIGHTS KJK_BAKE_EVEN

@@ -201,6 +201,10 @@ pub(crate) enum Verb {
         /// left out)
         #[arg(long)]
         least: Option<f32>,
+        /// With --gpu, the most a room's lamps are scaled by (6 when left
+        /// out)
+        #[arg(long)]
+        most: Option<f32>,
         /// With --sun, the meshes that send the sun's and the sky's light
         /// down into their room, by their node's name, with spaces between
         #[arg(long)]
@@ -628,6 +632,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             no_even,
             fill_stored,
             least,
+            most,
             skylights,
             out,
         } => {
@@ -680,6 +685,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 no_even,
                 fill_stored,
                 least,
+                most,
                 skylights: (skylights.iter())
                     .flat_map(|names| names.split_whitespace())
                     .map(str::to_string)
