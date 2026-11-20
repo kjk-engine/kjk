@@ -523,6 +523,7 @@ impl Plugin for OdysseyMaterialPlugin {
                 ShaderBuffer::from([GpuParticle::default()]),
             );
         crate::dangly::init_sway(app);
+        crate::loose_skin::init_legs(app);
         app.init_resource::<AreaLights>()
             .init_resource::<Animated>()
             .add_systems(Last, upload_animated)
@@ -963,6 +964,8 @@ pub struct OdysseyBound {
     probes: Handle<ShaderBuffer>,
     #[storage(19, read_only, visibility(vertex))]
     sway: Handle<ShaderBuffer>,
+    #[storage(20, read_only, visibility(vertex))]
+    loose_legs: Handle<ShaderBuffer>,
 }
 
 /// The binding of the scene's acceleration structure (`odyssey.wgsl`'s
@@ -989,6 +992,7 @@ impl OdysseyMaterial {
             shadow_tiles: self.shadow_tiles.clone(),
             probes: self.probes.clone(),
             sway: crate::dangly::SWAY,
+            loose_legs: crate::loose_skin::LEGS,
         }
     }
 }
@@ -1620,12 +1624,16 @@ pub fn blend(surface: Surface) -> Option<BlendState> {
     }
 }
 
+/// A danglymesh's vertex shader (`dangly`), or a robe's or a cape's
+/// (`loose_skin`), for a mesh with their attribute.
 fn swayed(
     descriptor: &mut RenderPipelineDescriptor,
     layout: &MeshVertexBufferLayoutRef,
 ) -> Result<(), SpecializedMeshPipelineError> {
     if crate::dangly::slot_attribute(descriptor, layout)? {
         descriptor.vertex.shader = DANGLY_SHADER;
+    } else {
+        crate::loose_skin::pushed(descriptor, layout)?;
     }
     Ok(())
 }

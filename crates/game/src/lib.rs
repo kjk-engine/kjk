@@ -102,6 +102,7 @@ pub mod lobby_host;
 mod lock_view;
 mod loose_parts;
 mod loose_sim;
+mod loose_skin;
 pub mod loose_view;
 mod loot;
 mod made;

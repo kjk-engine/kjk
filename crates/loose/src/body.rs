@@ -107,6 +107,14 @@ impl Body {
         Body { parts }
     }
 
+    /// The capsules of the legs (the thighs, the shins and the feet): each
+    /// one's node, its ends in the node's frame, and its radius.
+    pub fn legs(&self) -> impl Iterator<Item = (usize, [Vec3; 2], f32)> + '_ {
+        (self.parts.iter())
+            .filter(|part| part.leg)
+            .map(|part| (part.node, part.ends, part.radius))
+    }
+
     /// The capsules where the skeleton's `frames` put their nodes.
     pub(crate) fn pose(&self, frames: impl Fn(usize) -> Frame, posed: &mut Vec<Capsule>) {
         posed.clear();

@@ -3976,6 +3976,7 @@ impl Cast {
             {
                 self.worn.push(crate::loose_parts::Worn {
                     root: member.body.root,
+                    model: member.body.model,
                     wearer: wearer.clone(),
                     ms,
                     floor: (member.floor.as_ref())

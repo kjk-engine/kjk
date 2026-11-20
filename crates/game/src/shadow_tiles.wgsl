@@ -7,9 +7,12 @@
 // mesh whose texture's alpha is its coverage (`CUT`) casts where the alpha
 // is half or more, as the old shadow maps' shader had it. A danglymesh
 // (`DANGLY`) reads where its vertices sway now from the sway list
-// (`dangly::SWAY`), not from its mesh.
+// (`dangly::SWAY`), not from its mesh. A robe's or a cape's mesh
+// (`LOOSE_PUSH`) is pushed out of its wearer's legs, as `loose_skin.wgsl`
+// pushes it in the main pass.
 
 #import kjk::sway::{SwayVertex, last_slot}
+#import kjk::loose_legs::{Legs, out_of}
 
 struct Draw {
     // Its tile. A tile has two of `joints`, at twice its number. The first
@@ -23,6 +26,9 @@ struct Draw {
     // is placed. A skinned mesh has one for each joint. A shadow mesh has
     // one for each node that places a vertex.
     first: u32,
+    // Its wearer's model among `legs`, for a robe's or a cape's mesh
+    // (`LOOSE_PUSH`, `loose_skin`).
+    wearer: u32,
 }
 
 struct Out {
@@ -36,6 +42,7 @@ struct Out {
 @group(0) @binding(0) var<storage, read> joints: array<mat4x4<f32>>;
 @group(0) @binding(1) var<storage, read> draws: array<Draw>;
 @group(0) @binding(2) var<storage, read> sway: array<SwayVertex>;
+@group(0) @binding(3) var<storage, read> legs: array<Legs>;
 
 #ifdef CUT
 @group(1) @binding(0) var base_texture: texture_2d<f32>;
@@ -67,6 +74,9 @@ struct Vertex {
 #ifdef DANGLY
     @location(7) slot: u32,
 #endif
+#ifdef LOOSE_PUSH
+    @location(8) push: vec2<f32>,
+#endif
 }
 
 @vertex
@@ -95,7 +105,19 @@ fn vertex(in: Vertex) -> Out {
         + in.joint_weights.y * joints[min(s + in.joint_indices.y, last)]
         + in.joint_weights.z * joints[min(s + in.joint_indices.z, last)]
         + in.joint_weights.w * joints[min(s + in.joint_indices.w, last)];
+#ifdef LOOSE_PUSH
+    // Pushed out of its wearer's legs, as the main pass pushes it.
+    var world = skin * vec4<f32>(in.position, 1.0);
+    if draw.wearer < arrayLength(&legs) && in.push.x > 0.0 {
+        var at = world.xyz;
+        for (var i = 0u; i < 6u; i += 1u) {
+            at = out_of(at, legs[draw.wearer].now[i], in.push);
+        }
+        world = vec4<f32>(at, 1.0);
+    }
+#else
     let world = skin * vec4<f32>(in.position, 1.0);
+#endif
 #else
 #ifdef DANGLY
     let now = sway[min(in.slot, last_slot(arrayLength(&sway)))].now;

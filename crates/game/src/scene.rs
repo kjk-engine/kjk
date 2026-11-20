@@ -322,6 +322,7 @@ impl Plugin for ScenePlugin {
             crate::shadow_tiles::ShadowTilesPlugin,
         ))
         .add_plugins((
+            crate::loose_skin::LooseSkinPlugin,
             crate::light_probes::LightProbesPlugin,
             crate::ray_structures::RayStructuresPlugin,
             crate::effects_quality::EffectsQualityPlugin,
@@ -1196,9 +1197,9 @@ impl<'t> Spawner<'t> {
             self.tally.animated += 1;
         }
         let mut parts = Vec::new();
-        for (index, part) in placed.ir.meshes.iter().enumerate() {
+        for index in 0..placed.ir.meshes.len() {
             if let Some((entity, mesh, material, skinned)) =
-                self.mesh(commands, stores, (placed, part, is_room), &nodes)
+                self.mesh(commands, stores, (placed, index, is_room), &nodes)
             {
                 parts.push(crate::shadow_tiles::SpawnedPart {
                     part: index,
@@ -1276,9 +1277,10 @@ impl<'t> Spawner<'t> {
         &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
-        (placed, part, is_room): (&Placed, &asset_odyssey::model::MeshIr, bool),
+        (placed, index, is_room): (&Placed, usize, bool),
         nodes: &[Entity],
     ) -> Option<(Entity, AssetId<Mesh>, Handle<OdysseyMaterial>, bool)> {
+        let part = &placed.ir.meshes[index];
         let tally = &mut self.tally;
         let textures = &self.textures;
         let usage = mesh_usage(placed, part);
@@ -1493,6 +1495,9 @@ impl<'t> Spawner<'t> {
                 .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT);
             if whole {
                 culled = mesh.generate_skinned_mesh_bounds().is_ok();
+            }
+            if let Some(push) = crate::loose_parts::push(&placed.ir, index) {
+                mesh.insert_attribute(crate::loose_skin::PUSH, push);
             }
         }
         // A skinned danglymesh is left at rest, since the dangly shaders do not

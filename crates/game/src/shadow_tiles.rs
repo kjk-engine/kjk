@@ -227,6 +227,9 @@ struct TileDraw {
     first: u32,
     /// The texture whose alpha cuts the mesh's shadow (`casts`).
     cut: Option<AssetId<Image>>,
+    /// Its model, whose leg capsules a robe's or a cape's mesh is pushed
+    /// out of (`loose_skin`).
+    model: u32,
 }
 
 /// What the characters' layer draws this frame. Each tile is its rectangle
@@ -389,7 +392,8 @@ pub(crate) struct SpawnedPart {
 /// nodes are `nodes` and whose meshes are `parts`. The meshes that cast are
 /// grouped by the texture that cuts them, and each group of `LEAST_BAKED`
 /// or more becomes one shadow mesh. A danglymesh is left out, because its
-/// vertices move. So is a cut mesh with no texture coordinates.
+/// vertices move, and so is a robe or a cape pushed out of the legs
+/// (`loose_skin`). So is a cut mesh with no texture coordinates.
 pub(crate) fn bake(
     commands: &mut Commands,
     (meshes, materials): (&mut Assets<Mesh>, &Assets<OdysseyMaterial>),
@@ -402,7 +406,11 @@ pub(crate) fn bake(
             continue;
         };
         let source = &ir.meshes[part.part];
-        if source.dangly.is_some() || (cut.is_some() && source.uv1.len() != source.positions.len())
+        let pushed = (meshes.get(part.mesh))
+            .is_some_and(|mesh| mesh.attribute(crate::loose_skin::PUSH).is_some());
+        if source.dangly.is_some()
+            || pushed
+            || (cut.is_some() && source.uv1.len() != source.positions.len())
         {
             continue;
         }
@@ -1002,6 +1010,7 @@ fn draws_of(
                 kind: Kind::Baked,
                 first,
                 cut: its.cut,
+                model: model as u32,
             }));
             rays.extend(number.map(|number| RayDraw {
                 mesh: its.mesh.id(),
@@ -1046,6 +1055,7 @@ fn draws_of(
                 kind,
                 first,
                 cut: mesh.cut,
+                model: model as u32,
             }));
             rays.extend(number.map(|number| RayDraw {
                 mesh: mesh.mesh,
@@ -1084,9 +1094,9 @@ fn extract(
     EXTRACT.add(started);
 }
 
-/// A draw as the shaders read it: its tile, and its first matrix among the
-/// matrices.
-type GpuDraw = [u32; 2];
+/// A draw as the shaders read it: its tile, its first matrix among the
+/// matrices, and its model among `loose_skin::LEGS`.
+type GpuDraw = [u32; 3];
 
 /// Where the tile at `rect` (texels) lies in the atlas, as the pass's
 /// shaders read it. The first column moves the tile's clip space into the
@@ -1150,7 +1160,7 @@ struct Layer {
     batches: Vec<Batch>,
     draws: RawBufferVec<GpuDraw>,
     matrices: RawBufferVec<Mat4>,
-    bindings: Option<(BindGroup, [BufferId; 3])>,
+    bindings: Option<(BindGroup, [BufferId; 4])>,
 }
 
 impl Default for Layer {
@@ -1183,10 +1193,11 @@ impl Layer {
 
     /// Writes the matrices to the GPU, and the draws with `draws`. Each
     /// buffer is made with room to spare, so it is not made again each time
-    /// its list grows by one. Then binds them with the sway list `sway`.
+    /// its list grows by one. Then binds them with the sway list `sway`
+    /// and the wearers' leg capsules `legs` (`loose_skin::LEGS`).
     fn write(
         &mut self,
-        (draws, sway): (bool, Option<&Buffer>),
+        (draws, sway, legs): (bool, Option<&Buffer>, Option<&Buffer>),
         pipelines: &Pipelines,
         (cache, device, queue): (&PipelineCache, &RenderDevice, &RenderQueue),
     ) {
@@ -1198,13 +1209,13 @@ impl Layer {
         let room = self.matrices.len().next_power_of_two();
         self.matrices.reserve(room, device);
         self.matrices.write_buffer(device, queue);
-        let (Some(matrices), Some(draws), Some(sway)) =
-            (self.matrices.buffer(), self.draws.buffer(), sway)
+        let (Some(matrices), Some(draws), Some(sway), Some(legs)) =
+            (self.matrices.buffer(), self.draws.buffer(), sway, legs)
         else {
             self.bindings = None;
             return;
         };
-        let made_of = [matrices.id(), draws.id(), sway.id()];
+        let made_of = [matrices.id(), draws.id(), sway.id(), legs.id()];
         if self.bindings.as_ref().is_some_and(|(_, of)| *of == made_of) {
             return;
         }
@@ -1215,6 +1226,7 @@ impl Layer {
                 matrices.as_entire_binding(),
                 draws.as_entire_binding(),
                 sway.as_entire_binding(),
+                legs.as_entire_binding(),
             )),
         );
         self.bindings = Some((bindings, made_of));
@@ -1383,6 +1395,10 @@ fn init(mut commands: Commands) {
                     false,
                     NonZero::new(crate::dangly::SLOT_BYTES as u64),
                 ),
+                storage_buffer_read_only_sized(
+                    false,
+                    NonZero::new(crate::loose_skin::ENTRY_BYTES as u64),
+                ),
             ),
         ),
     );
@@ -1431,6 +1447,12 @@ fn pipeline(
     if kind == Kind::Rigid && layout.0.contains(crate::dangly::SLOT) {
         attributes.push(crate::dangly::SLOT.at_shader_location(7));
         shader_defs.push("DANGLY".into());
+    }
+    if kind == Kind::Skinned && layout.0.contains(crate::loose_skin::PUSH) {
+        attributes.push(
+            crate::loose_skin::PUSH.at_shader_location(crate::loose_skin::SHADOW_PUSH_LOCATION),
+        );
+        shader_defs.push("LOOSE_PUSH".into());
     }
     if kind == Kind::Baked {
         attributes.push(PLACE_1.at_shader_location(4));
@@ -1582,7 +1604,13 @@ fn batches_of(
         if finder.cache.get_render_pipeline(id).is_none() {
             waiting += 1;
         }
-        sorted.push((id, cut, draw.mesh, posed, [draw.tile, draw.first]));
+        sorted.push((
+            id,
+            cut,
+            draw.mesh,
+            posed,
+            [draw.tile, draw.first, draw.model],
+        ));
     }
     // A mesh's draws follow one another, so one call draws them all.
     sorted.sort_unstable_by_key(|&(id, cut, mesh, posed, _)| (id, cut, mesh, posed));
@@ -1640,6 +1668,9 @@ fn prepare(
 ) {
     let started = Instant::now();
     let list = lists.get(crate::dangly::SWAY.id()).map(|list| &list.buffer);
+    let legs = lists
+        .get(crate::loose_skin::LEGS.id())
+        .map(|list| &list.buffer);
     // The skin-once pass places the characters while the structures are
     // traced, and otherwise only when `KJK_SKIN_ONCE=on` asks for it.
     skin.set_used(rays.is_some_and(|rays| rays.traced));
@@ -1689,7 +1720,7 @@ fn prepare(
             } else {
                 ready.posed = true;
                 ready.layer.pose(&mut jobs.matrices);
-                ready.layer.write((remade, list), &pipelines, gpu);
+                ready.layer.write((remade, list, legs), &pipelines, gpu);
                 // A mesh written anew since its job was made: the draw
                 // calls and the jobs are made anew for the next frame.
                 if !skin.refresh((&meshes, &allocator), ready.layer.matrices.buffer(), gpu) {
@@ -1704,7 +1735,7 @@ fn prepare(
         if unready == 0 || kept.waited >= KEPT_WAIT {
             kept.layer.take(batches, draws);
             kept.layer.pose(&mut waiting.matrices);
-            kept.layer.write((true, list), &pipelines, gpu);
+            kept.layer.write((true, list, legs), &pipelines, gpu);
             kept.waiting = None;
             kept.redraw = true;
         } else {

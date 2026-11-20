@@ -212,6 +212,12 @@ pub(crate) struct Model {
     solver: Solver,
     /// The bones the solver turns, and their rest turns.
     bones: Vec<(usize, Quat)>,
+    /// The leg capsules of the body: each one's node, its ends in the
+    /// node's frame and its radius (`loose_skin`).
+    legs: Vec<(usize, [Vec3; 2], f32)>,
+    /// For each mesh of the model, the `loose_skin::PUSH` attribute of a
+    /// mesh that the solver moves, or `None`.
+    pushes: Vec<Option<Vec<[f32; 2]>>>,
 }
 
 impl Model {
@@ -245,6 +251,11 @@ impl Model {
         .inspect_err(|why| warn!("{}: robes without the body's capsules: {why}", ir.name))
         .ok()
         .map(|template| Body::new(&template));
+        let legs: Vec<(usize, [Vec3; 2], f32)> = body
+            .iter()
+            .flat_map(|body| body.legs())
+            .take(crate::loose_skin::CAPSULES)
+            .collect();
         let settings = Settings {
             trace: traced().is_some(),
             ..Settings::default()
@@ -255,17 +266,111 @@ impl Model {
         if settings.trace {
             info!("loose trace {}:\n{}", ir.name, solver.describe());
         }
-        let bones = simulated(&found)
-            .flat_map(bones_of)
-            .map(|node| (node, rest[node].2))
-            .collect();
-        Some(Model { solver, bones })
+        let moved: Vec<usize> = simulated(&found).flat_map(bones_of).collect();
+        let bones = moved.iter().map(|&node| (node, rest[node].2)).collect();
+        let pushes = pushes(ir, &moved, &legs);
+        Some(Model {
+            solver,
+            bones,
+            legs,
+            pushes,
+        })
     }
 
     pub(crate) fn bones(&self) -> &[(usize, Quat)] {
         &self.bones
     }
 }
+
+/// How far out of a leg capsule's radius a pushed vertex is put (metres).
+/// The capsules are the size of the limbs, and the cloth lies on them.
+const CLOTH_OFF_LEG: f32 = 0.01;
+/// How much nearer to a capsule's axis than at rest a vertex that rests
+/// inside the capsule may come before it is pushed (metres).
+const INSIDE_MARGIN: f32 = 0.005;
+
+/// The `loose_skin::PUSH` attribute of each mesh of `ir` that the bones
+/// `moved` move, from the leg capsules `legs` in the rest pose. A vertex's
+/// share is the sum of its weights on the moved bones. Its depth is how far
+/// it rests inside the capsule it is deepest in, with `CLOTH_OFF_LEG`
+/// added to the radius, plus `INSIDE_MARGIN`.
+fn pushes(
+    ir: &ModelIr,
+    moved: &[usize],
+    legs: &[(usize, [Vec3; 2], f32)],
+) -> Vec<Option<Vec<[f32; 2]>>> {
+    let world = |node: usize| crate::scene::to_mat4(&ir.nodes[node].world);
+    let rest: Vec<([Vec3; 2], f32)> = legs
+        .iter()
+        .map(|&(node, ends, radius)| {
+            let frame = world(node);
+            (ends.map(|end| frame.transform_point3(end)), radius)
+        })
+        .collect();
+    ir.meshes
+        .iter()
+        .map(|mesh| {
+            let skin = mesh.skin.as_ref()?;
+            let binds: Vec<Mat4> = (skin.joints.iter().zip(&skin.inverse_binds))
+                .map(|(&node, bind)| world(node) * crate::scene::to_mat4(bind))
+                .collect();
+            let mut any = false;
+            let push = (mesh.positions.iter().enumerate())
+                .map(|(vertex, p)| {
+                    let p = Vec3::from_array(*p);
+                    let (slots, weights) = (
+                        skin.vertex_joints.get(vertex),
+                        skin.vertex_weights.get(vertex),
+                    );
+                    let (Some(slots), Some(weights)) = (slots, weights) else {
+                        return [0.0, 0.0];
+                    };
+                    let mut share = 0.0;
+                    let mut at = Vec3::ZERO;
+                    for (&slot, &weight) in slots.iter().zip(weights) {
+                        let slot = usize::from(slot);
+                        let (Some(&node), Some(bind)) = (skin.joints.get(slot), binds.get(slot))
+                        else {
+                            continue;
+                        };
+                        at += bind.transform_point3(p) * weight;
+                        if moved.contains(&node) {
+                            share += weight;
+                        }
+                    }
+                    if share <= 0.0 {
+                        return [0.0, 0.0];
+                    }
+                    any = true;
+                    let depth = rest
+                        .iter()
+                        .map(|&([a, b], radius)| {
+                            let from_axis = at.distance(ragdoll::closest_on_segment(at, a, b));
+                            radius + CLOTH_OFF_LEG - from_axis + INSIDE_MARGIN
+                        })
+                        .fold(0.0, f32::max);
+                    [share.min(1.0), depth]
+                })
+                .collect();
+            any.then_some(push)
+        })
+        .collect()
+}
+
+/// The `loose_skin::PUSH` attribute of mesh `mesh` of `ir`, when the solver
+/// moves it (`Model::pushes`). It is `None` while the solver is off, for a
+/// model it does not move and for a mesh with no vertex on a moved bone.
+pub(crate) fn push(ir: &ModelIr, mesh: usize) -> Option<Vec<[f32; 2]>> {
+    if !running() {
+        return None;
+    }
+    let models = MODELS.lock().unwrap_or_else(|e| e.into_inner());
+    let model = models.get(&ir.name.to_ascii_lowercase())?.as_ref()?;
+    model.pushes.get(mesh)?.clone()
+}
+
+/// Each body model's solver, by model name (`worn`).
+static MODELS: Mutex<BTreeMap<String, Option<Arc<Model>>>> = Mutex::new(BTreeMap::new());
 
 /// The robe solver's trace, a debugging aid, from `KJK_LOOSE_TRACE` (the
 /// file), `KJK_LOOSE_TRACE_FROM` and `KJK_LOOSE_TRACE_TO` (the span of game
@@ -317,7 +422,6 @@ pub(crate) fn worn(
     resolver: &Resolver,
     ir: &ModelIr,
 ) -> Result<Option<Arc<Model>>, String> {
-    static MODELS: Mutex<BTreeMap<String, Option<Arc<Model>>>> = Mutex::new(BTreeMap::new());
     if !running() || found(ir).moved.is_empty() {
         return Ok(None);
     }
@@ -369,6 +473,9 @@ pub(crate) struct Wearer {
 pub(crate) struct Worn {
     /// The model's root entity, which the cast places in the world.
     pub(crate) root: Entity,
+    /// The body's model in the scene's models. Its meshes carry it in their
+    /// tag, and its leg capsules have that entry of `loose_skin::LEGS`.
+    pub(crate) model: usize,
     pub(crate) wearer: Wearer,
     /// The game time the body was posed at (ms).
     pub(crate) ms: f64,
@@ -450,14 +557,20 @@ struct State {
     wearer: Wearer,
     wearing: Wearing,
     last: Option<(u64, f64)>,
+    /// The body's model in the scene's models (`Worn::model`).
+    model: usize,
+    /// Its leg capsules in the world, the frame before.
+    legs: Option<[[[f32; 4]; 2]; crate::loose_skin::CAPSULES]>,
 }
 
 impl State {
-    fn new(wearer: &Wearer) -> State {
+    fn new(wearer: &Wearer, model: usize) -> State {
         State {
             wearing: Wearing::new(&wearer.model),
             wearer: wearer.clone(),
             last: None,
+            model,
+            legs: None,
         }
     }
 
@@ -533,6 +646,8 @@ pub(crate) struct Solving {
     worn: Vec<Worn>,
     cut: bool,
     states: HashMap<Entity, State>,
+    /// The models whose entry of `loose_skin::LEGS` must be emptied.
+    freed: Vec<usize>,
     frame: u64,
     totals: Totals,
 }
@@ -571,15 +686,24 @@ fn solve(
     let (frame, cut) = (solving.frame, std::mem::take(&mut solving.cut));
     let worn = std::mem::take(&mut solving.worn);
     let states = &mut solving.states;
-    states.retain(|&root, _| transforms.contains(root));
+    let freed = &mut solving.freed;
+    states.retain(|&root, state| {
+        let kept = transforms.contains(root);
+        if !kept {
+            freed.push(state.model);
+        }
+        kept
+    });
     for one in &worn {
         let state = states
             .entry(one.root)
-            .or_insert_with(|| State::new(&one.wearer));
+            .or_insert_with(|| State::new(&one.wearer, one.model));
         if !Arc::ptr_eq(&state.wearer.model, &one.wearer.model)
             || !Arc::ptr_eq(&state.wearer.nodes, &one.wearer.nodes)
+            || state.model != one.model
         {
-            *state = State::new(&one.wearer);
+            solving.freed.push(state.model);
+            *state = State::new(&one.wearer, one.model);
         }
     }
     let index: HashMap<Entity, &Worn> = worn.iter().map(|one| (one.root, one)).collect();
@@ -643,6 +767,43 @@ fn solve(
     }
 }
 
+/// Writes the leg capsules of every solved body in the world, now and the
+/// frame before, to its model's entry of `loose_skin::LEGS`. It runs after
+/// Bevy has placed every node, so the capsules are where the skin puts the
+/// legs. A capsule's radius grows with its node's scale. A freed entry gets
+/// capsules of radius 0, which push nothing.
+fn place_legs(
+    mut solving: ResMut<Solving>,
+    globals: Query<&GlobalTransform>,
+    mut writes: ResMut<crate::loose_skin::LegWrites>,
+) {
+    use crate::loose_skin::CAPSULES;
+    let solving = &mut *solving;
+    for model in solving.freed.drain(..) {
+        writes.write(model, [[[0.0; 4]; 2]; 2 * CAPSULES]);
+    }
+    for state in solving.states.values_mut() {
+        let mut now = [[[0.0f32; 4]; 2]; CAPSULES];
+        for (capsule, &(node, ends, radius)) in now.iter_mut().zip(&state.wearer.model.legs) {
+            let Some(global) = (state.wearer.nodes.get(node)).and_then(|&n| globals.get(n).ok())
+            else {
+                continue;
+            };
+            let scale = global.affine().matrix3.x_axis.length();
+            let [a, b] = ends.map(|end| global.transform_point(end));
+            *capsule = [
+                [a.x, a.y, a.z, (radius + CLOTH_OFF_LEG) * scale],
+                [b.x, b.y, b.z, 0.0],
+            ];
+        }
+        let was = state.legs.replace(now).unwrap_or(now);
+        let mut entry = [[[0.0f32; 4]; 2]; 2 * CAPSULES];
+        entry[..CAPSULES].copy_from_slice(&now);
+        entry[CAPSULES..].copy_from_slice(&was);
+        writes.write(state.model, entry);
+    }
+}
+
 /// Every system that writes the transforms of a body's bones. The solver
 /// reads the final pose after all of them.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -670,6 +831,10 @@ impl Plugin for LoosePartsPlugin {
                 solve
                     .after(PosesBones)
                     .before(bevy::transform::TransformSystems::Propagate),
+            )
+            .add_systems(
+                PostUpdate,
+                place_legs.after(bevy::transform::TransformSystems::Propagate),
             );
     }
 }
