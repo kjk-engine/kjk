@@ -116,9 +116,7 @@ fn view(
 ) -> BarSetupView {
     let identity = (means.me, &means.sheet, means.fighter);
     let (chosen, counts) = crate::hud::chosen_items(snapshot, identity, library, picking);
-    let kits = library.map_or(0, |library| {
-        sim::traps::party_kits(&snapshot.goods, library.items())
-    });
+    let mine = library.and_then(|library| sim::traps::laid_kit(&snapshot.goods, library.items()));
     let labels = BAR
         .iter()
         .map(|key| {
@@ -129,7 +127,7 @@ fn view(
         .collect();
     let mut view = BarSetupView {
         who: means.me.0,
-        slots: crate::hud::setup_slots(ui, means, (&chosen, &counts), labels),
+        slots: crate::hud::setup_slots(ui, means, (&chosen, &counts, mine.as_ref()), labels),
         keys: BAR.iter().map(|key| prompts.raw_key(*key)).collect(),
         contents: (means.sheet.bar.slots().iter())
             .map(|content| content.map(named))
@@ -137,7 +135,7 @@ fn view(
         ..BarSetupView::default()
     };
     for content in &means.assignable {
-        let mut entry = crate::hud::bar_entry(ui, *content, means, &chosen, kits);
+        let mut entry = crate::hud::bar_entry(ui, *content, means, &chosen, mine.as_ref());
         entry.description = crate::hud::bar_description(ui, *content, &means.sheet, &chosen);
         if let Content::Item(shelf) = content {
             let several = counts[*shelf as usize] >= 2;
