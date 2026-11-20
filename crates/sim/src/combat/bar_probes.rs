@@ -930,7 +930,9 @@ fn edit_refused() -> Result<String, String> {
             snapshot
                 .body(Seat(0))
                 .and_then(|body| body.sheet)
-                .map(|sheet| (sheet.bar, sheet.picks))
+                // The mark of a line the player picked changes nothing the
+                // character fights with.
+                .map(|sheet| (sheet.bar, sheet.picks.without_marks()))
         };
         let before = state(&world.snapshot());
         let after = state(&edit_step(&mut world, Some((seat, action(bodies)))));

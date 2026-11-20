@@ -15,6 +15,7 @@
 use super::SimWorld;
 use crate::action::Action;
 use crate::combat::Sheet;
+use crate::combat::bar::FeatLine;
 use crate::combat::picks::{Melee, Picks, Shown};
 use crate::combat::saber::{Kit, Style};
 use crate::combat::sheet::{Blaster, Delivery, SaberShape, Weapon, feats};
@@ -374,12 +375,16 @@ fn steered() -> Result<String, String> {
         Picks::next(&mut sheet, 0);
         sheet
     };
+    let clicked = |mut sheet: Sheet| {
+        Picks::set(&mut sheet, 0, FeatLine::PowerBlast);
+        sheet
+    };
     let steered_once = |mut sheet: Sheet, row: u16| {
         Picks::steer(&mut sheet, 0, row);
         sheet
     };
     let single = holding(Delivery::Saber(SaberShape::Single), 1, &BLADE_LINES);
-    let cases: [(&str, Sheet, u16, bool); 10] = [
+    let cases: [(&str, Sheet, u16, bool); 11] = [
         ("two blades", dual(&BLADE_LINES), BLADE_LINES[2], true),
         ("a staff", staff(&BLADE_LINES), BLADE_LINES[0], true),
         ("a pistol", pistol(&GUN_LINES), GUN_LINES[2], true),
@@ -405,6 +410,12 @@ fn steered() -> Result<String, String> {
         (
             "a pistol the player picked",
             picked(pistol(&GUN_LINES)),
+            GUN_LINES[2],
+            false,
+        ),
+        (
+            "a pistol whose line in use the player clicked",
+            clicked(pistol(&GUN_LINES)),
             GUN_LINES[2],
             false,
         ),
@@ -442,6 +453,12 @@ fn steered() -> Result<String, String> {
     }
     if !Picks::steer(&mut unmarked, 0, BLADE_LINES[2]) {
         wrong.push("old bytes kept the player's mark".into());
+    }
+    // Clicking the line in use changes no line, but marks the slot.
+    let mut gun = pistol(&GUN_LINES);
+    let line_changed = Picks::set(&mut gun, 0, FeatLine::PowerBlast);
+    if line_changed || !Picks::player_picked(&gun, 0) {
+        wrong.push(format!("a click on the line in use changed {line_changed}"));
     }
     check(wrong.is_empty(), format!("wrong: {wrong:?}"))
 }

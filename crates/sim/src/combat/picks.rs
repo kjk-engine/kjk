@@ -242,12 +242,6 @@ impl Picks {
             }
             None => {}
         }
-        Self::marked(sheet, hand, before)
-    }
-
-    /// Whether the player's pick for the weapon in `hand` changed the picks
-    /// from `before`. A change marks the weapon's slot as the player's.
-    fn marked(sheet: &mut Sheet, hand: u8, before: Picks) -> bool {
         let changed = sheet.picks != before;
         if let Some(slot) = slot(sheet, hand).filter(|_| changed) {
             sheet.picks.player |= slot.bit();
@@ -261,13 +255,25 @@ impl Picks {
     /// a gun's alternate fire can never be turned off, and choosing the line
     /// a gun uses already changes nothing. False when nothing changed: the
     /// weapon cannot use the line, the sheet does not know it, or a gun
-    /// uses it already. A change marks the slot as the player's.
+    /// uses it already. Whenever the sheet knows the line and the weapon can
+    /// use it, the slot is marked as the player's, also when the line was in
+    /// use already and nothing else changed (`Picks::player`). A caller that
+    /// keeps the sheet compares the picks to keep the mark too.
     pub fn set(sheet: &mut Sheet, hand: u8, line: FeatLine) -> bool {
-        let before = sheet.picks;
-        if let Some(row) = line.known(sheet) {
-            Self::put(sheet, hand, row, true);
+        let Some(row) = line.known(sheet).filter(|_| line.fits(sheet, hand)) else {
+            return false;
+        };
+        let changed = Self::put(sheet, hand, row, true);
+        if let Some(slot) = slot(sheet, hand) {
+            sheet.picks.player |= slot.bit();
         }
-        Self::marked(sheet, hand, before)
+        changed
+    }
+
+    /// These picks without the marks of the lines the player picked: what
+    /// the character fights with.
+    pub fn without_marks(self) -> Picks {
+        Picks { player: 0, ..self }
     }
 
     /// Whether the player picked the line of the weapon in `hand`.
