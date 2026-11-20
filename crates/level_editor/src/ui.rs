@@ -135,6 +135,8 @@ pub struct UiState {
     viewing: Option<String>,
     view_tab: ViewTab,
     read_scripts: BTreeMap<String, crate::script_view::ScriptView>,
+    /// The editor's `script_round` the scripts above were read at.
+    read_round: u32,
 }
 
 /// The script viewer's tabs.
@@ -172,6 +174,7 @@ impl Default for UiState {
             viewing: None,
             view_tab: ViewTab::Source,
             read_scripts: BTreeMap::new(),
+            read_round: 0,
         }
     }
 }
@@ -1575,11 +1578,21 @@ fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState)
     let Some(name) = ui_state.viewing.clone() else {
         return;
     };
+    // Scripts compiled since they were read are read again.
+    if ui_state.read_round != state.script_round {
+        ui_state.read_scripts.clear();
+        ui_state.read_round = state.script_round;
+    }
     let view = ui_state
         .read_scripts
         .entry(name.clone())
         .or_insert_with(|| {
-            crate::script_view::read(&state.setup.resolver, state.setup.catalog.as_ref(), &name)
+            crate::script_view::read(
+                &state.setup.resolver,
+                state.setup.catalog.as_ref(),
+                &state.editor.project.folder,
+                &name,
+            )
         });
     // The name and Close on one row, the tabs on the next, so that the
     // header fits a narrow panel.
@@ -1624,6 +1637,12 @@ fn script_viewer(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState)
     ui.label(egui::RichText::new(from).small().weak());
     if let Some(problem) = &view.problem {
         ui.label(format!("It does not read: {problem}"));
+    }
+    if let Some(why) = state.script_errors.get(&name) {
+        ui.colored_label(
+            ui.visuals().error_fg_color,
+            format!("It did not compile at the last save: {why}"),
+        );
     }
     egui::ScrollArea::both()
         .auto_shrink(false)

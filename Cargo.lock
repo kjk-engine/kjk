@@ -4096,6 +4096,7 @@ dependencies = [
  "collision_odyssey",
  "fmt_ja",
  "fmt_odyssey",
+ "script_ncs",
  "store",
  "toml_edit",
  "vfs",

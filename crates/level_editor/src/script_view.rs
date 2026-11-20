@@ -8,6 +8,7 @@
 //! does at a glance; the listing tells it all.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use bevy_egui::egui;
 use fmt_odyssey::ResType;
@@ -41,28 +42,47 @@ pub fn catalog(resolver: &Resolver) -> Option<Catalog> {
     Catalog::parse(&text(&bytes)).ok()
 }
 
-/// Reads `name` through `resolver`, its routines named from `catalog`.
-pub fn read(resolver: &Resolver, catalog: Option<&Catalog>, name: &str) -> ScriptView {
+/// The layer name the viewer gives the project's folder.
+const PROJECT: &str = "the project";
+
+/// Reads `name`, the project's folder `project` first (read now, so a
+/// script written or compiled since the editor opened shows), then
+/// through `resolver`, its routines named from `catalog`.
+pub fn read(
+    resolver: &Resolver,
+    catalog: Option<&Catalog>,
+    project: &Path,
+    name: &str,
+) -> ScriptView {
+    let own = |extension: &str| std::fs::read(project.join(format!("{name}.{extension}"))).ok();
     let layer_of = |restype| {
         resolver
             .find(name, restype)
             .map(|found| found.layer.name.clone())
     };
-    let source = resolver.read(name, ResType::NSS).map(|bytes| {
-        (
-            text(&bytes),
-            layer_of(ResType::NSS).unwrap_or_else(String::new),
-        )
-    });
+    let source = match own("nss") {
+        Some(bytes) => Some((text(&bytes), PROJECT.to_string())),
+        None => resolver.read(name, ResType::NSS).map(|bytes| {
+            (
+                text(&bytes),
+                layer_of(ResType::NSS).unwrap_or_else(String::new),
+            )
+        }),
+    };
+    let compiled = own("ncs");
+    let compiled_from = match compiled {
+        Some(_) => Some(PROJECT.to_string()),
+        None => layer_of(ResType::NCS),
+    };
     let mut view = ScriptView {
         source,
-        compiled_from: layer_of(ResType::NCS),
+        compiled_from,
         calls: Vec::new(),
         strings: Vec::new(),
         listing: None,
         problem: None,
     };
-    let Some(bytes) = resolver.read(name, ResType::NCS) else {
+    let Some(bytes) = compiled.or_else(|| resolver.read(name, ResType::NCS)) else {
         return view;
     };
     let ncs = match fmt_odyssey::ncs::Ncs::parse(&bytes) {

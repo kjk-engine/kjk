@@ -41,6 +41,41 @@ the games' own compiled scripts; nothing of them is in the repo.
   error, so the reports list it apart as well, as aborted (not in the
   sweeps' faults).
 
+## The compiler (`script_ncs::compile`)
+- `compile(name, source, read, catalog)` turns a script's `.nss` into
+  NCS against a game's `nwscript.nss` (`read` gives an include's source by
+  name). The program is `main` or `StartingConditional` and what they
+  call; an include with neither has nothing to compile (`has_entry`). A
+  mistake comes back with its file and line.
+- It writes what BioWare's compiler writes, measured against the
+  installs by `kjk script compile <game>`: of the scripts with a body
+  whose source the install keeps, K1 compiles 1 571 of 1 737 to the
+  game's bytes and TSL 584 of 612. The rest were compiled from older
+  sources than the ones shipped (other numbers, other routines, other
+  code), so their shipped bytes cannot be had from the shipped source.
+  `kjk script compile <game> SCRIPT` shows where one parts from the
+  game's, and with `KJK_NSS_LISTING=FOLDER` writes both whole listings
+  there.
+- BioWare's layout, as the games' scripts show it: the entry calls the
+  script's function and returns (`StartingConditional` reserves its int
+  first); globals are set by a function of their own around that call;
+  functions are written depth first in the order they are first called,
+  and only those called. A local is reserved where it is declared and its
+  value copied down onto it. A call pushes its arguments last first with
+  every default written out; an `action` argument is `STORESTATE` (the
+  globals, and the function's locals, parameters and result), a jump over
+  its code, the code and `RETN`. `return` copies its value down, pops
+  everything and jumps to the function's end. Numbers are never folded
+  (`-6` is `6` negated). `a || b` tests `a` twice. A field is read by
+  copying the whole struct up and destroying the rest.
+- BioWare's compiler pops nothing for a `continue` or for a `break` out
+  of a `switch`: the locals of the blocks they leave stay on the stack
+  (the floating mines' fault above). Ours does the same, so the games'
+  scripts run as they did; a new script should not declare locals in a
+  block it leaves that way.
+- The level editor compiles a project's scripts when it saves
+  (`LEVEL-EDIT.md`).
+
 ## In the sim (`sim::script`, `world::scripts`)
 - A module's plan carries a `Library` (`Level::with_scripts`, in its
   digest): the scripts its module, area and objects hook, and those they

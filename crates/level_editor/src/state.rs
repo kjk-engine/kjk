@@ -237,6 +237,11 @@ pub struct EditorState {
     pub(crate) levels_original: BTreeMap<String, f32>,
     pub(crate) room_measures: Option<Vec<RoomMeasure>>,
     pub(crate) show_levels: bool,
+    /// Why each of the project's scripts did not compile at the last save,
+    /// by name, and how many times they have been compiled, so the script
+    /// viewer reads them again.
+    pub(crate) script_errors: BTreeMap<String, String>,
+    pub(crate) script_round: u32,
     /// A bake running (`bake`), and the label of one asked for, which
     /// starts when the scene is next drawn (it bakes from the scene's
     /// lights).
@@ -320,6 +325,8 @@ impl EditorState {
             levels_original,
             room_measures: None,
             show_levels: false,
+            script_errors: BTreeMap::new(),
+            script_round: 0,
             bake_job: None,
             bake_request: None,
             shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false, None),
@@ -2222,6 +2229,34 @@ pub(crate) fn walk(state: &mut EditorState) -> Result<(), String> {
 
 /// Saves the project (`Editor::save_with`), saying its warnings and what
 /// was written.
+/// Compiles the project's scripts (`level_edit::scripts`) and says how it
+/// went: each mistake, with its file and line.
+fn compile_scripts(state: &mut EditorState) {
+    let folder = state.editor.project.folder.clone();
+    if level_edit::scripts::sources(&folder).is_empty() {
+        return;
+    }
+    let Some(catalog) = state.setup.catalog.clone() else {
+        state.say("the project's scripts were not compiled: the install has no nwscript.nss");
+        return;
+    };
+    let resolver = state.setup.resolver.clone();
+    let install = |name: &str| resolver.read(name, ResType::NSS);
+    let compiled = level_edit::scripts::compile_all(&folder, &install, &catalog);
+    state.script_errors.clear();
+    state.script_round = state.script_round.wrapping_add(1);
+    let good = compiled.iter().filter(|each| each.outcome.is_ok()).count();
+    for each in compiled {
+        if let Err(why) = each.outcome {
+            state.say(format!("{} did not compile: {why}", each.name));
+            state.script_errors.insert(each.name, why);
+        }
+    }
+    if good > 0 {
+        state.say(format!("compiled {good} of the project's scripts"));
+    }
+}
+
 pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
     let made_by = format!("kjk {}", kjk_game::GIT_SHA);
     let warnings: Vec<String> = state
@@ -2243,6 +2278,7 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
         written.len(),
         state.editor.project.folder.display()
     ));
+    compile_scripts(state);
     // The kinds of fitting changed go to the light data: their `[[kind]]`
     // entries, which the game reads, and a `[[fitting]]` each, which
     // `kinds.py` reads.

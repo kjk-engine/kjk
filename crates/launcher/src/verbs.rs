@@ -1017,6 +1017,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 script_verbs::check(&discover(), &game, unbound)
             }
             ScriptVerb::Probes => script_verbs::probes(),
+            ScriptVerb::Compile { game, script } => {
+                script_verbs::compile(&discover(), &game, script.as_deref())
+            }
             ScriptVerb::Effects { game, module } => {
                 effects_verbs::effects(&discover(), &game, &module)
             }
@@ -1947,6 +1950,15 @@ pub(crate) enum ScriptVerb {
         script: String,
         #[arg(long)]
         module: Option<String>,
+    },
+    /// Compile every script source of an install that has a body with
+    /// kjk's compiler and compare it with the compiled script the install
+    /// ships; with a script named, show where the two part
+    Compile {
+        /// k1 or tsl
+        game: String,
+        /// One script's resref, e.g. k_con_atdant
+        script: Option<String>,
     },
     /// Decode every compiled script of an install, write each back, and
     /// check every routine call against the game's nwscript.nss

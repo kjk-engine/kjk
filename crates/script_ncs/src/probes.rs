@@ -145,6 +145,13 @@ impl Probes {
         (outcome, host)
     }
 
+    fn run_ncs(&self, ncs: Ncs) -> (Result<vm::Finished, Fault>, Recorder) {
+        let program = Program::new(ncs);
+        let mut host = Recorder::default();
+        let outcome = vm::run(&program, &self.routines, CALLER, &mut host);
+        (outcome, host)
+    }
+
     fn check(&mut self, name: &'static str, ok: bool, detail: String) {
         self.checks.push(Check { name, ok, detail });
     }
@@ -533,6 +540,7 @@ pub fn all() -> Vec<Check> {
         "budget",
     );
     built(&mut p);
+    compiled(&mut p);
     // Every probe's program writes back as it reads.
     let sample = conditional(&[int(1), float(2.0), string("x")]).build();
     let again = Ncs::parse(&sample.write());
@@ -721,6 +729,129 @@ fn built(p: &mut Probes) {
             == Some("GetObjectByTag: argument 1 (sTag) is string, given int")
             && asm::script(&catalog, &[call("NoSuch", [])]).is_err()
             && asm::script(&catalog, &[call("DelayCommand", [Expr::Float(1.0)])]).is_err(),
+        format!("{wrong:?}"),
+    );
+}
+
+/// Scripts compiled from source (`compile`), with an include of our own,
+/// against the probes' catalog: each run here, and one laid out instruction
+/// by instruction as the games' compiler lays it out.
+fn compiled(p: &mut Probes) {
+    use crate::compile::compile;
+    use Op::*;
+    let catalog = p.routines.catalog().clone();
+    let include = |name: &str| {
+        (name == "probe_inc").then(|| {
+            b"int nBase = 3;\n\
+              struct pair { int a; int b; };\n\
+              int Twice(int n) { return n * 2; }\n"
+                .to_vec()
+        })
+    };
+    let build = |source: &str| compile("probe", source.as_bytes(), &include, &catalog);
+
+    // A call: its defaults written, the last argument first, its value
+    // popped.
+    let call = build("void main()\n{\n    Record(5);\n}\n");
+    let wanted = [
+        Jsr(8),
+        Retn,
+        int(1),
+        int(7),
+        int(5),
+        Action {
+            routine: 0,
+            args: 3,
+        },
+        MovSp(-4),
+        Retn,
+    ];
+    p.check(
+        "a compiled call writes its defaults and pops its value",
+        call.as_ref()
+            .map(|ncs| ncs.code.iter().map(|i| i.op.clone()).collect::<Vec<_>>())
+            == Ok(wanted.to_vec()),
+        format!("{call:?}"),
+    );
+
+    // Loops, a switch, a struct, a global from the include and a function
+    // of it, run to their answer: 0 + 1 + 2 + 4, then 2 * 3, then 5.
+    let answer = build(
+        "#include \"probe_inc\"\n\
+         int StartingConditional()\n\
+         {\n\
+             int nSum = 0;\n\
+             int i;\n\
+             for (i = 0; i < 5; i++) {\n\
+                 if (i == 3) continue;\n\
+                 nSum += i;\n\
+             }\n\
+             struct pair p;\n\
+             p.a = 4;\n\
+             p.b = 5;\n\
+             switch (p.a) {\n\
+                 case 2: nSum = 0; break;\n\
+                 case 4: nSum += Twice(nBase); break;\n\
+                 default: nSum = -1;\n\
+             }\n\
+             int j = 0;\n\
+             while (TRUE) {\n\
+                 j++;\n\
+                 if (j >= 3) break;\n\
+             }\n\
+             if (j == 3 && nSum > 10 || FALSE) nSum += p.b;\n\
+             return nSum + Record(1) - 41;\n\
+         }\n",
+    );
+    let got = answer
+        .as_ref()
+        .map_err(ToString::to_string)
+        .and_then(|ncs| {
+            let (outcome, host) = p.run_ncs(ncs.clone());
+            outcome
+                .map(|finished| (finished.returned, host.calls.len()))
+                .map_err(|fault| format!("{fault:?}"))
+        });
+    p.check(
+        "a compiled conditional with loops, a switch and an include answers",
+        got == Ok((Some(18), 1)),
+        format!("{got:?}, wanted 18 after one call"),
+    );
+
+    // An action argument runs later, its locals saved with it.
+    let later = build("void main()\n{\n    int n = 2;\n    Defer(Record(n + 1));\n}\n");
+    let resumed = later.as_ref().ok().and_then(|ncs| {
+        let program = Program::new(ncs.clone());
+        let mut host = Recorder::default();
+        vm::run(&program, &p.routines, CALLER, &mut host).ok()?;
+        let saved = host.deferred.first()?;
+        let mut then = Recorder::default();
+        vm::resume(&program, &p.routines, CALLER, saved, &mut then).ok()?;
+        Some(
+            then.calls
+                .into_iter()
+                .map(|(name, _, args)| (name, args))
+                .collect::<Vec<_>>(),
+        )
+    });
+    p.check(
+        "a compiled action argument runs later with its locals",
+        resumed
+            == Some(vec![(
+                "Record".to_string(),
+                vec![Value::Int(3), Value::Int(7), Value::Int(1)],
+            )]),
+        format!("{resumed:?}"),
+    );
+
+    // A mistake is named with its line.
+    let wrong = build("void main()\n{\n    Record(nNothing);\n}\n");
+    p.check(
+        "a compiled script's mistake names its line",
+        wrong
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.line == 3 && error.what.contains("nNothing")),
         format!("{wrong:?}"),
     );
 }

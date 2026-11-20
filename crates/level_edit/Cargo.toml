@@ -14,6 +14,7 @@ collision.workspace = true
 collision_odyssey.workspace = true
 fmt_ja.workspace = true
 fmt_odyssey.workspace = true
+script_ncs.workspace = true
 store.workspace = true
 vfs.workspace = true
 toml_edit = { version = "0.25", default-features = false, features = ["parse", "display"] }

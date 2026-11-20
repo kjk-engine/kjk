@@ -1881,7 +1881,7 @@ mod audit {
 /// `nwscript.nss` declares (`kjk script check`).
 #[test]
 fn script_vm() {
-    passed("script", &script_ncs::probes::all(), 30);
+    passed("script", &script_ncs::probes::all(), 40);
 
     let discovery = discovery();
     for game in [vfs::Game::Kotor1, vfs::Game::Kotor2] {
@@ -7570,4 +7570,82 @@ fn level_edit_round_trip() {
 
     // No project is active in this process.
     assert!(level_edit::active::added("k1", "ebo_m12aa").is_none());
+}
+
+/// `level_edit::scripts`: a project's scripts compiled when it saves, in a
+/// folder the test makes, against a catalog of its own.
+#[test]
+fn level_edit_project_scripts() {
+    use level_edit::scripts::{compile_all, sources};
+
+    let catalog = script_ncs::Catalog::parse(
+        "int TRUE = 1;\n\
+         // 0\n\
+         object GetFirstPC();\n\
+         // 1\n\
+         void SendMessageToPC(object oPlayer, string szMessage);\n\
+         // 2\n\
+         string IntToString(int nInteger);\n",
+    )
+    .expect("the test's catalog reads");
+    let folder = std::env::temp_dir().join(format!("kjk-project-scripts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let write = |name: &str, text: &str| std::fs::write(folder.join(name), text).unwrap();
+    // The project's include, one of the install's, a script using both, one
+    // with a mistake on its third line, and one whose name is too long.
+    write("kje_inc.nss", "int KJE_Twice(int n) { return n * 2; }\n");
+    write(
+        "kje_hello.nss",
+        "#include \"kje_inc\"\n#include \"game_inc\"\n\
+         void main()\n{\n    SendMessageToPC(GetFirstPC(), IntToString(KJE_Twice(GAME_ANSWER)));\n}\n",
+    );
+    write("KJE_Broken.NSS", "void main()\n{\n    int n = 1\n}\n");
+    write("kje_name_far_too_long.nss", "void main() {}\n");
+    let install = |name: &str| (name == "game_inc").then(|| b"int GAME_ANSWER = 21;\n".to_vec());
+
+    assert_eq!(
+        sources(&folder)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>(),
+        [
+            "kje_broken",
+            "kje_hello",
+            "kje_inc",
+            "kje_name_far_too_long"
+        ],
+        "the scripts by lowercase name"
+    );
+    let compiled = compile_all(&folder, &install, &catalog);
+    let outcome = |name: &str| {
+        compiled
+            .iter()
+            .find(|each| each.name == name)
+            .map(|each| each.outcome.clone())
+    };
+    assert_eq!(
+        compiled.len(),
+        3,
+        "the include alone is not compiled: {compiled:?}"
+    );
+    let written = outcome("kje_hello").unwrap().expect("kje_hello compiles");
+    assert_eq!(written, folder.join("kje_hello.ncs"));
+    let ncs = fmt_odyssey::ncs::Ncs::parse(&std::fs::read(&written).unwrap()).unwrap();
+    let calls: Vec<u16> = ncs
+        .code
+        .iter()
+        .filter_map(|each| match each.op {
+            fmt_odyssey::ncs::Op::Action { routine, .. } => Some(routine),
+            _ => None,
+        })
+        .collect();
+    // The arguments are worked out last first, as the games' compiler does.
+    assert_eq!(calls, [2, 0, 1], "IntToString, GetFirstPC, SendMessageToPC");
+    let broken = outcome("kje_broken").unwrap().unwrap_err();
+    assert!(broken.starts_with("kje_broken.nss line 4:"), "{broken}");
+    assert!(!folder.join("kje_broken.ncs").exists());
+    let long = outcome("kje_name_far_too_long").unwrap().unwrap_err();
+    assert!(long.contains("at most 16 characters"), "{long}");
+    let _ = std::fs::remove_dir_all(&folder);
 }

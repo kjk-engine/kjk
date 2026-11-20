@@ -257,6 +257,8 @@ The folder holds these files.
   and the collision boxes. The original games never read it.
 - `kje1_metalbox001.utp` and the like are templates of the project's own
   (below, "An object's behaviour"). They are KOTOR files too.
+- `NAME.nss` files are the project's own scripts, and `NAME.ncs` each one
+  compiled (below, "The project's own scripts").
 
 A prop is stored as the path of its model inside Jedi Academy's archives.
 The project never holds a copy of a Jedi Academy file, so anyone who plays
@@ -375,7 +377,30 @@ viewer at the bottom of the details panel, which has three tabs.
 
 The viewer says which layer each file came from: the project, a module or
 the install. A script with no source opens on its summary. The viewer
-reads a script once and keeps it while the editor runs.
+reads a script once and keeps it while the editor runs, and reads it again
+after the project's scripts are compiled. The project's own script is read
+from its folder each time, so one written since the editor opened shows.
+
+### The project's own scripts
+
+A project can bring scripts of its own. Each is a `NAME.nss` file at the
+top of the project's folder, written in any text editor, its name at most
+16 characters and best lowercase. Every save compiles each one that has a
+`main` or a `StartingConditional` to `NAME.ncs` beside it, with kjk's
+compiler (`script_ncs::compile`, `docs/SCRIPTS.md`). Play and Walk save
+first, so they always run what the source says. A file of functions alone
+is an include: the scripts that `#include` it are compiled with it, and so
+are the install's includes (`k_inc_generic`, `k_inc_debug`). The routines
+are the game's, from its `nwscript.nss`.
+
+A script is given to an object as any other, by typing its name into an
+event's field. The project's folder is the highest layer of the install's
+files, so a script named as one of the game's runs in its place.
+
+A script with a mistake is not compiled. The save says so with its file
+and line (for a `;` left out, `kje_broken.nss line 4` and the word it
+is missing before), the script viewer shows it in red, and the `.ncs` it
+had stays as it was. `level_edit::scripts` does the work.
 
 ## The editor's window
 
@@ -617,5 +642,7 @@ together in co-op.
 - The approved test `level_edit_round_trip` (`docs/TESTS.md`) edits a GIT
   made by the test, saves the project to a temporary folder and reads it
   back. It needs no install.
+- `level_edit_project_scripts` compiles a project's scripts in a folder the
+  test makes, and `script_vm` runs scripts compiled from source.
 - The demo (`LEVEL-EDIT-DEMO.md`) shows every behaviour on the Ebon Hawk,
   by hand in a window and as headless runs whose dumps say what changed.

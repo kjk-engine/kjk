@@ -25,6 +25,7 @@ pub mod lights;
 pub mod map;
 pub mod nav;
 pub mod project;
+pub mod scripts;
 pub mod template;
 
 use std::path::PathBuf;
