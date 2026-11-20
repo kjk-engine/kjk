@@ -38,6 +38,14 @@ struct Cli {
     /// not exist is made from the module's area as the install has it
     #[arg(long)]
     project: Option<String>,
+    /// Make a new map named MODULE, its area's light, fog and sound taken
+    /// from this module's area (docs/LEVEL-EDIT.md, "New maps")
+    #[arg(long, value_name = "BASE")]
+    new_map: Option<String>,
+    /// The name the games show for a new map; its module's name when left
+    /// out
+    #[arg(long)]
+    title: Option<String>,
     /// Commands to run, e.g. 'edit select MetalBox; dump; quit'
     #[arg(long)]
     cmds: Option<String>,
@@ -92,7 +100,11 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let setup = match setup(&game, &module, cli.project.as_deref()) {
+    let new_map = cli
+        .new_map
+        .as_deref()
+        .map(|base| (base, cli.title.as_deref().unwrap_or(module.as_str())));
+    let setup = match setup(&game, &module, cli.project.as_deref(), new_map) {
         Ok(setup) => setup,
         Err(error) => {
             eprintln!("kjk-level-editor: {error}");
@@ -158,10 +170,90 @@ fn make(folder: &Path, game: Game, module: &str) -> Result<Project, String> {
     Ok(project)
 }
 
+/// The project in `folder` that makes the new map `module`: no rooms and no
+/// objects yet, its area starting from `base`'s entry area (its ARE and its
+/// GIT's area properties). Refused when the install has a module of that
+/// name.
+fn make_map(
+    folder: &Path,
+    game: Game,
+    module: &str,
+    (base, title): (&str, &str),
+) -> Result<Project, String> {
+    let discovery = kjk_game::discover();
+    let install = discovery
+        .get(game)
+        .ok_or(format!("{} is not installed", game.key()))?;
+    let index = vfs::DirIndex::of_install(install).map_err(|error| error.to_string())?;
+    if Resolver::modules(&index).iter().any(|name| name == module) {
+        return Err(format!("the install already has a module named {module}"));
+    }
+    let resolver = Resolver::open(game, &index, Some(base), TextureQuality::High)
+        .map_err(|error| format!("{base}: {error:?}"))?;
+    let ir = ModuleIr::build(base, &ResolverSource(&resolver))
+        .map_err(|refusal| format!("{base}: {refusal:?}"))?;
+    let area = ir
+        .areas
+        .iter()
+        .find(|area| area.resref == ir.entry_area)
+        .or(ir.areas.first())
+        .ok_or(format!("{base}: no area"))?;
+    let gff = |restype| {
+        let bytes = resolver
+            .read(&area.resref, restype)
+            .ok_or(format!("{base}: no {}.{restype}", area.resref))?;
+        fmt_odyssey::gff::Gff::parse(&bytes)
+            .map_err(|error| format!("{}.{restype}: {error}", area.resref))
+    };
+    let (are, git) = (gff(ResType::ARE)?, gff(ResType::GIT)?);
+    let project = Project::new_map(folder, game.key(), module, title, (base, are, &git))?;
+    project.save(&format!("kjk {}", kjk_game::GIT_SHA))?;
+    project.save_module(&|_, _| None)?;
+    Ok(project)
+}
+
+/// Every room of the install that a new map can place: each room of every
+/// area's layout that has a model, the first layout's place for it.
+fn room_library(resolver: &Resolver) -> Vec<state::LibraryRoom> {
+    let mut layouts = resolver.names(ResType::LYT);
+    layouts.sort();
+    layouts.dedup();
+    let mut rooms: Vec<state::LibraryRoom> = Vec::new();
+    for area in layouts {
+        let Some(layout) = resolver
+            .read(&area, ResType::LYT)
+            .and_then(|bytes| fmt_odyssey::lyt::Layout::parse(&bytes).ok())
+        else {
+            continue;
+        };
+        for placed in layout.rooms {
+            if fmt_odyssey::is_blank(placed.model.as_bytes())
+                || rooms.iter().any(|room| room.model == placed.model)
+                || resolver.find(&placed.model, ResType::MDL).is_none()
+            {
+                continue;
+            }
+            rooms.push(state::LibraryRoom {
+                model: placed.model,
+                from: placed.position,
+                area: area.clone(),
+            });
+        }
+    }
+    rooms.sort_by(|a, b| a.model.cmp(&b.model));
+    rooms
+}
+
 /// Everything the editor starts from: the project (made first when there is
 /// none), opened as this run's, the resolver with its folder, and the lists
-/// the asset picker shows.
-fn setup(game: &str, module: &str, project: Option<&str>) -> Result<state::EditSetup, String> {
+/// the asset picker shows. `new_map` (a base module and a title) makes a
+/// project that does not exist a new map's.
+fn setup(
+    game: &str,
+    module: &str,
+    project: Option<&str>,
+    new_map: Option<(&str, &str)>,
+) -> Result<state::EditSetup, String> {
     let game = Game::from_key(game)
         .filter(|game| matches!(game, Game::Kotor1 | Game::Kotor2))
         .ok_or("the editor edits k1 or tsl")?;
@@ -178,6 +270,9 @@ fn setup(game: &str, module: &str, project: Option<&str>) -> Result<state::EditS
                 game.key()
             ));
         }
+    } else if let Some(new_map) = new_map {
+        make_map(&folder, game, &module, new_map)?;
+        eprintln!("made the new map {module} in {}", folder.display());
     } else {
         make(&folder, game, &module)?;
         eprintln!("made project {name} in {}", folder.display());
@@ -203,6 +298,7 @@ fn setup(game: &str, module: &str, project: Option<&str>) -> Result<state::EditS
     let triggers = sorted(ResType::UTT);
     let sounds = sorted(ResType::UTS);
     let stores = sorted(ResType::UTM);
+    let rooms = room_library(&resolver);
     let ja = level_edit::active::ja_stack(&discovery);
     let models = ja.as_ref().map_or_else(Vec::new, |stack| {
         level_edit::active::models_under(stack, "models/map_objects/")
@@ -222,6 +318,7 @@ fn setup(game: &str, module: &str, project: Option<&str>) -> Result<state::EditS
         triggers,
         sounds,
         stores,
+        rooms,
         program: kjk_program()?,
     })
 }

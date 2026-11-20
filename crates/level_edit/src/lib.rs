@@ -19,6 +19,7 @@ pub mod active;
 pub mod area;
 pub mod editor;
 pub mod git;
+pub mod map;
 pub mod project;
 pub mod template;
 
@@ -27,6 +28,7 @@ use std::path::PathBuf;
 pub use area::{CollisionBox, KjkArea, Prop};
 pub use editor::{Edit, Editor, Target};
 pub use git::{Entry, Kind};
+pub use map::{NewMap, Room};
 pub use project::{Problem, Project};
 pub use template::{Change, Template};
 

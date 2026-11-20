@@ -9,6 +9,7 @@ use fmt_odyssey::gff::Gff;
 
 use crate::area::{KjkArea, SCALES, SMALLEST_SIDE};
 use crate::git::{self, Kind, RESREF_LEN, TAG_LEN};
+use crate::map::{MAP_FILE, NewMap};
 use crate::template::{self, Template};
 
 /// The file that says what a project edits.
@@ -33,6 +34,8 @@ pub struct Project {
     /// The placeable and creature templates the project brings, by resref
     /// (`template`): each a file of the folder, `RESREF.utp` or `.utc`.
     pub templates: BTreeMap<String, Template>,
+    /// The map the project makes, when its module is its own (`map`).
+    pub map: Option<NewMap>,
 }
 
 /// Something wrong with a project. A problem that `blocks` stops the save;
@@ -73,7 +76,42 @@ impl Project {
             git,
             kjk: KjkArea::default(),
             templates: BTreeMap::new(),
+            map: None,
         }
+    }
+
+    /// A project that makes a new map: the module `module`, whose one area
+    /// has the module's name, with no rooms and no objects. Its area starts
+    /// from `base`'s area: its ARE (`are`) and the GIT's area properties
+    /// (`base_git`: music and ambient sound).
+    pub fn new_map(
+        folder: &Path,
+        game: &str,
+        module: &str,
+        title: &str,
+        (base, are, base_git): (&str, Gff, &Gff),
+    ) -> Result<Project, String> {
+        if let Some(problem) = crate::map::name_problem(module) {
+            return Err(problem);
+        }
+        let mut git = git::empty();
+        if let Some(properties) = base_git.root.get("AreaProperties") {
+            git.root.fields.push(fmt_odyssey::gff::GffField {
+                label: b"AreaProperties".to_vec(),
+                value: properties.clone(),
+            });
+        }
+        let mut project = Project::new(folder, game, module, module, git);
+        project.map = Some(NewMap::new(title, base, module, are));
+        Ok(project)
+    }
+
+    /// Where the project's own module is written: `modules/<module>.mod`
+    /// in its folder.
+    pub fn module_path(&self) -> PathBuf {
+        self.folder
+            .join("modules")
+            .join(format!("{}.mod", self.module))
     }
 
     /// Whether `folder` holds a project.
@@ -104,6 +142,14 @@ impl Project {
         let mut project = Project::new(folder, &game, &module, &area, git);
         project.kjk = kjk;
         project.templates = read_templates(folder)?;
+        let map_path = folder.join(MAP_FILE);
+        if map_path.is_file() {
+            let are_path = folder.join(format!("{area}.are"));
+            let bytes = std::fs::read(&are_path)
+                .map_err(|error| format!("{}: {error}", are_path.display()))?;
+            let are = Gff::parse(&bytes).map_err(|error| format!("{area}.are: {error}"))?;
+            project.map = Some(NewMap::parse(&read_text(&map_path)?, are)?);
+        }
         Ok(project)
     }
 
@@ -161,6 +207,14 @@ impl Project {
                 block(format!("two props or boxes are named {}", pair[0]));
             }
         }
+        if let Some(map) = &self.map {
+            if let Some(problem) = crate::map::name_problem(&self.module) {
+                block(problem);
+            }
+            if map.rooms.len() > 999 {
+                block("a map has 999 rooms at most".into());
+            }
+        }
         problems
     }
 
@@ -195,6 +249,10 @@ impl Project {
                 format!("{resref}.{}", template::extension(made.restype)),
                 made.gff.write(),
             ));
+        }
+        if let Some(map) = &self.map {
+            files.push((MAP_FILE.to_string(), map.write().into_bytes()));
+            files.push((format!("{}.are", self.area), self.map_are(map).write()));
         }
         // A template no object uses any more (an edit undone) leaves the
         // folder.
@@ -242,7 +300,44 @@ impl Project {
                 hasher.update(part);
             }
         }
+        if let Some(map) = &self.map {
+            for part in [map.write().into_bytes(), self.map_are(map).write()] {
+                hasher.update(&(part.len() as u64).to_le_bytes());
+                hasher.update(&part);
+            }
+        }
         *hasher.finalize().as_bytes()
+    }
+
+    /// The map's ARE with its rooms' list made from its rooms.
+    pub fn map_are(&self, map: &NewMap) -> Gff {
+        let mut map = map.clone();
+        map.rooms_into_are(&self.module);
+        map.are
+    }
+
+    /// Writes the project's own module, `modules/<module>.mod`
+    /// (`map::NewMap::module_files`), from the install's rooms that `read`
+    /// gives. A project that makes no map has none to write.
+    pub fn save_module(
+        &self,
+        read: &dyn Fn(&str, ResType) -> Option<Vec<u8>>,
+    ) -> Result<Option<PathBuf>, String> {
+        let Some(map) = &self.map else {
+            return Ok(None);
+        };
+        let files = map.module_files(&self.module, &self.area, read)?;
+        let bytes = fmt_odyssey::erf::write(fmt_odyssey::erf::ErfKind::Mod, &files)?;
+        let path = self.module_path();
+        if let Some(folder) = path.parent() {
+            std::fs::create_dir_all(folder)
+                .map_err(|error| format!("{}: {error}", folder.display()))?;
+        }
+        let fresh = path.with_extension("new");
+        std::fs::write(&fresh, &bytes)
+            .and_then(|()| std::fs::rename(&fresh, &path))
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        Ok(Some(path))
     }
 }
 

@@ -71,10 +71,25 @@ pub struct EditSetup {
     pub triggers: Vec<String>,
     pub sounds: Vec<String>,
     pub stores: Vec<String>,
+    /// The install's rooms, for a new map (`LibraryRoom`).
+    pub rooms: Vec<LibraryRoom>,
     /// The `kjk` that `edit play` and `edit audit` start: the one beside
     /// this program.
     pub program: PathBuf,
 }
+
+/// A room of the install that a new map can place: its model, where its
+/// own area's layout places it, and that area.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryRoom {
+    pub model: String,
+    pub from: [f32; 3],
+    pub area: String,
+}
+
+/// The files of a room's copy, by the copy's name, the room's model and
+/// how far the room moved (as bits).
+type MadeRooms = BTreeMap<(String, String, [u32; 3]), Vec<(String, ResType, Vec<u8>)>>;
 
 /// What a scene's drawing placed for each thing the project holds.
 #[derive(Default)]
@@ -96,6 +111,8 @@ pub struct EditorState {
     /// Frames since the last edit.
     pub(crate) quiet: u32,
     pub(crate) prop_models: BTreeMap<String, Result<PropModel, String>>,
+    /// The rooms' copies made so far (`level_edit::map::room_copy`).
+    made_rooms: MadeRooms,
     collision: Option<(u64, collision_odyssey::ModuleCollision)>,
     pub(crate) show_collision: bool,
     shown_collision: bool,
@@ -125,6 +142,7 @@ impl EditorState {
             built: u64::MAX,
             quiet: SETTLE_FRAMES,
             prop_models: BTreeMap::new(),
+            made_rooms: BTreeMap::new(),
             collision: None,
             show_collision: false,
             shown_collision: false,
@@ -173,9 +191,56 @@ impl EditorState {
             .position(|candidate| candidate.resref.eq_ignore_ascii_case(area))
     }
 
-    /// The resolver with the edited GIT and the project's templates as
-    /// they are now (saved or not) over the project's folder.
-    fn resolver(&self) -> Resolver {
+    /// A new map's module as it is now (saved or not): its `module.ifo`,
+    /// its area's ARE, layout and visibility, and its rooms' copies, made
+    /// from the install's rooms.
+    fn map_files(&mut self) -> Vec<(String, ResType, Vec<u8>)> {
+        let project = &self.editor.project;
+        let Some(map) = &project.map else {
+            return Vec::new();
+        };
+        let (module, area) = (project.module.clone(), project.area.clone());
+        let mut files = vec![
+            (
+                "module".to_string(),
+                ResType::IFO,
+                map.ifo(&module, &area).write(),
+            ),
+            (area.clone(), ResType::ARE, project.map_are(map).write()),
+            (area.clone(), ResType::LYT, map.layout(&module).write()),
+            (area.clone(), ResType::VIS, map.visibility(&module).write()),
+        ];
+        let rooms = map.rooms.clone();
+        let mut problems = Vec::new();
+        for (index, room) in rooms.iter().enumerate() {
+            let name = level_edit::map::room_name(&module, index);
+            let by: [f32; 3] = std::array::from_fn(|axis| room.position[axis] - room.from[axis]);
+            let key = (name.clone(), room.model.clone(), by.map(f32::to_bits));
+            if !self.made_rooms.contains_key(&key) {
+                let resolver = &self.setup.resolver;
+                let read = |name: &str, restype: ResType| resolver.read(name, restype);
+                match level_edit::map::room_copy(room, &name, &read) {
+                    Ok(made) => {
+                        self.made_rooms.insert(key.clone(), made);
+                    }
+                    Err(why) => {
+                        problems.push(why);
+                        continue;
+                    }
+                }
+            }
+            files.extend(self.made_rooms[&key].iter().cloned());
+        }
+        for problem in problems {
+            self.say(problem);
+        }
+        files
+    }
+
+    /// The resolver with the edited GIT, the project's templates and a new
+    /// map's module as they are now (saved or not) over the project's
+    /// folder.
+    fn resolver(&mut self) -> Resolver {
         let held = |bytes: Vec<u8>| Location {
             path: PathBuf::from("editor"),
             offset: 0,
@@ -189,6 +254,9 @@ impl EditorState {
         );
         for (resref, made) in &self.editor.project.templates {
             resources.insert((resref.clone(), made.restype), held(made.gff.write()));
+        }
+        for (resref, restype, bytes) in self.map_files() {
+            resources.insert((resref, restype), held(bytes));
         }
         self.setup.resolver.with_layer(Layer {
             name: "editor".into(),
@@ -416,6 +484,7 @@ pub(crate) fn kind_colour(kind: Kind) -> (&'static str, [u8; 4]) {
 }
 
 const PROP_MARKER: (&str, [u8; 4]) = ("kjk-editor-prop", [120, 200, 255, 255]);
+const ENTRY_MARKER: (&str, [u8; 4]) = ("kjk-editor-entry", [255, 230, 60, 255]);
 const BOX_FILL: (&str, [u8; 4]) = ("kjk-editor-box", [60, 230, 255, 110]);
 const TRIGGER_FILL: (&str, [u8; 4]) = ("kjk-editor-trigger-fill", [80, 220, 255, 70]);
 const ENCOUNTER_FILL: (&str, [u8; 4]) = ("kjk-editor-encounter-fill", [255, 255, 255, 60]);
@@ -552,6 +621,26 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             )
         });
         drawn.things.push((Target::Box(at), vec![model], None));
+    }
+
+    // A new map's rooms, in the layout's order, and its entry.
+    if let Some(map) = &state.editor.project.map {
+        for at in 0..map.rooms.len() {
+            let models = scene
+                .rooms
+                .get(at)
+                .and_then(|room| room.model)
+                .into_iter()
+                .collect();
+            drawn.things.push((Target::Room(at), models, None));
+        }
+        let marker = scene.models.len();
+        scene.models.push(Placed::at(
+            flat_model("marker", &diamond(MARKER_R * 1.6), ENTRY_MARKER.0, true),
+            map.entry,
+        ));
+        drawn.things.push((Target::Entry, Vec::new(), Some(marker)));
+        textures.push(ENTRY_MARKER);
     }
 
     // The collision overlay.
@@ -732,11 +821,14 @@ pub(crate) fn place_point(
 }
 
 /// The nearest drawn thing a ray passes through: its marker, or its model's
-/// bounds.
+/// bounds. A new map's room is picked last, when nothing else is: the room
+/// whose model holds `floor`, where the ray meets the level, and of those
+/// the smallest.
 pub(crate) fn pick(
     state: &EditorState,
     scene: &LoadedScene,
     (origin, direction): (Vec3, Vec3),
+    floor: Option<[f32; 3]>,
 ) -> Option<Target> {
     let direction = direction.normalize_or_zero();
     let mut best: Option<(f32, Target)> = None;
@@ -760,6 +852,9 @@ pub(crate) fn pick(
             if along > 0.0 && off < MARKER_R * 1.5 {
                 offer(along, *target);
             }
+        }
+        if let Target::Room(_) = target {
+            continue;
         }
         for &model in models {
             let Some((low, high)) = scene
@@ -797,7 +892,81 @@ pub(crate) fn pick(
             }
         }
     }
+    if best.is_none()
+        && let Some(floor) = floor
+    {
+        let floor = Vec3::from_array(floor);
+        let mut smallest: Option<(f32, Target)> = None;
+        for (target, models, _) in &state.drawn.things {
+            let (Target::Room(_), Some((position, _))) = (target, state.editor.placement(*target))
+            else {
+                continue;
+            };
+            for &model in models {
+                let Some((low, high)) = scene
+                    .models
+                    .get(model)
+                    .and_then(kjk_game::scene::local_bounds)
+                else {
+                    continue;
+                };
+                let local = floor - Vec3::from_array(position);
+                let slack = Vec3::splat(0.05);
+                if local.cmpge(low - slack).all() && local.cmple(high + slack).all() {
+                    let size = (high - low).x * (high - low).y;
+                    if smallest.is_none_or(|(least, _)| size < least) {
+                        smallest = Some((size, *target));
+                    }
+                }
+            }
+        }
+        return smallest.map(|(_, target)| target);
+    }
     best.map(|(_, target)| target)
+}
+
+/// Adds the install's room `model` to the new map so that its floor's
+/// middle stands at `at` (`library` says where its own area places it).
+pub(crate) fn add_room(state: &mut EditorState, model: &str, at: [f32; 3]) -> Result<(), String> {
+    if state.editor.project.map.is_none() {
+        return Err("only a new map has rooms (docs/LEVEL-EDIT.md)".into());
+    }
+    let found = state
+        .setup
+        .rooms
+        .iter()
+        .find(|room| room.model.eq_ignore_ascii_case(model))
+        .cloned()
+        .ok_or(format!("the install has no room {model}"))?;
+    // The walkmesh's middle and floor, which stand where the room is put.
+    let (middle, low) = state
+        .setup
+        .resolver
+        .read(&found.model, ResType::WOK)
+        .and_then(|bytes| fmt_odyssey::bwm::Walkmesh::parse(&bytes).ok())
+        .and_then(|walkmesh| {
+            let points = walkmesh
+                .vertices
+                .iter()
+                .map(|point| Vec3::from_array(*point));
+            kjk_game::scene::span(points)
+        })
+        .map_or(
+            (Vec3::from_array(found.from), found.from[2]),
+            |(low, high)| ((low + high) * 0.5, low.z),
+        );
+    let offset = middle - Vec3::from_array(found.from);
+    let position = [
+        at[0] - offset.x,
+        at[1] - offset.y,
+        at[2] - (low - found.from[2]),
+    ];
+    state.apply(Edit::AddRoom(level_edit::Room {
+        model: found.model.clone(),
+        from: found.from,
+        position,
+    }));
+    Ok(())
 }
 
 /// A left click selects what is under the pointer, or puts the grabbed
@@ -922,6 +1091,25 @@ pub(crate) fn command(
             }
             state.editor.selected = Some(Target::Box(at));
         }
+        ["select", "room", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            let rooms = state
+                .editor
+                .project
+                .map
+                .as_ref()
+                .map_or(0, |map| map.rooms.len());
+            if at >= rooms {
+                return Err(format!("there is no room {at}"));
+            }
+            state.editor.selected = Some(Target::Room(at));
+        }
+        ["select", "entry"] => {
+            if state.editor.project.map.is_none() {
+                return Err("only a new map has an entry".into());
+            }
+            state.editor.selected = Some(Target::Entry);
+        }
         ["select", "none"] | ["deselect"] => state.editor.selected = None,
         ["select", tag] => {
             let tags: Vec<(Entry, String)> = state
@@ -983,6 +1171,20 @@ pub(crate) fn command(
                 return Err("nothing to redo".into());
             }
             state.quiet = 0;
+        }
+        ["add", "room", model, rest @ ..] => {
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            add_room(state, model, at)?;
+        }
+        ["entry", rest @ ..] => {
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            state.apply(Edit::Move(Target::Entry, at));
         }
         ["add", kind, template, rest @ ..] => {
             let kind = kind_named(kind)
@@ -1093,7 +1295,9 @@ pub(crate) fn command(
             for warning in warnings {
                 state.say(warning);
             }
-            let written = state.editor.save(&made_by)?;
+            let resolver = state.setup.resolver.clone();
+            let read = |name: &str, restype: ResType| resolver.read(name, restype);
+            let written = state.editor.save_with(&made_by, &read)?;
             state.say(format!(
                 "saved {} files to {}",
                 written.len(),
@@ -1294,6 +1498,24 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
                 "facing": facing,
             })
         }
+        Target::Room(at) => {
+            let project = &state.editor.project;
+            let room = project.map.as_ref().and_then(|map| map.rooms.get(at));
+            serde_json::json!({
+                "kind": "room",
+                "index": at,
+                "name": level_edit::map::room_name(&project.module, at),
+                "model": room.map(|room| room.model.clone()),
+                "from": room.map(|room| room.from),
+                "position": position,
+                "facing": facing,
+            })
+        }
+        Target::Entry => serde_json::json!({
+            "kind": "entry",
+            "position": position,
+            "facing": facing,
+        }),
     }
 }
 

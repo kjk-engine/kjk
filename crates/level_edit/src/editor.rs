@@ -16,6 +16,10 @@ pub enum Target {
     Object(Kind, usize),
     Prop(usize),
     Box(usize),
+    /// A room of the project's new map (`map`).
+    Room(usize),
+    /// Where the player starts in the project's new map.
+    Entry,
 }
 
 /// One change to the project.
@@ -43,6 +47,8 @@ pub enum Edit {
     Resize(usize, [f32; 3]),
     /// A prop to a new scale.
     Scale(usize, f32),
+    /// A room of the install added to the project's new map.
+    AddRoom(crate::map::Room),
 }
 
 /// What a template change reads of the install: a template's bytes by
@@ -82,6 +88,7 @@ struct State {
     git: fmt_odyssey::gff::Gff,
     kjk: crate::area::KjkArea,
     templates: std::collections::BTreeMap<String, crate::template::Template>,
+    map: Option<crate::map::NewMap>,
     selected: Option<Target>,
 }
 
@@ -140,6 +147,17 @@ impl Editor {
                 .boxes
                 .get(at)
                 .map(|shape| (shape.centre, shape.yaw)),
+            Target::Room(at) => self
+                .project
+                .map
+                .as_ref()
+                .and_then(|map| map.rooms.get(at))
+                .map(|room| (room.position, 0.0)),
+            Target::Entry => self
+                .project
+                .map
+                .as_ref()
+                .map(|map| (map.entry, map.entry_facing)),
         }
     }
 
@@ -166,6 +184,7 @@ impl Editor {
             git: self.project.git.clone(),
             kjk: self.project.kjk.clone(),
             templates: self.project.templates.clone(),
+            map: self.project.map.clone(),
             selected: self.selected,
         }
     }
@@ -174,6 +193,7 @@ impl Editor {
         self.project.git = state.git;
         self.project.kjk = state.kjk;
         self.project.templates = state.templates;
+        self.project.map = state.map;
         self.selected = state.selected;
         self.changes += 1;
     }
@@ -202,6 +222,7 @@ impl Editor {
         self.project.git = state.git;
         self.project.kjk = state.kjk;
         self.project.templates = state.templates;
+        self.project.map = state.map;
         self.selected = state.selected;
     }
 
@@ -251,7 +272,7 @@ impl Editor {
     ) -> Result<(), String> {
         use crate::template::{self, Template};
         let Target::Object(kind, index) = target else {
-            return Err("a prop or a box has no template".into());
+            return Err("only an object of the area has a template".into());
         };
         let entry = self
             .entry(kind, index)
@@ -326,6 +347,8 @@ impl Editor {
     fn change(&mut self, edit: Edit) -> Result<Option<Target>, String> {
         let missing = |target: Target| format!("{target:?} does not exist");
         let kjk = &mut self.project.kjk;
+        let map = &mut self.project.map;
+
         match edit {
             Edit::Move(target, to) => {
                 Self::editable(target)?;
@@ -338,6 +361,11 @@ impl Editor {
                     }
                     Target::Prop(at) => kjk.props.get_mut(at).map(|p| p.position = to).is_some(),
                     Target::Box(at) => kjk.boxes.get_mut(at).map(|b| b.centre = to).is_some(),
+                    Target::Room(at) => rooms(map)?
+                        .get_mut(at)
+                        .map(|room| room.position = to)
+                        .is_some(),
+                    Target::Entry => map.as_mut().map(|map| map.entry = to).is_some(),
                 };
                 moved.then_some(Some(target)).ok_or_else(|| missing(target))
             }
@@ -345,6 +373,9 @@ impl Editor {
                 Self::editable(target)?;
                 if let Target::Object(Kind::Trigger | Kind::Encounter, _) = target {
                     return Err("a trigger's or an encounter's outline does not turn".into());
+                }
+                if let Target::Room(_) = target {
+                    return Err("a room does not turn: the layout places rooms unturned".into());
                 }
                 if !degrees.is_finite() {
                     return Err("a facing must be finite".into());
@@ -356,6 +387,8 @@ impl Editor {
                     }
                     Target::Prop(at) => kjk.props.get_mut(at).map(|p| p.yaw = degrees).is_some(),
                     Target::Box(at) => kjk.boxes.get_mut(at).map(|b| b.yaw = degrees).is_some(),
+                    Target::Room(_) => false,
+                    Target::Entry => map.as_mut().map(|map| map.entry_facing = degrees).is_some(),
                 };
                 turned
                     .then_some(Some(target))
@@ -381,6 +414,13 @@ impl Editor {
                         kjk.boxes.push(copy);
                         Ok(Some(Target::Box(kjk.boxes.len() - 1)))
                     }
+                    Target::Room(at) => {
+                        let rooms = rooms(map)?;
+                        let copy = rooms.get(at).ok_or_else(|| missing(target))?.clone();
+                        rooms.push(copy);
+                        Ok(Some(Target::Room(rooms.len() - 1)))
+                    }
+                    Target::Entry => Err("a map has one entry".into()),
                 }
             }
             Edit::Delete(target) => {
@@ -393,6 +433,11 @@ impl Editor {
                     Target::Box(at) => (at < kjk.boxes.len())
                         .then(|| kjk.boxes.remove(at))
                         .is_some(),
+                    Target::Room(at) => {
+                        let rooms = rooms(map)?;
+                        (at < rooms.len()).then(|| rooms.remove(at)).is_some()
+                    }
+                    Target::Entry => return Err("a map's entry is moved, not deleted".into()),
                 };
                 gone.then_some(None).ok_or_else(|| missing(target))
             }
@@ -468,6 +513,22 @@ impl Editor {
                 prop.scale = scale;
                 Ok(Some(Target::Prop(at)))
             }
+            Edit::AddRoom(room) => {
+                if room.model.is_empty() || room.model.len() > git::RESREF_LEN {
+                    return Err(format!("{:?} is not a room's model", room.model));
+                }
+                if !room
+                    .position
+                    .iter()
+                    .chain(&room.from)
+                    .all(|value| value.is_finite())
+                {
+                    return Err("a position must be finite".into());
+                }
+                let rooms = rooms(map)?;
+                rooms.push(room);
+                Ok(Some(Target::Room(rooms.len() - 1)))
+            }
         }
     }
 
@@ -540,4 +601,26 @@ impl Editor {
         self.saved = self.changes;
         Ok(written)
     }
+
+    /// Writes the project's folder and, for a new map, its module
+    /// (`Project::save_module`), whose rooms `read` gives as the install
+    /// has them.
+    pub fn save_with(
+        &mut self,
+        made_by: &str,
+        read: &dyn Fn(&str, fmt_odyssey::ResType) -> Option<Vec<u8>>,
+    ) -> Result<Vec<std::path::PathBuf>, String> {
+        let mut written = self.project.save(made_by)?;
+        written.extend(self.project.save_module(read)?);
+        self.saved = self.changes;
+        Ok(written)
+    }
+}
+
+/// The rooms of the project's new map; refused for a project that makes
+/// none.
+fn rooms(map: &mut Option<crate::map::NewMap>) -> Result<&mut Vec<crate::map::Room>, String> {
+    map.as_mut()
+        .map(|map| &mut map.rooms)
+        .ok_or_else(|| "the project makes no new map".to_string())
 }

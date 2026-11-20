@@ -6553,6 +6553,249 @@ fn prepass_readers_declared() {
     println!("{} prepass readers, each declared", readers.len());
 }
 
+/// A new map in the level editor (`level_edit::map`, proposed 2026-11-20,
+/// awaiting approval), on rooms and an area the test makes. A walkmesh
+/// writes back to the same reading, and moved, its vertices, planes and
+/// AABB boxes move with it and its edges lead nowhere. A model renamed has
+/// the new name in its header and is otherwise the same. A new map's
+/// project takes the base area's ARE and the GIT's area properties. The
+/// editor adds two rooms, moves, copies and deletes them, and moves and
+/// turns the entry; turning a room and deleting the entry are refused, and
+/// so is a room in a project that makes no map. Saved, the module's archive
+/// holds `module.ifo` with the entry, the layout with each room's copy at
+/// its place, the visibility, and each room's renamed model, its MDX and
+/// its walkmesh moved by how far the room moved. The ARE's rooms are the
+/// copies, each a copy of the base's first room. The project reads back
+/// the same map. A name with capitals or longer than 12 characters is
+/// refused. No installs.
+#[test]
+fn level_edit_new_map() {
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::bwm::{AabbEntry, WalkFace, Walkmesh};
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue};
+    use level_edit::{Edit, Editor, Project, Room, Target, git, map};
+
+    let face = |vertices: [u32; 3], distance: f32| WalkFace {
+        vertices,
+        material: 4,
+        normal: [0.0, 0.0, 1.0],
+        distance,
+    };
+    let walkmesh = Walkmesh {
+        area: true,
+        use_positions: [[0.0; 3]; 4],
+        position: [0.0; 3],
+        vertices: vec![
+            [10.0, 20.0, 1.0],
+            [12.0, 20.0, 1.0],
+            [12.0, 22.0, 1.0],
+            [10.0, 22.0, 1.0],
+        ],
+        faces: vec![face([0, 1, 2], -1.0), face([0, 2, 3], -1.0)],
+        aabb: vec![AabbEntry {
+            bounds: [10.0, 20.0, 1.0, 12.0, 22.0, 1.0],
+            face: 0,
+            word: 4,
+            plane: 0,
+            children: [u32::MAX, u32::MAX],
+        }],
+        adjacency: vec![[-1, -1, 3], [2, -1, -1]],
+        edges: vec![(0, 3), (1, -1), (4, -1), (5, -1)],
+        perimeters: vec![4],
+        aabb_word: 0,
+    };
+    let bytes = walkmesh.write();
+    assert_eq!(Walkmesh::parse(&bytes).unwrap(), walkmesh);
+    let moved = walkmesh.moved([1.0, 2.0, 3.0]);
+    assert_eq!(moved.vertices[2], [13.0, 24.0, 4.0]);
+    assert_eq!(moved.faces[0].distance, -4.0);
+    assert_eq!(moved.aabb[0].bounds, [11.0, 22.0, 4.0, 13.0, 24.0, 4.0]);
+    assert!(moved.edges.iter().all(|(_, transition)| *transition == -1));
+    assert_eq!(moved.adjacency, walkmesh.adjacency);
+
+    let mut model = vec![0u8; 400];
+    model[20..29].copy_from_slice(b"room_a\0\0\0");
+    let renamed = fmt_odyssey::mdl::renamed(&model, "kjetest_01").unwrap();
+    assert_eq!(&renamed[20..31], b"kjetest_01\0");
+    assert_eq!(renamed[52..], model[52..]);
+
+    let field = |label: &str, value: GffValue| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let are = Gff {
+        file_type: *b"ARE ",
+        root: GffStruct {
+            id: u32::MAX,
+            fields: vec![field(
+                "Rooms",
+                GffValue::List(vec![GffStruct {
+                    id: 0,
+                    fields: vec![
+                        field("RoomName", GffValue::String(b"m12aa_01a".to_vec())),
+                        field("EnvAudio", GffValue::Int(3)),
+                    ],
+                }]),
+            )],
+        },
+    };
+    let mut base_git = git::empty();
+    base_git.root.fields.push(field(
+        "AreaProperties",
+        GffValue::Struct(Box::new(GffStruct {
+            id: 100,
+            fields: vec![field("MusicDay", GffValue::Int(7))],
+        })),
+    ));
+    let folder = std::env::temp_dir().join(format!("kjk-new-map-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let made = |name: &str| {
+        Project::new_map(
+            &folder,
+            "k1",
+            name,
+            "Test map",
+            ("ebo_m12aa", are.clone(), &base_git),
+        )
+    };
+    assert!(made("Bad").is_err());
+    assert!(made("thirteenchars").is_err());
+    let project = made("kjetest").unwrap();
+    assert_eq!(
+        project.git.root.get("AreaProperties"),
+        base_git.root.get("AreaProperties")
+    );
+    let mut editor = Editor::new(project);
+    let room = |model: &str, from: [f32; 3], position: [f32; 3]| Room {
+        model: model.into(),
+        from,
+        position,
+    };
+    editor
+        .apply(Edit::AddRoom(room("room_a", [11.0, 21.0, 0.0], [0.0; 3])))
+        .unwrap();
+    editor
+        .apply(Edit::AddRoom(room("room_b", [0.0; 3], [9.0, 9.0, 0.0])))
+        .unwrap();
+    editor
+        .apply(Edit::Move(Target::Room(1), [4.0, 0.0, 0.0]))
+        .unwrap();
+    editor.apply(Edit::Duplicate(Target::Room(0))).unwrap();
+    assert_eq!(editor.selected, Some(Target::Room(2)));
+    editor.apply(Edit::Delete(Target::Room(2))).unwrap();
+    assert!(editor.apply(Edit::Turn(Target::Room(0), 90.0)).is_err());
+    assert!(editor.apply(Edit::Delete(Target::Entry)).is_err());
+    editor
+        .apply(Edit::Move(Target::Entry, [1.0, 1.0, 1.0]))
+        .unwrap();
+    editor.apply(Edit::Turn(Target::Entry, 90.0)).unwrap();
+    let before = editor.project.map.clone();
+    assert!(editor.undo() && editor.undo());
+    assert_eq!(editor.project.map.as_ref().unwrap().entry, [0.0; 3]);
+    assert!(editor.redo() && editor.redo());
+    assert_eq!(editor.project.map, before);
+    let rooms = editor.project.map.as_ref().unwrap().rooms.clone();
+    assert_eq!(rooms.len(), 2);
+    assert_eq!(rooms[1].position, [4.0, 0.0, 0.0]);
+
+    let read = |name: &str, restype: ResType| match (name, restype) {
+        ("room_a" | "room_b", ResType::MDL) => Some(model.clone()),
+        ("room_a" | "room_b", ResType::MDX) => Some(vec![7; 16]),
+        ("room_a" | "room_b", ResType::WOK) => Some(bytes.clone()),
+        _ => None,
+    };
+    editor.save_with("approved test", &read).unwrap();
+    let archive = std::fs::read(folder.join("modules").join("kjetest.mod")).unwrap();
+    let erf = fmt_odyssey::erf::Erf::parse(&archive).unwrap();
+    let file = |resref: &str, restype: ResType| {
+        let entry = erf
+            .entries
+            .iter()
+            .find(|entry| entry.resref == resref && entry.restype == restype)
+            .unwrap_or_else(|| panic!("{resref}.{restype} in the archive"));
+        archive[entry.offset as usize..(entry.offset + entry.size) as usize].to_vec()
+    };
+    assert_eq!(
+        erf.entries.len(),
+        9,
+        "ifo, lyt, vis and two rooms' three files"
+    );
+    let ifo = Gff::parse(&file("module", ResType::IFO)).unwrap();
+    assert_eq!(
+        ifo.root.resref("Mod_Entry_Area").as_deref(),
+        Some("kjetest")
+    );
+    assert_eq!(ifo.root.float("Mod_Entry_X"), Some(1.0));
+    assert!(ifo.root.float("Mod_Entry_Dir_Y").unwrap() > 0.99);
+    let layout = fmt_odyssey::lyt::Layout::parse(&file("kjetest", ResType::LYT)).unwrap();
+    let placed: Vec<(String, [f32; 3])> = layout
+        .rooms
+        .iter()
+        .map(|room| (room.model.clone(), room.position))
+        .collect();
+    assert_eq!(
+        placed,
+        vec![
+            ("kjetest_01".to_string(), [0.0; 3]),
+            ("kjetest_02".to_string(), [4.0, 0.0, 0.0])
+        ]
+    );
+    let vis = fmt_odyssey::vis::Visibility::parse(&file("kjetest", ResType::VIS));
+    assert_eq!(vis.rooms.len(), 2);
+    assert_eq!(&file("kjetest_01", ResType::MDL)[20..31], b"kjetest_01\0");
+    assert_eq!(file("kjetest_02", ResType::MDX), vec![7; 16]);
+    let first = Walkmesh::parse(&file("kjetest_01", ResType::WOK)).unwrap();
+    assert_eq!(first.vertices[0], [-1.0, -1.0, 1.0]);
+    let second = Walkmesh::parse(&file("kjetest_02", ResType::WOK)).unwrap();
+    assert_eq!(second.vertices[0], [14.0, 20.0, 1.0]);
+    let are_bytes = std::fs::read(folder.join("kjetest.are")).unwrap();
+    let saved_are = Gff::parse(&are_bytes).unwrap();
+    let names: Vec<(Option<String>, Option<i64>)> = saved_are
+        .root
+        .list("Rooms")
+        .iter()
+        .map(|room| {
+            (
+                room.bytes("RoomName")
+                    .map(|name| String::from_utf8_lossy(name).into_owned()),
+                room.int("EnvAudio"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            (Some("kjetest_01".into()), Some(3)),
+            (Some("kjetest_02".into()), Some(3))
+        ]
+    );
+    let read_back = Project::open(&folder).unwrap();
+    assert_eq!(read_back.map.as_ref().map(|map| &map.rooms), Some(&rooms));
+    assert_eq!(
+        read_back.map.as_ref().map(|map| map.entry_facing),
+        Some(90.0)
+    );
+    assert_eq!(map::room_name("kjetest", 11), "kjetest_12");
+
+    let mut plain = Editor::new(Project::new(
+        &folder,
+        "k1",
+        "ebo_m12aa",
+        "m12aa",
+        git::empty(),
+    ));
+    assert!(
+        plain
+            .apply(Edit::AddRoom(room("room_a", [0.0; 3], [0.0; 3])))
+            .is_err()
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+    println!(
+        "a new map of 2 rooms: {} files in its module",
+        erf.entries.len()
+    );
+}
+
 /// The level editor's data (`level_edit`, proposed 2026-11-19, awaiting
 /// approval): a GIT made here with one creature, one placeable and one
 /// waypoint. The editor moves, turns, copies and deletes them, adds a

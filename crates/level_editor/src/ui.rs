@@ -234,7 +234,8 @@ fn pick_pending(
     };
     match state::ray_at(&cameras, point) {
         Some(ray) => {
-            state.editor.selected = state::pick(state, &scene.0, ray);
+            let floor = state::ground(state, ray);
+            state.editor.selected = state::pick(state, &scene.0, ray, floor);
             let (origin, direction) = (ray.0.to_array(), ray.1.to_array());
             match state.editor.selected {
                 Some(target) => state.say(format!("picked {target:?}")),
@@ -359,7 +360,7 @@ fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform
     let scale = match target {
         Target::Prop(at) => Vec3::splat(state.editor.project.kjk.props.get(at)?.scale),
         Target::Box(at) => Vec3::from_array(state.editor.project.kjk.boxes.get(at)?.size),
-        Target::Object(..) => Vec3::ONE,
+        Target::Object(..) | Target::Room(_) | Target::Entry => Vec3::ONE,
     };
     let p = Vec3::from_array(position).as_dvec3();
     let r = bevy::math::DQuat::from_rotation_z(f64::from(facing).to_radians());
@@ -411,7 +412,7 @@ fn gizmo_edits(target: Target, result: &GizmoResult, moved: &GizmoTransform) -> 
                     at,
                     s.map(|side| side.max(level_edit::area::SMALLEST_SIDE)),
                 )],
-                Target::Object(..) => Vec::new(),
+                Target::Object(..) | Target::Room(_) | Target::Entry => Vec::new(),
             }
         }
     }
@@ -432,13 +433,15 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
         (Tool::Select, _) => None,
         (Tool::Move, _) => Some(GizmoMode::all_from_kind(GizmoModeKind::Translate)),
         // Everything turns about Z alone.
-        (Tool::Rotate, Target::Object(Kind::Trigger | Kind::Encounter, _)) => None,
+        (Tool::Rotate, Target::Object(Kind::Trigger | Kind::Encounter, _) | Target::Room(_)) => {
+            None
+        }
         (Tool::Rotate, _) => Some(EnumSet::only(GizmoMode::RotateZ)),
         (Tool::Scale, Target::Prop(_)) => Some(EnumSet::only(GizmoMode::ScaleUniform)),
         (Tool::Scale, Target::Box(_)) => {
             Some(GizmoMode::ScaleX | GizmoMode::ScaleY | GizmoMode::ScaleZ)
         }
-        (Tool::Scale, Target::Object(..)) => None,
+        (Tool::Scale, Target::Object(..) | Target::Room(_) | Target::Entry) => None,
     }
 }
 
@@ -1033,7 +1036,7 @@ fn details(
                                         ui.end_row();
                                     }
                                 }
-                                Target::Object(..) => {}
+                                Target::Object(..) | Target::Room(_) | Target::Entry => {}
                             }
                         });
                     });

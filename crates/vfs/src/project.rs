@@ -10,6 +10,11 @@
 //! named as a resource type other than TXT. The project's own
 //! `project.toml` and `kjk-area.toml` are not resources and are not read.
 //!
+//! A project that makes a new map keeps the map's module in its folder, as
+//! `modules/<name>.mod`. The install's index holds it while the project is
+//! active (`DirIndex`), so the module is opened and listed as the install's
+//! own are.
+//!
 //! The folder is never written by a resolver. The co-op fingerprint does
 //! not cover it: two machines must play the same project by hand.
 
@@ -38,6 +43,22 @@ pub fn activate(game: Game, folder: &Path) -> Result<(), String> {
 /// The active project's game and folder.
 pub fn active() -> Option<(Game, &'static Path)> {
     ACTIVE.get().map(|(game, folder)| (*game, folder.as_path()))
+}
+
+/// The modules a project's folder makes: each `modules/<name>.mod` in it,
+/// by its path in an install (`modules/<name>.mod`, lowercase).
+pub(crate) fn modules(folder: &Path) -> BTreeMap<String, PathBuf> {
+    std::fs::read_dir(folder.join("modules"))
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            name.ends_with(".mod")
+                .then(|| (format!("modules/{name}"), entry.path()))
+        })
+        .collect()
 }
 
 /// The active project's folder as a layer, when the project is `game`'s and

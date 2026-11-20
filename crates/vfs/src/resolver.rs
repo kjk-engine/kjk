@@ -960,6 +960,13 @@ impl Resolver {
                     .or_else(|| name.strip_suffix(".mod"))?;
                 (!stem.ends_with("_s")).then(|| stem.to_string())
             })
+            .chain(index.project_modules().keys().filter_map(|key| {
+                Some(
+                    key.strip_prefix("modules/")?
+                        .strip_suffix(".mod")?
+                        .to_string(),
+                )
+            }))
             .collect();
         names.sort();
         names.dedup();
