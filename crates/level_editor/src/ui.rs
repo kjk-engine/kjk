@@ -43,6 +43,7 @@ pub enum Tool {
 /// The asset picker's tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
+    Rooms,
     Placeables,
     Creatures,
     Props,
@@ -275,6 +276,7 @@ fn thumbnail(
         AssetKind::Placeable => resolver.read(name, fmt_odyssey::ResType::UTP)?,
         AssetKind::Creature => resolver.read(name, fmt_odyssey::ResType::UTC)?,
         AssetKind::Prop => level_edit::active::ja_read(state.setup.ja.as_ref()?, name).ok()?,
+        AssetKind::Room => resolver.read(name, fmt_odyssey::ResType::MDL)?,
     };
     let key = thumbs::key(state.setup.game.key(), kind, name, &source);
     if let Some(bytes) = store.and_then(|store| store.get(thumbs::STORE_KIND, &key))
@@ -300,6 +302,10 @@ fn thumbnail(
                 state.prop_models.insert(name.to_string(), read);
             }
             thumbs::of_prop(state.prop_models[name].as_ref().ok()?)
+        }
+        AssetKind::Room => {
+            let ir = kjk_game::viewer::model(resolver, name).ok()??;
+            thumbs::of_room(resolver, &kjk_game::viewer::Placed::at(ir, [0.0; 3]))
         }
     }?;
     if let Some(store) = store {
@@ -471,8 +477,15 @@ fn place_at(
 }
 
 /// Places `asset` at `at`.
-fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3]) {
+fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3], snapping: bool) {
     match asset {
+        Asset::Template(AssetKind::Room, model) => {
+            if let Err(why) = state::add_room(state, model, at) {
+                state.say(why);
+            } else if snapping && let Some(Target::Room(added)) = state.editor.selected {
+                state::snap_to_seam(state, added, true);
+            }
+        }
         Asset::Template(kind @ (AssetKind::Placeable | AssetKind::Creature), name) => {
             let kind = if *kind == AssetKind::Placeable {
                 Kind::Placeable
@@ -545,6 +558,7 @@ fn panels(
             ["tool", "move"] => ui.tool = Tool::Move,
             ["tool", "rotate"] => ui.tool = Tool::Rotate,
             ["tool", "scale"] => ui.tool = Tool::Scale,
+            ["tab", "rooms"] => ui.tab = Tab::Rooms,
             ["tab", "placeables"] => ui.tab = Tab::Placeables,
             ["tab", "creatures"] => ui.tab = Tab::Creatures,
             ["tab", "props"] => ui.tab = Tab::Props,
@@ -682,7 +696,7 @@ fn shortcuts(
         && let Some(asset) = ui.picked.clone()
     {
         let at = state::place_point(state, cameras);
-        place(state, &asset, at);
+        place(state, &asset, at, ui.snapping);
     }
 }
 
@@ -875,6 +889,44 @@ fn outliner(
                             }
                         });
                 }
+                if let Some(map) = &state.editor.project.map {
+                    let module = &state.editor.project.module;
+                    let rows: Vec<(usize, String)> = map
+                        .rooms
+                        .iter()
+                        .enumerate()
+                        .map(|(at, room)| {
+                            let name = level_edit::map::room_name(module, at);
+                            (at, format!("{name}  ({})", room.model))
+                        })
+                        .filter(|(_, text)| matches(text))
+                        .collect();
+                    egui::CollapsingHeader::new(format!("Rooms ({})", rows.len()))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            for (at, text) in rows {
+                                let target = Target::Room(at);
+                                let row = ui
+                                    .selectable_label(state.editor.selected == Some(target), text);
+                                if row.clicked() {
+                                    clicked = Some((target, false));
+                                }
+                                if row.double_clicked() {
+                                    clicked = Some((target, true));
+                                }
+                            }
+                            let row = ui.selectable_label(
+                                state.editor.selected == Some(Target::Entry),
+                                "Entry (where the player starts)",
+                            );
+                            if row.clicked() {
+                                clicked = Some((Target::Entry, false));
+                            }
+                            if row.double_clicked() {
+                                clicked = Some((Target::Entry, true));
+                            }
+                        });
+                }
             });
             if let Some((target, frame)) = clicked {
                 state.editor.selected = Some(target);
@@ -968,18 +1020,22 @@ fn details(
                                 }
                             });
                             ui.end_row();
-                            ui.label("Facing");
-                            let response = ui.add(
-                                egui::DragValue::new(&mut facing)
-                                    .speed(0.5)
-                                    .suffix("°")
-                                    .max_decimals(1),
-                            );
-                            if response.changed() {
-                                edits.push(Edit::Turn(target, facing));
+                            // A room does not turn: the layout places rooms
+                            // unturned.
+                            if !matches!(target, Target::Room(_)) {
+                                ui.label("Facing");
+                                let response = ui.add(
+                                    egui::DragValue::new(&mut facing)
+                                        .speed(0.5)
+                                        .suffix("°")
+                                        .max_decimals(1),
+                                );
+                                if response.changed() {
+                                    edits.push(Edit::Turn(target, facing));
+                                }
+                                dragging |= response.dragged();
+                                released |= response.drag_stopped() || response.lost_focus();
                             }
-                            dragging |= response.dragged();
-                            released |= response.drag_stopped() || response.lost_focus();
                             ui.end_row();
                             match target {
                                 Target::Prop(at) => {
@@ -1063,6 +1119,16 @@ fn details(
                                 state.pending_command = Some("delete".into());
                             }
                         });
+                        if let Target::Room(_) = target
+                            && ui
+                                .button("Meet a seam")
+                                .on_hover_text(
+                                    "Moves the room so that an edge of its floor meets the                                      nearest edge of another room's",
+                                )
+                                .clicked()
+                        {
+                            state.pending_command = Some("seam".into());
+                        }
                         if ui.button("Frame").on_hover_text("F").clicked() {
                             frame_selection(state, camera_request, cameras);
                         }
@@ -1441,8 +1507,14 @@ fn assets(
             // The panel's width before anything is laid out in it: a row
             // wider than the panel would widen what is left of it.
             let width = ui.available_width();
+            let new_map = state.editor.project.map.is_some();
+            if !new_map && ui_state.tab == Tab::Rooms {
+                ui_state.tab = Tab::Placeables;
+            }
             ui.horizontal_wrapped(|ui| {
-                for (tab, label) in [
+                // Only a new map places rooms.
+                let rooms = new_map.then_some((Tab::Rooms, "Rooms"));
+                for (tab, label) in rooms.into_iter().chain([
                     (Tab::Placeables, "Placeables"),
                     (Tab::Creatures, "Creatures"),
                     (Tab::Props, "Jedi Academy props"),
@@ -1451,7 +1523,7 @@ fn assets(
                     (Tab::Triggers, "Triggers"),
                     (Tab::Sounds, "Sounds"),
                     (Tab::Stores, "Stores"),
-                ] {
+                ]) {
                     if ui.selectable_value(&mut ui_state.tab, tab, label).changed() {
                         ui_state.thumbnails.forget_wanted();
                     }
@@ -1515,6 +1587,17 @@ fn assets(
                         .map(|name| (Asset::Object(kind, name.clone()), name.clone()))
                         .collect()
                 }
+                Tab::Rooms => state
+                    .setup
+                    .rooms
+                    .iter()
+                    .map(|room| {
+                        (
+                            Asset::Template(AssetKind::Room, room.model.clone()),
+                            room.model.clone(),
+                        )
+                    })
+                    .collect(),
                 Tab::Shapes => SHAPES
                     .iter()
                     .enumerate()
@@ -1571,7 +1654,7 @@ fn assets(
             if let Some(asset) = placed {
                 ui_state.picked = Some(asset.clone());
                 let at = place_at(state, cameras, None);
-                place(state, &asset, at);
+                place(state, &asset, at, ui_state.snapping);
             }
         });
 }
@@ -1741,6 +1824,13 @@ fn viewport(
             }
             state.dragging = ui_state.dragging;
             if !ctx.input(|input| input.pointer.primary_down()) && !ctx.egui_is_using_pointer() {
+                // A room let go with snapping on meets the nearest seam.
+                if ui_state.dragging
+                    && ui_state.snapping
+                    && let Some(Target::Room(at)) = state.editor.selected
+                {
+                    state::snap_to_seam(state, at, true);
+                }
                 ui_state.dragging = false;
             }
 
@@ -1756,7 +1846,7 @@ fn viewport(
             if let Some(asset) = response.dnd_release_payload::<Asset>() {
                 let point = ctx.pointer_interact_pos().map(|at| Vec2::new(at.x, at.y));
                 let at = place_at(state, cameras, point);
-                place(state, &asset, at);
+                place(state, &asset, at, ui_state.snapping);
             }
         });
 }

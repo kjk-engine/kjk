@@ -395,3 +395,62 @@ fn set(item: &mut GffStruct, label: &str, value: GffValue) {
         None => item.fields.push(field(label, value)),
     }
 }
+
+/// How far a room is moved at most to meet another's seam, metres.
+pub const SEAM_REACH: f32 = 1.5;
+
+/// The outline edges of a walkmesh's walkable faces (`Walkmesh::edges`):
+/// each edge's two corners.
+fn outline(walkmesh: &Walkmesh) -> Vec<([f32; 3], [f32; 3])> {
+    walkmesh
+        .edges
+        .iter()
+        .filter_map(|&(edge, _)| {
+            let face = walkmesh.faces.get(usize::try_from(edge).ok()? / 3)?;
+            let at = edge as usize % 3;
+            let corner = |k: usize| walkmesh.vertices.get(face.vertices[k] as usize).copied();
+            Some((corner(at)?, corner((at + 1) % 3)?))
+        })
+        .collect()
+}
+
+/// How far to move the room whose walkmesh is `moving` so that an edge of
+/// its outline lies on an edge of another room's (`others`): the shortest
+/// such move under `reach` metres, between two edges of the same length
+/// (within 5 cm) that run along each other. `None` when no edge is that
+/// near. Rooms that meet edge to edge are walked across in kjk
+/// (`docs/NAV.md`, room seams).
+pub fn seam_offset(moving: &Walkmesh, others: &[Walkmesh], reach: f32) -> Option<[f32; 3]> {
+    let length = |(a, b): ([f32; 3], [f32; 3])| {
+        ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt()
+    };
+    let middle = |(a, b): ([f32; 3], [f32; 3])| -> [f32; 3] {
+        std::array::from_fn(|axis| (a[axis] + b[axis]) * 0.5)
+    };
+    let along = |(a, b): ([f32; 3], [f32; 3]), (c, d): ([f32; 3], [f32; 3])| {
+        let one: [f32; 3] = std::array::from_fn(|axis| b[axis] - a[axis]);
+        let two: [f32; 3] = std::array::from_fn(|axis| d[axis] - c[axis]);
+        let dot: f32 = (0..3).map(|axis| one[axis] * two[axis]).sum();
+        dot.abs() / (length((a, b)) * length((c, d))).max(1e-6)
+    };
+    let theirs: Vec<_> = others.iter().flat_map(outline).collect();
+    let mut best: Option<(f32, [f32; 3])> = None;
+    for mine in outline(moving) {
+        let size = length(mine);
+        if size < 0.1 {
+            continue;
+        }
+        for &other in &theirs {
+            if (length(other) - size).abs() > 0.05 || along(mine, other) < 0.995 {
+                continue;
+            }
+            let (from, to) = (middle(mine), middle(other));
+            let by: [f32; 3] = std::array::from_fn(|axis| to[axis] - from[axis]);
+            let distance = length(([0.0; 3], by));
+            if distance <= reach && best.is_none_or(|(least, _)| distance < least) {
+                best = Some((distance, by));
+            }
+        }
+    }
+    best.map(|(_, by)| by)
+}

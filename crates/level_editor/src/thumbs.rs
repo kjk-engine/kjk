@@ -29,6 +29,8 @@ pub enum AssetKind {
     Placeable,
     Creature,
     Prop,
+    /// A room of the install, by its model, for a new map.
+    Room,
 }
 
 impl AssetKind {
@@ -37,6 +39,7 @@ impl AssetKind {
             AssetKind::Placeable => "placeable",
             AssetKind::Creature => "creature",
             AssetKind::Prop => "prop",
+            AssetKind::Room => "room",
         }
     }
 }
@@ -187,6 +190,11 @@ fn add_model(
 /// `faces` drawn into a picture, framed to fit, seen from in front, to one
 /// side and a little above. The models' space is Z up.
 fn draw(faces: &[Face], textures: &[Texels]) -> Option<Picture> {
+    draw_from(faces, textures, Vec3::new(1.0, -1.2, 0.8))
+}
+
+/// `draw` seen from `eye`'s way (from the model's middle).
+fn draw_from(faces: &[Face], textures: &[Texels], eye: Vec3) -> Option<Picture> {
     let (low, high) = faces.iter().flat_map(|face| face.corners).fold(
         None,
         |span: Option<(Vec3, Vec3)>, p| match span {
@@ -197,7 +205,7 @@ fn draw(faces: &[Face], textures: &[Texels]) -> Option<Picture> {
     let centre = (low + high) * 0.5;
     let radius = ((high - low).length() * 0.5).max(0.01);
     // Looking from +X+Y and above, toward the centre.
-    let eye_direction = Vec3::new(1.0, -1.2, 0.8).normalize();
+    let eye_direction = eye.normalize();
     let view = Mat4::look_at_rh(centre + eye_direction * radius * 4.0, centre, Vec3::Z);
     let light = Vec3::new(0.4, -0.7, 1.0).normalize();
     let mut colour = vec![0u8; SIDE * SIDE * 4];
@@ -298,6 +306,30 @@ pub fn of_models(resolver: &vfs::resolver::Resolver, models: &[Placed]) -> Optio
     };
     let faces = faces(models, &mut texture_of);
     draw(&faces, &textures)
+}
+
+/// A picture of a room, seen from high above with the faces that look down
+/// (its ceiling) left out, so its floor shows.
+pub fn of_room(resolver: &vfs::resolver::Resolver, room: &Placed) -> Option<Picture> {
+    let mut textures: Vec<Texels> = Vec::new();
+    let mut named: BTreeMap<String, Option<usize>> = BTreeMap::new();
+    let mut texture_of = |name: &str| {
+        *named.entry(name.to_string()).or_insert_with(|| {
+            let texels = kjk_game::viewer::texture(resolver, name).and_then(|t| Texels::of(&t))?;
+            textures.push(texels);
+            Some(textures.len() - 1)
+        })
+    };
+    let faces: Vec<Face> = faces(std::slice::from_ref(room), &mut texture_of)
+        .into_iter()
+        .filter(|face| {
+            let normal = (face.corners[1] - face.corners[0])
+                .cross(face.corners[2] - face.corners[0])
+                .normalize_or_zero();
+            normal.z > -0.3
+        })
+        .collect();
+    draw_from(&faces, &textures, Vec3::new(0.15, -0.25, 1.0))
 }
 
 /// A picture of a Jedi Academy prop.

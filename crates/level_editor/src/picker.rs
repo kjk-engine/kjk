@@ -47,6 +47,8 @@ struct Picker {
     /// The module picked: its game and resref.
     picked: Option<(Game, String)>,
     project: String,
+    /// The name of a new map to make from the picked level.
+    new_map: String,
     message: Option<String>,
     headless: bool,
     fonts_set: bool,
@@ -88,6 +90,7 @@ pub fn install(app: &mut App, headless: bool) {
         search: String::new(),
         picked: None,
         project: String::new(),
+        new_map: String::new(),
         message: None,
         headless,
         fonts_set: false,
@@ -209,12 +212,21 @@ fn take_names(mut picker: ResMut<Picker>) {
 }
 
 /// The editor started on `game`'s `module`, in project `project`, and the
-/// picker closed. A headless picker (a check) names what it would start.
+/// picker closed; with `base`, on a new map named `module` whose area
+/// starts from `base`'s. A headless picker (a check) names what it would
+/// start.
 fn open(
     picker: &mut Picker,
     exit: &mut MessageWriter<AppExit>,
     (game, module, project): (Game, &str, &str),
+    base: Option<&str>,
 ) {
+    if base.is_some()
+        && let Some(problem) = level_edit::map::name_problem(module)
+    {
+        picker.message = Some(format!("{problem}."));
+        return;
+    }
     let folder = match level_edit::folder_of(project, |var| std::env::var(var).ok()) {
         Ok(folder) => folder,
         Err(why) => {
@@ -231,7 +243,10 @@ fn open(
         ));
         return;
     }
-    let args = [game.key(), module, "--project", project];
+    let mut args = vec![game.key(), module, "--project", project];
+    if let Some(base) = base {
+        args.extend(["--new-map", base]);
+    }
     if picker.headless {
         let message = format!("would start kjk-level-editor {}", args.join(" "));
         info!(target: "editor", "{message}");
@@ -267,7 +282,14 @@ fn commands(
                     continue;
                 };
                 let project = rest.first().copied().unwrap_or(module).to_string();
-                open(&mut picker, &mut exit, (game, module, &project));
+                open(&mut picker, &mut exit, (game, module, &project), None);
+            }
+            ["new", game, base, name] => {
+                let Some(game) = Game::from_key(game) else {
+                    picker.message = Some(format!("{game} is not k1 or tsl"));
+                    continue;
+                };
+                open(&mut picker, &mut exit, (game, name, name), Some(base));
             }
             ["search", rest @ ..] => picker.search = rest.join(" "),
             ["tab", tab] => {
@@ -310,6 +332,8 @@ fn window(
             .max_rect(ctx.viewport_rect()),
     );
     let mut opening: Option<(Game, String, String)> = None;
+    // A new map to make: its game, the level it starts from and its name.
+    let mut making: Option<(Game, String, String)> = None;
     egui::Panel::left("projects")
         .resizable(true)
         .default_size(320.0)
@@ -395,6 +419,32 @@ fn window(
                 ui.label(message);
             }
         });
+        ui.horizontal(|ui| {
+            ui.label("New map named");
+            ui.add(
+                egui::TextEdit::singleline(&mut picker.new_map)
+                    .hint_text("my_map")
+                    .desired_width(140.0),
+            );
+            let ready = picker.picked.is_some()
+                && level_edit::map::name_problem(&picker.new_map).is_none();
+            let make = ui
+                .add_enabled(ready, egui::Button::new("Make"))
+                .on_hover_text(
+                    "Makes a map of your own, built from the game's rooms. Its light,                      fog and sound start as the picked level's.",
+                );
+            if make.clicked()
+                && let Some((game, module)) = picker.picked.clone()
+            {
+                let name = picker.new_map.clone();
+                making = Some((game, module, name));
+            }
+            ui.label(
+                egui::RichText::new("lowercase letters, digits and _, up to 12")
+                    .small()
+                    .weak(),
+            );
+        });
     });
     egui::CentralPanel::default().show(&mut root, |ui| {
         ui.horizontal(|ui| {
@@ -455,8 +505,11 @@ fn window(
             }
         }
     });
+    if let Some((game, base, name)) = making {
+        open(picker, &mut exit, (game, &name, &name), Some(&base));
+    }
     if let Some((game, module, project)) = opening {
-        open(picker, &mut exit, (game, &module, &project));
+        open(picker, &mut exit, (game, &module, &project), None);
     }
 }
 

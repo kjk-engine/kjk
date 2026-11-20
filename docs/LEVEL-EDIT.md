@@ -27,7 +27,9 @@ be moved out of kjk's repository without changing how kjk plays projects.
 cargo build --release -p launcher --bin kjk -p level_editor --bin kjk-level-editor
 kjk-level-editor                                 # lists the projects and the levels to pick from
 kjk-level-editor k1 ebo_m12aa --project hawk     # the Ebon Hawk, project "hawk"
+kjk-level-editor k1 my_map --new-map ebo_m12aa   # a new map, lit as the Ebon Hawk
 kjk --project hawk play --stage ebo_m12aa --class jedi
+kjk --project my_map play --stage my_map --class jedi
 kjk --project hawk collision audit k1 ebo_m12aa
 ```
 
@@ -40,7 +42,8 @@ A search box filters the modules by name or by module. A click on a
 project opens it. A click on a module picks it, and the project's name below
 starts as the module's; Open (or a double-click on the module) opens it.
 The names are read on a thread of their own and fill in within a few
-seconds. A project is opened once in a process, before any install is read,
+seconds. Under them, "New map named" makes a new map (below) whose light,
+fog and sound start as the picked level's. A project is opened once in a process, before any install is read,
 so the picker starts the editor again as a program of its own on what was
 picked, and closes.
 
@@ -58,6 +61,48 @@ The Play and Audit buttons start the `kjk` program that lies beside
 `--project NAME` works with every `kjk` verb that loads a module: `kjk
 play`, `kjk host`, the collision verbs and the scripted runs. It is one of
 kjk's global options, so it may stand before or after the verb.
+
+## New maps
+
+A project can also make a map of its own: a new module, built from the
+games' rooms. `kjk-level-editor GAME NAME --new-map BASE` makes one, or
+the picker's "New map named" row does. `--title` gives the name the game
+shows; the module's name is used when it is left out. The name has
+lowercase letters, digits and underscores, 12 at most, and no module of
+the install may have it.
+
+A new map starts with no rooms, no objects and the entry at the origin.
+Its area's light, fog and sound are the base level's (its `.are` file),
+and so are its music and ambient sound (its GIT's area properties).
+
+- **Rooms.** The asset picker's Rooms tab lists every room of the install:
+  each room of every area's layout, its thumbnail seen from above. A room
+  is placed by dragging or double-clicking it, with its floor's middle where
+  the view meets the level, else a few metres ahead. Rooms are moved,
+  copied and deleted like objects, with undo. They do not turn, since the
+  layout places rooms unturned.
+- **Seams.** Two rooms are walked across where an edge of one's floor lies
+  on an edge of the other's (`docs/NAV.md`, room seams). "Meet a seam"
+  moves the selected room by the shortest way, 1.5 m at most, that puts an
+  edge of its floor on an edge of the same length of another room's. With
+  snapping on, a room placed or let go after a drag meets the nearest seam
+  by itself.
+- **The entry.** The outliner's Entry is where the player starts: a yellow
+  marker that moves and turns like an object.
+
+A room's walkmesh is in the coordinates of the area it was made for, so a
+room placed anywhere else is copied: its model under the name
+`<map>_<NN>` (`kjedemo_01`), and its walkmesh moved by how far the room
+moved (`level_edit::map`). The editor makes the copies in memory as rooms
+are placed, so the view and its collision show the map as it is.
+
+Saving a new map writes, besides the files of every project, its
+`kjk-map.toml` (its title, base, rooms and entry), its area's `.are`, and
+its module, `modules/<name>.mod`: `module.ifo`, the area's layout and
+visibility (every room sees every room), and the rooms' copies. While the
+project is active, its modules are in the install's index (`vfs::project`),
+so `kjk --project NAME play --stage NAME` plays the map like any module,
+and the picker lists it.
 
 ## Where projects live
 
@@ -319,6 +364,14 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
 | `edit ui view SCRIPT`, `edit ui view` | opens the script viewer on the script, or closes it |
 | `edit ui view tab source`, `summary`, `listing` | picks the viewer's tab |
+| `edit add room MODEL [X Y Z]` | adds the install's room to a new map, its floor's middle at the point or where the view's centre meets the level |
+| `edit select room N`, `edit select entry` | selects a new map's room (from 0) or its entry |
+| `edit seam` | moves the selected room to meet the nearest seam |
+| `edit entry [X Y Z]` | moves a new map's entry to the point or where the view's centre meets the level |
+| `edit ui tab rooms` | shows the Rooms tab of a new map |
+
+The picker takes `edit open GAME MODULE [PROJECT]`, `edit new GAME BASE
+NAME` (a new map), `edit search TEXT` and `edit tab k1` or `tsl`.
 
 A dump (`dump NAME`) has an `editor` fact: the project, the counts of each
 kind of object, every object with its template, tag, position and facing,
@@ -343,8 +396,15 @@ a new perch.
 
 ## Limits of the prototype
 
-- **No new rooms.** kjk reads models, layouts and walkmeshes but cannot
-  write them, so a project changes an area that exists.
+- **A new map's rooms are the games' own.** There is no new geometry
+  yet, rooms do not turn, and a room is not resized. Rooms from different
+  areas carry their own baked light, so a mixed map shows seams in its
+  lighting.
+- **A new map is played in kjk only.** Its module has no AI paths (PTH),
+  no map picture, and walkmeshes whose edges name no neighbouring room,
+  which the original game needs. Every room sees every room.
+- **KOTOR 2's rooms are not listed yet.** Its layouts are in its modules'
+  archives, which the Rooms tab does not read.
 - **The game's characters do not use new geometry.** Navigation is baked
   from the walkmesh alone (`docs/NAV.md`). A box or a prop is solid for
   every body, but the game's characters do not path onto it or around it.
@@ -367,9 +427,9 @@ a new perch.
   destination is not changed. These are future work.
 - **One object at a time.** There is no multiple selection, box selection,
   or copy and paste between areas.
-- **No export.** The project's `.git` file is a KOTOR file, but there is no
-  step yet that packs a project into a `.mod` file or an `Override` folder
-  for the original game.
+- **No export.** A new map's `.mod` and a project's `.git` file are KOTOR
+  files, but there is no step yet that makes them ready for the original
+  game.
 - **The view is drawn under the panels.** The scene's camera fills the
   window, and the panels cover its edges.
 
@@ -377,8 +437,9 @@ a new perch.
 
 These come after the prototype: navigation that includes the added boxes
 and props, editing triggers' outlines and doors' destinations, multiple
-selection, export to a `.mod` file, new areas made from existing rooms
-(which needs layout, visibility and walkmesh writers), markers for vehicle
+selection, export of a new map for the original game (its walkmeshes'
+neighbours, AI paths and a map picture), turning rooms by 90° steps,
+rooms made in Blender, markers for vehicle
 routes and spawn points for vehicles and jetpacks, and editing an area
 together in co-op.
 

@@ -925,6 +925,50 @@ pub(crate) fn pick(
     best.map(|(_, target)| target)
 }
 
+/// The walkmesh of the new map's room `at`, moved to where the map places
+/// it; `None` for a room the install has no walkmesh of.
+pub(crate) fn room_walkmesh(state: &EditorState, at: usize) -> Option<fmt_odyssey::bwm::Walkmesh> {
+    let room = state.editor.project.map.as_ref()?.rooms.get(at)?;
+    let bytes = state.setup.resolver.read(&room.model, ResType::WOK)?;
+    let walkmesh = fmt_odyssey::bwm::Walkmesh::parse(&bytes).ok()?;
+    let by: [f32; 3] = std::array::from_fn(|axis| room.position[axis] - room.from[axis]);
+    Some(walkmesh.moved(by))
+}
+
+/// Moves the new map's room `at` so that an edge of its floor meets the
+/// nearest edge of another room's (`level_edit::map::seam_offset`), as a
+/// part of the last edit when `continuing`. False when no seam is near.
+pub(crate) fn snap_to_seam(state: &mut EditorState, at: usize, continuing: bool) -> bool {
+    let Some(moving) = room_walkmesh(state, at) else {
+        return false;
+    };
+    let rooms = state
+        .editor
+        .project
+        .map
+        .as_ref()
+        .map_or(0, |map| map.rooms.len());
+    let others: Vec<_> = (0..rooms)
+        .filter(|&other| other != at)
+        .filter_map(|other| room_walkmesh(state, other))
+        .collect();
+    let Some(by) = level_edit::map::seam_offset(&moving, &others, level_edit::map::SEAM_REACH)
+    else {
+        return false;
+    };
+    let Some((position, _)) = state.editor.placement(Target::Room(at)) else {
+        return false;
+    };
+    let to = std::array::from_fn(|axis| position[axis] + by[axis]);
+    let edit = Edit::Move(Target::Room(at), to);
+    if continuing {
+        state.apply_continuing(edit);
+    } else {
+        state.apply(edit);
+    }
+    true
+}
+
 /// Adds the install's room `model` to the new map so that its floor's
 /// middle stands at `at` (`library` says where its own area places it).
 pub(crate) fn add_room(state: &mut EditorState, model: &str, at: [f32; 3]) -> Result<(), String> {
@@ -1178,6 +1222,17 @@ pub(crate) fn command(
                 rest => point(rest)?,
             };
             add_room(state, model, at)?;
+        }
+        ["seam"] => {
+            let Target::Room(at) = selected(state)? else {
+                return Err("only a room meets another's seam".into());
+            };
+            if !snap_to_seam(state, at, false) {
+                return Err(format!(
+                    "no other room's edge is within {} m of this room's",
+                    level_edit::map::SEAM_REACH
+                ));
+            }
         }
         ["entry", rest @ ..] => {
             let at = match rest {

@@ -101,3 +101,20 @@ The crate is solid too. A Jedi that starts beside it and runs and jumps
 forward (`--at 31.6,32.6,1.8,90 --moves '300ms; 800ms w jump; 700ms w; 2s'`,
 with the crate at 31.6, 34.6) stands on the crate's footprint 1.1 m above
 the floor. Without the project, the same run ends on the floor.
+
+## A new map
+
+Four rooms of the Ebon Hawk, put together again as a map of their own,
+with one placed 0.6 m off and moved onto its seam.
+
+```bash
+kjk-level-editor k1 kjedemo --new-map ebo_m12aa --title "Hawk remix" --headless --cmds 'wait 5f; edit add room m12aa_01b 0 0 0; edit move 0 0 0; edit add room m12aa_01o 0 0 0; edit move -13.0 -4.1 0.2; edit seam; edit add room m12aa_01f 0 0 0; edit move -18 -18 0; edit add room m12aa_01p 0 0 0; edit move -11.7 10.8 0; edit entry -4.8 -3.8 1.8; edit save; quit'
+kjk --project kjedemo collision nav k1 kjedemo
+kjk --project kjedemo collision walk k1 kjedemo
+kjk --project kjedemo play --stage kjedemo --class jedi
+```
+
+After `edit seam`, the second room stands at (-13.5, -4.5, 0), where the
+Hawk's own layout has it beside the first. The navigation mesh of the
+four rooms is one island of 110 faces, and 50 of 50 walks between drawn
+points arrive. The play starts in the first room, at the entry.
