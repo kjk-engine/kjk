@@ -192,7 +192,7 @@ fn loose_parts() {
         "cost: {} points and {} capsules, {:.1} ns per point per substep, {:.1} µs per body per frame at 60 frames a second",
         cost.points, cost.capsules, cost.per_point_substep_ns, cost.per_body_frame_us
     );
-    assert_eq!(probes.len(), 20);
+    assert_eq!(probes.len(), 23);
     assert!(
         probes.iter().all(|probe| probe.pass),
         "loose part probes failed"

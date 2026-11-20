@@ -98,6 +98,28 @@ pub(crate) struct Distance {
     compliance: f32,
 }
 
+/// A free point kept away from a bone of another tree of its garment: the
+/// segment between the points `ends`. Without it, two chains of a robe can
+/// pass through each other, and the skin between them folds through
+/// itself. A robe that turns upside down would gather its hem into a point
+/// above the body, where a real skirt keeps its hem a ring around it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Apart {
+    pub(crate) point: usize,
+    pub(crate) ends: [usize; 2],
+    /// The least distance kept (metres): `APART` of the rest distance.
+    pub(crate) least: f32,
+}
+
+/// The share of its rest distance from another tree's bone that a point
+/// keeps at least. Two chains of a robe may close up to half their rest
+/// gap, and no more.
+const APART: f32 = 0.5;
+/// A point keeps away from the bones of another tree that are at most this
+/// many times as far at rest as that tree's nearest bone. These are the
+/// bones beside it, not those far above or below.
+const APART_NEAR: f32 = 1.5;
+
 /// One point, worked out against the skeleton.
 #[derive(Debug, Clone, Copy)]
 struct Resolved {
@@ -141,6 +163,7 @@ pub struct Solver {
     /// one turn of the parent bone can aim at all of them.
     siblings: Vec<Distance>,
     links: Vec<Distance>,
+    apart: Vec<Apart>,
     /// The pinned point each point is tethered to, with the tether's length.
     tethers: Vec<Distance>,
     collision: Option<Collision>,
@@ -330,6 +353,7 @@ impl Solver {
                 compliance: link.compliance,
             });
         }
+        let apart = apart(&points, &links, &root_of, &at);
         let collision = body.as_ref().map(|body| {
             let mut posed = Vec::new();
             body.pose(|node| rest[node], &mut posed);
@@ -356,6 +380,7 @@ impl Solver {
             bends,
             siblings,
             links,
+            apart,
             tethers,
             collision,
             positions: vec![Vec3::ZERO; count],
@@ -690,6 +715,12 @@ impl Solver {
         for l in &self.siblings {
             out += &format!("sibling {}-{} rest {:.3}\n", l.a, l.b, l.rest);
         }
+        for a in &self.apart {
+            out += &format!(
+                "apart {} from {}-{} least {:.3}\n",
+                a.point, a.ends[0], a.ends[1], a.least
+            );
+        }
         out
     }
 
@@ -724,6 +755,9 @@ impl Solver {
                 keep_distance(&mut self.positions, &self.points, distance, scale);
             }
         }
+        for index in 0..self.apart.len() {
+            keep_apart(&mut self.positions, &self.points, self.apart[index]);
+        }
         for index in 0..self.points.len() {
             if let Some(drive) = self.points[index].drive {
                 let target = self.targets_now[index];
@@ -752,7 +786,9 @@ impl Solver {
     /// floor. A point that hangs from a pinned root ends at its bone's
     /// length from the root, so a push from a capsule only turns its bone.
     /// A capsule over the root would otherwise push that point out along
-    /// the bone, past its tether.
+    /// the bone, past its tether. Such a point is pushed out and put back at
+    /// its length a few times (`ROOT_PASSES`), so that it ends outside a
+    /// capsule next to the root.
     fn limit(&mut self, anchor: Frame, floor: Option<f32>) {
         let tracing = self.settings.trace;
         for index in 0..self.points.len() {
@@ -835,9 +871,28 @@ impl Solver {
             }
             if let Some(parent) = self.points[index].parent
                 && self.points[parent].weight == 0.0
-                && let Some(way) = (at - self.positions[parent]).try_normalize()
             {
-                at = self.positions[parent] + way * self.points[index].offset.length();
+                let root = self.positions[parent];
+                let length = self.points[index].offset.length();
+                let target = self.targets_now[index];
+                for pass in 0..=ROOT_PASSES {
+                    if let Some(way) = (at - root).try_normalize() {
+                        at = root + way * length;
+                    }
+                    let Some(collision) = self.collision.as_ref().filter(|_| pass < ROOT_PASSES)
+                    else {
+                        break;
+                    };
+                    let was = at;
+                    for contact in &collision.contacts[index] {
+                        if let Some(capsule) = self.capsules_now.get(contact.capsule) {
+                            at = pushed_out(at, target, capsule, contact.radius);
+                        }
+                    }
+                    if was == at {
+                        break;
+                    }
+                }
             }
             self.positions[index] = at;
         }
@@ -1033,6 +1088,97 @@ fn keep_distance(positions: &mut [Vec3], points: &[Resolved], distance: Distance
     positions[b] += way * (lambda * wb);
 }
 
+/// The free points kept away from the bones of the other trees of their
+/// garment (`Apart`). The trees of a garment are those that links join,
+/// directly or through other trees. `root_of` is each point's root, which
+/// names its tree, and `at` each point's rest place.
+fn apart(points: &[Resolved], links: &[Distance], root_of: &[usize], at: &[Vec3]) -> Vec<Apart> {
+    let mut garment: Vec<usize> = (0..points.len()).collect();
+    let find = |garment: &mut Vec<usize>, mut tree: usize| {
+        while garment[tree] != tree {
+            garment[tree] = garment[garment[tree]];
+            tree = garment[tree];
+        }
+        tree
+    };
+    for link in links {
+        let (a, b) = (
+            find(&mut garment, root_of[link.a]),
+            find(&mut garment, root_of[link.b]),
+        );
+        garment[a.max(b)] = a.min(b);
+    }
+    let roots: Vec<usize> = (0..points.len()).filter(|&p| root_of[p] == p).collect();
+    let bones_of = |root: usize| -> Vec<[usize; 2]> {
+        (0..points.len())
+            .filter(|&index| root_of[index] == root)
+            .filter_map(|index| Some([points[index].parent?, index]))
+            .collect()
+    };
+    let mut out = Vec::new();
+    for &own in &roots {
+        for &other in &roots {
+            if own == other || find(&mut garment, own) != find(&mut garment, other) {
+                continue;
+            }
+            let bones = bones_of(other);
+            for point in (0..points.len()).filter(|&p| root_of[p] == own && points[p].weight > 0.0)
+            {
+                let rest: Vec<f32> = bones
+                    .iter()
+                    .map(|&[q0, q1]| {
+                        at[point].distance(closest_on_segment(at[point], at[q0], at[q1]))
+                    })
+                    .collect();
+                let nearest = rest.iter().copied().fold(f32::MAX, f32::min);
+                for (&ends, &rest) in bones.iter().zip(&rest) {
+                    if rest <= nearest * APART_NEAR && rest > 0.0 {
+                        out.push(Apart {
+                            point,
+                            ends,
+                            least: rest * APART,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A point pushed off a segment to its least distance. The point and the
+/// segment's two ends share the push by how freely each moves, the ends by
+/// how near each is to the segment's closest point.
+fn keep_apart(positions: &mut [Vec3], points: &[Resolved], apart: Apart) {
+    let Apart {
+        point,
+        ends: [q0, q1],
+        least,
+    } = apart;
+    let (a, b) = (positions[q0], positions[q1]);
+    let ab = b - a;
+    let t = ((positions[point] - a).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
+    let between = positions[point] - (a + ab * t);
+    let distance = between.length();
+    if distance >= least || distance < 1e-9 {
+        return;
+    }
+    let (wp, w0, w1) = (points[point].weight, points[q0].weight, points[q1].weight);
+    let sum = wp + w0 * (1.0 - t) * (1.0 - t) + w1 * t * t;
+    if sum < 1e-9 {
+        return;
+    }
+    let push = between / distance * ((least - distance) / sum);
+    positions[point] += push * wp;
+    positions[q0] -= push * (w0 * (1.0 - t));
+    positions[q1] -= push * (w1 * t);
+}
+
+/// How many more times a point under a pinned root is pushed out of its
+/// capsules and put back at its bone's length. Each time turns its bone
+/// further out of a capsule near the root, such as the trunk's over a
+/// robe's waist.
+const ROOT_PASSES: usize = 3;
 /// How far a point keeps above the floor at least (metres).
 const FLOOR_MARGIN: f32 = 0.01;
 /// How deep in a trunk capsule, as a share of its radius, a point on the

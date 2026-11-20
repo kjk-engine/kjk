@@ -15,8 +15,14 @@
 //! and the bones turn back, so that the pelvis does not turn in the world,
 //! the points must not swing. A fast spin of the pelvis inside a skeleton
 //! that does not move must be felt only by the points' inertia share.
-//! A last probe checks that a target with a hang of 1 hangs straight down
-//! under a leaning body.
+//! A probe checks that a target with a hang of 1 hangs straight down under
+//! a leaning body.
+//!
+//! Three probes hang a skirt of eight linked chains around the legs, as
+//! the generated skirt chains of a robe hang. A leg kicks forward through
+//! it, the body hangs upside down, and the body flips. No two points of
+//! different chains may come together, as they would when the chains pass
+//! through each other or when the hem gathers into a point.
 
 use std::time::Instant;
 
@@ -895,6 +901,170 @@ fn hung_straight() -> Probe {
     }
 }
 
+/// The least share of their distance at rest that two points of different
+/// chains of the probes' skirt keep.
+const APART_KEPT: f32 = 0.35;
+/// How many chains hang in the probes' skirt, and how many bones each has.
+const SKIRT_CHAINS: usize = 8;
+const SKIRT_BONES: usize = 3;
+
+/// A skirt of `SKIRT_CHAINS` chains in a ring around the legs, 0.24 m from
+/// the trunk's axis, each of `SKIRT_BONES` bones of 0.2 m and a tip. Each
+/// chain is linked to its neighbours, point by point, as the generated
+/// skirt chains of a robe are.
+fn skirt() -> Garment {
+    let at = |v: Vec3| Frame::new(v, Quat::IDENTITY);
+    let down = Vec3::new(0.0, 0.0, -0.2);
+    let mut nodes = Vec::new();
+    let mut points = Vec::new();
+    let per_chain = SKIRT_BONES + 1;
+    for chain in 0..SKIRT_CHAINS {
+        let angle = chain as f32 * std::f32::consts::TAU / SKIRT_CHAINS as f32;
+        let top = Vec3::new(0.24 * angle.sin(), 0.24 * angle.cos(), 0.95);
+        let first = GARMENT + nodes.len();
+        nodes.push((TRUNK, at(top - HIPS)));
+        for bone in 1..SKIRT_BONES {
+            nodes.push((first + bone - 1, at(down)));
+        }
+        for bone in 0..SKIRT_BONES {
+            points.push(point(Place::Joint(first + bone)));
+        }
+        points.push(point(Place::Tip {
+            point: points.len() - 1,
+            offset: down,
+        }));
+    }
+    let mut links = Vec::new();
+    for chain in 0..SKIRT_CHAINS {
+        let next = (chain + 1) % SKIRT_CHAINS;
+        for depth in 1..per_chain {
+            links.push(Link {
+                a: chain * per_chain + depth,
+                b: next * per_chain + depth,
+                compliance: 1e-4,
+            });
+        }
+    }
+    let mut garment = Garment {
+        rig: Rig { points, links },
+        nodes,
+    };
+    reach_by_depth(&mut garment);
+    for point in &mut garment.rig.points {
+        point.max_distance = point.max_distance.min(1.5);
+    }
+    garment
+}
+
+/// The probes' figure, with a third leg on the free node. It hangs from the
+/// right hip and is moved by the free node's frame.
+fn figure_with_kick() -> Body {
+    let mut body = figure();
+    let hip = Vec3::new(0.1, 0.0, 0.95);
+    body.parts.push(Part {
+        node: FREE,
+        ends: [hip, hip - Vec3::new(0.0, 0.0, 0.85)],
+        radius: 0.08,
+        parent: Some(0),
+        trunk: false,
+        name: "",
+        leg: true,
+    });
+    body
+}
+
+/// The kicking leg swings forward from straight down to 110 degrees in
+/// 0.2 s, starting at 0.3 s, stays up for 0.3 s and swings back in 0.2 s.
+fn kick(t: f32) -> Frame {
+    let up = ((t - 0.3) / 0.2).clamp(0.0, 1.0) - ((t - 0.8) / 0.2).clamp(0.0, 1.0);
+    let turn = Quat::from_rotation_x(110f32.to_radians() * up);
+    let hip = Vec3::new(0.1, 0.0, 0.95);
+    Frame::new(hip - turn * hip, turn)
+}
+
+/// What a run of the skirt measured: the closest that two points of
+/// different chains came, as a share of their distance at rest, and the
+/// points' fit to the capsules.
+struct Apartness {
+    closest: f32,
+    inside: f32,
+    finite: bool,
+}
+
+/// The skirt through `motion`, with the kicking leg moved by `leg`.
+fn skirt_run(motion: Motion, leg: fn(f32) -> Frame, seconds: f32) -> Apartness {
+    let garment = skirt();
+    let mut solver = solver(&garment, Some(figure_with_kick()));
+    let mut locals = Vec::new();
+    let mut measured = Run::new();
+    let per_chain = SKIRT_BONES + 1;
+    let chain_of = |index: usize| index / per_chain;
+    let free: Vec<usize> = (0..garment.rig.points.len())
+        .filter(|&index| index % per_chain != 0)
+        .collect();
+    let mut rest: Vec<(usize, usize, f32)> = Vec::new();
+    let mut out = Apartness {
+        closest: f32::MAX,
+        inside: 0.0,
+        finite: true,
+    };
+    let frames = (seconds / FRAME).round() as usize;
+    for frame in 0..=frames {
+        let t = frame as f32 * FRAME;
+        let (root, trunk) = motion(t);
+        garment.locals(trunk, leg(t), &mut locals);
+        solver.step(
+            if frame == 0 { 0.0 } else { FRAME },
+            root,
+            &locals,
+            Some(-10.0),
+        );
+        check(&solver, &mut measured);
+        let positions = solver.positions();
+        if frame == 0 {
+            for (i, &a) in free.iter().enumerate() {
+                for &b in &free[i + 1..] {
+                    if chain_of(a) != chain_of(b) {
+                        rest.push((a, b, positions[a].distance(positions[b])));
+                    }
+                }
+            }
+        }
+        for &(a, b, at_rest) in &rest {
+            out.closest = out
+                .closest
+                .min(positions[a].distance(positions[b]) / at_rest);
+        }
+    }
+    out.inside = measured.inside;
+    out.finite = measured.finite;
+    out
+}
+
+fn still_leg(_: f32) -> Frame {
+    Frame::IDENTITY
+}
+
+/// The skirt's chains must not pass through each other when the body
+/// hangs upside down, in a flip, nor when a leg kicks forward through the
+/// skirt. Two chains that pass through each other first come together, so
+/// no two points of different chains may come nearer than `APART_KEPT` of
+/// their distance at rest.
+fn skirt_apart(name: &str, motion: Motion, leg: fn(f32) -> Frame, seconds: f32) -> Probe {
+    let run = skirt_run(motion, leg, seconds);
+    Probe {
+        name: name.to_string(),
+        expect: "no two points of different chains come nearer than 35% of their distance at rest, no point 2 mm inside a capsule, every point finite",
+        measured: format!(
+            "closest {:.0}% of the distance at rest, inside {:.1} mm, finite {}",
+            run.closest * 100.0,
+            run.inside * 1000.0,
+            run.finite
+        ),
+        pass: run.closest >= APART_KEPT && run.inside <= SLACK && run.finite,
+    }
+}
+
 /// Every probe of the solver.
 pub fn all() -> Vec<Probe> {
     let mut probes = hard_cases();
@@ -908,6 +1078,24 @@ pub fn all() -> Vec<Probe> {
     probes.push(facing_handoff());
     probes.push(spin_felt_by_inertia());
     probes.push(hung_straight());
+    probes.push(skirt_apart(
+        "skirt chains keep apart while a leg kicks through",
+        |_| (Frame::IDENTITY, upright()),
+        kick,
+        1.5,
+    ));
+    probes.push(skirt_apart(
+        "skirt chains keep apart hanging upside down",
+        hang,
+        still_leg,
+        2.5,
+    ));
+    probes.push(skirt_apart(
+        "skirt chains keep apart through a flip",
+        flip,
+        still_leg,
+        2.0,
+    ));
     probes
 }
 
