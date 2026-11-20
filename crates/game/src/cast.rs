@@ -5467,10 +5467,6 @@ struct Head {
     /// rifle's stock past the cheek weld's turn (`aim_pose::cheek_drop`),
     /// eased over `CHEEK_DROP_EASE_S`.
     dropped: Vec3,
-    /// How much (0 to 1) of the cheek weld's lean the head leaves out,
-    /// because its cheek cannot come down onto the stock
-    /// (`aim_pose::lean_left_out`), eased over `CHEEK_DROP_EASE_S`.
-    unleaned: f32,
 }
 
 /// How long (seconds) a head takes to come about two thirds of the way
@@ -5534,8 +5530,6 @@ impl Head {
     /// then stands too high over the rifle's seat in the shoulder, along the
     /// way the rifle's top faces (both in the model's space, the weld's
     /// last part), comes down that much further (`aim_pose::cheek_drop`).
-    /// A head that stands too high above the stock for its cheek to reach
-    /// it takes less of the weld's lean (`aim_pose::lean_left_out`).
     /// The neck, not the node the head model hangs from (`headhook`): a KOTOR head's mesh
     /// starts at the collar with a ring its lower neck alone moves, so a
     /// turn where the model hangs would pull that ring off the body's
@@ -5625,8 +5619,6 @@ impl Head {
             && let Some(from) = transforms.read(neck).copied()
         {
             let above = &bone.above[..index];
-            let [lean, bow] = weld;
-            let weld = [lean * (1.0 - self.unleaned), bow];
             let turn = crate::aim_pose::weld_turn(point - at, weld, share);
             turn_under(transforms, above, neck, turn);
             // The neck turns about where the head model hangs (the base of
@@ -5648,21 +5640,14 @@ impl Head {
                 let moved = parent.rotation.inverse() * (pivot - level * back) / parent.scale;
                 edit(transforms, neck, |t| t.translation += moved);
                 // A head whose jaw still stands too high over the stock's
-                // seat comes down onto it (`aim_pose::cheek_drop`), and one
-                // too high for that leaves out some of the weld's lean
-                // (`aim_pose::lean_left_out`).
-                let eased = 1.0 - (-seconds / CHEEK_DROP_EASE_S).exp();
-                let over = match (seat, bone.jaw(transforms)) {
-                    (Some((seat, up)), Some(jaw)) => Some((up, (jaw - seat).dot(up))),
-                    _ => None,
+                // seat comes down onto it (`aim_pose::cheek_drop`).
+                let wanted = match (seat, bone.jaw(transforms)) {
+                    (Some((seat, up)), Some(jaw)) => {
+                        up * -crate::aim_pose::cheek_drop((jaw - seat).dot(up))
+                    }
+                    _ => Vec3::ZERO,
                 };
-                let wanted = over.map_or(Vec3::ZERO, |(up, over)| {
-                    up * -crate::aim_pose::cheek_drop(over)
-                });
-                if let Some((_, over)) = over {
-                    let left_out = crate::aim_pose::lean_left_out(over);
-                    self.unleaned += (left_out - self.unleaned) * eased;
-                }
+                let eased = 1.0 - (-seconds / CHEEK_DROP_EASE_S).exp();
                 self.dropped += (wanted - self.dropped) * eased;
                 if self.dropped != Vec3::ZERO {
                     let lowered = parent.rotation.inverse() * (self.dropped * share) / parent.scale;

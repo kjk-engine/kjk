@@ -674,9 +674,7 @@ fn rifle(scene: &Scene) -> Result<String, String> {
 /// seat (`aim_pose::cheek_drop`);
 /// its turning node turned by the least turn that makes it look at
 /// `target`, then leaning `aim_pose::head_tilt_deg` toward the gun about
-/// that look. It always takes the weld's whole lean. In the game a head
-/// too high for its cheek to reach the stock leans less
-/// (`aim_pose::lean_left_out`), which only moves it further from the gun.
+/// that look.
 fn welded_head(
     scene: &Scene,
     wield: Wield,

@@ -22,10 +22,8 @@
 //!   (`weapons::GunShape::seat`): a gun with a short stock, such as the
 //!   blaster carbine, is held further out, and every gun's rear end stands
 //!   as high beside the cheek as the blaster rifle's stock. On a body whose
-//!   head hangs further in from its shoulder than Carth's, the stock goes as
-//!   much further in. On a body whose head hangs lower, it goes as much
-//!   lower. On a body whose head hangs higher, such as a woman's, it goes
-//!   up half as far, and as far out from the chest. The support hand takes
+//!   head hangs higher or further in from its shoulder than Carth's, the
+//!   stock goes as much higher or further in. The support hand takes
 //!   the gun again after the turns that came after the arms were posed
 //!   (`cast::regrip`).
 //! - **The head:** as the gun comes up, the head turns to look down the gun
@@ -344,15 +342,11 @@ pub(crate) fn jaw_of(ir: &asset_odyssey::model::ModelIr, face: usize) -> Option<
 /// (`p_carthbb` with the head `p_carthh`) the jaw stands from 1.3 cm under
 /// the seat to 0.84 cm over it, aimed from 25 degrees up to 25 degrees down
 /// and through a shot, so his head never comes down further. A player
-/// woman's (`pfbal` with `pfha01`) stands several centimetres over it,
-/// because her head hangs higher above her shoulder than his.
+/// woman's (`pfbal` with `pfha01`) stands 2.4 to 6.5 cm over it.
 const JAW_OVER_SEAT: f32 = 0.009;
 /// The furthest (metres) a head comes down onto a rifle's stock past the
-/// cheek weld's turn (`cheek_drop`). The head comes down by moving its neck
-/// into the collar. Carth's never comes down more than 1 cm. At 6 cm, the
-/// most it once was, a woman's head sank into her shoulders, and Mission's
-/// head-tails piled up over it.
-const CHEEK_DROP_MOST: f32 = 0.02;
+/// cheek weld's turn (`cheek_drop`).
+const CHEEK_DROP_MOST: f32 = 0.06;
 
 /// How far (metres) a head comes down past the cheek weld's turn so its
 /// cheek rests on a rifle's stock, its jaw standing `over` (metres) over
@@ -360,28 +354,9 @@ const CHEEK_DROP_MOST: f32 = 0.02;
 /// as far as that is more than `JAW_OVER_SEAT`, and at most
 /// `CHEEK_DROP_MOST`. The cheek weld's turn was fitted on Carth's body. A
 /// head that hangs higher over the stock than his, or whose jaw sits higher
-/// in its own model, comes down `CHEEK_DROP_MOST` and keeps its cheek a
-/// little above the stock.
+/// in its own model, still comes down onto the stock.
 pub(crate) fn cheek_drop(over: f32) -> f32 {
     (over - JAW_OVER_SEAT).clamp(0.0, CHEEK_DROP_MOST)
-}
-
-/// How far (metres) a jaw may stand over a rifle's seat, past where the
-/// cheek's drop (`cheek_drop`) can bring it down, before the head leaves
-/// out all of the cheek weld's lean (`lean_left_out`).
-const LEAN_GONE_OVER: f32 = 0.03;
-
-/// How much (0 to 1) of the cheek weld's lean toward the gun a head leaves
-/// out, its jaw standing `over` (metres) over the rifle's seat as in
-/// `cheek_drop`. A head whose cheek comes down onto the stock leans the
-/// whole way. A head that hangs too high above the stock for its cheek to
-/// reach it leans less, and once its jaw stays `LEAN_GONE_OVER` above where
-/// the drop brings it, it does not take the weld's lean at all. The lean
-/// would only tip the head over for nothing, and on a Twi'lek it swings the
-/// head-tails up beside the head. Carth's head always leans the whole way.
-/// Mission's and Bastila's take no lean.
-pub(crate) fn lean_left_out(over: f32) -> f32 {
-    ((over - JAW_OVER_SEAT - CHEEK_DROP_MOST) / LEAN_GONE_OVER).clamp(0.0, 1.0)
 }
 
 /// The cheek weld's turn in the model's space for a head that looks
