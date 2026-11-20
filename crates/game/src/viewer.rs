@@ -222,6 +222,9 @@ pub struct LoadedScene {
     pub name: String,
     pub models: Vec<Placed>,
     pub textures: BTreeMap<String, TextureIr>,
+    /// The images `textures` were uploaded as, which the characters and
+    /// placeables spawned later take again (`scene::SharedImages`).
+    pub images: crate::scene::SharedImages,
     /// Texture names the meshes use but the install does not resolve, or
     /// that do not decode (`stand_in` says what is drawn instead).
     pub missing: Vec<String>,
@@ -1414,6 +1417,7 @@ pub fn module_scene(
         name: module.to_string(),
         models,
         textures,
+        images: Default::default(),
         missing,
         entry: Some((ir.entry_position, ir.entry_direction)),
         missing_models,

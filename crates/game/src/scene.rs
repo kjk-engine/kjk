@@ -1091,6 +1091,37 @@ pub(crate) struct Spawner<'t> {
     rest_box: Option<(Vec3, Vec3)>,
 }
 
+/// The images an area's textures were uploaded as, by texture name. Every
+/// creature, placeable, weapon, change of clothes, visual effect and
+/// blaster bolt spawned in the area takes an image that is still loaded
+/// from here, so the GPU holds one copy of each texture however many of
+/// them use it. Without it, each of them uploaded its own copy of every
+/// texture it uses: eight mining droids held eight copies of the droid's
+/// textures, and a card with 4 GB of memory ran out of it in a fight on
+/// Peragus. It names images by
+/// their ids alone, so an image no mesh uses any more is still let go; the
+/// next character that needs it uploads it again. A new area starts with an
+/// empty one, since another module may ship a texture of the same name.
+#[derive(Default)]
+pub struct SharedImages(std::sync::Mutex<BTreeMap<String, AssetId<Image>>>);
+
+impl SharedImages {
+    /// The image of the texture `name`: the one uploaded before when it is
+    /// still loaded, else `texture` uploaded now.
+    fn image(&self, name: &str, texture: &TextureIr, images: &mut Assets<Image>) -> Handle<Image> {
+        let mut known = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(handle) = known.get(name).and_then(|id| images.get_strong_handle(*id)) {
+            return handle;
+        }
+        let handle = images.add(material_image(texture));
+        known.insert(name.to_string(), handle.id());
+        handle
+    }
+}
+
 impl<'t> Spawner<'t> {
     /// Images for `textures` (each flip-book's frames too).
     pub fn new(
@@ -1102,6 +1133,30 @@ impl<'t> Spawner<'t> {
             .iter()
             .map(|(name, texture)| (name.as_str(), images.add(material_image(texture))))
             .collect();
+        Self::with_images(textures, handles, area, images)
+    }
+
+    /// `new`, taking each texture's image from the area's `shared` images
+    /// when one of that name is still loaded.
+    pub fn sharing(
+        textures: &'t BTreeMap<String, TextureIr>,
+        area: AreaLight,
+        images: &mut Assets<Image>,
+        shared: &SharedImages,
+    ) -> Spawner<'t> {
+        let handles = textures
+            .iter()
+            .map(|(name, texture)| (name.as_str(), shared.image(name, texture, images)))
+            .collect();
+        Self::with_images(textures, handles, area, images)
+    }
+
+    fn with_images(
+        textures: &'t BTreeMap<String, TextureIr>,
+        handles: BTreeMap<&'t str, Handle<Image>>,
+        area: AreaLight,
+        images: &mut Assets<Image>,
+    ) -> Spawner<'t> {
         let frames = textures
             .iter()
             .filter_map(|(name, texture)| Some((name.as_str(), flipbook_images(texture, images)?)))
@@ -1832,7 +1887,12 @@ pub(crate) fn spawn_scene(
     };
     queries.reset(&culling.bounds);
     let (images, mut stores) = assets.split();
-    let mut spawner = Spawner::new(&loaded.textures, loaded.area_light(), images);
+    let mut spawner = Spawner::sharing(
+        &loaded.textures,
+        loaded.area_light(),
+        images,
+        &loaded.images,
+    );
     // Lights in Bevy world space: model offset and bearing, then the
     // light node's rest-pose position.
     let mut lights = Vec::new();

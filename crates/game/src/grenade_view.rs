@@ -183,7 +183,7 @@ fn spawn_model(
     let (model, textures) = read.as_ref()?;
     let (images, stores) = assets.split();
     let mut spawning = Spawning {
-        spawner: Spawner::new(textures, scene.0.area_light(), images),
+        spawner: Spawner::sharing(textures, scene.0.area_light(), images, &scene.0.images),
         stores,
         hazes,
         textures,

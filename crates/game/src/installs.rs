@@ -132,6 +132,7 @@ fn log_streams(game: Game, notes: &[String], base: &Resolver) {
     for note in notes {
         bevy::log::warn!(target: "installs", game = game.key(), "{note}");
     }
+    log_texture_packs(game, base);
     log_story_files(game, base);
     for layer in &base.streams {
         bevy::log::info!(
@@ -152,6 +153,44 @@ fn log_streams(game: Game, notes: &[String], base: &Resolver) {
             target: "installs",
             game = game.key(),
             "no music: the install's streammusic folder is missing or holds no sound files"
+        );
+    }
+}
+
+/// Logs how many files each texture pack the base resolver reads holds, and
+/// warns when one is missing. The game's own textures for the menus, the
+/// areas and the characters are in these two archives, so without them the
+/// game draws untextured meshes and particles as plain squares. It also
+/// warns of every archive of the install that was there but did not open.
+fn log_texture_packs(game: Game, base: &Resolver) {
+    for pack in ["swpc_tex_gui.erf", TextureQuality::High.pack()] {
+        let name = format!("texturepacks/{pack}");
+        match base.layers.iter().find(|layer| layer.name == name) {
+            Some(layer) => bevy::log::info!(
+                target: "installs",
+                game = game.key(),
+                "texture pack {name} holds {} files",
+                layer.resources.len()
+            ),
+            None => bevy::log::warn!(
+                target: "installs",
+                game = game.key(),
+                "texture pack {name} is missing or does not open, so the textures in it are drawn as missing"
+            ),
+        }
+    }
+    let archive = |source: &str| {
+        [".erf", ".rim", ".mod", ".key"]
+            .iter()
+            .any(|ext| source.to_ascii_lowercase().ends_with(ext))
+    };
+    for problem in base.problems.iter().filter(|p| archive(&p.source)) {
+        bevy::log::warn!(
+            target: "installs",
+            game = game.key(),
+            "{} was not read: {}",
+            problem.source,
+            problem.problem
         );
     }
 }
