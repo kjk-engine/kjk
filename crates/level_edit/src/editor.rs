@@ -50,6 +50,11 @@ pub enum Edit {
     },
     AddProp(Prop),
     AddBox(CollisionBox),
+    /// A link between floors that walkers jump or drop across
+    /// (`area::NavLink`).
+    AddLink(crate::area::NavLink),
+    /// The link at this place taken out.
+    RemoveLink(usize),
     /// A box to a new size.
     Resize(usize, [f32; 3]),
     /// A prop to a new scale.
@@ -627,6 +632,25 @@ impl Editor {
                 }
                 kjk.props.push(prop);
                 Ok(Some(Target::Prop(kjk.props.len() - 1)))
+            }
+            Edit::AddLink(link) => {
+                if !link
+                    .from
+                    .iter()
+                    .chain(&link.to)
+                    .all(|value| value.is_finite())
+                {
+                    return Err("a link's ends must be finite".into());
+                }
+                kjk.links.push(link);
+                Ok(self.selected)
+            }
+            Edit::RemoveLink(at) => {
+                if at >= kjk.links.len() {
+                    return Err(format!("there is no link {at}"));
+                }
+                kjk.links.remove(at);
+                Ok(self.selected)
             }
             Edit::AddBox(mut shape) => {
                 if shape.size.iter().any(|side| *side < SMALLEST_SIDE) {

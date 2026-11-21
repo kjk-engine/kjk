@@ -44,6 +44,19 @@ pub struct KjkArea {
     /// map's here as `[[lamp]]` tables, an installed level's in
     /// `data/lights/fittings.toml`.
     pub lamps: Vec<crate::lamps::PlacedLamp>,
+    /// The links between floors that walkers jump or drop across
+    /// (`collision::nav::Link`), as `[[link]]` tables.
+    pub links: Vec<NavLink>,
+}
+
+/// A way between two floors the navigation mesh does not join: a jump
+/// (crossed either way) or a drop (from `from` down to `to` only), from
+/// where a walker leaves to where it lands (metres, the feet).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NavLink {
+    pub kind: collision::nav::LinkKind,
+    pub from: [f32; 3],
+    pub to: [f32; 3],
 }
 
 /// A Jedi Academy model placed in the area.
@@ -342,6 +355,18 @@ impl KjkArea {
             area.lamps
                 .push(crate::lamps::PlacedLamp::read(table).map_err(bad)?);
         }
+        for table in tables("link") {
+            let kind = match text(table.get("kind"), "a link's kind")?.as_str() {
+                "jump" => collision::nav::LinkKind::Jump,
+                "drop" => collision::nav::LinkKind::Drop,
+                _ => return Err(bad("a link's kind is not jump or drop")),
+            };
+            area.links.push(NavLink {
+                kind,
+                from: triple(table.get("from"), "a link's from")?,
+                to: triple(table.get("to"), "a link's to")?,
+            });
+        }
         Ok(area)
     }
 
@@ -383,6 +408,18 @@ impl KjkArea {
         }
         for lamp in &self.lamps {
             out.push_str(&format!("\n[[lamp]]\n{}", lamp.table(&[])));
+        }
+        for link in &self.links {
+            let kind = match link.kind {
+                collision::nav::LinkKind::Jump => "jump",
+                collision::nav::LinkKind::Drop => "drop",
+            };
+            out.push_str(&format!(
+                "\n[[link]]\nkind = {}\nfrom = {}\nto = {}\n",
+                quote(kind),
+                triple(link.from),
+                triple(link.to),
+            ));
         }
         out
     }

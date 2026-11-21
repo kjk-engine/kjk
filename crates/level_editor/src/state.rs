@@ -129,6 +129,12 @@ pub(crate) struct NavFacts {
     /// Whether a new map's entry stands on no face of the mesh (routes are
     /// then counted from the largest island).
     pub(crate) entry_off: bool,
+    /// Each link between floors (`KjkArea::links`), in order: whether the
+    /// mesh takes it and a plain jump or a drop crosses it, else why not.
+    pub(crate) links: Vec<Result<(), String>>,
+    /// Faces of other islands that the links lead to from the one routes
+    /// are counted from.
+    pub(crate) by_links: usize,
 }
 
 /// A room's level as its stored lightmaps show it, about as `kjk
@@ -1164,11 +1170,30 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         textures.extend([NAV_COVERED, NAV_HELD]);
         let boxes = state.editor.project.kjk.boxes.clone();
         let entry = state.editor.project.map.as_ref().map(|map| map.entry);
+        let wanted: Vec<_> = (state.editor.project.kjk.links.iter())
+            .map(|link| (link.kind, link.from, link.to))
+            .collect();
         if let Some(built) = state.collision() {
             let floor = level_edit::nav::edited(built.collision.nav_faces(), &boxes);
             let mut nav =
                 collision::nav::NavMesh::build(&floor, sim::walk::CLEARANCE * collision::UNIT);
             nav.mark(&built.collision.level);
+            // The links between floors, as play adds them, each checked as
+            // the containment audit moves a player: a plain jump, or a drop.
+            let mut checks: Vec<Result<(), String>> = vec![Ok(()); wanted.len()];
+            for (at, why) in nav.add_links(&wanted) {
+                checks[at] = Err(why);
+            }
+            for (check, (kind, from, to)) in checks.iter_mut().zip(&wanted) {
+                if check.is_ok() {
+                    *check = collision::jumps::link_lands(
+                        &built.collision.level,
+                        (*from, *to),
+                        collision::jumps::PLAIN_JUMP,
+                        *kind == collision::nav::LinkKind::Drop,
+                    );
+                }
+            }
             let mut sizes = vec![0usize; nav.islands];
             for face in &nav.faces {
                 sizes[face.island as usize] += 1;
@@ -1203,17 +1228,40 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
                 overlay.meshes.append(&mut part.meshes);
             }
             scene.models.push(Placed::at(overlay, [0.0; 3]));
+            // The islands the links lead to from the main one.
+            let mut reached: std::collections::BTreeSet<u32> = main.into_iter().collect();
+            loop {
+                let more: Vec<u32> = (nav.links.iter())
+                    .flat_map(|link| {
+                        reached
+                            .iter()
+                            .filter_map(|island| link.crossed_from(&nav, *island))
+                            .filter_map(|(_, land)| nav.island_at(land, 0.5, 0.5))
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|island| !reached.contains(island))
+                    .collect();
+                if more.is_empty() {
+                    break;
+                }
+                reached.extend(more);
+            }
+            let apart_of = |counted: &dyn Fn(u32) -> bool| {
+                nav.faces
+                    .iter()
+                    .filter(|face| !counted(face.island))
+                    .count()
+            };
+            let apart = apart_of(&|island| Some(island) == main);
             state.nav_facts = Some(NavFacts {
                 faces: nav.faces.len(),
                 islands: nav.islands,
                 portals: nav.portals(),
                 from,
-                apart: nav
-                    .faces
-                    .iter()
-                    .filter(|face| Some(face.island) != main)
-                    .count(),
+                apart,
                 entry_off,
+                links: checks,
+                by_links: apart - apart_of(&|island| reached.contains(&island)),
             });
         }
     }
@@ -2263,6 +2311,26 @@ pub(crate) fn command(
             ..,
         ]
         | ["item", _, "drops" | "infinite", _] => field_command(state, words)?,
+        ["navlink", kind @ ("jump" | "drop"), x1, y1, z1, x2, y2, z2] => {
+            let number = |word: &str| {
+                word.parse::<f32>()
+                    .map_err(|_| format!("{word:?} is not a number"))
+            };
+            let kind = if *kind == "jump" {
+                collision::nav::LinkKind::Jump
+            } else {
+                collision::nav::LinkKind::Drop
+            };
+            state.apply(Edit::AddLink(level_edit::area::NavLink {
+                kind,
+                from: [number(x1)?, number(y1)?, number(z1)?],
+                to: [number(x2)?, number(y2)?, number(z2)?],
+            }));
+        }
+        ["navlink", "remove", at] => {
+            let at: usize = at.parse().map_err(|_| format!("{at:?} is not a number"))?;
+            state.apply(Edit::RemoveLink(at));
+        }
         ["collision", on @ ("on" | "off")] => {
             state.show_collision = *on == "on";
             state.quiet = SETTLE_FRAMES;
@@ -3669,6 +3737,11 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
                 "from": nav.from,
                 "apart": nav.apart,
                 "entry_off": nav.entry_off,
+                "by_links": nav.by_links,
+                "links": nav.links.iter().map(|check| match check {
+                    Ok(()) => "crossed".to_string(),
+                    Err(why) => why.clone(),
+                }).collect::<Vec<_>>(),
             })),
             "prop_models": state.prop_models.iter().map(|(path, read)| match read {
                 Ok(model) => serde_json::json!({

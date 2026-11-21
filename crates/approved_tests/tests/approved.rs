@@ -7506,6 +7506,142 @@ fn level_edit_turned_rooms() {
     assert_eq!(read.rooms, map.rooms);
 }
 
+/// A project's links between floors (`docs/LEVEL-EDIT.md`, "Links between
+/// floors"; `docs/NAV.md`): the navigation mesh takes a link only between
+/// floors it does not join, finds the first link of a way between islands
+/// (a jump either way, a drop down only), routes on foot as it did, and
+/// writes a mesh without links as before; a jump or a drop is checked as
+/// the containment audit moves a player; a project's area file keeps its
+/// links. No installs.
+#[test]
+fn level_edit_nav_links() {
+    use collision::jumps::{PLAIN_JUMP, link_lands};
+    use collision::nav::{LinkKind, NavMesh};
+    use collision::{BoxWorld, Solid};
+    use level_edit::area::{KjkArea, NavLink};
+
+    // Two floors that do not meet: the ground, and a platform's top a metre
+    // up beside it.
+    let square = |(x0, x1): (f32, f32), (y0, y1): (f32, f32), z: f32| {
+        vec![
+            [[x0, y0, z], [x1, y0, z], [x1, y1, z]],
+            [[x0, y0, z], [x1, y1, z], [x0, y1, z]],
+        ]
+    };
+    let mut floor = square((-5.0, 5.0), (-5.0, 5.0), 0.0);
+    floor.extend(square((6.0, 10.0), (-2.0, 2.0), 1.0));
+    let plain = NavMesh::build(&floor, 0.4);
+    assert_eq!(plain.islands, 2);
+    let mut nav = plain.clone();
+    let refused = nav.add_links(&[
+        (LinkKind::Jump, [4.5, 0.0, 0.0], [7.0, 0.0, 1.0]),
+        (LinkKind::Drop, [9.5, 0.0, 1.0], [30.0, 0.0, 0.0]),
+        (LinkKind::Jump, [0.0, 0.0, 0.0], [2.0, 0.0, 0.0]),
+    ]);
+    assert_eq!(
+        refused.iter().map(|(at, _)| *at).collect::<Vec<_>>(),
+        [1, 2],
+        "an end over no floor, and ends on one floor, are left out"
+    );
+    assert_eq!(nav.links.len(), 1);
+    let ground = nav.island_at([0.0, 0.0, 0.0], 0.5, 0.5).unwrap();
+    let top = nav.island_at([8.0, 0.0, 1.0], 0.5, 0.5).unwrap();
+    assert_eq!(
+        nav.first_link(ground, top),
+        Some(([4.5, 0.0, 0.0], [7.0, 0.0, 1.0]))
+    );
+    assert_eq!(
+        nav.first_link(top, ground),
+        Some(([7.0, 0.0, 1.0], [4.5, 0.0, 0.0])),
+        "a jump goes back the other way"
+    );
+    assert_eq!(nav.first_link(ground, ground), None);
+    let mut dropping = plain.clone();
+    dropping.add_links(&[(LinkKind::Drop, [7.0, 0.0, 1.0], [4.5, 0.0, 0.0])]);
+    assert_eq!(
+        dropping.first_link(top, ground),
+        Some(([7.0, 0.0, 1.0], [4.5, 0.0, 0.0]))
+    );
+    assert_eq!(
+        dropping.first_link(ground, top),
+        None,
+        "a drop goes down only"
+    );
+    assert!(nav.link_between([7.0, 0.0, 1.0], [4.5, 0.0, 0.0]).is_some());
+    assert!(
+        dropping
+            .link_between([4.5, 0.0, 0.0], [7.0, 0.0, 1.0])
+            .is_none()
+    );
+    // On foot, every route is as it was.
+    let (a, b) = ([-4.0, -4.0, 0.0], [4.0, 3.0, 0.0]);
+    assert_eq!(
+        nav.route(a, b, false, &|_| true),
+        plain.route(a, b, false, &|_| true)
+    );
+    assert!(nav.route(a, [8.0, 0.0, 1.0], false, &|_| true).is_none());
+    // Written and read back; a mesh without links writes as before, and
+    // its links follow.
+    assert_eq!(NavMesh::decode(&nav.encode()).unwrap(), nav);
+    assert_eq!(NavMesh::decode(&plain.encode()).unwrap(), plain);
+    assert!(nav.encode().starts_with(&plain.encode()));
+    assert_ne!(nav.digest(), plain.digest());
+
+    // The jump and the drop checked on boxes: the ground, and the platform
+    // a metre high.
+    let world =
+        BoxWorld::floor(20.0, 0.0, 1.0).with(Solid::level([6.0, -2.0, 0.0], [10.0, 2.0, 1.0]));
+    assert_eq!(
+        link_lands(
+            &world,
+            ([4.5, 0.0, 0.0], [7.0, 0.0, 1.0]),
+            PLAIN_JUMP,
+            false
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        link_lands(
+            &world,
+            ([9.5, 0.0, 1.0], [12.0, 0.0, 0.0]),
+            PLAIN_JUMP,
+            true
+        ),
+        Ok(())
+    );
+    let refused = |world: &BoxWorld, ends, drop| {
+        link_lands(world, ends, PLAIN_JUMP, drop).expect_err("refused")
+    };
+    let tall =
+        BoxWorld::floor(20.0, 0.0, 1.0).with(Solid::level([6.0, -2.0, 0.0], [10.0, 2.0, 2.5]));
+    assert!(refused(&tall, ([4.5, 0.0, 0.0], [7.0, 0.0, 2.5]), false).contains("higher"));
+    let walled = world
+        .clone()
+        .with(Solid::level([5.5, -3.0, 0.0], [5.7, 3.0, 3.0]));
+    assert!(refused(&walled, ([4.5, 0.0, 0.0], [7.0, 0.0, 1.0]), false).contains("in the way"));
+    assert!(refused(&world, ([4.5, 0.0, 0.0], [7.0, 0.0, 1.0]), true).contains("goes down"));
+    assert!(
+        refused(&world, ([9.5, 0.0, 1.0], [25.0, 0.0, 0.0]), true).contains("nothing to land on")
+    );
+    assert!(refused(&world, ([-4.0, 0.0, 0.0], [4.0, 0.0, 0.0]), false).contains("carries"));
+
+    // A project's area file keeps its links.
+    let mut area = KjkArea::default();
+    area.links.push(NavLink {
+        kind: LinkKind::Jump,
+        from: [4.5, 0.0, 0.0],
+        to: [7.0, 0.0, 1.0],
+    });
+    area.links.push(NavLink {
+        kind: LinkKind::Drop,
+        from: [9.5, 0.0, 1.0],
+        to: [12.0, 0.0, 0.0],
+    });
+    let text = area.write();
+    assert!(text.contains("kind = \"drop\""), "{text}");
+    assert_eq!(KjkArea::parse(&text).unwrap(), area);
+}
+
 /// The level editor's data (`level_edit`, proposed 2026-11-19, awaiting
 /// approval): a GIT made here with one creature, one placeable and one
 /// waypoint. The editor moves, turns, copies and deletes them, adds a

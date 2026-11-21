@@ -17,6 +17,13 @@
 //! routes. A face a door or placeable stands on (in its closed, in-place
 //! state: `mark`) carries that entity, and a route passes it only where the
 //! caller says it may (an open or openable door).
+//!
+//! A level editor project may add links (`Link`): a jump or a drop between
+//! two floors the mesh does not join, placed as a pair of points. A link
+//! joins the islands of the faces under its ends, and a walker takes one
+//! only where no way leads on foot (`sim::walk`), so every route of a mesh
+//! is the same with links or without. A mesh with no links writes and
+//! digests as it did before links were made.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
@@ -108,6 +115,47 @@ const ROUND_SHARES: u32 = 8;
 /// rounder corners leave the mesh (`route`).
 const PULL_SHARES: u32 = 4;
 
+/// How a link is crossed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkKind {
+    /// A jump, either way: up onto a ledge, or across a gap.
+    Jump,
+    /// A drop, from `from` down to `to` only.
+    Drop,
+}
+
+/// A way between two floors the mesh does not join (`NavMesh::add_links`):
+/// where a walker leaves the floor and where it lands (metres, the feet),
+/// and the faces under them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Link {
+    pub kind: LinkKind,
+    pub from: Vec3,
+    pub to: Vec3,
+    pub from_face: u32,
+    pub to_face: u32,
+}
+
+impl Link {
+    /// Its ends as a walker crosses it from the island `island`: where it
+    /// leaves and where it lands. `None` when it is not crossed from there
+    /// (a drop's lower end).
+    pub fn crossed_from(&self, mesh: &NavMesh, island: u32) -> Option<(Vec3, Vec3)> {
+        let island_of = |face: u32| mesh.faces.get(face as usize).map(|face| face.island);
+        if island_of(self.from_face) == Some(island) {
+            Some((self.from, self.to))
+        } else if self.kind == LinkKind::Jump && island_of(self.to_face) == Some(island) {
+            Some((self.to, self.from))
+        } else {
+            None
+        }
+    }
+}
+
+/// How far (metres) under and over a link's end its face is looked for.
+const LINK_BELOW: f32 = 0.5;
+const LINK_ABOVE: f32 = 0.5;
+
 /// See the module documentation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NavMesh {
@@ -122,6 +170,8 @@ pub struct NavMesh {
     pub steep: usize,
     /// The body's half-width it was baked for (metres).
     pub radius: f32,
+    /// The ways between floors a project adds (`add_links`).
+    pub links: Vec<Link>,
 }
 
 fn cross_z(a: Vec3, b: Vec3) -> f32 {
@@ -257,6 +307,7 @@ impl NavMesh {
             islands: 0,
             steep,
             radius,
+            links: Vec::new(),
         };
         // Shared edges: every pair of faces on one edge, each edge kept as
         // its face winds it.
@@ -706,6 +757,90 @@ impl NavMesh {
             })
             .min_by(|a, b| a.0.total_cmp(&b.0))
             .map(|(_, spot)| spot)
+    }
+
+    /// Adds the links `wanted` (each its kind, where it leaves and where it
+    /// lands, metres), each over the faces under its ends. A link with an
+    /// end over no face is left out, and so is one whose ends are on one
+    /// island already. Returns each one left out, by its place in `wanted`,
+    /// with why.
+    pub fn add_links(&mut self, wanted: &[(LinkKind, Vec3, Vec3)]) -> Vec<(usize, String)> {
+        let mut refused = Vec::new();
+        for (at, (kind, from, to)) in wanted.iter().enumerate() {
+            let (Some(from_face), Some(to_face)) = (
+                self.locate(*from, LINK_BELOW, LINK_ABOVE),
+                self.locate(*to, LINK_BELOW, LINK_ABOVE),
+            ) else {
+                refused.push((at, "an end is over no walkable floor".to_string()));
+                continue;
+            };
+            if self.faces[from_face as usize].island == self.faces[to_face as usize].island {
+                refused.push((
+                    at,
+                    "its ends are joined by floor already, so walkers walk there".to_string(),
+                ));
+                continue;
+            }
+            self.links.push(Link {
+                kind: *kind,
+                from: *from,
+                to: *to,
+                from_face,
+                to_face,
+            });
+        }
+        refused
+    }
+
+    /// The first link on the fewest links from the island `from` to the
+    /// island `to`, as a walker crosses it (`Link::crossed_from`): where it
+    /// leaves and where it lands. The links are tried in their order, so
+    /// every machine takes the same. `None` when no links lead there.
+    pub fn first_link(&self, from: u32, to: u32) -> Option<(Vec3, Vec3)> {
+        if from == to || self.links.is_empty() {
+            return None;
+        }
+        // Back from the goal: the islands that reach `to`, by how many
+        // links away, then the first link out of `from` one nearer.
+        let mut away: BTreeMap<u32, usize> = BTreeMap::new();
+        away.insert(to, 0);
+        let mut frontier = vec![to];
+        let mut steps = 0;
+        while !frontier.is_empty() && !away.contains_key(&from) && steps < self.links.len() {
+            steps += 1;
+            let mut next = Vec::new();
+            for link in &self.links {
+                for island in 0..self.islands as u32 {
+                    if away.contains_key(&island) {
+                        continue;
+                    }
+                    let lands = link
+                        .crossed_from(self, island)
+                        .and_then(|(_, land)| self.island_at(land, LINK_BELOW, LINK_ABOVE));
+                    if lands.is_some_and(|landed| frontier.contains(&landed)) {
+                        away.insert(island, steps);
+                        next.push(island);
+                    }
+                }
+            }
+            frontier = next;
+        }
+        let distance = *away.get(&from)?;
+        self.links.iter().find_map(|link| {
+            let (leave, land) = link.crossed_from(self, from)?;
+            let landed = self.island_at(land, LINK_BELOW, LINK_ABOVE)?;
+            (away.get(&landed) == Some(&(distance - 1))).then_some((leave, land))
+        })
+    }
+
+    /// The link a walker crosses from `leave` to `land` (metres, as
+    /// `first_link` gives them), if one does.
+    pub fn link_between(&self, leave: Vec3, land: Vec3) -> Option<&Link> {
+        let same = |a: Vec3, b: Vec3| (0..3).all(|axis| a[axis].to_bits() == b[axis].to_bits());
+        self.links.iter().find(|link| {
+            same(link.from, leave) && same(link.to, land)
+                || link.kind == LinkKind::Jump && same(link.to, leave) && same(link.from, land)
+        })
     }
 
     /// The island of the face under `point` (`locate`), if any.
@@ -1251,6 +1386,18 @@ impl NavMesh {
             out.len(count);
         }
         out.f32(self.radius);
+        // Links follow only where there are any, so a mesh without them
+        // writes as before.
+        if !self.links.is_empty() {
+            out.len(self.links.len());
+            for link in &self.links {
+                out.u32(u32::from(link.kind == LinkKind::Drop));
+                out.vec3(link.from);
+                out.vec3(link.to);
+                out.u32(link.from_face);
+                out.u32(link.to_face);
+            }
+        }
         out.0
     }
 
@@ -1299,6 +1446,23 @@ impl NavMesh {
         let mut count = || input.u32().map(|count| count as usize);
         let (shared, seams, islands, steep) = (count()?, count()?, count()?, count()?);
         let radius = input.f32()?;
+        let mut links = Vec::new();
+        if !input.0.is_empty() {
+            for _ in 0..input.len(36)? {
+                let kind = if input.u32()? == 1 {
+                    LinkKind::Drop
+                } else {
+                    LinkKind::Jump
+                };
+                links.push(Link {
+                    kind,
+                    from: input.vec3()?,
+                    to: input.vec3()?,
+                    from_face: input.u32()?,
+                    to_face: input.u32()?,
+                });
+            }
+        }
         input.finish()?;
         let len = faces.len() as u32;
         let inside = |face: &u32| *face < len;
@@ -1306,6 +1470,9 @@ impl NavMesh {
             .iter()
             .all(|face| face.portals.iter().all(|portal| inside(&portal.to)))
             || !grid.values().all(|list: &Vec<u32>| list.iter().all(inside))
+            || !links
+                .iter()
+                .all(|link| inside(&link.from_face) && inside(&link.to_face))
         {
             return Err(crate::pack::Bad("a face index past the mesh"));
         }
@@ -1317,6 +1484,7 @@ impl NavMesh {
             islands,
             steep,
             radius,
+            links,
         })
     }
 
@@ -1342,6 +1510,15 @@ impl NavMesh {
                     floats(&mut hasher, &point);
                 }
             }
+        }
+        // Links join the digest only where there are any.
+        for link in &self.links {
+            hasher.update(b"link");
+            hasher.update(&u32::from(link.kind == LinkKind::Drop).to_le_bytes());
+            floats(&mut hasher, &link.from);
+            floats(&mut hasher, &link.to);
+            hasher.update(&link.from_face.to_le_bytes());
+            hasher.update(&link.to_face.to_le_bytes());
         }
         *hasher.finalize().as_bytes()
     }

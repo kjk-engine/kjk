@@ -793,6 +793,12 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
     let walkable = level_edit::active::nav_faces(&request.game, &request.module, built.nav_faces());
     let mut nav = collision::nav::NavMesh::build(&walkable, sim::walk::CLEARANCE * collision::UNIT);
     nav.mark(&built.level);
+    // Its links between floors. One over no floor, or between floors
+    // joined already, is left out; the level editor says why.
+    let _ = nav.add_links(&level_edit::active::nav_links(
+        &request.game,
+        &request.module,
+    ));
     Ok(Area {
         collision: Arc::new(built.level),
         nav: Arc::new(nav),

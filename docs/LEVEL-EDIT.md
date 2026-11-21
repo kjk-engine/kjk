@@ -337,6 +337,48 @@ and the containment audit bake the mesh with the active project's changes
 (`level_edit::nav`). An installed module without a project bakes as
 before.
 
+### Links between floors
+
+The mesh joins two floors only where they share an edge. A ledge or a
+platform a metre up is an island of its own, and the game's characters
+have no way onto it. A **link** gives them one. A link is a pair of
+points, where a character leaves the floor and where it lands, and it is
+one of two kinds:
+
+- A **jump** is crossed either way: up onto the ledge and back down, or
+  across a gap.
+- A **drop** is crossed downward only: the character steps off the edge
+  and falls to where it lands.
+
+With the Nav switch on, the details panel lists the project's links under
+**Links between floors**. **Add a jump** and **Add a drop** each take two
+clicks on the floor in the view: where characters leave, then where they
+land. Each link is drawn in the view as an arc from a ring where
+characters leave to a dot where they land.
+
+Each link is checked the way the containment audit moves a player
+(`collision::jumps::link_lands`). A jump goes up as high as it needs to,
+across, then down. It must reach no higher than a plain jump reaches,
+1.68 m, and no farther than a plain jump carries, about 3.6 m. A drop
+rises a step over the edge's lip, goes across, then falls. Both must meet
+nothing on the way and land on floor a character can stand on, within
+0.5 m of the link's end. A link that passes is drawn green and marked
+"crossed". One that fails is drawn red and marked "not crossed", with the
+reason under it. The mesh also leaves out a link with an end over no
+floor, and a link whose ends are on one island already. The Navigation
+facts then say how many of the faces not reached on foot the links lead
+to.
+
+A character takes a link only where no way leads on foot, so every walk
+that works today is the same with links. It walks to where the link
+leaves, then jumps toward where it lands (a drop's walker walks off the
+edge), and plans on from where it lands (`sim::walk`). The project keeps
+its links in `kjk-area.toml` as `[[link]]` tables, each with its `kind`
+(`jump` or `drop`), `from` and `to`. Play, scripted moves, followers and
+fighters chasing a foe all use them. `kjk --project NAME collision walk
+GAME MODULE --from X,Y,Z --to X,Y,Z` walks one character between two
+points for real, across the links, and says where it arrived.
+
 ## Several levels in one project
 
 Every module of KOTOR holds one area, so a level is a module and its area.
@@ -1027,6 +1069,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit collision on`, `edit collision off` | shows or hides the collision |
 | `edit nav on`, `edit nav off` | shows or hides the navigation mesh |
 | `edit role solid`, `walkable`, `block`, `floor` | gives the selected box a role |
+| `edit navlink jump X1 Y1 Z1 X2 Y2 Z2`, `edit navlink drop ...` | adds a link between floors, from where characters leave to where they land |
+| `edit navlink remove N` | takes out the Nth link, from 0 |
 | `edit light view game`, `live`, `lamps`, `baked [FOLDER]` | lights the view's rooms so |
 | `edit lights on`, `edit lights off` | shows or hides the lights |
 | `edit add light point`, `spot`, `panel`, `strip` `[X Y Z]` | places a light by hand |
@@ -1149,6 +1193,9 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_nav_links` adds links between two made-up floors, finds the
+  first link of a way, keeps routes on foot as they were, writes a mesh
+  without links as before, and checks jumps and drops on boxes.
 - `level_edit_turned_rooms` turns a made-up room's walkmesh and model,
   finds a point on the same face before and after, and has the map keep
   the room's yaw.

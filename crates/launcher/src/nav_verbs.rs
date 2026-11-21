@@ -272,7 +272,16 @@ pub fn nav(
 }
 
 /// `kjk collision walk`.
-pub fn walk(discovery: &Discovery, game: &str, module: &str, routes: usize, seed: u64) -> ExitCode {
+/// With `pair` (the feet, metres), one walk from its first point to its
+/// second in place of drawn ones, which may cross a project's links
+/// between floors (`sim::walk::Walker`), allowed 30 s.
+pub fn walk(
+    discovery: &Discovery,
+    game: &str,
+    module: &str,
+    (routes, seed): (usize, u64),
+    pair: Option<([f32; 3], [f32; 3])>,
+) -> ExitCode {
     use sim::{Kind, Seat, SimWorld, StepReason, TickInput, TickRate, step};
     // Its scenes left out: a trigger's conversation holds the walker where
     // it stands (the North Apartments' interrogation, Sarna's party).
@@ -341,22 +350,29 @@ pub fn walk(discovery: &Discovery, game: &str, module: &str, routes: usize, seed
     let pick = |state: &mut u64| {
         origin_of(mesh.faces[pool[(draw(state) % pool.len() as u64) as usize]].centre)
     };
+    let routes = if pair.is_some() { 1 } else { routes };
     for _ in 0..routes {
         // A pair with a way between them (the rest lie behind locked doors).
-        let (from, goal, first) = loop {
+        let (from, goal, first) = if let Some((from, to)) = pair {
+            (origin_of(from), origin_of(to), Vec::new())
+        } else { loop {
             let (from, goal) = (pick(&mut state), pick(&mut state));
             if let Some(first) = sim::walk::route(&level, from, goal, &states_of(&start)) {
                 break (from, goal, first);
             }
             behind += 1;
-        };
+        } };
         let mut length = 0.0;
         let mut at = from;
         for corner in &first {
             length += collision::nav::flat_length(at, *corner);
             at = *corner;
         }
-        let allowed = (3.0 * length / motion::BASE_SPEED * 1000.0) as u64 + 2000;
+        let allowed = if pair.is_some() {
+            30_000
+        } else {
+            (3.0 * length / motion::BASE_SPEED * 1000.0) as u64 + 2000
+        };
         let mut snapshot = start.clone();
         snapshot.entities[me].player = Some(motion::MotionState::standing(from, 0.0));
         let mut walker =
@@ -375,7 +391,17 @@ pub fn walk(discovery: &Discovery, game: &str, module: &str, routes: usize, seed
                     walk.waypoint.map(|p| p.map(|v| v.round()))
                 ));
             }
-            if walk.arrived(&player) {
+            // A chosen walk arrives at its goal's height too: on the upper
+            // floor, not under it.
+            let level_with = pair.is_none() || (player.origin[2] - goal[2]).abs() <= 20.0;
+            if walk.arrived(&player) && level_with {
+                if pair.is_some() {
+                    outln!(
+                        "  arrived at {:?} after {} ms",
+                        player.origin.map(|v| (v * UNIT * 100.0).round() / 100.0),
+                        last.time_ms - start.time_ms
+                    );
+                }
                 break Ok(last.time_ms - start.time_ms);
             }
             if last.time_ms - start.time_ms > allowed {

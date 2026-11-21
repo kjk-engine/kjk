@@ -214,6 +214,21 @@ pub fn nav_faces(game: &str, module: &str, floor: Vec<[[f32; 3]; 3]>) -> Vec<[[f
     }
 }
 
+/// The links between floors the active project adds to the navigation
+/// mesh of `game`'s `module` (`collision::nav::NavMesh::add_links`): each
+/// its kind, where it leaves and where it lands.
+pub fn nav_links(game: &str, module: &str) -> Vec<(collision::nav::LinkKind, [f32; 3], [f32; 3])> {
+    added(game, module)
+        .and(get())
+        .and_then(|active| active.project.kjk_of(module))
+        .map_or_else(Vec::new, |kjk| {
+            kjk.links
+                .iter()
+                .map(|link| (link.kind, link.from, link.to))
+                .collect()
+        })
+}
+
 /// The lights placed by hand in the active project's new map, when
 /// `module` is it: the game reads them in place of `fittings.toml`'s
 /// (`game::fitted_lights`). An installed level's are saved to that file.

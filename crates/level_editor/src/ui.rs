@@ -173,6 +173,9 @@ pub struct UiState {
     number_drag: Option<(String, f64)>,
     /// The encounter whose spawn points are placed by clicks on the floor.
     spawning: Option<Target>,
+    /// A link between floors being placed: its kind, and where it leaves
+    /// once the first click has set it.
+    placing_link: Option<(collision::nav::LinkKind, Option<[f32; 3]>)>,
     /// The agent link while it is on (`agent`), and a copy of the
     /// selection asked for.
     link: Option<crate::agent::Link>,
@@ -247,6 +250,7 @@ impl Default for UiState {
             row_filters: BTreeMap::new(),
             number_drag: None,
             spawning: None,
+            placing_link: None,
             link: std::env::var("KJK_EDITOR_LINK")
                 .is_ok_and(|on| on == "1")
                 .then(crate::agent::Link::open)
@@ -1442,6 +1446,7 @@ fn details(
                         );
                         area_settings(ui, state, ui_state);
                         ways_in(ui, state, ui_state);
+                        nav_links(ui, state, ui_state);
                         messages(ui, state);
                         return;
                     };
@@ -4650,6 +4655,84 @@ fn tried(ui: &mut egui::Ui, state: &EditorState, name: &str) {
     });
 }
 
+/// The links between floors, under the navigation mesh's facts while it
+/// is shown: each link, whether a walker crosses it, and why not; a jump or
+/// a drop added by two clicks on the floor.
+fn nav_links(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
+    use collision::nav::LinkKind;
+    if !state.show_nav {
+        return;
+    }
+    ui.separator();
+    ui.label(egui::RichText::new("Links between floors").strong());
+    ui.label(
+        egui::RichText::new(
+            "Characters jump or drop across a link where no way leads on foot. A jump goes \
+             either way; a drop goes down only.",
+        )
+        .small(),
+    );
+    let links = state.editor.project.kjk.links.clone();
+    let checks = state.nav_facts.as_ref().map(|nav| nav.links.clone());
+    let mut remove = None;
+    for (at, link) in links.iter().enumerate() {
+        ui.horizontal(|ui| {
+            let kind = if link.kind == LinkKind::Jump {
+                "Jump"
+            } else {
+                "Drop"
+            };
+            let rise = link.to[2] - link.from[2];
+            ui.label(format!("{} {kind}, {rise:+.1} m", at + 1));
+            match checks.as_ref().and_then(|checks| checks.get(at)) {
+                Some(Ok(())) => {
+                    ui.colored_label(egui::Color32::from_rgb(120, 220, 120), "crossed");
+                }
+                Some(Err(why)) => {
+                    ui.colored_label(egui::Color32::from_rgb(235, 110, 90), "not crossed")
+                        .on_hover_text(why);
+                }
+                None => {}
+            }
+            if ui.small_button("Remove").clicked() {
+                remove = Some(at);
+            }
+        });
+        if let Some(Err(why)) = checks.as_ref().and_then(|checks| checks.get(at)) {
+            ui.label(egui::RichText::new(why).small());
+        }
+    }
+    if let Some(at) = remove {
+        state.apply(Edit::RemoveLink(at));
+    }
+    match ui_state.placing_link {
+        Some((_, None)) => {
+            ui.label("Click the floor where characters leave. Escape stops.");
+        }
+        Some((_, Some(_))) => {
+            ui.label("Click the floor where they land.");
+        }
+        None => {
+            ui.horizontal(|ui| {
+                if ui
+                    .button("Add a jump")
+                    .on_hover_text("Two clicks on the floor: where characters jump from, then where they land.")
+                    .clicked()
+                {
+                    ui_state.placing_link = Some((LinkKind::Jump, None));
+                }
+                if ui
+                    .button("Add a drop")
+                    .on_hover_text("Two clicks on the floor: the edge characters step off, then where they land below.")
+                    .clicked()
+                {
+                    ui_state.placing_link = Some((LinkKind::Drop, None));
+                }
+            });
+        }
+    }
+}
+
 fn messages(ui: &mut egui::Ui, state: &EditorState) {
     if state.show_nav
         && let Some(nav) = &state.nav_facts
@@ -4667,10 +4750,16 @@ fn messages(ui: &mut egui::Ui, state: &EditorState) {
             format!("Every face is reached from {}.", nav.from)
         } else {
             format!(
-                "{} faces are not reached from {}: the game's characters cannot get there.",
+                "{} faces are not reached from {} on foot: the game's characters cannot walk there.",
                 nav.apart, nav.from
             )
         });
+        if nav.by_links > 0 {
+            ui.label(format!(
+                "The links lead to {} of those faces.",
+                nav.by_links
+            ));
+        }
     }
     ui.separator();
     ui.label(egui::RichText::new("Messages").strong());
@@ -5163,6 +5252,59 @@ fn outline_in_view(
         state::ray_at(cameras, Vec2::new(at.x, at.y)).and_then(|ray| state::ground(state, ray))
     };
     let colour = egui::Color32::from_rgb(255, 200, 60);
+    // The links between floors: an arc from where characters leave to
+    // where they land, green where they cross it, red where not.
+    let checks = state.nav_facts.as_ref().map(|nav| nav.links.clone());
+    for (at, link) in state.editor.project.kjk.links.iter().enumerate() {
+        let tint = match checks.as_ref().and_then(|checks| checks.get(at)) {
+            Some(Ok(())) => egui::Color32::from_rgb(120, 220, 120),
+            Some(Err(_)) => egui::Color32::from_rgb(235, 110, 90),
+            None => egui::Color32::from_rgb(230, 210, 120),
+        };
+        let top = link.from[2].max(link.to[2]) + 0.8;
+        let points: Vec<egui::Pos2> = (0..=12)
+            .filter_map(|step| {
+                let t = step as f32 / 12.0;
+                let along: [f32; 3] = std::array::from_fn(|axis| {
+                    link.from[axis] + (link.to[axis] - link.from[axis]) * t
+                });
+                let lift = 4.0 * t * (1.0 - t) * (top - along[2].max(link.from[2].min(link.to[2])));
+                to_screen([along[0], along[1], along[2] + lift.max(0.0)])
+            })
+            .collect();
+        painter.add(egui::Shape::line(points, egui::Stroke::new(2.5, tint)));
+        if let (Some(leave), Some(land)) = (to_screen(link.from), to_screen(link.to)) {
+            painter.circle_stroke(leave, 5.0, egui::Stroke::new(2.0, tint));
+            painter.circle_filled(land, 5.0, tint);
+        }
+    }
+    if let Some((kind, leave)) = ui_state.placing_link {
+        if let Some(from) = leave
+            && let Some(at) = to_screen(from)
+        {
+            painter.circle_stroke(at, 6.0, egui::Stroke::new(2.0, colour));
+        }
+        if response.clicked()
+            && let Some(at) = response.interact_pointer_pos()
+            && let Some(point) = floor_under(state, at)
+        {
+            match leave {
+                None => ui_state.placing_link = Some((kind, Some(point))),
+                Some(from) => {
+                    state.apply(Edit::AddLink(level_edit::area::NavLink {
+                        kind,
+                        from,
+                        to: point,
+                    }));
+                    ui_state.placing_link = None;
+                }
+            }
+        }
+        if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+            ui_state.placing_link = None;
+        }
+        return true;
+    }
     // The selected encounter's spawn points, each a ring with a tick the
     // way it faces.
     if let Some(Target::Object(Kind::Encounter, index)) = state.editor.selected {

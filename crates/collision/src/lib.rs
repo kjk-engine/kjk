@@ -38,6 +38,7 @@ mod brush;
 mod brushes;
 pub mod clip_file;
 mod digester;
+pub mod jumps;
 mod level;
 pub mod libm;
 pub mod nav;

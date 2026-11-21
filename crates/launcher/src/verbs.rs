@@ -1431,6 +1431,13 @@ pub(crate) enum CollisionVerb {
         /// The draw's seed
         #[arg(long, default_value_t = 1)]
         seed: u64,
+        /// One walk from here (the feet, metres: X,Y,Z) in place of drawn
+        /// ones, which may cross a project's links between floors
+        #[arg(long, value_delimiter = ',', requires = "to")]
+        from: Option<Vec<f32>>,
+        /// Where that walk goes (the feet, metres: X,Y,Z)
+        #[arg(long, value_delimiter = ',', requires = "from")]
+        to: Option<Vec<f32>>,
     },
     /// The navigation mesh: bake it from the walkable faces, route
     /// between drawn points of its largest island and check every route.
@@ -2374,7 +2381,22 @@ fn collision(verb: CollisionVerb) -> ExitCode {
             module,
             routes,
             seed,
-        } => nav_verbs::walk(&discover(), &game, &module, routes, seed),
+            from,
+            to,
+        } => {
+            let point = |values: &[f32]| (values.len() == 3).then(|| [values[0], values[1], values[2]]);
+            let pair = match from.zip(to) {
+                Some((from, to)) => match (point(&from), point(&to)) {
+                    (Some(from), Some(to)) => Some((from, to)),
+                    _ => {
+                        eprintln!("--from and --to each take three numbers: X,Y,Z");
+                        return ExitCode::FAILURE;
+                    }
+                },
+                None => None,
+            };
+            nav_verbs::walk(&discover(), &game, &module, (routes, seed), pair)
+        }
         CollisionVerb::Nav {
             module,
             routes,
