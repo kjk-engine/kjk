@@ -222,7 +222,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 92: a script's applied effect keeps whether a mine that a character laid
 /// applied it (`Applied::laid`). Old saves: old saves read no laid mine, so an
 /// effect applied in the step before the save keeps its old meaning.
-pub const VERSION: u32 = 92 + crate::pending::SAVE;
+/// 93: Effect::Resurrection carries its nHPPercent (tag 19 when non-zero; tag
+/// 12 stays 0). Old saves: old saves carry tag 12 for Effect::Resurrection(0);
+/// tag 19 adds the health percentage..
+pub const VERSION: u32 = 93 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
