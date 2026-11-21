@@ -416,13 +416,29 @@ impl ItemFacts {
             .is_none_or(|droids| droids == (race == crate::combat::sheet::races::DROID))
     }
 
-    /// The `spells.2da` row it casts that an item button takes (a grenade,
-    /// a medpac, a shield, a stim: `combat::items::use_of`), if one.
+    /// The `spells.2da` row it casts that an item button may take, if one.
+    /// A row the engine names (a grenade, a medpac, a shield, a stim:
+    /// `combat::items::use_of`) is taken from any item. Any other row is
+    /// taken only from an item that is equipped in a slot to be used, as
+    /// the energy shields are. Such an item is activated where it is worn,
+    /// and its row's impact script does what it does (`Use::Activated`).
+    /// `kinds` checks the row's data before the button takes it.
     pub fn combat_row(&self) -> Option<u16> {
         self.spell
             .map(|spell| spell.row)
-            .filter(|row| items::use_of(*row).is_some())
+            .filter(|row| items::use_of(*row).is_some() || self.slots != 0)
     }
+}
+
+/// What a `spells.2da` row's data says to the item buttons (`kinds`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RowUse {
+    /// The row names an impact script that the level has (`impactscript`).
+    pub scripted: bool,
+    /// An item casting the row uses it on the item's own user: the row is
+    /// not used on a foe (`hostilesetting`), or the row says it is used on
+    /// the user (`itemtargeting` 1, as the energy shields' rows do).
+    pub on_user: bool,
 }
 
 /// An item's Cast Spell property (`itempropdef.2da` row 10): the
@@ -1269,21 +1285,27 @@ fn add_guards(guards: &mut Guards, more: &Guards) {
 }
 
 /// What `held` (items and their uses left) gives a sheet of race `race` to
-/// use in a fight: its consumables, the items whose Cast Spell property
-/// casts a row with an impact script (`scripted`: the games' `spells.2da`
-/// `impactscript`, which does what the item does) that an item button
-/// takes (`ItemFacts::combat_row`) and that are for its race
-/// (`ItemFacts::fits`), counted by their uses, every kind.
+/// use in a fight, counted by their uses, every kind. An item is taken when
+/// its Cast Spell property casts a row that an item button takes
+/// (`ItemFacts::combat_row`), the item is for its race (`ItemFacts::fits`),
+/// and `rows` says the row has an impact script (the games' `spells.2da`
+/// `impactscript`, which does what the item does). A row the engine does
+/// not name is taken only when its item uses it on its own user as well:
+/// a droid's worn stun ray is used on a foe, not by a button.
 pub fn kinds<'a>(
     race: u8,
     held: impl IntoIterator<Item = (u16, &'a ItemFacts)>,
-    scripted: impl Fn(u16) -> bool,
+    rows: impl Fn(u16) -> RowUse,
 ) -> Vec<Carried> {
     let mut kinds: Vec<Carried> = Vec::new();
     for (uses, facts) in held {
+        let taken = |row: &u16| {
+            let data = rows(*row);
+            data.scripted && (items::use_of(*row).is_some() || data.on_user)
+        };
         let Some(row) = facts
             .combat_row()
-            .filter(|row| uses > 0 && facts.fits(race) && scripted(*row))
+            .filter(|row| uses > 0 && facts.fits(race) && taken(row))
         else {
             continue;
         };
@@ -1301,10 +1323,10 @@ pub fn kinds<'a>(
 pub fn usable<'a>(
     race: u8,
     held: impl IntoIterator<Item = (u16, &'a ItemFacts)>,
-    scripted: impl Fn(u16) -> bool,
+    rows: impl Fn(u16) -> RowUse,
     picks: Option<&crate::combat::picks::Picks>,
 ) -> [Option<Carried>; items::KINDS] {
-    let kinds = kinds(race, held, scripted);
+    let kinds = kinds(race, held, rows);
     let kept = match picks {
         Some(picks) if kinds.len() > items::KINDS => {
             picks.slotted(&kinds, race == crate::combat::sheet::races::DROID)

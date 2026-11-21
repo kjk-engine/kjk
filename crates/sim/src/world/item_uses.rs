@@ -25,6 +25,9 @@ mod probes;
 #[cfg(feature = "probes")]
 pub use probes::probes;
 
+#[cfg(feature = "probes")]
+pub use probes::activated::probes as activated_probes;
+
 /// A character as the step found it: who holds its carried items (the
 /// party, or itself), its sheet and its uses not yet taken from them.
 #[derive(Clone, PartialEq)]
@@ -122,7 +125,7 @@ pub(super) fn usable(
                 .filter_map(|holder| ready.get(holder))
                 .flatten()
                 .map(|(uses, facts)| (*uses, *facts)),
-            |row| library.impact(row).is_some(),
+            |row| library.item_row(row),
             (from != who.0).then_some(&sheet.picks),
         );
         let took = |row: u16| {

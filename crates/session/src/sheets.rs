@@ -1712,21 +1712,28 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             worn.push((slot, facts));
         }
     }
-    // Consumables cast a spell whose row names an impact script.
-    let scripted: Vec<u16> = usable
+    // Consumables cast a spell whose row names an impact script, as
+    // `sim::script::Library::item_row` reads the row.
+    let rows: BTreeMap<u16, inventory::RowUse> = usable
         .iter()
         .filter_map(|(_, facts)| facts.combat_row())
-        .filter(|row| {
-            tables
-                .text("spells", usize::from(*row), "impactscript")
-                .is_some_and(|script| !script.is_empty())
+        .map(|row| {
+            let at = usize::from(row);
+            let data = inventory::RowUse {
+                scripted: tables
+                    .text("spells", at, "impactscript")
+                    .is_some_and(|script| !script.is_empty()),
+                on_user: tables.int("spells", at, "hostilesetting") != Some(1)
+                    || tables.int("spells", at, "itemtargeting") == Some(1),
+            };
+            (row, data)
         })
         .collect();
     Some(Sheet {
         items: inventory::usable(
             race,
             usable.iter().map(|(uses, facts)| (*uses, facts)),
-            |row| scripted.contains(&row),
+            |row| rows.get(&row).copied().unwrap_or_default(),
             None,
         ),
         ..inventory::dress(naked, worn.iter().map(|(slot, facts)| (*slot, facts)))

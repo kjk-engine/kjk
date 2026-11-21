@@ -1855,6 +1855,18 @@ impl Library {
                 .is_none_or(|talent| !talent.shown)
     }
 
+    /// What `spells.2da` row `row` says to the item buttons
+    /// (`inventory::kinds`): whether its impact script is here, and whether
+    /// an item casting it uses it on its own user (`Talent::on_user`, or a
+    /// row not used on a foe).
+    pub fn item_row(&self, row: u16) -> crate::inventory::RowUse {
+        let talent = self.spell(row);
+        crate::inventory::RowUse {
+            scripted: self.impact(row).is_some(),
+            on_user: !talent.hostile || talent.on_user,
+        }
+    }
+
     pub fn impact(&self, row: u16) -> Option<&str> {
         let name = self.talents.impacts.get(usize::from(row))?;
         self.programs

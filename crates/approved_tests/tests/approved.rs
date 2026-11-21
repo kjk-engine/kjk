@@ -4685,6 +4685,105 @@ fn item_uses() {
     probed("item uses", &sim::item_uses::probes(), 30);
 }
 
+/// An item that the game's data says is equipped and activated works as
+/// an energy shield does (`sim::item_uses::activated_probes`). The 2021
+/// Schematic Lightsaber Mod for KOTOR 2 makes its schematics datapads that
+/// the player equips in the shield slot and activates, and kjk never
+/// offered to activate them. A UTI made here is such a datapad. Its base
+/// item is the shields' row of a made-up `baseitems.2da` (row 46, equipped
+/// on either arm, item type 20). Its Activate Item property casts a
+/// `spells.2da` row that the engine does not name, with ten charges and one
+/// spent a use. Read as the game reads templates, it is equipped on the
+/// arms and casts that row. Worn on the right arm, it is one of the
+/// character's item kinds and a carried one is not. The shield button
+/// activates it with the shield's clip, spends a charge of the worn one and
+/// casts its row on its wearer. No installs (proposed 2026-11-21, awaiting
+/// approval).
+#[test]
+fn worn_items_activate() {
+    use asset_odyssey::made::{Files, gff, node};
+    use asset_odyssey::module::Source;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::GffValue;
+    use fmt_odyssey::twoda::TwoDa;
+    use std::collections::BTreeMap;
+
+    const TEMPLATE: &str = "schematic";
+    // A row past both games' own tables, as a mod's patcher appends one.
+    const ROW: u16 = 300;
+    let table = |columns: &[&str], rows: Vec<Vec<&str>>| {
+        let bytes = |text: &&str| text.as_bytes().to_vec();
+        TwoDa {
+            columns: columns.iter().map(bytes).collect(),
+            row_labels: (0..rows.len())
+                .map(|n| n.to_string().into_bytes())
+                .collect(),
+            cells: rows
+                .iter()
+                .map(|row| row.iter().map(bytes).collect())
+                .collect(),
+            column_separator: b'\t',
+            row_separator: b'\t',
+        }
+        .write()
+    };
+    let blank = |rows: usize, width: usize| vec![vec!["****"; width]; rows];
+    let mut baseitems = blank(46, 4);
+    baseitems.push(vec!["Forearm_Bands", "0x00180", "20", "1"]);
+    let mut itempropdef = blank(10, 1);
+    itempropdef.push(vec!["CastSpell"]);
+    let activate = node(vec![
+        ("PropertyName", GffValue::Word(10)),
+        ("Subtype", GffValue::Word(ROW)),
+        ("CostValue", GffValue::Byte(6)),
+    ]);
+    let uti = gff(
+        b"UTI ",
+        vec![
+            ("BaseItem", GffValue::Int(46)),
+            ("Charges", GffValue::Byte(10)),
+            ("StackSize", GffValue::Word(1)),
+            ("PropertiesList", GffValue::List(vec![activate])),
+        ],
+    );
+    let files = Files(BTreeMap::from([
+        (
+            "baseitems.2da".into(),
+            table(
+                &["label", "equipableslots", "itemtype", "stacking"],
+                baseitems,
+            ),
+        ),
+        ("itempropdef.2da".into(), table(&["label"], itempropdef)),
+        (format!("{TEMPLATE}.uti"), uti),
+    ]));
+    // The made files, listing the one template.
+    struct Listed(Files);
+    impl Source for Listed {
+        fn read(&self, resref: &str, restype: ResType) -> Option<Vec<u8>> {
+            self.0.read(resref, restype)
+        }
+        fn exists(&self, resref: &str, restype: ResType) -> bool {
+            self.0.exists(resref, restype)
+        }
+        fn names(&self, restype: ResType) -> Vec<String> {
+            if restype == ResType::UTI {
+                vec![TEMPLATE.into()]
+            } else {
+                Vec::new()
+            }
+        }
+    }
+    let (catalog, unread) = session::item_catalog(&Listed(files));
+    let facts = catalog.get(TEMPLATE).expect("the datapad reads");
+    let arms = 1 << sim::inventory::slots::LEFT_ARM | 1 << sim::inventory::slots::RIGHT_ARM;
+    assert!(unread.is_empty(), "unread {unread:?}");
+    assert_eq!(facts.slots, arms, "equipped on either arm");
+    assert!(facts.shield, "the shields' item type");
+    assert_eq!(facts.spell.map(|spell| spell.row), Some(ROW));
+    probed("worn items", &sim::item_uses::activated_probes(facts), 4);
+}
+
 /// Item properties beyond combat (`sim::inventory::probes`): an item's
 /// best bonus of a kind with its penalties, typed extras and Keen; two
 /// items' scores, skills, saves, dodge defence, defence against a race and
