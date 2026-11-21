@@ -7642,6 +7642,244 @@ fn level_edit_nav_links() {
     assert_eq!(KjkArea::parse(&text).unwrap(), area);
 }
 
+/// Many objects at once (`docs/LEVEL-EDIT.md`, "Many objects at once"):
+/// three objects and a prop selected, moved, turned round their middle,
+/// copied and deleted together, each as one undo step; and objects copied
+/// out of one project, with the template of its own they use, and pasted
+/// into another, where a template of that name holding something else is
+/// pasted under a new name. No installs.
+#[test]
+fn level_edit_selection() {
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue};
+    use level_edit::area::Prop;
+    use level_edit::clip::Clip;
+    use level_edit::template::Template;
+    use level_edit::{Edit, Editor, Kind, Project, Target, git};
+
+    let folder = std::env::temp_dir().join(format!("kjk-selection-{}", std::process::id()));
+    let mut editor = Editor::new(Project::new(&folder, "k1", "danm13", "m13aa", git::empty()));
+    for (kind, template, at) in [
+        (Kind::Placeable, "plc_chair1", [0.0, 0.0, 0.0]),
+        (Kind::Placeable, "plc_chair2", [2.0, 0.0, 0.0]),
+        (Kind::Creature, "n_guard", [0.0, 2.0, 0.0]),
+    ] {
+        editor
+            .apply(Edit::AddObject {
+                kind,
+                template: template.into(),
+                position: at,
+                facing: 0.0,
+                base: None,
+            })
+            .unwrap();
+    }
+    editor
+        .apply(Edit::AddProp(Prop {
+            name: "crate".into(),
+            model: "models/map_objects/crate.md3".into(),
+            position: [2.0, 2.0, 0.0],
+            yaw: 0.0,
+            scale: 1.0,
+            solid: false,
+        }))
+        .unwrap();
+    let (chair, other, guard, prop) = (
+        Target::Object(Kind::Placeable, 0),
+        Target::Object(Kind::Placeable, 1),
+        Target::Object(Kind::Creature, 0),
+        Target::Prop(0),
+    );
+    // Selected one by one with Ctrl: the last clicked shows its details.
+    editor.select(Some(chair), false);
+    editor.select(Some(other), true);
+    editor.select(Some(guard), true);
+    editor.select(Some(prop), true);
+    assert_eq!(editor.selected, Some(prop));
+    assert_eq!(editor.selection().len(), 4);
+    editor.select(Some(prop), true);
+    assert_eq!(
+        editor.selection(),
+        [guard, other, chair],
+        "Ctrl on a selected one takes it out"
+    );
+    editor.select(Some(prop), true);
+    assert_eq!(editor.selection_centre(), Some([1.0, 1.0, 0.0]));
+    // A selection set another way stands alone.
+    editor.selected = Some(chair);
+    assert_eq!(editor.selection(), [chair]);
+    editor.select_all(vec![prop, guard, other, chair]);
+
+    // Moved together, one undo step.
+    let depth = editor.undo_depth();
+    editor.apply_many(editor.moves_by([1.0, 0.0, 0.5])).unwrap();
+    assert_eq!(editor.undo_depth(), depth + 1);
+    assert_eq!(editor.placement(chair).unwrap().0, [1.0, 0.0, 0.5]);
+    assert_eq!(editor.placement(prop).unwrap().0, [3.0, 2.0, 0.5]);
+    assert_eq!(
+        editor.selection(),
+        [prop, guard, other, chair],
+        "the selection stays"
+    );
+    assert!(editor.undo());
+    assert_eq!(editor.placement(chair).unwrap().0, [0.0, 0.0, 0.0]);
+    assert_eq!(editor.placement(prop).unwrap().0, [2.0, 2.0, 0.0]);
+    assert_eq!(
+        editor.selection().len(),
+        4,
+        "undo brings the selection back"
+    );
+
+    // Turned a quarter round their middle: each moves round it and turns.
+    let centre = editor.selection_centre().unwrap();
+    editor
+        .apply_many(editor.turns_round(centre, 90.0, (1.0, 0.0)))
+        .unwrap();
+    let (at, facing) = editor.placement(chair).unwrap();
+    assert!((at[0] - 2.0).abs() < 1e-5 && at[1].abs() < 1e-5, "{at:?}");
+    assert!((facing - 90.0).abs() < 1e-4);
+    let (at, _) = editor.placement(prop).unwrap();
+    assert!(at[0].abs() < 1e-5 && (at[1] - 2.0).abs() < 1e-5, "{at:?}");
+    assert!(editor.undo());
+
+    // Copied together: the copies are selected.
+    editor
+        .apply_many(
+            editor
+                .selection()
+                .into_iter()
+                .map(Edit::Duplicate)
+                .collect(),
+        )
+        .unwrap();
+    assert_eq!(editor.selection().len(), 4);
+    assert!(!editor.selection().contains(&chair));
+    assert_eq!(editor.entries().len(), 6);
+    assert_eq!(editor.project.kjk.props.len(), 2);
+    assert!(editor.undo());
+    assert_eq!(editor.entries().len(), 3);
+
+    // Deleted together, the lists from their ends, one undo step.
+    editor.select_all(vec![chair, other, prop]);
+    editor.apply_many(editor.deletes()).unwrap();
+    assert_eq!(editor.entries().len(), 1);
+    assert!(editor.project.kjk.props.is_empty());
+    assert!(editor.selection().is_empty());
+    assert!(editor.undo());
+    assert_eq!(editor.entries().len(), 3);
+    assert!(
+        editor.apply_many(Vec::new()).is_err(),
+        "nothing to do is refused"
+    );
+
+    // A copy of the chair with a template of the project's own, and the
+    // prop, pasted into another project of the same game.
+    let template = |marker: u8| Template {
+        restype: fmt_odyssey::ResType::UTP,
+        from: "plc_chair1".into(),
+        gff: Gff {
+            file_type: *b"UTP ",
+            root: GffStruct {
+                id: u32::MAX,
+                fields: vec![GffField {
+                    label: b"Useable".to_vec(),
+                    value: GffValue::Byte(marker),
+                }],
+            },
+        },
+    };
+    editor
+        .project
+        .templates
+        .insert("kje1_plc_chair1".into(), template(1));
+    git::set_template(
+        &mut editor.project.git,
+        Kind::Placeable,
+        0,
+        "kje1_plc_chair1",
+    );
+    let clip = Clip::of(&editor.project, &[chair, prop], [1.0, 1.0, 0.0]);
+    assert_eq!(clip.entries.len(), 1);
+    assert_eq!(clip.templates.len(), 1);
+    let text = clip.write();
+    assert!(text.starts_with(level_edit::clip::HEAD));
+    assert_eq!(
+        Clip::read(&text).unwrap(),
+        clip,
+        "a copy reads back as written"
+    );
+
+    let mut other_project = Editor::new(Project::new(
+        &folder.join("other"),
+        "k1",
+        "danm14aa",
+        "m14aa",
+        git::empty(),
+    ));
+    // Its own template of that name holds something else.
+    other_project
+        .project
+        .templates
+        .insert("kje1_plc_chair1".into(), template(0));
+    other_project
+        .apply(Edit::Paste {
+            clip: Box::new(Clip::read(&text).unwrap()),
+            at: [10.0, 10.0, 1.0],
+            taken: vec!["kje2_plc_chair1".into()],
+        })
+        .unwrap();
+    let pasted = other_project.entries();
+    assert_eq!(pasted.len(), 1);
+    assert_eq!(
+        pasted[0].position,
+        [9.0, 9.0, 1.0],
+        "the copy's middle lands where asked"
+    );
+    assert_eq!(
+        pasted[0].template, "kje3_plc_chair1",
+        "a template of the same name holding something else is pasted under a name the install does not take"
+    );
+    assert_eq!(
+        other_project.project.templates["kje3_plc_chair1"],
+        template(1)
+    );
+    assert_eq!(
+        other_project.project.templates["kje1_plc_chair1"],
+        template(0)
+    );
+    assert_eq!(
+        other_project.project.kjk.props[0].position,
+        [11.0, 11.0, 1.0]
+    );
+    assert_eq!(
+        other_project.selection().len(),
+        2,
+        "what was pasted is selected"
+    );
+    assert!(other_project.undo());
+    assert!(other_project.entries().is_empty());
+    // Pasted again into the same project, the same template is used.
+    editor
+        .apply(Edit::Paste {
+            clip: Box::new(clip.clone()),
+            at: [1.0, 1.0, 0.0],
+            taken: Vec::new(),
+        })
+        .unwrap();
+    assert_eq!(editor.entries()[3].template, "kje1_plc_chair1");
+    // A copy of the other game's is refused.
+    let mut tsl = clip.clone();
+    tsl.game = "tsl".into();
+    assert!(
+        editor
+            .apply(Edit::Paste {
+                clip: Box::new(tsl),
+                at: [0.0; 3],
+                taken: Vec::new(),
+            })
+            .is_err()
+    );
+}
+
 /// The level editor's data (`level_edit`, proposed 2026-11-19, awaiting
 /// approval): a GIT made here with one creature, one placeable and one
 /// waypoint. The editor moves, turns, copies and deletes them, adds a

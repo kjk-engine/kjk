@@ -173,6 +173,8 @@ pub struct UiState {
     number_drag: Option<(String, f64)>,
     /// The encounter whose spawn points are placed by clicks on the floor.
     spawning: Option<Target>,
+    /// Where a drag that selects everything in its box began.
+    boxing: Option<egui::Pos2>,
     /// A link between floors being placed: its kind, and where it leaves
     /// once the first click has set it.
     placing_link: Option<(collision::nav::LinkKind, Option<[f32; 3]>)>,
@@ -251,6 +253,7 @@ impl Default for UiState {
             number_drag: None,
             spawning: None,
             placing_link: None,
+            boxing: None,
             link: std::env::var("KJK_EDITOR_LINK")
                 .is_ok_and(|on| on == "1")
                 .then(crate::agent::Link::open)
@@ -358,7 +361,7 @@ fn pick_pending(
     if let Some((camera, eye)) = cameras.iter().next() {
         let shown = crate::markers::layout(state, camera, eye);
         if let Some(target) = crate::markers::under(&shown, egui::pos2(point.x, point.y)) {
-            state.editor.selected = Some(target);
+            state.editor.select(Some(target), state.pending_pick_adds);
             state.say(format!("picked {target:?}"));
             return;
         }
@@ -366,7 +369,8 @@ fn pick_pending(
     match state::ray_at(&cameras, point) {
         Some(ray) => {
             let floor = state::ground(state, ray);
-            state.editor.selected = state::pick(state, &scene.0, ray, floor);
+            let picked = state::pick(state, &scene.0, ray, floor);
+            state.editor.select(picked, state.pending_pick_adds);
             let (origin, direction) = (ray.0.to_array(), ray.1.to_array());
             match state.editor.selected {
                 Some(target) => state.say(format!("picked {target:?}")),
@@ -505,10 +509,23 @@ fn rows(matrix: Mat4) -> mint::RowMatrix4<f64> {
     }
 }
 
+/// The facing (degrees about Z) of a gizmo's transform.
+fn gizmo_facing(transform: &GizmoTransform) -> f32 {
+    let q = transform.rotation;
+    let rotation = bevy::math::DQuat::from_xyzw(q.v.x, q.v.y, q.v.z, q.s);
+    let ahead = rotation * bevy::math::DVec3::X;
+    ahead.y.atan2(ahead.x).to_degrees() as f32
+}
+
 /// The selection as the gizmo moves it: where it stands, its turn about Z,
-/// and its scale (a prop's, uniform) or size (a box's).
+/// and its scale (a prop's, uniform) or size (a box's). Several selected,
+/// it stands in their middle, turned as the one whose details show.
 fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform> {
-    let (position, facing) = state.editor.placement(target)?;
+    let (mut position, facing) = state.editor.placement(target)?;
+    let several = state.editor.selection().len() > 1;
+    if several {
+        position = state.editor.selection_centre()?;
+    }
     let scale = match target {
         Target::Prop(at) => Vec3::splat(state.editor.project.kjk.props.get(at)?.scale),
         Target::Box(at) => Vec3::from_array(state.editor.project.kjk.boxes.get(at)?.size),
@@ -523,6 +540,7 @@ fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform
     let mut r = bevy::math::DQuat::from_rotation_z(f64::from(facing).to_radians());
     // A lamp turns on every axis: its yaw, then its pitch, then its roll.
     if let Target::Lamp(at) = target
+        && !several
         && let Some(lamp) = state.editor.project.kjk.lamps.get(at)
     {
         r = lamp_turn(lamp);
@@ -900,6 +918,26 @@ fn panels(
         let words: Vec<&str> = command.split_whitespace().collect();
         state::run(state, &words, &cameras);
     }
+    // Objects copied go to the window's clipboard; a copy pasted there
+    // (Ctrl+V, with no field being typed in) is pasted where the view looks.
+    if let Some(text) = state.copied.take() {
+        ctx.copy_text(text);
+    }
+    if !ctx.egui_wants_keyboard_input() {
+        let pasted = ctx.input(|input| {
+            input.events.iter().find_map(|event| match event {
+                egui::Event::Paste(text) if text.starts_with(level_edit::clip::HEAD) => {
+                    Some(text.clone())
+                }
+                _ => None,
+            })
+        });
+        if let Some(text) = pasted
+            && let Err(why) = state::paste(state, &text, &cameras)
+        {
+            state.say(why);
+        }
+    }
     // The selection copied as text for an agent, and the agent link's turn.
     if std::mem::take(&mut ui.copy_asked) {
         ctx.copy_text(crate::agent::selection_text(state, &cameras));
@@ -967,6 +1005,8 @@ fn shortcuts(
         {
             ui.copy_asked = true;
             &[]
+        } else if pressed(KeyCode::KeyC) {
+            &["copy"]
         } else {
             &[]
         };
@@ -1012,7 +1052,7 @@ fn shortcuts(
         state::run(state, &["audit"], cameras);
     }
     if pressed(KeyCode::Escape) {
-        state.editor.selected = None;
+        state.editor.select(None, false);
     }
     if pressed(KeyCode::Enter)
         && let Some(asset) = ui.picked.clone()
@@ -1210,6 +1250,7 @@ fn outliner(
             let matches =
                 |text: &str| search.is_empty() || text.to_ascii_lowercase().contains(&search);
             let entries = state.editor.entries();
+            let selection = state.editor.selection();
             let mut clicked: Option<(Target, bool)> = None;
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for kind in Kind::ALL {
@@ -1230,8 +1271,7 @@ fn outliner(
                         .show(ui, |ui| {
                             for (index, text) in rows {
                                 let target = Target::Object(kind, index);
-                                let row = ui
-                                    .selectable_label(state.editor.selected == Some(target), text);
+                                let row = ui.selectable_label(selection.contains(&target), text);
                                 if row.clicked() {
                                     clicked = Some((target, false));
                                 }
@@ -1272,8 +1312,7 @@ fn outliner(
                                 } else {
                                     Target::Box(at)
                                 };
-                                let row = ui
-                                    .selectable_label(state.editor.selected == Some(target), text);
+                                let row = ui.selectable_label(selection.contains(&target), text);
                                 if row.clicked() {
                                     clicked = Some((target, false));
                                 }
@@ -1300,8 +1339,7 @@ fn outliner(
                         .show(ui, |ui| {
                             for (at, text) in rows {
                                 let target = Target::Room(at);
-                                let row = ui
-                                    .selectable_label(state.editor.selected == Some(target), text);
+                                let row = ui.selectable_label(selection.contains(&target), text);
                                 if row.clicked() {
                                     clicked = Some((target, false));
                                 }
@@ -1348,8 +1386,7 @@ fn outliner(
                         .default_open(false)
                         .show(ui, |ui| {
                             let mut row = |ui: &mut egui::Ui, target: Target, text: String| {
-                                let row = ui
-                                    .selectable_label(state.editor.selected == Some(target), text);
+                                let row = ui.selectable_label(selection.contains(&target), text);
                                 if row.clicked() {
                                     clicked = Some((target, false));
                                 }
@@ -1384,8 +1421,7 @@ fn outliner(
                         .show(ui, |ui| {
                             for (at, text) in lamps {
                                 let target = Target::Lamp(at);
-                                let row = ui
-                                    .selectable_label(state.editor.selected == Some(target), text);
+                                let row = ui.selectable_label(selection.contains(&target), text);
                                 if row.clicked() {
                                     clicked = Some((target, false));
                                 }
@@ -1397,7 +1433,8 @@ fn outliner(
                 }
             });
             if let Some((target, frame)) = clicked {
-                state.editor.selected = Some(target);
+                let adds = ui.ctx().input(|input| input.modifiers.command);
+                state.editor.select(Some(target), adds && !frame);
                 if frame {
                     frame_selection(state, camera_request, cameras);
                 }
@@ -1450,6 +1487,15 @@ fn details(
                         messages(ui, state);
                         return;
                     };
+                    let together = state.editor.selection().len();
+                    if together > 1 {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{together} things are selected. Move, Rotate, Duplicate (Ctrl+D), Delete and copying them (Ctrl+C) act on all of them. The details below are the first one's."
+                            ))
+                            .small(),
+                        );
+                    }
                     let facts = state::describe(state, target);
                     let text = |key: &str| facts[key].as_str().map(str::to_string);
                     egui::Grid::new("facts").num_columns(2).show(ui, |ui| {
@@ -5186,9 +5232,44 @@ fn viewport(
                     pixels_per_point: ctx.pixels_per_point(),
                     ..GizmoConfig::default()
                 });
+                let several = state.editor.selection().len() > 1;
                 if let Some((result, moved)) = ui_state.gizmo.interact(ui, &[transform]) {
                     on_gizmo = true;
-                    if let Some(moved) = moved.first() {
+                    if several && let Some(moved) = moved.first() {
+                        // Everything selected moves, or turns round the
+                        // middle of it, by what the gizmo did.
+                        let was = (transform.translation, gizmo_facing(&transform));
+                        let edits = match result {
+                            GizmoResult::Translation { .. } => {
+                                let by = [
+                                    moved.translation.x - was.0.x,
+                                    moved.translation.y - was.0.y,
+                                    moved.translation.z - was.0.z,
+                                ]
+                                .map(|v| v as f32);
+                                state.editor.moves_by(by)
+                            }
+                            GizmoResult::Rotation { .. } | GizmoResult::Arcball { .. } => {
+                                let turned =
+                                    (gizmo_facing(moved) - was.1 + 540.0).rem_euclid(360.0) - 180.0;
+                                let centre = [was.0.x, was.0.y, was.0.z].map(|v| v as f32);
+                                state.editor.turns_round(
+                                    centre,
+                                    turned,
+                                    collision::trig::sin_cos_deg(turned),
+                                )
+                            }
+                            GizmoResult::Scale { .. } => Vec::new(),
+                        };
+                        if !edits.is_empty() {
+                            if ui_state.dragging {
+                                state.apply_many_continuing(edits);
+                            } else {
+                                state.apply_many(edits);
+                                ui_state.dragging = true;
+                            }
+                        }
+                    } else if let Some(moved) = moved.first() {
                         let lamp = match target {
                             Target::Lamp(at) => state.editor.project.kjk.lamps.get(at).cloned(),
                             _ => None,
@@ -5218,6 +5299,57 @@ fn viewport(
                 && let Some(at) = response.interact_pointer_pos()
             {
                 state.pending_pick = Some(Vec2::new(at.x, at.y));
+                state.pending_pick_adds = ctx.input(|input| input.modifiers.command);
+            }
+            // A drag from an empty part of the view selects everything whose
+            // marker lies in its box (with Ctrl, joins the selection).
+            if response.drag_started_by(egui::PointerButton::Primary)
+                && !on_gizmo
+                && !looking
+                && let Some(at) = response.interact_pointer_pos()
+            {
+                ui_state.boxing = Some(at);
+            }
+            if let Some(from) = ui_state.boxing {
+                let to = ctx.pointer_latest_pos().unwrap_or(from);
+                let area = egui::Rect::from_two_pos(from, to);
+                let painter = ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("selection box"),
+                ));
+                painter.rect_filled(
+                    area,
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(120, 180, 255, 30),
+                );
+                painter.rect_stroke(
+                    area,
+                    0.0,
+                    egui::Stroke::new(1.5, egui::Color32::from_rgb(120, 180, 255)),
+                    egui::StrokeKind::Inside,
+                );
+                if !ctx.input(|input| input.pointer.primary_down()) {
+                    ui_state.boxing = None;
+                    if area.width() > 4.0 && area.height() > 4.0 {
+                        let shown = crate::markers::layout(state, camera, eye);
+                        let inside: Vec<Target> = (shown.iter())
+                            .filter(|marker| area.contains(marker.at))
+                            .map(|marker| marker.target)
+                            .collect();
+                        let mut all = if ctx.input(|input| input.modifiers.command) {
+                            state.editor.selection()
+                        } else {
+                            Vec::new()
+                        };
+                        for target in inside {
+                            if !all.contains(&target) {
+                                all.push(target);
+                            }
+                        }
+                        state.say(format!("{} selected", all.len()));
+                        state.editor.select_all(all);
+                    }
+                }
             }
             // An asset dropped from the picker is placed where the pointer
             // meets the level.

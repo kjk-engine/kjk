@@ -379,6 +379,44 @@ fighters chasing a foe all use them. `kjk --project NAME collision walk
 GAME MODULE --from X,Y,Z --to X,Y,Z` walks one character between two
 points for real, across the links, and says where it arrived.
 
+## Many objects at once
+
+Several things can be selected at once: objects, Jedi Academy props,
+collision boxes, lamps and lights.
+
+- **Ctrl+click** in the view or in the outliner adds a thing to the
+  selection, or takes a selected one out of it. The last one added is the
+  one whose details show.
+- **A drag from an empty part of the view** selects everything whose
+  marker lies in the box it draws. With Ctrl held, the box adds to the
+  selection.
+- The outliner marks every selected row, and the details panel says how
+  many things are selected.
+
+With several selected, the gizmo stands in their middle. The Move tool
+moves them all by the same amount. The Rotate tool turns them all round
+their middle: each one moves round it and turns as much, but a trigger's
+or an encounter's outline only moves. Ctrl+D copies them all in place,
+and the copies are then selected. Delete deletes them all. Each of these
+is one edit, and one undo takes all of it back.
+
+**Ctrl+C** copies what is selected to the clipboard, and **Ctrl+V** in
+another editor, or in the same one, pastes it with its middle where the
+view looks at the level. A copy holds each object's entry as the level
+has it, the templates the objects use (the project's own and the game's),
+and the props, boxes, lamps and lights. A paste is one edit, and what it
+pastes is selected. A template the level being pasted into reads the same
+already stays out of the project. A template whose name the level uses
+for something else is pasted under a new name, `kje`, a number and the
+name, and its objects point to it. A copy from KOTOR 1 is not pasted into
+a TSL project, or the other way round.
+
+A copy does not carry the scripts and conversations its templates name.
+A creature copied out of a module whose own archive holds its
+conversation or a script of its own has none of them in another module.
+Its fields then show those names in orange, and the project can be given
+its own scripts and conversations of those names.
+
 ## Several levels in one project
 
 Every module of KOTOR holds one area, so a level is a module and its area.
@@ -973,10 +1011,13 @@ so later runs show it at once and a changed file is drawn again.
 | right mouse button held, W, A, S, D, Q, E | fly forward, left, back, right, down and up |
 | Shift | fly faster |
 | left mouse button | select the object, prop or box under the pointer (its marker, else its model); drag a gizmo's handle |
+| Ctrl + left mouse button | add the thing under the pointer to the selection, or take it out |
+| left mouse button dragged over an empty part of the view | select everything in the box (with Ctrl, add it to the selection) |
+| Ctrl+C, Ctrl+V | copy the selection to the clipboard; paste a copy where the view looks |
 | Q, W, E, R | the Select, Move, Rotate and Scale tools |
 | F | move the camera to the selection |
-| Ctrl+D | copy the selection, in the same place |
-| Delete | delete the selection |
+| Ctrl+D | copy everything selected, in the same place |
+| Delete | delete everything selected |
 | Ctrl+Z, Ctrl+Y | undo, redo |
 | Ctrl+S | save the project |
 | Ctrl+Shift+C | copy the selected object, or the level, as text for an agent |
@@ -1016,6 +1057,10 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | command | what it does |
 |---|---|
 | `edit select TAG` | selects the first object with that tag (its own, else its template's) |
+| `edit select more TAG` | adds the first object with that tag to the selection |
+| `edit move by DX DY DZ`, `edit turn by DEGREES` | moves everything selected by an amount, or turns it round its middle, as one edit |
+| `edit duplicate`, `edit delete` | copies, or deletes, everything selected, as one edit |
+| `edit copy`, `edit copy to FILE`, `edit paste from FILE` | copies what is selected to the clipboard or a file; pastes a copy from a file where the view looks |
 | `edit select prop N`, `edit select box N` | selects the Nth prop or box, from 0 |
 | `edit select none` | selects nothing |
 | `edit pick X Y` | selects what a click at that point of the window (pixels) would |
@@ -1169,8 +1214,6 @@ a new perch.
 - **One level at a time.** A project's levels are edited one by one, and
   the editor starts again to move between them. A level cannot be taken
   out of a project yet. A new map's project has one level.
-- **One object at a time.** There is no multiple selection, box selection,
-  or copy and paste between areas.
 - **No export.** A new map's `.mod` and a project's `.git` file are KOTOR
   files, but there is no step yet that makes them ready for the original
   game.
@@ -1193,6 +1236,9 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_selection` selects three objects and a prop, moves, turns,
+  copies and deletes them each as one undo step, and copies a chair with
+  its template into another project, where the template takes a new name.
 - `level_edit_nav_links` adds links between two made-up floors, finds the
   first link of a way, keeps routes on foot as they were, writes a mesh
   without links as before, and checks jumps and drops on boxes.

@@ -50,6 +50,14 @@ pub enum Edit {
     },
     AddProp(Prop),
     AddBox(CollisionBox),
+    /// Objects copied (`clip::Clip`), put with their middle at `at`; the
+    /// install's template names (`taken`) a pasted template keeps clear
+    /// of.
+    Paste {
+        clip: Box<crate::clip::Clip>,
+        at: [f32; 3],
+        taken: Vec<String>,
+    },
     /// A link between floors that walkers jump or drop across
     /// (`area::NavLink`).
     AddLink(crate::area::NavLink),
@@ -163,12 +171,21 @@ struct State {
     are: Option<fmt_odyssey::gff::Gff>,
     conversations: std::collections::BTreeMap<String, fmt_odyssey::gff::Gff>,
     selected: Option<Target>,
+    also: (Option<Target>, Vec<Target>),
 }
 
 /// A project being edited.
 pub struct Editor {
     pub project: Project,
+    /// What is selected: the one whose details show and that the gizmo
+    /// stands on when it is alone.
     pub selected: Option<Target>,
+    /// What else is selected with it (`selection`), kept with the
+    /// selection it belongs to: once `selected` is set to something else,
+    /// it no longer counts.
+    also: (Option<Target>, Vec<Target>),
+    /// What the last paste added, to be selected with it.
+    pasted: Vec<Target>,
     /// The lights the game places itself, as the view last drew them, each
     /// with where it comes from (`Target::Fitted`). Not part of the
     /// project.
@@ -189,6 +206,8 @@ impl Editor {
         Editor {
             project,
             selected: None,
+            also: (None, Vec::new()),
+            pasted: Vec::new(),
             seen_lights: Vec::new(),
             seen_on_placeable: Vec::new(),
             undo: Vec::new(),
@@ -288,7 +307,195 @@ impl Editor {
             are: self.project.are.clone(),
             conversations: self.project.conversations.clone(),
             selected: self.selected,
+            also: self.also.clone(),
         }
+    }
+
+    /// Everything selected, the selected one first: it and what else is
+    /// selected with it.
+    pub fn selection(&self) -> Vec<Target> {
+        let mut all: Vec<Target> = self.selected.into_iter().collect();
+        if self.also.0 == self.selected {
+            for target in &self.also.1 {
+                if !all.contains(target) {
+                    all.push(*target);
+                }
+            }
+        }
+        all
+    }
+
+    /// Selects `target` alone, or, `adding`, toggles it in the selection:
+    /// one not selected joins it (and is the one whose details show), one
+    /// selected leaves it.
+    pub fn select(&mut self, target: Option<Target>, adding: bool) {
+        if !adding {
+            self.selected = target;
+            self.also = (None, Vec::new());
+            return;
+        }
+        let Some(target) = target else {
+            return;
+        };
+        let mut all = self.selection();
+        if let Some(at) = all.iter().position(|had| *had == target) {
+            all.remove(at);
+        } else {
+            all.insert(0, target);
+        }
+        self.select_all(all);
+    }
+
+    /// Selects `all`, the first the one whose details show.
+    pub fn select_all(&mut self, all: Vec<Target>) {
+        let mut all = all.into_iter();
+        self.selected = all.next();
+        self.also = (self.selected, all.collect());
+    }
+
+    /// The middle of the selection's places (metres), if anything is
+    /// selected.
+    pub fn selection_centre(&self) -> Option<[f32; 3]> {
+        let places: Vec<[f32; 3]> = (self.selection().into_iter())
+            .filter_map(|target| self.placement(target))
+            .map(|(at, _)| at)
+            .collect();
+        if places.is_empty() {
+            return None;
+        }
+        let count = places.len() as f32;
+        Some(std::array::from_fn(|axis| {
+            places.iter().map(|at| at[axis]).sum::<f32>() / count
+        }))
+    }
+
+    /// The edits that move everything selected that can be changed by
+    /// `by` (metres).
+    pub fn moves_by(&self, by: [f32; 3]) -> Vec<Edit> {
+        (self.selection().into_iter())
+            .filter(|target| Self::editable(*target).is_ok())
+            .filter_map(|target| {
+                let (at, _) = self.placement(target)?;
+                Some(Edit::Move(
+                    target,
+                    std::array::from_fn(|axis| at[axis] + by[axis]),
+                ))
+            })
+            .collect()
+    }
+
+    /// The edits that turn everything selected `degrees` round `centre`
+    /// (metres, about Z): each moves round it, and each that turns (not a
+    /// trigger's or an encounter's outline) turns as much. `sin_cos` is
+    /// the turn's sine and cosine.
+    pub fn turns_round(&self, centre: [f32; 3], degrees: f32, (sin, cos): (f32, f32)) -> Vec<Edit> {
+        let mut edits = Vec::new();
+        for target in self.selection() {
+            if Self::editable(target).is_err() {
+                continue;
+            }
+            let Some((at, facing)) = self.placement(target) else {
+                continue;
+            };
+            let (x, y) = (at[0] - centre[0], at[1] - centre[1]);
+            let moved = [
+                centre[0] + cos * x - sin * y,
+                centre[1] + sin * x + cos * y,
+                at[2],
+            ];
+            edits.push(Edit::Move(target, moved));
+            if !matches!(
+                target,
+                Target::Object(Kind::Trigger | Kind::Encounter, _) | Target::Entry
+            ) {
+                edits.push(Edit::Turn(target, facing + degrees));
+            }
+        }
+        edits
+    }
+
+    /// The edits that delete everything selected that can be deleted, each
+    /// list from its end, so the places of those still to go hold.
+    pub fn deletes(&self) -> Vec<Edit> {
+        let index = |target: &Target| match target {
+            Target::Object(_, at)
+            | Target::Prop(at)
+            | Target::Box(at)
+            | Target::Room(at)
+            | Target::Light(at)
+            | Target::Fitted(at)
+            | Target::Lamp(at) => *at,
+            Target::Entry => 0,
+        };
+        let mut all: Vec<Target> = (self.selection().into_iter())
+            .filter(|target| Self::editable(*target).is_ok() && *target != Target::Entry)
+            .collect();
+        all.sort_by_key(|target| std::cmp::Reverse(index(target)));
+        all.into_iter().map(Edit::Delete).collect()
+    }
+
+    /// Makes `edits` one after another as one edit, kept for undo as one
+    /// step: all of them, or, when one is refused, none. What each edit
+    /// selects is selected afterwards, the first one's details shown; with
+    /// none, what was selected stays.
+    pub fn apply_many(&mut self, edits: Vec<Edit>) -> Result<(), String> {
+        let before = self.state();
+        match self.change_many(edits) {
+            Ok(()) => {
+                self.undo.push(before);
+                self.redo.clear();
+                self.changes += 1;
+                Ok(())
+            }
+            Err(why) => {
+                self.restore_quietly(before);
+                Err(why)
+            }
+        }
+    }
+
+    /// `apply_many`, joining the last edit's undo step (a drag).
+    pub fn apply_many_continuing(&mut self, edits: Vec<Edit>) -> Result<(), String> {
+        if self.undo.is_empty() {
+            return self.apply_many(edits);
+        }
+        let before = self.state();
+        match self.change_many(edits) {
+            Ok(()) => {
+                self.redo.clear();
+                self.changes += 1;
+                Ok(())
+            }
+            Err(why) => {
+                self.restore_quietly(before);
+                Err(why)
+            }
+        }
+    }
+
+    fn change_many(&mut self, edits: Vec<Edit>) -> Result<(), String> {
+        if edits.is_empty() {
+            return Err("nothing selected can be changed so".into());
+        }
+        let was = self.selection();
+        let mut chosen = Vec::new();
+        for edit in edits {
+            if let Some(target) = self.change(edit)?
+                && !chosen.contains(&target)
+            {
+                chosen.push(target);
+            }
+        }
+        if chosen.is_empty() {
+            // Deleted, all of it: nothing stays selected.
+            self.select_all(Vec::new());
+        } else if chosen.iter().all(|target| was.contains(target)) {
+            // Moved or turned: the selection stays as it was, its order too.
+            self.select_all(was);
+        } else {
+            self.select_all(chosen);
+        }
+        Ok(())
     }
 
     fn restore(&mut self, state: State) {
@@ -302,6 +509,7 @@ impl Editor {
         self.project.are = state.are;
         self.project.conversations = state.conversations;
         self.selected = state.selected;
+        self.also = state.also;
         self.changes += 1;
     }
 
@@ -315,6 +523,11 @@ impl Editor {
                 self.undo.push(before);
                 self.redo.clear();
                 self.selected = selected;
+                // A paste selects everything it added.
+                let pasted = std::mem::take(&mut self.pasted);
+                if pasted.len() > 1 {
+                    self.select_all(pasted);
+                }
                 self.changes += 1;
                 Ok(())
             }
@@ -336,6 +549,7 @@ impl Editor {
         self.project.are = state.are;
         self.project.conversations = state.conversations;
         self.selected = state.selected;
+        self.also = state.also;
     }
 
     /// How many GIT objects use the template `resref`.
@@ -632,6 +846,13 @@ impl Editor {
                 }
                 kjk.props.push(prop);
                 Ok(Some(Target::Prop(kjk.props.len() - 1)))
+            }
+            Edit::Paste { clip, at, taken } => {
+                let added = crate::clip::paste(&mut self.project, &clip, at, &|name| {
+                    taken.iter().any(|had| had == name)
+                })?;
+                self.pasted = added.clone();
+                Ok(added.first().copied())
             }
             Edit::AddLink(link) => {
                 if !link

@@ -317,6 +317,10 @@ pub struct EditorState {
     pub(crate) dragging: bool,
     /// A click `edit pick` asks for, at a point of the view (pixels).
     pub(crate) pending_pick: Option<Vec2>,
+    /// Whether that pick joins the selection (Ctrl held), or leaves it.
+    pub(crate) pending_pick_adds: bool,
+    /// Objects copied (`edit copy`), for the window's clipboard.
+    pub(crate) copied: Option<String>,
     /// A command a toolbar or details button asked for, run after the
     /// panels are laid out.
     pub(crate) pending_command: Option<String>,
@@ -398,6 +402,8 @@ impl EditorState {
             nav_facts: None,
             dragging: false,
             pending_pick: None,
+            pending_pick_adds: false,
+            copied: None,
             pending_command: None,
             pending_ui: Vec::new(),
             messages: Vec::new(),
@@ -493,6 +499,33 @@ impl EditorState {
     pub(crate) fn apply(&mut self, edit: Edit) {
         let (before, follows) = (self.editor.changes(), self.follows(&edit));
         if let Err(why) = self.editor.apply(edit) {
+            self.say(why);
+        }
+        self.followed_to(before, follows);
+        self.quiet = 0;
+    }
+
+    /// `edits` made as one, one undo step (`Editor::apply_many`): what is
+    /// done to everything selected.
+    pub(crate) fn apply_many(&mut self, edits: Vec<Edit>) {
+        let (before, follows) = (
+            self.editor.changes(),
+            !edits.is_empty() && edits.iter().all(|edit| self.follows(edit)),
+        );
+        if let Err(why) = self.editor.apply_many(edits) {
+            self.say(why);
+        }
+        self.followed_to(before, follows);
+        self.quiet = 0;
+    }
+
+    /// `apply_many`, joining the last edit's undo step (a drag).
+    pub(crate) fn apply_many_continuing(&mut self, edits: Vec<Edit>) {
+        let (before, follows) = (
+            self.editor.changes(),
+            !edits.is_empty() && edits.iter().all(|edit| self.follows(edit)),
+        );
+        if let Err(why) = self.editor.apply_many_continuing(edits) {
             self.say(why);
         }
         self.followed_to(before, follows);
@@ -1817,6 +1850,18 @@ pub(crate) fn command(
             state.editor.selected = Some(Target::Entry);
         }
         ["select", "none"] | ["deselect"] => state.editor.selected = None,
+        ["select", "more", tag] => {
+            let found = state
+                .editor
+                .entries()
+                .into_iter()
+                .find(|entry| state.tag_of(entry).eq_ignore_ascii_case(tag))
+                .ok_or(format!("no object is tagged {tag}"))?;
+            let target = Target::Object(found.kind, found.index);
+            if !state.editor.selection().contains(&target) {
+                state.editor.select(Some(target), true);
+            }
+        }
         ["select", tag] => {
             let tags: Vec<(Entry, String)> = state
                 .editor
@@ -1832,6 +1877,25 @@ pub(crate) fn command(
                 .find(|(_, own)| own.eq_ignore_ascii_case(tag))
                 .ok_or(format!("no object is tagged {tag}"))?;
             state.editor.selected = Some(Target::Object(found.0.kind, found.0.index));
+        }
+        ["copy"] => {
+            state.copied = Some(copy_text(state)?);
+        }
+        ["copy", "to", path @ ..] => {
+            let path = path.join(" ");
+            std::fs::write(&path, copy_text(state)?).map_err(|error| format!("{path}: {error}"))?;
+            state.say(format!("copied to {path}"));
+        }
+        ["paste", "from", path @ ..] => {
+            let path = path.join(" ");
+            let text =
+                std::fs::read_to_string(&path).map_err(|error| format!("{path}: {error}"))?;
+            paste(state, &text, cameras)?;
+        }
+        ["move", "by", dx, dy, dz] => {
+            let by = point(&[dx, dy, dz])?;
+            let moves = state.editor.moves_by(by);
+            state.apply_many(moves);
         }
         ["move", rest @ ..] => {
             let target = selected(state)?;
@@ -1858,13 +1922,38 @@ pub(crate) fn command(
             Target::Box(at) => state.apply(Edit::Resize(at, point(rest)?)),
             _ => return Err("only a box has a size".into()),
         },
+        // Several selected: each is copied, or deleted, as one edit.
         ["duplicate"] => {
-            let target = selected(state)?;
-            state.apply(Edit::Duplicate(target));
+            let selection = state.editor.selection();
+            if selection.len() > 1 {
+                state.apply_many(selection.into_iter().map(Edit::Duplicate).collect());
+            } else {
+                let target = selected(state)?;
+                state.apply(Edit::Duplicate(target));
+            }
         }
         ["delete"] => {
-            let target = selected(state)?;
-            state.apply(Edit::Delete(target));
+            if state.editor.selection().len() > 1 {
+                let deletes = state.editor.deletes();
+                state.apply_many(deletes);
+            } else {
+                let target = selected(state)?;
+                state.apply(Edit::Delete(target));
+            }
+        }
+        ["turn", "by", degrees] => {
+            let degrees: f32 = degrees
+                .parse()
+                .map_err(|_| format!("{degrees:?} is not a number of degrees"))?;
+            let centre = state
+                .editor
+                .selection_centre()
+                .ok_or("nothing is selected")?;
+            let turns =
+                state
+                    .editor
+                    .turns_round(centre, degrees, collision::trig::sin_cos_deg(degrees));
+            state.apply_many(turns);
         }
         ["undo"] => {
             if !state.editor.undo() {
@@ -2749,6 +2838,118 @@ fn field_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> 
         _ => return Err("that is not a change of a template's fields".into()),
     };
     state.change_template(target, Change::Field(change));
+    Ok(())
+}
+
+/// What is selected, as a copy's text (`level_edit::clip`).
+pub(crate) fn copy_text(state: &mut EditorState) -> Result<String, String> {
+    let selection = state.editor.selection();
+    let centre = state
+        .editor
+        .selection_centre()
+        .ok_or("nothing is selected")?;
+    let mut clip = level_edit::clip::Clip::of(&state.editor.project, &selection, centre);
+    // The game's templates the objects use go with them too: a module's own
+    // (Belaya's in the enclave's archive) is read nowhere else. A paste
+    // leaves out each one the level it goes to reads the same (`paste`).
+    for (kind, item) in clip.entries.clone() {
+        let Some(restype) = level_edit::template::restype(kind) else {
+            continue;
+        };
+        let label = if kind == Kind::Store {
+            "ResRef"
+        } else {
+            "TemplateResRef"
+        };
+        let Some(name) = item.resref(label).map(|name| name.to_ascii_lowercase()) else {
+            continue;
+        };
+        if clip.templates.iter().any(|(had, _)| *had == name) {
+            continue;
+        }
+        if let Some(gff) = state
+            .setup
+            .resolver
+            .read(&name, restype)
+            .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+        {
+            clip.templates.push((
+                name.clone(),
+                level_edit::Template {
+                    restype,
+                    from: name,
+                    gff,
+                },
+            ));
+        }
+    }
+    if clip.is_empty() {
+        return Err(
+            "nothing selected is copied: only objects, props, boxes, lamps and lights are".into(),
+        );
+    }
+    let count = clip.entries.len()
+        + clip.kjk.props.len()
+        + clip.kjk.boxes.len()
+        + clip.kjk.lamps.len()
+        + clip.kjk.lights.len();
+    state.say(format!(
+        "copied {count} things and the {} templates they use",
+        clip.templates.len()
+    ));
+    Ok(clip.write())
+}
+
+/// Pastes the copy `text` with its middle where the view looks
+/// (`place_point`), as one edit.
+pub(crate) fn paste(
+    state: &mut EditorState,
+    text: &str,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    let mut clip = level_edit::clip::Clip::read(text)?;
+    let at = place_point(state, cameras);
+    // A copied template this level reads the same already stays out of
+    // the project: the game's own shared ones, most often.
+    let project = &state.editor.project;
+    let resolver = &state.setup.resolver;
+    clip.templates.retain(|(name, made)| {
+        project.templates.contains_key(name)
+            || resolver
+                .read(name, made.restype)
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+                .is_none_or(|had| had != made.gff)
+    });
+    // The names a pasted template must keep clear of: the install's, of
+    // each copied template's kind, among the names a new one could take.
+    let resolver = &state.setup.resolver;
+    let mut taken = Vec::new();
+    for (name, made) in &clip.templates {
+        // `template::fresh_name`'s names, `kjeN_from` cut to a resref.
+        let names = std::iter::once(name.clone()).chain((1..64).map(|n| {
+            let mut candidate = format!("{}{n}_{}", level_edit::template::PREFIX, made.from);
+            candidate.truncate(level_edit::git::RESREF_LEN);
+            candidate
+        }));
+        for candidate in names {
+            if !state.editor.project.templates.contains_key(&candidate)
+                && resolver.find(&candidate, made.restype).is_some()
+            {
+                taken.push(candidate);
+            }
+        }
+    }
+    let count = clip.entries.len()
+        + clip.kjk.props.len()
+        + clip.kjk.boxes.len()
+        + clip.kjk.lamps.len()
+        + clip.kjk.lights.len();
+    state.apply(Edit::Paste {
+        clip: Box::new(clip),
+        at,
+        taken,
+    });
+    state.say(format!("pasted {count} things"));
     Ok(())
 }
 

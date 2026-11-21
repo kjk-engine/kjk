@@ -319,6 +319,20 @@ pub fn set_facing(git: &mut Gff, kind: Kind, index: usize, degrees: f32) -> bool
     true
 }
 
+/// Adds `item` at the end of `kind`'s list, with the list's struct id,
+/// and returns its index (a pasted entry, `clip`).
+pub fn push(git: &mut Gff, kind: Kind, mut item: GffStruct) -> usize {
+    let list = list_mut(git, kind);
+    item.id = list.first().map_or(struct_id(kind), |first| first.id);
+    list.push(item);
+    list.len() - 1
+}
+
+/// Sets the field `label` of an entry, adding it where it has none.
+pub fn set_field(item: &mut GffStruct, label: &str, value: GffValue) {
+    set(item, label, value);
+}
+
 /// Adds a copy of the entry at the end of its list and returns the copy's
 /// index.
 pub fn duplicate(git: &mut Gff, kind: Kind, index: usize) -> Option<usize> {
