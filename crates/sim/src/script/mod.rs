@@ -1606,6 +1606,19 @@ impl Library {
         &self.items
     }
 
+    /// The gun template a sheet's `@ROW` puts in hand, for `baseitems.2da`
+    /// row `row`. It is a ranged weapon of that row that is no plot item.
+    /// The game's own templates (named `g_w_…`) come first, then the rest
+    /// in the order of their names.
+    pub fn gun_of_row(&self, row: u16) -> Option<&str> {
+        self.items
+            .iter()
+            .filter(|item| !item.plot && item.base_item == row)
+            .filter(|item| item.weapon.is_some_and(|w| w.delivery.ranged()))
+            .min_by_key(|item| (!item.template.starts_with("g_w_"), &item.template))
+            .map(|item| item.template.as_str())
+    }
+
     /// This library with the creature templates the party and scripts may
     /// make.
     pub fn with_placeables(self, placeables: BTreeMap<String, Arc<ObjectData>>) -> Library {

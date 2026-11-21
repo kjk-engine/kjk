@@ -2583,7 +2583,7 @@ impl Engine<'_> {
                 let Some(faction) = self.character(object(args, 0)).map(|c| c.faction) else {
                     return maybe(None);
                 };
-                let mut members = view
+                let members = view
                     .things
                     .iter()
                     .filter(|thing| thing.character.is_some_and(|c| c.faction == faction));
@@ -2600,9 +2600,21 @@ impl Engine<'_> {
                         })
                         .1
                 } else {
+                    // While a companion leads, `controlled_pcs` puts it first.
+                    let controlled = self.controlled_pcs().first().copied();
+                    let members: Vec<_> = members
+                        .map(|thing| {
+                            (
+                                thing.id,
+                                thing.character.is_some_and(|c| c.driver.is_some()),
+                            )
+                        })
+                        .collect();
                     members
-                        .find(|thing| thing.character.is_some_and(|c| c.driver.is_some()))
-                        .map(|thing| thing.id)
+                        .iter()
+                        .find(|(id, _)| Some(*id) == controlled)
+                        .or_else(|| members.iter().find(|(_, driven)| *driven))
+                        .map(|(id, _)| *id)
                 };
                 maybe(leader)
             }

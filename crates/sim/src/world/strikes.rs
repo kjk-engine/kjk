@@ -451,7 +451,7 @@ pub(super) fn strikes(
             // Not gripped, its hand out, changing weapons or down (as a
             // shot waits: `fire`).
             None => {
-                (avatar.is_some() || lent == Some(id.0) || target.is_some())
+                (super::played(id.0, avatar, lent) || target.is_some())
                     && force.gripped_by.is_none()
                     && !force.hand_out(now)
                     && saber.change == Change::None

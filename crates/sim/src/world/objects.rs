@@ -430,6 +430,7 @@ pub(super) fn objects(
     if blows.is_empty() {
         return;
     }
+    let lent = super::lent(&scripts.state.party);
     // Who struck a script's bash, with what: they swing.
     let mut swings = Vec::new();
     for Bash {
@@ -475,10 +476,11 @@ pub(super) fn objects(
             sure: false,
         });
         // An attack on a placeable the party attacks is a blow of a body a
-        // seat drives that aims at it: a companion's sweep or a stray shot
-        // at Malak that crosses a stasis tank does not kill its Jedi.
-        let aimed = attacker.is_some_and(|(_, avatar, _, _, player, fighting)| {
-            (avatar.is_some() || fighting.0.mind.driver.is_some()) && aims_at(&player.0, &facts)
+        // seat plays (`world::played`) that aims at it: a companion's sweep
+        // or a stray shot at Malak that crosses a stasis tank does not kill
+        // its Jedi.
+        let aimed = attacker.is_some_and(|(id, avatar, _, _, player, _)| {
+            super::played(id.0, avatar, lent) && aims_at(&player.0, &facts)
         });
         let attacked =
             aimed && Regard::of(&level.0, &scripts.state).attacks(target, &facts, &object.state);

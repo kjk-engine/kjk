@@ -68,6 +68,12 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("own_ai_skipped_when_driven", own_ai()));
     checks.push(("leader_is_seat_0s_body", leader_body()));
     checks.push(("seat_bodies_agree", seat_bodies_agree()));
+    checks.push(("played_bodies_agree", played_bodies_agree()));
+    checks.push(("leader_bolts_break_a_crate", leader_bolts_break_a_crate()));
+    checks.push((
+        "leader_blows_on_a_tank_count",
+        leader_blows_on_a_tank_count(),
+    ));
     checks.push(("leader_by_body_seat_0s_only", leader_by_body()));
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
@@ -313,8 +319,20 @@ int RemovePartyMember(int nNPC);
 /// companions' object numbers. The second stands 1.5 m to the side, so the
 /// first can run forward without meeting its body.
 fn ground() -> Result<(Level, [u32; 2]), String> {
+    ground_with(Vec::new(), None)
+}
+
+/// `ground` with `extra` objects placed after the companions, and the
+/// factions' standings `repute` in place of the ground's own, if given.
+fn ground_with(
+    extra: Vec<ObjectData>,
+    repute: Option<crate::module::Repute>,
+) -> Result<(Level, [u32; 2]), String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    if let Some(repute) = repute {
+        data.repute = repute;
+    }
     let entry = data.entry;
     let (sin, cos) = crate::math::sin_cos_deg(entry.yaw);
     let [x, y, z] = entry.position;
@@ -351,6 +369,8 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
                 })
             },
         ));
+    data.placements
+        .extend(extra.into_iter().map(Placement::Own));
     Ok((
         ground.with_module(data).with_scripts(library()),
         [first, first + 1],
@@ -534,6 +554,252 @@ fn seat_bodies_agree() -> Result<String, String> {
         format!(
             "the sim's {ids:?}, the snapshot's {:?} (driven {a:?}, lent {b:?})",
             view.iter().map(|id| id.0).collect::<Vec<_>>()
+        ),
+    )
+}
+
+/// A party for the views' probes: seat 0's own character, the first
+/// companion driven by seat 1 and the second leading the party. The
+/// snapshot after a step, and the companion leading.
+pub fn led_party() -> Result<(Snapshot, SimId), String> {
+    let (mut world, _, [_, b]) = party_world(Guests::Companions, 2)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    Ok((run(&mut world, &[(0, 0), (1, 0)]), b))
+}
+
+/// Who a seat plays agrees between the sim and its views. Seat 1 drives
+/// the first companion throughout. The sim's `world::played` reads its
+/// `Avatar` seats and `lent`, and the snapshot's `Snapshot::played` reads
+/// what its bodies carry and `leading`. Both pick the same fighters in two
+/// states. Before the second companion leads, those are seat 0's own
+/// character and the driven companion. While the second companion leads,
+/// those are both companions. Seat 0's own character, standing meanwhile,
+/// is not played, because its mind plays it.
+fn played_bodies_agree() -> Result<String, String> {
+    let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
+    let mut states = Vec::new();
+    for leads in [false, true] {
+        if leads {
+            scripts_of(&mut world).state.party.leader = Some(1);
+        }
+        let after = run(&mut world, &[(0, 0), (1, 0)]);
+        let lent = super::super::lent(&scripts_of(&mut world).state.party);
+        let mut fighters = world.world.query::<(&Id, Option<&Avatar>, &Fighting)>();
+        let mut sim: Vec<u32> = fighters
+            .iter(&world.world)
+            .filter(|(id, avatar, _)| super::super::played(id.0, *avatar, lent))
+            .map(|(id, ..)| id.0.0)
+            .collect();
+        let mut view: Vec<u32> = after
+            .entities
+            .iter()
+            .filter(|entity| entity.fighter.is_some() && after.played(entity))
+            .map(|entity| entity.id.0)
+            .collect();
+        let own = after
+            .own(Seat(0))
+            .map(|own| own.id.0)
+            .ok_or("seat 0 has no character")?;
+        let mut expected = if leads {
+            vec![a.0, b.0]
+        } else {
+            vec![own, a.0]
+        };
+        sim.sort_unstable();
+        view.sort_unstable();
+        expected.sort_unstable();
+        states.push((leads, sim, view, expected));
+    }
+    check(
+        states
+            .iter()
+            .all(|(_, sim, view, expected)| sim == view && view == expected),
+        format!(
+            "(leads, the sim plays, the snapshot, expected): {states:?} (driven {a:?}, lent {b:?})"
+        ),
+    )
+}
+
+/// What a placeable probe strikes. A locked crate may be bashed by a
+/// player's blow or bolt. A hostile stasis tank is one the party attacks.
+#[derive(Clone, Copy)]
+enum Mark {
+    Crate,
+    Tank,
+}
+
+/// Who seat 0 acts through while it strikes: its own character, or the
+/// second companion leading the party.
+#[derive(Clone, Copy)]
+enum Through {
+    Own,
+    Leader,
+}
+
+/// How seat 0 strikes: by holding the attack button, so its blaster
+/// fires, or by a weapon's blow pushed each step as `objects` takes one.
+#[derive(Clone, Copy)]
+enum Strike {
+    Fire,
+    Blow,
+}
+
+/// The placeable `mark`, with 30 hit points. It stands 2.5 m ahead of the
+/// ground's entry and 1.5 m to the side away from the second companion.
+/// There it is short of the wall ahead, and seat 0's own character and the
+/// second companion both see it past the other bodies.
+fn target(mark: Mark) -> Result<ObjectData, String> {
+    let ground = crate::determinism::proving_ground();
+    let entry = ground.module().ok_or("the ground has no module")?.entry;
+    let (sin, cos) = crate::math::sin_cos_deg(entry.yaw);
+    let [x, y, z] = entry.position;
+    let (ahead, side) = (2.5, -1.5);
+    let at = [
+        x + ahead * cos - side * sin,
+        y + ahead * sin + side * cos,
+        z,
+    ];
+    let (tag, opens, faction, hostile) = match mark {
+        Mark::Crate => (
+            "crate",
+            crate::module::Opens::Locked,
+            crate::combat::sheet::factions::NEUTRAL,
+            false,
+        ),
+        Mark::Tank => (
+            "tank",
+            crate::module::Opens::Never,
+            crate::combat::sheet::factions::HOSTILE_1,
+            true,
+        ),
+    };
+    Ok(ObjectData {
+        kind: ObjectKind::Placeable,
+        tag: tag.into(),
+        opens,
+        hit_points: Some((30, 30)),
+        faction,
+        toughness: crate::module::Toughness {
+            hostile,
+            ..crate::module::Toughness::default()
+        },
+        ..ObjectData::unknown(tag, at, 0.0)
+    })
+}
+
+/// Seat 0's command turning the body it acts through toward the placeable
+/// `facts`, with `buttons` held. It aims a fifth of the way up the
+/// placeable. The crosshair line runs above the eyes, so it meets the
+/// placeable's box there.
+fn aim_at(snapshot: &Snapshot, facts: &ObjectData, buttons: u16) -> Result<Command, String> {
+    let body = snapshot.body(Seat(0)).ok_or("seat 0 has no body")?;
+    let player = body.player.ok_or("seat 0's body has no motion")?;
+    let eyes = crate::math::scale(
+        crate::math::add(player.origin, [0.0, 0.0, player.eye_height]),
+        collision::UNIT,
+    );
+    let [x, y, z] = facts.position;
+    let below = z + crate::target::PLACEABLE_HEIGHT * 0.2 - eyes[2];
+    let (dx, dy) = (x - eyes[0], y - eyes[1]);
+    let yaw = crate::math::atan2_deg(dy, dx);
+    let pitch = -crate::math::atan2_deg(below, (dx * dx + dy * dy).sqrt());
+    let wanted = [pitch, yaw, 0.0].map(crate::math::degrees_to_short);
+    Ok(Command {
+        angles: std::array::from_fn(|axis| wanted[axis].wrapping_sub(player.view_offset[axis])),
+        buttons,
+        ..Command::default()
+    })
+}
+
+/// The damage the placeable `mark` took after `steps` steps of seat 0
+/// striking it as `strike` says, acting `through` its own character or the
+/// companion leading. The player's faction is at war with the tank's.
+fn struck(mark: Mark, through: Through, strike: Strike, steps: usize) -> Result<u16, String> {
+    let facts = target(mark)?;
+    let repute = crate::module::Repute::at_war([
+        crate::combat::sheet::factions::PLAYER,
+        crate::combat::sheet::factions::HOSTILE_1,
+    ]);
+    let ground = ground_with(vec![facts.clone()], Some(repute))?;
+    let (mut world, _, _) = party_on(ground, Guests::Companions, 1)?;
+    if let Through::Leader = through {
+        scripts_of(&mut world).state.party.leader = Some(1);
+    }
+    let mut last = run(&mut world, &[(0, 0)]);
+    let placed = last
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, Kind::Object(ObjectKind::Placeable, _)))
+        .map(|entity| entity.id)
+        .ok_or("the placeable is not in the world")?;
+    let buttons = match strike {
+        Strike::Fire => crate::input::buttons::ATTACK,
+        Strike::Blow => 0,
+    };
+    for _ in 0..steps {
+        let mut input = TickInput::default();
+        input.insert(Seat(0), aim_at(&last, &facts, buttons)?);
+        if let Strike::Blow = strike {
+            let attacker = last.body(Seat(0)).ok_or("seat 0 has no body")?.id;
+            world
+                .world
+                .resource_mut::<super::super::Hits>()
+                .0
+                .push(super::super::Hit {
+                    attacker,
+                    target: placed,
+                    source: crate::combat::damage::Source::Weapon {
+                        weapon: crate::combat::Weapon {
+                            damage_bonus: 5,
+                            ..crate::combat::Weapon::UNARMED
+                        },
+                        cadence_ms: crate::combat::damage::ROUND_MS as u32,
+                        share: 1000,
+                        area: false,
+                        second: None,
+                        sure: true,
+                    },
+                    point: None,
+                    direction: None,
+                });
+        }
+        let tick = world.tick() + 1;
+        last = crate::step(&mut world, tick, &input, 8, StepReason::Authority);
+    }
+    last.get(placed)
+        .and_then(|entity| entity.object)
+        .map(|state| state.damage)
+        .ok_or("the placeable left the world".into())
+}
+
+/// A companion leading the party shoots as its player. Its blaster's bolts
+/// break a locked crate it aims at, as seat 0's own character's bolts do.
+/// Bolts only meet what may be bashed when a seat plays their shooter
+/// (`world::played`).
+fn leader_bolts_break_a_crate() -> Result<String, String> {
+    let own = struck(Mark::Crate, Through::Own, Strike::Fire, 250)?;
+    let led = struck(Mark::Crate, Through::Leader, Strike::Fire, 250)?;
+    check(
+        own > 0 && led > 0,
+        format!(
+            "the crate lost {own} to the player's own character's bolts and {led} to the leading companion's"
+        ),
+    )
+}
+
+/// A companion leading the party attacks as its player. Its blows on a
+/// hostile stasis tank it aims at count as an attack, so they hurt the
+/// tank, as seat 0's own character's blows do. The probe pushes the blows
+/// itself, so it checks the gate on a blow at a placeable, not a swing. A
+/// blow on a placeable counts only when a seat plays the body that struck
+/// it (`world::played`).
+fn leader_blows_on_a_tank_count() -> Result<String, String> {
+    let own = struck(Mark::Tank, Through::Own, Strike::Blow, 5)?;
+    let led = struck(Mark::Tank, Through::Leader, Strike::Blow, 5)?;
+    check(
+        own > 0 && led > 0,
+        format!(
+            "the tank lost {own} to the player's own character's blows and {led} to the leading companion's"
         ),
     )
 }

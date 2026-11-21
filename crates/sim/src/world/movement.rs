@@ -352,7 +352,7 @@ pub(super) fn move_actors(
     let mut actors: Vec<_> = actors.iter_mut().collect();
     actors.sort_by_key(|(id, avatar, ..)| (avatar.is_none(), avatar.map(|a| a.0), id.0));
     // The living a move meets: everyone, or all but the party, or all but
-    // the companions (a body a seat's player moves stays solid, `players_body`).
+    // the companions (a body a seat's player moves stays solid, `world::played`).
     let living = |passes: Passes| {
         let mut bodies: Vec<Body> = actors
             .iter()
@@ -362,7 +362,7 @@ pub(super) fn move_actors(
                         Passes::None => true,
                         Passes::Party => !in_party(*avatar, &fighting.0),
                         Passes::Companions => {
-                            !in_party(*avatar, &fighting.0) || players_body(id.0, *avatar, lent)
+                            !in_party(*avatar, &fighting.0) || super::played(id.0, *avatar, lent)
                         }
                     }
             })
@@ -423,10 +423,10 @@ pub(super) fn move_actors(
         .filter(|(_, avatar, ..)| avatar.is_some())
         .map(|(.., player, _)| player.0.origin)
         .collect();
-    // The bodies the seats' players move, by entity (`players_body`).
+    // The bodies the seats' players move, by entity (`world::played`).
     let played: Vec<u32> = actors
         .iter()
-        .filter(|(id, avatar, ..)| players_body(id.0, *avatar, lent))
+        .filter(|(id, avatar, ..)| super::played(id.0, *avatar, lent))
         .map(|(id, ..)| id.0.0 | BODY)
         .collect();
     // Who KOTOR's walkers push aside rather than bump into (`walk::Met`),
@@ -575,8 +575,10 @@ pub(super) fn move_actors(
         let leads = lent
             .filter(|body| *body == id.0)
             .map(|_| Avatar(LEADER_SEAT));
-        let stands = avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT) && lent.is_some();
-        let seat = avatar.or(leads.as_ref()).filter(|_| !scripted && !stands);
+        let keyed = keyed_by(avatar.map(|avatar| avatar.0), id.0, lent);
+        let plays = keyed.is_some();
+        let seat = keyed.filter(|_| !scripted).map(Avatar);
+        let seat = seat.as_ref();
         // A script's lit saber is one act: `SetOverrideLightsaberState`
         // powers it once and holds nothing. The game decides again from the
         // next fight (`SetCombatState`), and the party's goes out once no
@@ -711,7 +713,7 @@ pub(super) fn move_actors(
         } else {
             let fighter = &fighting.0;
             let now = clock.time_ms;
-            let creature = super::firing::creature(avatar.is_some(), fighter, lent, id.0);
+            let creature = !plays;
             let command = command_for(&inputs.0, seat, &player.0, fighter, now);
             // The aim step reads the body's own sheet (`sheet_of`: a player's,
             // or the one a creature's equipment changed), and only for a body
@@ -947,7 +949,7 @@ pub(super) fn move_actors(
         // Chuundar's throne room Freyyr, come up beside the player at a
         // slanting wall, held it with his box's corner on either side, a
         // pocket no walk got out of.
-        let inside = clear_of(&met_as(&mine, avatar.is_some()), bodies);
+        let inside = clear_of(&met_as(&mine, plays), bodies);
         let bodies = inside.bodies.as_ref();
         let before = player.0.origin;
         let standing_in = props
@@ -1090,7 +1092,7 @@ pub(super) fn move_actors(
         // moved others' ways and a player's walk turned back and forth).
         if stepped.is_none() {
             let maxs_z = player.0.maxs_z;
-            let seated = avatar.is_some();
+            let seated = plays;
             let spaces = |entity: u32| {
                 let theirs = pushable
                     .binary_search_by_key(&SimId(entity & !BODY), |(id, ..)| *id)
@@ -1245,7 +1247,7 @@ pub(super) fn move_actors(
         idle::check(
             &mut player.0,
             &mut fighting.0,
-            (&command, avatar.is_some()),
+            (&command, plays),
             &kit,
             &level.0.anims,
             (clock.time_ms, clock.msec),
@@ -1702,13 +1704,6 @@ enum Passes {
     Party,
     /// The companions' only: a body a seat's player moves stays solid.
     Companions,
-}
-
-/// Whether the body `id` (its avatar's seat, if it carries one) is one a
-/// seat's player moves: a player's own, or the companion leading the party
-/// (`keyed_by`).
-pub(super) fn players_body(id: SimId, avatar: Option<&Avatar>, lent: Option<SimId>) -> bool {
-    keyed_by(avatar.map(|avatar| avatar.0), id, lent).is_some()
 }
 
 /// A character's personal space (metres): its appearance's `perspace`

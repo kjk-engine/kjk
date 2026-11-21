@@ -385,6 +385,12 @@ struct Move<'a, 'b> {
     on_walkable: bool,
     /// The plane of the ground below, walkable or steep.
     ground_plane: Option<Vec3>,
+    /// The box stands with its middle on a placeable's drawn shape that is
+    /// not walkable (`slide::flank`), such as a heap's top it jumped onto.
+    on_shape: bool,
+    /// The ground below is a flank (`slide::flank`) under any part of the
+    /// box.
+    ground_flank: bool,
     /// The speed the keys ask for at full tilt (units/s).
     speed: f32,
     /// The view's forward and right.
@@ -573,6 +579,8 @@ impl<'a, 'b> Move<'a, 'b> {
             maxs,
             on_walkable: false,
             ground_plane: None,
+            on_shape: false,
+            ground_flank: false,
             speed: 0.0,
             view_forward: [0.0; 3],
             view_right: [0.0; 3],
@@ -916,6 +924,8 @@ impl Move<'_, '_> {
         self.ps.ground = None;
         self.ground_plane = None;
         self.on_walkable = false;
+        self.on_shape = false;
+        self.ground_flank = false;
     }
 
     fn box_at(&self) -> BoxAt {
@@ -949,8 +959,12 @@ impl Move<'_, '_> {
             self.ground_missed();
             self.ground_plane = None;
             self.on_walkable = false;
+            self.on_shape = false;
+            self.ground_flank = false;
             return;
         }
+        self.ground_flank = slide::flank(hit.contents);
+        self.on_shape = self.ground_flank && self.middle_on_flank(self.ps.origin);
         let velocity = self.ps.velocity;
         if velocity[2] > 0.0 && dot(velocity, hit.normal) > rules::movement::air::THROWN_OFF {
             // A finisher's throw flies in its own clip (`world::grapples`).
@@ -1305,7 +1319,7 @@ impl Move<'_, '_> {
         self.friction();
         self.note_push_direction();
 
-        let plane = self.ground_plane.unwrap_or([0.0, 0.0, 1.0]);
+        let plane = self.walking_plane().unwrap_or([0.0, 0.0, 1.0]);
         let along = |v: Vec3| {
             let mut v = self.along_plane([v[0], v[1], 0.0], plane);
             normalize(&mut v);
