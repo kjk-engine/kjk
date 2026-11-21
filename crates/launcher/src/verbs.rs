@@ -1020,6 +1020,18 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             ScriptVerb::Compile { game, script } => {
                 script_verbs::compile(&discover(), &game, script.as_deref())
             }
+            ScriptVerb::Decompile {
+                game,
+                script,
+                module,
+                out,
+            } => decompile_verbs::decompile(
+                &discover(),
+                &game,
+                script.as_deref(),
+                module.as_deref(),
+                out.as_deref(),
+            ),
             ScriptVerb::Effects { game, module } => {
                 effects_verbs::effects(&discover(), &game, &module)
             }
@@ -1959,6 +1971,21 @@ pub(crate) enum ScriptVerb {
         game: String,
         /// One script's resref, e.g. k_con_atdant
         script: Option<String>,
+    },
+    /// Read a compiled script back into source, proven by compiling it
+    /// again to the same bytes; with no script named, every compiled
+    /// script of the install and each module is read back and counted
+    Decompile {
+        /// k1 or tsl
+        game: String,
+        /// One script's resref, e.g. k_ai_master
+        script: Option<String>,
+        /// Also load this module's archives, e.g. end_m01aa
+        #[arg(long)]
+        module: Option<String>,
+        /// Write the source to `<OUT>/<script>.nss` instead of printing it
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
     },
     /// Decode every compiled script of an install, write each back, and
     /// check every routine call against the game's nwscript.nss

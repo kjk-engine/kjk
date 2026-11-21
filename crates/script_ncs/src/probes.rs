@@ -541,6 +541,7 @@ pub fn all() -> Vec<Check> {
     );
     built(&mut p);
     compiled(&mut p);
+    decompiled(&mut p);
     // Every probe's program writes back as it reads.
     let sample = conditional(&[int(1), float(2.0), string("x")]).build();
     let again = Ncs::parse(&sample.write());
@@ -730,6 +731,127 @@ fn built(p: &mut Probes) {
             && asm::script(&catalog, &[call("NoSuch", [])]).is_err()
             && asm::script(&catalog, &[call("DelayCommand", [Expr::Float(1.0)])]).is_err(),
         format!("{wrong:?}"),
+    );
+}
+
+/// Compiled scripts read back into source (`decompile`): the source
+/// compiled again is the same program, byte for byte.
+fn decompiled(p: &mut Probes) {
+    use crate::compile::compile;
+    use crate::decompile::{decompile, decompile_checked};
+    let catalog = p.routines.catalog().clone();
+    let none = |_: &str| -> Option<Vec<u8>> { None };
+    let text = |source: &[u8]| -> String { source.iter().map(|&byte| char::from(byte)).collect() };
+
+    // Every statement the compiler writes, with globals, a structure, a
+    // vector and functions of its own.
+    let source = "int nBase = 3;\n\
+         float fHalf = 0.5;\n\
+         struct pair { int a; string s; };\n\
+         int Twice(int n) { return n * 2; }\n\
+         int Inner() { return nBase; }\n\
+         void Note(int n, string s) { if (n > 2) { Record(n); return; } Record(0 - n); }\n\
+         vector Up(float f) { vector v = [0.0, 0.0, 1.0]; v.z = f; return v; }\n\
+         struct pair Made(int n) { struct pair q; q.a = n; q.s = \"x\"; return q; }\n\
+         int StartingConditional()\n\
+         {\n\
+             int nSum = 0;\n\
+             int i;\n\
+             for (i = 0; i < 5; i++) {\n\
+                 if (i == 3) continue;\n\
+                 nSum += i;\n\
+             }\n\
+             struct pair p = Made(4);\n\
+             switch (p.a) {\n\
+                 case 2: nSum = 0; break;\n\
+                 case 4: { int k = Twice(Inner()); nSum += k; } break;\n\
+                 default: nSum = -1;\n\
+             }\n\
+             int j = 0;\n\
+             while (TRUE) {\n\
+                 j++;\n\
+                 if (j >= 3) break;\n\
+             }\n\
+             do { --j; } while (j > 0 && nSum != 7);\n\
+             vector v = Up(fHalf);\n\
+             if (j == 0 && nSum > 10 || v.z > 1.0) { Note(nSum, p.s + \"y\"); }\n\
+             else if (!j) nSum = ~nSum % 5;\n\
+             Defer(Record(nSum + 1));\n\
+             return nSum + Record(1) - 41;\n\
+         }\n";
+    let first = compile("probe", source.as_bytes(), &none, &catalog);
+    let back = first.as_ref().map_err(ToString::to_string).and_then(|ncs| {
+        decompile_checked("probe", ncs, &catalog).map_err(|error| error.to_string())
+    });
+    p.check(
+        "a decompiled script compiles to the bytes it came from",
+        back.is_ok(),
+        format!("{:?}", back.as_ref().map(|done| text(&done.source))),
+    );
+    let read = back
+        .map(|done| text(&done.source))
+        .unwrap_or_else(|error| error);
+    let has = [
+        "struct ",
+        "vector ",
+        "for (",
+        "switch (",
+        "do {",
+        "while (",
+        "continue;",
+        "Defer(Record(",
+    ];
+    p.check(
+        "a decompiled script keeps its loops, its switch, its structure and its vector",
+        has.iter().all(|part| read.contains(part)),
+        read.clone(),
+    );
+
+    // A function is written where its call is: an argument's before the
+    // function it is an argument of.
+    let order = decompile(
+        &compile(
+            "probe",
+            b"int Inner() { return 1; }\nint Outer(int n) { return n + 1; }\n\
+              void main() { Record(Outer(Inner())); }\n",
+            &none,
+            &catalog,
+        )
+        .expect("the probe compiles"),
+        &catalog,
+    )
+    .map(|done| text(&done.source));
+    let inner_first = order.as_ref().is_ok_and(|read| {
+        match (
+            read.find("int sub1() {"),
+            read.find("int sub2(int nParam1) {"),
+        ) {
+            (Some(inner), Some(outer)) => inner < outer,
+            _ => false,
+        }
+    });
+    p.check(
+        "an argument's function is written before the function it is passed to",
+        inner_first,
+        format!("{order:?}"),
+    );
+
+    // A script compiled when a routine had fewer parameters: it is read
+    // back with the routine named, and compiles the same against a catalog
+    // cut the same way.
+    let old = catalog.cut(&[("Record".to_string(), 1)]);
+    let older = compile("probe", b"void main()\n{\n    Record(5);\n}\n", &none, &old);
+    let found = older
+        .as_ref()
+        .map_err(ToString::to_string)
+        .and_then(|ncs| {
+            decompile_checked("probe", ncs, &catalog).map_err(|error| error.to_string())
+        })
+        .map(|done| done.routines);
+    p.check(
+        "a script compiled against an older catalog names the routine and its arguments",
+        found == Ok(vec![("Record".to_string(), 1)]),
+        format!("{found:?}"),
     );
 }
 

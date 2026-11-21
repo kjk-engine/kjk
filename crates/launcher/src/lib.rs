@@ -56,6 +56,7 @@ probes!(
     coop_fight_verbs,
     creation_probes,
     damage_verbs,
+    decompile_verbs,
     dialogue_verbs,
     duel_lag_verbs,
     duel_verbs,

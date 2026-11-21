@@ -333,6 +333,20 @@ impl Catalog {
         self.constant_named(name).map(|c| c.value.clone())
     }
 
+    /// This catalog as an older `nwscript.nss` had it: each routine named
+    /// keeps only its first parameters, as many as given. A script compiled
+    /// back then pushes no value for the parameters added since
+    /// (`decompile::Decompiled::routines`).
+    pub fn cut(&self, routines: &[(String, usize)]) -> Catalog {
+        let mut cut = self.clone();
+        for routine in &mut cut.routines {
+            if let Some((_, count)) = routines.iter().find(|(name, _)| *name == routine.name) {
+                routine.params.truncate(*count);
+            }
+        }
+        cut
+    }
+
     pub fn constant_named(&self, name: &str) -> Option<&Constant> {
         self.constants.iter().find(|c| c.name == name)
     }

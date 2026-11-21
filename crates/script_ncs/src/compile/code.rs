@@ -561,13 +561,15 @@ impl Writer<'_, '_> {
 
     fn call(&mut self, name: &str, args: &[Expr]) -> Done<Ty> {
         if let Some(function) = self.scope.functions.get(name).cloned() {
-            if !self.calls.iter().any(|called| called == name) {
-                self.calls.push(name.to_string());
-            }
             let ret = function.ret.clone();
             self.reserve(&ret)?;
             let before = self.top;
             self.arguments(name, &function.params, args)?;
+            // A function is written where its call is, and a call's
+            // arguments are written before it: in `f(g())`, `g` comes first.
+            if !self.calls.iter().any(|called| called == name) {
+                self.calls.push(name.to_string());
+            }
             self.asm.to(Op::Jsr, &format!("function {name}"));
             self.top = before;
             return Ok(ret);

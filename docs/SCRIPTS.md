@@ -50,17 +50,24 @@ the games' own compiled scripts; nothing of them is in the repo.
 - It writes what BioWare's compiler writes, measured against the
   installs by `kjk script compile <game>`: of the scripts with a body
   whose source the install keeps, K1 compiles 1 571 of 1 737 to the
-  game's bytes and TSL 584 of 612. The rest were compiled from older
-  sources than the ones shipped (other numbers, other routines, other
-  code), so their shipped bytes cannot be had from the shipped source.
-  `kjk script compile <game> SCRIPT` shows where one parts from the
-  game's, and with `KJK_NSS_LISTING=FOLDER` writes both whole listings
-  there.
+  game's bytes and TSL 585 of 612. `kjk script compile <game> SCRIPT`
+  shows where one parts from the game's, and with
+  `KJK_NSS_LISTING=FOLDER` writes both whole listings there.
+- The rest are not the compiler's: their shipped source is not the
+  source BioWare compiled. K1's 165 are these. 50 call
+  `ActionStartConversation` with 11 arguments (3 of them with 5), because
+  the `nwscript.nss` of the day had no `bUseLeader`. 24 lack globals the
+  shipped includes declare (`k_inc_utility`'s six `SW_CONSTANT_…_HIT_…`
+  in 20 of them). 44 call older include code (`k_inc_utility` with debug
+  lines, a longer `k_inc_treasure`). 47 had their own body edited
+  afterwards. The decompiler proves it: all 165 read back from the
+  game's bytes compile to those bytes again.
 - BioWare's layout, as the games' scripts show it: the entry calls the
   script's function and returns (`StartingConditional` reserves its int
   first); globals are set by a function of their own around that call;
   functions are written depth first in the order they are first called,
-  and only those called. A local is reserved where it is declared and its
+  and only those called. A call's arguments are written before it, so in
+  `f(g())` `g` is written before `f`. A local is reserved where it is declared and its
   value copied down onto it. A call pushes its arguments last first with
   every default written out; an `action` argument is `STORESTATE` (the
   globals, and the function's locals, parameters and result), a jump over
@@ -95,6 +102,35 @@ the games' own compiled scripts; nothing of them is in the repo.
   watcher (`vm::observe`, per thread, set only by a debugger: a run
   without one pays nothing for it), each instruction with the stack and
   the calls made and not returned.
+
+## The decompiler (`script_ncs::decompile`)
+- `decompile(ncs, catalog)` reads a compiled script back into source.
+  It keeps the stack the compiler kept and takes each pattern the
+  compiler writes for the statement that wrote it, into the compiler's
+  own tree (`compile::parse`), which is then printed.
+- `decompile_checked(name, ncs, catalog)` hands the source out only when
+  it compiles to the bytes it came from. `kjk script decompile <game>
+  SCRIPT [--module M] [--out FOLDER]` prints or writes one script that
+  way. `kjk script decompile <game>` reads back every `.ncs` of every
+  layer and module: K1 10 004 of 10 010 different scripts, TSL 4 770 of
+  4 779.
+- A compiled script keeps no names. Variables are named by type and
+  order (`nLocal1`, `oParam2`, `sGlobal3`), functions `sub1`, `sub2` in
+  the order written, a structure by its cells (`Cells10_1`, fields `f1`,
+  `f2`). A `const` is the number it stood for. A negative number has no
+  literal in the language, so it is a `#define` (`INT_MINUS_1`). A `for`
+  without a `continue` reads as the `while` it compiles the same as.
+- A script that calls a routine with fewer arguments than `nwscript.nss`
+  gives it parameters was compiled against an older `nwscript.nss`.
+  `Decompiled::routines` names each such routine and its argument count,
+  the source says so in a comment at its top, and it compiles to the same
+  bytes against `Catalog::cut` of them. K1 has 634 such scripts, TSL 30.
+- Not read back. A routine called with more arguments than its prototype,
+  or with another type (`AddPartyMember` taking an object in K1's
+  `tar_m02aa`), since the older prototype is not known: 5 in K1. K1's
+  `k_pman_arrest11`, which compiles to other bytes. Scripts another
+  compiler wrote (mods in `override`), whose layout is not BioWare's. The
+  `?:` choice, which no script of either game uses.
 
 ## In the sim (`sim::script`, `world::scripts`)
 - A module's plan carries a `Library` (`Level::with_scripts`, in its
