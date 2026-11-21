@@ -52,11 +52,11 @@ applies = ["kind:lightsaber"]
 [slow_motion.ms]
 name = "Slow-Motion Length"
 type = "u32"
-value = 200
+value = 300
 unit = "ms"
 range = [0, 2000]
 summary = "A perfect block slows the game for {duel.slow_motion.ms} of real time."
-source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 3"
+source = "ours; Movie Duels slows the game for 200 ms (docs/SABER-RULES.md section 3)"
 see = "game::sim_host::Slowed"
 applies = ["kind:lightsaber"]
 

@@ -238,7 +238,8 @@ NPCs and for bolt costs.
   - attacker reaction: if the attacker's mishap is 13 or more, a mishap roll (section 5); otherwise a heavy stagger,
     whose heavy-bounce animation plays at 0.55 speed when Saber Attack Speed is MD;
   - player blocker: camera shake (0.45 for 100 ms) and, with "Perfect Block Slowmo Action" on, slow motion
-    (time x0.3 for 200 ms); a perfect-block sound; NPC blocker: a taunt/combat bark;
+    (time x0.3 for 200 ms; kjk slows time for 300 ms of real time instead); a perfect-block sound; NPC blocker: a
+    taunt/combat bark;
   - bright clash effect; the "perfect block" mark stays on until the blocker lets go of block, bounces or attacks.
 - **Against an unblockable attack inside the window:** the attacker is disarmed (subject to disarm protection, 4.6),
   damage cancelled, blocker +15 meter and -5 mishap, attacker -10 meter and +5 mishap, slow motion and sound as above.

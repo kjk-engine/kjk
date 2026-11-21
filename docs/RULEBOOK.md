@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3421dd1adbe8988e`.
+Edition `d478d4b3ea50a68d`.
 
 ## Contents
 
@@ -11997,11 +11997,11 @@ While a perfect block slows the game, the world moves at 0.3 times its normal sp
 
 <sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
-<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
+<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.3 seconds** (`300 ms`) · `duel.slow_motion.ms`
 
-A perfect block slows the game for 200 ms of real time.
+A perfect block slows the game for 300 ms of real time.
 
-<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+<sub>Source: ours; Movie Duels slows the game for 200 ms (docs/SABER-RULES.md section 3). Code: `game::sim_host::Slowed`.</sub>
 
 ### <a id="duel-hud"></a>Stamina Bars
 
