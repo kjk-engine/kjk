@@ -1760,7 +1760,12 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         items: inventory::usable(
             race,
             usable.iter().map(|(uses, facts)| (*uses, facts)),
-            |row| rows.get(&row).copied().unwrap_or_default(),
+            |row| {
+                rows.get(&row).copied().unwrap_or(inventory::RowUse {
+                    scripted: false,
+                    on_user: false,
+                })
+            },
             None,
         ),
         ..inventory::dress(naked, worn.iter().map(|(slot, facts)| (*slot, facts)))
