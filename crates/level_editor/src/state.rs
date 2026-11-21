@@ -67,6 +67,9 @@ pub struct EditSetup {
     pub catalog: Option<script_ncs::Catalog>,
     /// What `nwscript.nss` says of each routine (`catalog::notes`).
     pub notes: BTreeMap<String, String>,
+    /// The install's talk table (`dialog.tlk`), for the game's lines of a
+    /// conversation.
+    pub talk: Option<std::sync::Arc<fmt_odyssey::tlk::Tlk>>,
     pub items: Vec<String>,
     /// The install's door templates (`.utd`).
     pub doors: Vec<String>,
@@ -2091,6 +2094,12 @@ pub(crate) fn command(
             state.apply(Edit::Outline(target, points));
         }
         ["area", rest @ ..] => area_command(state, rest)?,
+        ["talk", name] => {
+            let target = selected(state)?;
+            let name = if *name == "-" { "" } else { name };
+            state.change_template(target, Change::Conversation(name.to_ascii_lowercase()));
+        }
+        ["conversation", rest @ ..] => conversation_command(state, rest, cameras)?,
         ["blocks", event, "clear"] => {
             let target = selected(state)?;
             set_blocks(state, target, event, Vec::new())?;
@@ -2488,6 +2497,216 @@ pub(crate) fn walk(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Re
 
 /// Saves the project (`Editor::save_with`), saying its warnings and what
 /// was written.
+/// A conversation's line by its words: `line N` or `reply N`.
+fn node_at(side: &str, n: &str) -> Result<(level_edit::dialog::Side, usize), String> {
+    use level_edit::dialog::Side;
+    let side = match side {
+        "line" | "entry" => Side::Entry,
+        "reply" => Side::Reply,
+        _ => return Err(format!("{side:?}: a node is a line or a reply")),
+    };
+    let n = n
+        .parse::<usize>()
+        .map_err(|_| format!("{n:?} is not a node's number"))?;
+    Ok((side, n))
+}
+
+/// A link by its words: `start I`, or `line N I` / `reply N I`.
+fn link_at(words: &[&str]) -> Result<(level_edit::dialog::LinkAt, usize), String> {
+    use level_edit::dialog::LinkAt;
+    let number = |word: &str| {
+        word.parse::<usize>()
+            .map_err(|_| format!("{word:?} is not a link's number"))
+    };
+    match words {
+        ["start", i, ..] => Ok((LinkAt::Start(number(i)?), 2)),
+        [side, n, i, ..] => {
+            let (side, n) = node_at(side, n)?;
+            Ok((LinkAt::From(side, n, number(i)?), 3))
+        }
+        _ => Err("a link is start I, or line N I, or reply N I".into()),
+    }
+}
+
+/// `edit conversation ...`: the project's conversations made, copied from
+/// the game's, changed and tried (`level_edit::dialog`).
+fn conversation_command(
+    state: &mut EditorState,
+    words: &[&str],
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    use level_edit::dialog::Edit as Talk;
+    let none = |word: &str| {
+        if word == "-" {
+            String::new()
+        } else {
+            word.to_ascii_lowercase()
+        }
+    };
+    match words {
+        ["new", name] => {
+            state.apply(Edit::NewConversation {
+                name: name.to_string(),
+                base: None,
+            });
+            state
+                .pending_ui
+                .push(vec!["conversation".into(), name.to_ascii_lowercase()]);
+            return Ok(());
+        }
+        ["copy", name] => {
+            let name = name.to_ascii_lowercase();
+            let bytes = state
+                .setup
+                .resolver
+                .read(&name, ResType::DLG)
+                .ok_or(format!("the game has no conversation {name}"))?;
+            let gff =
+                fmt_odyssey::gff::Gff::parse(&bytes).map_err(|error| format!("{name}: {error}"))?;
+            state.apply(Edit::NewConversation {
+                name: name.clone(),
+                base: Some(gff),
+            });
+            state.pending_ui.push(vec!["conversation".into(), name]);
+            return Ok(());
+        }
+        ["drop", name] => {
+            state.apply(Edit::DropConversation(name.to_ascii_lowercase()));
+            return Ok(());
+        }
+        ["try", name, on, picks @ ..] => {
+            let picks = picks
+                .iter()
+                .map(|pick| {
+                    pick.parse::<u8>()
+                        .map_err(|_| format!("{pick:?} is not a reply's place"))
+                })
+                .collect::<Result<Vec<u8>, String>>()?;
+            return try_conversation(state, name, on, picks, cameras);
+        }
+        _ => {}
+    }
+    let [name, rest @ ..] = words else {
+        return Err(
+            "edit conversation takes new, copy, drop, try, or a conversation's name".into(),
+        );
+    };
+    let name = name.to_ascii_lowercase();
+    let change = match rest {
+        ["add"] => Talk::Add { under: None },
+        ["add", side, n] => Talk::Add {
+            under: Some(node_at(side, n)?),
+        },
+        ["text", side, n, text @ ..] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Text(side, n, text.join(" "))
+        }
+        ["speaker", side, n, tag] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Speaker(
+                side,
+                n,
+                if *tag == "-" {
+                    String::new()
+                } else {
+                    tag.to_string()
+                },
+            )
+        }
+        ["listener", side, n, tag] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Listener(
+                side,
+                n,
+                if *tag == "-" {
+                    String::new()
+                } else {
+                    tag.to_string()
+                },
+            )
+        }
+        ["script", side, n, script] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Script(side, n, none(script))
+        }
+        ["quest", side, n, quest, entry] => {
+            let (side, n) = node_at(side, n)?;
+            let entry = entry
+                .parse::<u32>()
+                .map_err(|_| format!("{entry:?} is not an entry's number"))?;
+            Talk::Quest(side, n, quest.to_string(), entry)
+        }
+        ["condition", link @ ..] => {
+            let (at, used) = link_at(link)?;
+            let script = link
+                .get(used)
+                .ok_or("a condition names a script, or - for none")?;
+            Talk::Condition(at, none(script))
+        }
+        ["link", "start", to] => Talk::LinkTo {
+            from: None,
+            to: to
+                .parse()
+                .map_err(|_| format!("{to:?} is not a line's number"))?,
+        },
+        ["link", side, n, to] => Talk::LinkTo {
+            from: Some(node_at(side, n)?),
+            to: to
+                .parse()
+                .map_err(|_| format!("{to:?} is not a node's number"))?,
+        },
+        ["unlink", link @ ..] => Talk::Unlink(link_at(link)?.0),
+        ["up", link @ ..] => Talk::Shift(link_at(link)?.0, -1),
+        ["down", link @ ..] => Talk::Shift(link_at(link)?.0, 1),
+        ["delete", side, n] => {
+            let (side, n) = node_at(side, n)?;
+            Talk::Delete(side, n)
+        }
+        ["end", script] => Talk::End(none(script)),
+        ["abort", script] => Talk::Abort(none(script)),
+        _ => {
+            return Err(
+                "a conversation's change is add, text, speaker, listener, script, quest, condition, link, unlink, up, down, delete, end or abort"
+                    .into(),
+            );
+        }
+    };
+    state.apply(Edit::Conversation(name, change));
+    Ok(())
+}
+
+/// Saves, then plays the project's conversation `name` headless with the
+/// player talking to the object tagged `on`, answering by `picks`
+/// (`kjk try-conversation`).
+pub(crate) fn try_conversation(
+    state: &mut EditorState,
+    name: &str,
+    on: &str,
+    picks: Vec<u8>,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    if state.script_try.is_some() {
+        return Err("a try is running".into());
+    }
+    let name = name.to_ascii_lowercase();
+    command(state, &["save"], cameras)?;
+    let project = &state.editor.project;
+    let plan = crate::script_edit::Plan {
+        program: state.setup.program.clone(),
+        project: project.name.clone(),
+        game: project.game.clone(),
+        module: project.module.clone(),
+        script: name.clone(),
+        on: Some(on.to_string()),
+        seconds: 40.0,
+        debug: None,
+        conversation: Some(picks),
+    };
+    state.script_try = Some(crate::script_edit::Try::start(plan));
+    state.say(format!("trying the conversation {name} with {on}"));
+    Ok(())
+}
+
 /// The text of the project's script `name`: its draft, else its file.
 pub(crate) fn script_text(state: &EditorState, name: &str) -> Option<String> {
     if let Some(draft) = state.drafts.get(name) {
@@ -2853,6 +3072,7 @@ fn try_script(
         on: on.map(str::to_string),
         seconds: 3.0,
         debug: debug.then(|| project.folder.join(format!("{name}.ndb"))),
+        conversation: None,
     };
     state.script_try = Some(crate::script_edit::Try::start(plan));
     state.say(format!("trying {name} for {}", on.unwrap_or("the player")));

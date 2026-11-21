@@ -348,6 +348,7 @@ fn setup(
     let creatures = sorted(ResType::UTC);
     let scripts = sorted(ResType::NCS);
     let catalog = script_view::catalog(&resolver);
+    let talk = resolver.talk.get();
     let notes = resolver
         .read("nwscript", ResType::NSS)
         .map(|bytes| bytes.into_iter().map(char::from).collect::<String>())
@@ -405,6 +406,7 @@ fn setup(
         scripts,
         catalog,
         notes,
+        talk,
         items,
         waypoints,
         doors,

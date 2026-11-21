@@ -18,6 +18,7 @@
 pub mod active;
 pub mod area;
 pub mod blocks;
+pub mod dialog;
 pub mod editor;
 pub mod git;
 pub mod kinds;

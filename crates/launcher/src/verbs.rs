@@ -937,6 +937,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         made,
                         party,
                         read_ms: 0,
+                        added: None,
                     },
                 )
             }

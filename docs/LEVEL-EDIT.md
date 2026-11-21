@@ -561,6 +561,56 @@ the view's centre meets the floor, facing as the camera faces (`kjk play
 --at`), to test one corner of a level without walking there. `edit walk
 here` does the same for walk mode.
 
+## Conversations
+
+A project can bring conversations of its own, and copies of the game's.
+Each is a `NAME.dlg` in the project's folder, which kjk plays in place of
+the game's conversation of that name. `level_edit::dialog` does the work,
+on the file itself, so every field the editor does not touch stays as it
+was.
+
+- **Conversations** in the toolbar lists the project's conversations and
+  opens one. **New** makes a conversation with no lines, and **Copy the
+  game's** copies the game's conversation of the name typed.
+- An object's **Conversation** in its behaviour (a creature, a placeable
+  or a door) names the conversation it speaks. **Open** opens the
+  project's, **Edit a copy** copies the game's, and **New** makes one for
+  the object and gives it to it.
+
+The conversation window shows the conversation as a tree. A conversation
+opens with the first starting line whose condition holds. Each line the
+other side says (orange) leads to the replies the player may pick (blue),
+and each reply leads to the next line. A line shown already above is not
+opened again; the tree says where it goes on instead. Each row shows the
+line's condition and the script it runs.
+
+A line clicked in the tree is changed on the right:
+
+- its text. A line the editor writes keeps its text in the conversation
+  itself, with no talk-table line, and kjk shows it as it shows the
+  game's lines. A line of the game shows its talk-table text, and **Write
+  its own text** gives it its own, starting from the game's. New lines
+  are text only; they have no voice.
+- for a line the other side says, its speaker (an object's tag; empty
+  for the conversation's owner) and its listener (empty for the player);
+- the script it runs as it shows, and **Write it** opens that script in
+  the script window;
+- its condition: the script that decides whether the line is said, or
+  the reply offered, where it is reached from here. **Write it** opens it,
+  or makes a new `StartingConditional` that answers `TRUE`;
+- the journal entry it adds: a quest's tag and the entry's number;
+- **Add a reply** under a line, or **Add a line** under a reply; **Go on
+  at** links it to a line or reply shown elsewhere; **Up** and **Down**
+  move it among its siblings (the order replies are offered in); **Remove
+  this link**; and **Delete**, which takes it out with every link to it.
+
+The window also sets the scripts run when the conversation ends and when
+it is cut short. **Try** saves, then plays the conversation in the level
+without a window (`kjk try-conversation`): the player talks to the object
+of the tag given and takes the replies by their place (1 the first; the
+first when the list runs out). What was said, offered and picked shows
+in the window.
+
 ## Working with an agent
 
 An agent, such as Claude, can help with a level in two ways.
@@ -740,6 +790,18 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit script edit NAME` | opens a script to be written: the project's own, else a copy of the install's |
 | `edit script write`, `edit script compile` | writes the scripts changed in the viewer; compile also compiles the project's scripts |
 | `edit script debug NAME`, `edit script debug NAME TAG` | tries the script as `edit script try` does and records it line by line; the stops are under the viewer's Debug tab |
+| `edit talk NAME`, `edit talk -` | gives the selected object the conversation, or none |
+| `edit conversation new NAME`, `edit conversation copy NAME`, `edit conversation drop NAME` | makes a conversation of the project, copies the game's, or takes one out of the project |
+| `edit conversation NAME add`, `edit conversation NAME add line\|reply N` | adds a starting line, or a node under line or reply N (a reply under a line, a line under a reply) |
+| `edit conversation NAME text line\|reply N TEXT ...` | sets a node's own text (the words to the end of the command) |
+| `edit conversation NAME speaker line N TAG`, `listener line N TAG` | sets a line's speaker or listener; `-` for the owner or the player |
+| `edit conversation NAME script line\|reply N SCRIPT`, `quest line\|reply N TAG ENTRY` | sets the script a node runs (`-` for none), or the journal entry it adds |
+| `edit conversation NAME condition start I SCRIPT`, `condition line\|reply N I SCRIPT` | sets the condition of the starting list's link I, or of node N's link I; `-` for none |
+| `edit conversation NAME link start TO`, `link line\|reply N TO` | links to a line or reply shown elsewhere |
+| `edit conversation NAME unlink ...`, `up ...`, `down ...` | takes a link away, or moves it, named as `condition` names it |
+| `edit conversation NAME delete line\|reply N`, `end SCRIPT`, `abort SCRIPT` | deletes a node; sets the scripts run as it ends or is cut short |
+| `edit conversation try NAME TAG [PICK ...]` | saves, then plays the conversation for the player talking to the object tagged TAG, answering by the picks |
+| `edit ui conversation NAME`, `edit ui conversation`, `edit ui conversation select line\|reply N` | opens or closes the conversation window; selects a node in it |
 | `edit blocks EVENT add KEY [VALUE ...]`, `edit blocks EVENT remove N`, `edit blocks EVENT clear` | the selected object's logic blocks on the event (`OnUsed`): a block of the kind (`open_door`, `give_item`, `once`; `level_edit::blocks::KINDS`) added with its values, block N removed, or none left |
 | `edit script try NAME`, `edit script try NAME TAG` | saves, compiles, then runs the script for the player or the object tagged TAG in the module, headless; its trace is under the viewer's Try tab |
 | `edit flag useable on`, `edit flag inventory off` | sets the selected placeable's `Useable` or `HasInventory` |
@@ -863,6 +925,8 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_conversations` builds and changes a conversation, reads
+  it as the walk reads it, and has a project keep it.
 - `level_edit_logic_blocks` writes blocks as a script, reads them back,
   and compiles every kind; `script_vm` checks the debug notes and a
   watched run.

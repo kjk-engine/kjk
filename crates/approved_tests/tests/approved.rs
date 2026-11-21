@@ -8005,3 +8005,184 @@ fn level_edit_logic_blocks() {
     assert!(compiled.is_ok(), "{compiled:?}\n{script}");
     assert_eq!(blocks::fresh_name(|name| name == "kjb_1"), "kjb_2");
 }
+
+/// `level_edit::dialog`: a conversation made and changed in the level
+/// editor, read as the walk reads it, and kept by a project
+/// (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_conversations() {
+    use fmt_odyssey::gff::Gff;
+    use level_edit::dialog::{self, Edit as Talk, LinkAt, Side};
+    use level_edit::{Edit, Editor, Project, git};
+
+    let mut gff = dialog::empty();
+    let mut apply = |change: Talk| dialog::apply(&mut gff, &change).unwrap();
+    // A start, two replies under it, and a line under the first reply.
+    assert_eq!(apply(Talk::Add { under: None }), Some((Side::Entry, 0)));
+    apply(Talk::Text(Side::Entry, 0, "The box hums.".into()));
+    assert_eq!(
+        apply(Talk::Add {
+            under: Some((Side::Entry, 0))
+        }),
+        Some((Side::Reply, 0))
+    );
+    apply(Talk::Text(Side::Reply, 0, "Open it.".into()));
+    assert_eq!(
+        apply(Talk::Add {
+            under: Some((Side::Entry, 0))
+        }),
+        Some((Side::Reply, 1))
+    );
+    apply(Talk::Text(Side::Reply, 1, "Leave it.".into()));
+    assert_eq!(
+        apply(Talk::Add {
+            under: Some((Side::Reply, 0))
+        }),
+        Some((Side::Entry, 1))
+    );
+    apply(Talk::Text(Side::Entry, 1, "A gizka hops out.".into()));
+    apply(Talk::Speaker(Side::Entry, 1, "gizka".into()));
+    apply(Talk::Script(Side::Entry, 1, "kje_gizka".into()));
+    apply(Talk::Condition(
+        LinkAt::From(Side::Entry, 0, 1),
+        "kje_if_brave".into(),
+    ));
+    apply(Talk::Quest(Side::Entry, 1, "kje_box".into(), 10));
+    apply(Talk::End("kje_done".into()));
+    // The second reply goes on at the first line again, shown above.
+    apply(Talk::LinkTo {
+        from: Some((Side::Reply, 1)),
+        to: 0,
+    });
+
+    let read = dialog::read(&gff);
+    assert_eq!(read.starts.len(), 1);
+    assert_eq!(read.entries.len(), 2);
+    assert_eq!(read.replies.len(), 2);
+    let said = |node: &fmt_odyssey::dlg::Node| dialog::text_of(node, &|_| None);
+    assert_eq!(said(&read.entries[0]), "The box hums.");
+    assert_eq!(
+        read.entries[0].text.strref,
+        u32::MAX,
+        "the line's own text, no talk-table line"
+    );
+    assert_eq!(
+        read.entries[0]
+            .links
+            .iter()
+            .map(|link| link.index)
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+    assert_eq!(read.entries[0].links[1].active.script, "kje_if_brave");
+    assert_eq!(read.entries[1].speaker, "gizka");
+    assert_eq!(read.entries[1].script.script, "kje_gizka");
+    assert_eq!(
+        (read.entries[1].quest.as_str(), read.entries[1].quest_entry),
+        ("kje_box", 10)
+    );
+    assert_eq!(read.on_end, "kje_done");
+    assert!(
+        read.replies[1].links[0].is_child,
+        "a link back is a child link"
+    );
+    assert!(
+        dialog::problems(&gff).is_empty(),
+        "{:?}",
+        dialog::problems(&gff)
+    );
+
+    // The order of the replies, a link taken away, a node deleted with
+    // every link to it and the links past it renumbered.
+    dialog::apply(&mut gff, &Talk::Shift(LinkAt::From(Side::Entry, 0, 1), -1)).unwrap();
+    assert_eq!(
+        dialog::read(&gff).entries[0]
+            .links
+            .iter()
+            .map(|link| link.index)
+            .collect::<Vec<_>>(),
+        [1, 0]
+    );
+    assert!(dialog::apply(&mut gff, &Talk::Shift(LinkAt::From(Side::Entry, 0, 0), -1)).is_err());
+    dialog::apply(&mut gff, &Talk::Delete(Side::Reply, 0)).unwrap();
+    let read = dialog::read(&gff);
+    assert_eq!(read.replies.len(), 1);
+    assert_eq!(said(&read.replies[0]), "Leave it.");
+    assert_eq!(
+        read.entries[0]
+            .links
+            .iter()
+            .map(|link| link.index)
+            .collect::<Vec<_>>(),
+        [0],
+        "the link to the deleted reply is gone, the one past it moved down"
+    );
+    dialog::apply(&mut gff, &Talk::Unlink(LinkAt::From(Side::Entry, 0, 0))).unwrap();
+    assert!(dialog::read(&gff).entries[0].links.is_empty());
+    assert!(dialog::apply(&mut gff, &Talk::Text(Side::Reply, 7, "no".into())).is_err());
+    assert!(
+        dialog::apply(
+            &mut gff,
+            &Talk::Script(Side::Entry, 0, "a_name_far_too_long".into())
+        )
+        .is_err()
+    );
+
+    // The file reads back as written.
+    let again = Gff::parse(&gff.write()).unwrap();
+    assert_eq!(again, gff);
+    assert_eq!(
+        fmt_odyssey::dlg::Dlg::parse(&gff.write()).unwrap(),
+        dialog::read(&gff)
+    );
+
+    // A project keeps its conversations, undo takes one back, and a
+    // conversation taken out of the project leaves its folder.
+    let folder = std::env::temp_dir().join(format!("kjk-conversations-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut editor = Editor::new(Project::new(
+        &folder,
+        "k1",
+        "ebo_m12aa",
+        "m12aa",
+        git::empty(),
+    ));
+    editor
+        .apply(Edit::NewConversation {
+            name: "kje_box".into(),
+            base: Some(gff.clone()),
+        })
+        .unwrap();
+    assert!(
+        editor
+            .apply(Edit::NewConversation {
+                name: "kje_box".into(),
+                base: None,
+            })
+            .is_err()
+    );
+    editor
+        .apply(Edit::Conversation(
+            "kje_box".into(),
+            Talk::Add { under: None },
+        ))
+        .unwrap();
+    assert_eq!(
+        dialog::read(&editor.project.conversations["kje_box"])
+            .starts
+            .len(),
+        2
+    );
+    editor.undo();
+    assert_eq!(editor.project.conversations["kje_box"], gff);
+    editor.project.save("test").unwrap();
+    assert!(folder.join("kje_box.dlg").is_file());
+    let opened = Project::open(&folder).unwrap();
+    assert_eq!(opened.conversations, editor.project.conversations);
+    editor
+        .apply(Edit::DropConversation("kje_box".into()))
+        .unwrap();
+    editor.project.save("test").unwrap();
+    assert!(!folder.join("kje_box.dlg").exists());
+    let _ = std::fs::remove_dir_all(&folder);
+}

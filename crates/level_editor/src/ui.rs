@@ -12,6 +12,7 @@ use bevy_egui::{
     EguiContexts, EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass, PrimaryEguiContext, egui,
 };
 use console::{CameraPose, CameraRequest, ConsoleQueue};
+use fmt_odyssey::ResType;
 use level_edit::editor::EDITABLE;
 use level_edit::{BoxRole, Change, CollisionBox, Edit, Kind, Prop, Target};
 use transform_gizmo_egui::math::Transform as GizmoTransform;
@@ -145,6 +146,18 @@ pub struct UiState {
     area_typed: BTreeMap<String, String>,
     /// The event whose logic blocks are shown, for the selection.
     blocks_event: Option<(Target, String)>,
+    /// The conversation window: the conversation open, its node selected
+    /// with the link that led to it, the field being typed in, the name
+    /// typed for a new one, and the tag and picks of a try.
+    dialog_open: Option<String>,
+    dialog_selected: Option<(
+        level_edit::dialog::Side,
+        usize,
+        Option<level_edit::dialog::LinkAt>,
+    )>,
+    dialog_typing: Option<String>,
+    new_dialog: String,
+    dialog_try: (String, String),
     /// The agent link while it is on (`agent`), and a copy of the
     /// selection asked for.
     link: Option<crate::agent::Link>,
@@ -208,6 +221,11 @@ impl Default for UiState {
             way_in_arrival: String::new(),
             area_typed: BTreeMap::new(),
             blocks_event: None,
+            dialog_open: None,
+            dialog_selected: None,
+            dialog_typing: None,
+            new_dialog: String::new(),
+            dialog_try: (String::new(), String::new()),
             link: std::env::var("KJK_EDITOR_LINK")
                 .is_ok_and(|on| on == "1")
                 .then(crate::agent::Link::open)
@@ -684,6 +702,21 @@ fn panels(
                     .map(|target| (target, event.to_string()));
             }
             ["blocks"] => ui.blocks_event = None,
+            ["conversation"] => ui.dialog_open = None,
+            ["conversation", name] => {
+                ui.dialog_open = Some(name.to_ascii_lowercase());
+                ui.dialog_selected = None;
+            }
+            ["conversation", "select", side, n] => {
+                let side = if *side == "reply" {
+                    level_edit::dialog::Side::Reply
+                } else {
+                    level_edit::dialog::Side::Entry
+                };
+                if let Ok(n) = n.parse::<usize>() {
+                    ui.dialog_selected = Some((side, n, None));
+                }
+            }
             ["link", on @ ("on" | "off")] => {
                 ui.link = (*on == "on")
                     .then(crate::agent::Link::open)
@@ -755,6 +788,7 @@ fn panels(
     assets(&mut root, state, ui, &cameras);
     viewport(&mut root, state, ui, &cameras, looking);
     crate::file::dialogs(&ctx, state, &mut ui.file);
+    conversation_window(&ctx, state, ui);
     room_levels(&ctx, state);
     // The buttons' commands, run as their keys run them.
     if let Some(command) = state.pending_command.take() {
@@ -977,6 +1011,7 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
                 .on_hover_text("F2: walkable floor green, solid surfaces orange, edge walls blue");
             lighting_menu(ui, state);
             scripts_menu(ui, state, ui_state);
+            conversations_menu(ui, state, ui_state);
             ui.separator();
             if ui
                 .button("Copy")
@@ -1611,6 +1646,78 @@ fn behaviour(
             changes.push(Change::Tag(typed.clone()));
         }
     });
+    // The conversation the object speaks, where its kind has one.
+    if gff.root.get("Conversation").is_some()
+        || matches!(kind, Kind::Creature | Kind::Placeable | Kind::Door)
+    {
+        let now = gff
+            .root
+            .resref("Conversation")
+            .map(|name| name.to_ascii_lowercase())
+            .unwrap_or_else(String::new);
+        ui.horizontal(|ui| {
+            ui.label("Conversation");
+            let typed = ui_state
+                .typed
+                .entry("Conversation".into())
+                .or_insert_with(|| now.clone());
+            let field = ui
+                .add(
+                    egui::TextEdit::singleline(typed)
+                        .desired_width(130.0)
+                        .hint_text("none"),
+                )
+                .on_hover_text(
+                    "The conversation the object speaks when the player talks to it or uses it.",
+                );
+            if field.lost_focus() && typed.to_ascii_lowercase() != now {
+                changes.push(Change::Conversation(typed.trim().to_ascii_lowercase()));
+            }
+            let own = state.editor.project.conversations.contains_key(&now);
+            let the_games =
+                !now.is_empty() && state.setup.resolver.read(&now, ResType::DLG).is_some();
+            if own && ui.small_button("Open").clicked() {
+                state
+                    .pending_ui
+                    .push(vec!["conversation".into(), now.clone()]);
+            } else if !own
+                && the_games
+                && ui
+                    .small_button("Edit a copy")
+                    .on_hover_text("Copies the game's conversation into the project, to change it.")
+                    .clicked()
+            {
+                state.pending_command = Some(format!("conversation copy {now}"));
+            } else if now.is_empty()
+                && ui
+                    .small_button("New")
+                    .on_hover_text("Makes a conversation of the project for this object.")
+                    .clicked()
+            {
+                let base = state.tag_of(&entry).to_ascii_lowercase();
+                let base: String = base
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .take(12)
+                    .collect();
+                let taken = |name: &str| {
+                    state.editor.project.conversations.contains_key(name)
+                        || state.setup.resolver.read(name, ResType::DLG).is_some()
+                };
+                let name = (1..)
+                    .map(|n| {
+                        format!("kjd{n}_{base}")
+                            .chars()
+                            .take(16)
+                            .collect::<String>()
+                    })
+                    .find(|name| !taken(name))
+                    .expect("some number is free");
+                changes.push(Change::Conversation(name.clone()));
+                state.pending_command = Some(format!("conversation new {name}"));
+            }
+        });
+    }
     if placeable {
         ui.horizontal(|ui| {
             for (label, shown, hint) in [
@@ -2397,6 +2504,447 @@ fn ways_in(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
     }
     if let Some(asked) = asked {
         state.pending_command = Some(asked);
+    }
+}
+
+/// The Conversations menu: the project's conversations, each opened in
+/// the conversation window, and a new one made or one of the game's
+/// copied.
+fn conversations_menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
+    let config = egui::containers::menu::MenuConfig::new()
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+    egui::containers::menu::MenuButton::new("Conversations")
+        .config(config)
+        .ui(ui, |ui| {
+            let names: Vec<String> = state.editor.project.conversations.keys().cloned().collect();
+            if names.is_empty() {
+                ui.label("The project has no conversations of its own yet.");
+            }
+            for name in names {
+                if ui.button(&name).clicked() {
+                    state.pending_ui.push(vec!["conversation".into(), name]);
+                    ui.close();
+                }
+            }
+            ui.separator();
+            ui.label("A conversation's name, 1 to 16 letters, digits and _:");
+            ui.add(
+                egui::TextEdit::singleline(&mut ui_state.new_dialog)
+                    .hint_text("kje_talk")
+                    .desired_width(160.0),
+            );
+            let name = ui_state.new_dialog.trim().to_ascii_lowercase();
+            let good = !name.is_empty()
+                && name.len() <= 16
+                && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+            let the_games = good && state.setup.resolver.read(&name, ResType::DLG).is_some();
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(good, egui::Button::new("New"))
+                    .on_hover_text("A conversation with no lines yet.")
+                    .clicked()
+                {
+                    state.pending_command = Some(format!("conversation new {name}"));
+                    ui_state.new_dialog.clear();
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(the_games, egui::Button::new("Copy the game's"))
+                    .on_hover_text(
+                        "Copies the game's conversation of this name into the project, where it is \
+                         changed and played in the place of the game's.",
+                    )
+                    .clicked()
+                {
+                    state.pending_command = Some(format!("conversation copy {name}"));
+                    ui_state.new_dialog.clear();
+                    ui.close();
+                }
+            });
+        });
+}
+
+/// One row of a conversation's tree: its depth, its node, the link that
+/// led to it, and whether it is shown already above (then not again).
+struct TalkRow {
+    depth: usize,
+    side: level_edit::dialog::Side,
+    index: usize,
+    via: Option<level_edit::dialog::LinkAt>,
+    again: bool,
+    condition: String,
+}
+
+/// The tree of `dlg` as rows, each node opened once, from its starts; then
+/// the nodes no link reaches.
+fn talk_rows(dlg: &fmt_odyssey::dlg::Dlg) -> Vec<TalkRow> {
+    use level_edit::dialog::{LinkAt, Side};
+    fn visit(
+        dlg: &fmt_odyssey::dlg::Dlg,
+        (side, index, depth): (Side, usize, usize),
+        via: Option<(LinkAt, &fmt_odyssey::dlg::Link)>,
+        seen: &mut std::collections::BTreeSet<(Side, usize)>,
+        out: &mut Vec<TalkRow>,
+    ) {
+        let child = via.is_some_and(|(_, link)| link.is_child);
+        let again = !seen.insert((side, index)) || child || depth > 60;
+        out.push(TalkRow {
+            depth,
+            side,
+            index,
+            via: via.map(|(at, _)| at),
+            again,
+            condition: via.map_or_else(String::new, |(_, link)| link.active.script.clone()),
+        });
+        if again {
+            return;
+        }
+        let nodes = if side == Side::Entry {
+            &dlg.entries
+        } else {
+            &dlg.replies
+        };
+        let Some(node) = nodes.get(index) else {
+            return;
+        };
+        for (n, link) in node.links.iter().enumerate() {
+            visit(
+                dlg,
+                (side.other(), link.index as usize, depth + 1),
+                Some((LinkAt::From(side, index, n), link)),
+                seen,
+                out,
+            );
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for (n, link) in dlg.starts.iter().enumerate() {
+        visit(
+            dlg,
+            (Side::Entry, link.index as usize, 0),
+            Some((LinkAt::Start(n), link)),
+            &mut seen,
+            &mut out,
+        );
+    }
+    for (side, count) in [
+        (Side::Entry, dlg.entries.len()),
+        (Side::Reply, dlg.replies.len()),
+    ] {
+        for index in 0..count {
+            if !seen.contains(&(side, index)) {
+                visit(dlg, (side, index, 0), None, &mut seen, &mut out);
+            }
+        }
+    }
+    out
+}
+
+/// A text field's change made as one edit while it is typed in: the first
+/// keystroke an edit of its own, the rest added to it, so one undo takes
+/// the whole of it back.
+fn typed_edit(
+    state: &mut EditorState,
+    ui_state: &mut UiState,
+    key: &str,
+    response: &egui::Response,
+    edit: Option<Edit>,
+) {
+    if response.changed()
+        && let Some(edit) = edit
+    {
+        if ui_state.dialog_typing.as_deref() == Some(key) {
+            state.apply_continuing(edit);
+        } else {
+            state.apply(edit);
+            ui_state.dialog_typing = Some(key.to_string());
+        }
+    }
+    if response.lost_focus() {
+        ui_state.dialog_typing = None;
+    }
+}
+
+/// The conversation window: the tree of the conversation open, the
+/// selected line's text, speaker, scripts and links, and its tries.
+fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &mut UiState) {
+    use level_edit::dialog::{Edit as Talk, LinkAt, Side, from_talk_table, read, text_of};
+    let Some(name) = ui_state.dialog_open.clone() else {
+        return;
+    };
+    let Some(gff) = state.editor.project.conversations.get(&name) else {
+        ui_state.dialog_open = None;
+        return;
+    };
+    let dlg = read(gff);
+    let talk = state.setup.talk.clone();
+    let line_text = |node: &fmt_odyssey::dlg::Node| {
+        text_of(node, &|strref| {
+            talk.as_ref()?
+                .text(strref)
+                .map(|bytes| bytes.iter().map(|&b| char::from(b)).collect())
+        })
+    };
+    let rows = talk_rows(&dlg);
+    let mut open = true;
+    let mut asked: Vec<Edit> = Vec::new();
+    let mut command: Option<String> = None;
+    let mut select: Option<(Side, usize, Option<LinkAt>)> = None;
+    egui::Window::new(format!("Conversation {name}"))
+        .id(egui::Id::new("conversation window"))
+        .default_size([860.0, 620.0])
+        .resizable(true)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            // The conversation's own: its end scripts, and a try.
+            ui.horizontal_wrapped(|ui| {
+                for (label, now, ending) in [("When it ends", &dlg.on_end, true), ("When it is cut short", &dlg.on_abort, false)] {
+                    ui.label(label);
+                    let key = format!("{name} {label}");
+                    let mut typed = now.clone();
+                    let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(110.0).hint_text("no script"));
+                    let change = if ending { Talk::End(typed.trim().to_string()) } else { Talk::Abort(typed.trim().to_string()) };
+                    typed_edit(state, ui_state, &key, &response, Some(Edit::Conversation(name.clone(), change)));
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Add a starting line").on_hover_text("A line the conversation may open with. The first whose condition holds is said.").clicked() {
+                    select = Some((Side::Entry, dlg.entries.len(), Some(LinkAt::Start(dlg.starts.len()))));
+                    asked.push(Edit::Conversation(name.clone(), Talk::Add { under: None }));
+                }
+                ui.separator();
+                if ui_state.dialog_try.0.is_empty()
+                    && let Some(Target::Object(kind, index)) = state.editor.selected
+                    && let Some(entry) = state.editor.entry(kind, index)
+                {
+                    ui_state.dialog_try.0 = state.tag_of(&entry);
+                }
+                ui.label("Try with");
+                ui.add(egui::TextEdit::singleline(&mut ui_state.dialog_try.0).desired_width(110.0).hint_text("an object's tag"));
+                ui.label("answering");
+                ui.add(egui::TextEdit::singleline(&mut ui_state.dialog_try.1).desired_width(60.0).hint_text("1,2"));
+                let trying = state.script_try.is_some();
+                let tag = ui_state.dialog_try.0.trim().to_string();
+                if ui
+                    .add_enabled(!trying && !tag.is_empty() && !tag.contains(' '), egui::Button::new("Try"))
+                    .on_hover_text(
+                        "Saves, then plays the conversation in the level without a window: the player talks to \
+                         the object of this tag and takes the replies by their place (1 the first), the first \
+                         when the list runs out. What was said shows below.",
+                    )
+                    .clicked()
+                {
+                    let picks: Vec<&str> = ui_state.dialog_try.1.split([',', ' ']).filter(|p| !p.is_empty()).collect();
+                    command = Some(format!("conversation try {name} {tag} {}", picks.join(" ")));
+                }
+                if trying {
+                    ui.spinner();
+                }
+            });
+            // The last try of this conversation.
+            if let Some(tried) = state.tried.as_ref().filter(|tried| tried.script == name) {
+                ui.separator();
+                egui::CollapsingHeader::new(format!("Last try with {}", tried.on.as_deref().unwrap_or("?")))
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical().id_salt("conversation try").max_height(160.0).show(ui, |ui| {
+                            for line in &tried.lines {
+                                ui.label(egui::RichText::new(line).monospace().size(11.0));
+                            }
+                        });
+                    });
+            }
+            ui.separator();
+            ui.columns(2, |columns| {
+                // The tree.
+                egui::ScrollArea::vertical().id_salt("conversation tree").auto_shrink(false).show(&mut columns[0], |ui| {
+                    if rows.is_empty() {
+                        ui.label("No lines yet. Add a starting line.");
+                    }
+                    for row in &rows {
+                        let nodes = if row.side == Side::Entry { &dlg.entries } else { &dlg.replies };
+                        let Some(node) = nodes.get(row.index) else {
+                            continue;
+                        };
+                        let who = match row.side {
+                            Side::Entry if node.speaker.is_empty() => "Owner".to_string(),
+                            Side::Entry => node.speaker.clone(),
+                            Side::Reply => "Player".to_string(),
+                        };
+                        let mut said: String = line_text(node).chars().take(70).collect();
+                        if said.is_empty() {
+                            said = "(says nothing)".to_string();
+                        }
+                        let mut label = format!("{}{who}: {said}", "    ".repeat(row.depth));
+                        if row.again {
+                            label = format!(
+                                "{}{who}: goes on at {} {} above",
+                                "    ".repeat(row.depth),
+                                if row.side == Side::Entry { "line" } else { "reply" },
+                                row.index
+                            );
+                        }
+                        if !row.condition.is_empty() {
+                            label.push_str(&format!("  [if {}]", row.condition));
+                        }
+                        if !row.again && !node.script.script.is_empty() {
+                            label.push_str(&format!("  [runs {}]", node.script.script));
+                        }
+                        if row.via.is_none() {
+                            label.push_str("  (no link leads here)");
+                        }
+                        let colour = if row.side == Side::Entry {
+                            egui::Color32::from_rgb(235, 190, 140)
+                        } else {
+                            egui::Color32::from_rgb(150, 200, 255)
+                        };
+                        let chosen = ui_state.dialog_selected.is_some_and(|(side, index, via)| {
+                            side == row.side && index == row.index && via == row.via
+                        });
+                        let text = egui::RichText::new(label).color(colour).monospace().size(11.5);
+                        if ui.selectable_label(chosen, text).clicked() {
+                            select = Some((row.side, row.index, row.via));
+                        }
+                    }
+                });
+                // The selected node.
+                let ui = &mut columns[1];
+                let Some((side, index, via)) = ui_state.dialog_selected else {
+                    ui.label("Click a line in the tree to change it.");
+                    return;
+                };
+                let nodes = if side == Side::Entry { &dlg.entries } else { &dlg.replies };
+                let Some(node) = nodes.get(index) else {
+                    return;
+                };
+                let what = if side == Side::Entry { "Line" } else { "Reply" };
+                ui.label(egui::RichText::new(format!("{what} {index}")).strong());
+                ui.label(
+                    egui::RichText::new(if side == Side::Entry {
+                        "Said by the owner, or by the object whose tag is its speaker."
+                    } else {
+                        "An answer the player picks."
+                    })
+                    .small(),
+                );
+                if from_talk_table(node) {
+                    ui.label(egui::RichText::new(format!("The game's line {} of its talk table:", node.text.strref)).small());
+                    ui.label(line_text(node));
+                    if ui.button("Write its own text").on_hover_text("The line keeps its text in the conversation from now on, starting from the game's.").clicked() {
+                        asked.push(Edit::Conversation(name.clone(), Talk::Text(side, index, line_text(node))));
+                    }
+                } else {
+                    let mut text = line_text(node);
+                    let response = ui.add(egui::TextEdit::multiline(&mut text).desired_rows(3).desired_width(f32::INFINITY).hint_text("What is said"));
+                    typed_edit(state, ui_state, &format!("{name} text {side:?} {index}"), &response, Some(Edit::Conversation(name.clone(), Talk::Text(side, index, text))));
+                }
+                egui::Grid::new("talk node").num_columns(2).show(ui, |ui| {
+                    if side == Side::Entry {
+                        for (label, now, hint) in [("Speaker", &node.speaker, "the owner"), ("Listener", &node.listener, "the player")] {
+                            ui.label(label);
+                            let mut typed = now.clone();
+                            let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(150.0).hint_text(hint));
+                            let change = if label == "Speaker" { Talk::Speaker(side, index, typed.trim().to_string()) } else { Talk::Listener(side, index, typed.trim().to_string()) };
+                            typed_edit(state, ui_state, &format!("{name} {label} {index}"), &response, Some(Edit::Conversation(name.clone(), change)));
+                            ui.end_row();
+                        }
+                    }
+                    ui.label("Runs");
+                    ui.horizontal(|ui| {
+                        let mut typed = node.script.script.clone();
+                        let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(120.0).hint_text("no script"));
+                        typed_edit(state, ui_state, &format!("{name} script {side:?} {index}"), &response, Some(Edit::Conversation(name.clone(), Talk::Script(side, index, typed.trim().to_string()))));
+                        if !node.script.script.is_empty() && ui.small_button("Write it").on_hover_text("Opens the script to be written: the project's own, else a copy of the game's, else a new one.").clicked() {
+                            command = Some(format!("script edit {}", node.script.script));
+                        }
+                    });
+                    ui.end_row();
+                    if let Some(at) = via {
+                        let link = match at {
+                            LinkAt::Start(n) => dlg.starts.get(n),
+                            LinkAt::From(from, parent, n) => (if from == Side::Entry { &dlg.entries } else { &dlg.replies })
+                                .get(parent)
+                                .and_then(|parent| parent.links.get(n)),
+                        };
+                        if let Some(link) = link {
+                            ui.label(if side == Side::Entry { "Said only if" } else { "Offered only if" });
+                            ui.horizontal(|ui| {
+                                let mut typed = link.active.script.clone();
+                                let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(120.0).hint_text("always"));
+                                typed_edit(state, ui_state, &format!("{name} condition {at:?}"), &response, Some(Edit::Conversation(name.clone(), Talk::Condition(at, typed.trim().to_string()))));
+                                let script = link.active.script.clone();
+                                if !script.is_empty() && ui.small_button("Write it").on_hover_text("Opens the condition to be written; a new one is a StartingConditional that answers TRUE.").clicked() {
+                                    let known = state.project_scripts.contains(&script) || state.drafts.contains_key(&script) || state.setup.resolver.read(&script, ResType::NSS).is_some() || state.setup.resolver.read(&script, ResType::NCS).is_some();
+                                    command = Some(if known { format!("script edit {script}") } else { format!("script new {script} conditional") });
+                                }
+                            });
+                            ui.end_row();
+                        }
+                    }
+                    ui.label("Journal");
+                    ui.horizontal(|ui| {
+                        let mut quest = node.quest.clone();
+                        let mut entry = node.quest_entry;
+                        let a = ui.add(egui::TextEdit::singleline(&mut quest).desired_width(100.0).hint_text("quest tag"));
+                        let b = ui.add(egui::DragValue::new(&mut entry).range(0..=1000));
+                        let change = Some(Edit::Conversation(name.clone(), Talk::Quest(side, index, quest.trim().to_string(), entry)));
+                        typed_edit(state, ui_state, &format!("{name} quest {side:?} {index}"), &a, change.clone());
+                        typed_edit(state, ui_state, &format!("{name} quest entry {side:?} {index}"), &b, change);
+                    });
+                    ui.end_row();
+                });
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    let under = if side == Side::Entry { "Add a reply" } else { "Add a line" };
+                    if ui.button(under).clicked() {
+                        let others = if side == Side::Entry { dlg.replies.len() } else { dlg.entries.len() };
+                        select = Some((side.other(), others, Some(LinkAt::From(side, index, node.links.len()))));
+                        asked.push(Edit::Conversation(name.clone(), Talk::Add { under: Some((side, index)) }));
+                    }
+                    let others = if side == Side::Entry { &dlg.replies } else { &dlg.entries };
+                    egui::ComboBox::from_id_salt("talk link to")
+                        .selected_text("Go on at…")
+                        .height(300.0)
+                        .show_ui(ui, |ui| {
+                            for (to, other) in others.iter().enumerate() {
+                                let said: String = line_text(other).chars().take(50).collect();
+                                if ui.selectable_label(false, format!("{to}: {said}")).clicked() {
+                                    asked.push(Edit::Conversation(name.clone(), Talk::LinkTo { from: Some((side, index)), to }));
+                                }
+                            }
+                        });
+                    if let Some(at) = via {
+                        if ui.small_button("Up").on_hover_text("Earlier among its links: replies are offered, and lines tried, in this order.").clicked() {
+                            asked.push(Edit::Conversation(name.clone(), Talk::Shift(at, -1)));
+                        }
+                        if ui.small_button("Down").clicked() {
+                            asked.push(Edit::Conversation(name.clone(), Talk::Shift(at, 1)));
+                        }
+                        if ui.small_button("Remove this link").on_hover_text("The line is no longer reached from here; it stays in the conversation.").clicked() {
+                            asked.push(Edit::Conversation(name.clone(), Talk::Unlink(at)));
+                            select = Some((side, index, None));
+                        }
+                    }
+                    if ui.small_button("Delete").on_hover_text("Takes the line out of the conversation, with every link to it.").clicked() {
+                        asked.push(Edit::Conversation(name.clone(), Talk::Delete(side, index)));
+                        select = None;
+                        ui_state.dialog_selected = None;
+                    }
+                });
+            });
+        });
+    if !open {
+        ui_state.dialog_open = None;
+    }
+    if let Some(selected) = select {
+        ui_state.dialog_selected = Some(selected);
+    }
+    for edit in asked {
+        state.apply(edit);
+    }
+    if let Some(command) = command {
+        state.pending_command = Some(command);
     }
 }
 

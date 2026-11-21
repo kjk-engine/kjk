@@ -113,6 +113,9 @@ pub struct Plan {
     /// The script's debug notes (`NAME.ndb`): the run is recorded line by
     /// line (`kjk try-script --debug`).
     pub debug: Option<PathBuf>,
+    /// A conversation is tried, not a script (`kjk try-conversation`): the
+    /// player talks to `on` and answers by these picks.
+    pub conversation: Option<Vec<u8>>,
 }
 
 /// A debugged run where a source line starts (`kjk try-script --debug`):
@@ -200,16 +203,36 @@ impl Try {
         let (script, on) = (plan.script.clone(), plan.on.clone());
         std::thread::spawn(move || {
             let mut command = std::process::Command::new(&plan.program);
-            command.args([
-                "--project",
-                &plan.project,
-                "try-script",
-                &plan.game,
-                &plan.module,
-                &plan.script,
-                "--seconds",
-                &plan.seconds.to_string(),
-            ]);
+            match &plan.conversation {
+                Some(picks) => {
+                    command.args([
+                        "--project",
+                        &plan.project,
+                        "try-conversation",
+                        &plan.game,
+                        &plan.module,
+                        &plan.script,
+                        "--seconds",
+                        &(plan.seconds.ceil() as u64).to_string(),
+                    ]);
+                    if !picks.is_empty() {
+                        let picks: Vec<String> = picks.iter().map(u8::to_string).collect();
+                        command.args(["--picks", &picks.join(",")]);
+                    }
+                }
+                None => {
+                    command.args([
+                        "--project",
+                        &plan.project,
+                        "try-script",
+                        &plan.game,
+                        &plan.module,
+                        &plan.script,
+                        "--seconds",
+                        &plan.seconds.to_string(),
+                    ]);
+                }
+            }
             if let Some(on) = &plan.on {
                 command.args(["--on", on]);
             }
@@ -229,6 +252,8 @@ impl Try {
                     lines.extend(
                         String::from_utf8_lossy(&output.stderr)
                             .lines()
+                            // The line that names the project opened, and the logs.
+                            .filter(|line| !line.starts_with("project "))
                             .filter(|line| {
                                 !["INFO", "WARN", "DEBUG"]
                                     .iter()

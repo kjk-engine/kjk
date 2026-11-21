@@ -51,6 +51,10 @@ pub struct Project {
     /// GIT's): fog, ambient light and the area's scripts. `None` keeps the
     /// install's. A new map's ARE is its map's (`NewMap`).
     pub are: Option<Gff>,
+    /// The project's conversations by name (`dialog`): its own, and its
+    /// copies of the game's, each `NAME.dlg` in the folder, which the
+    /// project's layer serves in place of the game's of that name.
+    pub conversations: BTreeMap<String, Gff>,
 }
 
 /// An area of another module whose doors and triggers the project changes
@@ -120,6 +124,7 @@ impl Project {
             levels: BTreeMap::new(),
             others: BTreeMap::new(),
             are: None,
+            conversations: BTreeMap::new(),
         }
     }
 
@@ -201,6 +206,12 @@ impl Project {
                     Some(Gff::parse(&bytes).map_err(|error| format!("{area}.are: {error}"))?);
             }
         }
+        for (name, path) in dialog_files(folder) {
+            let bytes =
+                std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            let gff = Gff::parse(&bytes).map_err(|error| format!("{name}.dlg: {error}"))?;
+            project.conversations.insert(name, gff);
+        }
         for (module, other) in others_of(&document) {
             let path = folder.join(format!("{other}.git"));
             let bytes =
@@ -279,6 +290,14 @@ impl Project {
                 block("a map has 999 rooms at most".into());
             }
         }
+        for (name, conversation) in &self.conversations {
+            for problem in crate::dialog::problems(conversation) {
+                problems.push(Problem {
+                    blocks: false,
+                    what: format!("the conversation {name}: {problem}"),
+                });
+            }
+        }
         problems
     }
 
@@ -347,6 +366,16 @@ impl Project {
         for (area, other) in &self.others {
             files.push((format!("{area}.git"), other.git.write()));
         }
+        for (name, conversation) in &self.conversations {
+            files.push((format!("{name}.dlg"), conversation.write()));
+        }
+        // A conversation taken out of the project leaves the folder.
+        for (name, path) in dialog_files(&self.folder) {
+            if !self.conversations.contains_key(&name) {
+                std::fs::remove_file(&path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+            }
+        }
         // A template no object uses any more (an edit undone) leaves the
         // folder.
         for (resref, path) in template_files(&self.folder) {
@@ -389,6 +418,12 @@ impl Project {
         for (resref, made) in &self.templates {
             let bytes = made.gff.write();
             for part in [resref.as_bytes(), &bytes] {
+                hasher.update(&(part.len() as u64).to_le_bytes());
+                hasher.update(part);
+            }
+        }
+        for (name, conversation) in &self.conversations {
+            for part in [name.as_bytes(), &conversation.write()] {
                 hasher.update(&(part.len() as u64).to_le_bytes());
                 hasher.update(part);
             }
@@ -460,6 +495,20 @@ impl Project {
 
 /// The templates in a project's folder (`RESREF.utp`, `RESREF.utc`) by
 /// resref, with their paths.
+/// The conversations at the top of `folder`, by lowercase name.
+fn dialog_files(folder: &Path) -> Vec<(String, PathBuf)> {
+    std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            let resref = name.strip_suffix(".dlg")?;
+            Some((resref.to_string(), entry.path()))
+        })
+        .collect()
+}
+
 fn template_files(folder: &Path) -> Vec<(String, PathBuf)> {
     std::fs::read_dir(folder)
         .into_iter()

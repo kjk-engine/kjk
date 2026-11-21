@@ -81,6 +81,16 @@ pub enum Edit {
     /// Another module's area given back to the install: the project no
     /// longer changes its doors and triggers.
     DropOther(String),
+    /// A conversation of the project made: `base` is a copy of the game's
+    /// of that name, else it starts empty (`dialog::empty`).
+    NewConversation {
+        name: String,
+        base: Option<fmt_odyssey::gff::Gff>,
+    },
+    /// A change to one of the project's conversations (`dialog::Edit`).
+    Conversation(String, crate::dialog::Edit),
+    /// A conversation taken out of the project.
+    DropConversation(String),
     /// A trigger's or an encounter's outline: its points where they are in
     /// the area (metres), three or more, in order round it.
     Outline(Target, Vec<[f32; 3]>),
@@ -136,6 +146,7 @@ struct State {
     levels: std::collections::BTreeMap<String, f32>,
     others: std::collections::BTreeMap<String, crate::project::OtherArea>,
     are: Option<fmt_odyssey::gff::Gff>,
+    conversations: std::collections::BTreeMap<String, fmt_odyssey::gff::Gff>,
     selected: Option<Target>,
 }
 
@@ -254,6 +265,7 @@ impl Editor {
             levels: self.project.levels.clone(),
             others: self.project.others.clone(),
             are: self.project.are.clone(),
+            conversations: self.project.conversations.clone(),
             selected: self.selected,
         }
     }
@@ -267,6 +279,7 @@ impl Editor {
         self.project.levels = state.levels;
         self.project.others = state.others;
         self.project.are = state.are;
+        self.project.conversations = state.conversations;
         self.selected = state.selected;
         self.changes += 1;
     }
@@ -300,6 +313,7 @@ impl Editor {
         self.project.levels = state.levels;
         self.project.others = state.others;
         self.project.are = state.are;
+        self.project.conversations = state.conversations;
         self.selected = state.selected;
     }
 
@@ -750,6 +764,40 @@ impl Editor {
                             .insert(label, script.to_ascii_lowercase());
                     }
                 }
+                Ok(self.selected)
+            }
+            Edit::NewConversation { name, base } => {
+                let name = name.to_ascii_lowercase();
+                if name.is_empty()
+                    || name.len() > git::RESREF_LEN
+                    || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                {
+                    return Err(format!(
+                        "{name:?}: a conversation's name is 1 to 16 letters, digits and _"
+                    ));
+                }
+                if self.project.conversations.contains_key(&name) {
+                    return Err(format!("the project has a conversation {name} already"));
+                }
+                self.project
+                    .conversations
+                    .insert(name, base.unwrap_or_else(crate::dialog::empty));
+                Ok(self.selected)
+            }
+            Edit::Conversation(name, change) => {
+                let conversation = self
+                    .project
+                    .conversations
+                    .get_mut(&name)
+                    .ok_or(format!("the project has no conversation {name}"))?;
+                crate::dialog::apply(conversation, &change)?;
+                Ok(self.selected)
+            }
+            Edit::DropConversation(name) => {
+                self.project
+                    .conversations
+                    .remove(&name)
+                    .ok_or(format!("the project has no conversation {name}"))?;
                 Ok(self.selected)
             }
             Edit::DropOther(area) => {

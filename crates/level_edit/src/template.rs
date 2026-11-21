@@ -52,6 +52,8 @@ pub enum Change {
     /// Where a door or a trigger leads (its GIT entry's `LinkedToModule`,
     /// `LinkedTo` and `LinkedToFlags`).
     Link(Link),
+    /// The conversation the object speaks (`Conversation`); empty for none.
+    Conversation(String),
 }
 
 /// Where a door or a trigger leads: a module (`LinkedToModule`, empty for
@@ -304,6 +306,7 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &Change) -> Result<(), Str
             });
         }
         Change::Tag(tag) => set_tag(&mut gff.root, tag)?,
+        Change::Conversation(name) => set_conversation(&mut gff.root, name)?,
         Change::Link(_) => return Err("a link is the GIT entry's, not its template's".into()),
         Change::RemoveItem(at) => {
             let list = item_list(gff);
@@ -333,6 +336,18 @@ pub fn fresh_name(from: &str, taken: impl Fn(&str) -> bool) -> String {
         .expect("some number is free")
 }
 
+fn set_conversation(item: &mut GffStruct, name: &str) -> Result<(), String> {
+    if name.len() > RESREF_LEN {
+        return Err(format!("{name:?} is longer than a conversation's name"));
+    }
+    set(
+        item,
+        "Conversation",
+        GffValue::ResRef(name.to_ascii_lowercase().into_bytes()),
+    );
+    Ok(())
+}
+
 fn set_tag(item: &mut GffStruct, tag: &str) -> Result<(), String> {
     if tag.len() > TAG_LEN {
         return Err(format!("a tag has at most {TAG_LEN} characters"));
@@ -359,6 +374,7 @@ pub fn apply_entry(item: &mut GffStruct, change: &Change) -> Result<(), String> 
         }
         Change::Tag(tag) => set_tag(item, tag),
         Change::Link(link) => set_link(item, link),
+        Change::Conversation(name) => set_conversation(item, name),
         _ => Err("only a placeable's template has use and items".into()),
     }
 }

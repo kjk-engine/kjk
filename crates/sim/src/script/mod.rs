@@ -951,6 +951,24 @@ impl Library {
         self
     }
 
+    /// This library with the conversation `name` added, or put in place of
+    /// the one of that name, and in its digest: a conversation written in
+    /// the level editor played where nothing names it yet (`kjk
+    /// try-conversation`).
+    pub fn with_dialogue(mut self, name: &str, dlg: Dlg) -> Library {
+        let name = name.to_ascii_lowercase();
+        let mut out = crate::wire::Writer::default();
+        crate::pack::encode_dlg(&dlg, &mut out);
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.digest);
+        hasher.update(b"dialogue");
+        hasher.update(name.as_bytes());
+        hasher.update(&out.0);
+        self.digest = *hasher.finalize().as_bytes();
+        self.dialogues.insert(name, dlg);
+        self
+    }
+
     /// TSL's alien speech, by `alienvo.2da` row and `emotion.2da` row
     /// (`alien_voices`), in the digest when there is any.
     pub fn with_alien_voices(mut self, rows: Vec<Vec<String>>) -> Library {

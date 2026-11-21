@@ -30,6 +30,7 @@ mod rules_page;
 mod run_folder;
 mod script_try;
 mod show;
+mod talk_run;
 mod texture_export;
 
 /// Declares modules built only with the `probes` feature.
@@ -490,6 +491,29 @@ enum Command {
         #[arg(long)]
         debug: Option<String>,
     },
+    /// Play one conversation headless (with --project, the project's
+    /// own, as the level editor's conversation window does): the player
+    /// talks to the object tagged --on, answers each offer by --picks, and
+    /// the transcript is printed
+    TryConversation {
+        /// k1 or tsl
+        game: String,
+        /// The module, e.g. ebo_m12aa
+        module: String,
+        /// The conversation's resref, e.g. kje_talk
+        dialog: String,
+        /// The tag of the object the player talks to: the conversation's
+        /// owner
+        #[arg(long)]
+        on: String,
+        /// The replies to take, by their place among those offered (from
+        /// 1), in order, e.g. 2,1; the first when the list runs out
+        #[arg(long, value_delimiter = ',')]
+        picks: Vec<u8>,
+        /// How long to step on, seconds
+        #[arg(long, default_value_t = 30)]
+        seconds: u64,
+    },
     /// Copy one resource out of the install, after precedence.
     Extract {
         /// k1, tsl or ja
@@ -854,6 +878,16 @@ pub fn run() -> ExitCode {
             seconds,
             debug.as_deref(),
         ),
+        Some(Command::TryConversation {
+            game,
+            module,
+            dialog,
+            on,
+            picks,
+            seconds,
+        }) => {
+            talk_run::try_conversation(&discover(), &game, &module, (&dialog, &on), picks, seconds)
+        }
         Some(Command::Extract {
             game,
             resource,
