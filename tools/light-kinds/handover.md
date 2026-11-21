@@ -6,10 +6,9 @@ In this file `<root>` stands for the worktree's root. The repository's commit ch
 
 ## Where the work is
 
-- The branch is `feat/fitted-lights`, draft PR 576 on `kjk-engine/kjk`. Its head is `1dcef9fd`, "Switched lamps shine at a quarter of their kind's strength".
-- The worktree is named `lighting-step6`. Everything in this file is committed there except the bakes and pictures, which lie in `target/` and are not in git.
-- The bake scripts of this file and its first text are commit `0147b85b`. The work of 18 and 19 November 2026 after it is commit `f5cb1d01`, "Sun, sky and roof openings in the lightmap bake, for the Dantooine enclave". Neither is pushed. One thing in the worktree is not committed: another session's fix of the game's drawing of the council chamber's roof opening (`crates/game/src/scene.rs`, `material.rs`, `crates/asset_odyssey/src/model.rs`, `crates/approved_tests/tests/approved.rs` and five files that only fill in a new field).
-- `docs/LIGHTING-PLAN.md` is the whole lighting plan. Its steps 7 and 10 are the background. It does not describe the fitted lights' rules. Those are in the code's comments and in this file.
+- The branch is `feat/fitted-lights`, draft PR 576 on `kjk-engine/kjk`. Everything in this file is committed and pushed there, except the bakes and pictures, which lie in `target/` and are not in git.
+- The worktree is named `lighting-step6`. One thing in it is not committed: another session's fix of the game's drawing of the council chamber's roof opening (`crates/game/src/scene.rs`, `material.rs`, `crates/asset_odyssey/src/model.rs`, `crates/approved_tests/tests/approved.rs` and five files that only fill in a new field).
+- `docs/LIGHTING-PLAN.md` is the whole lighting plan. Its steps 7 and 10 are the background, and its part 10b is the summary of this work. It does not describe the fitted lights' rules. Those are in the code's comments and in this file.
 
 ## What the fitted lights are
 
