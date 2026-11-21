@@ -217,8 +217,6 @@ fn measure_rooms(scene: &LoadedScene) -> Vec<RoomMeasure> {
     out
 }
 
-/// The files of a room's copy, by the copy's name, the room's model and
-/// how far the room moved (as bits).
 /// The rooms' copies by their name, their model, and how far they moved
 /// and turned (each as bits).
 type MadeRooms = BTreeMap<(String, String, [u32; 4]), Vec<(String, ResType, Vec<u8>)>>;
@@ -235,6 +233,9 @@ pub(crate) struct Drawn {
     /// since is shown turned by the difference (`follow`).
     pub(crate) room_yaws: Vec<f32>,
 }
+
+/// Where a running audit's output arrives, or why it did not start.
+type AuditResult = std::sync::Arc<std::sync::Mutex<Option<Result<std::process::Output, String>>>>;
 
 /// The editor's state.
 #[derive(Resource)]
@@ -328,6 +329,19 @@ pub struct EditorState {
     pub(crate) pending_ui: Vec<Vec<String>>,
     pub(crate) messages: Vec<String>,
     pub(crate) audit: Vec<String>,
+    /// A picture of the window the agent link asked for, and the file it
+    /// goes to (`ui::take_shot`).
+    pub(crate) pending_shot: Option<PathBuf>,
+    /// Why the last edit was refused (`refuse`), until the command that
+    /// asked for it takes it.
+    refused: Option<String>,
+    /// The install's templates read so far (`template_gff`), by name and
+    /// type; `None` for one that does not read. The install does not change
+    /// while the editor is open, so each is read and parsed once.
+    install_templates: std::sync::Mutex<BTreeMap<(String, ResType), Option<fmt_odyssey::gff::Gff>>>,
+    /// An audit running (`edit audit`): when it started, and where its
+    /// output arrives.
+    pub(crate) audit_job: Option<(std::time::Instant, AuditResult)>,
     redraws: u32,
 }
 
@@ -408,6 +422,10 @@ impl EditorState {
             pending_ui: Vec::new(),
             messages: Vec::new(),
             audit: Vec::new(),
+            pending_shot: None,
+            refused: None,
+            install_templates: Default::default(),
+            audit_job: None,
             redraws: 0,
         };
         let scene = draw(&mut state)?;
@@ -438,7 +456,8 @@ impl EditorState {
         }
         if written > 0 {
             self.project_scripts = crate::script_edit::project_scripts(&folder);
-            self.say(format!("wrote {written} scripts"));
+            let scripts = if written == 1 { "script" } else { "scripts" };
+            self.say(format!("wrote {written} {scripts}"));
         }
         Ok(())
     }
@@ -496,10 +515,17 @@ impl EditorState {
         self.messages.drain(..over);
     }
 
+    /// Says why an edit was refused, and keeps it for the command that
+    /// asked for the edit (`command`), which answers with it.
+    fn refuse(&mut self, why: String) {
+        self.refused = Some(why.clone());
+        self.say(why);
+    }
+
     pub(crate) fn apply(&mut self, edit: Edit) {
         let (before, follows) = (self.editor.changes(), self.follows(&edit));
         if let Err(why) = self.editor.apply(edit) {
-            self.say(why);
+            self.refuse(why);
         }
         self.followed_to(before, follows);
         self.quiet = 0;
@@ -513,7 +539,7 @@ impl EditorState {
             !edits.is_empty() && edits.iter().all(|edit| self.follows(edit)),
         );
         if let Err(why) = self.editor.apply_many(edits) {
-            self.say(why);
+            self.refuse(why);
         }
         self.followed_to(before, follows);
         self.quiet = 0;
@@ -526,7 +552,7 @@ impl EditorState {
             !edits.is_empty() && edits.iter().all(|edit| self.follows(edit)),
         );
         if let Err(why) = self.editor.apply_many_continuing(edits) {
-            self.say(why);
+            self.refuse(why);
         }
         self.followed_to(before, follows);
         self.quiet = 0;
@@ -536,7 +562,7 @@ impl EditorState {
     pub(crate) fn apply_continuing(&mut self, edit: Edit) {
         let (before, follows) = (self.editor.changes(), self.follows(&edit));
         if let Err(why) = self.editor.apply_continuing(edit) {
-            self.say(why);
+            self.refuse(why);
         }
         self.followed_to(before, follows);
         self.quiet = 0;
@@ -633,6 +659,7 @@ impl EditorState {
         ];
         let rooms = map.rooms.clone();
         let mut problems = Vec::new();
+        let mut used = std::collections::BTreeSet::new();
         for (index, room) in rooms.iter().enumerate() {
             let name = level_edit::map::room_name(&module, index);
             let by: [f32; 3] = std::array::from_fn(|axis| room.position[axis] - room.from[axis]);
@@ -655,7 +682,10 @@ impl EditorState {
                 }
             }
             files.extend(self.made_rooms[&key].iter().cloned());
+            used.insert(key);
         }
+        // A copy of a room where it no longer stands is dropped.
+        self.made_rooms.retain(|key, _| used.contains(key));
         for problem in problems {
             self.say(problem);
         }
@@ -709,10 +739,19 @@ impl EditorState {
         if let Some(made) = self.editor.project.templates.get(resref) {
             return Some(made.gff.clone());
         }
-        self.setup
-            .resolver
-            .read(resref, restype)
-            .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+        let read = || {
+            self.setup
+                .resolver
+                .read(resref, restype)
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+        };
+        // The panels ask for the selected object's template every frame.
+        let Ok(mut kept) = self.install_templates.lock() else {
+            return read();
+        };
+        kept.entry((resref.to_ascii_lowercase(), restype))
+            .or_insert_with(read)
+            .clone()
     }
 
     /// What says what an object does: its template for a kind made from
@@ -749,7 +788,7 @@ impl EditorState {
             .editor
             .change_template(target, &change, (&read, &taken))
         {
-            self.say(why);
+            self.refuse(why);
         }
         self.quiet = 0;
     }
@@ -886,7 +925,6 @@ fn flat_model(name: &str, triangles: &[[[f32; 3]; 3]], texture: &str, glow: bool
     }
 }
 
-/// An octahedron of radius `r` about the origin: a marker.
 /// A light's marker texture: its name and its colour, the colour scaled so
 /// its strongest channel is full.
 pub(crate) fn light_texture(colour: [f32; 3]) -> (String, [u8; 4]) {
@@ -1199,6 +1237,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     // icon over the view (`markers`), and the selected one's reach is drawn
     // there too (`ui::reach_in_view`).
     state.editor.seen_lights.clear();
+    state.editor.seen_on_placeable.clear();
     if state.show_lights {
         let found = kjk_game::fitted_lights::explained(&scene);
         let fitted: Vec<_> = found
@@ -1361,6 +1400,17 @@ pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
             )),
         }
     }
+    // An audit that ended is shown.
+    let audited = (state.audit_job.as_ref())
+        .and_then(|(_, result)| result.lock().ok().and_then(|mut slot| slot.take()));
+    if let Some(audited) = audited {
+        let seconds =
+            (state.audit_job.take()).map_or(0, |(started, _)| started.elapsed().as_secs());
+        match audited {
+            Ok(output) => finish_audit(&mut state, &output, seconds),
+            Err(why) => state.say(why),
+        }
+    }
     // A try that ended is shown.
     let tried = state
         .script_try
@@ -1457,14 +1507,7 @@ pub(crate) fn follow(
                 continue;
             }
             let frame = match &tilt {
-                Some(attach) => root(
-                    &Placed {
-                        attach: *attach,
-                        ..Placed::at(placed.ir.clone(), placed.offset)
-                    },
-                    position,
-                    facing,
-                ),
+                Some(attach) => root_attached(attach, position, facing),
                 None => root(placed, position, facing),
             };
             wanted.insert(model, frame);
@@ -1483,11 +1526,20 @@ pub(crate) fn follow(
 /// Where a placed model's root sits when its object stands at `position`
 /// facing `facing` degrees: as `scene::placement` places it.
 pub(crate) fn root(placed: &Placed, position: [f32; 3], facing: f32) -> Mat4 {
+    root_attached(&placed.attach, position, facing)
+}
+
+/// `root` for a model attached by `attach`, whatever the model is.
+fn root_attached(
+    attach: &Option<asset_odyssey::model::Matrix>,
+    position: [f32; 3],
+    facing: f32,
+) -> Mat4 {
     let frame = Mat4::from_rotation_translation(
         Quat::from_rotation_z(facing.to_radians()),
         Vec3::from_array(position),
     );
-    match &placed.attach {
+    match attach {
         Some(attach) => frame * kjk_game::scene::to_mat4(attach),
         None => frame,
     }
@@ -1528,6 +1580,41 @@ pub(crate) fn ground(
         collision::Contents::PLAYER_SOLID,
     );
     (trace.fraction < 1.0 && !trace.start_solid).then_some(trace.end)
+}
+
+/// How high each surface of the level is at `x` `y` (metres), from the top
+/// down: a roof, then the floors under it. At most 16 are found, within
+/// 200 m above and below the level's middle. `None` when the collision
+/// does not build.
+pub(crate) fn surfaces_at(state: &mut EditorState, x: f32, y: f32) -> Option<Vec<f32>> {
+    use collision::CollisionWorld;
+    let middle = state.editor.level_middle[2];
+    let (top, bottom) = (middle + 200.0, middle - 200.0);
+    let built = state.collision()?;
+    let mut found: Vec<f32> = Vec::new();
+    let mut from = top;
+    while from > bottom && found.len() < 16 {
+        let trace = built.collision.level.trace(
+            [x, y, from],
+            [x, y, bottom],
+            &collision::Extents::POINT,
+            collision::Contents::PLAYER_SOLID,
+        );
+        // Inside something solid: on down until the point is free.
+        if trace.start_solid {
+            from -= 0.25;
+            continue;
+        }
+        if trace.fraction >= 1.0 {
+            break;
+        }
+        let z = trace.end[2];
+        if found.last().is_none_or(|last| (last - z).abs() > 0.05) {
+            found.push(z);
+        }
+        from = z - 0.05;
+    }
+    Some(found)
 }
 
 /// Where a new thing goes: the level under the screen's centre, else a
@@ -1724,8 +1811,7 @@ pub(crate) fn add_room(state: &mut EditorState, model: &str, at: [f32; 3]) -> Re
     Ok(())
 }
 
-/// A left click selects what is under the pointer, or puts the grabbed
-/// selection down.
+/// A finite number a command names.
 pub(crate) fn number(word: &str) -> Result<f32, String> {
     word.parse::<f32>()
         .ok()
@@ -1821,15 +1907,45 @@ pub(crate) fn run(
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
 ) {
     if let Err(why) = command(state, words, cameras) {
-        state.say(format!("edit {}: {why}", words.join(" ")));
+        // A refused edit has said why already (`EditorState::refuse`).
+        if state.messages.last() != Some(&why) {
+            state.say(format!("edit {}: {why}", words.join(" ")));
+        }
     }
+}
+
+/// The object a command names by its kind's word and its place in that
+/// kind's list, from 0.
+fn object_at(state: &EditorState, kind: &str, n: &str) -> Result<Target, String> {
+    let kind = kind_named(kind).ok_or(format!("{kind:?} is not a kind of object"))?;
+    let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+    if state.editor.entry(kind, at).is_none() {
+        return Err(format!("there is no {} {at}", kind_name(kind)));
+    }
+    Ok(Target::Object(kind, at))
 }
 
 fn selected(state: &EditorState) -> Result<Target, String> {
     state.editor.selected.ok_or("nothing is selected".into())
 }
 
+/// Runs one `edit` command and answers how it went: an edit the project
+/// refused (a sun's colour below 0, a box too small) is an error here, not
+/// only a message.
 pub(crate) fn command(
+    state: &mut EditorState,
+    words: &[&str],
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<(), String> {
+    state.refused = None;
+    command_words(state, words, cameras)?;
+    match state.refused.take() {
+        Some(why) => Err(why),
+        None => Ok(()),
+    }
+}
+
+fn command_words(
     state: &mut EditorState,
     words: &[&str],
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
@@ -1840,14 +1956,14 @@ pub(crate) fn command(
             if at >= state.editor.project.kjk.props.len() {
                 return Err(format!("there is no prop {at}"));
             }
-            state.editor.selected = Some(Target::Prop(at));
+            state.editor.select(Some(Target::Prop(at)), false);
         }
         ["select", "box", n] => {
             let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
             if at >= state.editor.project.kjk.boxes.len() {
                 return Err(format!("there is no box {at}"));
             }
-            state.editor.selected = Some(Target::Box(at));
+            state.editor.select(Some(Target::Box(at)), false);
         }
         ["select", "room", n] => {
             let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
@@ -1860,7 +1976,7 @@ pub(crate) fn command(
             if at >= rooms {
                 return Err(format!("there is no room {at}"));
             }
-            state.editor.selected = Some(Target::Room(at));
+            state.editor.select(Some(Target::Room(at)), false);
         }
         ["select", "sun"] => state.editor.select(Some(Target::Sun), false),
         ["sun", "game"] => state.apply(Edit::SetSun(None)),
@@ -1915,9 +2031,21 @@ pub(crate) fn command(
             if state.editor.project.map.is_none() {
                 return Err("only a new map has an entry".into());
             }
-            state.editor.selected = Some(Target::Entry);
+            state.editor.select(Some(Target::Entry), false);
         }
-        ["select", "none"] | ["deselect"] => state.editor.selected = None,
+        ["select", "none"] | ["deselect"] => state.editor.select(None, false),
+        // An object by its kind and its place in that kind's list, for one
+        // whose tag names another object first, or has a space in it.
+        ["select", kind, n] if kind_named(kind).is_some() => {
+            let target = object_at(state, kind, n)?;
+            state.editor.select(Some(target), false);
+        }
+        ["select", "more", kind, n] if kind_named(kind).is_some() => {
+            let target = object_at(state, kind, n)?;
+            if !state.editor.selection().contains(&target) {
+                state.editor.select(Some(target), true);
+            }
+        }
         ["select", "more", tag] => {
             let found = state
                 .editor
@@ -1944,7 +2072,9 @@ pub(crate) fn command(
                 .iter()
                 .find(|(_, own)| own.eq_ignore_ascii_case(tag))
                 .ok_or(format!("no object is tagged {tag}"))?;
-            state.editor.selected = Some(Target::Object(found.0.kind, found.0.index));
+            state
+                .editor
+                .select(Some(Target::Object(found.0.kind, found.0.index)), false);
         }
         ["copy"] => {
             state.copied = Some(copy_text(state)?);
@@ -2062,7 +2192,7 @@ pub(crate) fn command(
             if at >= state.editor.project.kjk.lamps.len() {
                 return Err(format!("there is no lamp {at}"));
             }
-            state.editor.selected = Some(Target::Lamp(at));
+            state.editor.select(Some(Target::Lamp(at)), false);
         }
         ["lamp", field, rest @ ..] => {
             let Target::Lamp(at) = selected(state)? else {
@@ -2139,8 +2269,9 @@ pub(crate) fn command(
             state.apply(Edit::Move(Target::Entry, at));
         }
         ["add", kind, template, rest @ ..] => {
-            let kind = kind_named(kind)
-                .ok_or("add takes placeable, creature, waypoint, trigger, sound or store")?;
+            let kind = kind_named(kind).ok_or(
+                "add takes placeable, creature, door, waypoint, trigger, sound, store or encounter",
+            )?;
             let position = match rest {
                 [] => place_point(state, cameras),
                 rest => point(rest)?,
@@ -2237,7 +2368,7 @@ pub(crate) fn command(
             if at >= state.editor.project.kjk.lights.len() {
                 return Err(format!("there is no placed light {at}"));
             }
-            state.editor.selected = Some(Target::Light(at));
+            state.editor.select(Some(Target::Light(at)), false);
         }
         ["select", "fitted", n] => {
             let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
@@ -2246,7 +2377,7 @@ pub(crate) fn command(
                     "there is no fitted light {at} (are the lights drawn?)"
                 ));
             }
-            state.editor.selected = Some(Target::Fitted(at));
+            state.editor.select(Some(Target::Fitted(at)), false);
         }
         ["light", "copy"] => {
             let Target::Fitted(at) = selected(state)? else {
@@ -2416,6 +2547,22 @@ pub(crate) fn command(
         ["entrance", module, kind, index, tag] => {
             entrance(state, module, (kind, index), tag)?;
         }
+        // A script's whole text, from a file: for an agent, which cannot
+        // type in the viewer.
+        ["script", "text", name, path @ ..] if !path.is_empty() => {
+            let name = name.to_ascii_lowercase();
+            let path = path.join(" ");
+            let bytes = std::fs::read(&path).map_err(|error| format!("{path}: {error}"))?;
+            let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
+            state.draft_of(&name)?;
+            if let Some(draft) = state.drafts.get_mut(&name) {
+                draft.text = text;
+            }
+            state.say(format!(
+                "{name} has the text of {path}; a save writes and compiles it"
+            ));
+            state.pending_ui.push(vec!["view".into(), name]);
+        }
         ["script", "new", name] => new_script(state, name, false)?,
         ["script", "new", name, "conditional"] => new_script(state, name, true)?,
         ["script", "edit", name] => {
@@ -2502,71 +2649,90 @@ pub(crate) fn command(
             command(state, &["save"], cameras)?;
             play(state, Some(spot))?;
         }
+        // The audit takes a while, so it runs on a thread of its own and
+        // `redraw` shows its result when it ends.
         ["audit"] => {
-            command(state, &["save"], cameras)?;
-            let project = state.editor.project.clone();
-            let output = std::process::Command::new(&state.setup.program)
-                .args([
-                    "--project",
-                    &project.name,
-                    "collision",
-                    "audit",
-                    &project.game,
-                    &project.module,
-                ])
-                .output()
-                .map_err(|error| format!("kjk collision audit did not start: {error}"))?;
-            let text = String::from_utf8_lossy(&output.stdout);
-            state.audit = text
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(str::to_string)
-                .collect();
-            // Each reach's line ends "... N regions: E escapes, P perches, ...".
-            let count = |line: &str, word: &str| {
-                line.split(',').find_map(|part| {
-                    part.trim()
-                        .strip_suffix(word)?
-                        .rsplit(' ')
-                        .next()?
-                        .parse::<usize>()
-                        .ok()
-                })
-            };
-            let reaches: Vec<String> = state
-                .audit
-                .iter()
-                .filter(|line| {
-                    let line = line.trim_start();
-                    ["walk ", "jump ", "force "]
-                        .iter()
-                        .any(|reach| line.starts_with(reach))
-                })
-                .cloned()
-                .collect();
-            let escapes: usize = reaches
-                .iter()
-                .filter_map(|line| count(line, " escapes"))
-                .max()
-                .unwrap_or(0);
-            let perches: usize = reaches
-                .iter()
-                .filter_map(|line| count(line, " perches"))
-                .max()
-                .unwrap_or(0);
-            if !output.status.success() && reaches.is_empty() {
-                return Err(format!(
-                    "the audit failed: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ));
+            if state.audit_job.is_some() {
+                return Err("an audit is running".into());
             }
-            state.say(format!(
-                "audit: at the highest reach a body escapes the level in {escapes} regions and reaches {perches} perches off the walkmesh"
-            ));
+            command(state, &["save"], cameras)?;
+            let project = &state.editor.project;
+            let mut audit = std::process::Command::new(&state.setup.program);
+            audit.args([
+                "--project",
+                &project.name,
+                "collision",
+                "audit",
+                &project.game,
+                &project.module,
+            ]);
+            let result = AuditResult::default();
+            let slot = result.clone();
+            std::thread::spawn(move || {
+                let output = audit
+                    .output()
+                    .map_err(|error| format!("kjk collision audit did not start: {error}"));
+                if let Ok(mut slot) = slot.lock() {
+                    *slot = Some(output);
+                }
+            });
+            state.audit_job = Some((std::time::Instant::now(), result));
+            state.say("the audit started");
         }
         _ => return Err("not an edit command (docs/LEVEL-EDIT.md lists them)".into()),
     }
     Ok(())
+}
+
+/// Shows the result of an audit that ended: its lines kept for the details
+/// panel and the dump, and its summary said.
+fn finish_audit(state: &mut EditorState, output: &std::process::Output, seconds: u64) {
+    let text = String::from_utf8_lossy(&output.stdout);
+    state.audit = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_string)
+        .collect();
+    // Each reach's line ends "... N regions: E escapes, P perches, ...".
+    let count = |line: &str, word: &str| {
+        line.split(',').find_map(|part| {
+            part.trim()
+                .strip_suffix(word)?
+                .rsplit(' ')
+                .next()?
+                .parse::<usize>()
+                .ok()
+        })
+    };
+    let reaches: Vec<String> = state
+        .audit
+        .iter()
+        .filter(|line| {
+            let line = line.trim_start();
+            ["walk ", "jump ", "force "]
+                .iter()
+                .any(|reach| line.starts_with(reach))
+        })
+        .cloned()
+        .collect();
+    let most = |word: &str| {
+        reaches
+            .iter()
+            .filter_map(|line| count(line, word))
+            .max()
+            .unwrap_or(0)
+    };
+    let (escapes, perches) = (most(" escapes"), most(" perches"));
+    if !output.status.success() && reaches.is_empty() {
+        state.say(format!(
+            "the audit failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+        return;
+    }
+    state.say(format!(
+        "audit, {seconds} s: at the highest reach a body escapes the level in {escapes} regions and reaches {perches} perches off the walkmesh"
+    ));
 }
 
 /// Starts a bake of the area from `scene`'s lights (`bake`): its dump is
@@ -2722,8 +2888,6 @@ pub(crate) fn add_lamp(
     Ok(())
 }
 
-/// Starts play's walk mode (`kjk play --walk`) on the project, lit as the
-/// view is: its mode, its bake, and the light data the project saves to.
 /// Where the view looks down to the level, and the way the camera faces
 /// (degrees from +X): a place for the player to start (`kjk play --at`).
 pub(crate) fn view_spot(
@@ -2770,6 +2934,8 @@ fn play(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Result<(), St
     Ok(())
 }
 
+/// Starts play's walk mode (`kjk play --walk`) on the project, lit as the
+/// view is: its mode, its bake, and the light data the project saves to.
 pub(crate) fn walk(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Result<(), String> {
     use kjk_game::fitted_lights::Mode;
     let project = state.editor.project.clone();
@@ -2806,8 +2972,6 @@ pub(crate) fn walk(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Re
     Ok(())
 }
 
-/// Saves the project (`Editor::save_with`), saying its warnings and what
-/// was written.
 /// `edit number|name|class|feat|power|skill|equip|item|spawn|spawnpoint
 /// ...`: a creature's, a store's or an encounter's fields
 /// (`level_edit::fields`), on the selected object.
@@ -3386,15 +3550,21 @@ fn area_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
         ["fog", on @ ("on" | "off")] => {
             AreaChange::Are("SunFogOn".into(), GffValue::Byte(u8::from(*on == "on")))
         }
+        // Both ends of the fog as one edit, one undo step.
         ["fog", near, far] => {
-            change_area(
-                state,
-                AreaChange::Are(
-                    "SunFogNear".into(),
-                    GffValue::Float(number(near)?.to_bits()),
-                ),
-            );
-            AreaChange::Are("SunFogFar".into(), GffValue::Float(number(far)?.to_bits()))
+            let (near, far) = (number(near)?, number(far)?);
+            let base = (state.editor.project.map.is_none() && state.editor.project.are.is_none())
+                .then(|| install_are(state))
+                .flatten();
+            let edits = [("SunFogNear", near), ("SunFogFar", far)]
+                .into_iter()
+                .map(|(label, value)| Edit::Area {
+                    change: AreaChange::Are(label.into(), GffValue::Float(value.to_bits())),
+                    base: base.clone(),
+                })
+                .collect();
+            state.apply_many(edits);
+            return Ok(());
         }
         ["fog", "colour", rgb @ ..] => {
             AreaChange::Are("SunFogColor".into(), GffValue::Dword(colour(rgb)?))
@@ -3631,6 +3801,10 @@ fn compile_scripts(state: &mut EditorState) {
     }
 }
 
+/// Saves the project (`Editor::save_with`), saying its warnings and what
+/// was written, then the light data's part (`save_light_data`). When the
+/// light data does not save, the project's own files are saved all the
+/// same, and the error says so.
 pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
     let made_by = format!("kjk {}", kjk_game::GIT_SHA);
     let warnings: Vec<String> = state
@@ -3654,6 +3828,15 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
         state.editor.project.folder.display()
     ));
     compile_scripts(state);
+    save_light_data(state).map_err(|why| {
+        format!("the project's own files were saved, but the light data was not: {why}")
+    })
+}
+
+/// Saves what the light data holds of the level: the kinds of fitting
+/// changed, the levels the bake's rooms aim at, and an installed level's
+/// lights and lamps placed by hand.
+fn save_light_data(state: &mut EditorState) -> Result<(), String> {
     // The kinds of fitting changed go to the light data: their `[[kind]]`
     // entries, which the game reads, and a `[[fitting]]` each, which
     // `kinds.py` reads.
@@ -3788,6 +3971,7 @@ pub(crate) fn commands_from_console(
                 continue;
             };
             state.pending_pick = Some(Vec2::new(x, y));
+            state.pending_pick_adds = false;
             continue;
         }
         // The window's own state (`ui`): its tool, the picker's tab and
@@ -3968,6 +4152,14 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
     if !facts.wanted() {
         return;
     }
+    facts.0.insert("editor".into(), facts_of(&state));
+}
+
+/// Everything a dump says of the editor (its `editor` fact), which the
+/// agent link writes too (`level`): the project, every object, the
+/// selection, the props and boxes, the lighting, the navigation mesh, the
+/// scripts and conversations, the messages and the project's problems.
+pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
     let project = &state.editor.project;
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     let entries = state.editor.entries();
@@ -3987,9 +4179,7 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
             })
         })
         .collect();
-    facts.0.insert(
-        "editor".into(),
-        serde_json::json!({
+    serde_json::json!({
             "project": project.name,
             "folder": project.folder,
             "game": project.game,
@@ -4000,14 +4190,15 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
             "redo": state.editor.redo_depth(),
             "counts": counts,
             "objects": objects,
-            "selected": state.editor.selected.map(|target| describe(&state, target)),
-            "props": (0..project.kjk.props.len()).map(|at| describe(&state, Target::Prop(at))).collect::<Vec<_>>(),
-            "boxes": (0..project.kjk.boxes.len()).map(|at| describe(&state, Target::Box(at))).collect::<Vec<_>>(),
+            "selected": state.editor.selected.map(|target| describe(state, target)),
+            "props": (0..project.kjk.props.len()).map(|at| describe(state, Target::Prop(at))).collect::<Vec<_>>(),
+            "boxes": (0..project.kjk.boxes.len()).map(|at| describe(state, Target::Box(at))).collect::<Vec<_>>(),
             "lighting": {
                 "view": format!("{:?}", state.light_view),
                 "bake": state.bake.as_ref().map(|bake| bake.display().to_string()),
-                "placed": (0..project.kjk.lights.len()).map(|at| describe(&state, Target::Light(at))).collect::<Vec<_>>(),
-                "lamps": (0..project.kjk.lamps.len()).map(|at| describe(&state, Target::Lamp(at))).collect::<Vec<_>>(),
+                "placed": (0..project.kjk.lights.len()).map(|at| describe(state, Target::Light(at))).collect::<Vec<_>>(),
+                "lamps": (0..project.kjk.lamps.len()).map(|at| describe(state, Target::Lamp(at))).collect::<Vec<_>>(),
+                "sun": describe(state, Target::Sun),
                 "lamps_offered": state.lamp_library.found.len(),
                 "fitted": state.editor.seen_lights.len(),
                 "fitted_by_source": state.editor.seen_lights.iter().fold(BTreeMap::<String, usize>::new(), |mut counts, (_, source)| {
@@ -4049,6 +4240,16 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
             "audit": state.audit,
             "redraws": state.redraws,
             "problems": project.problems().into_iter().map(|p| p.what).collect::<Vec<_>>(),
-        }),
-    );
+            "conversations": project.conversations.keys().collect::<Vec<_>>(),
+            "project_scripts": state.project_scripts,
+            "script_errors": state.script_errors,
+            "nav_links": project.kjk.links.iter().map(|link| serde_json::json!({
+                "kind": format!("{:?}", link.kind),
+                "from": link.from,
+                "to": link.to,
+            })).collect::<Vec<_>>(),
+            "room_levels": project.levels,
+            "other_areas": project.others.keys().collect::<Vec<_>>(),
+            "levels_of_the_project": project.level_list(),
+    })
 }

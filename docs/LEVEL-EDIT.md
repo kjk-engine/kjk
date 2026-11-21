@@ -955,15 +955,23 @@ on, the editor uses the folder `editor-link` in kjk's own folder
 - It writes `live.json` there four times a second, when anything in it
   changed. The file holds the project and the level, whether there are
   changes not saved, the selected object with its details and the command
-  that selects it, the camera, the editor's last messages, the answers to
-  the agent's last 20 commands, the scripts that did not compile, and
-  what the last script tried in the editor printed.
+  that selects it, everything else selected with it, the camera, the editor's last messages, the answers to
+  the agent's last 20 commands, each with its number, the scripts that
+  did not compile, what the last script tried in the editor printed, and
+  whether an audit or a bake runs.
 - It runs each line an agent writes to `inbox.txt` there as a command, in
   order, and then deletes the file. A line is one of the editor's own
-  commands (the table below), with or without its `edit`; `camera X Y Z
-  YAW PITCH`, which moves the view; or `frame`, which looks at the
-  selection. Each command's answer is `ok` or the reason it failed, and
-  the editor's messages show it too.
+  commands (the table below), with or without its `edit`, or one of
+  the link's own. `camera X Y Z YAW PITCH` moves the view. `frame` looks
+  at the selection. `list` writes everything the level holds to
+  `objects.json`, each thing with the command that selects it. `shot`
+  writes a picture of the window to `view.png`. `ground X Y` answers how
+  high the level's surfaces are at that place. `catalog` writes every
+  name a command can add to `catalog.json`. `level` writes what a dump
+  says of the editor to `level.json`. `begin` and `end` make the edits
+  between them one undo step. A value between double quotes can have a
+  space in it. Each command's answer is
+  `ok` or the reason it failed, and the editor's messages show it too.
 - It writes a `README.md` there for agents: the guide in
   `docs/LEVEL-EDIT-AGENT.md`, followed by this document's list of
   commands, as the editor was built with them.
@@ -1070,6 +1078,7 @@ so later runs show it at once and a changed file is drawn again.
 | Ctrl+C, Ctrl+V | copy the selection to the clipboard; paste a copy where the view looks |
 | Q, W, E, R | the Select, Move, Rotate and Scale tools |
 | F | move the camera to the selection |
+| Ctrl+A | select every object, prop, collision box and lamp of the level, and every room of a new map |
 | Ctrl+D | copy everything selected, in the same place |
 | Delete | delete everything selected |
 | Ctrl+Z, Ctrl+Y | undo, redo |
@@ -1090,7 +1099,8 @@ While a text field has the keyboard, the keys go to the field. While the
 right mouse button is held, they fly the camera.
 
 One drag of a gizmo, or of a number in the details panel, is one edit: one
-undo takes all of it back. Every kind can be moved, copied and deleted,
+undo takes all of it back. The editor keeps the last 200 edits for undo
+and forgets the older ones. Every kind can be moved, copied and deleted,
 and every kind but triggers and encounters turned. A door's walkmesh moves
 with it; an installed door moved out of its doorway leaves the doorway
 open. A trigger's or an encounter's outline moves with it but does not
@@ -1112,6 +1122,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 |---|---|
 | `edit select TAG` | selects the first object with that tag (its own, else its template's) |
 | `edit select more TAG` | adds the first object with that tag to the selection |
+| `edit select KIND N`, `edit select more KIND N` | selects, or adds to the selection, the Nth object of a kind (`creature`, `placeable`, `door`, `waypoint`, `trigger`, `sound`, `store`, `encounter`), from 0 |
 | `edit select sun` | selects the area's sun |
 | `edit sun bearing DEGREES`, `edit sun height DEGREES`, `edit sun colour R G B`, `edit sun multiplier M`, `edit sun radius METRES` | sets the area's sun, which becomes the project's |
 | `edit sun add`, `edit sun game` | gives a level with no sun one; gives the game's sun back |
@@ -1125,9 +1136,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit turn DEGREES` | turns the selection to face that many degrees from +X, turning left |
 | `edit scale S` | draws the selected prop at that scale, from 0.05 to 20 |
 | `edit size X Y Z` | gives the selected box that size, in metres |
-| `edit duplicate`, `edit delete` | copies or deletes the selection |
 | `edit undo`, `edit redo` | takes back the last edit, or makes it again |
-| `edit add KIND TEMPLATE [X Y Z]` | adds a `placeable`, `creature`, `door`, `waypoint`, `trigger`, `sound` or `store` made from the template, at the point or where the view's centre meets the level |
+| `edit add KIND TEMPLATE [X Y Z]` | adds a `placeable`, `creature`, `door`, `waypoint`, `trigger`, `sound`, `store` or `encounter` made from the template, at the point or where the view's centre meets the level |
 | `edit link MODULE [TAG]`, `edit link none` | leads the selected door or trigger to the module, arriving at the door or waypoint of that tag (the module's entry without one), or nowhere |
 | `edit entrance MODULE door\|trigger N [TAG]` | leads door or trigger N of the module's entry area here, arriving at the door or waypoint of that tag (this level's entry without one) |
 | `edit entrance drop AREA` | gives that area's object list back to the install |
@@ -1141,6 +1151,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit script LABEL SCRIPT` | sets the selected object's event script (`OnUsed`, `ScriptHeartbeat`); `-` for none |
 | `edit script new NAME`, `edit script new NAME conditional` | makes a script of the project, a `main` or a `StartingConditional`, and opens it in the viewer |
 | `edit script edit NAME` | opens a script to be written: the project's own, else a copy of the install's |
+| `edit script text NAME FILE` | gives the script the text of a file, making the script when the project has none of that name, and opens it in the viewer |
 | `edit script write`, `edit script compile` | writes the scripts changed in the viewer; compile also compiles the project's scripts |
 | `edit script debug NAME`, `edit script debug NAME TAG` | tries the script as `edit script try` does and records it line by line; the stops are under the viewer's Debug tab |
 | `edit talk NAME`, `edit talk -` | gives the selected object the conversation, or none |
@@ -1193,9 +1204,9 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit play here`, `edit walk here` | the same, the player starting where the view looks at the floor |
-| `edit audit` | saves, then runs `kjk collision audit` on the project |
+| `edit audit` | saves, then runs `kjk collision audit` on the project. The audit runs beside the editor, which says its result among the messages when it ends |
 | `edit ui tool select`, `move`, `rotate`, `scale` | picks the tool |
-| `edit ui tab placeables`, `creatures`, `props`, `shapes`, `waypoints`, `triggers`, `sounds`, `stores` | shows a tab of the asset picker |
+| `edit ui tab placeables`, `creatures`, `props`, `shapes`, `waypoints`, `triggers`, `sounds`, `stores`, `encounters`, `lights` | shows a tab of the asset picker |
 | `edit ui search TEXT`, `edit ui find TEXT` | sets the asset picker's or the outliner's search |
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
 | `edit ui view SCRIPT`, `edit ui view` | opens the script viewer on the script, or closes it |
@@ -1204,7 +1215,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui debug N`, `edit ui break SCRIPT LINE` | the Debug tab's stop N (from 1); sets or clears a breakpoint |
 | `edit ui tab doors`, `edit ui way_in MODULE [TAG]` | the asset picker's Doors tab; the level and arrival Ways in shows |
 | `edit ui view window on`, `edit ui view window off` | the viewer in a window of its own, or under the details |
-| `edit ui view tab source`, `summary`, `listing`, `try` | picks the viewer's tab |
+| `edit ui view tab source`, `summary`, `listing`, `try`, `debug` | picks the viewer's tab |
 | `edit ui file open [PROJECT]` | opens the picker, or the project, in a new editor (a headless run names it instead) |
 | `edit ui file level MODULE` | opens the project on its level MODULE in a new editor, adding the level first when the project does not have it |
 | `edit ui file new NAME` | makes the new map NAME from this level in a new editor |
@@ -1222,7 +1233,7 @@ NAME` (a new map), `edit search TEXT` and `edit tab k1` or `tsl`.
 A dump (`dump NAME`) has an `editor` fact: the project, the counts of each
 kind of object, every object with its template, tag, position and facing,
 the selection (a placeable's or a creature's with its behaviour), the props
-(with their bounds) and boxes, the depths of undo and redo, the last
+(with their bounds) and boxes, the sun, the depths of undo and redo, the last
 messages and the audit's result. In play, a dump has a `project` fact
 instead: the project's name, where each player stands, and each of the
 area's objects with where it stands, whether it can be used, whether it is
@@ -1243,7 +1254,7 @@ a new perch.
 ## Limits of the prototype
 
 - **A new map's rooms are the games' own.** There is no new geometry
-  yet, rooms do not turn, and a room is not resized. Rooms from different
+  yet, and a room is not resized. Rooms from different
   areas carry their own baked light, so a mixed map shows seams in its
   lighting.
 - **A new map is played in kjk only.** Its module has no AI paths (PTH),
@@ -1279,9 +1290,9 @@ a new perch.
 
 ## Future work
 
-These come after the prototype: navigation that includes the added boxes
-and props, multiple selection, export of a new map for the original game (its walkmeshes'
-neighbours, AI paths and a map picture), turning rooms by 90° steps,
+These come after the prototype: navigation that includes the added
+props, export of a new map for the original game (its walkmeshes'
+neighbours, AI paths and a map picture),
 rooms made in Blender, markers for vehicle
 routes and spawn points for vehicles and jetpacks, and editing an area
 together in co-op.
@@ -1319,5 +1330,11 @@ together in co-op.
 - `level_edit_ways_and_settings` places a door, leads doors and a
   trigger's outline, leads another area's door into a new map, changes the
   area's settings, and saves and reads it all back.
+- `level_edit_light_rules` changes a kind of fitting and a room's level
+  in rule files the test makes, and undoes both in the editor. `level_edit_fitted_lights` places,
+  changes and saves lights placed by hand.
+- `level_edit_nav_edits` checks what walkable boxes, nav blockers and nav
+  floors do to the navigation mesh. `level_edit_new_map` makes a new map,
+  adds and moves its rooms, and saves its module.
 - The demo (`LEVEL-EDIT-DEMO.md`) shows every behaviour on the Ebon Hawk,
   by hand in a window and as headless runs whose dumps say what changed.

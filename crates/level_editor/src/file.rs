@@ -32,11 +32,16 @@ pub(crate) struct FileState {
     pub(crate) leaving: Option<Leave>,
     /// The name typed for a new map while its dialog is open.
     pub(crate) new_map: Option<String>,
-    /// The projects of the projects' folder, read when the menu first opens.
-    recent: Option<Vec<crate::picker::Found>>,
+    /// The projects of the projects' folder, and when they were read. They
+    /// are read again once they are `RECENT_AGE` old, so a project made
+    /// since shows.
+    recent: Option<(std::time::Instant, Vec<crate::picker::Found>)>,
     /// What the Add a level menu's filter holds.
     level_filter: String,
 }
+
+/// How old the File menu's list of projects may be before it is read again.
+const RECENT_AGE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Leaves by `leave`, asking first when there are changes not saved.
 pub(crate) fn want(state: &EditorState, file: &mut FileState, leave: Leave) {
@@ -165,7 +170,10 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
             ui.close();
         }
         let current = state.editor.project.name.clone();
-        let recent = file.recent.get_or_insert_with(crate::picker::projects);
+        if (file.recent.as_ref()).is_none_or(|(read, _)| read.elapsed() > RECENT_AGE) {
+            file.recent = Some((std::time::Instant::now(), crate::picker::projects()));
+        }
+        let recent = file.recent.as_ref().map_or(&[][..], |(_, found)| found);
         let others: Vec<crate::picker::Found> = recent
             .iter()
             .filter(|found| found.name != current)
@@ -344,6 +352,7 @@ pub(crate) fn close_requests(
 /// Leaves the level once the frame is done: starts the editor again where
 /// that is asked for, and closes this one.
 pub(crate) fn leave(
+    mut state: ResMut<EditorState>,
     mut ui_state: ResMut<UiState>,
     mut exit: MessageWriter<AppExit>,
     headless: Res<Headless>,
@@ -362,7 +371,11 @@ pub(crate) fn leave(
                     .spawn()
                     .map_err(|error| error.to_string())
             }) {
+                // The level stays open, and the window says why.
                 error!(target: "editor", "the editor did not start again: {why}");
+                state.say(format!(
+                    "the editor did not start again, so this level stays open: {why}"
+                ));
                 return;
             }
         }

@@ -1,9 +1,11 @@
 //! Edits made to a project, with undo and redo.
 //!
-//! Every edit keeps a copy of the project's GIT and kjk-only content as it
-//! was before (`State`). Undo puts the copy back, and redo the state undo
-//! left. An area's GIT is a few tens of kilobytes, so a copy for each edit
-//! costs little next to the changes it keeps exact.
+//! Every edit keeps a copy of what the project holds as it was before
+//! (`State`): its GIT, its kjk-only content, its templates, its
+//! conversations and the other areas it changes. Undo puts the copy back,
+//! and redo the state undo left. A copy is some hundreds of kilobytes for a
+//! project with many templates, so the editor keeps the last `UNDO_STEPS`
+//! of them and forgets the older ones.
 
 use crate::area::{CollisionBox, Prop, SCALES, SMALLEST_SIDE};
 use crate::git::{self, Entry, Kind};
@@ -163,8 +165,13 @@ pub const ADDABLE: [Kind; 8] = [
     Kind::Encounter,
 ];
 
+/// How many edits can be taken back. An older edit is forgotten.
+pub const UNDO_STEPS: usize = 200;
+
 #[derive(Debug, Clone)]
 struct State {
+    /// Which state of the project this is (`Editor::state_id`).
+    id: u64,
     git: fmt_odyssey::gff::Gff,
     kjk: crate::area::KjkArea,
     templates: std::collections::BTreeMap<String, crate::template::Template>,
@@ -206,7 +213,10 @@ pub struct Editor {
     /// Counts every change of the project (edits, undos, redos), so a view
     /// knows when to draw it again.
     changes: u64,
-    /// `changes` when it was last saved or opened.
+    /// Which state of the project this is: a new number after every edit,
+    /// and a kept state's own number again after an undo or a redo.
+    state_id: u64,
+    /// `state_id` when the project was last saved or opened.
     saved: u64,
 }
 
@@ -224,6 +234,7 @@ impl Editor {
             undo: Vec::new(),
             redo: Vec::new(),
             changes: 0,
+            state_id: 0,
             saved: 0,
         }
     }
@@ -235,9 +246,7 @@ impl Editor {
 
     /// The GIT entry `kind` `index`, if there is one.
     pub fn entry(&self, kind: Kind, index: usize) -> Option<Entry> {
-        self.entries()
-            .into_iter()
-            .find(|entry| entry.kind == kind && entry.index == index)
+        git::entry_at(&self.project.git, kind, index)
     }
 
     /// Where the target stands and how it faces (degrees), if it exists.
@@ -299,7 +308,22 @@ impl Editor {
 
     /// Whether there are changes the folder does not hold yet.
     pub fn unsaved(&self) -> bool {
-        self.changes != self.saved
+        self.state_id != self.saved
+    }
+
+    /// Counts a change that makes a state the project has not been in.
+    fn changed(&mut self) {
+        self.changes += 1;
+        self.state_id = self.changes;
+    }
+
+    /// Keeps `before` for undo, forgetting the oldest step past
+    /// `UNDO_STEPS`.
+    fn keep(&mut self, before: State) {
+        self.undo.push(before);
+        if self.undo.len() > UNDO_STEPS {
+            self.undo.remove(0);
+        }
     }
 
     pub fn undo_depth(&self) -> usize {
@@ -312,6 +336,7 @@ impl Editor {
 
     fn state(&self) -> State {
         State {
+            id: self.state_id,
             git: self.project.git.clone(),
             kjk: self.project.kjk.clone(),
             templates: self.project.templates.clone(),
@@ -464,9 +489,9 @@ impl Editor {
         let before = self.state();
         match self.change_many(edits) {
             Ok(()) => {
-                self.undo.push(before);
+                self.keep(before);
                 self.redo.clear();
-                self.changes += 1;
+                self.changed();
                 Ok(())
             }
             Err(why) => {
@@ -485,7 +510,7 @@ impl Editor {
         match self.change_many(edits) {
             Ok(()) => {
                 self.redo.clear();
-                self.changes += 1;
+                self.changed();
                 Ok(())
             }
             Err(why) => {
@@ -533,6 +558,7 @@ impl Editor {
         self.selected = state.selected;
         self.also = state.also;
         self.changes += 1;
+        self.state_id = state.id;
     }
 
     /// Makes `edit`, kept for undo. Refused, with nothing changed, when its
@@ -542,7 +568,7 @@ impl Editor {
         let before = self.state();
         match self.change(edit) {
             Ok(selected) => {
-                self.undo.push(before);
+                self.keep(before);
                 self.redo.clear();
                 self.selected = selected;
                 // A paste selects everything it added.
@@ -550,7 +576,7 @@ impl Editor {
                 if pasted.len() > 1 {
                     self.select_all(pasted);
                 }
-                self.changes += 1;
+                self.changed();
                 Ok(())
             }
             Err(why) => {
@@ -599,10 +625,10 @@ impl Editor {
         let before = self.state();
         match self.change_template_in(target, change, (read, taken)) {
             Ok(()) => {
-                self.undo.push(before);
+                self.keep(before);
                 self.redo.clear();
                 self.selected = Some(target);
-                self.changes += 1;
+                self.changed();
                 Ok(())
             }
             Err(why) => {
@@ -914,6 +940,9 @@ impl Editor {
                     if !numbers.into_iter().all(|value| value.is_finite()) {
                         return Err("the sun's numbers must be finite".into());
                     }
+                    if sun.colour.iter().any(|value| *value < 0.0) || sun.multiplier < 0.0 {
+                        return Err("the sun's colour and multiplier cannot be below 0".into());
+                    }
                     if sun.radius < crate::area::SunLight::LEAST_RADIUS {
                         return Err(format!(
                             "a sun reaches {} m or more",
@@ -1220,7 +1249,7 @@ impl Editor {
             Ok(selected) => {
                 self.redo.clear();
                 self.selected = selected;
-                self.changes += 1;
+                self.changed();
                 Ok(())
             }
             Err(why) => {
@@ -1228,6 +1257,18 @@ impl Editor {
                 Err(why)
             }
         }
+    }
+
+    /// Makes every edit since the undo list was `depth` deep one undo step:
+    /// one undo then takes all of them back. How many edits were joined.
+    /// Nothing is joined when fewer than two were made since, or when an
+    /// undo has taken the list below `depth`.
+    pub fn join_undo_since(&mut self, depth: usize) -> usize {
+        let made = self.undo.len().saturating_sub(depth);
+        if made > 1 {
+            self.undo.truncate(depth + 1);
+        }
+        made
     }
 
     /// Takes back the last edit. False when there is none.
@@ -1264,7 +1305,7 @@ impl Editor {
         });
         match found {
             Some(entry) => {
-                self.selected = Some(Target::Object(entry.kind, entry.index));
+                self.select(Some(Target::Object(entry.kind, entry.index)), false);
                 true
             }
             None => false,
@@ -1274,7 +1315,7 @@ impl Editor {
     /// Writes the project's folder (`Project::save`).
     pub fn save(&mut self, made_by: &str) -> Result<Vec<std::path::PathBuf>, String> {
         let written = self.project.save(made_by)?;
-        self.saved = self.changes;
+        self.saved = self.state_id;
         Ok(written)
     }
 
@@ -1288,7 +1329,7 @@ impl Editor {
     ) -> Result<Vec<std::path::PathBuf>, String> {
         let mut written = self.project.save(made_by)?;
         written.extend(self.project.save_module(read)?);
-        self.saved = self.changes;
+        self.saved = self.state_id;
         Ok(written)
     }
 }

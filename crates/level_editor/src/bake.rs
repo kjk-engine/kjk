@@ -120,17 +120,22 @@ impl BakeJob {
     /// What the thread said since: its new status, and at its end the bake
     /// (`Some`).
     pub fn poll(&mut self) -> Option<Result<PathBuf, String>> {
-        let steps: Vec<Step> = match self.steps.lock() {
-            Ok(steps) => steps.try_iter().collect(),
-            Err(_) => return Some(Err("the bake's thread failed".into())),
+        use std::sync::mpsc::TryRecvError;
+        let Ok(steps) = self.steps.lock() else {
+            return Some(Err("the bake's thread failed".into()));
         };
-        for step in steps {
-            match step {
-                Step::Status(status) => self.status = status,
-                Step::Done(done) => return Some(done),
+        loop {
+            match steps.try_recv() {
+                Ok(Step::Status(status)) => self.status = status,
+                Ok(Step::Done(done)) => return Some(done),
+                Err(TryRecvError::Empty) => return None,
+                // The thread is gone and sent no end: the bake is over, so
+                // another can start.
+                Err(TryRecvError::Disconnected) => {
+                    return Some(Err("the bake's thread ended without a result".into()));
+                }
             }
         }
-        None
     }
 }
 

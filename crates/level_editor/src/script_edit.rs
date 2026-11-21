@@ -254,10 +254,14 @@ impl Try {
                             .lines()
                             // The line that names the project opened, and the logs.
                             .filter(|line| !line.starts_with("project "))
+                            // A log line names its level as a word of its
+                            // own near its start. A line the script printed
+                            // that only holds such letters stays.
                             .filter(|line| {
-                                !["INFO", "WARN", "DEBUG"]
-                                    .iter()
-                                    .any(|level| line.contains(level))
+                                !line
+                                    .split_whitespace()
+                                    .take(3)
+                                    .any(|word| ["INFO", "WARN", "DEBUG"].contains(&word))
                             })
                             .map(str::to_string),
                     );
@@ -282,8 +286,17 @@ impl Try {
 
     /// The result, once the try is over.
     pub fn poll(&self) -> Option<Result<Outcome, String>> {
+        use std::sync::mpsc::TryRecvError;
         match self.done.lock() {
-            Ok(done) => done.try_recv().ok(),
+            Ok(done) => match done.try_recv() {
+                Ok(result) => Some(result),
+                Err(TryRecvError::Empty) => None,
+                // The thread is gone and sent nothing: the try is over, so
+                // another can start.
+                Err(TryRecvError::Disconnected) => {
+                    Some(Err("the try's thread ended without a result".into()))
+                }
+            },
             Err(_) => Some(Err("the try's thread failed".into())),
         }
     }

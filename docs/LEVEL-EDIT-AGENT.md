@@ -36,10 +36,13 @@ changed. It holds these fields:
 - `selected` names the selection the way the editor names its targets,
   such as `Object(Placeable, 3)`, `Prop(0)`, `Box(2)`, `Room(1)` or
   `Light(0)`. It is null when nothing is selected.
+- `selection` names everything selected, the same way, with `selected`
+  first. It is empty when nothing is selected. Moving, turning, copying
+  and deleting act on all of it.
 - `select_command` is the command that selects the same thing again,
-  such as `edit select MetalBox`. It is null when no command can name it,
-  for example when its tag has a space in it or another object has the
-  same tag first.
+  such as `edit select MetalBox`. An object whose tag has a space in it,
+  or whose tag another object has first, is named by its kind and its
+  place in that kind's list, such as `edit select placeable 3`.
 - `details` is everything the editor's details panel knows of the
   selection: its kind, template, tag, position, facing, scripts, and for a
   placeable whether it can be used and the items it holds.
@@ -47,7 +50,11 @@ changed. It holds these fields:
   metres), the way it looks (`yaw` and `pitch`, in degrees), and the
   `camera` command that puts it back there.
 - `messages` are the editor's last messages, the newest last.
-- `answers` are the agent's last 20 commands, each with its answer.
+- `answers` are the agent's last 20 commands, each with its answer and
+  its number `n`. The link numbers every command it answers, from 1,
+  since it was turned on. `answered` is the number of the last one. Note
+  `answered` before sending a batch of N lines. The batch's answers are
+  the ones numbered from that value plus 1 to that value plus N.
 - `script_errors` names each of the project's scripts that did not compile
   at the last save or compile, with the reason and the line.
 - `last_try` is the last script tried or debugged in the editor, when
@@ -56,6 +63,12 @@ changed. It holds these fields:
   recorded.
 - `trying` names the script being tried while a try runs, and is null
   otherwise. A try takes a few seconds, most of them to load the level.
+- `auditing` is true while a containment audit runs. `audit` holds the
+  lines of the last audit's result.
+- `baking` holds a running bake's label and what it is doing now, and is
+  null otherwise. `bake_shown` is the folder of the bake the view shows,
+  and `light_view` is how the view lights the rooms (`Off`, `Live`,
+  `LampsOnly` or `Baked`).
 
 The game's space has Z up. Positions are in metres. A facing is in degrees
 from +X, turning left.
@@ -75,12 +88,48 @@ A line is one of these.
   `edit` in front. For example `select MetalBox`, `nudge 0 0.5 0`,
   `turn 90` or `script OnUsed kje_open_door`.
 - `camera X Y Z YAW PITCH` moves the view to that place, looking that way.
-- `frame` moves the view to look at the selection.
+- `list` writes `objects.json` into the link's folder. The file lists
+  every object, prop, collision box, lamp and light placed by hand of the
+  level, and a new map's rooms and entry. Each has its target, its name,
+  its position, its facing and the command that selects it. The answer
+  says how many things the file lists. Send `list` again after the level
+  changed, because the editor does not keep the file up to date.
+- `shot` writes `view.png` into the link's folder: a picture of the
+  editor's window as the person sees it, with its panels and markers. The
+  editor deletes the old picture first and writes the new one after the
+  next frame is drawn, so wait until the file is there again, then read
+  it. Send `camera` or `frame` in an earlier batch, so the view has
+  moved before the picture is taken.
+- `ground X Y` answers how high the level's surfaces are at that place,
+  in metres, from the top down. Under a roof the first number is the
+  roof and the next is the floor under it. The answer is `ok: 8.76` for
+  one floor, or `ok: 14.20 8.76` for a roof over a floor. Use it to find
+  the Z of a place before `add`, `move` or `box`.
+- `frame` moves the view to look at the selection. Its answer is `nothing
+  is selected` when there is none.
+
+A `ui` command changes the window on the editor's next frame, so its answer
+is `ok` as soon as it is handed over. If the window does not know the
+words, it says so among `messages`.
+
+- `catalog` writes `catalog.json`: every name a command can add or set.
+  It lists the install's placeable, creature, door, waypoint, trigger,
+  sound, store and encounter templates, its items, scripts and modules,
+  the rooms a new map can place, Jedi Academy's models for props, and
+  the lamps found so far.
+- `level` writes `level.json`: what a dump says of the editor. It holds
+  every object with its template, tag, position and facing, the props
+  and boxes, the lights, lamps and sun, the navigation mesh's facts and
+  links, the project's scripts and conversations, the scripts that did
+  not compile, and the project's problems.
+- `begin` and `end` make the edits between them one undo step, so one
+  undo by the person takes the whole change back. A batch left open ends
+  with its file.
 
 The commands act on the selection, so a change usually starts with a
-`select` line. A word is ended by a space, so a command cannot take a tag
-or a value that has a space in it. Select such an object by clicking it,
-or ask the person to.
+`select` line. A word is ended by a space. Put a value that has a space
+in it between double quotes, as in `tag "Metal Box"`. An object is always
+selected by the command `objects.json` gives for it.
 
 Write the whole batch into the file at once, and read `answers` after it
 was taken. If a line failed, the lines after it still ran.
@@ -98,13 +147,41 @@ was taken. If a line failed, the lines after it still ran.
   send either unless the person asks.
 - `play`, `walk`, `audit` and `bake` save first, then start another
   program. `script try` and `script debug` save first too.
-- A script of the project is written with `script new NAME`, which opens it
-  in the editor's script window, but its text is typed there by the
-  person. To give a script text of your own, write `NAME.nss` into the
-  project's folder (`folder` in `live.json`) while the person has not
-  opened that script, then send `script compile`.
+- To give a script text of your own, write the text to a file anywhere,
+  then send `script text NAME FILE`. The editor takes the file's text as
+  the script's, makes the script when the project has none of that name,
+  and opens it in its script window. `save` or `script compile` then
+  writes and compiles it, and `script_errors` names it if it does not
+  compile. Do not write into the project's folder yourself.
 
 ## Examples
+
+Place two crates as one change the person can undo at once:
+
+    begin
+    add placeable plc_crate 53.1 61.6 8.76
+    add placeable plc_crate 54.1 61.6 8.76
+    end
+
+Find a template's name before adding it, then read `catalog.json`:
+
+    catalog
+
+Put a footlocker on the floor at a place, then look at it and take a
+picture to check it:
+
+    ground 53.1 61.6
+    add placeable footlker001 53.1 61.6 8.76
+    frame
+
+Then, in a batch of its own once those are answered:
+
+    shot
+
+Find what the level holds before selecting anything, then read
+`objects.json`:
+
+    list
 
 Move the selected object half a metre along +Y, turn it to face +Y, and look
 at it:

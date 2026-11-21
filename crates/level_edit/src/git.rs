@@ -51,6 +51,12 @@ pub fn entries(git: &Gff) -> Vec<Entry> {
     entries
 }
 
+/// The object `kind` `index` alone, read from its own GIT entry without
+/// the other objects being read.
+pub fn entry_at(git: &Gff, kind: Kind, index: usize) -> Option<Entry> {
+    item(git, kind, index).map(|item| entry(kind, index, item))
+}
+
 fn entry(kind: Kind, index: usize, item: &GffStruct) -> Entry {
     let template_label = if kind == Kind::Store {
         "ResRef"

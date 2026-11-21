@@ -101,6 +101,13 @@ enum Asset {
     Light(&'static str),
 }
 
+/// The outliner's rows of the area's objects: each kind with the place and
+/// the text of each of its objects the search keeps.
+type ObjectRows = std::sync::Arc<Vec<(Kind, Vec<(usize, String)>)>>;
+
+/// The asset picker's items: each asset with the name its tile shows.
+type AssetItems = std::sync::Arc<Vec<(Asset, String)>>;
+
 /// The window's own state, apart from the project's.
 #[derive(Resource)]
 pub struct UiState {
@@ -111,6 +118,13 @@ pub struct UiState {
     snap_distance: f32,
     snap_angle: f32,
     outliner_search: String,
+    /// The outliner's rows of the area's objects, kind by kind, as they
+    /// were made for a count of the editor's changes and a search. They
+    /// are made again only when one of the two changes.
+    outliner_rows: Option<(u64, String, ObjectRows)>,
+    /// The asset picker's items as they were made for a tab, a search and
+    /// a count of the lamps found.
+    asset_items: Option<((Tab, String, usize), AssetItems)>,
     tab: Tab,
     asset_search: String,
     /// The asset picked in the picker: what a double-click or Enter places.
@@ -154,6 +168,9 @@ pub struct UiState {
     /// with the link that led to it, the field being typed in, the name
     /// typed for a new one, and the tag and picks of a try.
     dialog_open: Option<String>,
+    /// The conversation open as it was read (`level_edit::dialog::read`),
+    /// for a count of the editor's changes and its name.
+    dialog_read: Option<(u64, String, std::sync::Arc<fmt_odyssey::dlg::Dlg>)>,
     dialog_selected: Option<(
         level_edit::dialog::Side,
         usize,
@@ -219,6 +236,8 @@ impl Default for UiState {
             snap_distance: STEP_M,
             snap_angle: TURN_DEG,
             outliner_search: String::new(),
+            outliner_rows: None,
+            asset_items: None,
             tab: Tab::Placeables,
             asset_search: String::new(),
             picked: None,
@@ -243,6 +262,7 @@ impl Default for UiState {
             area_typed: BTreeMap::new(),
             blocks_event: None,
             dialog_open: None,
+            dialog_read: None,
             dialog_selected: None,
             dialog_typing: None,
             new_dialog: String::new(),
@@ -298,6 +318,7 @@ pub fn install(app: &mut App, state: EditorState, headless: bool) {
                 state::follow,
                 make_thumbnails,
                 state::publish,
+                take_shot,
             )
                 .chain(),
         )
@@ -344,6 +365,29 @@ pub(crate) fn egui_writes_gamma(mut shaders: ResMut<Assets<bevy::shader::Shader>
     let source = source.replace(LINEAR, "return color_gamma;");
     let path = shader.path.clone();
     *shader = bevy::shader::Shader::from_wgsl(source, path);
+}
+
+/// The picture of the window the agent link asked for (`shot`), written to
+/// its file as a PNG once the next frame is drawn. A run without a window
+/// has none to picture.
+fn take_shot(
+    mut commands: Commands,
+    mut state: ResMut<EditorState>,
+    headless: Res<crate::file::Headless>,
+) {
+    if state.pending_shot.is_none() {
+        return;
+    }
+    let Some(path) = state.pending_shot.take() else {
+        return;
+    };
+    if headless.0 {
+        state.say("shot: this run has no window to picture (--cmds has screenshot)");
+        return;
+    }
+    commands
+        .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
+        .observe(bevy::render::view::screenshot::save_to_disk(path));
 }
 
 /// A click `edit pick` asked for, or the view's, at a point of the window.
@@ -891,7 +935,7 @@ fn panels(
             words => {
                 if !crate::file::command(state, &mut ui.file, words) {
                     state.say(format!(
-                        "edit ui {}: takes tool, tab, search, find, snap, view, way_in, blocks, debug, break, link, file, quit or confirm",
+                        "edit ui {}: takes tool, tab, search, find, snap, levels, view, way_in, blocks, conversation, debug, break, link, file, quit or confirm",
                         words.join(" ")
                     ));
                 }
@@ -1011,6 +1055,9 @@ fn shortcuts(
             &[]
         } else if pressed(KeyCode::KeyC) {
             &["copy"]
+        } else if pressed(KeyCode::KeyA) {
+            select_everything(state);
+            &[]
         } else {
             &[]
         };
@@ -1064,6 +1111,22 @@ fn shortcuts(
         let at = state::place_point(state, cameras);
         place(state, &asset, at, ui.snapping);
     }
+}
+
+/// Selects every object, prop, collision box and lamp of the level, and
+/// every room of a new map.
+fn select_everything(state: &mut EditorState) {
+    let mut all: Vec<Target> = (state.editor.entries().iter())
+        .map(|entry| Target::Object(entry.kind, entry.index))
+        .collect();
+    let kjk = &state.editor.project.kjk;
+    all.extend((0..kjk.props.len()).map(Target::Prop));
+    all.extend((0..kjk.boxes.len()).map(Target::Box));
+    all.extend((0..kjk.lamps.len()).map(Target::Lamp));
+    let rooms = (state.editor.project.map.as_ref()).map_or(0, |map| map.rooms.len());
+    all.extend((0..rooms).map(Target::Room));
+    state.say(format!("{} selected", all.len()));
+    state.editor.select_all(all);
 }
 
 pub(crate) fn frame_selection(
@@ -1212,6 +1275,12 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
                     .small(),
                 );
             }
+            if let Some((started, _)) = &state.audit_job {
+                ui.label(
+                    egui::RichText::new(format!("Auditing ({} s)", started.elapsed().as_secs()))
+                        .small(),
+                );
+            }
             ui.checkbox(&mut state.show_nav, "Nav").on_hover_text(
                 "F3: the navigation mesh the game's characters find their way over, \
                  each island its own colour; red under furniture, purple under a door \
@@ -1253,7 +1322,31 @@ fn outliner(
             let search = ui_state.outliner_search.to_ascii_lowercase();
             let matches =
                 |text: &str| search.is_empty() || text.to_ascii_lowercase().contains(&search);
-            let entries = state.editor.entries();
+            let changes = state.editor.changes();
+            let object_rows = match &ui_state.outliner_rows {
+                Some((at, had, rows)) if *at == changes && *had == search => rows.clone(),
+                _ => {
+                    let entries = state.editor.entries();
+                    let rows: Vec<(Kind, Vec<(usize, String)>)> = Kind::ALL
+                        .into_iter()
+                        .map(|kind| {
+                            let rows = entries
+                                .iter()
+                                .filter(|entry| entry.kind == kind)
+                                .map(|entry| {
+                                    let tag = state.tag_of(entry);
+                                    (entry.index, format!("{tag}  ({})", entry.template))
+                                })
+                                .filter(|(_, text)| matches(text))
+                                .collect();
+                            (kind, rows)
+                        })
+                        .collect();
+                    let rows = std::sync::Arc::new(rows);
+                    ui_state.outliner_rows = Some((changes, search.clone(), rows.clone()));
+                    rows
+                }
+            };
             let selection = state.editor.selection();
             let mut clicked: Option<(Target, bool)> = None;
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -1264,16 +1357,8 @@ fn outliner(
                 if sun.clicked() {
                     clicked = Some((Target::Sun, false));
                 }
-                for kind in Kind::ALL {
-                    let rows: Vec<_> = entries
-                        .iter()
-                        .filter(|entry| entry.kind == kind)
-                        .map(|entry| {
-                            let tag = state.tag_of(entry);
-                            (entry.index, format!("{tag}  ({})", entry.template))
-                        })
-                        .filter(|(_, text)| matches(text))
-                        .collect();
+                for (kind, rows) in object_rows.iter() {
+                    let kind = *kind;
                     if rows.is_empty() {
                         continue;
                     }
@@ -1281,8 +1366,9 @@ fn outliner(
                         .default_open(matches!(kind, Kind::Creature | Kind::Placeable))
                         .show(ui, |ui| {
                             for (index, text) in rows {
-                                let target = Target::Object(kind, index);
-                                let row = ui.selectable_label(selection.contains(&target), text);
+                                let target = Target::Object(kind, *index);
+                                let row =
+                                    ui.selectable_label(selection.contains(&target), text.as_str());
                                 if row.clicked() {
                                     clicked = Some((target, false));
                                 }
@@ -1880,7 +1966,7 @@ fn behaviour(
             }
             let own = state.editor.project.conversations.contains_key(&now);
             let the_games =
-                !now.is_empty() && state.setup.resolver.read(&now, ResType::DLG).is_some();
+                !now.is_empty() && state.setup.resolver.find(&now, ResType::DLG).is_some();
             if own && ui.small_button("Open").clicked() {
                 state
                     .pending_ui
@@ -1907,7 +1993,7 @@ fn behaviour(
                     .collect();
                 let taken = |name: &str| {
                     state.editor.project.conversations.contains_key(name)
-                        || state.setup.resolver.read(name, ResType::DLG).is_some()
+                        || state.setup.resolver.find(name, ResType::DLG).is_some()
                 };
                 let name = (1..)
                     .map(|n| {
@@ -3368,7 +3454,7 @@ fn conversations_menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut
             let good = !name.is_empty()
                 && name.len() <= 16
                 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
-            let the_games = good && state.setup.resolver.read(&name, ResType::DLG).is_some();
+            let the_games = good && state.setup.resolver.find(&name, ResType::DLG).is_some();
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(good, egui::Button::new("New"))
@@ -3643,7 +3729,16 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
         ui_state.dialog_open = None;
         return;
     };
-    let dlg = read(gff);
+    // The conversation is read again only after a change of the project.
+    let changes = state.editor.changes();
+    let dlg = match &ui_state.dialog_read {
+        Some((at, had, dlg)) if *at == changes && *had == name => dlg.clone(),
+        _ => {
+            let dlg = std::sync::Arc::new(read(gff));
+            ui_state.dialog_read = Some((changes, name.clone(), dlg.clone()));
+            dlg
+        }
+    };
     let talk = state.setup.talk.clone();
     let line_text = |node: &fmt_odyssey::dlg::Node| {
         text_of(node, &|strref| {
@@ -3852,7 +3947,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                                 typed_edit(state, ui_state, &format!("{name} condition {at:?}"), &response, Some(Edit::Conversation(name.clone(), Talk::Condition(at, typed.trim().to_string()))));
                                 let script = link.active.script.clone();
                                 if !script.is_empty() && ui.small_button("Write it").on_hover_text("Opens the condition to be written; a new one is a StartingConditional that answers TRUE.").clicked() {
-                                    let known = state.project_scripts.contains(&script) || state.drafts.contains_key(&script) || state.setup.resolver.read(&script, ResType::NSS).is_some() || state.setup.resolver.read(&script, ResType::NCS).is_some();
+                                    let known = state.project_scripts.contains(&script) || state.drafts.contains_key(&script) || state.setup.resolver.find(&script, ResType::NSS).is_some() || state.setup.resolver.find(&script, ResType::NCS).is_some();
                                     command = Some(if known { format!("script edit {script}") } else { format!("script new {script} conditional") });
                                 }
                             });
@@ -5022,108 +5117,132 @@ fn assets(
                 }
             });
             let search = ui_state.asset_search.to_ascii_lowercase();
-            let items: Vec<(Asset, String)> = match ui_state.tab {
-                Tab::Placeables => state
-                    .setup
-                    .placeables
-                    .iter()
-                    .map(|name| {
-                        (
-                            Asset::Template(AssetKind::Placeable, name.clone()),
-                            name.clone(),
-                        )
-                    })
-                    .collect(),
-                Tab::Creatures => state
-                    .setup
-                    .creatures
-                    .iter()
-                    .map(|name| {
-                        (
-                            Asset::Template(AssetKind::Creature, name.clone()),
-                            name.clone(),
-                        )
-                    })
-                    .collect(),
-                Tab::Doors => state
-                    .setup
-                    .doors
-                    .iter()
-                    .map(|name| (Asset::Template(AssetKind::Door, name.clone()), name.clone()))
-                    .collect(),
-                Tab::Props => state
-                    .setup
-                    .models
-                    .iter()
-                    .map(|path| {
-                        let shown = path
-                            .strip_prefix("models/map_objects/")
-                            .unwrap_or(path)
-                            .trim_end_matches(".md3")
-                            .to_string();
-                        (Asset::Template(AssetKind::Prop, path.clone()), shown)
-                    })
-                    .collect(),
-                Tab::Waypoints | Tab::Triggers | Tab::Sounds | Tab::Stores | Tab::Encounters => {
-                    let kind = match ui_state.tab {
-                        Tab::Waypoints => Kind::Waypoint,
-                        Tab::Triggers => Kind::Trigger,
-                        Tab::Sounds => Kind::Sound,
-                        Tab::Encounters => Kind::Encounter,
-                        _ => Kind::Store,
-                    };
-                    state
-                        .setup
-                        .templates_of(kind)
-                        .iter()
-                        .map(|name| (Asset::Object(kind, name.clone()), name.clone()))
-                        .collect()
+            // The lamps are found a few models a frame while their tab shows.
+            if ui_state.tab == Tab::Lamps {
+                let rooms = state.setup.rooms.iter().map(|room| room.model.clone());
+                state.lamp_library.start(&state.setup.resolver, rooms);
+                state
+                    .lamp_library
+                    .step(&state.setup.resolver, state.setup.game.key());
+                if state.lamp_library.progress().is_some() {
+                    ctx.request_repaint();
                 }
-                Tab::Rooms => state
-                    .setup
-                    .rooms
-                    .iter()
-                    .map(|room| {
-                        (
-                            Asset::Template(AssetKind::Room, room.model.clone()),
-                            room.model.clone(),
-                        )
-                    })
-                    .collect(),
-                Tab::Lamps => {
-                    let rooms = state.setup.rooms.iter().map(|room| room.model.clone());
-                    state.lamp_library.start(&state.setup.resolver, rooms);
-                    state
-                        .lamp_library
-                        .step(&state.setup.resolver, state.setup.game.key());
-                    if state.lamp_library.progress().is_some() {
-                        ctx.request_repaint();
-                    }
-                    (state.lamp_library.found.iter())
-                        .map(|lamp| (Asset::Template(AssetKind::Lamp, lamp.key()), lamp.label()))
-                        .collect()
-                }
-                Tab::Lights => LIGHT_SHAPES
-                    .iter()
-                    .map(|(shape, label)| (Asset::Light(shape), label.to_string()))
-                    .collect(),
-                Tab::Shapes => SHAPES
-                    .iter()
-                    .enumerate()
-                    .map(|(at, (name, size, _))| {
-                        (
-                            Asset::Shape(at),
-                            format!("{name} {}x{}x{} m", size[0], size[1], size[2]),
-                        )
-                    })
-                    .collect(),
+            }
+            // The items are made again only for another tab, another search
+            // or more lamps found.
+            let key = (ui_state.tab, search.clone(), state.lamp_library.found.len());
+            let kept = match &ui_state.asset_items {
+                Some((had, items)) if *had == key => Some(items.clone()),
+                _ => None,
             };
-            let items: Vec<(Asset, String)> = items
-                .into_iter()
-                .filter(|(_, label)| {
-                    search.is_empty() || label.to_ascii_lowercase().contains(&search)
-                })
-                .collect();
+            let items = match kept {
+                Some(items) => items,
+                None => {
+                    let items: Vec<(Asset, String)> = match ui_state.tab {
+                        Tab::Placeables => state
+                            .setup
+                            .placeables
+                            .iter()
+                            .map(|name| {
+                                (
+                                    Asset::Template(AssetKind::Placeable, name.clone()),
+                                    name.clone(),
+                                )
+                            })
+                            .collect(),
+                        Tab::Creatures => state
+                            .setup
+                            .creatures
+                            .iter()
+                            .map(|name| {
+                                (
+                                    Asset::Template(AssetKind::Creature, name.clone()),
+                                    name.clone(),
+                                )
+                            })
+                            .collect(),
+                        Tab::Doors => state
+                            .setup
+                            .doors
+                            .iter()
+                            .map(|name| {
+                                (Asset::Template(AssetKind::Door, name.clone()), name.clone())
+                            })
+                            .collect(),
+                        Tab::Props => state
+                            .setup
+                            .models
+                            .iter()
+                            .map(|path| {
+                                let shown = path
+                                    .strip_prefix("models/map_objects/")
+                                    .unwrap_or(path)
+                                    .trim_end_matches(".md3")
+                                    .to_string();
+                                (Asset::Template(AssetKind::Prop, path.clone()), shown)
+                            })
+                            .collect(),
+                        Tab::Waypoints
+                        | Tab::Triggers
+                        | Tab::Sounds
+                        | Tab::Stores
+                        | Tab::Encounters => {
+                            let kind = match ui_state.tab {
+                                Tab::Waypoints => Kind::Waypoint,
+                                Tab::Triggers => Kind::Trigger,
+                                Tab::Sounds => Kind::Sound,
+                                Tab::Encounters => Kind::Encounter,
+                                _ => Kind::Store,
+                            };
+                            state
+                                .setup
+                                .templates_of(kind)
+                                .iter()
+                                .map(|name| (Asset::Object(kind, name.clone()), name.clone()))
+                                .collect()
+                        }
+                        Tab::Rooms => state
+                            .setup
+                            .rooms
+                            .iter()
+                            .map(|room| {
+                                (
+                                    Asset::Template(AssetKind::Room, room.model.clone()),
+                                    room.model.clone(),
+                                )
+                            })
+                            .collect(),
+                        Tab::Lamps => (state.lamp_library.found.iter())
+                            .map(|lamp| {
+                                (Asset::Template(AssetKind::Lamp, lamp.key()), lamp.label())
+                            })
+                            .collect(),
+                        Tab::Lights => LIGHT_SHAPES
+                            .iter()
+                            .map(|(shape, label)| (Asset::Light(shape), label.to_string()))
+                            .collect(),
+                        Tab::Shapes => SHAPES
+                            .iter()
+                            .enumerate()
+                            .map(|(at, (name, size, _))| {
+                                (
+                                    Asset::Shape(at),
+                                    format!("{name} {}x{}x{} m", size[0], size[1], size[2]),
+                                )
+                            })
+                            .collect(),
+                    };
+                    let items: Vec<(Asset, String)> = items
+                        .into_iter()
+                        .filter(|(_, label)| {
+                            search.is_empty() || label.to_ascii_lowercase().contains(&search)
+                        })
+                        .collect();
+                    let items = std::sync::Arc::new(items);
+                    ui_state.asset_items = Some((key, items.clone()));
+                    items
+                }
+            };
             // A tile takes its width, its frame's margins and the space
             // after it.
             let stride = TILE
