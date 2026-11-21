@@ -376,8 +376,11 @@ fn broken_off(seen: &Seen) -> bool {
     !seen.begun.is_empty() && seen.healed_at.is_none() && seen.left == MEDPACS
 }
 
+/// What a case expects of what its run saw.
+type Wanted = fn(&Seen) -> bool;
+
 pub fn probes() -> Checks {
-    let cases: [(&str, Case, fn(&Seen) -> bool); 4] = [
+    let cases: [(&str, Case, Wanted); 4] = [
         (
             "medpac_hits_enemy_heals",
             Case {
