@@ -577,12 +577,20 @@ was.
   project's, **Edit a copy** copies the game's, and **New** makes one for
   the object and gives it to it.
 
-The conversation window shows the conversation as a tree. A conversation
-opens with the first starting line whose condition holds. Each line the
-other side says (orange) leads to the replies the player may pick (blue),
-and each reply leads to the next line. A line shown already above is not
-opened again; the tree says where it goes on instead. Each row shows the
-line's condition and the script it runs.
+The conversation window shows the conversation as a tree, one opening at
+a time. A conversation opens with the first of its starting lines whose
+condition holds, tried from the top, so the openings are listed and
+numbered in that order. Each opening's header gives its condition, what
+that condition reads (the globals and tags its compiled script names,
+such as `DAN_JUHANI_PLOT`), and the opening's first words. **Up** and
+**Down** on an opening's first line change the order. Under each opening,
+each line the other side says (orange) leads to the replies the player
+may pick (blue), and each reply leads to the next line. Every line with
+lines under it can be folded. A line shown already above is not opened
+again; the tree says where it goes on instead. A reply with no text is
+shown as Continue, as the games show it. Each row shows the line's
+condition and the script it runs. Lines no opening reaches are listed at
+the end.
 
 A line clicked in the tree is changed on the right:
 

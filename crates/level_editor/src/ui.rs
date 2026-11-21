@@ -158,6 +158,8 @@ pub struct UiState {
     dialog_typing: Option<String>,
     new_dialog: String,
     dialog_try: (String, String),
+    /// What each condition script checks (`condition_checks`), read once.
+    talk_checks: BTreeMap<String, String>,
     /// The agent link while it is on (`agent`), and a copy of the
     /// selection asked for.
     link: Option<crate::agent::Link>,
@@ -226,6 +228,7 @@ impl Default for UiState {
             dialog_typing: None,
             new_dialog: String::new(),
             dialog_try: (String::new(), String::new()),
+            talk_checks: BTreeMap::new(),
             link: std::env::var("KJK_EDITOR_LINK")
                 .is_ok_and(|on| on == "1")
                 .then(crate::agent::Link::open)
@@ -2564,81 +2567,216 @@ fn conversations_menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut
         });
 }
 
-/// One row of a conversation's tree: its depth, its node, the link that
-/// led to it, and whether it is shown already above (then not again).
-struct TalkRow {
-    depth: usize,
+/// One node of a conversation's tree: the node, the link that led to it,
+/// whether it is shown already above (then not opened again), the link's
+/// condition, and the nodes it leads to.
+struct TalkNode {
     side: level_edit::dialog::Side,
     index: usize,
     via: Option<level_edit::dialog::LinkAt>,
     again: bool,
     condition: String,
+    children: Vec<TalkNode>,
 }
 
-/// The tree of `dlg` as rows, each node opened once, from its starts; then
-/// the nodes no link reaches.
-fn talk_rows(dlg: &fmt_odyssey::dlg::Dlg) -> Vec<TalkRow> {
+/// The tree of `dlg`: one branch for each opening (the starting list's
+/// links, in the order the game tries them), each node opened the first
+/// time it is reached; then the nodes no link reaches.
+fn talk_tree(dlg: &fmt_odyssey::dlg::Dlg) -> (Vec<TalkNode>, Vec<TalkNode>) {
     use level_edit::dialog::{LinkAt, Side};
     fn visit(
         dlg: &fmt_odyssey::dlg::Dlg,
         (side, index, depth): (Side, usize, usize),
         via: Option<(LinkAt, &fmt_odyssey::dlg::Link)>,
         seen: &mut std::collections::BTreeSet<(Side, usize)>,
-        out: &mut Vec<TalkRow>,
-    ) {
+    ) -> TalkNode {
         let child = via.is_some_and(|(_, link)| link.is_child);
         let again = !seen.insert((side, index)) || child || depth > 60;
-        out.push(TalkRow {
-            depth,
+        let mut made = TalkNode {
             side,
             index,
             via: via.map(|(at, _)| at),
             again,
             condition: via.map_or_else(String::new, |(_, link)| link.active.script.clone()),
-        });
+            children: Vec::new(),
+        };
         if again {
-            return;
+            return made;
         }
         let nodes = if side == Side::Entry {
             &dlg.entries
         } else {
             &dlg.replies
         };
-        let Some(node) = nodes.get(index) else {
-            return;
-        };
-        for (n, link) in node.links.iter().enumerate() {
-            visit(
-                dlg,
-                (side.other(), link.index as usize, depth + 1),
-                Some((LinkAt::From(side, index, n), link)),
-                seen,
-                out,
-            );
+        if let Some(node) = nodes.get(index) {
+            for (n, link) in node.links.iter().enumerate() {
+                made.children.push(visit(
+                    dlg,
+                    (side.other(), link.index as usize, depth + 1),
+                    Some((LinkAt::From(side, index, n), link)),
+                    seen,
+                ));
+            }
         }
+        made
     }
     let mut seen = std::collections::BTreeSet::new();
-    let mut out = Vec::new();
-    for (n, link) in dlg.starts.iter().enumerate() {
-        visit(
-            dlg,
-            (Side::Entry, link.index as usize, 0),
-            Some((LinkAt::Start(n), link)),
-            &mut seen,
-            &mut out,
-        );
-    }
+    let openings = dlg
+        .starts
+        .iter()
+        .enumerate()
+        .map(|(n, link)| {
+            visit(
+                dlg,
+                (Side::Entry, link.index as usize, 0),
+                Some((LinkAt::Start(n), link)),
+                &mut seen,
+            )
+        })
+        .collect();
+    let mut lost = Vec::new();
     for (side, count) in [
         (Side::Entry, dlg.entries.len()),
         (Side::Reply, dlg.replies.len()),
     ] {
         for index in 0..count {
             if !seen.contains(&(side, index)) {
-                visit(dlg, (side, index, 0), None, &mut seen, &mut out);
+                lost.push(visit(dlg, (side, index, 0), None, &mut seen));
             }
         }
     }
-    out
+    (openings, lost)
+}
+
+/// What a condition script checks, said shortly from its compiled form:
+/// the globals and tags it reads, else the routines it calls.
+fn condition_checks(state: &EditorState, script: &str) -> String {
+    let view = crate::script_view::read(
+        &state.setup.resolver,
+        state.setup.catalog.as_ref(),
+        &state.editor.project.folder,
+        script,
+    );
+    if view.listing.is_none() {
+        return "a script that is not compiled".to_string();
+    }
+    let strings: Vec<&str> = view.strings.iter().map(String::as_str).take(4).collect();
+    if !strings.is_empty() {
+        return format!("reads {}", strings.join(", "));
+    }
+    let calls: Vec<String> = view
+        .calls
+        .iter()
+        .filter_map(|(call, _)| {
+            let name = call.split('(').next()?.split_whitespace().last()?;
+            (!name.is_empty()).then(|| name.to_string())
+        })
+        .take(3)
+        .collect();
+    if calls.is_empty() {
+        "checks nothing it names".to_string()
+    } else {
+        format!("calls {}", calls.join(", "))
+    }
+}
+
+/// One node of the tree drawn: its row, clicked to select it, and below
+/// it, foldable, the nodes it leads to.
+fn draw_talk_node(
+    ui: &mut egui::Ui,
+    (dlg, said): (
+        &fmt_odyssey::dlg::Dlg,
+        &dyn Fn(&fmt_odyssey::dlg::Node) -> String,
+    ),
+    node: &TalkNode,
+    (depth, selected): (
+        usize,
+        Option<(
+            level_edit::dialog::Side,
+            usize,
+            Option<level_edit::dialog::LinkAt>,
+        )>,
+    ),
+    select: &mut Option<(
+        level_edit::dialog::Side,
+        usize,
+        Option<level_edit::dialog::LinkAt>,
+    )>,
+) {
+    use level_edit::dialog::Side;
+    let nodes = if node.side == Side::Entry {
+        &dlg.entries
+    } else {
+        &dlg.replies
+    };
+    let Some(found) = nodes.get(node.index) else {
+        return;
+    };
+    let who = match node.side {
+        Side::Entry if found.speaker.is_empty() => "Owner".to_string(),
+        Side::Entry => found.speaker.clone(),
+        Side::Reply => "Player".to_string(),
+    };
+    let mut text: String = said(found).chars().take(80).collect();
+    if text.is_empty() {
+        text = match node.side {
+            // An empty reply is shown as Continue by the games.
+            Side::Reply => "(Continue)".to_string(),
+            Side::Entry => "(says nothing)".to_string(),
+        };
+    }
+    let mut label = if node.again {
+        format!(
+            "{who}: goes on at {} {} above",
+            if node.side == Side::Entry {
+                "line"
+            } else {
+                "reply"
+            },
+            node.index
+        )
+    } else {
+        format!("{who}: {text}")
+    };
+    if !node.condition.is_empty() && depth > 0 {
+        label.push_str(&format!("  [if {}]", node.condition));
+    }
+    if !node.again && !found.script.script.is_empty() {
+        label.push_str(&format!("  [runs {}]", found.script.script));
+    }
+    let colour = if node.side == Side::Entry {
+        egui::Color32::from_rgb(235, 190, 140)
+    } else {
+        egui::Color32::from_rgb(150, 200, 255)
+    };
+    let chosen = selected.is_some_and(|(side, index, via)| {
+        side == node.side && index == node.index && via == node.via
+    });
+    let row = |ui: &mut egui::Ui, select: &mut Option<_>| {
+        let text = egui::RichText::new(&label)
+            .color(colour)
+            .monospace()
+            .size(11.5);
+        if ui.selectable_label(chosen, text).clicked() {
+            *select = Some((node.side, node.index, node.via));
+        }
+    };
+    if node.children.is_empty() || node.again {
+        ui.horizontal(|ui| {
+            // Lined up with the rows that have a fold button.
+            ui.add_space(18.0);
+            row(ui, select);
+        });
+        return;
+    }
+    let id = ui.make_persistent_id(("talk node", node.side, node.index, node.via));
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, depth < 4)
+        .show_header(ui, |ui| row(ui, select))
+        .body(|ui| {
+            for child in &node.children {
+                draw_talk_node(ui, (dlg, said), child, (depth + 1, selected), select);
+            }
+        });
 }
 
 /// A text field's change made as one edit while it is typed in: the first
@@ -2686,7 +2824,15 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                 .map(|bytes| bytes.iter().map(|&b| char::from(b)).collect())
         })
     };
-    let rows = talk_rows(&dlg);
+    let (openings, lost) = talk_tree(&dlg);
+    // What each opening's condition checks, read once.
+    for link in &dlg.starts {
+        let script = &link.active.script;
+        if !script.is_empty() && !ui_state.talk_checks.contains_key(script) {
+            let checks = condition_checks(state, script);
+            ui_state.talk_checks.insert(script.clone(), checks);
+        }
+    }
     let mut open = true;
     let mut asked: Vec<Edit> = Vec::new();
     let mut command: Option<String> = None;
@@ -2757,55 +2903,58 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
             }
             ui.separator();
             ui.columns(2, |columns| {
-                // The tree.
+                // The tree: an opening at a time, in the order the game
+                // tries them.
                 egui::ScrollArea::vertical().id_salt("conversation tree").auto_shrink(false).show(&mut columns[0], |ui| {
-                    if rows.is_empty() {
+                    if openings.is_empty() && lost.is_empty() {
                         ui.label("No lines yet. Add a starting line.");
                     }
-                    for row in &rows {
-                        let nodes = if row.side == Side::Entry { &dlg.entries } else { &dlg.replies };
-                        let Some(node) = nodes.get(row.index) else {
-                            continue;
-                        };
-                        let who = match row.side {
-                            Side::Entry if node.speaker.is_empty() => "Owner".to_string(),
-                            Side::Entry => node.speaker.clone(),
-                            Side::Reply => "Player".to_string(),
-                        };
-                        let mut said: String = line_text(node).chars().take(70).collect();
-                        if said.is_empty() {
-                            said = "(says nothing)".to_string();
-                        }
-                        let mut label = format!("{}{who}: {said}", "    ".repeat(row.depth));
-                        if row.again {
-                            label = format!(
-                                "{}{who}: goes on at {} {} above",
-                                "    ".repeat(row.depth),
-                                if row.side == Side::Entry { "line" } else { "reply" },
-                                row.index
-                            );
-                        }
-                        if !row.condition.is_empty() {
-                            label.push_str(&format!("  [if {}]", row.condition));
-                        }
-                        if !row.again && !node.script.script.is_empty() {
-                            label.push_str(&format!("  [runs {}]", node.script.script));
-                        }
-                        if row.via.is_none() {
-                            label.push_str("  (no link leads here)");
-                        }
-                        let colour = if row.side == Side::Entry {
-                            egui::Color32::from_rgb(235, 190, 140)
+                    if openings.len() > 1 {
+                        ui.label(
+                            egui::RichText::new(
+                                "The conversation opens with the first of these whose condition holds, tried from \
+                                 the top. Select an opening's first line and use Up or Down to change the order.",
+                            )
+                            .small(),
+                        );
+                    }
+                    let selected = ui_state.dialog_selected;
+                    for (n, opening) in openings.iter().enumerate() {
+                        let first: String = dlg
+                            .entries
+                            .get(opening.index)
+                            .map(|node| line_text(node).chars().take(48).collect())
+                            .unwrap_or_else(String::new);
+                        let when = if opening.condition.is_empty() {
+                            "always".to_string()
                         } else {
-                            egui::Color32::from_rgb(150, 200, 255)
+                            let checks = ui_state.talk_checks.get(&opening.condition).cloned().unwrap_or_else(String::new);
+                            format!("if {} ({checks})", opening.condition)
                         };
-                        let chosen = ui_state.dialog_selected.is_some_and(|(side, index, via)| {
-                            side == row.side && index == row.index && via == row.via
+                        let holds_selection = selected.is_some_and(|(_, _, via)| match (via, opening.via) {
+                            (Some(level_edit::dialog::LinkAt::Start(a)), Some(level_edit::dialog::LinkAt::Start(b))) => a == b,
+                            _ => false,
                         });
-                        let text = egui::RichText::new(label).color(colour).monospace().size(11.5);
-                        if ui.selectable_label(chosen, text).clicked() {
-                            select = Some((row.side, row.index, row.via));
-                        }
+                        let id = ui.make_persistent_id(("talk opening", n));
+                        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, openings.len() <= 2 || holds_selection)
+                            .show_header(ui, |ui| {
+                                ui.label(egui::RichText::new(format!("Opening {}, {when}", n + 1)).strong());
+                                let quoted: String = first.chars().take(40).collect();
+                                ui.label(egui::RichText::new(format!("\"{quoted}\"")).weak());
+                            })
+                            .body(|ui| {
+                                ui.label(egui::RichText::new(format!("\"{first}\"")).small().weak());
+                                draw_talk_node(ui, (&dlg, &line_text), opening, (0, selected), &mut select);
+                            });
+                    }
+                    if !lost.is_empty() {
+                        egui::CollapsingHeader::new(format!("Not reached from any opening ({})", lost.len()))
+                            .id_salt("talk lost")
+                            .show(ui, |ui| {
+                                for node in &lost {
+                                    draw_talk_node(ui, (&dlg, &line_text), node, (1, selected), &mut select);
+                                }
+                            });
                     }
                 });
                 // The selected node.
@@ -4086,7 +4235,7 @@ fn viewport(
             };
             let painter = ctx
                 .layer_painter(egui::LayerId::new(
-                    egui::Order::Middle,
+                    egui::Order::Background,
                     egui::Id::new("editor labels"),
                 ))
                 .with_clip_rect(rect);
