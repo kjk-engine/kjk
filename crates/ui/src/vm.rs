@@ -827,6 +827,18 @@ pub struct HudView {
     /// icon is dimmed while the Form does nothing, as a lightsaber Form
     /// does without a lightsaber in the right hand (`screens::hud::FORM`).
     pub form: Option<BarSlot>,
+    /// The feat slot, for a character whose weapon in hand has a choice of
+    /// feat attacks: the icon of the feat attack in use (none while it uses
+    /// none) and the next-feat key (`screens::hud::FEAT`).
+    pub feat: Option<BarSlot>,
+}
+
+impl HudView {
+    /// The slots after the action bar's own, in the order of
+    /// `screens::hud::EXTRA`: the Form slot, then the feat slot.
+    pub fn extra(&self) -> [Option<&BarSlot>; 2] {
+        [self.form.as_ref(), self.feat.as_ref()]
+    }
 }
 
 /// A fighter's one duel bar, which a player reads as Stamina: how much of

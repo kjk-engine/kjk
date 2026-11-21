@@ -43,15 +43,17 @@
 //! the sixth (`bar_extra`), and the keyboard's bar shows them up to the
 //! last one that holds something. A slot the character cannot use now has its icon dimmed. A slot
 //! whose key is held, or whose stealth mode or feat attack is on, is lit.
-//! An empty slot shows its frame and its key only. Its weapon swap button
-//! shows in both games (TSL's second weapon set; a remaster liberty in
-//! KOTOR): a click on it swaps the player's sets (`swap_at`). A break's or
-//! ready check's banner is its own layer (`banner`), in the combat
+//! An empty slot shows its frame and its key only. KOTOR 2's weapon swap
+//! button is hidden. The swap key still swaps the player's weapon sets. A
+//! break's or ready check's banner is its own layer (`banner`), in the combat
 //! message's place. KOTOR 2's feedback option "Hide Quick Menu Buttons"
 //! hides the eight menu buttons and their backing (`MENU_BUTTONS`).
 //! A character who knows a lightsaber Form or a Force Form has KOTOR 2's
 //! Form slot at the right end of the action bar, inside its frame: the icon
 //! of the Form in use and the next-Form key (`FORM`, `HudView::form`).
+//! A character whose weapon has a choice of feat attacks has a feat slot
+//! after it, drawn the same way: the icon of the feat attack in use and the
+//! next-feat key (`FEAT`, `HudView::feat`).
 
 use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
@@ -1341,17 +1343,9 @@ pub fn minimap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
             .is_some_and(|control| within(rect_of(control), point))
 }
 
-/// The weapon swap button (TSL's, `CSWGuiMainInterface::OnSwapWeaponsPressed`).
+/// KOTOR 2's weapon swap button. The HUD hides it, and the feat slot
+/// (`FEAT`) stands on the action bar instead.
 pub const SWAP: &str = "BTN_SWAPWEAPONS";
-
-/// Whether `point` (layout pixels of `gui`, placed by `place`) is on the
-/// weapon swap button, shown while the HUD has a character.
-pub fn swap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
-    vm.hud.is_some()
-        && gui
-            .find(SWAP)
-            .is_some_and(|control| within(rect_of(control), point))
-}
 
 /// Whether `point` is inside `rect` (left, top, width, height).
 fn within([left, top, width, height]: [f32; 4], [x, y]: [f32; 2]) -> bool {
@@ -1731,8 +1725,9 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
         return;
     };
     let slots = (hud.bar.iter().enumerate()).map(|(nth, slot)| (nth.to_string(), slot));
-    let form = hud.form.iter().map(|slot| (FORM.to_string(), slot));
-    let controls = slots.chain(form).filter_map(|(nth, slot)| {
+    let extra =
+        (EXTRA.iter().zip(hud.extra())).filter_map(|(tag, slot)| Some((tag.to_string(), slot?)));
+    let controls = slots.chain(extra).filter_map(|(nth, slot)| {
         let button = gui.find(&format!("BTN_ACTION{nth}"))?;
         let icon = gui.find(&format!("LBL_ACTION{nth}"))?;
         Some((slot, [button, icon]))
@@ -1784,10 +1779,12 @@ const BAR_SLOTS: usize = 10;
 /// a copy of the sixth slot's frame and icon, and stands one slot's step
 /// to the right of the slot before it. A slot's step is how far the second
 /// slot stands from the first. The HUD draws a slot only while the view
-/// lists it (`state`). The frame round the row (`BAR_FRAME`) is one step
-/// wider for each slot after the sixth of the `shown` slots, so it stands
-/// round every slot the HUD draws.
-pub fn bar_extra(gui: &mut Gui, shown: usize, form: bool) {
+/// lists it (`state`). The Form slot and the feat slot (`EXTRA`) are copies
+/// too. They stand after the last of the `shown` slots, in that order, and
+/// `extras` tells which of them the HUD draws. The frame round the row
+/// (`BAR_FRAME`) is one step wider for each slot after the sixth that the
+/// HUD draws, so it stands round every one of them.
+pub fn bar_extra(gui: &mut Gui, shown: usize, extras: [bool; EXTRA.len()]) {
     let left = |nth: usize| {
         gui.find(&format!("BTN_ACTION{nth}"))
             .map(|slot| slot.extent.left)
@@ -1797,6 +1794,11 @@ pub fn bar_extra(gui: &mut Gui, shown: usize, form: bool) {
     };
     let step = second - first;
     let last = LAYOUT_SLOTS - 1;
+    let row = shown.clamp(LAYOUT_SLOTS, BAR_SLOTS);
+    // Each extra slot stands one step after the last slot drawn before it.
+    let places: Vec<usize> = (0..EXTRA.len())
+        .map(|nth| row + extras[..nth].iter().filter(|drawn| **drawn).count())
+        .collect();
     for prefix in ["BTN_ACTION", "LBL_ACTION"] {
         let Some(at) =
             (gui.controls.iter()).position(|control| control.tag == format!("{prefix}{last}"))
@@ -1812,14 +1814,12 @@ pub fn bar_extra(gui: &mut Gui, shown: usize, form: bool) {
         let mut copies: Vec<Control> = (LAYOUT_SLOTS..BAR_SLOTS)
             .map(|nth| copy(format!("{prefix}{nth}"), nth))
             .collect();
-        // The Form slot stands one step after the last slot shown.
-        copies.push(copy(
-            format!("{prefix}{FORM}"),
-            shown.clamp(LAYOUT_SLOTS, BAR_SLOTS),
-        ));
+        copies.extend(
+            (EXTRA.iter().zip(&places)).map(|(tag, nth)| copy(format!("{prefix}{tag}"), *nth)),
+        );
         gui.controls.splice(at + 1..at + 1, copies);
     }
-    let more = shown.clamp(LAYOUT_SLOTS, BAR_SLOTS) - LAYOUT_SLOTS + usize::from(form);
+    let more = row - LAYOUT_SLOTS + extras.iter().filter(|drawn| **drawn).count();
     if let Some(frame) = (gui.controls.iter_mut()).find(|control| control.tag == BAR_FRAME) {
         frame.extent.width += step * more as i32;
     }
@@ -1829,6 +1829,28 @@ pub fn bar_extra(gui: &mut Gui, shown: usize, form: bool) {
 /// `LBL_ACTIONFORM`), which `bar_extra` makes from the sixth slot's frame
 /// and icon. It shows the Form in use (`HudView::form`).
 pub const FORM: &str = "FORM";
+
+/// The tag ending of the feat slot (`BTN_ACTIONFEAT` and `LBL_ACTIONFEAT`),
+/// made as the Form slot is. It shows the feat attack in use
+/// (`HudView::feat`).
+pub const FEAT: &str = "FEAT";
+
+/// The slots after the action bar's own, in the order they stand: the Form
+/// slot, then the feat slot (`HudView::extra`).
+pub const EXTRA: [&str; 2] = [FORM, FEAT];
+
+/// The extra slot (`EXTRA`) that `tag` is a frame or an icon of, by its
+/// place in `EXTRA`, and whether it is the icon.
+fn extra_of(tag: &str) -> Option<(usize, bool)> {
+    ["BTN_ACTION", "LBL_ACTION"]
+        .iter()
+        .enumerate()
+        .find_map(|(icon, prefix)| {
+            let ending = tag.strip_prefix(prefix)?;
+            let nth = EXTRA.iter().position(|extra| *extra == ending)?;
+            Some((nth, icon == 1))
+        })
+}
 
 /// The frame round the row of action slots.
 const BAR_FRAME: &str = "LBL_MOULDING3";
@@ -1851,6 +1873,7 @@ pub fn bar_cross(gui: &mut Gui) {
     let (places, [wide, tall]) = cross([first.width, first.height], gap);
     let top = first.top + first.height - tall;
     // The Form slot stands right of the cross, level with its middle row.
+    // The feat slot moves with it, so it keeps its place beside the Form slot.
     let form = (gui.find(&format!("BTN_ACTION{FORM}")))
         .map(|slot| slot.extent)
         .map(|from| {
@@ -1873,10 +1896,7 @@ pub fn bar_cross(gui: &mut Gui) {
         if let Some(by) = slot.and_then(|slot| moves.get(slot)) {
             shift_all(control, *by);
         }
-        let formed = ["BTN_ACTION", "LBL_ACTION"]
-            .iter()
-            .any(|prefix| control.tag.strip_prefix(prefix) == Some(FORM));
-        if let Some(by) = form.filter(|_| formed) {
+        if let Some(by) = form.filter(|_| extra_of(&control.tag).is_some()) {
             shift_all(control, by);
         }
     }
@@ -2153,9 +2173,7 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     if STATUS.contains(&tag) {
         return shown(hud.lit.contains(&tag));
     }
-    // The swap button answers only while a character is on the HUD
-    // (`swap_at`).
-    if HIDDEN.iter().any(|prefix| tag.starts_with(prefix)) || (tag == SWAP && vm.hud.is_none()) {
+    if HIDDEN.iter().any(|prefix| tag.starts_with(prefix)) || tag == SWAP {
         return hidden;
     }
     let slot = |prefix: &str| {
@@ -2165,18 +2183,16 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     if tag == BAR_FRAME && vm.pad_playing {
         return hidden;
     }
-    let form = |prefix: &str| tag.strip_prefix(prefix) == Some(FORM);
-    if form("BTN_ACTION") || form("LBL_ACTION") {
-        let label = form("LBL_ACTION");
-        return match hud.form {
+    if let Some((nth, label)) = extra_of(tag) {
+        return match hud.extra()[nth] {
             Some(BarSlot {
                 icon: Some(icon),
                 dim,
                 ..
             }) if label => ControlState {
-                fill: Some(icon),
+                fill: Some(icon.clone()),
                 text: Some(Vec::new()),
-                dimmed: dim,
+                dimmed: *dim,
                 ..ControlState::default()
             },
             Some(_) if !label => ControlState::default(),
