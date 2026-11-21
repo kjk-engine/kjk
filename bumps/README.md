@@ -6,7 +6,7 @@ pin workflow's token proved unable to change them). Two
 branches doing so took the same numbers and fought over the same lines:
 111 re-pins, about a tenth of all commits, and 17 snapshot versions taken
 twice. Instead a branch says what it changes in a file of its own here,
-and the merge numbers it.
+and the pin before a release numbers it.
 
 ## On a branch
 
@@ -104,10 +104,14 @@ longer read fails there.
 Report the change in the pull request as before ("KJKS +1"); its number
 is the merge's.
 
-## At merge
+## Pinning before a release
 
-`.github/workflows/pin.yml` runs on `main` after a pull request with a bump
-file merges (a merge or push to `main` starts it by its paths). It runs `cargo xtask pin`: each bump, in the order the files reached
+A merged bump file stays pending on `main` until someone pins it. That is
+safe: `main`'s builds number each pending file as described above, and the
+pin keeps those numbers. Pin once before each release.
+
+`.github/workflows/pin.yml` runs only when started by hand (Actions → pin →
+Run workflow, or `gh workflow run pin.yml`). It runs `cargo xtask pin`: each bump, in the order the files reached
 `main` (as `main`'s builds numbered them in between), takes the next
 version with its history line; the files are removed; the pinned determinism run's hash is written
 into both workflows. Then the approved tests run on the result, and it is
@@ -115,8 +119,10 @@ committed as "Pinned at merge: …", naming every version and the hash
 old → new, onto the `pin` branch made anew from `main`. `main`'s ruleset
 takes no push, so the commit reaches it through `pin`'s pull request
 (opened or updated by the run, which starts `ci` on it for the required
-checks), merged by hand like any other; until then the next merge's run
-pins its files too. `git log --grep "Pinned at merge"` is the history.
+checks), merged by hand like any other. The run can only open that pull
+request when Settings → Actions → General allows GitHub Actions to create
+pull requests. Otherwise it pushes `pin` and fails, and the pull request
+is opened from `pin` by hand. `git log --grep "Pinned at merge"` is the history.
 
 `cargo xtask pin` runs locally too (it edits the tree, commits nothing),
 e.g. to see the numbers a merge would give.
