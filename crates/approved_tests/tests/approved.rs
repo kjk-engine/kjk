@@ -4880,15 +4880,18 @@ fn item_properties() {
 /// snapshots and prediction, a standing creature taken, a guest giving way;
 /// a companion's body changed in the run that makes it (107PER's Kreia); a
 /// companion standing in a module left, not in the party, kept by the table
-/// as it stands, body and all; the creature played outliving the script
-/// that destroys it, and its creature gone when it is taken off the table
+/// as it stands, body and all; a companion made available by object
+/// played on a creature the switch makes of it, while the script destroys
+/// the standing one, and that creature gone when it is taken off the table
 /// (TSL's B-4D4; added and approved 2026-11-12; its companion number is no
 /// longer available before the script makes the droid available, as on
-/// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
+/// Telos, amended and approved 2026-11-14 for issue 396; the creature made
+/// by the switch, not the standing one, as both executables make it,
+/// amended 2026-11-21, awaiting approval); armour the player took
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
 /// 366); a companion leading the party arrives in a module facing the
-/// arrival's way (issue 412, approved 2026-11-16); the companion played
+/// arrival's way (issue 412, approved 2026-11-16); the creature played
 /// taken through two modules that lack its template, still played and with
 /// its facts in both (TSL's B-4D4 through the docks, added 2026-11-17,
 /// awaiting approval); the sim alone.
