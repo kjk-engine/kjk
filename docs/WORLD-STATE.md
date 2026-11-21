@@ -390,7 +390,7 @@ on the authority; a save carries it.
     an empty set 2 leaves the hands empty and keeps set 1 in set 2. Each
     piece met its set's rules on the way in and the sets' rules are one,
     so none is refused crossing over. The sheet is dressed anew that step.
-  - A player swaps with the swap key (B) or the HUD's swap button
+  - A player swaps with the swap key (B)
     (`Action::SwitchWeapons`, wire 51: the seat's acting body), or the
     equip screen's (`SwitchWeaponsOn { who }`, wire 52: by the wearing
     rule above). Not while the creature takes part in a conversation

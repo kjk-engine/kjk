@@ -640,6 +640,35 @@ fn form_slot(
     })
 }
 
+/// The feat slot for `sheet` (`ui::screens::hud::FEAT`), drawn as the Form
+/// slot is. There is none while the weapon in hand has no choice of feat
+/// attacks (`Picks::shown`), or while a double-bladed lightsaber has one
+/// blade lit, as the next-feat key then does nothing (`feat_view`).
+/// Otherwise it holds the `feat.2da` icon of the feat attack in use (none
+/// while it uses none) and the next-feat key.
+fn feat_slot(
+    ui: &mut crate::ui_view::Ui,
+    sheet: &sim::combat::Sheet,
+    fighter: &sim::combat::Fighter,
+    key: ui::vm::KeyLabel,
+) -> Option<ui::vm::BarSlot> {
+    use sim::combat::picks::{Picks, Shown};
+    if fighter.saber.second_off {
+        return None;
+    }
+    let icon = match Picks::shown(sheet, fighter.hand)? {
+        Shown::Feat(row) => {
+            (ui.assets.as_mut()).and_then(|assets| assets.cell("feat", usize::from(row), "icon"))
+        }
+        Shown::Nothing => None,
+    };
+    Some(ui::vm::BarSlot {
+        icon,
+        key,
+        ..ui::vm::BarSlot::default()
+    })
+}
+
 /// What KOTOR's HUD shows: the bars (Force only for a Force user), the
 /// portrait of the character played (the player's persona's, or a
 /// companion's template's while it leads or is driven) and the action bar
@@ -1130,9 +1159,11 @@ fn show(
                 .and_then(|picking| picking.label(real.elapsed_secs())),
         );
         let form = form_slot(ui, &sheet, prompts.label(Action::Form));
+        let feat = feat_slot(ui, &sheet, &fighter, prompts.label(Action::NextFeat));
         ui.vm.hud = Some(ui::vm::HudView {
             minimap,
             form,
+            feat,
             busy: busy(snapshot, own.0),
             solo: snapshot.solo,
             duel: duel.clone(),

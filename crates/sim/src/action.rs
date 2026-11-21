@@ -180,7 +180,7 @@ pub enum Action {
     Breakdown { bench: Workbench, item: u32 },
     /// Make the item of row `row` of the bench's table, of its components.
     Create { bench: Workbench, row: u16 },
-    /// Exchange the weapon sets (the swap key, the HUD's swap button) of the
+    /// Exchange the weapon sets (the swap key) of the
     /// seat's body: its own character's, the companion leading's for the
     /// first seat (`script::items::State::switch_weapons`; in a fight it
     /// takes the round's second, `combat::SWAP_MS`).
