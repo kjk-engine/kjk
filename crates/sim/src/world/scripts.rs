@@ -257,6 +257,8 @@ struct Life {
     grappled: bool,
     /// The last to hit it, and when.
     attacker: Option<(u32, u64)>,
+    /// It is using an item through an action (`Character::item_use`).
+    using_item: bool,
 }
 
 /// Queues `id`'s hook for `event`, if it has one.
@@ -645,6 +647,9 @@ pub(super) fn scripts(
             stealth: fighter.covert.stealth,
             look: fighter.look,
             item_used_ms: fighter.pack.last.1,
+            item_use: (fighter.pack.using)
+                .filter(|_| fighter.pack.ordered)
+                .map(|(row, _)| row),
         });
         let sim = ObjectId(id.0.0);
         if let Some(fighting) = fighting {
@@ -658,6 +663,7 @@ pub(super) fn scripts(
                 in_combat: fighter.combat_until > now,
                 grappled: fighter.grapple.is_some(),
                 attacker: fighter.last_attacker.map(|(by, at)| (by.0, at)),
+                using_item: fighter.pack.using.is_some() && fighter.pack.ordered,
             });
         }
         if filled == list.len() {
@@ -1905,7 +1911,11 @@ fn rounds(view: &View, state: &mut State, life: &Life) {
     }
     let now = view.now_ms;
     let next = state.rounds.entry(id.0).or_insert(now + ROUND_MS);
-    if now >= *next {
+    // A combat round does not end while the character uses an item through
+    // an action. It ends on the first step after the use is over. The
+    // round's AI script clears the character's actions, and that would
+    // break the use off.
+    if now >= *next && !life.using_item {
         *next = now + ROUND_MS;
         let talking = state.talk.with(id, view.host(&state.party)).is_some();
         // A character in a grapple finisher decides nothing until it is let
