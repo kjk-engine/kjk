@@ -39,7 +39,7 @@ env:
   # The sim must reach the same state on every platform (Decision 3): the
   # approved test sim_determinism requires the hash pinned in
   # bumps/SIM_HASH. Branches never edit it: a bump file says the sim moves,
-  # and the merge pins it (bumps/README.md, pin.yml).
+  # and the pin before a release writes it (bumps/README.md, pin.yml).
 
 jobs:
   # The approved tests and clippy are jobs of their own, side by side:

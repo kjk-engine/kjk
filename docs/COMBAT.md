@@ -1546,9 +1546,9 @@ saved.", `saves::refusal`), so a sandbox never takes the autosave's place.
 | a bolt turned by a blade (`Deflected`: sent on or absorbed) | KOTOR's blaster parry `cb_pa_blast1` | the event's point |
 | a bolt gone in its life, with no hit or deflection of its shooter's that tick | `VFX_COM_BLASTER_IMPACT_GROUND` on a floor, `VFX_COM_SPARKS_BLASTER` on the rest (KOTOR's misses meet nothing: the nearest it has), and its impact sound's surface family (`cb_ht_blast` + `metal`, `wood`, `stne`) | where its last way, traced with its box against the level, stops |
 | any effect played (impacts, flashes, …) | its own `sound` primitives, one file each, nobody's (a grenade's are left out: KOTOR's to come) | where the effect places them |
-| push / pull cast (a throw's wait starting, hand out) | JA's `force/push`, `force/pull`, body slot | the caster |
+| push / pull cast (a throw's wait starting, hand out) | KOTOR's Force Push sounds for both, because KOTOR has no pull: the cast `v_useforce` and the push `v_imp_frcpush` (`VFX_IMP_FORCE_PUSH`), body slot | the caster |
 | speed, sight, mind trick, rage start; protect, absorb start | JA's `speed`, `see`, `distract`, `rage`; `protect`, `absorb` | the caster |
-| speed, protect, absorb, rage, sight running (every frame) | their loops (`speedloop`, `protectloop`, `absorbloop`, `rageloop`, `seeloop`), held | the caster |
+| speed, protect, absorb, rage, sight running (every frame) | their loops (`speedloop`, `protectloop`, `absorbloop`, `rageloop`, `seeloop`), held. Force Speed's start and loop are silent while a conversation is under way. | the caster |
 | lightning, drain start (a channel) | `force/lightning`, `force/drain`, body slot | the caster |
 | a lightning hit; a drain hit; a hit on the protected | one of `lightninghit1–3` one time in three; `drained`; `protecthit` | the struck |
 | held in a grip; a Force jump starts | `force/grip` every second held; `force/jump` | the gripped; the jumper |
@@ -1613,14 +1613,15 @@ did).
 **The powers' effects (`force_view`, QUIRKS.md Q-0071).** From each
 character's Force state as the view shows it, every frame: lightning
 (`effects/force/lightning.efx`, `lightningwide.efx` at level 3) from the
-left hand along the view while a lightning channel runs, ending at walls;
-grip's red puffs at the hand while a grip runs; push's and pull's
-distortion (`scene_fx::distort`) for 500 ms from the cast, which is a push
-or pull hand whose wait started with it. The own character's come from its
-predictions at own time, at once; everyone else's from the snapshots. A
-power needs a module (its cost is `spells.2da`'s): none casts on the duel
-floor. Dumps count the frames drawn (`force_fx.lightning_frames`,
-`grip_frames`, `distortion_frames`).
+left hand along the view while a lightning channel runs, ending at walls.
+A character who holds no weapon casts lightning with both hands (JA's
+`BOTH_FORCE_2HANDEDLIGHTNING_HOLD`), and the bolts leave from each hand.
+A grip shows no puffs at the hand, and a push or a pull shows no
+distortion in the air. JA draws both, but they look out of place in KOTOR.
+The own character's effects come from its predictions at own time, at
+once. Everyone else's come from the snapshots. A power needs a module (its
+cost is `spells.2da`'s): none casts on the duel floor. Dumps count the
+frames drawn with lightning (`force_fx.lightning_frames`).
 
 **Hold to aim (`sim::combat::specials::Shooting::aim`, the rulebook's
 Weapons: Aiming).** A player holds [Aim] to raise a blaster to the eye.

@@ -276,12 +276,12 @@ see = "sim::combat::saber::duel::meter::refill"
 [refill.by_stance]
 name = "Recovery by Movement"
 type = "u32"
-value = [100, 75, 0]
+value = [100, 75, 50]
 labels = ["standing", "walking", "running"]
 unit = "percent"
 range = [0, 1000]
-summary = "How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at {duel.refill.by_stance[0]:bare}% of that rate, a walking character at {duel.refill.by_stance[1]:bare}% and a running character at {duel.refill.by_stance[2]:bare}%. A running character regains no Stamina at all. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking."
-source = "the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat"
+summary = "How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at {duel.refill.by_stance[0]:bare}% of that rate, a walking character at {duel.refill.by_stance[1]:bare}% and a running character at {duel.refill.by_stance[2]:bare}%. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking."
+source = "the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. The owner's call of 21 November 2026 raised the running rate from 0% to 50%"
 see = "sim::combat::saber::duel::meter::Stance"
 
 [refill.walking_above]

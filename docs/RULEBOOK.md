@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5fdedbfeddb6300b`.
+Edition `88b9be685cf97fda`.
 
 ## Contents
 
@@ -12141,13 +12141,13 @@ Each time a character's Stamina comes back, they regain 1 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **100 percent / 75 percent / 0 percent** (`100 / 75 / 0 percent`) · `duel.refill.by_stance`
+<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **100 percent / 75 percent / 50 percent** (`100 / 75 / 50 percent`) · `duel.refill.by_stance`
 
-standing **100 percent** · walking **75 percent** · running **0 percent**
+standing **100 percent** · walking **75 percent** · running **50 percent**
 
-How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at 100% of that rate, a walking character at 75% and a running character at 0%. A running character regains no Stamina at all. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking.
+How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at 100% of that rate, a walking character at 75% and a running character at 50%. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking.
 
-<sub>Source: the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
+<sub>Source: the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. The owner's call of 21 November 2026 raised the running rate from 0% to 50%. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
 
 <a id="duel-refill-walking-above"></a>**Walking Speed** = **0.025 meters per second** (`1 units/s`) · `duel.refill.walking_above`
 

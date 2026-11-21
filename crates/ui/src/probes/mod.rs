@@ -117,7 +117,8 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::equip_tells_off_hand());
     checks.extend(menus::equip_locks_slots());
     checks.extend(menus::equip_lists_open_at_top());
-    checks.extend(hud::swap_button());
+    checks.extend(hud::feat_slot());
+    checks.extend(hud::solo_button());
     checks.extend(hud::target_cycle());
     checks.extend(hud::unknown_tags());
     checks.extend(hud::duel());
