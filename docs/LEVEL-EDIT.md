@@ -265,6 +265,12 @@ The folder holds these files.
   (below, "An object's behaviour"). They are KOTOR files too.
 - `NAME.nss` files are the project's own scripts, and `NAME.ncs` each one
   compiled (below, "The project's own scripts").
+- `AREA.are`, for an installed area whose settings the project changes:
+  its fog, ambient light and scripts (below, "This level's settings"). A
+  new map's is always there.
+- `OTHER.git` for each area of another module whose doors or triggers the
+  project leads elsewhere, listed in `project.toml` as `others` (below,
+  "Doors and the ways between levels").
 
 A prop is stored as the path of its model inside Jedi Academy's archives.
 The project never holds a copy of a Jedi Academy file, so anyone who plays
@@ -445,6 +451,70 @@ the editor.
 - **Window** opens the viewer in a window of its own over the view, with
   room to write, and **Dock** puts it back under the details.
 
+## Doors and the ways between levels
+
+The asset picker's Doors tab places doors from the install's door
+templates (`.utd`), each drawn with its model. A door is read whole from
+the area's object list, so its tag, lock and scripts are its entry's.
+
+A door or a trigger can lead somewhere. The details panel's **Leads to**
+sets the level (any installed module, or this one) and where to arrive in
+it: a door or a waypoint of that level's entry area by its tag, or the
+module's entry. It writes the entry's `LinkedToModule`, `LinkedTo` and
+`LinkedToFlags`. kjk takes any door or trigger whose link names a module
+for a way out: a door when it is used, a trigger when the party walks into
+it. A trigger needs no transition template for kjk.
+
+**Ways in from other levels**, shown when nothing is selected, lead a door
+or a trigger of another module's entry area here: pick the level, the door
+or waypoint of this level to arrive at, and Lead here on one of its doors
+or triggers. The project keeps a copy of that area's object list with the
+change (`Project::others`, saved as `OTHER.git`), and the project's folder
+being the highest layer of the install's files, kjk plays it wherever that
+area is loaded while the project is played. So one project carries a new
+map and the way into it from the story: the Ebon Hawk's exit trigger
+(`ebn12_ebonexit`) led into a new map takes the party there from the Hawk.
+Give back drops the copy, and that area's doors lead where the game has
+them again. The project's own area is changed in its own list instead.
+
+## Trigger outlines
+
+A selected trigger or encounter shows its outline over the view, its
+corners as rings. A corner dragged moves along the floor under the
+pointer. The details panel's **Outline** lists the corners, each set by
+its numbers or removed (three are the fewest), adds a corner halfway along
+the longest side, and **Draw a new outline**: each click on the floor is
+the next corner, in order round it, and Enter or Done ends it (Escape
+leaves the outline as it was).
+
+## This level's settings
+
+With nothing selected, **This level** sets the area's own settings:
+
+- its music by day, by night and in battle (`ambientmusic.2da` rows), and
+  its ambient sound by day and by night (`ambientsound.2da`) with their
+  volumes: the object list's `AreaProperties`;
+- its fog (on, where it starts and where it is thick, its colour) and its
+  ambient light: the area's `.are`;
+- its scripts (`OnEnter`, `OnExit`, `OnHeartbeat`, `OnUserDefined`): the
+  `.are` too;
+- for a new map, the module's scripts (`Mod_OnModLoad`,
+  `Mod_OnClientEntr` and the rest): its own `module.ifo`, kept in
+  `kjk-map.toml`. An installed module's stay the game's: every module's
+  `module.ifo` has one name, so a copy in the project's folder would stand
+  in for every module's.
+
+An installed area's `.are` is copied into the project at the first change
+(`Project::are`); a new map's is its own. `level_edit::settings` does the
+work.
+
+## Play from the camera
+
+**Play here** (Shift+F5) saves and starts `kjk play` with the player where
+the view's centre meets the floor, facing as the camera faces (`kjk play
+--at`), to test one corner of a level without walking there. `edit walk
+here` does the same for walk mode.
+
 ## The editor's window
 
 - **The toolbar**, along the top, has the File menu, picks the tool
@@ -529,6 +599,8 @@ so later runs show it at once and a changed file is drawn again.
 | F4 | show or hide the lights |
 | F7 | save, then walk the level in play's walk mode, lit as the view is |
 | F5 | save, then start `kjk play` on the project in a window of its own, as a level 6 Jedi |
+| Shift+F5 | the same, the player starting where the view looks at the floor |
+| Enter, Escape | while drawing an outline: end it, or leave the outline as it was |
 | F6 | save, then run the containment audit on the project and list its result |
 | Escape | select nothing |
 
@@ -536,13 +608,14 @@ While a text field has the keyboard, the keys go to the field. While the
 right mouse button is held, they fly the camera.
 
 One drag of a gizmo, or of a number in the details panel, is one edit: one
-undo takes all of it back. Every kind but doors can be moved, copied and
-deleted, and every kind but doors, triggers and encounters turned. Doors
-stay where their walkmesh is. A trigger's or an encounter's outline moves
-with it but does not turn, and an encounter's spawn points move with it.
-New objects can be creatures, placeables, waypoints, triggers, sounds and
-stores, made from the install's templates. A new waypoint takes its
-template's own fields (its tag, name and map note) into its entry. A new
+undo takes all of it back. Every kind can be moved, copied and deleted,
+and every kind but triggers and encounters turned. A door's walkmesh moves
+with it; an installed door moved out of its doorway leaves the doorway
+open. A trigger's or an encounter's outline moves with it but does not
+turn, and an encounter's spawn points move with it. New objects can be
+creatures, placeables, doors, waypoints, triggers, sounds and stores, made
+from the install's templates. A new door or waypoint takes its template's
+own fields (its tag, name, look, lock and scripts) into its entry. A new
 trigger gets a square outline 2 m on a side round where it is placed.
 
 ### Commands
@@ -565,7 +638,14 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit size X Y Z` | gives the selected box that size, in metres |
 | `edit duplicate`, `edit delete` | copies or deletes the selection |
 | `edit undo`, `edit redo` | takes back the last edit, or makes it again |
-| `edit add KIND TEMPLATE [X Y Z]` | adds a `placeable`, `creature`, `waypoint`, `trigger`, `sound` or `store` made from the template, at the point or where the view's centre meets the level |
+| `edit add KIND TEMPLATE [X Y Z]` | adds a `placeable`, `creature`, `door`, `waypoint`, `trigger`, `sound` or `store` made from the template, at the point or where the view's centre meets the level |
+| `edit link MODULE [TAG]`, `edit link none` | leads the selected door or trigger to the module, arriving at the door or waypoint of that tag (the module's entry without one), or nowhere |
+| `edit entrance MODULE door\|trigger N [TAG]` | leads door or trigger N of the module's entry area here, arriving at the door or waypoint of that tag (this level's entry without one) |
+| `edit entrance drop AREA` | gives that area's object list back to the install |
+| `edit outline X1 Y1 X2 Y2 X3 Y3 ...` | sets the selected trigger's or encounter's outline: three corners or more, in metres, at its height |
+| `edit area music day\|night\|battle ROW`, `edit area ambience day\|night ROW`, `edit area volume day\|night N` | the area's music and ambient sound (2DA rows) and the sound's volume (0 to 127) |
+| `edit area fog on\|off`, `edit area fog NEAR FAR`, `edit area fog colour R G B`, `edit area ambient R G B` | the area's fog and ambient light (colours from 0 to 1) |
+| `edit area script LABEL SCRIPT`, `edit area module script LABEL SCRIPT` | an area script (`OnEnter`), or a new map's module script (`Mod_OnModLoad`); `-` for none |
 | `edit tag TAG` | sets the selected object's tag |
 | `edit prop MODEL [X Y Z [SCALE]]` | places a Jedi Academy model (`models/map_objects/...md3`), solid |
 | `edit box [CX CY CZ SX SY SZ [YAW]]` | places a collision box: its centre, its size and its yaw |
@@ -593,12 +673,14 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit bake compare` | shows the newest bake and the one before it in turn |
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
+| `edit play here`, `edit walk here` | the same, the player starting where the view looks at the floor |
 | `edit audit` | saves, then runs `kjk collision audit` on the project |
 | `edit ui tool select`, `move`, `rotate`, `scale` | picks the tool |
 | `edit ui tab placeables`, `creatures`, `props`, `shapes`, `waypoints`, `triggers`, `sounds`, `stores` | shows a tab of the asset picker |
 | `edit ui search TEXT`, `edit ui find TEXT` | sets the asset picker's or the outliner's search |
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
 | `edit ui view SCRIPT`, `edit ui view` | opens the script viewer on the script, or closes it |
+| `edit ui tab doors`, `edit ui way_in MODULE [TAG]` | the asset picker's Doors tab; the level and arrival Ways in shows |
 | `edit ui view window on`, `edit ui view window off` | the viewer in a window of its own, or under the details |
 | `edit ui view tab source`, `summary`, `listing`, `try` | picks the viewer's tab |
 | `edit ui file open [PROJECT]` | opens the picker, or the project, in a new editor (a headless run names it instead) |
@@ -664,9 +746,8 @@ a new perch.
   lose objects. kjk does not warn about this yet.
 - **One area per project.** A module with more than one area is edited at
   its entry area.
-- **Doors do not move**, and new doors and encounters are not placed. A
-  trigger's outline is not reshaped, and a door's or a trigger's
-  destination is not changed. These are future work.
+- **New encounters are not placed**: their spawn points are not made
+  here.
 - **One object at a time.** There is no multiple selection, box selection,
   or copy and paste between areas.
 - **No export.** A new map's `.mod` and a project's `.git` file are KOTOR
@@ -678,8 +759,7 @@ a new perch.
 ## Future work
 
 These come after the prototype: navigation that includes the added boxes
-and props, editing triggers' outlines and doors' destinations, multiple
-selection, export of a new map for the original game (its walkmeshes'
+and props, multiple selection, export of a new map for the original game (its walkmeshes'
 neighbours, AI paths and a map picture), turning rooms by 90° steps,
 rooms made in Blender, markers for vehicle
 routes and spawn points for vehicles and jetpacks, and editing an area
@@ -692,5 +772,8 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_ways_and_settings` places a door, leads doors and a
+  trigger's outline, leads another area's door into a new map, changes the
+  area's settings, and saves and reads it all back.
 - The demo (`LEVEL-EDIT-DEMO.md`) shows every behaviour on the Ebon Hawk,
   by hand in a window and as headless runs whose dumps say what changed.

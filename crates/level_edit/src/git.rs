@@ -214,6 +214,40 @@ pub fn outline(git: &Gff, kind: Kind, index: usize) -> Vec<[f32; 3]> {
         .collect()
 }
 
+/// Sets a trigger's or an encounter's outline: `points` relative to its
+/// position, written as its `Geometry` (`PointX` for a trigger, `X` for an
+/// encounter). False when the list has no such entry.
+pub fn set_outline(git: &mut Gff, kind: Kind, index: usize, points: &[[f32; 3]]) -> bool {
+    let Some(item) = item_mut(git, kind, index) else {
+        return false;
+    };
+    let labels = if kind == Kind::Encounter {
+        ["X", "Y", "Z"]
+    } else {
+        ["PointX", "PointY", "PointZ"]
+    };
+    let id = match item.get("Geometry") {
+        Some(GffValue::List(old)) => old.first().map_or(3, |first| first.id),
+        _ => 3,
+    };
+    let list = points
+        .iter()
+        .map(|point| GffStruct {
+            id,
+            fields: labels
+                .into_iter()
+                .zip(*point)
+                .map(|(label, value)| GffField {
+                    label: label.as_bytes().to_vec(),
+                    value: float(value),
+                })
+                .collect(),
+        })
+        .collect();
+    set(item, "Geometry", GffValue::List(list));
+    true
+}
+
 /// Sets a field of the entry: its `Tag` (a string) or an event's script (a
 /// resref). False when the list has no such entry.
 pub fn set_entry_field(
@@ -370,6 +404,34 @@ pub fn add_from(
     }
     list.push(item);
     list.len() - 1
+}
+
+/// The doors and waypoints of `git` a link can arrive at: each one's tag,
+/// and whether it is a door. Those without a tag are left out.
+pub fn arrivals(git: &Gff) -> Vec<(String, bool)> {
+    entries(git)
+        .into_iter()
+        .filter(|entry| matches!(entry.kind, Kind::Door | Kind::Waypoint) && !entry.tag.is_empty())
+        .map(|entry| (entry.tag, entry.kind == Kind::Door))
+        .collect()
+}
+
+/// The doors and triggers of `git`, each with its place in its list, its
+/// tag (the template's when the entry has none) and where it leads.
+pub fn exits(git: &Gff) -> Vec<(Kind, usize, String, crate::template::Link)> {
+    entries(git)
+        .into_iter()
+        .filter(|entry| matches!(entry.kind, Kind::Door | Kind::Trigger))
+        .filter_map(|entry| {
+            let link = crate::template::link_of(item(git, entry.kind, entry.index)?);
+            let tag = if entry.tag.is_empty() {
+                entry.template.clone()
+            } else {
+                entry.tag.clone()
+            };
+            Some((entry.kind, entry.index, tag, link))
+        })
+        .collect()
 }
 
 /// An empty GIT: every list, none holding anything.

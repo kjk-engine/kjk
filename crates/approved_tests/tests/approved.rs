@@ -7345,11 +7345,13 @@ fn level_edit_round_trip() {
             role: level_edit::BoxRole::Solid,
         }))
         .unwrap();
+    // Doors move since the editor places them (2026-11-21); a light the
+    // game places at a fitting is still refused.
     assert!(
         editor
-            .apply(Edit::Move(Target::Object(Kind::Door, 0), [0.0; 3]))
+            .apply(Edit::Move(Target::Fitted(0), [0.0; 3]))
             .is_err(),
-        "a door does not move"
+        "a light the game places does not move"
     );
     assert!(
         editor.apply(Edit::Resize(0, [2.0, 1.0, 0.01])).is_err(),
@@ -7673,5 +7675,236 @@ fn level_edit_project_scripts() {
     assert!(!folder.join("kje_broken.ncs").exists());
     let long = outcome("kje_name_far_too_long").unwrap().unwrap_err();
     assert!(long.contains("at most 16 characters"), "{long}");
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// `level_edit`'s doors, links, ways in, outlines and area settings, on a
+/// new map and an installed area made by the test (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_ways_and_settings() {
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue};
+    use level_edit::git::{self, Kind};
+    use level_edit::settings::{AreaChange, property};
+    use level_edit::template::{Change, Link, link_of};
+    use level_edit::{Edit, Editor, Project, Target};
+
+    let field = |label: &str, value: GffValue| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let tagged = |tag: &str| GffStruct {
+        id: 0,
+        fields: vec![
+            field("Tag", GffValue::String(tag.as_bytes().to_vec())),
+            field("GenericType", GffValue::Byte(3)),
+        ],
+    };
+    let are = Gff {
+        file_type: *b"ARE ",
+        root: GffStruct {
+            id: u32::MAX,
+            fields: vec![field("Rooms", GffValue::List(Vec::new()))],
+        },
+    };
+    let folder = std::env::temp_dir().join(format!("kjk-ways-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let project = Project::new_map(
+        &folder,
+        "k1",
+        "kjetest",
+        "Ways",
+        ("ebo_m12aa", are.clone(), &git::empty()),
+    )
+    .unwrap();
+    let mut editor = Editor::new(project);
+    let read = |_: &str, _: fmt_odyssey::ResType| -> Option<Vec<u8>> { None };
+    let taken = |_: &str| false;
+
+    // A door, made from its template's own fields, moved like any object.
+    let add = |kind: Kind, template: &str, base: Option<GffStruct>| Edit::AddObject {
+        kind,
+        template: template.into(),
+        position: [1.0, 2.0, 0.0],
+        facing: 0.0,
+        base,
+    };
+    editor
+        .apply(add(Kind::Door, "sw_door_a", Some(tagged("kje_door"))))
+        .unwrap();
+    editor
+        .apply(add(Kind::Waypoint, "sw_wp", Some(tagged("kje_in"))))
+        .unwrap();
+    let door = Target::Object(Kind::Door, 0);
+    editor.apply(Edit::Move(door, [3.0, 4.0, 0.0])).unwrap();
+    assert_eq!(
+        editor.entry(Kind::Door, 0).unwrap().position,
+        [3.0, 4.0, 0.0]
+    );
+
+    // Where a door leads: the module, the waypoint, and the flags.
+    let link = Link {
+        module: "end_m01aa".into(),
+        to: "wp_x".into(),
+        to_door: false,
+    };
+    editor
+        .change_template(door, &Change::Link(link.clone()), (&read, &taken))
+        .unwrap();
+    let item = git::item(&editor.project.git, Kind::Door, 0).unwrap();
+    assert_eq!(link_of(item), link);
+    assert_eq!(item.uint("LinkedToFlags"), Some(2));
+    editor
+        .change_template(door, &Change::Link(Link::default()), (&read, &taken))
+        .unwrap();
+    let item = git::item(&editor.project.git, Kind::Door, 0).unwrap();
+    assert!(!link_of(item).leads());
+    assert_eq!(item.uint("LinkedToFlags"), Some(0));
+    assert!(
+        editor
+            .change_template(
+                Target::Object(Kind::Waypoint, 0),
+                &Change::Link(link.clone()),
+                (&read, &taken)
+            )
+            .is_err(),
+        "a waypoint leads nowhere"
+    );
+    assert_eq!(
+        git::arrivals(&editor.project.git),
+        [
+            ("kje_door".to_string(), true),
+            ("kje_in".to_string(), false)
+        ]
+    );
+
+    // A trigger's outline, given where it is in the area, kept beside it.
+    editor
+        .apply(add(Kind::Trigger, "newgeneric", None))
+        .unwrap();
+    let trigger = Target::Object(Kind::Trigger, 0);
+    let corners = vec![
+        [0.0, 0.0, 0.0],
+        [4.0, 0.0, 0.0],
+        [4.0, 3.0, 0.0],
+        [0.0, 3.0, 0.0],
+    ];
+    editor
+        .apply(Edit::Outline(trigger, corners.clone()))
+        .unwrap();
+    let relative: Vec<[f32; 3]> = corners
+        .iter()
+        .map(|p| [p[0] - 1.0, p[1] - 2.0, p[2]])
+        .collect();
+    assert_eq!(
+        git::outline(&editor.project.git, Kind::Trigger, 0),
+        relative
+    );
+    assert!(
+        editor
+            .apply(Edit::Outline(trigger, corners[..2].to_vec()))
+            .is_err()
+    );
+
+    // A way in: another module's door led here, in a copy of its GIT.
+    let mut other = git::empty();
+    git::add_from(
+        &mut other,
+        Kind::Door,
+        ("their_door", Some(&tagged("exit"))),
+        [0.0; 3],
+        0.0,
+    );
+    let way_in = |area: &str, base: Option<Gff>| Edit::LinkOther {
+        module: "end_m01aa".into(),
+        area: area.into(),
+        base,
+        kind: Kind::Door,
+        index: 0,
+        link: Link {
+            module: "kjetest".into(),
+            to: "kje_in".into(),
+            to_door: false,
+        },
+    };
+    assert!(
+        editor
+            .apply(way_in("kjetest", Some(other.clone())))
+            .is_err()
+    );
+    editor.apply(way_in("m01aa", Some(other.clone()))).unwrap();
+    let held = &editor.project.others["m01aa"];
+    assert_eq!(held.module, "end_m01aa");
+    let exits = git::exits(&held.git);
+    assert_eq!(exits.len(), 1);
+    assert_eq!(exits[0].3.module, "kjetest");
+    assert_eq!(exits[0].3.to, "kje_in");
+
+    // The area's settings: music in the GIT, fog in the ARE, a module script
+    // in the map's module.ifo.
+    let area = |change| Edit::Area { change, base: None };
+    editor
+        .apply(area(AreaChange::Property("MusicDay".into(), 3)))
+        .unwrap();
+    editor
+        .apply(area(AreaChange::Are("SunFogOn".into(), GffValue::Byte(1))))
+        .unwrap();
+    editor
+        .apply(area(AreaChange::ModuleScript(
+            "Mod_OnModLoad".into(),
+            "kje_load".into(),
+        )))
+        .unwrap();
+    assert!(
+        editor
+            .apply(area(AreaChange::Are("SunFogOn".into(), GffValue::Int(1))))
+            .is_err(),
+        "a field keeps its type"
+    );
+    assert_eq!(property(&editor.project.git, "MusicDay"), 3);
+    let map = editor.project.map.as_ref().unwrap();
+    assert_eq!(map.are.root.uint("SunFogOn"), Some(1));
+    assert_eq!(
+        map.ifo("kjetest", "kjetest").root.resref("Mod_OnModLoad"),
+        Some("kje_load".to_string())
+    );
+
+    // Saved and read back; the way in given back leaves the folder.
+    editor.project.save("test").unwrap();
+    assert!(folder.join("m01aa.git").is_file());
+    let opened = Project::open(&folder).unwrap();
+    assert_eq!(opened.others, editor.project.others);
+    assert_eq!(property(&opened.git, "MusicDay"), 3);
+    assert_eq!(
+        opened.map.as_ref().unwrap().module_scripts,
+        editor.project.map.as_ref().unwrap().module_scripts
+    );
+    editor.apply(Edit::DropOther("m01aa".into())).unwrap();
+    editor.project.save("test").unwrap();
+    assert!(!folder.join("m01aa.git").exists());
+    editor.undo();
+    assert!(editor.project.others.contains_key("m01aa"));
+
+    // An installed area's ARE is changed in the project's copy, made from
+    // the install's at the first change.
+    let installed = folder.join("installed");
+    let project = Project::new(&installed, "k1", "ebo_m12aa", "m12aa", git::empty());
+    assert!(project.are.is_none());
+    project.save("test").unwrap();
+    let mut editor = Editor::new(project);
+    editor
+        .apply(Edit::Area {
+            change: AreaChange::Are("SunFogFar".into(), GffValue::Float(40f32.to_bits())),
+            base: Some(are.clone()),
+        })
+        .unwrap();
+    editor.project.save("test").unwrap();
+    let opened = Project::open(&installed).unwrap();
+    assert_eq!(
+        opened
+            .are
+            .as_ref()
+            .and_then(|are| are.root.float("SunFogFar")),
+        Some(40.0)
+    );
     let _ = std::fs::remove_dir_all(&folder);
 }

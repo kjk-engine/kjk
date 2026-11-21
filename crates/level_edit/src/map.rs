@@ -43,6 +43,9 @@ pub struct NewMap {
     pub entry_facing: f32,
     /// The area's ARE: the base's, with its rooms and names the map's.
     pub are: Gff,
+    /// The module's scripts (`module.ifo`'s `Mod_OnModLoad` and the like),
+    /// by label; a label not here has none.
+    pub module_scripts: std::collections::BTreeMap<String, String>,
 }
 
 /// One room of a new map.
@@ -131,6 +134,7 @@ impl NewMap {
             entry: [0.0; 3],
             entry_facing: 0.0,
             are,
+            module_scripts: std::collections::BTreeMap::new(),
         }
     }
 
@@ -157,6 +161,18 @@ impl NewMap {
             entry: triple(document.get("entry"), "entry")?,
             entry_facing: number(document.get("entry_facing"), "entry_facing")?,
             are,
+            module_scripts: document
+                .get("module_scripts")
+                .and_then(toml_edit::Item::as_table)
+                .map(|table| {
+                    table
+                        .iter()
+                        .filter_map(|(label, script)| {
+                            Some((label.to_string(), script.as_str()?.to_ascii_lowercase()))
+                        })
+                        .collect()
+                })
+                .unwrap_or_else(std::collections::BTreeMap::new),
         })
     }
 
@@ -174,6 +190,17 @@ impl NewMap {
             triple(self.entry),
             self.entry_facing
         );
+        let scripts: Vec<_> = self
+            .module_scripts
+            .iter()
+            .filter(|(_, script)| !script.is_empty())
+            .collect();
+        if !scripts.is_empty() {
+            out.push_str("\n# The module's scripts (module.ifo).\n[module_scripts]\n");
+            for (label, script) in scripts {
+                out.push_str(&format!("{label} = {script:?}\n"));
+            }
+        }
         for room in &self.rooms {
             out.push_str(&format!(
                 "\n[[room]]\nmodel = {:?}\nfrom = {}\nposition = {}\n",
@@ -296,7 +323,8 @@ impl NewMap {
             "Mod_OnPlrLvlUp",
             "Mod_OnEquipItem",
         ] {
-            root.fields.push(field(script, resref("")));
+            let own = self.module_scripts.get(script).map_or("", String::as_str);
+            root.fields.push(field(script, resref(own)));
         }
         root.fields.push(field("Mod_StartMovie", resref("")));
         root.fields.push(field(

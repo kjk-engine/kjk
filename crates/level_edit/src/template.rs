@@ -49,6 +49,72 @@ pub enum Change {
     RemoveItem(usize),
     /// The object's tag, which scripts find it by.
     Tag(String),
+    /// Where a door or a trigger leads (its GIT entry's `LinkedToModule`,
+    /// `LinkedTo` and `LinkedToFlags`).
+    Link(Link),
+}
+
+/// Where a door or a trigger leads: a module (`LinkedToModule`, empty for
+/// nowhere) and the tag of the door or waypoint to arrive at (`LinkedTo`,
+/// empty for the module's entry). kjk takes any door or trigger whose link
+/// names a module for a way out: a door when it is used, a trigger when it
+/// is walked into.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Link {
+    pub module: String,
+    pub to: String,
+    /// The arrival is a door (`LinkedToFlags` 1), not a waypoint (2).
+    pub to_door: bool,
+}
+
+impl Link {
+    /// Whether it leads anywhere.
+    pub fn leads(&self) -> bool {
+        !self.module.is_empty()
+    }
+}
+
+/// Where the GIT entry `item` leads.
+pub fn link_of(item: &GffStruct) -> Link {
+    Link {
+        module: item
+            .resref("LinkedToModule")
+            .map(|module| module.to_ascii_lowercase())
+            .unwrap_or_else(String::new),
+        to: item
+            .bytes("LinkedTo")
+            .map(|tag| String::from_utf8_lossy(tag).into_owned())
+            .unwrap_or_else(String::new),
+        to_door: item.uint("LinkedToFlags") == Some(1),
+    }
+}
+
+/// Sets where the GIT entry `item` leads.
+pub fn set_link(item: &mut GffStruct, link: &Link) -> Result<(), String> {
+    if link.module.len() > RESREF_LEN {
+        return Err(format!("{:?} is longer than a module's name", link.module));
+    }
+    if link.to.len() > TAG_LEN {
+        return Err(format!("a tag has at most {TAG_LEN} characters"));
+    }
+    let flags = match (link.leads(), link.to.is_empty(), link.to_door) {
+        (false, _, _) | (true, true, _) => 0,
+        (true, false, true) => 1,
+        (true, false, false) => 2,
+    };
+    set(
+        item,
+        "LinkedToModule",
+        GffValue::ResRef(link.module.to_ascii_lowercase().into_bytes()),
+    );
+    let to = if link.leads() {
+        link.to.as_bytes()
+    } else {
+        &[]
+    };
+    set(item, "LinkedTo", GffValue::String(to.to_vec()));
+    set(item, "LinkedToFlags", GffValue::Byte(flags));
+    Ok(())
 }
 
 /// The longest tag the games keep.
@@ -238,6 +304,7 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &Change) -> Result<(), Str
             });
         }
         Change::Tag(tag) => set_tag(&mut gff.root, tag)?,
+        Change::Link(_) => return Err("a link is the GIT entry's, not its template's".into()),
         Change::RemoveItem(at) => {
             let list = item_list(gff);
             if *at >= list.len() {
@@ -291,6 +358,7 @@ pub fn apply_entry(item: &mut GffStruct, change: &Change) -> Result<(), String> 
             Ok(())
         }
         Change::Tag(tag) => set_tag(item, tag),
+        Change::Link(link) => set_link(item, link),
         _ => Err("only a placeable's template has use and items".into()),
     }
 }

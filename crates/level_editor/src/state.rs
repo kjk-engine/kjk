@@ -66,6 +66,10 @@ pub struct EditSetup {
     /// The game's routines, from its `nwscript.nss`, for the script viewer.
     pub catalog: Option<script_ncs::Catalog>,
     pub items: Vec<String>,
+    /// The install's door templates (`.utd`).
+    pub doors: Vec<String>,
+    /// The install's modules, which a door or a trigger can lead to.
+    pub modules: Vec<String>,
     /// The install's waypoint, trigger, sound and store templates.
     pub waypoints: Vec<String>,
     pub triggers: Vec<String>,
@@ -258,6 +262,9 @@ pub struct EditorState {
     /// A script being tried (`script try`), and how the last try went.
     pub(crate) script_try: Option<crate::script_edit::Try>,
     pub(crate) tried: Option<crate::script_edit::Outcome>,
+    /// Other modules as a link reads them: each one's entry area and that
+    /// area's GIT as the install has it, read once.
+    pub(crate) module_facts: BTreeMap<String, Result<(String, fmt_odyssey::gff::Gff), String>>,
     /// A bake running (`bake`), and the label of one asked for, which
     /// starts when the scene is next drawn (it bakes from the scene's
     /// lights).
@@ -348,6 +355,7 @@ impl EditorState {
             project_scripts,
             script_try: None,
             tried: None,
+            module_facts: BTreeMap::new(),
             bake_job: None,
             bake_request: None,
             shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false, None),
@@ -521,6 +529,15 @@ impl EditorState {
         );
         for (resref, made) in &self.editor.project.templates {
             resources.insert((resref.clone(), made.restype), held(made.gff.write()));
+        }
+        // An installed area's ARE as the project changes it.
+        if self.editor.project.map.is_none()
+            && let Some(are) = &self.editor.project.are
+        {
+            resources.insert(
+                (self.editor.project.area.clone(), ResType::ARE),
+                held(are.write()),
+            );
         }
         for (resref, restype, bytes) in self.map_files() {
             resources.insert((resref, restype), held(bytes));
@@ -1611,6 +1628,7 @@ fn kind_named(word: &str) -> Option<Kind> {
     match word {
         "placeable" => Some(Kind::Placeable),
         "creature" => Some(Kind::Creature),
+        "door" => Some(Kind::Door),
         "waypoint" => Some(Kind::Waypoint),
         "trigger" => Some(Kind::Trigger),
         "sound" => Some(Kind::Sound),
@@ -1625,11 +1643,12 @@ impl EditSetup {
         match kind {
             Kind::Placeable => &self.placeables,
             Kind::Creature => &self.creatures,
+            Kind::Door => &self.doors,
             Kind::Waypoint => &self.waypoints,
             Kind::Trigger => &self.triggers,
             Kind::Sound => &self.sounds,
             Kind::Store => &self.stores,
-            Kind::Door | Kind::Encounter => &[],
+            Kind::Encounter => &[],
         }
     }
 }
@@ -2028,11 +2047,45 @@ pub(crate) fn command(
         }
         ["walk"] => {
             command(state, &["save"], cameras)?;
-            walk(state)?;
+            walk(state, None)?;
+        }
+        ["walk", "here"] => {
+            let spot = view_spot(state, cameras)?;
+            command(state, &["save"], cameras)?;
+            walk(state, Some(spot))?;
         }
         ["nav", on @ ("on" | "off")] => {
             state.show_nav = *on == "on";
             state.quiet = SETTLE_FRAMES;
+        }
+        ["outline", rest @ ..] => {
+            let target = selected(state)?;
+            let Target::Object(kind @ (Kind::Trigger | Kind::Encounter), index) = target else {
+                return Err("select a trigger or an encounter".into());
+            };
+            let z = state
+                .editor
+                .entry(kind, index)
+                .map_or(0.0, |entry| entry.position[2]);
+            if rest.len() < 6 || rest.len() % 2 != 0 {
+                return Err("an outline is three or more points, X Y each".into());
+            }
+            let points = rest
+                .chunks(2)
+                .map(|pair| Ok([number(pair[0])?, number(pair[1])?, z]))
+                .collect::<Result<Vec<_>, String>>()?;
+            state.apply(Edit::Outline(target, points));
+        }
+        ["area", rest @ ..] => area_command(state, rest)?,
+        ["link", "none"] => link(state, "", "")?,
+        ["link", module] => link(state, module, "")?,
+        ["link", module, tag] => link(state, module, tag)?,
+        ["entrance", "drop", area] => state.apply(Edit::DropOther(area.to_string())),
+        ["entrance", module, kind, index] => {
+            entrance(state, module, (kind, index), "")?;
+        }
+        ["entrance", module, kind, index, tag] => {
+            entrance(state, module, (kind, index), tag)?;
         }
         ["script", "new", name] => new_script(state, name, false)?,
         ["script", "new", name, "conditional"] => new_script(state, name, true)?,
@@ -2085,20 +2138,12 @@ pub(crate) fn command(
         ["save"] => save(state)?,
         ["play"] => {
             command(state, &["save"], cameras)?;
-            let project = state.editor.project.clone();
-            let mut play = std::process::Command::new(&state.setup.program);
-            play.args([
-                "--project",
-                &project.name,
-                "play",
-                "--stage",
-                &project.module,
-                "--class",
-                "jedi",
-            ]);
-            play.spawn()
-                .map_err(|error| format!("kjk play did not start: {error}"))?;
-            state.say(format!("kjk play started on {}", project.module));
+            play(state, None)?;
+        }
+        ["play", "here"] => {
+            let spot = view_spot(state, cameras)?;
+            command(state, &["save"], cameras)?;
+            play(state, Some(spot))?;
         }
         ["audit"] => {
             command(state, &["save"], cameras)?;
@@ -2311,7 +2356,53 @@ pub(crate) fn light_shape(shape: &str, at: [f32; 3]) -> Option<level_edit::Place
 
 /// Starts play's walk mode (`kjk play --walk`) on the project, lit as the
 /// view is: its mode, its bake, and the light data the project saves to.
-pub(crate) fn walk(state: &mut EditorState) -> Result<(), String> {
+/// Where the view looks down to the level, and the way the camera faces
+/// (degrees from +X): a place for the player to start (`kjk play --at`).
+pub(crate) fn view_spot(
+    state: &mut EditorState,
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<([f32; 3], f32), String> {
+    let ray = view_centre(cameras)
+        .and_then(|centre| ray_at(cameras, centre))
+        .ok_or("the view has no camera")?;
+    let at =
+        ground(state, ray).ok_or("the view's centre does not meet the level: look at a floor")?;
+    let ahead = kjk_game::scene::game_to_bevy().inverse() * ray.1;
+    let facing = ahead.y.atan2(ahead.x).to_degrees();
+    Ok((at, facing))
+}
+
+/// The `--at` of a place to start.
+fn at_arg((at, facing): ([f32; 3], f32)) -> String {
+    format!("{},{},{},{facing:.0}", at[0], at[1], at[2])
+}
+
+/// Starts `kjk play` on the project's module, at its entry or at `spot`.
+fn play(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Result<(), String> {
+    let project = state.editor.project.clone();
+    let mut play = std::process::Command::new(&state.setup.program);
+    play.args([
+        "--project",
+        &project.name,
+        "play",
+        "--stage",
+        &project.module,
+        "--class",
+        "jedi",
+    ]);
+    if let Some(spot) = spot {
+        play.args(["--at", &at_arg(spot)]);
+    }
+    play.spawn()
+        .map_err(|error| format!("kjk play did not start: {error}"))?;
+    state.say(match spot {
+        Some(spot) => format!("kjk play started on {} at {}", project.module, at_arg(spot)),
+        None => format!("kjk play started on {}", project.module),
+    });
+    Ok(())
+}
+
+pub(crate) fn walk(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Result<(), String> {
     use kjk_game::fitted_lights::Mode;
     let project = state.editor.project.clone();
     let mut walk = std::process::Command::new(&state.setup.program);
@@ -2323,6 +2414,9 @@ pub(crate) fn walk(state: &mut EditorState) -> Result<(), String> {
         &project.module,
         "--walk",
     ]);
+    if let Some(spot) = spot {
+        walk.args(["--at", &at_arg(spot)]);
+    }
     walk.env(
         "KJK_FITTED_LIGHTS",
         match state.light_view {
@@ -2346,6 +2440,247 @@ pub(crate) fn walk(state: &mut EditorState) -> Result<(), String> {
 
 /// Saves the project (`Editor::save_with`), saying its warnings and what
 /// was written.
+/// The area's ARE as the project has it now: a new map's, the project's
+/// copy of an installed area's, else the install's.
+pub(crate) fn area_are(state: &EditorState) -> Option<fmt_odyssey::gff::Gff> {
+    let project = &state.editor.project;
+    if let Some(map) = &project.map {
+        return Some(map.are.clone());
+    }
+    if let Some(are) = &project.are {
+        return Some(are.clone());
+    }
+    install_are(state)
+}
+
+/// The installed area's ARE as the install has it.
+fn install_are(state: &EditorState) -> Option<fmt_odyssey::gff::Gff> {
+    let bytes = state
+        .setup
+        .resolver
+        .read(&state.editor.project.area, ResType::ARE)?;
+    fmt_odyssey::gff::Gff::parse(&bytes).ok()
+}
+
+/// Changes one of the area's settings (`level_edit::settings`).
+pub(crate) fn change_area(state: &mut EditorState, change: level_edit::settings::AreaChange) {
+    let base = (state.editor.project.map.is_none() && state.editor.project.are.is_none())
+        .then(|| install_are(state))
+        .flatten();
+    state.apply(Edit::Area { change, base });
+}
+
+/// `edit area ...`: the area's music, ambient sound, fog, ambient light and
+/// scripts, and a new map's module scripts.
+fn area_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
+    use fmt_odyssey::gff::GffValue;
+    use level_edit::settings::{AreaChange, colour_value};
+    let row = |word: &str| -> Result<u32, String> {
+        word.parse::<u32>()
+            .map_err(|_| format!("{word:?} is not a row's number"))
+    };
+    let colour = |words: &[&str]| -> Result<u32, String> {
+        match words {
+            [r, g, b] => Ok(colour_value([number(r)?, number(g)?, number(b)?])),
+            _ => Err("a colour is three numbers from 0 to 1: R G B".into()),
+        }
+    };
+    let script = |word: &str| {
+        if word == "-" {
+            String::new()
+        } else {
+            word.to_ascii_lowercase()
+        }
+    };
+    let change = match words {
+        ["music", when @ ("day" | "night" | "battle"), n] => {
+            let label = match *when {
+                "day" => "MusicDay",
+                "night" => "MusicNight",
+                _ => "MusicBattle",
+            };
+            AreaChange::Property(label.into(), row(n)?)
+        }
+        ["ambience", when @ ("day" | "night"), n] => {
+            let label = if *when == "day" {
+                "AmbientSndDay"
+            } else {
+                "AmbientSndNight"
+            };
+            AreaChange::Property(label.into(), row(n)?)
+        }
+        ["volume", when @ ("day" | "night"), n] => {
+            let label = if *when == "day" {
+                "AmbientSndDayVol"
+            } else {
+                "AmbientSndNitVol"
+            };
+            AreaChange::Property(label.into(), row(n)?.min(127))
+        }
+        ["fog", on @ ("on" | "off")] => {
+            AreaChange::Are("SunFogOn".into(), GffValue::Byte(u8::from(*on == "on")))
+        }
+        ["fog", near, far] => {
+            change_area(
+                state,
+                AreaChange::Are(
+                    "SunFogNear".into(),
+                    GffValue::Float(number(near)?.to_bits()),
+                ),
+            );
+            AreaChange::Are("SunFogFar".into(), GffValue::Float(number(far)?.to_bits()))
+        }
+        ["fog", "colour", rgb @ ..] => {
+            AreaChange::Are("SunFogColor".into(), GffValue::Dword(colour(rgb)?))
+        }
+        ["ambient", rgb @ ..] => {
+            AreaChange::Are("DynAmbientColor".into(), GffValue::Dword(colour(rgb)?))
+        }
+        ["script", label, name] => AreaChange::Are(
+            (*label).to_string(),
+            GffValue::ResRef(script(name).into_bytes()),
+        ),
+        ["module", "script", label, name] => {
+            AreaChange::ModuleScript((*label).to_string(), script(name))
+        }
+        _ => {
+            return Err(
+                "edit area takes music, ambience, volume, fog, ambient, script or module script"
+                    .into(),
+            );
+        }
+    };
+    change_area(state, change);
+    Ok(())
+}
+
+/// The entry area of `module` and its GIT as the install has it: the
+/// project's own area's as the editor has it, another module's read once.
+pub(crate) fn module_area(
+    state: &mut EditorState,
+    module: &str,
+) -> Result<(String, fmt_odyssey::gff::Gff), String> {
+    let module = module.to_ascii_lowercase();
+    if module == state.editor.project.module {
+        return Ok((
+            state.editor.project.area.clone(),
+            state.editor.project.git.clone(),
+        ));
+    }
+    if !state.setup.modules.contains(&module) {
+        return Err(format!("the install has no module {module}"));
+    }
+    let game = state.setup.game;
+    state
+        .module_facts
+        .entry(module.clone())
+        .or_insert_with(|| {
+            let resolver = kjk_game::viewer::resolver(&kjk_game::discover(), game, Some(&module))?;
+            let ifo = resolver
+                .read("module", ResType::IFO)
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+                .ok_or(format!("{module} has no module.ifo"))?;
+            let area = ifo
+                .root
+                .resref("Mod_Entry_Area")
+                .map(|area| area.to_ascii_lowercase())
+                .ok_or(format!("{module}'s module.ifo names no entry area"))?;
+            let git = resolver
+                .read(&area, ResType::GIT)
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+                .ok_or(format!("{module}'s area {area} has no GIT"))?;
+            Ok((area, git))
+        })
+        .clone()
+}
+
+/// The doors and waypoints of `module`'s entry area a link can arrive at.
+pub(crate) fn arrivals(
+    state: &mut EditorState,
+    module: &str,
+) -> Result<Vec<(String, bool)>, String> {
+    module_area(state, module).map(|(_, git)| level_edit::git::arrivals(&git))
+}
+
+/// Leads the selected door or trigger to `module` (nowhere when empty),
+/// arriving at the door or waypoint tagged `tag` (the module's entry when
+/// empty).
+pub(crate) fn link(state: &mut EditorState, module: &str, tag: &str) -> Result<(), String> {
+    let target = selected(state)?;
+    let Target::Object(kind @ (Kind::Door | Kind::Trigger), _) = target else {
+        return Err("select a door or a trigger to lead it somewhere".into());
+    };
+    let _ = kind;
+    let module = module.to_ascii_lowercase();
+    let to_door = if module.is_empty() || tag.is_empty() {
+        false
+    } else {
+        let arrivals = arrivals(state, &module)?;
+        let found = arrivals
+            .iter()
+            .find(|(own, _)| own.eq_ignore_ascii_case(tag))
+            .ok_or(format!("{module} has no door or waypoint tagged {tag}"))?;
+        found.1
+    };
+    state.change_template(
+        target,
+        Change::Link(level_edit::template::Link {
+            module,
+            to: tag.to_string(),
+            to_door,
+        }),
+    );
+    Ok(())
+}
+
+/// Leads a door or trigger of `module`'s entry area (its kind and its place
+/// in that kind's list) into this project's level, arriving at the door or
+/// waypoint tagged `tag` here (the entry when empty).
+pub(crate) fn entrance(
+    state: &mut EditorState,
+    module: &str,
+    (kind, index): (&str, &str),
+    tag: &str,
+) -> Result<(), String> {
+    let module = module.to_ascii_lowercase();
+    if module == state.editor.project.module {
+        return Err("that is this level: select the door or trigger and set where it leads".into());
+    }
+    let kind = match kind {
+        "door" => Kind::Door,
+        "trigger" => Kind::Trigger,
+        _ => return Err(format!("{kind:?}: a way in is a door or a trigger")),
+    };
+    let index: usize = index
+        .parse()
+        .map_err(|_| format!("{index:?} is not a place in the list"))?;
+    let (area, git) = module_area(state, &module)?;
+    let own = state.editor.project.module.clone();
+    let to_door = if tag.is_empty() {
+        false
+    } else {
+        let here = level_edit::git::arrivals(&state.editor.project.git);
+        here.iter()
+            .find(|(own_tag, _)| own_tag.eq_ignore_ascii_case(tag))
+            .ok_or(format!("this level has no door or waypoint tagged {tag}"))?
+            .1
+    };
+    let base = (!state.editor.project.others.contains_key(&area)).then_some(git);
+    state.apply(Edit::LinkOther {
+        module,
+        area,
+        base,
+        kind,
+        index,
+        link: level_edit::template::Link {
+            module: own,
+            to: tag.to_string(),
+            to_door,
+        },
+    });
+    Ok(())
+}
+
 /// A new script of the project, `name`, opened in the viewer: a `main`, or
 /// a conversation's `StartingConditional`.
 fn new_script(state: &mut EditorState, name: &str, conditional: bool) -> Result<(), String> {

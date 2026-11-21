@@ -66,6 +66,30 @@ pub enum Edit {
     /// A light placed by hand changed (its colour, reach, cone, strip or
     /// reason; `Move` and `Turn` place and aim it).
     SetLight(usize, crate::lights::PlacedLight),
+    /// A door or trigger of another module's area (`Project::others`) led
+    /// elsewhere: the area of `module`, its GIT as the install has it
+    /// (`base`, read when the project does not hold that area yet), the
+    /// object, and where it leads.
+    LinkOther {
+        module: String,
+        area: String,
+        base: Option<fmt_odyssey::gff::Gff>,
+        kind: Kind,
+        index: usize,
+        link: crate::template::Link,
+    },
+    /// Another module's area given back to the install: the project no
+    /// longer changes its doors and triggers.
+    DropOther(String),
+    /// A trigger's or an encounter's outline: its points where they are in
+    /// the area (metres), three or more, in order round it.
+    Outline(Target, Vec<[f32; 3]>),
+    /// The area's settings (`settings`). `base` is the install's ARE, for
+    /// the first change of an installed area's ARE.
+    Area {
+        change: crate::settings::AreaChange,
+        base: Option<fmt_odyssey::gff::Gff>,
+    },
 }
 
 /// What a template change reads of the install: a template's bytes by
@@ -76,12 +100,13 @@ pub type Install<'a> = (
 );
 
 /// The kinds of GIT object the editor moves, turns, copies and deletes:
-/// creatures, placeables and waypoints. Doors are left where their
-/// walkmesh is, and triggers, sounds, encounters and stores are shown
-/// only.
-pub const EDITABLE: [Kind; 7] = [
+/// every kind. An installed door stands in its room's doorway; moved, its
+/// walkmesh goes with it and the doorway is left open, which is the
+/// user's call.
+pub const EDITABLE: [Kind; 8] = [
     Kind::Creature,
     Kind::Placeable,
+    Kind::Door,
     Kind::Waypoint,
     Kind::Trigger,
     Kind::Sound,
@@ -91,9 +116,10 @@ pub const EDITABLE: [Kind; 7] = [
 
 /// The kinds `Edit::AddObject` makes, from a template of the install. An
 /// encounter is left out: its spawn points are not made here.
-pub const ADDABLE: [Kind; 6] = [
+pub const ADDABLE: [Kind; 7] = [
     Kind::Creature,
     Kind::Placeable,
+    Kind::Door,
     Kind::Waypoint,
     Kind::Trigger,
     Kind::Sound,
@@ -108,6 +134,8 @@ struct State {
     map: Option<crate::map::NewMap>,
     kinds: Vec<crate::kinds::KindEdit>,
     levels: std::collections::BTreeMap<String, f32>,
+    others: std::collections::BTreeMap<String, crate::project::OtherArea>,
+    are: Option<fmt_odyssey::gff::Gff>,
     selected: Option<Target>,
 }
 
@@ -224,6 +252,8 @@ impl Editor {
             map: self.project.map.clone(),
             kinds: self.project.kinds.clone(),
             levels: self.project.levels.clone(),
+            others: self.project.others.clone(),
+            are: self.project.are.clone(),
             selected: self.selected,
         }
     }
@@ -235,6 +265,8 @@ impl Editor {
         self.project.map = state.map;
         self.project.kinds = state.kinds;
         self.project.levels = state.levels;
+        self.project.others = state.others;
+        self.project.are = state.are;
         self.selected = state.selected;
         self.changes += 1;
     }
@@ -266,6 +298,8 @@ impl Editor {
         self.project.map = state.map;
         self.project.kinds = state.kinds;
         self.project.levels = state.levels;
+        self.project.others = state.others;
+        self.project.are = state.are;
         self.selected = state.selected;
     }
 
@@ -324,6 +358,13 @@ impl Editor {
         // are their GIT entry's.
         let in_entry = match change {
             template::Change::Tag(_) => template::tag_in_entry(kind),
+            // A trigger's link is its entry's too (`module::PLACED_FIELDS`).
+            template::Change::Link(_) => {
+                if !matches!(kind, Kind::Door | Kind::Trigger) {
+                    return Err("only a door or a trigger leads somewhere".into());
+                }
+                true
+            }
             _ => template::whole(kind),
         };
         if in_entry {
@@ -384,9 +425,9 @@ impl Editor {
                 "the game places this light at a fitting; copy it as a placed light to change it"
                     .into(),
             ),
-            Target::Object(kind, _) if !EDITABLE.contains(&kind) => Err(format!(
-                "a {kind:?} cannot be changed in the editor: only creatures, placeables and waypoints"
-            )),
+            Target::Object(kind, _) if !EDITABLE.contains(&kind) => {
+                Err(format!("a {kind:?} cannot be changed in the editor"))
+            }
             _ => Ok(()),
         }
     }
@@ -521,7 +562,7 @@ impl Editor {
             } => {
                 if !ADDABLE.contains(&kind) {
                     return Err(format!(
-                        "a {kind:?} cannot be added: only creatures and placeables"
+                        "a {kind:?} cannot be added: an encounter's spawn points are not made here"
                     ));
                 }
                 if template.is_empty() || template.len() > git::RESREF_LEN {
@@ -620,6 +661,103 @@ impl Editor {
                 light_problem(&light)?;
                 kjk.lights.push(light);
                 Ok(Some(Target::Light(kjk.lights.len() - 1)))
+            }
+            Edit::LinkOther {
+                module,
+                area,
+                base,
+                kind,
+                index,
+                link,
+            } => {
+                let area = area.to_ascii_lowercase();
+                if area == self.project.area {
+                    return Err(format!(
+                        "{area} is the project's own area: select the object and set where it leads"
+                    ));
+                }
+                if !matches!(kind, Kind::Door | Kind::Trigger) {
+                    return Err("only a door or a trigger leads somewhere".into());
+                }
+                let other = match self.project.others.entry(area.clone()) {
+                    std::collections::btree_map::Entry::Occupied(held) => held.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(free) => {
+                        let git = base.ok_or(format!("{area}'s GIT was not read"))?;
+                        free.insert(crate::project::OtherArea {
+                            module: module.to_ascii_lowercase(),
+                            git,
+                        })
+                    }
+                };
+                let mut item = git::item(&other.git, kind, index)
+                    .ok_or(format!("{area} has no {kind:?} {index}"))?
+                    .clone();
+                crate::template::set_link(&mut item, &link)?;
+                for field in item.fields {
+                    let label = String::from_utf8_lossy(&field.label).into_owned();
+                    git::set_entry_field(&mut other.git, kind, index, &label, field.value);
+                }
+                Ok(self.selected)
+            }
+            Edit::Outline(target, points) => {
+                let Target::Object(kind @ (Kind::Trigger | Kind::Encounter), index) = target else {
+                    return Err("only a trigger or an encounter has an outline".into());
+                };
+                if points.len() < 3 {
+                    return Err("an outline has three points or more".into());
+                }
+                let at = self
+                    .entry(kind, index)
+                    .ok_or_else(|| missing(target))?
+                    .position;
+                let relative: Vec<[f32; 3]> = points
+                    .iter()
+                    .map(|point| [point[0] - at[0], point[1] - at[1], point[2] - at[2]])
+                    .collect();
+                git::set_outline(&mut self.project.git, kind, index, &relative);
+                Ok(Some(target))
+            }
+            Edit::Area { change, base } => {
+                use crate::settings::{AreaChange, set_are, set_property};
+                match change {
+                    AreaChange::Property(label, value) => {
+                        set_property(&mut self.project.git, &label, value);
+                    }
+                    AreaChange::Are(label, value) => {
+                        let are = match self.project.map.as_mut() {
+                            Some(map) => &mut map.are,
+                            None => match self.project.are {
+                                Some(ref mut own) => own,
+                                None => self
+                                    .project
+                                    .are
+                                    .insert(base.ok_or("the area's ARE was not read")?),
+                            },
+                        };
+                        set_are(are, &label, value)?;
+                    }
+                    AreaChange::ModuleScript(label, script) => {
+                        let map = self.project.map.as_mut().ok_or(
+                            "an installed module's scripts are its own: every module.ifo has one name",
+                        )?;
+                        if !crate::settings::MODULE_SCRIPTS.contains(&label.as_str()) {
+                            return Err(format!("{label} is not a module script"));
+                        }
+                        if script.len() > git::RESREF_LEN {
+                            return Err(format!("{script:?} is longer than a script's name"));
+                        }
+                        map.module_scripts
+                            .insert(label, script.to_ascii_lowercase());
+                    }
+                }
+                Ok(self.selected)
+            }
+            Edit::DropOther(area) => {
+                self.project
+                    .others
+                    .remove(&area.to_ascii_lowercase())
+                    .ok_or(format!("the project does not change {area}"))?;
+                Ok(self.selected)
             }
             Edit::SetLight(at, light) => {
                 light_problem(&light)?;

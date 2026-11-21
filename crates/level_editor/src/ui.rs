@@ -47,6 +47,7 @@ enum Tab {
     Rooms,
     Placeables,
     Creatures,
+    Doors,
     Props,
     Shapes,
     Waypoints,
@@ -136,6 +137,17 @@ pub struct UiState {
     view_tab: ViewTab,
     /// The name typed for a new script in the Scripts menu.
     new_script: String,
+    /// The module whose doors and triggers Ways in lists, and the door or
+    /// waypoint of this level they are led to.
+    way_in_module: Option<String>,
+    way_in_arrival: String,
+    /// The area's and the module's script fields as typed, by label.
+    area_typed: BTreeMap<String, String>,
+    /// An outline being drawn by clicks on the floor: the trigger or
+    /// encounter, and the points so far.
+    drawing: Option<(Target, Vec<[f32; 3]>)>,
+    /// The point of the selected outline being dragged.
+    dragging_point: Option<usize>,
     /// The viewer is in a window of its own, not under the details.
     viewer_window: bool,
     read_scripts: BTreeMap<String, crate::script_view::ScriptView>,
@@ -180,6 +192,11 @@ impl Default for UiState {
             viewing: None,
             view_tab: ViewTab::Source,
             new_script: String::new(),
+            way_in_module: None,
+            way_in_arrival: String::new(),
+            area_typed: BTreeMap::new(),
+            drawing: None,
+            dragging_point: None,
             viewer_window: false,
             read_scripts: BTreeMap::new(),
             read_round: 0,
@@ -316,6 +333,7 @@ fn thumbnail(
     let source = match kind {
         AssetKind::Placeable => resolver.read(name, fmt_odyssey::ResType::UTP)?,
         AssetKind::Creature => resolver.read(name, fmt_odyssey::ResType::UTC)?,
+        AssetKind::Door => resolver.read(name, fmt_odyssey::ResType::UTD)?,
         AssetKind::Prop => level_edit::active::ja_read(state.setup.ja.as_ref()?, name).ok()?,
         AssetKind::Room => resolver.read(name, fmt_odyssey::ResType::MDL)?,
     };
@@ -328,6 +346,11 @@ fn thumbnail(
     let picture = match kind {
         AssetKind::Placeable => {
             let model = thumbs::placeable_model(resolver, name)?;
+            let ir = kjk_game::viewer::model(resolver, &model).ok()??;
+            thumbs::of_models(resolver, &[kjk_game::viewer::Placed::at(ir, [0.0; 3])])
+        }
+        AssetKind::Door => {
+            let model = thumbs::door_model(resolver, name)?;
             let ir = kjk_game::viewer::model(resolver, &model).ok()??;
             thumbs::of_models(resolver, &[kjk_game::viewer::Placed::at(ir, [0.0; 3])])
         }
@@ -538,11 +561,14 @@ fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3], snapping: bool) {
                 state::snap_to_seam(state, added, true);
             }
         }
-        Asset::Template(kind @ (AssetKind::Placeable | AssetKind::Creature), name) => {
-            let kind = if *kind == AssetKind::Placeable {
-                Kind::Placeable
-            } else {
-                Kind::Creature
+        Asset::Template(
+            kind @ (AssetKind::Placeable | AssetKind::Creature | AssetKind::Door),
+            name,
+        ) => {
+            let kind = match kind {
+                AssetKind::Placeable => Kind::Placeable,
+                AssetKind::Door => Kind::Door,
+                _ => Kind::Creature,
             };
             if let Err(why) = state::add_object(state, kind, name, at) {
                 state.say(why);
@@ -619,6 +645,7 @@ fn panels(
             ["tab", "rooms"] => ui.tab = Tab::Rooms,
             ["tab", "placeables"] => ui.tab = Tab::Placeables,
             ["tab", "creatures"] => ui.tab = Tab::Creatures,
+            ["tab", "doors"] => ui.tab = Tab::Doors,
             ["tab", "props"] => ui.tab = Tab::Props,
             ["tab", "shapes"] => ui.tab = Tab::Shapes,
             ["tab", "waypoints"] => ui.tab = Tab::Waypoints,
@@ -630,6 +657,11 @@ fn panels(
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
             ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
             ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
+            ["way_in", module] => ui.way_in_module = Some(module.to_ascii_lowercase()),
+            ["way_in", module, arrival] => {
+                ui.way_in_module = Some(module.to_ascii_lowercase());
+                ui.way_in_arrival = arrival.to_string();
+            }
             ["view"] => ui.viewing = None,
             ["view", script] => ui.viewing = Some(script.to_ascii_lowercase()),
             ["view", "window", on @ ("on" | "off")] => ui.viewer_window = *on == "on",
@@ -644,7 +676,7 @@ fn panels(
             words => {
                 if !crate::file::command(state, &mut ui.file, words) {
                     state.say(format!(
-                        "edit ui {}: takes tool, tab, search, find, snap, view, file, quit or confirm",
+                        "edit ui {}: takes tool, tab, search, find, snap, view, way_in, file, quit or confirm",
                         words.join(" ")
                     ));
                 }
@@ -762,7 +794,9 @@ fn shortcuts(
         state::run(state, &["walk"], cameras);
     }
     if pressed(KeyCode::F5) {
-        state::run(state, &["play"], cameras);
+        let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+        let words: &[&str] = if shift { &["play", "here"] } else { &["play"] };
+        state::run(state, words, cameras);
     }
     if pressed(KeyCode::F6) {
         state::run(state, &["audit"], cameras);
@@ -847,6 +881,11 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
             for (label, hint, command) in [
                 ("Save", "Ctrl+S", "save"),
                 ("Play", "F5: save, then play the project in kjk", "play"),
+                (
+                    "Play here",
+                    "Shift+F5: save, then play the project starting where the view looks at the floor, facing as the camera does",
+                    "play here",
+                ),
                 (
                     "Audit",
                     "F6: save, then find where a body leaves the level",
@@ -1130,6 +1169,8 @@ fn details(
                         ui.label(
                             "Nothing is selected. Click an object in the view or the outliner.",
                         );
+                        area_settings(ui, state, ui_state);
+                        ways_in(ui, state, ui_state);
                         messages(ui, state);
                         return;
                     };
@@ -1155,7 +1196,7 @@ fn details(
                         _ => true,
                     };
                     if !editable {
-                        ui.label("Doors, triggers, sounds, encounters and stores are shown only.");
+                        ui.label("This object is shown only.");
                     }
                     ui.separator();
                     let Some((mut position, mut facing)) = state.editor.placement(target) else {
@@ -1523,6 +1564,12 @@ fn behaviour(
             ui.end_row();
         }
     });
+    if matches!(kind, Kind::Door | Kind::Trigger) {
+        leads_to(ui, state, (kind, index));
+    }
+    if matches!(kind, Kind::Trigger | Kind::Encounter) {
+        outline_details(ui, state, ui_state, (kind, index));
+    }
     // The matches of the script being typed.
     if let Some(label) = ui_state.completing.clone()
         && scripts.iter().any(|(l, _)| *l == label)
@@ -1599,6 +1646,476 @@ fn behaviour(
         state.change_template(target, change);
         // The script fields show the template as it now is.
         ui_state.typed.retain(|label, _| label == ITEM_FIELD);
+    }
+}
+
+/// The rows of a 2DA as a list shows them: each row's number and its
+/// `Resource` (the sound's file), or its label.
+fn sound_rows(state: &EditorState, table: &str) -> Vec<(u32, String)> {
+    let Some(table) = state.setup.resolver.two_da(table) else {
+        return Vec::new();
+    };
+    (0..table.row_labels.len())
+        .map(|row| {
+            let name = table
+                .text(row, "Resource")
+                .filter(|name| !name.is_empty() && name != "****")
+                .or_else(|| table.text(row, "Label"))
+                .unwrap_or_else(|| "none".to_string());
+            (row as u32, name)
+        })
+        .collect()
+}
+
+/// This level's own settings: music and ambient sound, fog and ambient
+/// light, its scripts, and a new map's module scripts.
+fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
+    use fmt_odyssey::gff::GffValue;
+    use level_edit::settings::{AREA_SCRIPTS, AreaChange, MODULE_SCRIPTS, colour_of, colour_value};
+    ui.separator();
+    ui.label(egui::RichText::new("This level").strong());
+    let mut asked: Vec<AreaChange> = Vec::new();
+    let git = state.editor.project.git.clone();
+    let music = sound_rows(state, "ambientmusic");
+    let ambience = sound_rows(state, "ambientsound");
+    egui::Grid::new("area sound").num_columns(2).show(ui, |ui| {
+        let mut row_combo =
+            |ui: &mut egui::Ui, label: &str, shown: &str, rows: &[(u32, String)]| {
+                let now = level_edit::settings::property(&git, label);
+                ui.label(shown);
+                let name = rows
+                    .iter()
+                    .find(|(row, _)| *row == now)
+                    .map_or_else(|| format!("{now}"), |(row, name)| format!("{row} {name}"));
+                egui::ComboBox::from_id_salt(label)
+                    .selected_text(name)
+                    .height(320.0)
+                    .show_ui(ui, |ui| {
+                        for (row, name) in rows {
+                            if ui
+                                .selectable_label(*row == now, format!("{row} {name}"))
+                                .clicked()
+                            {
+                                asked.push(AreaChange::Property(label.to_string(), *row));
+                            }
+                        }
+                    });
+                ui.end_row();
+            };
+        row_combo(ui, "MusicDay", "Music by day", &music);
+        row_combo(ui, "MusicNight", "Music by night", &music);
+        row_combo(ui, "MusicBattle", "Music in battle", &music);
+        row_combo(ui, "AmbientSndDay", "Ambient sound by day", &ambience);
+        row_combo(ui, "AmbientSndNight", "Ambient sound by night", &ambience);
+        for (label, shown) in [
+            ("AmbientSndDayVol", "Its volume by day"),
+            ("AmbientSndNitVol", "Its volume by night"),
+        ] {
+            let mut volume = level_edit::settings::property(&git, label).min(127);
+            ui.label(shown);
+            if ui.add(egui::Slider::new(&mut volume, 0..=127)).changed() {
+                asked.push(AreaChange::Property(label.to_string(), volume));
+            }
+            ui.end_row();
+        }
+    });
+    if let Some(are) = state::area_are(state) {
+        let dword = |label: &str| are.root.uint(label).unwrap_or(0);
+        let float = |label: &str| are.root.float(label).unwrap_or(0.0);
+        egui::Grid::new("area look").num_columns(2).show(ui, |ui| {
+            ui.label("Fog");
+            let mut on = dword("SunFogOn") != 0;
+            if ui.checkbox(&mut on, "on").changed() {
+                asked.push(AreaChange::Are(
+                    "SunFogOn".into(),
+                    GffValue::Byte(u8::from(on)),
+                ));
+            }
+            ui.end_row();
+            if on {
+                for (label, shown) in [
+                    ("SunFogNear", "Fog starts at"),
+                    ("SunFogFar", "Fog is thick at"),
+                ] {
+                    let mut metres = float(label);
+                    ui.label(shown);
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut metres)
+                                .speed(0.5)
+                                .range(0.0..=2000.0)
+                                .suffix(" m"),
+                        )
+                        .changed()
+                    {
+                        asked.push(AreaChange::Are(
+                            label.into(),
+                            GffValue::Float(metres.to_bits()),
+                        ));
+                    }
+                    ui.end_row();
+                }
+            }
+            for (label, shown) in [
+                ("SunFogColor", "Fog colour"),
+                ("DynAmbientColor", "Ambient light"),
+            ] {
+                let mut rgb = colour_of(dword(label));
+                ui.label(shown);
+                if ui.color_edit_button_rgb(&mut rgb).changed() {
+                    asked.push(AreaChange::Are(
+                        label.into(),
+                        GffValue::Dword(colour_value(rgb)),
+                    ));
+                }
+                ui.end_row();
+            }
+        });
+        ui.label(egui::RichText::new("The level's scripts").small());
+        egui::Grid::new("area scripts")
+            .num_columns(2)
+            .show(ui, |ui| {
+                for label in AREA_SCRIPTS {
+                    let now = are
+                        .root
+                        .resref(label)
+                        .map(|name| name.to_ascii_lowercase())
+                        .unwrap_or_else(String::new);
+                    ui.label(label);
+                    let typed = ui_state
+                        .area_typed
+                        .entry(label.to_string())
+                        .or_insert_with(|| now.clone());
+                    let field = ui.add(
+                        egui::TextEdit::singleline(typed)
+                            .desired_width(150.0)
+                            .hint_text("none"),
+                    );
+                    let typed = typed.clone();
+                    if !field.has_focus() {
+                        // Shown as the area has it while not being typed in.
+                        ui_state.area_typed.remove(label);
+                    }
+                    if field.lost_focus() && typed.to_ascii_lowercase() != now {
+                        asked.push(AreaChange::Are(
+                            label.into(),
+                            GffValue::ResRef(typed.trim().to_ascii_lowercase().into_bytes()),
+                        ));
+                    }
+                    ui.end_row();
+                }
+            });
+    }
+    if let Some(map) = &state.editor.project.map {
+        let scripts = map.module_scripts.clone();
+        ui.label(egui::RichText::new("The module's scripts").small());
+        egui::Grid::new("module scripts")
+            .num_columns(2)
+            .show(ui, |ui| {
+                for label in MODULE_SCRIPTS {
+                    let now = scripts.get(label).cloned().unwrap_or_else(String::new);
+                    ui.label(label.trim_start_matches("Mod_"));
+                    let typed = ui_state
+                        .area_typed
+                        .entry(label.to_string())
+                        .or_insert_with(|| now.clone());
+                    let field = ui.add(
+                        egui::TextEdit::singleline(typed)
+                            .desired_width(150.0)
+                            .hint_text("none"),
+                    );
+                    let typed = typed.clone();
+                    if !field.has_focus() {
+                        // Shown as the area has it while not being typed in.
+                        ui_state.area_typed.remove(label);
+                    }
+                    if field.lost_focus() && typed.to_ascii_lowercase() != now {
+                        asked.push(AreaChange::ModuleScript(
+                            label.into(),
+                            typed.trim().to_ascii_lowercase(),
+                        ));
+                    }
+                    ui.end_row();
+                }
+            });
+    } else {
+        ui.label(
+            egui::RichText::new(
+                "An installed module's own scripts stay as the game has them: every module.ifo has one name.",
+            )
+            .small(),
+        );
+    }
+    for change in asked {
+        state::change_area(state, change);
+    }
+}
+
+/// How a module is named in a list of where a link leads.
+fn module_shown(own: &str, module: &str) -> String {
+    match module {
+        "" => "nowhere".to_string(),
+        _ if module == own => format!("{module} (this level)"),
+        _ => module.to_string(),
+    }
+}
+
+/// How an arrival is named: its tag, and whether it is a door or a
+/// waypoint; the module's entry for none.
+fn arrival_shown(tag: &str, door: Option<bool>) -> String {
+    match (tag, door) {
+        ("", _) => "the module's entry".to_string(),
+        (tag, Some(true)) => format!("{tag} (door)"),
+        (tag, Some(false)) => format!("{tag} (waypoint)"),
+        (tag, None) => tag.to_string(),
+    }
+}
+
+/// Where the selected door or trigger leads: a module, and the door or
+/// waypoint there to arrive at.
+fn leads_to(ui: &mut egui::Ui, state: &mut EditorState, (kind, index): (Kind, usize)) {
+    let Some(item) = level_edit::git::item(&state.editor.project.git, kind, index) else {
+        return;
+    };
+    let link = level_edit::template::link_of(item);
+    let own = state.editor.project.module.clone();
+    ui.separator();
+    ui.label(egui::RichText::new("Leads to").strong());
+    ui.label(
+        egui::RichText::new(if kind == Kind::Door {
+            "Used, the door takes the party to another level, or to another place in this one."
+        } else {
+            "Walked into, the trigger takes the party to another level, or to another place in this one."
+        })
+        .small(),
+    );
+    let mut asked: Option<(String, String)> = None;
+    egui::Grid::new("leads to").num_columns(2).show(ui, |ui| {
+        ui.label("Level");
+        egui::ComboBox::from_id_salt("leads to module")
+            .selected_text(module_shown(&own, &link.module))
+            .height(360.0)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(!link.leads(), "nowhere").clicked() {
+                    asked = Some((String::new(), String::new()));
+                }
+                let modules = std::iter::once(own.clone())
+                    .chain(state.setup.modules.iter().filter(|m| **m != own).cloned());
+                for module in modules {
+                    if ui
+                        .selectable_label(link.module == module, module_shown(&own, &module))
+                        .clicked()
+                    {
+                        asked = Some((module, String::new()));
+                    }
+                }
+            });
+        ui.end_row();
+        if link.leads() {
+            ui.label("Arrive at");
+            match state::arrivals(state, &link.module) {
+                Ok(arrivals) => {
+                    let door = arrivals
+                        .iter()
+                        .find(|(tag, _)| tag.eq_ignore_ascii_case(&link.to))
+                        .map(|(_, door)| *door);
+                    egui::ComboBox::from_id_salt("leads to arrival")
+                        .selected_text(arrival_shown(&link.to, door))
+                        .height(360.0)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(link.to.is_empty(), arrival_shown("", None))
+                                .clicked()
+                            {
+                                asked = Some((link.module.clone(), String::new()));
+                            }
+                            for (tag, door) in &arrivals {
+                                if ui
+                                    .selectable_label(
+                                        link.to.eq_ignore_ascii_case(tag),
+                                        arrival_shown(tag, Some(*door)),
+                                    )
+                                    .clicked()
+                                {
+                                    asked = Some((link.module.clone(), tag.clone()));
+                                }
+                            }
+                        });
+                }
+                Err(why) => {
+                    ui.label(egui::RichText::new(why).small());
+                }
+            }
+            ui.end_row();
+        }
+    });
+    if let Some((module, tag)) = asked
+        && let Err(why) = state::link(state, &module, &tag)
+    {
+        state.say(why);
+    }
+}
+
+/// An area of another level the project changes: its resref, its module,
+/// and its doors and triggers that lead into this level.
+type HeldWay = (
+    String,
+    String,
+    Vec<(Kind, String, level_edit::template::Link)>,
+);
+
+/// Ways in from other levels: doors and triggers of other modules' entry
+/// areas that this project leads into its level (`Project::others`).
+fn ways_in(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
+    let own = state.editor.project.module.clone();
+    ui.separator();
+    ui.label(egui::RichText::new("Ways in from other levels").strong());
+    ui.label(
+        egui::RichText::new(
+            "A door or trigger of another level can lead here. The project keeps a copy of that \
+             level's object list with the change, which kjk plays wherever that level is loaded.",
+        )
+        .small(),
+    );
+    let mut asked: Option<String> = None;
+    let held: Vec<HeldWay> = state
+        .editor
+        .project
+        .others
+        .iter()
+        .map(|(area, other)| {
+            let leading = level_edit::git::exits(&other.git)
+                .into_iter()
+                .filter(|(_, _, _, link)| link.module == own)
+                .map(|(kind, _, tag, link)| (kind, tag, link))
+                .collect();
+            (area.clone(), other.module.clone(), leading)
+        })
+        .collect();
+    for (area, module, leading) in &held {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!("{module} ({area}):"));
+            for (kind, tag, link) in leading {
+                ui.label(format!(
+                    "{} {tag} to {}",
+                    if *kind == Kind::Door { "door" } else { "trigger" },
+                    arrival_shown(&link.to, None)
+                ));
+            }
+            if ui
+                .small_button("Give back")
+                .on_hover_text("The project no longer changes this level: its doors lead where the game has them.")
+                .clicked()
+            {
+                asked = Some(format!("entrance drop {area}"));
+            }
+        });
+    }
+    // A new way in: a module, then one of its doors or triggers.
+    ui.horizontal(|ui| {
+        ui.label("From");
+        let shown = ui_state
+            .way_in_module
+            .clone()
+            .unwrap_or_else(|| "a level".to_string());
+        egui::ComboBox::from_id_salt("way in module")
+            .selected_text(shown)
+            .height(360.0)
+            .show_ui(ui, |ui| {
+                for module in state.setup.modules.iter().filter(|m| **m != own) {
+                    if ui
+                        .selectable_label(ui_state.way_in_module.as_ref() == Some(module), module)
+                        .clicked()
+                    {
+                        ui_state.way_in_module = Some(module.clone());
+                    }
+                }
+            });
+    });
+    let here = level_edit::git::arrivals(&state.editor.project.git);
+    ui.horizontal(|ui| {
+        ui.label("Arriving at");
+        let door = here
+            .iter()
+            .find(|(tag, _)| *tag == ui_state.way_in_arrival)
+            .map(|(_, door)| *door);
+        egui::ComboBox::from_id_salt("way in arrival")
+            .selected_text(arrival_shown(&ui_state.way_in_arrival, door))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut ui_state.way_in_arrival,
+                    String::new(),
+                    arrival_shown("", None),
+                );
+                for (tag, door) in &here {
+                    ui.selectable_value(
+                        &mut ui_state.way_in_arrival,
+                        tag.clone(),
+                        arrival_shown(tag, Some(*door)),
+                    );
+                }
+            });
+    });
+    if here.is_empty() {
+        ui.label(
+            egui::RichText::new(
+                "Place a waypoint in this level to arrive at a place of your choosing.",
+            )
+            .small(),
+        );
+    }
+    if let Some(module) = ui_state.way_in_module.clone() {
+        match state::module_area(state, &module) {
+            Ok((area, git)) => {
+                let git = state
+                    .editor
+                    .project
+                    .others
+                    .get(&area)
+                    .map_or(git, |other| other.git.clone());
+                let exits = level_edit::git::exits(&git);
+                if exits.is_empty() {
+                    ui.label(format!("{module}'s area {area} has no doors or triggers."));
+                }
+                egui::ScrollArea::vertical()
+                    .id_salt("way in exits")
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        for (kind, index, tag, link) in exits {
+                            ui.horizontal(|ui| {
+                                let word = if kind == Kind::Door {
+                                    "door"
+                                } else {
+                                    "trigger"
+                                };
+                                let now = if link.leads() {
+                                    format!("to {}", module_shown(&own, &link.module))
+                                } else {
+                                    "leads nowhere".to_string()
+                                };
+                                ui.label(format!("{word} {tag}, {now}"));
+                                if ui.small_button("Lead here").clicked() {
+                                    let tag = &ui_state.way_in_arrival;
+                                    if let Err(why) = state::entrance(
+                                        state,
+                                        &module,
+                                        (word, &index.to_string()),
+                                        tag,
+                                    ) {
+                                        state.say(why);
+                                    }
+                                }
+                            });
+                        }
+                    });
+            }
+            Err(why) => {
+                ui.label(egui::RichText::new(why).small());
+            }
+        }
+    }
+    if let Some(asked) = asked {
+        state.pending_command = Some(asked);
     }
 }
 
@@ -2119,6 +2636,7 @@ fn assets(
                 for (tab, label) in rooms.into_iter().chain([
                     (Tab::Placeables, "Placeables"),
                     (Tab::Creatures, "Creatures"),
+                    (Tab::Doors, "Doors"),
                     (Tab::Props, "Jedi Academy props"),
                     (Tab::Shapes, "Collision shapes"),
                     (Tab::Waypoints, "Waypoints"),
@@ -2162,6 +2680,12 @@ fn assets(
                             name.clone(),
                         )
                     })
+                    .collect(),
+                Tab::Doors => state
+                    .setup
+                    .doors
+                    .iter()
+                    .map(|name| (Asset::Template(AssetKind::Door, name.clone()), name.clone()))
                     .collect(),
                 Tab::Props => state
                     .setup
@@ -2393,13 +2917,23 @@ fn viewport(
                 ))
                 .with_clip_rect(rect);
             labels(&painter, state, camera, eye);
+            let on_outline = outline_in_view(
+                ui,
+                &response,
+                &painter,
+                state,
+                ui_state,
+                (camera, eye),
+                cameras,
+            );
 
             // The gizmo on the selection.
-            let mut on_gizmo = false;
+            let mut on_gizmo = on_outline;
             if let Some(target) = state.editor.selected
                 && let Some(modes) = modes(ui_state.tool, target)
                 && let Some(transform) = gizmo_transform(state, target)
                 && !looking
+                && !on_outline
             {
                 // The gizmo keeps handles of the modes it had before
                 // (transform-gizmo 0.11): a change of modes makes a new one.
@@ -2464,6 +2998,244 @@ fn viewport(
                 place(state, &asset, at, ui_state.snapping);
             }
         });
+}
+
+/// The selected trigger's or encounter's outline over the view, its points
+/// dragged along the floor; and an outline being drawn, each click on the
+/// floor its next point. Whether the pointer is busy with it.
+fn outline_in_view(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    painter: &egui::Painter,
+    state: &mut EditorState,
+    ui_state: &mut UiState,
+    (camera, eye): (&Camera, &GlobalTransform),
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> bool {
+    let to_screen = |point: [f32; 3]| {
+        let world = game_to_bevy() * Vec3::from_array(point);
+        camera
+            .world_to_viewport(eye, world)
+            .ok()
+            .map(|at| egui::pos2(at.x, at.y))
+    };
+    let floor_under = |state: &mut EditorState, at: egui::Pos2| {
+        state::ray_at(cameras, Vec2::new(at.x, at.y)).and_then(|ray| state::ground(state, ray))
+    };
+    let colour = egui::Color32::from_rgb(255, 200, 60);
+    // Drawing: each click adds a point, Enter ends, Escape drops it.
+    if let Some((_, points)) = ui_state.drawing.as_mut() {
+        if response.clicked()
+            && let Some(at) = response.interact_pointer_pos()
+            && let Some(point) = floor_under(state, at)
+        {
+            points.push(point);
+        }
+        let shown: Vec<egui::Pos2> = points.iter().filter_map(|p| to_screen(*p)).collect();
+        painter.add(egui::Shape::line(
+            shown.clone(),
+            egui::Stroke::new(2.0, colour),
+        ));
+        for at in &shown {
+            painter.circle_filled(*at, 5.0, colour);
+        }
+        let (enter, escape) = ui.input(|input| {
+            (
+                input.key_pressed(egui::Key::Enter),
+                input.key_pressed(egui::Key::Escape),
+            )
+        });
+        if escape {
+            ui_state.drawing = None;
+        } else if enter {
+            finish_drawing(state, ui_state);
+        }
+        return true;
+    }
+    // The selected outline's points, dragged along the floor.
+    let Some(Target::Object(kind @ (Kind::Trigger | Kind::Encounter), index)) =
+        state.editor.selected
+    else {
+        ui_state.dragging_point = None;
+        return false;
+    };
+    let Some(entry) = state.editor.entry(kind, index) else {
+        return false;
+    };
+    let at = entry.position;
+    let points: Vec<[f32; 3]> = level_edit::git::outline(&state.editor.project.git, kind, index)
+        .iter()
+        .map(|p| [p[0] + at[0], p[1] + at[1], p[2] + at[2]])
+        .collect();
+    let shown: Vec<Option<egui::Pos2>> = points.iter().map(|p| to_screen(*p)).collect();
+    let mut ring: Vec<egui::Pos2> = shown.iter().flatten().copied().collect();
+    if let Some(first) = ring.first().copied() {
+        ring.push(first);
+    }
+    painter.add(egui::Shape::line(ring, egui::Stroke::new(1.5, colour)));
+    for at in shown.iter().flatten() {
+        painter.circle_stroke(*at, 5.0, egui::Stroke::new(2.0, colour));
+    }
+    let pointer = ui.ctx().pointer_hover_pos();
+    if response.drag_started()
+        && let Some(pointer) = pointer
+    {
+        ui_state.dragging_point = shown
+            .iter()
+            .enumerate()
+            .filter_map(|(at, point)| Some((at, point.as_ref()?.distance(pointer))))
+            .filter(|(_, distance)| *distance <= 9.0)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(at, _)| at);
+    }
+    let Some(dragged) = ui_state.dragging_point else {
+        return false;
+    };
+    if response.dragged()
+        && let Some(pointer) = pointer
+        && let Some(point) = floor_under(state, pointer)
+    {
+        let mut moved = points;
+        if let Some(slot) = moved.get_mut(dragged) {
+            *slot = point;
+        }
+        drag_edit(
+            state,
+            ui_state,
+            Edit::Outline(Target::Object(kind, index), moved),
+        );
+    }
+    if !response.dragged() {
+        ui_state.dragging_point = None;
+    }
+    true
+}
+
+/// Ends the outline being drawn: three points or more become the object's
+/// outline.
+fn finish_drawing(state: &mut EditorState, ui_state: &mut UiState) {
+    if let Some((target, points)) = ui_state.drawing.take() {
+        if points.len() < 3 {
+            state.say("an outline has three points or more: it was not changed");
+        } else {
+            state.apply(Edit::Outline(target, points));
+        }
+    }
+}
+
+/// A trigger's or an encounter's outline in the details: its points, each
+/// moved by its numbers or removed, a point added, or a new outline drawn
+/// in the view.
+fn outline_details(
+    ui: &mut egui::Ui,
+    state: &mut EditorState,
+    ui_state: &mut UiState,
+    (kind, index): (Kind, usize),
+) {
+    let target = Target::Object(kind, index);
+    let Some(entry) = state.editor.entry(kind, index) else {
+        return;
+    };
+    let at = entry.position;
+    let mut points: Vec<[f32; 3]> =
+        level_edit::git::outline(&state.editor.project.git, kind, index)
+            .iter()
+            .map(|p| [p[0] + at[0], p[1] + at[1], p[2] + at[2]])
+            .collect();
+    ui.separator();
+    ui.label(egui::RichText::new("Outline").strong());
+    if let Some((drawing, so_far)) = &ui_state.drawing
+        && *drawing == target
+    {
+        ui.label(format!(
+            "Click the floor for each corner, in order round it ({} so far). Enter or Done ends, \
+             Escape leaves the outline as it was.",
+            so_far.len()
+        ));
+        ui.horizontal(|ui| {
+            if ui.button("Done").clicked() {
+                finish_drawing(state, ui_state);
+            }
+            if ui.button("Cancel").clicked() {
+                ui_state.drawing = None;
+            }
+        });
+        return;
+    }
+    ui.label(
+        egui::RichText::new("Drag a corner in the view along the floor, or set it here.").small(),
+    );
+    let mut changed = false;
+    let mut remove = None;
+    // Three corners are the fewest.
+    let removable = points.len() > 3;
+    egui::Grid::new("outline points")
+        .num_columns(3)
+        .show(ui, |ui| {
+            for (at, point) in points.iter_mut().enumerate() {
+                ui.label(format!("{}", at + 1));
+                ui.horizontal(|ui| {
+                    for value in point.iter_mut().take(2) {
+                        changed |= ui
+                            .add(egui::DragValue::new(value).speed(0.05).max_decimals(2))
+                            .changed();
+                    }
+                });
+                if ui
+                    .add_enabled(removable, egui::Button::new("Remove").small())
+                    .clicked()
+                {
+                    remove = Some(at);
+                }
+                ui.end_row();
+            }
+        });
+    if let Some(at) = remove {
+        points.remove(at);
+        changed = true;
+    }
+    ui.horizontal(|ui| {
+        if ui
+            .button("Add a corner")
+            .on_hover_text("Adds a corner halfway along the longest side.")
+            .clicked()
+            && points.len() >= 2
+        {
+            let longest = (0..points.len())
+                .max_by(|a, b| {
+                    let side = |at: &usize| {
+                        let (p, q) = (points[*at], points[(*at + 1) % points.len()]);
+                        (p[0] - q[0]).hypot(p[1] - q[1])
+                    };
+                    side(a).total_cmp(&side(b))
+                })
+                .unwrap_or(0);
+            let (p, q) = (points[longest], points[(longest + 1) % points.len()]);
+            points.insert(
+                longest + 1,
+                [
+                    (p[0] + q[0]) / 2.0,
+                    (p[1] + q[1]) / 2.0,
+                    (p[2] + q[2]) / 2.0,
+                ],
+            );
+            changed = true;
+        }
+        if ui
+            .button("Draw a new outline")
+            .on_hover_text("Click the floor in the view for each corner.")
+            .clicked()
+        {
+            ui_state.drawing = Some((target, Vec::new()));
+        }
+    });
+    if changed {
+        if ui.ctx().input(|input| input.pointer.any_down()) {
+            drag_edit(state, ui_state, Edit::Outline(target, points));
+        } else {
+            state.apply(Edit::Outline(target, points));
+        }
+    }
 }
 
 /// The nearest objects' kinds and tags, over the view.

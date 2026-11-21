@@ -349,6 +349,19 @@ fn setup(
     let catalog = script_view::catalog(&resolver);
     let items = sorted(ResType::UTI);
     let waypoints = sorted(ResType::UTW);
+    let doors = sorted(ResType::UTD);
+    let modules = discovery
+        .get(game)
+        .and_then(|install| vfs::DirIndex::of_install(install).ok())
+        .map_or_else(Vec::new, |index| {
+            let mut names = kjk_game::modules::module_names(&index);
+            names
+                .iter_mut()
+                .for_each(|name| *name = name.to_ascii_lowercase());
+            names.sort();
+            names.dedup();
+            names
+        });
     let triggers = sorted(ResType::UTT);
     let sounds = sorted(ResType::UTS);
     let stores = sorted(ResType::UTM);
@@ -374,6 +387,8 @@ fn setup(
         catalog,
         items,
         waypoints,
+        doors,
+        modules,
         triggers,
         sounds,
         stores,

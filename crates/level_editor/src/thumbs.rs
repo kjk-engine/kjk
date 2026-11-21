@@ -31,6 +31,8 @@ pub enum AssetKind {
     Prop,
     /// A room of the install, by its model, for a new map.
     Room,
+    /// A door template (`.utd`).
+    Door,
 }
 
 impl AssetKind {
@@ -40,6 +42,7 @@ impl AssetKind {
             AssetKind::Creature => "creature",
             AssetKind::Prop => "prop",
             AssetKind::Room => "room",
+            AssetKind::Door => "door",
         }
     }
 }
@@ -356,6 +359,25 @@ pub fn placeable_model(resolver: &vfs::resolver::Resolver, template: &str) -> Op
     let row = gff.root.uint("Appearance")?;
     let table = resolver.two_da("placeables")?;
     table.resref(row as usize, "modelname")
+}
+
+/// The model a door template is drawn with: its `GenericType` row's
+/// `modelname` in `genericdoors.2da` (KOTOR's doors have appearance 0),
+/// else its `Appearance` row's in `doortypes.2da`, as the module reader
+/// finds it.
+pub fn door_model(resolver: &vfs::resolver::Resolver, template: &str) -> Option<String> {
+    let bytes = resolver.read(template, ResType::UTD)?;
+    let gff = fmt_odyssey::gff::Gff::parse(&bytes).ok()?;
+    let (table, row) = match gff.root.uint("Appearance").unwrap_or(0) {
+        0 => (
+            resolver.two_da("genericdoors")?,
+            gff.root.uint("GenericType")?,
+        ),
+        appearance => (resolver.two_da("doortypes")?, appearance),
+    };
+    table
+        .resref(row as usize, "modelname")
+        .or_else(|| table.resref(row as usize, "model"))
 }
 
 /// The store's key for an asset's thumbnail: what it is, and the bytes it

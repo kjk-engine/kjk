@@ -42,6 +42,23 @@ pub struct Project {
     /// The level each room of the bake aims at (`levels`), as the editor
     /// has it; saved to the light data's levels file.
     pub levels: BTreeMap<String, f32>,
+    /// Other areas of the install whose doors and triggers the project
+    /// leads elsewhere (into its own new map, most often), by area resref:
+    /// each a copy of that area's GIT, saved as `<area>.git` in the folder,
+    /// which the project's layer serves wherever that area is loaded.
+    pub others: BTreeMap<String, OtherArea>,
+    /// The project's own area's ARE as the project changes it (music is the
+    /// GIT's): fog, ambient light and the area's scripts. `None` keeps the
+    /// install's. A new map's ARE is its map's (`NewMap`).
+    pub are: Option<Gff>,
+}
+
+/// An area of another module whose doors and triggers the project changes
+/// (`Project::others`): its module and its GIT as the project has it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OtherArea {
+    pub module: String,
+    pub git: Gff,
 }
 
 /// Something wrong with a project. A problem that `blocks` stops the save;
@@ -57,6 +74,22 @@ fn read_text(path: &Path) -> Result<String, String> {
 }
 
 /// A string field of `project.toml`.
+/// The other areas `project.toml` lists (`others`): (module, area), each
+/// lowercase.
+fn others_of(document: &toml_edit::DocumentMut) -> Vec<(String, String)> {
+    let Some(list) = document.get("others").and_then(toml_edit::Item::as_array) else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|pair| {
+            let pair = pair.as_array()?;
+            let module = pair.get(0)?.as_str()?.to_ascii_lowercase();
+            let area = pair.get(1)?.as_str()?.to_ascii_lowercase();
+            Some((module, area))
+        })
+        .collect()
+}
+
 fn field(document: &toml_edit::DocumentMut, key: &str) -> Result<String, String> {
     document
         .get(key)
@@ -85,6 +118,8 @@ impl Project {
             map: None,
             kinds: Vec::new(),
             levels: BTreeMap::new(),
+            others: BTreeMap::new(),
+            are: None,
         }
     }
 
@@ -157,6 +192,21 @@ impl Project {
                 .map_err(|error| format!("{}: {error}", are_path.display()))?;
             let are = Gff::parse(&bytes).map_err(|error| format!("{area}.are: {error}"))?;
             project.map = Some(NewMap::parse(&read_text(&map_path)?, are)?);
+        } else {
+            let are_path = folder.join(format!("{area}.are"));
+            if are_path.is_file() {
+                let bytes = std::fs::read(&are_path)
+                    .map_err(|error| format!("{}: {error}", are_path.display()))?;
+                project.are =
+                    Some(Gff::parse(&bytes).map_err(|error| format!("{area}.are: {error}"))?);
+            }
+        }
+        for (module, other) in others_of(&document) {
+            let path = folder.join(format!("{other}.git"));
+            let bytes =
+                std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+            let git = Gff::parse(&bytes).map_err(|error| format!("{other}.git: {error}"))?;
+            project.others.insert(other, OtherArea { module, git });
         }
         Ok(project)
     }
@@ -186,6 +236,12 @@ impl Project {
                     entry.tag
                 ));
             }
+        }
+        if self.others.contains_key(&self.area) {
+            block(format!(
+                "{} is the project's own area; its doors are changed in its own GIT",
+                self.area
+            ));
         }
         let mut names: Vec<&str> = Vec::new();
         for prop in &self.kjk.props {
@@ -242,11 +298,35 @@ impl Project {
         }
         std::fs::create_dir_all(&self.folder)
             .map_err(|error| format!("{}: {error}", self.folder.display()))?;
-        let project = format!(
+        let mut project = format!(
             "# A kjk level editor project (docs/LEVEL-EDIT.md).\n\
              game = {:?}\nmodule = {:?}\narea = {:?}\nmade_by = {:?}\n",
             self.game, self.module, self.area, made_by
         );
+        if !self.others.is_empty() {
+            let listed: Vec<String> = self
+                .others
+                .iter()
+                .map(|(area, other)| format!("[{:?}, {:?}]", other.module, area))
+                .collect();
+            project.push_str(&format!(
+                "# Other modules' areas whose doors and triggers it changes: [module, area].\n\
+                 others = [{}]\n",
+                listed.join(", ")
+            ));
+        }
+        // An area no longer changed leaves the folder.
+        let before = read_text(&self.folder.join(PROJECT_FILE))
+            .ok()
+            .and_then(|text| text.parse::<toml_edit::DocumentMut>().ok())
+            .map_or_else(Vec::new, |document| others_of(&document));
+        for (_, area) in before {
+            let path = self.folder.join(format!("{area}.git"));
+            if area != self.area && !self.others.contains_key(&area) && path.is_file() {
+                std::fs::remove_file(&path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+            }
+        }
         let mut files = vec![
             (PROJECT_FILE.to_string(), project.into_bytes()),
             (format!("{}.git", self.area), self.git.write()),
@@ -261,6 +341,11 @@ impl Project {
         if let Some(map) = &self.map {
             files.push((MAP_FILE.to_string(), map.write().into_bytes()));
             files.push((format!("{}.are", self.area), self.map_are(map).write()));
+        } else if let Some(are) = &self.are {
+            files.push((format!("{}.are", self.area), are.write()));
+        }
+        for (area, other) in &self.others {
+            files.push((format!("{area}.git"), other.git.write()));
         }
         // A template no object uses any more (an edit undone) leaves the
         // folder.
@@ -307,6 +392,17 @@ impl Project {
                 hasher.update(&(part.len() as u64).to_le_bytes());
                 hasher.update(part);
             }
+        }
+        for (area, other) in &self.others {
+            for part in [area.as_bytes(), other.module.as_bytes(), &other.git.write()] {
+                hasher.update(&(part.len() as u64).to_le_bytes());
+                hasher.update(part);
+            }
+        }
+        if let Some(are) = self.are.as_ref().filter(|_| self.map.is_none()) {
+            let bytes = are.write();
+            hasher.update(&(bytes.len() as u64).to_le_bytes());
+            hasher.update(&bytes);
         }
         if let Some(map) = &self.map {
             for part in [map.write().into_bytes(), self.map_are(map).write()] {
