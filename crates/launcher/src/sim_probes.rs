@@ -27,6 +27,7 @@ const GROUPS: &[Group] = &[
     ("battle music", kjk_game::battle_music::probes),
     ("destroyed placeables", kjk_game::going_view::probes),
     ("conversation music", kjk_game::ambience::talk_music_probes),
+    ("sound groups", asset_odyssey::sound::group_probes),
     ("pad", kjk_game::pad::probes),
     ("camera sizes", kjk_game::display::probes),
     ("gpu load check", kjk_game::load_check_probes),

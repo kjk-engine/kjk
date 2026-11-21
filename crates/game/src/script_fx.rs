@@ -101,6 +101,7 @@ use crate::material::OdysseyMaterial;
 use crate::scene::{ModelAssets, SceneContent, SceneModel, SceneRoot, Spawner};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::sound::{Added, Cue, Cues, Forget, Hold, Loops};
+use asset_odyssey::sound::Group;
 
 /// A character's middle, head and hand over its feet (metres) where its
 /// model has no node for them [verify].
@@ -1327,7 +1328,11 @@ fn spawn(
         ResMut<Assets<HeatHazeMaterial>>,
         ResMut<Cues>,
     ),
-    (mut glow_materials, hitboxes): (ResMut<Assets<GlowMaterial>>, Res<crate::cast::Hitboxes>),
+    (mut glow_materials, hitboxes, ambience): (
+        ResMut<Assets<GlowMaterial>>,
+        Res<crate::cast::Hitboxes>,
+        Res<crate::ambience::Ambience>,
+    ),
     (bodies, children, placed, globals): (
         Option<Res<BodyRoots>>,
         Query<&Children>,
@@ -1488,11 +1493,16 @@ fn spawn(
             continue;
         };
         if heard(&view.sounds, &asked.row.sound) {
-            cues.0.push(Cue::at(
-                sound_name(&asked.row.sound),
-                (base + Vec3::Z * IMPACT_M) / collision::UNIT,
-                asked.since as f32,
-            ));
+            let (falloff, gain) = ambience.placed(Group::SpellEffect);
+            cues.0.push(Cue {
+                falloff,
+                gain,
+                ..Cue::at(
+                    sound_name(&asked.row.sound),
+                    (base + Vec3::Z * IMPACT_M) / collision::UNIT,
+                    asked.since as f32,
+                )
+            });
         }
         if heard(&view.sounds, &asked.row.held) {
             view.held.push(Held {
@@ -1771,7 +1781,11 @@ fn draw(
     mut posing: ParamSet<(Query<&mut Transform>, Drawing)>,
     (cameras, globals): (Query<Entity, SceneCamera>, Query<&GlobalTransform>),
     (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
-    (mut loops, mut carried): (ResMut<Loops>, ResMut<crate::scene::CarriedLights>),
+    (mut loops, mut carried, ambience): (
+        ResMut<Loops>,
+        ResMut<crate::scene::CarriedLights>,
+        Res<crate::ambience::Ambience>,
+    ),
     (swap, hitboxes, doors): (
         Res<SceneSwap>,
         Res<crate::cast::Hitboxes>,
@@ -1840,15 +1854,20 @@ fn draw(
         Anchor::On(id) => feet(current, id),
     };
     // A lasting effect's sound, held while it lasts and its character is
-    // there.
+    // there, as a visual effect's sound plays.
+    let (falloff, gain) = ambience.placed(Group::SpellEffect);
     view.held.retain(|held| {
         let at = base(held.anchor);
         let lasts = held.until.is_none_or(|until| now_ms < until as f64);
         if let (Some(at), true) = (at, lasts) {
-            loops.0.push(Hold::at(
-                held.name.clone(),
-                (at + Vec3::Z * IMPACT_M) / collision::UNIT,
-            ));
+            loops.0.push(Hold {
+                falloff,
+                gain,
+                ..Hold::at(
+                    held.name.clone(),
+                    (at + Vec3::Z * IMPACT_M) / collision::UNIT,
+                )
+            });
         }
         at.is_some() && lasts
     });
