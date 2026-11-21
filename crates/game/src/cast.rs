@@ -4360,8 +4360,9 @@ fn hidden(unequipped: &[Unequipped], who: SimId) -> Hide {
 }
 
 /// The clip a held `fighter` plays at `ms` while it is held
-/// (`acting::of_state`), of the highest state on it: C11's hold (begun its
-/// round back from its end) or a state's effect, a cutscene's among them.
+/// (`acting::of_state`), of the highest state on it: C11's hold (from when
+/// it began, `ForceState::held_since`) or a state's effect, a cutscene's
+/// among them.
 /// A body with JA's clips (`ja_body`) covering its ears plays JA's own
 /// clip for it (the sim's), so the hold draws nothing over it.
 fn held_clip(fighter: &Fighter, ms: f64, ja_body: bool) -> Option<Acting> {
@@ -4370,12 +4371,8 @@ fn held_clip(fighter: &Fighter, ms: f64, ja_body: bool) -> Option<Acting> {
     }
     let force = &fighter.force;
     let ears = ja_body && force.covering_ears(ms as u64).is_some();
-    let hold = (ms < force.stunned_until as f64 && !ears).then(|| {
-        let since = force
-            .stunned_until
-            .saturating_sub(sim::combat::force::ja::STUN_MS);
-        (force.hold.state(), since, force.stunned_until)
-    });
+    let hold = (ms < force.stunned_until as f64 && !ears)
+        .then(|| (force.hold.state(), force.held_since(), force.stunned_until));
     let effect = fighter
         .effects
         .top_state(ms as u64)

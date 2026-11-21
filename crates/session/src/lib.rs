@@ -677,24 +677,33 @@ pub fn plan_with(
                     placeables.insert(name, Arc::new(facts));
                 }
             }
-            // The waypoint templates scripts may make: the module's own and
-            // the install's shared ones its scripts name (TSLRCM's
-            // `tr_re_zb2` lies in the override folder).
-            let waypoints: BTreeMap<String, Arc<sim::module::ObjectData>> = own(ResType::UTW)
-                .into_iter()
-                .chain(
-                    named
-                        .iter()
-                        .filter(|name| source.exists(name, ResType::UTW))
-                        .cloned(),
-                )
-                .collect::<std::collections::BTreeSet<String>>()
-                .into_iter()
-                .filter_map(|name| {
-                    let facts = sheets::waypoint_template(&mut tables, &name)?;
-                    Some((name, Arc::new(facts)))
-                })
-                .collect();
+            // The waypoint and store templates scripts may make: the
+            // module's own and the install's shared ones its scripts name
+            // (TSLRCM's `tr_re_zb2` lies in the override folder; a mod's
+            // merchant makes its store from a UTM in its module).
+            let mut templates = |kind: ResType,
+                                 read: fn(
+                &mut sheets::Tables,
+                &str,
+            ) -> Option<sim::module::ObjectData>| {
+                own(kind)
+                    .into_iter()
+                    .chain(
+                        named
+                            .iter()
+                            .filter(|name| source.exists(name, kind))
+                            .cloned(),
+                    )
+                    .collect::<std::collections::BTreeSet<String>>()
+                    .into_iter()
+                    .filter_map(|name| {
+                        let facts = read(&mut tables, &name)?;
+                        Some((name, Arc::new(facts)))
+                    })
+                    .collect::<BTreeMap<String, Arc<sim::module::ObjectData>>>()
+            };
+            let waypoints = templates(ResType::UTW, sheets::waypoint_template);
+            let stores = templates(ResType::UTM, sheets::store_template);
             let decks = pazaak::decks(&mut tables, &items);
             let library = library
                 .with_pazaak(decks)
@@ -702,6 +711,7 @@ pub fn plan_with(
                 .with_creatures(creatures)
                 .with_placeables(placeables)
                 .with_waypoints(waypoints)
+                .with_stores(stores)
                 .with_quests(journal::quests(source))
                 .with_experience(journal::experience(source))
                 .with_classes(classes::classes(source))

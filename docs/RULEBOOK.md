@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `88b9be685cf97fda`.
+Edition `99e4a0aff324c12e`.
 
 ## Contents
 
@@ -12013,11 +12013,11 @@ While a perfect block slows the game, the world moves at 0.3 times its normal sp
 
 <sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
-<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
+<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.3 seconds** (`300 ms`) · `duel.slow_motion.ms`
 
-A perfect block slows the game for 200 ms of real time.
+A perfect block slows the game for 300 ms of real time.
 
-<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+<sub>Source: ours; Movie Duels slows the game for 200 ms (docs/SABER-RULES.md section 3). Code: `game::sim_host::Slowed`.</sub>
 
 ### <a id="duel-hud"></a>Stamina Bars
 
@@ -12303,13 +12303,27 @@ A player who keeps both the block and attack buttons held down for 3000 ms or lo
 
 <sub>Source: docs/SABER-RULES.md 2.5. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
-<a id="duel-perfect-parry-wait-ms"></a>**Perfect Parry Delay** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
+<a id="duel-perfect-parry-wait-ms"></a>**Good Parry Delay** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
 
 shortest **0.3 seconds** · longest **0.6 seconds**
 
-After a perfect parry, the blocker can swing again only after a random time between 300 ms and 600 ms.
+After a creature's good parry, the creature can swing again only after a random time between 300 ms and 600 ms.
 
 <sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-block-wait-ms"></a>**Perfect Parry Delay** = **0.15 seconds / 0.3 seconds** (`150 / 300 ms`) · `duel.perfect.block_wait_ms`
+
+shortest **0.15 seconds** · longest **0.3 seconds**
+
+After a perfect block, the blocker can swing again only after a random time between 150 ms and 300 ms. This is always shorter than the 350 ms the attacker is frozen for, so the blocker can strike back before the attacker recovers, and always inside the riposte window.
+
+<sub>Source: ours. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-miss-cost"></a>**Missed Perfect Block** = **5 points** · `duel.perfect.miss_cost`
+
+A player who presses attack while holding block, and neither makes a perfect block nor deflects a blaster bolt with that press, loses 5 points Stamina. The press is judged when its perfect block window has closed and attack is no longer held, or when the player lets go of block or presses attack again. This keeps a player from pressing attack over and over to catch every blow.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
 
 <a id="duel-perfect-parry-blend-ms"></a>**Perfect Parry Blend** = **0.1 seconds** (`100 ms`) · `duel.perfect.parry_blend_ms`
 

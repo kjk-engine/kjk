@@ -4619,37 +4619,43 @@ impl Engine<'_> {
             // Creatures, placeables and waypoints; other kinds are not
             // made in play yet.
             CreateObject => {
-                // A creature, a placeable or a waypoint, of the templates
-                // the module's plan gathered (`Library::creature`,
-                // `placeable`, `waypoint`).
+                // A creature, a placeable, a waypoint or a store, of the
+                // templates the module's plan gathered (`Library::creature`,
+                // `placeable`, `waypoint`, `store`).
                 let kind = [
                     ObjectKind::Creature,
                     ObjectKind::Placeable,
                     ObjectKind::Waypoint,
+                    ObjectKind::Store,
                 ]
                 .into_iter()
                 .find(|kind| self.library.object_types.get(kind).copied() == Some(int(args, 0)));
                 let template = resref(text(args, 1));
+                let placed = match kind {
+                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template),
+                    Some(ObjectKind::Store) => self.library.store(&template),
+                    _ => None,
+                };
                 let known = match kind {
                     Some(ObjectKind::Creature) => self.library.creature(&template).is_some(),
-                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template).is_some(),
+                    Some(ObjectKind::Waypoint | ObjectKind::Store) => placed.is_some(),
                     Some(_) => self.library.placeable(&template).is_some(),
                     None => false,
                 };
                 let made = known
                     .then(|| self.place(args, 2))
                     .flatten()
-                    .and_then(|(at, yaw)| match kind {
-                        Some(ObjectKind::Waypoint) => super::make_waypoint(
+                    .and_then(|(at, yaw)| match placed {
+                        Some(facts) => Some(super::make_placed(
                             self.library,
                             self.view,
                             self.state,
                             self.out,
-                            &template,
+                            facts,
                             at,
                             yaw,
-                        ),
-                        _ => self.make(&template, at, yaw),
+                        )),
+                        None => self.make(&template, at, yaw),
                     });
                 if made.is_none() {
                     self.trace(&format!(
@@ -5910,11 +5916,7 @@ impl Engine<'_> {
                     // Bek base (`k_ptar_racecs0`) destroys party members 1
                     // and 2, the player among them while a companion leads.
                     // Nor is the character the first seat is switched to,
-                    // the player's character meanwhile: TSL's Telos makes
-                    // the Czerka droid B-4D4 a companion
-                    // (`AddAvailableNPCByObject`), switches the player to
-                    // him and destroys the droid it named in the same run
-                    // (`a_b4d4control`, `swapit`).
+                    // the player's character meanwhile.
                     let ms = seconds_ms(float(args, 1));
                     self.keep_lent(item);
                     if ms == 0 {
@@ -6821,7 +6823,14 @@ impl Engine<'_> {
                         .instance(object(args, 1))
                         .map(|data| data.template.clone()),
                 };
-                let object = (bound == AddAvailableNPCByObject).then(|| object(args, 1).0);
+                // By object, the executables save the creature into the
+                // table and do not make it the companion's creature: the
+                // table names no creature until one is spawned for it or
+                // it joins the party. A switch to it then makes a new one
+                // at the player's place. TSL's Telos destroys the B-4D4 it
+                // adds and switches to (`a_b4d4control`), and a scene may
+                // jump the creature it adds out of sight first.
+                let object = (bound == AddAvailableNPCByObject).then(|| object(args, 1));
                 // TSL: the companion takes its influence's alignment, its
                 // influence started (by a creature of the template, whose
                 // tag names it, when made available by template).
@@ -6829,11 +6838,13 @@ impl Engine<'_> {
                     .as_deref()
                     .and_then(|template| self.library.creature(template));
                 let tag = facts.map(|facts| facts.tag.to_ascii_lowercase());
-                // By template, the template kept with it (KOTOR's table
-                // keeps the creature): a module that lacks it makes it too.
-                let template_data = facts
-                    .filter(|_| bound == AddAvailableNPCByTemplate)
-                    .map(|facts| crate::pack::creature_bytes(facts).into());
+                // The creature kept with it (KOTOR's table keeps the
+                // creature): a module that lacks its template makes it too.
+                let template_data = match object {
+                    Some(who) => self.instance(who),
+                    None => facts.map(|facts| &**facts),
+                }
+                .map(|facts| crate::pack::creature_bytes(facts).into());
                 let party = &mut self.state.party;
                 // A companion already available is refused and its slot
                 // kept, as TSL's executable refuses it (reone too). A slot
@@ -6846,15 +6857,20 @@ impl Engine<'_> {
                         npc,
                         party::Npc {
                             template,
-                            object,
+                            object: None,
                             kept: None,
                             template_data,
                         },
                     );
                 });
                 use super::influence::{KREIA, NPC_TAGS};
-                match object.filter(|_| added.is_some()) {
-                    Some(who) => self.follow_influence(ObjectId(who)),
+                match npc.zip(object).filter(|_| added.is_some()) {
+                    Some((npc, who)) => {
+                        // Its items, sheet and points as it stands, for the
+                        // creature made of it next.
+                        super::keep_creature(self.view, self.state, self.out, npc, who);
+                        self.follow_influence(who)
+                    }
                     None if added.is_some() && self.library.influences() => {
                         if let Some(tag) = tag.filter(|tag| tag != KREIA)
                             && let Some(npc) = NPC_TAGS.iter().position(|of| *of == tag)

@@ -85,7 +85,13 @@ pub enum Refusal {
     /// vertex data (not read), drawn with its texture (reone draws a saber
     /// mesh with its own); a hilt's flat planes share that texture. Its box
     /// in the node's space (min x, y, z, max), as its header has it.
+    ///
+    /// `node` is the index of the blade's node in the model. A blade is
+    /// placed by that node, never by its name: the games draw each blade
+    /// piece at its own node, and a modded hilt may give all of its blade
+    /// nodes one name (Lightsaber Hilt Variety names all eight `plane239`).
     SaberBlade {
+        node: usize,
         texture: Option<String>,
         bounds: [f32; 6],
     },
@@ -535,6 +541,7 @@ impl ModelIr {
     fn mesh(node: usize, source: &Node, mesh: &mdl::Mesh) -> Result<MeshIr, Refusal> {
         if mesh.saber {
             return Err(Refusal::SaberBlade {
+                node,
                 texture: texture_name(&mesh.textures[0]),
                 bounds: mesh.bounds,
             });
