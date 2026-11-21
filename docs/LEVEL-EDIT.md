@@ -170,6 +170,76 @@ module whose bake aimed at a share of each room's level is set to aim at
 the file (`bake.toml`'s `levels`); a room the file has no line for keeps
 the share's level in the bake.
 
+### Lamps
+
+A light placed by hand is invisible. A **lamp** is a light fitting that the
+player sees: a model of the game drawn where the area had none. The fitted
+lights light a lamp's glowing meshes as they light the area's own
+fittings, by the kind its glowing texture names. A new lamp therefore
+lights its surroundings as every other lamp of its kind does, and a change
+to that kind changes the new lamp too.
+
+A lamp is one of two things:
+
+- **A whole model.** A placeable's lamp model is drawn whole. Its glowing
+  texture is read as a kind of fitting of placeables.
+- **A light mesh.** One mesh of a room's model, such as a ceiling panel or
+  a wall strip, is drawn alone. Its middle stands where the lamp is
+  placed, and it keeps the way it faced in its room. Its glowing texture is
+  read as a kind of fitting of rooms.
+
+The asset picker's **Lamps** tab lists every lamp of the install. The
+editor looks through every model that `placeables.2da` names and every
+room of the install's layouts the first time the tab is shown, a few
+models each frame. The tab says how far the look has got. A placeable model
+is listed when one of its meshes glows with a texture that the light data
+calls a lamp. A room's mesh is listed when it glows with a texture that the
+light data calls a lamp on rooms. A room's row of equal panels is listed
+once: a mesh with the same texture as one listed already, whose three
+extents are the same to the nearest half metre, is left out. At most 4
+meshes of one texture are listed. Each tile shows the lamp's texture and
+the model it is from.
+
+A lamp is placed by dragging it into the view or double-clicking it. It is
+moved, turned about Z, copied and deleted like an object, with undo. Its
+details show its model and mesh, whether its texture is read as a room's
+fitting or a placeable's (which can be changed), and the reason it is
+there. The outliner lists the lamps under Lamps.
+
+A lamp is drawn a little differently from the place it came from:
+
+- A light mesh leaves behind the lightmap of the room it was taken from,
+  which was baked for another place. It is lit at runtime as a placeable
+  is.
+- A light mesh that does not glow in its model's files glows fully, so it
+  looks lit. Such a mesh was bright in its room only because of the
+  room's lightmap.
+- A lamp casts no shadow, so its own mesh never darkens its light.
+- A lamp is not solid. Characters walk through it.
+
+An installed level's lamps are the `[[lamp]]` tables of the light data's
+`fittings.toml` whose `area` is its module, saved beside its lights placed
+by hand and in the same way. Every scene of the module draws them,
+including play without a project. A new map's lamps are `[[lamp]]` tables
+of its `kjk-area.toml`.
+
+```toml
+[[lamp]]
+game = "k1"
+area = "danm13"
+model = "m13aa_01a"
+mesh = "m13aa_01a_lamp2"
+on = "room"
+at = [102.5, 64.0, 4.2]
+yaw = 90.0
+reason = "The corridor to the council chamber was dark."
+```
+
+`model` is the model's resref. `mesh` names the node of a light mesh and is
+left out for a whole model. `on` says which kind of fitting the glowing
+texture is read as (`room` or `placeable`). `yaw` is degrees from +X,
+turning left.
+
 ### Bakes
 
 **Bake now** (in the Lighting menu, `edit bake`) bakes the area's
@@ -896,6 +966,11 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit select light N`, `edit select fitted N` | selects a light placed by hand, or the game's (from 0) |
 | `edit light colour R G B`, `radius R`, `cone C`, `strip HALF`, `reason TEXT` | changes the selected light placed by hand |
 | `edit light copy` | copies the selected fitted light as a light placed by hand |
+| `edit add lamp MODEL [MESH] [X Y Z]` | places a lamp: the whole model, or (with `MESH`, a node's name) that one mesh of it. `-` in place of `MESH` names the whole model |
+| `edit select lamp N` | selects the Nth lamp, from 0 |
+| `edit lamp kind room\|placeable`, `edit lamp reason TEXT` | changes the selected lamp |
+| `edit lamps list` | looks through the install at once and lists every lamp the Lamps tab offers |
+| `edit ui tab lamps` | shows the Lamps tab |
 | `edit walk` | saves, then starts play's walk mode lit as the view is |
 | `edit kind strength S`, `reach R`, `colour R G B`, `cone C`, `lamp on`, `lamp off`, `reason TEXT` | changes the kind of the selected fitted light |
 | `edit level ROOM LEVEL`, `edit level ROOM none` | sets or takes away the level a room of the bake aims at |

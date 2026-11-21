@@ -282,6 +282,10 @@ pub struct LoadedScene {
     /// Each placed door and placeable's model index, by its object (its
     /// index in the area's instances): a cutscene moves the ones it names.
     pub instance_models: BTreeMap<u32, usize>,
+    /// The lamps placed by hand (`lamps`), in the order the area lists
+    /// them: each one's model index (`None` for one whose model does not
+    /// read), and whether its glowing texture is a placeable's kind.
+    pub lamps: Vec<(Option<usize>, bool)>,
     /// A module's creatures, to move and animate as the sim has them.
     pub creature_views: Vec<CreatureView>,
     /// In a play scene, every character's weapon models (`weapons::arm`).
@@ -1189,6 +1193,7 @@ pub fn load_model(
         effects: Effects::default(),
         doors: Vec::new(),
         instance_models: BTreeMap::new(),
+        lamps: Vec::new(),
         creature_views: Vec::new(),
         arms: BTreeMap::new(),
         ..LoadedScene::default()
@@ -1446,6 +1451,8 @@ pub fn module_scene(
     }
     missing_models.append(&mut creatures.missing_models);
     laps.lap("creatures");
+    let lamps = crate::lamps::place(resolver, game, module, &mut models);
+    laps.lap("lamps");
     let (mut textures, mut missing) = textures(resolver, &models);
     for room in &own_fx {
         crate::model_fx::add_textures(resolver, (&room.fx, &room.chunks), &mut textures);
@@ -1491,6 +1498,7 @@ pub fn module_scene(
         effects: Effects::default(),
         doors,
         instance_models,
+        lamps,
         creature_views,
         arms: BTreeMap::new(),
         sound: None,

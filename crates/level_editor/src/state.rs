@@ -237,6 +237,9 @@ pub struct EditorState {
     /// Frames since the last edit.
     pub(crate) quiet: u32,
     pub(crate) prop_models: BTreeMap<String, Result<PropModel, String>>,
+    /// The lamps the asset picker offers (`lamps`), found a few models a
+    /// frame.
+    pub(crate) lamp_library: crate::lamps::LampLibrary,
     /// The rooms' copies made so far (`level_edit::map::room_copy`).
     made_rooms: MadeRooms,
     collision: Option<(u64, collision_odyssey::ModuleCollision)>,
@@ -320,6 +323,8 @@ impl EditorState {
                 .map_err(|error| format!("{}: {error}", path.display()))?;
             project.kjk.lights =
                 level_edit::lights::read_placed(&text, &project.game, &project.module)?;
+            project.kjk.lamps =
+                level_edit::lamps::read_lamps(&text, &project.game, &project.module)?;
         }
         // The module's bake, and the levels its rooms aim at.
         let (bake_entry, levels_original) = match &setup.light_data {
@@ -345,6 +350,7 @@ impl EditorState {
             built: u64::MAX,
             quiet: SETTLE_FRAMES,
             prop_models: BTreeMap::new(),
+            lamp_library: Default::default(),
             made_rooms: BTreeMap::new(),
             collision: None,
             show_collision: false,
@@ -835,6 +841,8 @@ pub(crate) fn kind_colour(kind: Kind) -> (&'static str, [u8; 4]) {
 }
 
 const PROP_MARKER: (&str, [u8; 4]) = ("kjk-editor-prop", [120, 200, 255, 255]);
+/// A lamp placed by hand: warm yellow.
+const LAMP_MARKER: (&str, [u8; 4]) = ("kjk-editor-lamp", [255, 210, 90, 255]);
 const ENTRY_MARKER: (&str, [u8; 4]) = ("kjk-editor-entry", [255, 230, 60, 255]);
 const BOX_FILL: (&str, [u8; 4]) = ("kjk-editor-box", [60, 230, 255, 110]);
 const TRIGGER_FILL: (&str, [u8; 4]) = ("kjk-editor-trigger-fill", [80, 220, 255, 70]);
@@ -882,6 +890,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
                 .collect(),
         ),
     );
+    kjk_game::lamps::set_lamps(&module, Some(state.editor.project.kjk.lamps.clone()));
     // The kinds of fitting changed, and the ones changed back.
     let mut kinds = String::new();
     for (key, original) in &state.kind_originals {
@@ -1015,6 +1024,27 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             Some(marker),
         ));
     }
+    // The lamps placed by hand: the scene drew their models
+    // (`kjk_game::lamps`), in the order the project lists them.
+    let lamps = state.editor.project.kjk.lamps.clone();
+    for (at, lamp) in lamps.iter().enumerate() {
+        let marker = scene.models.len();
+        scene.models.push(Placed::at(
+            flat_model("marker", &diamond(MARKER_R), LAMP_MARKER.0, true),
+            lamp.at,
+        ));
+        let models = scene.lamps.get(at).and_then(|(model, _)| *model);
+        if models.is_none() {
+            state.say(format!(
+                "lamp {at} ({}) is not drawn: its model does not read",
+                lamp.label()
+            ));
+        }
+        drawn
+            .things
+            .push((Target::Lamp(at), models.into_iter().collect(), Some(marker)));
+    }
+    textures.push(LAMP_MARKER);
     for (at, shape) in state.editor.project.kjk.boxes.iter().enumerate() {
         let local = CollisionBox {
             centre: [0.0; 3],
@@ -1843,6 +1873,58 @@ pub(crate) fn command(
                 light_shape(shape, at).ok_or("add light takes point, spot, panel or strip")?;
             state.apply(Edit::AddLight(light));
         }
+        ["add", "lamp", model, rest @ ..] => {
+            // `-` names no mesh: the whole model.
+            let (mesh, rest) = match rest {
+                [mesh, rest @ ..] if mesh.parse::<f32>().is_err() => (*mesh, rest),
+                rest => ("-", rest),
+            };
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            let mesh = if mesh == "-" { "" } else { mesh };
+            add_lamp(state, level_edit::PlacedLamp::new(model, mesh, at))?;
+        }
+        ["select", "lamp", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.project.kjk.lamps.len() {
+                return Err(format!("there is no lamp {at}"));
+            }
+            state.editor.selected = Some(Target::Lamp(at));
+        }
+        ["lamp", field, rest @ ..] => {
+            let Target::Lamp(at) = selected(state)? else {
+                return Err("select a lamp first".into());
+            };
+            let mut lamp = state.editor.project.kjk.lamps[at].clone();
+            match (*field, rest) {
+                ("kind", [on @ ("room" | "placeable")]) => lamp.on_placeable = *on == "placeable",
+                ("reason", words) => lamp.reason = words.join(" "),
+                _ => return Err("lamp kind room|placeable or reason TEXT".into()),
+            }
+            state.apply(Edit::SetLamp(at, lamp));
+        }
+        ["lamps", "list"] => {
+            let rooms = state.setup.rooms.iter().map(|room| room.model.clone());
+            state.lamp_library.start(&state.setup.resolver, rooms);
+            let game = state.setup.game.key();
+            state.lamp_library.finish(&state.setup.resolver, game);
+            let lines: Vec<String> = (state.lamp_library.found.iter())
+                .map(|lamp| {
+                    let mesh = if lamp.mesh.is_empty() {
+                        "-"
+                    } else {
+                        &lamp.mesh
+                    };
+                    format!("lamp {} {mesh} ({})", lamp.model, lamp.texture)
+                })
+                .collect();
+            state.say(format!("{} lamps to place", lines.len()));
+            for line in lines {
+                state.say(line);
+            }
+        }
         ["add", "room", model, rest @ ..] => {
             let at = match rest {
                 [] => place_point(state, cameras),
@@ -2419,6 +2501,17 @@ pub(crate) fn light_shape(shape: &str, at: [f32; 3]) -> Option<level_edit::Place
         },
         _ => return None,
     })
+}
+
+/// Adds `lamp`, refused when the install has no such model or the model
+/// has no such mesh.
+pub(crate) fn add_lamp(
+    state: &mut EditorState,
+    lamp: level_edit::PlacedLamp,
+) -> Result<(), String> {
+    kjk_game::lamps::model(&state.setup.resolver, &lamp)?;
+    state.apply(Edit::AddLamp(lamp));
+    Ok(())
 }
 
 /// Starts play's walk mode (`kjk play --walk`) on the project, lit as the
@@ -3341,6 +3434,23 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
             state.say(message);
         }
     }
+    // And its lamps, to the same file.
+    let project = &state.editor.project;
+    if project.map.is_none()
+        && let Some(folder) = &state.setup.light_data
+    {
+        let path = folder.join("fittings.toml");
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        let lamps = &project.kjk.lamps;
+        let had = level_edit::lamps::read_lamps(&text, &project.game, &project.module)?;
+        if had != *lamps {
+            let new = level_edit::lamps::write_lamps(&text, &project.game, &project.module, lamps)?;
+            std::fs::write(&path, new).map_err(|error| format!("{}: {error}", path.display()))?;
+            let message = format!("saved {} lamps to {}", lamps.len(), path.display());
+            state.say(message);
+        }
+    }
     Ok(())
 }
 
@@ -3487,6 +3597,22 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
                 "reason": light.map(|l| l.reason.clone()),
             })
         }
+        Target::Lamp(at) => {
+            let lamp = state.editor.project.kjk.lamps.get(at);
+            let drawn = (state.drawn.things.iter())
+                .any(|(target, models, _)| *target == Target::Lamp(at) && !models.is_empty());
+            serde_json::json!({
+                "kind": "lamp",
+                "index": at,
+                "position": position,
+                "facing": facing,
+                "model": lamp.map(|l| l.model.clone()),
+                "mesh": lamp.map(|l| l.mesh.clone()),
+                "on": lamp.map(|l| if l.on_placeable { "placeable" } else { "room" }),
+                "reason": lamp.map(|l| l.reason.clone()),
+                "drawn": drawn,
+            })
+        }
         Target::Fitted(at) => {
             let seen = state.editor.seen_lights.get(at);
             serde_json::json!({
@@ -3544,6 +3670,8 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
                 "view": format!("{:?}", state.light_view),
                 "bake": state.bake.as_ref().map(|bake| bake.display().to_string()),
                 "placed": (0..project.kjk.lights.len()).map(|at| describe(&state, Target::Light(at))).collect::<Vec<_>>(),
+                "lamps": (0..project.kjk.lamps.len()).map(|at| describe(&state, Target::Lamp(at))).collect::<Vec<_>>(),
+                "lamps_offered": state.lamp_library.found.len(),
                 "fitted": state.editor.seen_lights.len(),
                 "fitted_by_source": state.editor.seen_lights.iter().fold(BTreeMap::<String, usize>::new(), |mut counts, (_, source)| {
                     *counts.entry(source.clone()).or_insert(0) += 1;

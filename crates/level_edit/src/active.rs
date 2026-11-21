@@ -186,3 +186,12 @@ pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]>
     (active.project.map.is_some() && active.project.module.eq_ignore_ascii_case(module))
         .then_some(active.project.kjk.lights.as_slice())
 }
+
+/// The lamps placed by hand in the active project's new map, when `module`
+/// is it: the game draws them in place of `fittings.toml`'s
+/// (`game::lamps`). An installed level's are saved to that file.
+pub fn map_lamps(module: &str) -> Option<&'static [crate::lamps::PlacedLamp]> {
+    let active = get()?;
+    (active.project.map.is_some() && active.project.module.eq_ignore_ascii_case(module))
+        .then_some(active.project.kjk.lamps.as_slice())
+}

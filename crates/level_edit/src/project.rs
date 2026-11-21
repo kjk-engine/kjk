@@ -450,13 +450,15 @@ impl Project {
 
     /// What the project's `kjk-area.toml` holds: its kjk-only content, the
     /// lights placed by hand left out for an installed level, whose lights
-    /// are saved to `data/lights/fittings.toml` (`lights::write_placed`).
+    /// are saved to `data/lights/fittings.toml` (`lights::write_placed`), and
+    /// its lamps likewise (`lamps::write_lamps`).
     pub fn own_kjk(&self) -> KjkArea {
         if self.map.is_some() {
             return self.kjk.clone();
         }
         KjkArea {
             lights: Vec::new(),
+            lamps: Vec::new(),
             ..self.kjk.clone()
         }
     }

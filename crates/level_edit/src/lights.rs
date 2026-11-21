@@ -52,7 +52,7 @@ fn bad(what: impl std::fmt::Display) -> String {
     format!("lights: {what}")
 }
 
-fn number(item: Option<&Item>) -> Option<f32> {
+pub(crate) fn number(item: Option<&Item>) -> Option<f32> {
     let item = item?;
     item.as_float()
         .or_else(|| item.as_integer().map(|value| value as f64))
@@ -60,7 +60,7 @@ fn number(item: Option<&Item>) -> Option<f32> {
         .filter(|value| value.is_finite())
 }
 
-fn triple(item: Option<&Item>) -> Option<[f32; 3]> {
+pub(crate) fn triple(item: Option<&Item>) -> Option<[f32; 3]> {
     let array = item?.as_array()?;
     let values: Vec<f32> = array
         .iter()
@@ -74,7 +74,7 @@ fn triple(item: Option<&Item>) -> Option<[f32; 3]> {
     <[f32; 3]>::try_from(values).ok()
 }
 
-fn text(item: Option<&Item>) -> String {
+pub(crate) fn text(item: Option<&Item>) -> String {
     item.and_then(Item::as_str).unwrap_or("").to_string()
 }
 
@@ -154,22 +154,37 @@ pub(crate) fn blocks(text: &str) -> Vec<String> {
     blocks
 }
 
-/// Whether a `[[placed]]` table is `game`'s and `area`'s.
-fn is_of(table: &Table, game: &str, area: &str) -> bool {
+/// Whether a table of an area (`[[placed]]`, `[[lamp]]`) is `game`'s and
+/// `area`'s.
+pub(crate) fn is_of(table: &Table, game: &str, area: &str) -> bool {
     let field = |key: &str| table.get(key).and_then(Item::as_str).unwrap_or("");
     field("game").eq_ignore_ascii_case(game) && field("area").eq_ignore_ascii_case(area)
+}
+
+/// The tables `key` of a `fittings.toml` text that are `game`'s area
+/// `area`'s (its module, as the game names it).
+pub(crate) fn area_tables(
+    text: &str,
+    key: &str,
+    game: &str,
+    area: &str,
+) -> Result<Vec<Table>, String> {
+    let document: DocumentMut = text.parse().map_err(bad)?;
+    let Some(tables) = document.get(key).and_then(Item::as_array_of_tables) else {
+        return Ok(Vec::new());
+    };
+    Ok(tables
+        .iter()
+        .filter(|table| is_of(table, game, area))
+        .cloned()
+        .collect())
 }
 
 /// The lights a `fittings.toml` text places by hand in `game`'s area
 /// `area` (its module, as the game names it).
 pub fn read_placed(text: &str, game: &str, area: &str) -> Result<Vec<PlacedLight>, String> {
-    let document: DocumentMut = text.parse().map_err(bad)?;
-    let Some(tables) = document.get("placed").and_then(Item::as_array_of_tables) else {
-        return Ok(Vec::new());
-    };
-    tables
+    area_tables(text, "placed", game, area)?
         .iter()
-        .filter(|table| is_of(table, game, area))
         .map(PlacedLight::read)
         .collect()
 }
@@ -185,27 +200,40 @@ pub fn write_placed(
     area: &str,
     lights: &[PlacedLight],
 ) -> Result<String, String> {
+    let head = [("game", game), ("area", area)];
+    let tables: Vec<Table> = lights.iter().map(|light| light.table(&head)).collect();
+    write_area_tables(text, "placed", game, area, &tables)
+}
+
+/// `text` (a `fittings.toml`) with the tables `key` of `game`'s area `area`
+/// replaced by `tables`, as `write_placed` replaces its lights: where the
+/// first of them stood (else after the file's last line), with every other
+/// line kept.
+pub(crate) fn write_area_tables(
+    text: &str,
+    key: &str,
+    game: &str,
+    area: &str,
+    tables: &[Table],
+) -> Result<String, String> {
+    let header = format!("[[{key}]]");
     let mut blocks = blocks(text);
     let ours = |block: &str| {
-        block.trim_start().starts_with("[[placed]]")
+        block.trim_start().starts_with(&header)
             && block
                 .parse::<DocumentMut>()
                 .ok()
                 .and_then(|document| {
-                    let tables = document.get("placed")?.as_array_of_tables()?;
+                    let tables = document.get(key)?.as_array_of_tables()?;
                     Some(tables.iter().any(|table| is_of(table, game, area)))
                 })
                 .unwrap_or(false)
     };
     let first = blocks.iter().position(|block| ours(block));
     blocks.retain(|block| !ours(block));
-    let head = [("game", game), ("area", area)];
-    let new: Vec<String> = lights
+    let new: Vec<String> = tables
         .iter()
-        .map(|light| {
-            let body = light.table(&head).to_string();
-            format!("[[placed]]\n{body}\n")
-        })
+        .map(|table| format!("{header}\n{table}\n"))
         .collect();
     let mut out = String::new();
     let at = first.unwrap_or(blocks.len());

@@ -25,6 +25,8 @@ pub enum Target {
     /// A light the game places itself at a fitting, as the view last drew
     /// it (`Editor::seen_lights`): shown and inspected, not changed.
     Fitted(usize),
+    /// A lamp placed by hand (`KjkArea::lamps`).
+    Lamp(usize),
 }
 
 /// One change to the project.
@@ -66,6 +68,11 @@ pub enum Edit {
     /// A light placed by hand changed (its colour, reach, cone, strip or
     /// reason; `Move` and `Turn` place and aim it).
     SetLight(usize, crate::lights::PlacedLight),
+    /// A lamp placed by hand added (`lamps`).
+    AddLamp(crate::lamps::PlacedLamp),
+    /// A lamp placed by hand changed (its model, mesh, kind or reason;
+    /// `Move` and `Turn` place and turn it).
+    SetLamp(usize, crate::lamps::PlacedLamp),
     /// A door or trigger of another module's area (`Project::others`) led
     /// elsewhere: the area of `module`, its GIT as the install has it
     /// (`base`, read when the project does not hold that area yet), the
@@ -237,6 +244,12 @@ impl Editor {
                 .seen_lights
                 .get(at)
                 .map(|(light, _)| (light.at, aim_facing(light.aim))),
+            Target::Lamp(at) => self
+                .project
+                .kjk
+                .lamps
+                .get(at)
+                .map(|lamp| (lamp.at, lamp.yaw)),
         }
     }
 
@@ -472,6 +485,7 @@ impl Editor {
                         .is_some(),
                     Target::Entry => map.as_mut().map(|map| map.entry = to).is_some(),
                     Target::Light(at) => kjk.lights.get_mut(at).map(|l| l.at = to).is_some(),
+                    Target::Lamp(at) => kjk.lamps.get_mut(at).map(|l| l.at = to).is_some(),
                     Target::Fitted(_) => false,
                 };
                 moved.then_some(Some(target)).ok_or_else(|| missing(target))
@@ -494,6 +508,7 @@ impl Editor {
                     }
                     Target::Prop(at) => kjk.props.get_mut(at).map(|p| p.yaw = degrees).is_some(),
                     Target::Box(at) => kjk.boxes.get_mut(at).map(|b| b.yaw = degrees).is_some(),
+                    Target::Lamp(at) => kjk.lamps.get_mut(at).map(|l| l.yaw = degrees).is_some(),
                     Target::Room(_) | Target::Fitted(_) => false,
                     Target::Entry => map.as_mut().map(|map| map.entry_facing = degrees).is_some(),
                     // A light's aim turns about Z, its height kept; one that
@@ -546,6 +561,11 @@ impl Editor {
                         Ok(Some(Target::Light(kjk.lights.len() - 1)))
                     }
                     Target::Fitted(_) => Err("a fitted light is not copied here".into()),
+                    Target::Lamp(at) => {
+                        let copy = kjk.lamps.get(at).ok_or_else(|| missing(target))?.clone();
+                        kjk.lamps.push(copy);
+                        Ok(Some(Target::Lamp(kjk.lamps.len() - 1)))
+                    }
                 }
             }
             Edit::Delete(target) => {
@@ -565,6 +585,9 @@ impl Editor {
                     Target::Entry => return Err("a map's entry is moved, not deleted".into()),
                     Target::Light(at) => (at < kjk.lights.len())
                         .then(|| kjk.lights.remove(at))
+                        .is_some(),
+                    Target::Lamp(at) => (at < kjk.lamps.len())
+                        .then(|| kjk.lamps.remove(at))
                         .is_some(),
                     Target::Fitted(_) => false,
                 };
@@ -816,6 +839,19 @@ impl Editor {
                     .remove(&area.to_ascii_lowercase())
                     .ok_or(format!("the project does not change {area}"))?;
                 Ok(self.selected)
+            }
+            Edit::AddLamp(lamp) => {
+                crate::lamps::problem(&lamp)?;
+                kjk.lamps.push(lamp);
+                Ok(Some(Target::Lamp(kjk.lamps.len() - 1)))
+            }
+            Edit::SetLamp(at, lamp) => {
+                crate::lamps::problem(&lamp)?;
+                let slot = (kjk.lamps)
+                    .get_mut(at)
+                    .ok_or_else(|| missing(Target::Lamp(at)))?;
+                *slot = lamp;
+                Ok(Some(Target::Lamp(at)))
             }
             Edit::SetLight(at, light) => {
                 light_problem(&light)?;

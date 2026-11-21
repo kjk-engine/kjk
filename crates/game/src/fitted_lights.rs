@@ -120,6 +120,12 @@ fn data_text(name: &str, built_in: &'static str) -> std::borrow::Cow<'static, st
         )
 }
 
+/// The text of the light data's `fittings.toml` (`data_text`): its
+/// `[[placed]]` lights, and the `[[lamp]]` tables `lamps` reads.
+pub(crate) fn fittings_text() -> std::borrow::Cow<'static, str> {
+    data_text("fittings.toml", FITTINGS)
+}
+
 /// The lights placed by hand that a program sets for an area in place of
 /// `fittings.toml`'s (`set_placed`), by the area's name in lower case.
 static PLACED: std::sync::RwLock<BTreeMap<String, Vec<Light>>> =
@@ -447,6 +453,25 @@ fn kinds() -> std::sync::Arc<[Kinds; 2]> {
     read
 }
 
+/// Whether `texture` is a kind of lamp in `game`'s data (`k1` or `tsl`),
+/// as a fitting of placeables (`on_placeable`) or of rooms. `Some` holds
+/// whether it shines where its mesh does not glow (the kind's `always`).
+/// `None` is a texture the data names as no lamp, or does not name. The
+/// level editor lists the lamps to place by it.
+pub fn lamp_kind(game: &str, texture: &str, on_placeable: bool) -> Option<bool> {
+    let index = match game {
+        "k1" => 0,
+        "tsl" => 1,
+        _ => return None,
+    };
+    let all = kinds();
+    let key = (texture.to_ascii_lowercase(), on_placeable);
+    match all[index].get(&key) {
+        Some(Some(kind)) => Some(kind.always),
+        _ => None,
+    }
+}
+
 /// Puts the `[[kind]]` entries of `text` (in the layout of
 /// `data/lights/<game>.toml`) in place of `game`'s (`k1` or `tsl`) entries
 /// for the same kinds, in the scenes drawn from now on. The level editor
@@ -705,8 +730,14 @@ fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, b
     let doors: BTreeSet<usize> = loaded.doors.iter().map(|door| door.model).collect();
     // The doors are among them. A door sheds light only as a force field
     // (`FIELD_CHROMA`).
+    // A lamp placed by hand counts as a placeable's model or a room's by its
+    // kind (`lamps`); it is never a room of the layout.
+    let lamps: BTreeMap<usize, bool> = (loaded.lamps.iter())
+        .filter_map(|&(model, on)| Some((model?, on)))
+        .collect();
     let placeables: BTreeSet<usize> = (loaded.instance_models.values().copied())
         .chain(doors.iter().copied())
+        .chain(lamps.iter().filter(|(_, on)| **on).map(|(model, _)| *model))
         .collect();
     let room_of = |model: usize| (loaded.rooms.iter()).position(|room| room.model == Some(model));
     // The glowing meshes of rooms and placeables: the model, the mesh,
@@ -738,7 +769,9 @@ fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, b
         }
     }
     let glowing: Vec<(usize, usize, bool)> = (loaded.models.iter().enumerate())
-        .filter(|(model, _)| room_of(*model).is_some() || placeables.contains(model))
+        .filter(|(model, _)| {
+            room_of(*model).is_some() || placeables.contains(model) || lamps.contains_key(model)
+        })
         .flat_map(|(model, placed)| {
             let on = placeables.contains(&model);
             let switched = &switched;
@@ -834,7 +867,10 @@ fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, b
             mesh.uv2.len() == mesh.positions.len() && loaded.textures.contains_key(name)
         });
         let bright = (read.as_ref()).is_some_and(|(_, share)| *share >= BRIGHT_SHARE);
-        if !(lightmapped || bright || kind.dark) {
+        // A lamp placed by hand is there to shine, though it has no
+        // lightmap.
+        let lamp = lamps.contains_key(&model);
+        if !(lightmapped || bright || kind.dark || lamp) {
             continue;
         }
         let texture = read.as_ref().map(|(texture, _)| texture);

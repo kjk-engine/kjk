@@ -363,6 +363,7 @@ pub fn compose(
     );
     let (mut fog, mut cameras, mut cutscene_models) = (None, Vec::new(), BTreeMap::new());
     let mut instance_models = BTreeMap::new();
+    let mut lamps = Vec::new();
     let mut pull_backs = Vec::new();
     let mut map = None;
     let mut own_fx = Vec::new();
@@ -388,6 +389,7 @@ pub fn compose(
         weather = module.weather;
         doors = module.doors;
         instance_models = module.instance_models;
+        lamps = module.lamps;
         pull_backs = module.pull_backs;
         map = module.map;
         creature_views = module.creature_views;
@@ -452,6 +454,7 @@ pub fn compose(
         effects: viewer::Effects::default(),
         doors,
         instance_models,
+        lamps,
         creature_views,
         arms,
         grass,

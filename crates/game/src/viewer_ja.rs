@@ -724,6 +724,7 @@ pub fn load(
         effects: crate::viewer::Effects::default(),
         doors: Vec::new(),
         instance_models: BTreeMap::new(),
+        lamps: Vec::new(),
         creature_views: Vec::new(),
         arms: BTreeMap::new(),
         ..LoadedScene::default()

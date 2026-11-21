@@ -40,6 +40,10 @@ pub struct KjkArea {
     /// `[[light]]` tables; an installed level's are saved to
     /// `data/lights/fittings.toml` instead (`Project::save`).
     pub lights: Vec<crate::lights::PlacedLight>,
+    /// The lamps placed by hand (`lamps`), kept as the lights are: a new
+    /// map's here as `[[lamp]]` tables, an installed level's in
+    /// `data/lights/fittings.toml`.
+    pub lamps: Vec<crate::lamps::PlacedLamp>,
 }
 
 /// A Jedi Academy model placed in the area.
@@ -334,6 +338,10 @@ impl KjkArea {
             area.lights
                 .push(crate::lights::PlacedLight::read(table).map_err(bad)?);
         }
+        for table in tables("lamp") {
+            area.lamps
+                .push(crate::lamps::PlacedLamp::read(table).map_err(bad)?);
+        }
         Ok(area)
     }
 
@@ -372,6 +380,9 @@ impl KjkArea {
         }
         for light in &self.lights {
             out.push_str(&format!("\n[[light]]\n{}", light.table(&[])));
+        }
+        for lamp in &self.lamps {
+            out.push_str(&format!("\n[[lamp]]\n{}", lamp.table(&[])));
         }
         out
     }

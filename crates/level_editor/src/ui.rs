@@ -45,6 +45,7 @@ pub enum Tool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Lights,
+    Lamps,
     Rooms,
     Placeables,
     Creatures,
@@ -391,6 +392,10 @@ fn thumbnail(
         AssetKind::Door => resolver.read(name, fmt_odyssey::ResType::UTD)?,
         AssetKind::Prop => level_edit::active::ja_read(state.setup.ja.as_ref()?, name).ok()?,
         AssetKind::Room => resolver.read(name, fmt_odyssey::ResType::MDL)?,
+        AssetKind::Lamp => {
+            let (model, _) = crate::lamps::LampAsset::of_key(name);
+            resolver.read(&model, fmt_odyssey::ResType::MDL)?
+        }
     };
     let key = thumbs::key(state.setup.game.key(), kind, name, &source);
     if let Some(bytes) = store.and_then(|store| store.get(thumbs::STORE_KIND, &key))
@@ -425,6 +430,12 @@ fn thumbnail(
         AssetKind::Room => {
             let ir = kjk_game::viewer::model(resolver, name).ok()??;
             thumbs::of_room(resolver, &kjk_game::viewer::Placed::at(ir, [0.0; 3]))
+        }
+        AssetKind::Lamp => {
+            let (model, mesh) = crate::lamps::LampAsset::of_key(name);
+            let lamp = level_edit::PlacedLamp::new(&model, &mesh, [0.0; 3]);
+            let ir = kjk_game::lamps::model(resolver, &lamp).ok()?;
+            thumbs::of_models(resolver, &[kjk_game::viewer::Placed::at(ir, [0.0; 3])])
         }
     }?;
     if let Some(store) = store {
@@ -489,6 +500,7 @@ fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform
         | Target::Room(_)
         | Target::Entry
         | Target::Light(_)
+        | Target::Lamp(_)
         | Target::Fitted(_) => Vec3::ONE,
     };
     let p = Vec3::from_array(position).as_dvec3();
@@ -545,6 +557,7 @@ fn gizmo_edits(target: Target, result: &GizmoResult, moved: &GizmoTransform) -> 
                 | Target::Room(_)
                 | Target::Entry
                 | Target::Light(_)
+                | Target::Lamp(_)
                 | Target::Fitted(_) => Vec::new(),
             }
         }
@@ -574,9 +587,14 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
         (Tool::Scale, Target::Box(_)) => {
             Some(GizmoMode::ScaleX | GizmoMode::ScaleY | GizmoMode::ScaleZ)
         }
-        (Tool::Scale, Target::Object(..) | Target::Room(_) | Target::Entry | Target::Light(_)) => {
-            None
-        }
+        (
+            Tool::Scale,
+            Target::Object(..)
+            | Target::Room(_)
+            | Target::Entry
+            | Target::Light(_)
+            | Target::Lamp(_),
+        ) => None,
         (_, Target::Fitted(_)) => None,
     }
 }
@@ -650,6 +668,13 @@ fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3], snapping: bool) {
                 state.apply(Edit::AddLight(light));
             }
         }
+        Asset::Template(AssetKind::Lamp, key) => {
+            let (model, mesh) = crate::lamps::LampAsset::of_key(key);
+            let lamp = level_edit::PlacedLamp::new(&model, &mesh, at);
+            if let Err(why) = state::add_lamp(state, lamp) {
+                state.say(why);
+            }
+        }
         Asset::Shape(at_shape) => {
             let (stem, size, role) = SHAPES[*at_shape];
             let name = state
@@ -709,6 +734,7 @@ fn panels(
             ["tab", "stores"] => ui.tab = Tab::Stores,
             ["tab", "encounters"] => ui.tab = Tab::Encounters,
             ["tab", "lights"] => ui.tab = Tab::Lights,
+            ["tab", "lamps"] => ui.tab = Tab::Lamps,
             ["levels", on @ ("on" | "off")] => state.show_levels = *on == "on",
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
             ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
@@ -1284,6 +1310,30 @@ fn outliner(
                             }
                         });
                 }
+                // The lamps placed by hand.
+                let lamps: Vec<(usize, String)> = (state.editor.project.kjk.lamps)
+                    .iter()
+                    .enumerate()
+                    .map(|(at, lamp)| (at, format!("{at}: {}", lamp.label())))
+                    .filter(|(_, text)| matches(text))
+                    .collect();
+                if !lamps.is_empty() {
+                    egui::CollapsingHeader::new(format!("Lamps ({})", lamps.len()))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            for (at, text) in lamps {
+                                let target = Target::Lamp(at);
+                                let row = ui
+                                    .selectable_label(state.editor.selected == Some(target), text);
+                                if row.clicked() {
+                                    clicked = Some((target, false));
+                                }
+                                if row.double_clicked() {
+                                    clicked = Some((target, true));
+                                }
+                            }
+                        });
+                }
             });
             if let Some((target, frame)) = clicked {
                 state.editor.selected = Some(target);
@@ -1514,6 +1564,15 @@ fn details(
                                             ui.label(format!("{:.1} m each way", light.half));
                                             ui.end_row();
                                         }
+                                    }
+                                }
+                                Target::Lamp(at) => {
+                                    if let Some(lamp) =
+                                        state.editor.project.kjk.lamps.get(at).cloned()
+                                    {
+                                        lamp_rows(ui, &lamp, &mut |changed| {
+                                            edits.push(Edit::SetLamp(at, changed))
+                                        });
                                     }
                                 }
                                 Target::Object(..) | Target::Room(_) | Target::Entry => {}
@@ -4610,6 +4669,7 @@ fn assets(
                     (Tab::Stores, "Stores"),
                     (Tab::Encounters, "Encounters"),
                     (Tab::Lights, "Lights"),
+                    (Tab::Lamps, "Lamps"),
                 ]) {
                     if ui.selectable_value(&mut ui_state.tab, tab, label).changed() {
                         ui_state.thumbnails.forget_wanted();
@@ -4622,6 +4682,11 @@ fn assets(
                         .desired_width(220.0),
                 );
                 ui.label("Drag into the view, or double-click to place at the view's centre.");
+                if ui_state.tab == Tab::Lamps
+                    && let Some((looked, of)) = state.lamp_library.progress()
+                {
+                    ui.label(format!("Looking for lamps: {looked} of {of} models"));
+                }
             });
             let search = ui_state.asset_search.to_ascii_lowercase();
             let items: Vec<(Asset, String)> = match ui_state.tab {
@@ -4692,6 +4757,19 @@ fn assets(
                         )
                     })
                     .collect(),
+                Tab::Lamps => {
+                    let rooms = state.setup.rooms.iter().map(|room| room.model.clone());
+                    state.lamp_library.start(&state.setup.resolver, rooms);
+                    state
+                        .lamp_library
+                        .step(&state.setup.resolver, state.setup.game.key());
+                    if state.lamp_library.progress().is_some() {
+                        ctx.request_repaint();
+                    }
+                    (state.lamp_library.found.iter())
+                        .map(|lamp| (Asset::Template(AssetKind::Lamp, lamp.key()), lamp.label()))
+                        .collect()
+                }
                 Tab::Lights => LIGHT_SHAPES
                     .iter()
                     .map(|(shape, label)| (Asset::Light(shape), label.to_string()))
@@ -5380,6 +5458,42 @@ fn light_rows(
     ui.end_row();
     if touched {
         changed(light);
+    }
+}
+
+/// The details of a lamp placed by hand: its model and mesh, which kind of
+/// fitting its texture is read as, and the reason it is there.
+fn lamp_rows(
+    ui: &mut egui::Ui,
+    lamp: &level_edit::PlacedLamp,
+    changed: &mut dyn FnMut(level_edit::PlacedLamp),
+) {
+    let mut lamp = lamp.clone();
+    let mut touched = false;
+    ui.label("Mesh");
+    ui.label(if lamp.mesh.is_empty() {
+        "the whole model"
+    } else {
+        lamp.mesh.as_str()
+    });
+    ui.end_row();
+    ui.label("Kind of").on_hover_text(
+        "Whether the fitted lights read its glowing texture as a room's fitting or a placeable's",
+    );
+    ui.horizontal(|ui| {
+        touched |= ui
+            .radio_value(&mut lamp.on_placeable, false, "room")
+            .changed();
+        touched |= ui
+            .radio_value(&mut lamp.on_placeable, true, "placeable")
+            .changed();
+    });
+    ui.end_row();
+    ui.label("Reason");
+    touched |= ui.text_edit_singleline(&mut lamp.reason).changed();
+    ui.end_row();
+    if touched {
+        changed(lamp);
     }
 }
 

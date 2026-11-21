@@ -33,6 +33,8 @@ pub enum AssetKind {
     Room,
     /// A door template (`.utd`).
     Door,
+    /// A lamp to place by hand (`lamps::LampAsset::key`).
+    Lamp,
 }
 
 impl AssetKind {
@@ -43,6 +45,7 @@ impl AssetKind {
             AssetKind::Prop => "prop",
             AssetKind::Room => "room",
             AssetKind::Door => "door",
+            AssetKind::Lamp => "lamp",
         }
     }
 }
