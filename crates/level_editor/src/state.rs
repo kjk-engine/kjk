@@ -213,7 +213,9 @@ fn measure_rooms(scene: &LoadedScene) -> Vec<RoomMeasure> {
 
 /// The files of a room's copy, by the copy's name, the room's model and
 /// how far the room moved (as bits).
-type MadeRooms = BTreeMap<(String, String, [u32; 3]), Vec<(String, ResType, Vec<u8>)>>;
+/// The rooms' copies by their name, their model, and how far they moved
+/// and turned (each as bits).
+type MadeRooms = BTreeMap<(String, String, [u32; 4]), Vec<(String, ResType, Vec<u8>)>>;
 
 /// What a scene's drawing placed for each thing the project holds.
 #[derive(Default)]
@@ -223,6 +225,9 @@ pub(crate) struct Drawn {
     pub(crate) things: Vec<(Target, Vec<usize>)>,
     /// The collision overlay's model, when drawn.
     pub(crate) overlay: Option<usize>,
+    /// Each new map room's yaw as its copy was drawn turned: a room turned
+    /// since is shown turned by the difference (`follow`).
+    pub(crate) room_yaws: Vec<f32>,
 }
 
 /// The editor's state.
@@ -591,7 +596,11 @@ impl EditorState {
         for (index, room) in rooms.iter().enumerate() {
             let name = level_edit::map::room_name(&module, index);
             let by: [f32; 3] = std::array::from_fn(|axis| room.position[axis] - room.from[axis]);
-            let key = (name.clone(), room.model.clone(), by.map(f32::to_bits));
+            let key = (
+                name.clone(),
+                room.model.clone(),
+                [by[0], by[1], by[2], room.yaw].map(f32::to_bits),
+            );
             if !self.made_rooms.contains_key(&key) {
                 let resolver = &self.setup.resolver;
                 let read = |name: &str, restype: ResType| resolver.read(name, restype);
@@ -1078,6 +1087,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
                 .into_iter()
                 .collect();
             drawn.things.push((Target::Room(at), models));
+            drawn.room_yaws.push(map.rooms[at].yaw);
         }
     }
 
@@ -1320,6 +1330,12 @@ pub(crate) fn follow(
         let Some((position, facing)) = state.editor.placement(*target) else {
             continue;
         };
+        // A room's copy was drawn turned already: it turns by what it has
+        // turned since.
+        let facing = match target {
+            Target::Room(at) => facing - state.drawn.room_yaws.get(*at).copied().unwrap_or(facing),
+            _ => facing,
+        };
         // A lamp's pitch and roll as it has them now, not as it was drawn.
         let tilt = match target {
             Target::Lamp(at) => Some(
@@ -1526,8 +1542,7 @@ pub(crate) fn room_walkmesh(state: &EditorState, at: usize) -> Option<fmt_odysse
     let room = state.editor.project.map.as_ref()?.rooms.get(at)?;
     let bytes = state.setup.resolver.read(&room.model, ResType::WOK)?;
     let walkmesh = fmt_odyssey::bwm::Walkmesh::parse(&bytes).ok()?;
-    let by: [f32; 3] = std::array::from_fn(|axis| room.position[axis] - room.from[axis]);
-    Some(walkmesh.moved(by))
+    Some(room.placed(&walkmesh))
 }
 
 /// Moves the new map's room `at` so that an edge of its floor meets the
@@ -1604,6 +1619,7 @@ pub(crate) fn add_room(state: &mut EditorState, model: &str, at: [f32; 3]) -> Re
         model: found.model.clone(),
         from: found.from,
         position,
+        yaw: 0.0,
     }));
     Ok(())
 }

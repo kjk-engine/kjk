@@ -228,7 +228,7 @@ impl Editor {
                 .map
                 .as_ref()
                 .and_then(|map| map.rooms.get(at))
-                .map(|room| (room.position, 0.0)),
+                .map(|room| (room.position, room.yaw)),
             Target::Entry => self
                 .project
                 .map
@@ -495,9 +495,6 @@ impl Editor {
                 if let Target::Object(Kind::Trigger | Kind::Encounter, _) = target {
                     return Err("a trigger's or an encounter's outline does not turn".into());
                 }
-                if let Target::Room(_) = target {
-                    return Err("a room does not turn: the layout places rooms unturned".into());
-                }
                 if !degrees.is_finite() {
                     return Err("a facing must be finite".into());
                 }
@@ -509,7 +506,13 @@ impl Editor {
                     Target::Prop(at) => kjk.props.get_mut(at).map(|p| p.yaw = degrees).is_some(),
                     Target::Box(at) => kjk.boxes.get_mut(at).map(|b| b.yaw = degrees).is_some(),
                     Target::Lamp(at) => kjk.lamps.get_mut(at).map(|l| l.yaw = degrees).is_some(),
-                    Target::Room(_) | Target::Fitted(_) => false,
+                    // The room's copy is turned (`map::room_copy`).
+                    Target::Room(at) => map
+                        .as_mut()
+                        .and_then(|map| map.rooms.get_mut(at))
+                        .map(|room| room.yaw = degrees)
+                        .is_some(),
+                    Target::Fitted(_) => false,
                     Target::Entry => map.as_mut().map(|map| map.entry_facing = degrees).is_some(),
                     // A light's aim turns about Z, its height kept; one that
                     // shines all ways or straight down takes a level aim.
@@ -878,6 +881,7 @@ impl Editor {
                     .position
                     .iter()
                     .chain(&room.from)
+                    .chain(std::iter::once(&room.yaw))
                     .all(|value| value.is_finite())
                 {
                     return Err("a position must be finite".into());

@@ -635,9 +635,7 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
         (Tool::Move, _) => Some(GizmoMode::all_from_kind(GizmoModeKind::Translate)),
         // Everything turns about Z alone but a lamp, which is kjk's own and
         // turns on every axis.
-        (Tool::Rotate, Target::Object(Kind::Trigger | Kind::Encounter, _) | Target::Room(_)) => {
-            None
-        }
+        (Tool::Rotate, Target::Object(Kind::Trigger | Kind::Encounter, _)) => None,
         (Tool::Rotate, Target::Lamp(_)) => {
             Some(GizmoMode::RotateX | GizmoMode::RotateY | GizmoMode::RotateZ)
         }
@@ -1499,9 +1497,12 @@ fn details(
                                 }
                             });
                             ui.end_row();
-                            // A room does not turn: the layout places rooms
-                            // unturned.
-                            if !matches!(target, Target::Room(_)) {
+                            // A trigger's or an encounter's outline does not
+                            // turn.
+                            if !matches!(
+                                target,
+                                Target::Object(Kind::Trigger | Kind::Encounter, _)
+                            ) {
                                 ui.label("Facing");
                                 let response = ui.add(
                                     egui::DragValue::new(&mut facing)

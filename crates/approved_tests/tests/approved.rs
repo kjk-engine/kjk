@@ -7015,9 +7015,9 @@ fn level_edit_nav_edits() {
 /// AABB boxes move with it and its edges lead nowhere. A model renamed has
 /// the new name in its header and is otherwise the same. A new map's
 /// project takes the base area's ARE and the GIT's area properties. The
-/// editor adds two rooms, moves, copies and deletes them, and moves and
-/// turns the entry; turning a room and deleting the entry are refused, and
-/// so is a room in a project that makes no map. Saved, the module's archive
+/// editor adds two rooms, moves, copies, turns and deletes them, and moves
+/// and turns the entry; deleting the entry is refused, and so is a room in
+/// a project that makes no map. Saved, the module's archive
 /// holds `module.ifo` with the entry, the layout with each room's copy at
 /// its place, the visibility, and each room's renamed model, its MDX and
 /// its walkmesh moved by how far the room moved. The ARE's rooms are the
@@ -7126,6 +7126,7 @@ fn level_edit_new_map() {
         model: model.into(),
         from,
         position,
+        yaw: 0.0,
     };
     editor
         .apply(Edit::AddRoom(room("room_a", [11.0, 21.0, 0.0], [0.0; 3])))
@@ -7139,7 +7140,11 @@ fn level_edit_new_map() {
     editor.apply(Edit::Duplicate(Target::Room(0))).unwrap();
     assert_eq!(editor.selected, Some(Target::Room(2)));
     editor.apply(Edit::Delete(Target::Room(2))).unwrap();
-    assert!(editor.apply(Edit::Turn(Target::Room(0), 90.0)).is_err());
+    // A room turns, by its yaw (turned in its copy, `level_edit_turned_rooms`).
+    editor.apply(Edit::Turn(Target::Room(0), 90.0)).unwrap();
+    assert_eq!(editor.project.map.as_ref().unwrap().rooms[0].yaw, 90.0);
+    assert!(editor.undo());
+    assert_eq!(editor.project.map.as_ref().unwrap().rooms[0].yaw, 0.0);
     assert!(editor.apply(Edit::Delete(Target::Entry)).is_err());
     editor
         .apply(Edit::Move(Target::Entry, [1.0, 1.0, 1.0]))
@@ -7250,6 +7255,255 @@ fn level_edit_new_map() {
         "a new map of 2 rooms: {} files in its module",
         erf.entries.len()
     );
+}
+
+/// A new map's room turned by any angle (`docs/LEVEL-EDIT.md`, "New maps"):
+/// its walkmesh turned round its old place and moved, a point found on the
+/// same face before and after, the AABB tree's boxes round their faces
+/// again; its model turned in a copy (`fmt_odyssey::mdl::turned`), on a
+/// model the test makes; a packed orientation that reads back; and the
+/// room's yaw kept by the map's file. No installs.
+#[test]
+fn level_edit_turned_rooms() {
+    use fmt_odyssey::bwm::{AabbEntry, WalkFace, Walkmesh};
+    use level_edit::Room;
+    use level_edit::map::NewMap;
+
+    // A square 2 m wide from (0, 0) with two faces, and a tree of a root
+    // and two leaves.
+    let face = |vertices: [u32; 3]| WalkFace {
+        vertices,
+        material: 4,
+        normal: [0.0, 0.0, 1.0],
+        distance: 0.0,
+    };
+    let leaf = |face: i32| AabbEntry {
+        bounds: [0.0; 6],
+        face,
+        word: 0,
+        plane: 0,
+        children: [u32::MAX, u32::MAX],
+    };
+    let walkmesh = Walkmesh {
+        area: true,
+        use_positions: [[0.0; 3]; 4],
+        position: [0.0; 3],
+        vertices: vec![
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [2.0, 2.0, 0.0],
+            [0.0, 2.0, 0.0],
+        ],
+        faces: vec![face([0, 1, 2]), face([0, 2, 3])],
+        aabb: vec![
+            AabbEntry {
+                bounds: [0.0; 6],
+                face: -1,
+                word: 0,
+                plane: 1,
+                children: [1, 2],
+            },
+            leaf(0),
+            leaf(1),
+        ],
+        adjacency: vec![[-1, -1, 1], [0, -1, -1]],
+        edges: vec![(0, 7), (1, -1), (4, -1), (5, -1)],
+        perimeters: vec![4],
+        aabb_word: 0,
+    };
+    // The face holding a point, by its corners (seen from above).
+    let face_at = |mesh: &Walkmesh, point: [f32; 2]| {
+        mesh.faces.iter().position(|face| {
+            let corner = |at: usize| mesh.vertices[face.vertices[at] as usize];
+            let side = |a: [f32; 3], b: [f32; 3]| {
+                (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0])
+            };
+            let sides = [
+                side(corner(0), corner(1)),
+                side(corner(1), corner(2)),
+                side(corner(2), corner(0)),
+            ];
+            sides.iter().all(|s| *s >= -1e-4) || sides.iter().all(|s| *s <= 1e-4)
+        })
+    };
+    let room = Room {
+        model: "room_a".into(),
+        from: [1.0, 1.0, 0.0],
+        position: [10.0, 20.0, 5.0],
+        yaw: 90.0,
+    };
+    let turned = room.placed(&walkmesh);
+    // (1.5, 0.5) is 0.5 east and 0.5 south of the room's middle; turned a
+    // quarter left it is 0.5 north and 0.5 east of the new place.
+    assert_eq!(face_at(&walkmesh, [1.5, 0.5]), Some(0));
+    assert_eq!(face_at(&turned, [10.5, 20.5]), Some(0));
+    assert_eq!(face_at(&walkmesh, [0.5, 1.5]), Some(1));
+    assert_eq!(face_at(&turned, [9.5, 19.5]), Some(1));
+    for (vertex, at) in
+        turned
+            .vertices
+            .iter()
+            .zip([[11.0, 19.0], [11.0, 21.0], [9.0, 21.0], [9.0, 19.0]])
+    {
+        assert!(
+            (vertex[0] - at[0]).abs() < 1e-5 && (vertex[1] - at[1]).abs() < 1e-5,
+            "{vertex:?}"
+        );
+        assert_eq!(vertex[2], 5.0);
+    }
+    for face in &turned.faces {
+        let corner = turned.vertices[face.vertices[0] as usize];
+        let on: f32 = (0..3)
+            .map(|axis| face.normal[axis] * corner[axis])
+            .sum::<f32>()
+            + face.distance;
+        assert!(on.abs() < 1e-4, "each corner is on its face's plane");
+    }
+    let root = turned.aabb[0].bounds;
+    assert!(
+        (root[0] - 9.0).abs() < 1e-5 && (root[3] - 11.0).abs() < 1e-5,
+        "{root:?}"
+    );
+    assert!(
+        (root[1] - 19.0).abs() < 1e-5 && (root[4] - 21.0).abs() < 1e-5,
+        "{root:?}"
+    );
+    assert!(turned.edges.iter().all(|(_, transition)| *transition == -1));
+    assert_eq!(turned.adjacency, walkmesh.adjacency);
+    // Any angle: a point keeps its face, and the boxes hold their faces.
+    let odd = Room {
+        yaw: 37.0,
+        ..room.clone()
+    }
+    .placed(&walkmesh);
+    let (sin, cos) = collision::trig::sin_cos_deg(37.0);
+    let image = |p: [f32; 2]| {
+        let (x, y) = (p[0] - 1.0, p[1] - 1.0);
+        [10.0 + cos * x - sin * y, 20.0 + sin * x + cos * y]
+    };
+    assert_eq!(face_at(&odd, image([1.5, 0.5])), Some(0));
+    assert_eq!(face_at(&odd, image([0.5, 1.5])), Some(1));
+    for (entry, face) in odd.aabb.iter().skip(1).zip(&odd.faces) {
+        for corner in face.vertices {
+            let point = odd.vertices[corner as usize];
+            for (axis, value) in point.iter().enumerate() {
+                assert!(entry.bounds[axis] <= value + 1e-5);
+                assert!(entry.bounds[axis + 3] >= value - 1e-5);
+            }
+        }
+    }
+    // Not turned, the room's walkmesh is only moved, as before.
+    let still = Room {
+        yaw: 0.0,
+        ..room.clone()
+    }
+    .placed(&walkmesh);
+    assert_eq!(still, walkmesh.moved([9.0, 19.0, 5.0]));
+
+    // A model of a root and one child, the child 1 m east of the origin
+    // with a position and an orientation controller, and a box round it.
+    const DATA: usize = 12;
+    let mut model = vec![0u8; DATA + 700];
+    let put = |model: &mut Vec<u8>, at: usize, word: u32| {
+        model[DATA + at..DATA + at + 4].copy_from_slice(&word.to_le_bytes());
+    };
+    let float = |model: &Vec<u8>, at: usize| {
+        f32::from_le_bytes(model[DATA + at..DATA + at + 4].try_into().unwrap())
+    };
+    put(&mut model, 40, 200); // the root node
+    for (at, value) in [
+        (104, -1.0f32),
+        (108, -2.0),
+        (112, 0.0),
+        (116, 1.0),
+        (120, 2.0),
+        (124, 3.0),
+    ] {
+        put(&mut model, at, value.to_bits()); // the bounding box
+    }
+    put(&mut model, 200 + 44, 300); // the root's children
+    put(&mut model, 200 + 48, 1);
+    put(&mut model, 300, 400);
+    let child = 400;
+    put(&mut model, child + 16, 1.0f32.to_bits()); // its place
+    put(&mut model, child + 28, 1.0f32.to_bits()); // its orientation's w
+    put(&mut model, child + 56, 500); // its controller keys
+    put(&mut model, child + 60, 2);
+    put(&mut model, child + 68, 600); // its controller data
+    put(&mut model, child + 72, 8);
+    put(&mut model, 500, 8); // position: 1 row, its values from 1, 3 columns
+    put(&mut model, 504, 1 << 16);
+    put(&mut model, 508, 1 << 16);
+    model[DATA + 512] = 3;
+    put(&mut model, 516, 20); // orientation: 1 row, its values from 4, 4 columns
+    put(&mut model, 520, 1 << 16);
+    put(&mut model, 524, 4 << 16);
+    model[DATA + 528] = 4;
+    for (i, value) in [0.0f32, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        .into_iter()
+        .enumerate()
+    {
+        put(&mut model, 600 + i * 4, value.to_bits());
+    }
+    let turned = fmt_odyssey::mdl::turned(&model, (1.0, 0.0)).unwrap();
+    let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+    let half = std::f32::consts::FRAC_1_SQRT_2;
+    // The child's place in its header and its controller: 1 m north.
+    assert!(near(float(&turned, child + 16), 0.0) && near(float(&turned, child + 20), 1.0));
+    assert!(near(float(&turned, 604), 0.0) && near(float(&turned, 608), 1.0));
+    // Its orientation: a quarter turn about Z, (w, x, y, z) in the header
+    // and (x, y, z, w) in the controller.
+    assert!(near(float(&turned, child + 28), half) && near(float(&turned, child + 40), half));
+    assert!(near(float(&turned, 616), 0.0) && near(float(&turned, 620), 0.0));
+    assert!(near(float(&turned, 624), half) && near(float(&turned, 628), half));
+    // The box round the turned box, its height as it was.
+    for (at, value) in [
+        (104, -2.0),
+        (108, -1.0),
+        (112, 0.0),
+        (116, 2.0),
+        (120, 1.0),
+        (124, 3.0),
+    ] {
+        assert!(
+            near(float(&turned, at), value),
+            "{at}: {}",
+            float(&turned, at)
+        );
+    }
+    // The root and everything else stays as it was.
+    assert_eq!(&turned[..DATA + 104], &model[..DATA + 104]);
+    assert_eq!(turned.len(), model.len());
+
+    // A packed orientation reads back within the packing's steps.
+    for q in [
+        [0.0f32, 0.0, half, -half],
+        [0.6, 0.0, 0.0, -0.8],
+        [0.0, 0.0, half, half],
+    ] {
+        let back = fmt_odyssey::mdl::unpack_quaternion(fmt_odyssey::mdl::pack_quaternion(q));
+        let dot: f32 = (0..4).map(|i| q[i] * back[i]).sum();
+        assert!(dot.abs() > 0.999, "{q:?} read back as {back:?}");
+    }
+
+    // The map's file keeps a room's yaw, and leaves it out at 0.
+    let are = fmt_odyssey::gff::Gff {
+        file_type: *b"ARE ",
+        root: level_edit::git::empty().root,
+    };
+    let mut map = NewMap::new("Turned", "danm14aa", "kjetest", are.clone());
+    map.rooms.push(Room {
+        yaw: 37.5,
+        ..room.clone()
+    });
+    map.rooms.push(Room {
+        yaw: 0.0,
+        ..room.clone()
+    });
+    let text = map.write();
+    assert_eq!(text.matches("yaw = ").count(), 1, "{text}");
+    let read = NewMap::parse(&text, are).unwrap();
+    assert_eq!(read.rooms, map.rooms);
 }
 
 /// The level editor's data (`level_edit`, proposed 2026-11-19, awaiting

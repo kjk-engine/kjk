@@ -86,8 +86,13 @@ and so are its music and ambient sound (its GIT's area properties).
   each room of every area's layout, its thumbnail seen from above. A room
   is placed by dragging or double-clicking it, with its floor's middle where
   the view meets the level, else a few metres ahead. Rooms are moved,
-  copied and deleted like objects, with undo. They do not turn, since the
-  layout places rooms unturned. KOTOR 2's rooms are listed the same way:
+  turned, copied and deleted like objects, with undo. A room turns about
+  Z by any angle, with the Rotate tool or its Facing field. The layout
+  cannot turn a room, so the room's copy is turned instead. Each part of
+  its model is turned round the model's origin, and its walkmesh is turned
+  round the room's old place, then moved. The model's vertices, its MDX
+  and its lightmaps stay as they are, so a turned room is lit as it was.
+  `kjk-map.toml` keeps a turned room's `yaw` in degrees. KOTOR 2's rooms are listed the same way:
   its layouts and room models are in the game's shared data
   (`chitin.key`), as KOTOR 1's are, and a TSL new map of Peragus's rooms
   plays (checked on 2026-11-21).
@@ -1144,6 +1149,9 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_turned_rooms` turns a made-up room's walkmesh and model,
+  finds a point on the same face before and after, and has the map keep
+  the room's yaw.
 - `level_edit_levels` adds levels to a project, keeps each level's
   objects and kjk-only content apart, saves and reopens them, and refuses
   a level for a new map.

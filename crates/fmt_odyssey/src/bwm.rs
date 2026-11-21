@@ -277,4 +277,95 @@ impl Walkmesh {
         }
         moved
     }
+
+    /// The walkmesh of a room placed elsewhere and turned: each point `p`
+    /// goes to `to + R (p - from)`, where `R` turns about Z (anticlockwise
+    /// seen from above) by the angle whose sine and cosine are `turn`. The faces' planes turn with it, and
+    /// the AABB tree keeps its shape with each box made round what it holds
+    /// now. A box's split hint (`plane`) is kept, which leaves the search
+    /// right, if not the fastest. Its transitions are cut, as `moved` cuts
+    /// them.
+    pub fn turned(&self, from: [f32; 3], to: [f32; 3], (sin, cos): (f32, f32)) -> Walkmesh {
+        let turn = |v: [f32; 3]| [cos * v[0] - sin * v[1], sin * v[0] + cos * v[1], v[2]];
+        let place = |p: [f32; 3]| {
+            let local: [f32; 3] = std::array::from_fn(|axis| p[axis] - from[axis]);
+            let turned = turn(local);
+            std::array::from_fn(|axis| turned[axis] + to[axis])
+        };
+        let mut placed = self.clone();
+        placed.vertices = self.vertices.iter().map(|&vertex| place(vertex)).collect();
+        for face in &mut placed.faces {
+            face.normal = turn(face.normal);
+            // A point p is on the plane when normal · p + distance = 0.
+            if let Some(&corner) = placed.vertices.get(face.vertices[0] as usize) {
+                face.distance = -(0..3)
+                    .map(|axis| face.normal[axis] * corner[axis])
+                    .sum::<f32>();
+            }
+        }
+        for position in &mut placed.use_positions[2..] {
+            *position = place(*position);
+        }
+        for (_, transition) in &mut placed.edges {
+            *transition = -1;
+        }
+        placed.aabb = self.aabb.clone();
+        let mut bounds: Vec<Option<[f32; 6]>> = vec![None; placed.aabb.len()];
+        for at in 0..placed.aabb.len() {
+            fit(&mut placed, &mut bounds, at, 0);
+        }
+        placed
+    }
+}
+
+/// Makes the AABB tree's box `at` round what it holds now: its face's
+/// corners, else its children's boxes. `done` keeps each box made, so a
+/// box shared or reached twice is made once.
+fn fit(
+    walkmesh: &mut Walkmesh,
+    done: &mut [Option<[f32; 6]>],
+    at: usize,
+    depth: usize,
+) -> [f32; 6] {
+    if let Some(made) = done[at] {
+        return made;
+    }
+    let mut made = walkmesh.aabb[at].bounds;
+    let entry = walkmesh.aabb[at];
+    let grow = |low: &mut [f32; 6], point: [f32; 3], first: &mut bool| {
+        for axis in 0..3 {
+            if *first {
+                low[axis] = point[axis];
+                low[axis + 3] = point[axis];
+            } else {
+                low[axis] = low[axis].min(point[axis]);
+                low[axis + 3] = low[axis + 3].max(point[axis]);
+            }
+        }
+        *first = false;
+    };
+    let mut first = true;
+    if let Some(face) = usize::try_from(entry.face)
+        .ok()
+        .and_then(|face| walkmesh.faces.get(face))
+        .copied()
+    {
+        for corner in face.vertices {
+            if let Some(&point) = walkmesh.vertices.get(corner as usize) {
+                grow(&mut made, point, &mut first);
+            }
+        }
+    } else if depth < 64 {
+        for child in entry.children {
+            let child = child as usize;
+            if child < walkmesh.aabb.len() && child != at {
+                let low = fit(walkmesh, done, child, depth + 1);
+                grow(&mut made, [low[0], low[1], low[2]], &mut first);
+                grow(&mut made, [low[3], low[4], low[5]], &mut first);
+            }
+        }
+    }
+    walkmesh.aabb[at].bounds = made;
+    done[at] = Some(made);
+    made
 }

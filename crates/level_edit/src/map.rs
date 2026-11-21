@@ -9,6 +9,12 @@
 //! moved (`fmt_odyssey::bwm::Walkmesh::moved`). The copies are named after
 //! the module and the room's place in the layout (`room_name`).
 //!
+//! The layout cannot turn a room, so a room turned by its `yaw` is turned
+//! in its copy: each part of its model is turned round the model's origin
+//! (`fmt_odyssey::mdl::turned`), and its walkmesh is turned round the
+//! room's old place before it is moved (`Walkmesh::turned`). The model's
+//! vertices, its MDX and its lightmaps stay as they are.
+//!
 //! The project's folder holds the map as `kjk-map.toml` (its title, the
 //! module it started from, its rooms and its entry point) and the area's
 //! `.are`. Saving it also writes `modules/<module>.mod`, which holds the
@@ -58,6 +64,24 @@ pub struct Room {
     pub from: [f32; 3],
     /// Where the map places it.
     pub position: [f32; 3],
+    /// Degrees it is turned about Z, anticlockwise seen from above.
+    pub yaw: f32,
+}
+
+impl Room {
+    /// The room's walkmesh (`wok`, in its own area's coordinates) where the
+    /// map places it, turned by its yaw.
+    pub fn placed(&self, wok: &Walkmesh) -> Walkmesh {
+        if self.yaw == 0.0 {
+            let by = std::array::from_fn(|axis| self.position[axis] - self.from[axis]);
+            return wok.moved(by);
+        }
+        wok.turned(
+            self.from,
+            self.position,
+            collision::trig::sin_cos_deg(self.yaw),
+        )
+    }
 }
 
 /// What is wrong with a module's name for a new map, if anything.
@@ -151,6 +175,13 @@ impl NewMap {
                     model: text(table.get("model"), "a room's model")?.to_ascii_lowercase(),
                     from: triple(table.get("from"), "a room's from")?,
                     position: triple(table.get("position"), "a room's position")?,
+                    yaw: table
+                        .get("yaw")
+                        .and_then(|item| {
+                            item.as_float()
+                                .or_else(|| item.as_integer().map(|whole| whole as f64))
+                        })
+                        .map_or(0.0, |degrees| degrees as f32),
                 });
             }
         }
@@ -208,6 +239,9 @@ impl NewMap {
                 triple(room.from),
                 triple(room.position)
             ));
+            if room.yaw != 0.0 {
+                out.push_str(&format!("yaw = {:?}\n", f64::from(room.yaw)));
+            }
         }
         out
     }
@@ -383,6 +417,12 @@ pub fn room_copy(
         .ok_or_else(|| format!("the room {} has no model in the install", room.model))?;
     let mdl = fmt_odyssey::mdl::renamed(&mdl, name)
         .map_err(|error| format!("{}.mdl: {error}", room.model))?;
+    let mdl = if room.yaw == 0.0 {
+        mdl
+    } else {
+        fmt_odyssey::mdl::turned(&mdl, collision::trig::sin_cos_deg(room.yaw))
+            .map_err(|error| format!("{}.mdl turned: {error}", room.model))?
+    };
     let mut files = vec![(name.to_string(), ResType::MDL, mdl)];
     if let Some(mdx) = read(&room.model, ResType::MDX) {
         files.push((name.to_string(), ResType::MDX, mdx));
@@ -390,8 +430,11 @@ pub fn room_copy(
     if let Some(wok) = read(&room.model, ResType::WOK) {
         let walkmesh =
             Walkmesh::parse(&wok).map_err(|error| format!("{}.wok: {error}", room.model))?;
-        let by = std::array::from_fn(|axis| room.position[axis] - room.from[axis]);
-        files.push((name.to_string(), ResType::WOK, walkmesh.moved(by).write()));
+        files.push((
+            name.to_string(),
+            ResType::WOK,
+            room.placed(&walkmesh).write(),
+        ));
     }
     Ok(files)
 }

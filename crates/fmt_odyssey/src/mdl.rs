@@ -1080,3 +1080,177 @@ pub fn renamed(mdl: &[u8], name: &str) -> Result<Vec<u8>, FormatError> {
     field[..name.len()].copy_from_slice(name.as_bytes());
     Ok(copy)
 }
+
+/// A packed orientation word (`unpack_quaternion`) of a unit quaternion
+/// (x, y, z, w). The word keeps no sign for w, which it reads as negative
+/// or zero, so a quaternion with w above zero is packed as its negative,
+/// which turns the same way.
+pub fn pack_quaternion(q: [f32; 4]) -> u32 {
+    let q = if q[3] > 0.0 { q.map(|v| -v) } else { q };
+    let bits = |value: f32, most: f32| ((1.0 - value.clamp(-1.0, 1.0)) * most).round() as u32;
+    bits(q[0], 1023.0) | bits(q[1], 1023.0) << 11 | bits(q[2], 511.0) << 22
+}
+
+/// A copy of the model file `mdl` turned about Z (anticlockwise seen from
+/// above) round its origin by the angle whose sine and cosine are `turn`,
+/// as a room of a new map is turned.
+/// Each child of the model's root node is turned: its place and its
+/// orientation, in its node header and in its position and orientation
+/// controllers, and so are the same nodes in each animation. Everything
+/// under them turns with them, so no vertex changes and the MDX stays as
+/// it is. The model's bounding box is made round the turned box. Refused
+/// when a node or a controller lies outside the file.
+pub fn turned(mdl: &[u8], (sin, cos): (f32, f32)) -> Result<Vec<u8>, FormatError> {
+    if mdl.len() < DATA + 196 {
+        return Err(truncated(DATA + 196, mdl.len()));
+    }
+    let mut copy = mdl.to_vec();
+    // The half angle's, for the quaternions: cos² (a/2) = (1 + cos a) / 2.
+    let half_cos = ((1.0 + cos) * 0.5).max(0.0).sqrt();
+    let half_sin = ((1.0 - cos) * 0.5).max(0.0).sqrt().copysign(sin);
+    let turn = |x: f32, y: f32| (cos * x - sin * y, sin * x + cos * y);
+    // Rz ⊗ q, with q as (x, y, z, w).
+    let spin = |q: [f32; 4]| {
+        let (s, c) = (half_sin, half_cos);
+        [
+            c * q[0] - s * q[1],
+            c * q[1] + s * q[0],
+            c * q[2] + s * q[3],
+            c * q[3] - s * q[2],
+        ]
+    };
+    let get = |copy: &[u8], at: usize| -> Result<u32, FormatError> {
+        copy.get(DATA + at..DATA + at + 4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("4 bytes")))
+            .ok_or(truncated(DATA + at + 4, copy.len()))
+    };
+    let float = |copy: &[u8], at: usize| get(copy, at).map(f32::from_bits);
+    let put = |copy: &mut [u8], at: usize, word: u32| -> Result<(), FormatError> {
+        let len = copy.len();
+        copy.get_mut(DATA + at..DATA + at + 4)
+            .ok_or(truncated(DATA + at + 4, len))?
+            .copy_from_slice(&word.to_le_bytes());
+        Ok(())
+    };
+    let set = |copy: &mut [u8], at: usize, value: f32| put(copy, at, value.to_bits());
+
+    // One node: its header's place (x, y, z at 16) and orientation
+    // (w, x, y, z at 28), then its controllers' rows.
+    let turn_node = |copy: &mut Vec<u8>, at: usize| -> Result<(), FormatError> {
+        let (x, y) = turn(float(copy, at + 16)?, float(copy, at + 20)?);
+        set(copy, at + 16, x)?;
+        set(copy, at + 20, y)?;
+        let wxyz = [
+            float(copy, at + 28)?,
+            float(copy, at + 32)?,
+            float(copy, at + 36)?,
+            float(copy, at + 40)?,
+        ];
+        let q = spin([wxyz[1], wxyz[2], wxyz[3], wxyz[0]]);
+        for (offset, value) in [(28, q[3]), (32, q[0]), (36, q[1]), (40, q[2])] {
+            set(copy, at + offset, value)?;
+        }
+        let (keys_at, keys) = (get(copy, at + 56)? as usize, get(copy, at + 60)? as usize);
+        let data_at = get(copy, at + 68)? as usize;
+        for k in 0..keys.min(256) {
+            let key = keys_at + k * 16;
+            let kind = get(copy, key)?;
+            let head = get(copy, key + 4)?;
+            let rows = (head >> 16) as usize;
+            let values = (get(copy, key + 8)? >> 16) as usize;
+            let raw = copy
+                .get(DATA + key + 12)
+                .copied()
+                .ok_or(truncated(DATA + key + 13, copy.len()))?;
+            let (columns, bezier) = (raw & !BEZIER, raw & BEZIER != 0);
+            let start = data_at + values * 4;
+            match (kind, columns) {
+                (CONTROLLER_POSITION, 3) => {
+                    let triples = rows * if bezier { 3 } else { 1 };
+                    for row in 0..triples {
+                        let at = start + row * 12;
+                        let (x, y) = turn(float(copy, at)?, float(copy, at + 4)?);
+                        set(copy, at, x)?;
+                        set(copy, at + 4, y)?;
+                    }
+                }
+                (CONTROLLER_ORIENTATION, 4) => {
+                    for row in 0..rows {
+                        let at = start + row * 16;
+                        let q = [
+                            float(copy, at)?,
+                            float(copy, at + 4)?,
+                            float(copy, at + 8)?,
+                            float(copy, at + 12)?,
+                        ];
+                        for (i, value) in spin(q).into_iter().enumerate() {
+                            set(copy, at + i * 4, value)?;
+                        }
+                    }
+                }
+                (CONTROLLER_ORIENTATION, 2) => {
+                    for row in 0..rows {
+                        let at = start + row * 4;
+                        let q = unpack_quaternion(get(copy, at)?);
+                        put(copy, at, pack_quaternion(spin(q)))?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    };
+    // The children of a root node at `root`.
+    let children = |copy: &[u8], root: usize| -> Result<Vec<usize>, FormatError> {
+        let (at, count) = (
+            get(copy, root + 44)? as usize,
+            get(copy, root + 48)? as usize,
+        );
+        (0..count.min(4096))
+            .map(|i| get(copy, at + i * 4).map(|offset| offset as usize))
+            .collect()
+    };
+    let root = get(&copy, 40)? as usize;
+    for child in children(&copy, root)? {
+        turn_node(&mut copy, child)?;
+    }
+    let header = 80;
+    let (animations_at, animations) = (
+        get(&copy, header + 8)? as usize,
+        get(&copy, header + 12)? as usize,
+    );
+    for i in 0..animations.min(1024) {
+        let animation = get(&copy, animations_at + i * 4)? as usize;
+        let animation_root = get(&copy, animation + 40)? as usize;
+        for child in children(&copy, animation_root)? {
+            turn_node(&mut copy, child)?;
+        }
+    }
+    // The bounding box round the turned box's corners.
+    let box_at = header + 24;
+    let low = [
+        float(&copy, box_at)?,
+        float(&copy, box_at + 4)?,
+        float(&copy, box_at + 8)?,
+    ];
+    let high = [
+        float(&copy, box_at + 12)?,
+        float(&copy, box_at + 16)?,
+        float(&copy, box_at + 20)?,
+    ];
+    let (mut min, mut max) = ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]);
+    for x in [low[0], high[0]] {
+        for y in [low[1], high[1]] {
+            let (tx, ty) = turn(x, y);
+            min = [min[0].min(tx), min[1].min(ty)];
+            max = [max[0].max(tx), max[1].max(ty)];
+        }
+    }
+    if min.iter().chain(&max).all(|v| v.is_finite()) {
+        set(&mut copy, box_at, min[0])?;
+        set(&mut copy, box_at + 4, min[1])?;
+        set(&mut copy, box_at + 12, max[0])?;
+        set(&mut copy, box_at + 16, max[1])?;
+    }
+    Ok(copy)
+}
