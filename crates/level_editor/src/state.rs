@@ -283,12 +283,11 @@ pub struct EditorState {
     /// lights).
     pub(crate) bake_job: Option<crate::bake::BakeJob>,
     bake_request: Option<String>,
-    shown_lights: (
-        kjk_game::fitted_lights::Mode,
-        Option<PathBuf>,
-        bool,
-        Option<Target>,
-    ),
+    /// How the lights were drawn: the view's mode, its bake, and whether
+    /// the lights are shown. The selected light's reach is drawn over the
+    /// view (`ui::reach_in_view`), so a selection never draws the scene
+    /// again.
+    shown_lights: (kjk_game::fitted_lights::Mode, Option<PathBuf>, bool),
     /// Whether the navigation mesh is drawn, and what was found of it when
     /// it last was.
     pub(crate) show_nav: bool,
@@ -374,7 +373,7 @@ impl EditorState {
             module_facts: BTreeMap::new(),
             bake_job: None,
             bake_request: None,
-            shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false, None),
+            shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false),
             nav_facts: None,
             dragging: false,
             pending_pick: None,
@@ -786,29 +785,6 @@ fn leak(name: String) -> &'static str {
         .or_insert_with(|| Box::leak(name.into_boxed_str()))
 }
 
-/// A sphere of `radius` round the origin, of 12 slices and 8 stacks.
-fn sphere(radius: f32) -> Vec<[[f32; 3]; 3]> {
-    let point = |slice: usize, stack: usize| {
-        let around = slice as f32 / 12.0 * std::f32::consts::TAU;
-        let up = stack as f32 / 8.0 * std::f32::consts::PI;
-        [
-            radius * up.sin() * around.cos(),
-            radius * up.sin() * around.sin(),
-            radius * up.cos(),
-        ]
-    };
-    let mut out = Vec::new();
-    for slice in 0..12 {
-        for stack in 0..8 {
-            let (a, b) = (point(slice, stack), point(slice + 1, stack));
-            let (c, d) = (point(slice + 1, stack + 1), point(slice, stack + 1));
-            out.push([a, d, c]);
-            out.push([a, c, b]);
-        }
-    }
-    out
-}
-
 fn diamond(r: f32) -> Vec<[[f32; 3]; 3]> {
     let points = [
         [r, 0.0, 0.0],
@@ -1173,26 +1149,9 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             ));
             textures.push((leak(texture.0.clone()), texture.1));
             drawn.things.push((target, Vec::new(), Some(marker)));
-            if state.editor.selected == Some(target) {
-                let (name, rgba) = light_texture(light.colour);
-                let reach = format!("{name}-reach");
-                scene.models.push(Placed::at(
-                    flat_model("reach", &sphere(light.radius), &reach, true),
-                    light.at,
-                ));
-                textures.push((leak(reach), [rgba[0], rgba[1], rgba[2], 40]));
-            }
         }
     }
-    state.shown_lights = (
-        state.light_view,
-        state.bake.clone(),
-        state.show_lights,
-        state
-            .editor
-            .selected
-            .filter(|target| matches!(target, Target::Light(_) | Target::Fitted(_))),
-    );
+    state.shown_lights = (state.light_view, state.bake.clone(), state.show_lights);
 
     // The navigation mesh, as play bakes it with the project's changes
     // (`level_edit::nav`).
@@ -1328,16 +1287,7 @@ pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
         || state.built != state.editor.changes()
         || state.shown_collision != state.show_collision
         || state.shown_nav != state.show_nav
-        || state.shown_lights
-            != (
-                state.light_view,
-                state.bake.clone(),
-                state.show_lights,
-                state
-                    .editor
-                    .selected
-                    .filter(|target| matches!(target, Target::Light(_) | Target::Fitted(_))),
-            );
+        || state.shown_lights != (state.light_view, state.bake.clone(), state.show_lights);
     if !stale || state.quiet < SETTLE_FRAMES || state.dragging {
         return;
     }

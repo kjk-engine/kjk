@@ -4962,6 +4962,7 @@ fn viewport(
                 ))
                 .with_clip_rect(rect);
             labels(&painter, state, camera, eye);
+            reach_in_view(&painter, state, camera, eye);
             let on_outline = outline_in_view(
                 ui,
                 &response,
@@ -5378,6 +5379,86 @@ fn labels(painter: &egui::Painter, state: &EditorState, camera: &Camera, eye: &G
         let rect = egui::Rect::from_center_size(point, galley.size()).expand(2.0);
         painter.rect_filled(rect, 3.0, egui::Color32::from_black_alpha(140));
         painter.galley(rect.min + egui::vec2(2.0, 2.0), galley, colour);
+    }
+}
+
+/// How many straight pieces each ring of a light's reach is drawn with.
+const REACH_PIECES: usize = 48;
+
+/// The selected light's reach over the view, in its colour: three rings
+/// round it (level, and upright along X and along Y) as wide as it
+/// reaches, and a line the way it shines when it has a cone. Drawn each
+/// frame over the scene, so selecting a light never draws the scene again,
+/// and the rings follow a light while it is dragged.
+pub(crate) fn reach_in_view(
+    painter: &egui::Painter,
+    state: &EditorState,
+    camera: &Camera,
+    eye: &GlobalTransform,
+) {
+    if !state.show_lights {
+        return;
+    }
+    let light = match state.editor.selected {
+        Some(Target::Light(at)) => state.editor.project.kjk.lights.get(at).cloned(),
+        Some(Target::Fitted(at)) => state
+            .editor
+            .seen_lights
+            .get(at)
+            .map(|(light, _)| light.clone()),
+        _ => None,
+    };
+    let Some(light) = light else {
+        return;
+    };
+    let Some((at, _)) = state
+        .editor
+        .selected
+        .and_then(|target| state.editor.placement(target))
+    else {
+        return;
+    };
+    let centre = Vec3::from_array(at);
+    let to_screen = |point: Vec3| {
+        let world = game_to_bevy() * point;
+        let ahead = (world - eye.translation()).dot(*eye.forward()) > 0.0;
+        (ahead)
+            .then(|| camera.world_to_viewport(eye, world).ok())
+            .flatten()
+            .map(|at| egui::pos2(at.x, at.y))
+    };
+    let strongest = light.colour.iter().fold(0.0f32, |a, b| a.max(*b)).max(1e-6);
+    let [r, g, b] = light
+        .colour
+        .map(|v| (v / strongest * 255.0).clamp(0.0, 255.0) as u8);
+    let stroke = egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(r, g, b, 200));
+    let rings: [(Vec3, Vec3); 3] = [(Vec3::X, Vec3::Y), (Vec3::X, Vec3::Z), (Vec3::Y, Vec3::Z)];
+    for (u, v) in rings {
+        // A ring is cut where it passes behind the camera.
+        let mut piece: Vec<egui::Pos2> = Vec::new();
+        for step in 0..=REACH_PIECES {
+            let angle = step as f32 / REACH_PIECES as f32 * std::f32::consts::TAU;
+            let point = centre + (u * angle.cos() + v * angle.sin()) * light.radius;
+            match to_screen(point) {
+                Some(shown) => piece.push(shown),
+                None => {
+                    if piece.len() > 1 {
+                        painter.add(egui::Shape::line(std::mem::take(&mut piece), stroke));
+                    }
+                    piece.clear();
+                }
+            }
+        }
+        if piece.len() > 1 {
+            painter.add(egui::Shape::line(piece, stroke));
+        }
+    }
+    let aim = Vec3::from_array(light.aim);
+    if light.cone > 0.0 && aim.length_squared() > 0.0 {
+        let tip = centre + aim.normalize() * light.radius;
+        if let (Some(from), Some(to)) = (to_screen(centre), to_screen(tip)) {
+            painter.line_segment([from, to], stroke);
+        }
     }
 }
 
