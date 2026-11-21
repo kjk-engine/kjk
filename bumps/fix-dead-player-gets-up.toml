@@ -1,2 +1,0 @@
-# A script's death effect downs the player's own character instead of killing it.
-sim = "A script's EffectDeath on the player's own character now knocks it down, as 0 HP does, so it gets up after the fight. Before, it killed the character for good while its companions stood, and nothing ended the game."
