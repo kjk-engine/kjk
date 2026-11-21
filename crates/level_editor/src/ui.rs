@@ -532,6 +532,7 @@ fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform
         Target::Object(..)
         | Target::Room(_)
         | Target::Entry
+        | Target::Sun
         | Target::Light(_)
         | Target::Lamp(_)
         | Target::Fitted(_) => Vec3::ONE,
@@ -633,6 +634,7 @@ fn gizmo_edits(
                 Target::Object(..)
                 | Target::Room(_)
                 | Target::Entry
+                | Target::Sun
                 | Target::Light(_)
                 | Target::Lamp(_)
                 | Target::Fitted(_) => Vec::new(),
@@ -654,6 +656,8 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
     }
     match (tool, target) {
         (Tool::Select, _) => None,
+        // The sun only turns round the level.
+        (Tool::Move | Tool::Scale, Target::Sun) => None,
         (Tool::Move, _) => Some(GizmoMode::all_from_kind(GizmoModeKind::Translate)),
         // Everything turns about Z alone but a lamp, which is kjk's own and
         // turns on every axis.
@@ -1253,6 +1257,13 @@ fn outliner(
             let selection = state.editor.selection();
             let mut clicked: Option<(Target, bool)> = None;
             egui::ScrollArea::vertical().show(ui, |ui| {
+                // The level's sun, the game's or the project's.
+                let sun = ui
+                    .selectable_label(selection.contains(&Target::Sun), "Sun")
+                    .on_hover_text("The light far over the level that casts daylight's shadows");
+                if sun.clicked() {
+                    clicked = Some((Target::Sun, false));
+                }
                 for kind in Kind::ALL {
                     let rows: Vec<_> = entries
                         .iter()
@@ -1521,6 +1532,11 @@ fn details(
                         ui.label("This object is shown only.");
                     }
                     ui.separator();
+                    if target == Target::Sun {
+                        sun_details(ui, state, ui_state);
+                        messages(ui, state);
+                        return;
+                    }
                     let Some((mut position, mut facing)) = state.editor.placement(target) else {
                         return;
                     };
@@ -1686,7 +1702,7 @@ fn details(
                                         });
                                     }
                                 }
-                                Target::Object(..) | Target::Room(_) | Target::Entry => {}
+                                Target::Object(..) | Target::Room(_) | Target::Entry | Target::Sun => {}
                             }
                         });
                     });
@@ -4775,6 +4791,128 @@ fn nav_links(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
                     ui_state.placing_link = Some((LinkKind::Drop, None));
                 }
             });
+        }
+    }
+}
+
+/// The sun's details: where it stands seen from the level's middle (its
+/// bearing and its height over the horizon), its colour, how strong it is
+/// and how far it reaches; the game's sun given back, or one added to a
+/// level that has none.
+fn sun_details(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
+    let middle = state.editor.level_middle;
+    let own = state.editor.project.kjk.sun.is_some();
+    let Some(sun) = state.editor.sun() else {
+        ui.label("This level has no sun. A sun is a light far over the level, which casts the shadows of daylight.");
+        if ui.button("Add a sun").clicked() {
+            state.pending_command = Some("sun add".into());
+        }
+        return;
+    };
+    ui.label(
+        egui::RichText::new(if own {
+            "The project's sun, in place of the game's. Play uses it."
+        } else {
+            "The game's sun. A change makes it the project's."
+        })
+        .small(),
+    );
+    let (bearing, height, distance) = sun.seen_from(middle);
+    let mut changed: Option<level_edit::area::SunLight> = None;
+    let mut dragging = false;
+    egui::Grid::new("sun").num_columns(2).show(ui, |ui| {
+        let (mut b, mut h) = (bearing, height);
+        ui.label("Bearing")
+            .on_hover_text("Degrees from east, turning left, seen from the level's middle.");
+        let response = ui.add(
+            egui::DragValue::new(&mut b)
+                .speed(0.5)
+                .suffix("°")
+                .max_decimals(1),
+        );
+        dragging |= response.dragged();
+        ui.end_row();
+        ui.label("Height")
+            .on_hover_text("Degrees over the horizon: 90 is straight overhead.");
+        let height_drag = ui.add(
+            egui::DragValue::new(&mut h)
+                .speed(0.25)
+                .range(-89.0..=89.9)
+                .suffix("°")
+                .max_decimals(1),
+        );
+        dragging |= height_drag.dragged();
+        ui.end_row();
+        if response.changed() || height_drag.changed() {
+            changed = Some(sun.placed(middle, (b, h, distance), &collision::trig::sin_cos_deg));
+        }
+        let mut colour = sun.colour;
+        ui.label("Colour");
+        if ui.color_edit_button_rgb(&mut colour).changed() {
+            changed = Some(level_edit::area::SunLight {
+                colour,
+                ..changed.unwrap_or(sun)
+            });
+        }
+        ui.end_row();
+        let mut multiplier = sun.multiplier;
+        ui.label("Brightness")
+            .on_hover_text("How strong it shines: its colour times this.");
+        let response = ui.add(
+            egui::DragValue::new(&mut multiplier)
+                .speed(0.01)
+                .range(0.0..=8.0)
+                .max_decimals(2),
+        );
+        dragging |= response.dragged();
+        if response.changed() {
+            changed = Some(level_edit::area::SunLight {
+                multiplier,
+                ..changed.unwrap_or(sun)
+            });
+        }
+        ui.end_row();
+        let mut radius = sun.radius;
+        ui.label("Reach").on_hover_text(
+            "How far from it its light reaches, metres. A sun reaches 100 m or more.",
+        );
+        let response = ui.add(
+            egui::DragValue::new(&mut radius)
+                .speed(5.0)
+                .range(level_edit::area::SunLight::LEAST_RADIUS..=20000.0)
+                .suffix(" m")
+                .max_decimals(0),
+        );
+        dragging |= response.dragged();
+        if response.changed() {
+            changed = Some(level_edit::area::SunLight {
+                radius,
+                ..changed.unwrap_or(sun)
+            });
+        }
+        ui.end_row();
+    });
+    ui.label(
+        egui::RichText::new(format!(
+            "It stands {distance:.0} m from the level's middle."
+        ))
+        .small(),
+    );
+    if let Some(sun) = changed {
+        if dragging {
+            drag_edit(state, ui_state, Edit::SetSun(Some(sun)));
+        } else {
+            state.apply(Edit::SetSun(Some(sun)));
+        }
+    }
+    if own {
+        let label = if state.editor.game_sun.is_some() {
+            "Use the game's sun"
+        } else {
+            "Take the sun out"
+        };
+        if ui.button(label).clicked() {
+            state.apply(Edit::SetSun(None));
         }
     }
 }

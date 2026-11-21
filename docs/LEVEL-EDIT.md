@@ -417,6 +417,35 @@ conversation or a script of its own has none of them in another module.
 Its fields then show those names in orange, and the project can be given
 its own scripts and conversations of those names.
 
+## The sun
+
+Many areas have a sun: a light in one of the rooms' models that reaches
+100 m or more, far over the level. The Dantooine courtyard's stands about
+416 m from the level's middle and reaches 2000 m. kjk casts daylight's
+shadows from it.
+
+**Sun** at the top of the outliner selects it, and so does its marker, a
+sun drawn 40 m from the level's middle the way the sun stands from it.
+Its details show where it stands, seen from the level's middle:
+
+- its **bearing**, degrees from east turning left;
+- its **height**, degrees over the horizon;
+- its **colour**, its **brightness** (its colour times this) and its
+  **reach** (100 m or more).
+
+The Rotate tool turns it round the level's middle, its height kept. It is
+not moved, copied or deleted. A change makes it the project's sun, which
+play uses in place of the game's. **Use the game's sun** gives the game's
+back. A level with no sun can be given one with **Add a sun**, which
+starts 500 m over the level's middle. The project keeps it in
+`kjk-area.toml` as a `[sun]` table: `at` (where it stands, metres),
+`colour`, `multiplier` and `radius`.
+
+The sun lights the characters, placeables and doors, and casts their
+shadows. The rooms keep the light stored in their lightmaps, so the
+ground and the walls do not change with it until the area is baked again
+(`kjk detail-bake`).
+
 ## How props are lit
 
 A KOTOR room is lit by its lightmaps, which a Jedi Academy prop does not
@@ -1083,6 +1112,9 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 |---|---|
 | `edit select TAG` | selects the first object with that tag (its own, else its template's) |
 | `edit select more TAG` | adds the first object with that tag to the selection |
+| `edit select sun` | selects the area's sun |
+| `edit sun bearing DEGREES`, `edit sun height DEGREES`, `edit sun colour R G B`, `edit sun multiplier M`, `edit sun radius METRES` | sets the area's sun, which becomes the project's |
+| `edit sun add`, `edit sun game` | gives a level with no sun one; gives the game's sun back |
 | `edit move by DX DY DZ`, `edit turn by DEGREES` | moves everything selected by an amount, or turns it round its middle, as one edit |
 | `edit duplicate`, `edit delete` | copies, or deletes, everything selected, as one edit |
 | `edit copy`, `edit copy to FILE`, `edit paste from FILE` | copies what is selected to the clipboard or a file; pastes a copy from a file where the view looks |
@@ -1261,6 +1293,8 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_sun` turns and raises the area's sun round the level's
+  middle, keeps it in the area file, and gives the game's back with undo.
 - `level_edit_selection` selects three objects and a prop, moves, turns,
   copies and deletes them each as one undo step, and copies a chair with
   its template into another project, where the template takes a new name.

@@ -90,6 +90,7 @@ pub fn selection_text(
 /// The command that selects `target` again, where there is one.
 fn select_command(state: &EditorState, target: Target) -> Option<String> {
     Some(match target {
+        Target::Sun => "select sun".to_string(),
         Target::Object(kind, index) => {
             let entry = state.editor.entry(kind, index)?;
             let tag = state.tag_of(&entry);

@@ -27,6 +27,8 @@ pub enum Target {
     Fitted(usize),
     /// A lamp placed by hand (`KjkArea::lamps`).
     Lamp(usize),
+    /// The area's sun (`KjkArea::sun`, else the game's: `Editor::game_sun`).
+    Sun,
 }
 
 /// One change to the project.
@@ -50,6 +52,8 @@ pub enum Edit {
     },
     AddProp(Prop),
     AddBox(CollisionBox),
+    /// The area's sun as the project sets it; `None` gives the game's back.
+    SetSun(Option<crate::area::SunLight>),
     /// Objects copied (`clip::Clip`), put with their middle at `at`; the
     /// install's template names (`taken`) a pasted template keeps clear
     /// of.
@@ -186,6 +190,11 @@ pub struct Editor {
     also: (Option<Target>, Vec<Target>),
     /// What the last paste added, to be selected with it.
     pasted: Vec<Target>,
+    /// The area's sun as the game has it (`game::sun::found`), and the
+    /// middle of the level the sun is turned round, as the view last drew
+    /// them. Not part of the project.
+    pub game_sun: Option<crate::area::SunLight>,
+    pub level_middle: [f32; 3],
     /// The lights the game places itself, as the view last drew them, each
     /// with where it comes from (`Target::Fitted`). Not part of the
     /// project.
@@ -208,6 +217,8 @@ impl Editor {
             selected: None,
             also: (None, Vec::new()),
             pasted: Vec::new(),
+            game_sun: None,
+            level_middle: [0.0; 3],
             seen_lights: Vec::new(),
             seen_on_placeable: Vec::new(),
             undo: Vec::new(),
@@ -268,6 +279,10 @@ impl Editor {
                 .seen_lights
                 .get(at)
                 .map(|(light, _)| (light.at, aim_facing(light.aim))),
+            // The sun turns round the level's middle, where the gizmo stands.
+            Target::Sun => self
+                .sun()
+                .map(|sun| (self.level_middle, sun.seen_from(self.level_middle).0)),
             Target::Lamp(at) => self
                 .project
                 .kjk
@@ -309,6 +324,11 @@ impl Editor {
             selected: self.selected,
             also: self.also.clone(),
         }
+    }
+
+    /// The area's sun: the project's, else the game's.
+    pub fn sun(&self) -> Option<crate::area::SunLight> {
+        self.project.kjk.sun.or(self.game_sun)
     }
 
     /// Everything selected, the selected one first: it and what else is
@@ -425,10 +445,12 @@ impl Editor {
             | Target::Light(at)
             | Target::Fitted(at)
             | Target::Lamp(at) => *at,
-            Target::Entry => 0,
+            Target::Entry | Target::Sun => 0,
         };
         let mut all: Vec<Target> = (self.selection().into_iter())
-            .filter(|target| Self::editable(*target).is_ok() && *target != Target::Entry)
+            .filter(|target| {
+                Self::editable(*target).is_ok() && !matches!(target, Target::Entry | Target::Sun)
+            })
             .collect();
         all.sort_by_key(|target| std::cmp::Reverse(index(target)));
         all.into_iter().map(Edit::Delete).collect()
@@ -689,6 +711,9 @@ impl Editor {
         match edit {
             Edit::Move(target, to) => {
                 Self::editable(target)?;
+                if target == Target::Sun {
+                    return Err("the sun is turned round the level, not moved".into());
+                }
                 if !to.iter().all(|value| value.is_finite()) {
                     return Err("a position must be finite".into());
                 }
@@ -705,7 +730,7 @@ impl Editor {
                     Target::Entry => map.as_mut().map(|map| map.entry = to).is_some(),
                     Target::Light(at) => kjk.lights.get_mut(at).map(|l| l.at = to).is_some(),
                     Target::Lamp(at) => kjk.lamps.get_mut(at).map(|l| l.at = to).is_some(),
-                    Target::Fitted(_) => false,
+                    Target::Fitted(_) | Target::Sun => false,
                 };
                 moved.then_some(Some(target)).ok_or_else(|| missing(target))
             }
@@ -719,6 +744,23 @@ impl Editor {
                 }
                 let degrees = degrees.rem_euclid(360.0);
                 let turned = match target {
+                    // The sun goes round the level's middle to the bearing,
+                    // its height and distance kept.
+                    Target::Sun => {
+                        let middle = self.level_middle;
+                        match kjk.sun.or(self.game_sun) {
+                            Some(sun) => {
+                                let (_, height, distance) = sun.seen_from(middle);
+                                kjk.sun = Some(sun.placed(
+                                    middle,
+                                    (degrees, height, distance),
+                                    &collision::trig::sin_cos_deg,
+                                ));
+                                true
+                            }
+                            None => false,
+                        }
+                    }
                     Target::Object(kind, index) => {
                         git::set_facing(&mut self.project.git, kind, index, degrees)
                     }
@@ -752,6 +794,9 @@ impl Editor {
             }
             Edit::Duplicate(target) => {
                 Self::editable(target)?;
+                if target == Target::Sun {
+                    return Err("an area has one sun".into());
+                }
                 match target {
                     Target::Object(kind, index) => {
                         git::duplicate(&mut self.project.git, kind, index)
@@ -782,7 +827,9 @@ impl Editor {
                         kjk.lights.push(copy);
                         Ok(Some(Target::Light(kjk.lights.len() - 1)))
                     }
-                    Target::Fitted(_) => Err("a fitted light is not copied here".into()),
+                    Target::Fitted(_) | Target::Sun => {
+                        Err("a fitted light is not copied here".into())
+                    }
                     Target::Lamp(at) => {
                         let copy = kjk.lamps.get(at).ok_or_else(|| missing(target))?.clone();
                         kjk.lamps.push(copy);
@@ -792,6 +839,9 @@ impl Editor {
             }
             Edit::Delete(target) => {
                 Self::editable(target)?;
+                if target == Target::Sun {
+                    return Err("the sun is not deleted: its details give the game's back".into());
+                }
                 let gone = match target {
                     Target::Object(kind, index) => git::remove(&mut self.project.git, kind, index),
                     Target::Prop(at) => (at < kjk.props.len())
@@ -811,7 +861,7 @@ impl Editor {
                     Target::Lamp(at) => (at < kjk.lamps.len())
                         .then(|| kjk.lamps.remove(at))
                         .is_some(),
-                    Target::Fitted(_) => false,
+                    Target::Fitted(_) | Target::Sun => false,
                 };
                 gone.then_some(None).ok_or_else(|| missing(target))
             }
@@ -853,6 +903,26 @@ impl Editor {
                 })?;
                 self.pasted = added.clone();
                 Ok(added.first().copied())
+            }
+            Edit::SetSun(sun) => {
+                if let Some(sun) = &sun {
+                    let numbers = sun
+                        .at
+                        .iter()
+                        .chain(&sun.colour)
+                        .chain([&sun.multiplier, &sun.radius]);
+                    if !numbers.into_iter().all(|value| value.is_finite()) {
+                        return Err("the sun's numbers must be finite".into());
+                    }
+                    if sun.radius < crate::area::SunLight::LEAST_RADIUS {
+                        return Err(format!(
+                            "a sun reaches {} m or more",
+                            crate::area::SunLight::LEAST_RADIUS
+                        ));
+                    }
+                }
+                kjk.sun = sun;
+                Ok(Some(Target::Sun))
             }
             Edit::AddLink(link) => {
                 if !link

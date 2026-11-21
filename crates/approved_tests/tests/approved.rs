@@ -7880,6 +7880,92 @@ fn level_edit_selection() {
     );
 }
 
+/// The area's sun set by a level editor project (`docs/LEVEL-EDIT.md`,
+/// "The sun"): seen from the level's middle by its bearing, height and
+/// distance, turned and raised there, kept by the area file, set and given
+/// back with undo, and turned with Rotate round the level's middle. No
+/// installs.
+#[test]
+fn level_edit_sun() {
+    use level_edit::area::{KjkArea, SunLight};
+    use level_edit::{Edit, Editor, Project, Target, git};
+
+    let middle = [10.0, 20.0, 0.0];
+    let sun = SunLight {
+        at: [10.0, 120.0, 100.0],
+        colour: [1.0, 0.9, 0.8],
+        multiplier: 1.0,
+        radius: 2000.0,
+    };
+    let (bearing, height, distance) = sun.seen_from(middle);
+    let near = |a: f32, b: f32| (a - b).abs() < 1e-3;
+    assert!(
+        near(bearing, 90.0) && near(height, 45.0),
+        "{bearing} {height}"
+    );
+    assert!(near(distance, 100.0 * 2f32.sqrt()));
+    let turned = sun.placed(
+        middle,
+        (180.0, 30.0, distance),
+        &collision::trig::sin_cos_deg,
+    );
+    let (b, h, d) = turned.seen_from(middle);
+    assert!(
+        near(b.abs(), 180.0) && near(h, 30.0) && near(d, distance),
+        "{b} {h} {d}"
+    );
+    assert_eq!((turned.colour, turned.radius), (sun.colour, sun.radius));
+
+    // The area file keeps it, and an area without one writes none.
+    let area = KjkArea {
+        sun: Some(sun),
+        ..KjkArea::default()
+    };
+    assert_eq!(KjkArea::parse(&area.write()).unwrap(), area);
+    assert!(!KjkArea::default().write().contains("[sun]"));
+
+    let folder = std::env::temp_dir().join(format!("kjk-sun-{}", std::process::id()));
+    let mut editor = Editor::new(Project::new(
+        &folder,
+        "k1",
+        "danm14aa",
+        "m14aa",
+        git::empty(),
+    ));
+    // No sun of the game's or the project's: none to turn.
+    assert_eq!(editor.sun(), None);
+    assert!(editor.apply(Edit::Turn(Target::Sun, 90.0)).is_err());
+    editor.game_sun = Some(sun);
+    editor.level_middle = middle;
+    assert_eq!(editor.placement(Target::Sun), Some((middle, bearing)));
+    // Turned with Rotate: it becomes the project's, its height kept.
+    editor.apply(Edit::Turn(Target::Sun, 0.0)).unwrap();
+    let own = editor.project.kjk.sun.expect("the project's sun");
+    let (b, h, _) = own.seen_from(middle);
+    assert!(near(b, 0.0) && near(h, 45.0), "{b} {h}");
+    assert!(
+        editor.apply(Edit::Move(Target::Sun, [0.0; 3])).is_err(),
+        "the sun is turned, not moved"
+    );
+    assert!(editor.apply(Edit::Duplicate(Target::Sun)).is_err());
+    assert!(editor.apply(Edit::Delete(Target::Sun)).is_err());
+    // Too short a reach is refused; the game's sun comes back.
+    assert!(
+        editor
+            .apply(Edit::SetSun(Some(SunLight {
+                radius: 50.0,
+                ..own
+            })))
+            .is_err()
+    );
+    editor.apply(Edit::SetSun(None)).unwrap();
+    assert_eq!(editor.sun(), Some(sun));
+    assert!(editor.undo());
+    assert_eq!(editor.project.kjk.sun, Some(own));
+    assert!(editor.undo());
+    assert_eq!(editor.project.kjk.sun, None);
+}
+
 /// The level editor's data (`level_edit`, proposed 2026-11-19, awaiting
 /// approval): a GIT made here with one creature, one placeable and one
 /// waypoint. The editor moves, turns, copies and deletes them, adds a

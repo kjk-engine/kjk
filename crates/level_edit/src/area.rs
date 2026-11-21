@@ -47,6 +47,59 @@ pub struct KjkArea {
     /// The links between floors that walkers jump or drop across
     /// (`collision::nav::Link`), as `[[link]]` tables.
     pub links: Vec<NavLink>,
+    /// The area's sun as the project sets it, in place of the game's: a
+    /// `[sun]` table. `None` keeps the game's.
+    pub sun: Option<SunLight>,
+}
+
+/// An area's sun: the light of a room's model that reaches 100 m or more,
+/// far over the level (`game::sun`). Where it stands (metres, game space),
+/// its colour, how strong it is, and how far it reaches.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SunLight {
+    pub at: [f32; 3],
+    pub colour: [f32; 3],
+    pub multiplier: f32,
+    pub radius: f32,
+}
+
+impl SunLight {
+    /// The least reach that counts as a sun (`game::shadows::SUN_RADIUS`).
+    pub const LEAST_RADIUS: f32 = 100.0;
+
+    /// Its bearing (degrees from +X, turning left) and height (degrees over
+    /// the horizon) seen from `middle`, and how far it is.
+    pub fn seen_from(&self, middle: [f32; 3]) -> (f32, f32, f32) {
+        let [x, y, z] = std::array::from_fn(|axis| self.at[axis] - middle[axis]);
+        let flat = (x * x + y * y).sqrt();
+        (
+            y.atan2(x).to_degrees(),
+            z.atan2(flat).to_degrees(),
+            (flat * flat + z * z).sqrt(),
+        )
+    }
+
+    /// The sun moved to `bearing` and `height` (degrees) seen from
+    /// `middle`, `distance` metres from it. `sin_cos` gives a degree
+    /// angle's sine and cosine.
+    pub fn placed(
+        &self,
+        middle: [f32; 3],
+        (bearing, height, distance): (f32, f32, f32),
+        sin_cos: &dyn Fn(f32) -> (f32, f32),
+    ) -> SunLight {
+        let (bearing_sin, bearing_cos) = sin_cos(bearing);
+        let (height_sin, height_cos) = sin_cos(height.clamp(-89.9, 89.9));
+        let flat = distance * height_cos;
+        SunLight {
+            at: [
+                middle[0] + flat * bearing_cos,
+                middle[1] + flat * bearing_sin,
+                middle[2] + distance * height_sin,
+            ],
+            ..*self
+        }
+    }
 }
 
 /// A way between two floors the navigation mesh does not join: a jump
@@ -355,6 +408,14 @@ impl KjkArea {
             area.lamps
                 .push(crate::lamps::PlacedLamp::read(table).map_err(bad)?);
         }
+        if let Some(table) = document.get("sun").and_then(toml_edit::Item::as_table) {
+            area.sun = Some(SunLight {
+                at: triple(table.get("at"), "the sun's at")?,
+                colour: triple(table.get("colour"), "the sun's colour")?,
+                multiplier: number(table.get("multiplier"), "the sun's multiplier")?,
+                radius: number(table.get("radius"), "the sun's radius")?,
+            });
+        }
         for table in tables("link") {
             let kind = match text(table.get("kind"), "a link's kind")?.as_str() {
                 "jump" => collision::nav::LinkKind::Jump,
@@ -408,6 +469,15 @@ impl KjkArea {
         }
         for lamp in &self.lamps {
             out.push_str(&format!("\n[[lamp]]\n{}", lamp.table(&[])));
+        }
+        if let Some(sun) = &self.sun {
+            out.push_str(&format!(
+                "\n[sun]\nat = {}\ncolour = {}\nmultiplier = {:?}\nradius = {:?}\n",
+                triple(sun.at),
+                triple(sun.colour),
+                sun.multiplier,
+                sun.radius,
+            ));
         }
         for link in &self.links {
             let kind = match link.kind {

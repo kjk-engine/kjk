@@ -2006,6 +2006,25 @@ pub(crate) fn spawn_scene(
             light_rooms.push(room);
         }
     }
+    // A project's sun (`sun`): in place of the game's, the first light that
+    // reaches a sun's distance, or as a sun of its own where there is none.
+    if let Some(sun) = loaded.sun {
+        let gpu = GpuLight {
+            position_radius: (game_to_bevy() * Vec3::from_array(sun.at)).extend(sun.radius),
+            color_multiplier: Vec3::from_array(sun.colour).extend(sun.multiplier),
+            kind: UVec4::new(0, 2, 0, 0),
+            ..Default::default()
+        };
+        match (lights.iter()).position(|light: &GpuLight| {
+            light.position_radius.w >= crate::shadows::SUN_RADIUS && light.kind.x == 0
+        }) {
+            Some(at) => lights[at] = gpu,
+            None => {
+                lights.push(gpu);
+                light_rooms.push(None);
+            }
+        }
+    }
     // `KJK_FOUND_LIGHTS=<file>`: the lights of that file join the area's
     // lamps (`kjk room-light-fit --found`, step 10). Shadows are cast from
     // them too. A trial's switch.

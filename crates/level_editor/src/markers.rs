@@ -235,6 +235,17 @@ fn colour([r, g, b, _]: [u8; 4]) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
+/// How far (metres) from the level's middle the sun's marker stands, the
+/// way the sun stands from it.
+const SUN_MARKER: f32 = 40.0;
+
+/// Where the sun's marker stands: `SUN_MARKER` from the level's middle,
+/// toward the sun at `at`.
+pub fn sun_marker(middle: [f32; 3], at: [f32; 3]) -> [f32; 3] {
+    let way = Vec3::from_array(at) - Vec3::from_array(middle);
+    (Vec3::from_array(middle) + way.normalize_or_zero() * SUN_MARKER).to_array()
+}
+
 /// How far above its place a target's marker stands, metres: over a
 /// creature's head, at a light's own place, a little up for the rest.
 pub fn rise(target: Target) -> f32 {
@@ -283,6 +294,15 @@ pub fn layout(state: &EditorState, camera: &Camera, eye: &GlobalTransform) -> Ve
             1.0,
         ));
     }
+    // The sun, in the sky the way it stands from the level's middle.
+    if state.editor.sun().is_some() {
+        wanted.push((
+            Target::Sun,
+            Icon::Light,
+            egui::Color32::from_rgb(255, 214, 90),
+            1.6,
+        ));
+    }
     if state.editor.project.map.is_some() {
         wanted.push((
             Target::Entry,
@@ -306,9 +326,14 @@ pub fn layout(state: &EditorState, camera: &Camera, eye: &GlobalTransform) -> Ve
     let ahead = *eye.forward();
     let mut shown: Vec<Shown> = Vec::new();
     for (target, icon, tint, size) in wanted {
-        let Some((position, _)) = state.editor.placement(target) else {
+        let Some((mut position, _)) = state.editor.placement(target) else {
             continue;
         };
+        if target == Target::Sun
+            && let Some(sun) = state.editor.sun()
+        {
+            position = sun_marker(state.editor.level_middle, sun.at);
+        }
         let world = game_to_bevy() * (Vec3::from_array(position) + Vec3::Z * rise(target));
         let distance = world.distance(eye_at);
         if distance > FARTHEST || (world - eye_at).dot(ahead) <= 0.0 {

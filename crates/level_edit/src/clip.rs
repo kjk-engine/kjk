@@ -99,7 +99,7 @@ impl Clip {
                 Target::Box(at) => clip.kjk.boxes.extend(project.kjk.boxes.get(at).cloned()),
                 Target::Lamp(at) => clip.kjk.lamps.extend(project.kjk.lamps.get(at).cloned()),
                 Target::Light(at) => clip.kjk.lights.extend(project.kjk.lights.get(at).cloned()),
-                Target::Room(_) | Target::Entry | Target::Fitted(_) => {}
+                Target::Room(_) | Target::Entry | Target::Fitted(_) | Target::Sun => {}
             }
         }
         clip

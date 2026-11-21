@@ -592,7 +592,8 @@ impl EditorState {
             | Target::Room(_)
             | Target::Lamp(_)
             | Target::Light(_) => unlit,
-            Target::Fitted(_) => false,
+            // The sun lights everything: the area is drawn again.
+            Target::Fitted(_) | Target::Sun => false,
         }
     }
 
@@ -962,6 +963,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         ),
     );
     kjk_game::lamps::set_lamps(&module, Some(state.editor.project.kjk.lamps.clone()));
+    kjk_game::sun::set_sun(&module, Some(state.editor.project.kjk.sun));
     // The kinds of fitting changed, and the ones changed back.
     let mut kinds = String::new();
     for (key, original) in &state.kind_originals {
@@ -986,6 +988,23 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         state.editor.project.area
     ))?;
     let mut scene = kjk_game::viewer::module_scene(&resolver, state.setup.game, &ir, area)?;
+    // The game's sun (`kjk_game::sun::found`) and the middle of the level's
+    // floors, which the sun is turned round (`Target::Sun`).
+    state.editor.game_sun = kjk_game::sun::found(&scene.models);
+    let (mut low, mut high) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+    for corner in scene
+        .rooms
+        .iter()
+        .flat_map(|room| room.floor.iter().flatten())
+    {
+        for axis in 0..3 {
+            low[axis] = low[axis].min(corner[axis]);
+            high[axis] = high[axis].max(corner[axis]);
+        }
+    }
+    if low.iter().chain(&high).all(|value| value.is_finite()) {
+        state.editor.level_middle = std::array::from_fn(|axis| (low[axis] + high[axis]) * 0.5);
+    }
     let mut drawn = Drawn::default();
 
     // The objects' models: a door's or placeable's by its object number,
@@ -1842,6 +1861,55 @@ pub(crate) fn command(
                 return Err(format!("there is no room {at}"));
             }
             state.editor.selected = Some(Target::Room(at));
+        }
+        ["select", "sun"] => state.editor.select(Some(Target::Sun), false),
+        ["sun", "game"] => state.apply(Edit::SetSun(None)),
+        ["sun", field, rest @ ..] => {
+            let middle = state.editor.level_middle;
+            let mut sun = state
+                .editor
+                .sun()
+                .unwrap_or_else(|| level_edit::area::SunLight {
+                    at: [middle[0], middle[1], middle[2] + 500.0],
+                    colour: [1.0; 3],
+                    multiplier: 1.0,
+                    radius: 2000.0,
+                });
+            let numbers: Vec<f32> = rest
+                .iter()
+                .map(|word| {
+                    word.parse::<f32>()
+                        .map_err(|_| format!("{word:?} is not a number"))
+                })
+                .collect::<Result<_, _>>()?;
+            let (bearing, height, distance) = sun.seen_from(middle);
+            match (*field, numbers.as_slice()) {
+                ("add", []) => {}
+                ("bearing", [degrees]) => {
+                    sun = sun.placed(
+                        middle,
+                        (*degrees, height, distance),
+                        &collision::trig::sin_cos_deg,
+                    );
+                }
+                ("height", [degrees]) => {
+                    sun = sun.placed(
+                        middle,
+                        (bearing, *degrees, distance),
+                        &collision::trig::sin_cos_deg,
+                    );
+                }
+                ("colour", [r, g, b]) => sun.colour = [*r, *g, *b],
+                ("multiplier", [value]) => sun.multiplier = *value,
+                ("radius", [value]) => sun.radius = *value,
+                _ => {
+                    return Err(
+                        "sun add, sun bearing DEGREES, sun height DEGREES, sun colour R G B, sun multiplier M, sun radius METRES or sun game"
+                            .into(),
+                    );
+                }
+            }
+            state.apply(Edit::SetSun(Some(sun)));
         }
         ["select", "entry"] => {
             if state.editor.project.map.is_none() {
@@ -3847,6 +3915,23 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
                 "cone": light.map(|l| l.cone),
                 "half": light.map(|l| l.half),
                 "reason": light.map(|l| l.reason.clone()),
+            })
+        }
+        Target::Sun => {
+            let sun = state.editor.sun();
+            let middle = state.editor.level_middle;
+            let seen = sun.map(|sun| sun.seen_from(middle));
+            serde_json::json!({
+                "kind": "sun",
+                "the_projects": state.editor.project.kjk.sun.is_some(),
+                "at": sun.map(|sun| sun.at),
+                "bearing": seen.map(|seen| seen.0),
+                "height": seen.map(|seen| seen.1),
+                "distance": seen.map(|seen| seen.2),
+                "colour": sun.map(|sun| sun.colour),
+                "multiplier": sun.map(|sun| sun.multiplier),
+                "radius": sun.map(|sun| sun.radius),
+                "level_middle": middle,
             })
         }
         Target::Lamp(at) => {

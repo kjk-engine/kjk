@@ -460,6 +460,7 @@ pub fn compose(
         grass,
         weather,
         sound,
+        sun: None,
     };
     (scene, bodies)
 }

@@ -291,6 +291,9 @@ pub struct LoadedScene {
     /// them: each one's model index (`None` for one whose model does not
     /// read), and whether its glowing texture is a placeable's kind.
     pub lamps: Vec<(Option<usize>, bool)>,
+    /// The area's sun as a project sets it (`sun`), in place of the game's;
+    /// `None` keeps the game's.
+    pub sun: Option<level_edit::area::SunLight>,
     /// A module's creatures, to move and animate as the sim has them.
     pub creature_views: Vec<CreatureView>,
     /// In a play scene, every character's weapon models (`weapons::arm`).
@@ -1477,6 +1480,7 @@ pub fn module_scene(
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
+        sun: crate::sun::of_area(game, module),
         probes: Arc::new(probes),
         default_envmap: creatures.default_envmap,
         missing_body_textures: creatures.missing_body_textures,
