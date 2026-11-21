@@ -27,34 +27,23 @@ const EVERY: Duration = Duration::from_millis(250);
 /// How many answers to commands `live.json` keeps.
 const ANSWERS: usize = 20;
 
-/// What the folder's README tells an agent.
-const README: &str = "\
-# The kjk level editor's agent link
+/// The guide for agents (`docs/LEVEL-EDIT-AGENT.md`), which the link
+/// writes into its folder.
+const GUIDE: &str = include_str!("../../../docs/LEVEL-EDIT-AGENT.md");
 
-The level editor writes `live.json` here four times a second while its
-Agent link is on: the project and the level open, the selected object as
-its details panel describes it (kind, tag, template, position, facing,
-scripts and the rest), the camera, the editor's last messages, and the
-answers to the commands below.
+/// `docs/LEVEL-EDIT.md`, whose list of commands follows the guide.
+const EDITOR_DOC: &str = include_str!("../../../docs/LEVEL-EDIT.md");
 
-To change the level, write commands to `inbox.txt`, one a line. The editor
-runs them in order within a quarter of a second, deletes the file, and adds
-each command's answer (`ok`, or why not) to `answers` in `live.json`. The
-commands are the editor's own (docs/LEVEL-EDIT.md, \"Commands\"), with or
-without their `edit`:
-
-    select MetalBox
-    nudge 0 0.5 0
-    turn 90
-    script OnUsed kje_open_door
-    save
-
-Two more move the view: `camera X Y Z YAW PITCH` (game space, metres and
-degrees), and `frame`, which looks at the selection.
-
-The editor saves only when told to (`save`), and every change can be
-undone in it.
-";
+/// The README the link writes: the guide, then the editor's commands as
+/// `docs/LEVEL-EDIT.md` lists them (its "Commands" section), both as this
+/// build of the editor was made with them.
+fn readme() -> String {
+    let commands = EDITOR_DOC
+        .split_once("### Commands\n")
+        .map(|(_, rest)| rest.split("\n## ").next().unwrap_or(rest))
+        .unwrap_or("See docs/LEVEL-EDIT.md, \"Commands\".");
+    format!("{GUIDE}\n## The editor's commands\n{commands}")
+}
 
 /// The selected object, or the level when nothing is selected, as text to
 /// paste to an agent: what it is, where it is, the command that selects it
@@ -159,7 +148,7 @@ impl Link {
         let folder = Link::folder().ok_or("kjk's folder is not known (set KJK_HOME)")?;
         std::fs::create_dir_all(&folder)
             .map_err(|error| format!("{}: {error}", folder.display()))?;
-        std::fs::write(folder.join("README.md"), README)
+        std::fs::write(folder.join("README.md"), readme())
             .map_err(|error| format!("{}: {error}", folder.display()))?;
         Ok(Link {
             folder,
@@ -266,12 +255,21 @@ impl Link {
             "details": selected.map(|target| state::describe(state, target)),
             "camera": camera,
             "messages": state.messages,
+            "script_errors": state.script_errors,
+            "last_try": state.tried.as_ref().map(|tried| serde_json::json!({
+                "script": tried.script,
+                "on": tried.on,
+                "ok": tried.ok,
+                "lines": tried.lines.iter().take(200).collect::<Vec<_>>(),
+                "debug_stops": tried.stops.len(),
+            })),
+            "trying": state.script_try.as_ref().map(|run| run.script.clone()),
             "answers": self
                 .answers
                 .iter()
                 .map(|(command, answer)| serde_json::json!({"command": command, "answer": answer}))
                 .collect::<Vec<_>>(),
-            "commands": "docs/LEVEL-EDIT.md, Commands; README.md here",
+            "guide": "README.md in this folder (docs/LEVEL-EDIT-AGENT.md)",
         });
         let text = serde_json::to_string_pretty(&live).unwrap_or_else(|_| live.to_string());
         if text == self.written {

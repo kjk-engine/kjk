@@ -576,15 +576,18 @@ on, the editor uses the folder `editor-link` in kjk's own folder
 - It writes `live.json` there four times a second, when anything in it
   changed. The file holds the project and the level, whether there are
   changes not saved, the selected object with its details and the command
-  that selects it, the camera, the editor's last messages, and the
-  answers to the agent's last 20 commands.
+  that selects it, the camera, the editor's last messages, the answers to
+  the agent's last 20 commands, the scripts that did not compile, and
+  what the last script tried in the editor printed.
 - It runs each line an agent writes to `inbox.txt` there as a command, in
   order, and then deletes the file. A line is one of the editor's own
   commands (the table below), with or without its `edit`; `camera X Y Z
   YAW PITCH`, which moves the view; or `frame`, which looks at the
   selection. Each command's answer is `ok` or the reason it failed, and
   the editor's messages show it too.
-- It writes a `README.md` there that tells an agent the same.
+- It writes a `README.md` there for agents: the guide in
+  `docs/LEVEL-EDIT-AGENT.md`, followed by this document's list of
+  commands, as the editor was built with them.
 
 Nothing listens on the network: only a program that can write to the
 user's own folder can send the editor commands. The editor saves only on
