@@ -427,7 +427,16 @@ line is its fallback. A single blade's new style is queued. The swing
 under way keeps its style, and a creature takes the new one as its next
 swing begins, in a chain too. A changed line is kept for 6 seconds, until
 the character switches weapon sets. A line the player picked with the
-next-feat key or the action bar stays. A feat line that a generic combat script
+next-feat key or the action bar stays. A Skilled fighter starts the
+special moves of its saber style itself, under both rule sets, by a
+chance as it attacks, and a Boss by a higher chance (`pace::special_one_in`, the
+rulebook's Special Saber Moves by Tier). A fighter with a melee weapon that
+is not a lightsaber is Skilled when it knows a second or third rank of a
+melee feat attack or its tag is in `data/duel_skilled.txt`, and a companion
+is always Skilled. A Skilled fighter and a Boss roll or cartwheel to a side
+when a grenade lands near, when the target winds up a kata or a spin, or
+when it starts to back off tired (`Pace::escaping`, the rulebook's Rolls and
+Cartwheels Out of Danger). A feat line that a generic combat script
 picks becomes a plain attack on the same target; two creatures outside the party whose scripts attack
 fight in KOTOR's combat rounds (`minds::begin_round`, the hit model every
 weapon hit shares: `damage::odds`, `damage::critical`,

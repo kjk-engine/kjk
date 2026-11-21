@@ -2284,3 +2284,93 @@ labels = [
 summary = "Burst of Speed, Fury and Wookiee Rage are used only by a character that fights in melee itself. A character with a lightsaber, a sword, a vibroblade, a stun baton or empty hands fights in melee. A character with a gun does not. Their rows in `spells.2da` are {ai.choices.reasons.blade:bare}."
 source = "the owner's call of 19 November 2026"
 see = "sim::combat::choose::fits"
+
+[choices.specials]
+title = "Special Saber Moves by Tier"
+summary = """
+A Skilled fighter and a Boss start the special moves of their saber style
+themselves, such as a kata, a lunge or a leap. They do so under the Advanced
+rules and under the Jedi Academy rules. Under the Advanced rules a special
+move uses Stamina. Under the Jedi Academy rules it uses Force points, or the
+stamina of a fighter without the Force, as the player's special moves do. A
+fighter that holds a melee weapon that is not a lightsaber is Skilled when it
+knows the second or third rank of Power Attack, Critical Strike or Flurry, or
+when its tag is in the list `data/duel_skilled.txt`. A companion is always
+Skilled.
+"""
+applies = ["kind:creature", "kind:companion", "kind:lightsaber", "kind:melee"]
+
+[choices.specials.skilled_one_in]
+name = "Special Move Chance of a Skilled Fighter"
+type = "i64"
+value = 10
+unit = "times"
+range = [1, 50]
+summary = "A Skilled fighter that is about to attack starts a special move of its saber style instead one time in {ai.choices.specials.skilled_one_in:bare}, when it can pay for it. A Boss does so one time in {ai.duelling.tiers.special_one_in:bare}."
+source = "the design of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Special saber moves"
+see = "sim::combat::pace::special_one_in"
+
+[choices.specials.companion_boss_level]
+name = "Companion Level for the Boss Chance"
+type = "u8"
+value = 15
+unit = "level"
+range = [1, 50]
+summary = "A companion of level {ai.choices.specials.companion_boss_level:bare} or higher starts special moves at a Boss's chance, and waits after a choice of a power or an item as long as a Boss does. It keeps the Skilled tier for every other rule."
+source = "the design of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Special saber moves"
+see = "sim::combat::pace::veteran"
+
+[choices.escapes]
+title = "Rolls and Cartwheels Out of Danger"
+summary = """
+A Skilled fighter and a Boss roll or cartwheel to one side to get out of
+danger. They do so when a grenade lands near them, when their target winds up
+a kata or a spin within reach, and, under the Advanced rules, when they start
+to back off because they are tired. A fighter cartwheels when its weapon is
+drawn and ready and it can pay for the cartwheel. A cartwheel is the jumping
+side attack of the saber styles and costs what the player's costs. Otherwise
+the fighter runs to the side and then crouches, as the player rolls. Its body
+rolls only when it runs fast enough, as the player's does, and a slower body
+only runs to the side. An escape is never counted as an attack.
+"""
+applies = ["kind:creature", "kind:companion", "kind:lightsaber", "kind:melee", "kind:grenade"]
+
+[choices.escapes.grenade_within_m]
+name = "Grenade Near"
+type = "f32"
+value = 4.0
+unit = "m"
+range = [0.0, 20.0]
+summary = "A fighter escapes from a grenade that rests, or falls, within {ai.choices.escapes.grenade_within_m:bare} meters of it."
+source = "the builder's call of 21 November 2026"
+see = "sim::combat::pace::Pace::escape_reason"
+
+[choices.escapes.wait_ms]
+name = "Wait Between Escapes"
+type = "u64"
+value = 5000
+unit = "ms"
+range = [0, 60000]
+summary = "After an escape, a fighter starts no other escape for {ai.choices.escapes.wait_ms:s}."
+source = "the builder's call of 21 November 2026"
+see = "sim::combat::pace::Pace::end_escape"
+
+[choices.escapes.give_up_ms]
+name = "Escape Given Up"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [100, 10000]
+summary = "A fighter that has pressed the keys of an escape and has not started the roll or the cartwheel within {ai.choices.escapes.give_up_ms:s} lets go of the keys and fights on."
+source = "the builder's call of 21 November 2026: an escape the sim refuses must never leave the fighter standing still"
+see = "sim::combat::pace::Pace::note_escape"
+
+[choices.escapes.run_ms]
+name = "Run Before a Roll"
+type = "u64"
+value = 300
+unit = "ms"
+range = [0, 2000]
+summary = "A fighter that rolls out of danger first runs to the side for {ai.choices.escapes.run_ms:s}, and then crouches to roll, as a running player does. A body that starts to run from a stand is not yet fast enough to roll."
+source = "the builder's call of 21 November 2026"
+see = "sim::combat::pace::Pace::escape_keys"

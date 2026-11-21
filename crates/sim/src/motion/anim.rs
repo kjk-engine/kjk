@@ -1449,6 +1449,14 @@ pub(crate) fn is_roll(anim: Anim) -> bool {
     matches!(anim, BOTH_ROLL_B | BOTH_ROLL_F | BOTH_ROLL_L | BOTH_ROLL_R)
 }
 
+/// One of the cartwheels: the arials and the staff's butterflies.
+pub(crate) fn is_cartwheel(anim: Anim) -> bool {
+    matches!(
+        anim,
+        BOTH_ARIAL_LEFT | BOTH_ARIAL_RIGHT | BOTH_BUTTERFLY_LEFT | BOTH_BUTTERFLY_RIGHT
+    )
+}
+
 /// `anim` is a roll and the legs' timer still runs.
 pub(crate) fn roll_playing(ps: &MotionState, anim: Anim) -> bool {
     is_roll(anim) && ps.legs.timer > 0

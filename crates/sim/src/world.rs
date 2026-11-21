@@ -148,6 +148,8 @@ mod scene;
 pub mod scream_probes;
 #[cfg(feature = "probes")]
 pub mod speaker_probes;
+#[cfg(feature = "probes")]
+pub mod special_choice_probes;
 pub(crate) mod stances;
 #[cfg(feature = "probes")]
 pub mod talk_end_probes;

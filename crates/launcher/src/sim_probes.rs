@@ -155,6 +155,7 @@ const GROUPS: &[Group] = &[
     ("enemy choices", sim::enemy_choice_probes::probes),
     ("feat steering", sim::picks_probes::steer_probes),
     ("feat choices", sim::feat_choice_probes::probes),
+    ("special choices", sim::special_choice_probes::probes),
     ("armour bars powers", sim::armour_force_probes::probes),
     ("ute encounters", sim::spawner_probes::probes),
     (

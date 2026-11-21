@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `42785cc3b4e471f1`.
+Edition `b27fac8cf2e06acd`.
 
 ## Contents
 
@@ -8389,6 +8389,66 @@ A gunner takes Rapid Shot against a target within 5 meters.
 A gunner takes Sniper Shot against a target that stands still at least 15 meters away.
 
 <sub>Source: the builder's call of 20 November 2026. Code: `sim::combat::choose::feat_reason`.</sub>
+
+#### <a id="ai-choices-specials"></a>Special Saber Moves by Tier
+
+A Skilled fighter and a Boss start the special moves of their saber style
+themselves, such as a kata, a lunge or a leap. They do so under the Advanced
+rules and under the Jedi Academy rules. Under the Advanced rules a special
+move uses Stamina. Under the Jedi Academy rules it uses Force points, or the
+stamina of a fighter without the Force, as the player's special moves do. A
+fighter that holds a melee weapon that is not a lightsaber is Skilled when it
+knows the second or third rank of Power Attack, Critical Strike or Flurry, or
+when its tag is in the list `data/duel_skilled.txt`. A companion is always
+Skilled.
+
+<a id="ai-choices-specials-skilled-one-in"></a>**Special Move Chance of a Skilled Fighter** = **10 times** · `ai.choices.specials.skilled_one_in`
+
+A Skilled fighter that is about to attack starts a special move of its saber style instead one time in 10, when it can pay for it. A Boss does so one time in 4.
+
+<sub>Source: the design of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Special saber moves. Code: `sim::combat::pace::special_one_in`.</sub>
+
+<a id="ai-choices-specials-companion-boss-level"></a>**Companion Level for the Boss Chance** = **15 level** · `ai.choices.specials.companion_boss_level`
+
+A companion of level 15 or higher starts special moves at a Boss's chance, and waits after a choice of a power or an item as long as a Boss does. It keeps the Skilled tier for every other rule.
+
+<sub>Source: the design of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Special saber moves. Code: `sim::combat::pace::veteran`.</sub>
+
+#### <a id="ai-choices-escapes"></a>Rolls and Cartwheels Out of Danger
+
+A Skilled fighter and a Boss roll or cartwheel to one side to get out of
+danger. They do so when a grenade lands near them, when their target winds up
+a kata or a spin within reach, and, under the Advanced rules, when they start
+to back off because they are tired. A fighter cartwheels when its weapon is
+drawn and ready and it can pay for the cartwheel. A cartwheel is the jumping
+side attack of the saber styles and costs what the player's costs. Otherwise
+the fighter runs to the side and then crouches, as the player rolls. Its body
+rolls only when it runs fast enough, as the player's does, and a slower body
+only runs to the side. An escape is never counted as an attack.
+
+<a id="ai-choices-escapes-grenade-within-m"></a>**Grenade Near** = **4 m** · `ai.choices.escapes.grenade_within_m`
+
+A fighter escapes from a grenade that rests, or falls, within 4 meters of it.
+
+<sub>Source: the builder's call of 21 November 2026. Code: `sim::combat::pace::Pace::escape_reason`.</sub>
+
+<a id="ai-choices-escapes-wait-ms"></a>**Wait Between Escapes** = **5 seconds** (`5000 ms`) · `ai.choices.escapes.wait_ms`
+
+After an escape, a fighter starts no other escape for 5 seconds.
+
+<sub>Source: the builder's call of 21 November 2026. Code: `sim::combat::pace::Pace::end_escape`.</sub>
+
+<a id="ai-choices-escapes-give-up-ms"></a>**Escape Given Up** = **1 second** (`1000 ms`) · `ai.choices.escapes.give_up_ms`
+
+A fighter that has pressed the keys of an escape and has not started the roll or the cartwheel within 1 second lets go of the keys and fights on.
+
+<sub>Source: the builder's call of 21 November 2026: an escape the sim refuses must never leave the fighter standing still. Code: `sim::combat::pace::Pace::note_escape`.</sub>
+
+<a id="ai-choices-escapes-run-ms"></a>**Run Before a Roll** = **0.3 seconds** (`300 ms`) · `ai.choices.escapes.run_ms`
+
+A fighter that rolls out of danger first runs to the side for 0.3 seconds, and then crouches to roll, as a running player does. A body that starts to run from a stand is not yet fast enough to roll.
+
+<sub>Source: the builder's call of 21 November 2026. Code: `sim::combat::pace::Pace::escape_keys`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

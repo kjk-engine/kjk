@@ -426,6 +426,31 @@ pub(super) fn log_feat(tag: &str, now: u64, what: &str, line: FeatLine, why: Fea
     }
 }
 
+/// Writes a special saber move or an escape that a fighter's pace started
+/// (`pace::Told`) to the standard error when the choice log is on. The line
+/// has the time, the fighter's tag, the move and the reason.
+pub(super) fn log_told(tag: &str, now: u64, told: Option<pace::Told>) {
+    let Some(told) = told.filter(|_| choose::logging()) else {
+        return;
+    };
+    match told {
+        pace::Told::Special(special, why) => {
+            let why = match why {
+                pace::SpecialWhy::Attacks => "the fighter attacks and its chance came up",
+                pace::SpecialWhy::BreaksBlock => "the target has held its block for long",
+            };
+            eprintln!("choice {now} ms {tag} Special {special:?}: {why}");
+        }
+        pace::Told::Escape(escape, side, danger) => {
+            let side = if side > 0 { "Right" } else { "Left" };
+            eprintln!(
+                "choice {now} ms {tag} Escape {escape:?} {side}: {}",
+                danger.text()
+            );
+        }
+    }
+}
+
 /// Writes `choice` to the standard error when the choice log is on. The
 /// line has the time, the chooser's tag, the choice, its score and the
 /// reason for the score.
