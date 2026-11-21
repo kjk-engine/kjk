@@ -3,9 +3,14 @@
 - **The rule** (`combat::damage::apply`): at 0 HP a party member (a seat's
   avatar, a companion, driven or not) is downed: `Life::Downed`, recorded
   in `Fighter::fallen` (when, who revives it); anyone else dies. A
-  script's `EffectDeath` kills a party member too, standing or downed, past
-  shields and protect; Min1HP still holds (Trask's scene lifts it). JA's
-  saber-lock loss downs a party member, kills a creature.
+  script's `EffectDeath` kills a companion too, standing or downed, past
+  shields and protect; Min1HP still holds (Trask's scene lifts it). The
+  same `EffectDeath` on a player's own character (a seat's avatar) downs it
+  as 0 HP does (`damage::Member`), so it gets up after the fight, and the
+  whole party down is still the loss. Dead for good, it lay there with its
+  companions standing and nothing to end the game: the pillars on South
+  Beach (`unk_m41ab`'s `blow1`…`blowd6`) kill everyone within 10 m of them.
+  JA's saber-lock loss downs a party member, kills a creature.
 - `alive()` stays "can act": the downed press nothing, are not hit, healed
   (medpacs, Force heals [verify]) or perceived, lie as the dead do (no
   ragdoll; `game::cast`), and hold no exit (no doorway's or trigger's
@@ -75,7 +80,7 @@
   `GetNearestCreature` skips the downed unless asked [verify]; the downed
   have 0 HP (`GetIsDead` [verify]), stay in their script triggers, keep
   their bodies when the party is picked again. No `Mod_OnPlrDying`/`Death`.
-- **Probes**: `kjk sim probes --only falls` (20), `--only "up again"`
+- **Probes**: `kjk sim probes --only falls` (21), `--only "up again"`
   (each of the 19 get-ups' turned first frame against its death's last:
   side, head, pelvis), `kjk combat duel --only
   lock_down`, `kjk gui probes`; approved test `downed_and_revive`.

@@ -28,6 +28,7 @@ const CASES: &[(&str, Case)] = &[
     ("downed_keeps_its_bytes", kept),
     ("party_member_downed", downed),
     ("death_on_the_downed", death),
+    ("death_downs_the_player", death_downs_the_player),
     ("raised_from_death", raised_from_death),
     ("fall_is_no_death", fall_is_no_death),
     ("get_up_at_combat_end", get_up),
@@ -395,6 +396,32 @@ fn death() -> Result<String, String> {
         }
     }
     Ok("EffectDeath kills a companion standing or downed; a hit does not kill the downed".into())
+}
+
+/// EffectDeath downs the host, the player's own character, as 0 HP does,
+/// and a second one leaves it down. It gets up once the foe is dead and the
+/// party out of combat. The pillars on Unknown World's South Beach kill
+/// whoever stands near them, and left the player's character dead for good
+/// while its companions stood.
+fn death_downs_the_player() -> Result<String, String> {
+    let mut run = Run::new(2, false)?;
+    run.step(&[]);
+    let mut lives = Vec::new();
+    for _ in 0..2 {
+        run.effect(Who::Host, Effect::Death);
+        run.step(&[]);
+        lives.push(run.life(Who::Host).0);
+    }
+    run.hit(Who::Foe, 999);
+    run.hold(12_000, &[]);
+    let after = run.life(Who::Host);
+    if lives != [Life::Downed; 2] || after != (Life::Alive, RISE_HP) || run.last.lost.is_some() {
+        return Err(format!(
+            "after each death {lives:?}, after the fight {after:?}, lost {:?}",
+            run.last.lost
+        ));
+    }
+    Ok("EffectDeath downs the player's character, twice; it gets up after the fight".into())
 }
 
 /// EffectResurrection raises the dead, a companion killed by EffectDeath
