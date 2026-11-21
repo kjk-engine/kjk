@@ -6,7 +6,8 @@
 //! templates the project brings win. Its props' models are read from Jedi
 //! Academy's archives once. And its solid props and boxes are made ready to
 //! join the collision of its module's area (`added`), which every plan of
-//! that module builds (`session`, the collision verbs).
+//! that module builds (`session`, the collision verbs). A project of
+//! several levels (`Project::parked`) does this for each of them.
 
 use std::path::Path;
 use std::sync::OnceLock;
@@ -20,8 +21,11 @@ use crate::project::Project;
 /// The active project, with what it adds to the collision.
 pub struct Active {
     pub project: Project,
-    /// The solid props' triangles and the boxes' hulls.
+    /// The solid props' triangles and the boxes' hulls of the project's
+    /// level `project.module`.
     pub added: Added,
+    /// The same for each of its other levels, by module.
+    pub parked_added: std::collections::BTreeMap<String, Added>,
     /// `Project::digest`.
     pub digest: [u8; 32],
     /// What could not be read: a prop whose model Jedi Academy's archives
@@ -41,9 +45,13 @@ pub fn get() -> Option<&'static Active> {
 /// `None` when no project is active or it edits another module.
 pub fn added(game: &str, module: &str) -> Option<&'static Added> {
     let active = get()?;
-    (active.project.game.eq_ignore_ascii_case(game)
-        && active.project.module.eq_ignore_ascii_case(module))
-    .then_some(&active.added)
+    if !active.project.game.eq_ignore_ascii_case(game) {
+        return None;
+    }
+    if active.project.module.eq_ignore_ascii_case(module) {
+        return Some(&active.added);
+    }
+    active.parked_added.get(&module.to_ascii_lowercase())
 }
 
 /// The active project's digest, for `game`'s `module`.
@@ -53,10 +61,10 @@ pub fn digest(game: &str, module: &str) -> Option<[u8; 32]> {
 
 /// The props the active project places in `game`'s `module`.
 pub fn props(game: &str, module: &str) -> &'static [Prop] {
-    match added(game, module).and(get()) {
-        Some(active) => &active.project.kjk.props,
-        None => &[],
-    }
+    added(game, module)
+        .and(get())
+        .and_then(|active| active.project.kjk_of(module))
+        .map_or(&[], |kjk| kjk.props.as_slice())
 }
 
 /// Jedi Academy's archives, as found on this machine; `None` without the
@@ -100,12 +108,21 @@ pub fn models_under(stack: &vfs::ja::JaStack, folder: &str) -> Vec<String> {
 /// on the props that could not be read. Models are read from `stack`;
 /// without it every solid prop is noted and left out.
 pub fn collision_of(project: &Project, stack: Option<&vfs::ja::JaStack>) -> (Added, Vec<String>) {
+    kjk_collision(&project.kjk, stack)
+}
+
+/// What a level's kjk-only content (`kjk`) adds to the collision, as
+/// `collision_of` says.
+pub fn kjk_collision(
+    kjk: &crate::area::KjkArea,
+    stack: Option<&vfs::ja::JaStack>,
+) -> (Added, Vec<String>) {
     let mut added = Added::default();
     let mut notes = Vec::new();
-    for shape in project.kjk.boxes.iter().filter(|shape| shape.role.solid()) {
+    for shape in kjk.boxes.iter().filter(|shape| shape.role.solid()) {
         added.hulls.push(shape.hull());
     }
-    for prop in project.kjk.props.iter().filter(|prop| prop.solid) {
+    for prop in kjk.props.iter().filter(|prop| prop.solid) {
         let Some(stack) = stack else {
             notes.push(format!("prop {}: Jedi Academy is not installed", prop.name));
             continue;
@@ -138,17 +155,33 @@ pub fn activate(discovery: &Discovery, folder: &Path) -> Result<&'static Active,
             "{}: the game {:?} is not k1 or tsl",
             project.name, project.game
         ))?;
-    let stack = if project.kjk.props.is_empty() {
+    let stack = if project.kjk.props.is_empty()
+        && project
+            .parked
+            .values()
+            .all(|level| level.kjk.props.is_empty())
+    {
         None
     } else {
         ja_stack(discovery)
     };
-    let (added, notes) = collision_of(&project, stack.as_ref());
+    let (added, mut notes) = collision_of(&project, stack.as_ref());
+    let mut parked_added = std::collections::BTreeMap::new();
+    for (module, level) in &project.parked {
+        let (added, level_notes) = kjk_collision(&level.kjk, stack.as_ref());
+        notes.extend(
+            level_notes
+                .into_iter()
+                .map(|note| format!("{module}: {note}")),
+        );
+        parked_added.insert(module.clone(), added);
+    }
     vfs::project::activate(game, folder)?;
     let digest = project.digest();
     let active = Active {
         project,
         added,
+        parked_added,
         digest,
         notes,
     };
@@ -172,8 +205,11 @@ pub fn clip_for(game: &str, module: &str, clip: Option<ClipFile>) -> Option<Clip
 /// navigation mesh of `game`'s `module` (`nav::edited`); as it is when no
 /// project is active or it edits another module.
 pub fn nav_faces(game: &str, module: &str, floor: Vec<[[f32; 3]; 3]>) -> Vec<[[f32; 3]; 3]> {
-    match added(game, module).and(get()) {
-        Some(active) => crate::nav::edited(floor, &active.project.kjk.boxes),
+    match added(game, module)
+        .and(get())
+        .and_then(|active| active.project.kjk_of(module))
+    {
+        Some(kjk) => crate::nav::edited(floor, &kjk.boxes),
         None => floor,
     }
 }

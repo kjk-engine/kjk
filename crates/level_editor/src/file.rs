@@ -34,6 +34,8 @@ pub(crate) struct FileState {
     pub(crate) new_map: Option<String>,
     /// The projects of the projects' folder, read when the menu first opens.
     recent: Option<Vec<crate::picker::Found>>,
+    /// What the Add a level menu's filter holds.
+    level_filter: String,
 }
 
 /// Leaves by `leave`, asking first when there are changes not saved.
@@ -53,6 +55,34 @@ fn open_args(found: &crate::picker::Found) -> Vec<String> {
         "--project".into(),
         found.name.clone(),
     ]
+}
+
+/// The arguments that open the project being edited on its level
+/// `module`, or add that level to it first (`main::setup`).
+fn level_args(state: &EditorState, module: &str) -> Vec<String> {
+    let project = &state.editor.project;
+    vec![
+        project.game.clone(),
+        module.to_ascii_lowercase(),
+        "--project".into(),
+        project.name.clone(),
+    ]
+}
+
+/// Opens the project's level `module`, adding it to the project when it
+/// has no such level yet, or says why not.
+fn to_level(state: &mut EditorState, file: &mut FileState, module: &str) {
+    let module = module.to_ascii_lowercase();
+    let project = &state.editor.project;
+    if module == project.module {
+        state.say(format!("{module} is the level being edited"));
+    } else if project.map.is_some() {
+        state.say("a new map's project has one level");
+    } else if state.setup.modules.binary_search(&module).is_err() {
+        state.say(format!("the install has no module {module}"));
+    } else {
+        want(state, file, Leave::Start(level_args(state, &module)));
+    }
 }
 
 /// The arguments that make the new map `name`, its area's light, fog and
@@ -95,6 +125,7 @@ pub(crate) fn command(state: &mut EditorState, file: &mut FileState, words: &[&s
                 None => state.say(format!("there is no project named {name}")),
             }
         }
+        ["file", "level", module] => to_level(state, file, module),
         ["file", "new", name] => match new_map_args(state, name) {
             Ok(args) => want(state, file, Leave::Start(args)),
             Err(why) => state.say(why),
@@ -155,6 +186,57 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
                 }
             }
         });
+        // The project's levels, and another level of the install added.
+        let project = &state.editor.project;
+        if project.map.is_none() {
+            let levels = project.level_list();
+            let editing = project.module.clone();
+            ui.menu_button("Levels of this project", |ui| {
+                for (module, area) in levels {
+                    let label = format!("{module}   ({area})");
+                    if module == editing {
+                        ui.add_enabled(false, egui::Button::new(format!("{label}, edited now")));
+                    } else if ui
+                        .button(label)
+                        .on_hover_text("Opens the project on this level")
+                        .clicked()
+                    {
+                        to_level(state, file, &module);
+                        ui.close();
+                    }
+                }
+                ui.separator();
+                ui.menu_button("Add a level", |ui| {
+                    ui.label("A level of the install, edited in this project beside the others:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut file.level_filter)
+                            .hint_text("filter, e.g. danm14")
+                            .desired_width(180.0),
+                    );
+                    let needle = file.level_filter.to_ascii_lowercase();
+                    let mut picked = None;
+                    egui::ScrollArea::vertical()
+                        .max_height(300.0)
+                        .show(ui, |ui| {
+                            for module in state
+                                .setup
+                                .modules
+                                .iter()
+                                .filter(|module| needle.is_empty() || module.contains(&needle))
+                                .take(200)
+                            {
+                                if ui.button(module).clicked() {
+                                    picked = Some(module.clone());
+                                }
+                            }
+                        });
+                    if let Some(module) = picked {
+                        to_level(state, file, &module);
+                        ui.close();
+                    }
+                });
+            });
+        }
         if ui
             .button("New map...")
             .on_hover_text("A map of your own, its light, fog and sound this level's")

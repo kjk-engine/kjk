@@ -17,11 +17,14 @@ pub(crate) fn activate(name: &str) -> Result<(), String> {
         ));
     }
     let active = level_edit::active::activate(&discover(), &folder)?;
+    let levels: Vec<String> = (active.project.level_list().into_iter())
+        .map(|(module, _)| module)
+        .collect();
     eprintln!(
         "project {}: {} {} from {}",
         active.project.name,
         active.project.game,
-        active.project.module,
+        levels.join(", "),
         folder.display()
     );
     for note in &active.notes {

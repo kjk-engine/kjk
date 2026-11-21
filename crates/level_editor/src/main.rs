@@ -154,6 +154,14 @@ fn kjk_program() -> Result<PathBuf, String> {
 /// The project in `folder` made for `game`'s `module`: its entry area's GIT
 /// as the install has it, and no kjk-only content.
 fn make(folder: &Path, game: Game, module: &str) -> Result<Project, String> {
+    let (area, git) = install_area(game, module)?;
+    let project = Project::new(folder, game.key(), module, &area, git);
+    project.save(&format!("kjk {}", kjk_game::GIT_SHA))?;
+    Ok(project)
+}
+
+/// `module`'s entry area as the install has it: its resref and its GIT.
+fn install_area(game: Game, module: &str) -> Result<(String, fmt_odyssey::gff::Gff), String> {
     let discovery = kjk_game::discover();
     let install = discovery
         .get(game)
@@ -174,9 +182,7 @@ fn make(folder: &Path, game: Game, module: &str) -> Result<Project, String> {
         .ok_or(format!("{module}: no {}.git", area.resref))?;
     let git = fmt_odyssey::gff::Gff::parse(&bytes)
         .map_err(|error| format!("{}.git: {error}", area.resref))?;
-    let project = Project::new(folder, game.key(), module, &area.resref, git);
-    project.save(&format!("kjk {}", kjk_game::GIT_SHA))?;
-    Ok(project)
+    Ok((area.resref.clone(), git))
 }
 
 /// The project in `folder` that makes the new map `module`: no rooms and no
@@ -318,14 +324,20 @@ fn setup(
     let name = project.unwrap_or(&module);
     let folder = level_edit::folder_of(name, |var| std::env::var(var).ok())?;
     if Project::exists(&folder) {
-        let found = Project::open(&folder)?;
-        if found.game != game.key() || found.module != module {
+        let mut found = Project::open(&folder)?;
+        if found.game != game.key() {
             return Err(format!(
-                "project {name} edits {} {}, not {} {module}",
+                "project {name} edits {}, not {}",
                 found.game,
-                found.module,
                 game.key()
             ));
+        }
+        // A level the project does not edit yet is added to it, made from
+        // the install's area (a new map's project refuses it).
+        if !found.level_list().iter().any(|(level, _)| *level == module) {
+            found.switch_to(&module, || install_area(game, &module))?;
+            found.save(&format!("kjk {}", kjk_game::GIT_SHA))?;
+            eprintln!("added the level {module} to project {name}");
         }
     } else if let Some(new_map) = new_map {
         make_map(&folder, game, &module, new_map)?;
@@ -392,14 +404,18 @@ fn setup(
     let light_data = light_data();
     let program = kjk_program()?;
     let tools = has_tools(&program);
-    let bakes =
-        checkout_of(&program).map_or_else(Vec::new, |root| bakes_of(&root, &active.project.area));
+    // The level edited now: the one asked for, of the project's levels.
+    let mut project = active.project.clone();
+    project.switch_to(&module, || {
+        Err(format!("project {name} has no level {module}"))
+    })?;
+    let bakes = checkout_of(&program).map_or_else(Vec::new, |root| bakes_of(&root, &project.area));
     let ja = level_edit::active::ja_stack(&discovery);
     let models = ja.as_ref().map_or_else(Vec::new, |stack| {
         level_edit::active::models_under(stack, "models/map_objects/")
     });
     Ok(state::EditSetup {
-        project: active.project.clone(),
+        project,
         game,
         resolver,
         ja,

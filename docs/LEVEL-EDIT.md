@@ -51,8 +51,9 @@ picked, and closes.
 NAME` names the project. Without it, the project is named after the
 module. When the project does not exist yet, the editor makes it first: it
 copies the area's `.git` file as the install has it, and the project
-starts with no props and no boxes. A project edits one area of one module.
-Opening a project with another game or module is refused. The editor also
+starts with no props and no boxes. Opening a project with another game is
+refused. Opening a project of the install with another module adds that
+level to the project (below, "Several levels in one project"). The editor also
 takes `--cmds`, `--headless` and `--size`, as `kjk` does (`docs/RUN.md`).
 
 The Play and Audit buttons start the `kjk` program that lies beside
@@ -331,6 +332,28 @@ and the containment audit bake the mesh with the active project's changes
 (`level_edit::nav`). An installed module without a project bakes as
 before.
 
+## Several levels in one project
+
+Every module of KOTOR holds one area, so a level is a module and its area.
+A project of the install can edit several levels, such as the Jedi
+enclave on Dantooine (`danm13`) and the courtyard outside it
+(`danm14aa`). Each level keeps its own objects, Jedi Academy props,
+collision boxes and settings. The templates, scripts and conversations
+are the project's, shared by all its levels. Play applies every level's
+changes wherever that level is loaded: its objects, its props, its boxes
+in the collision, and its boxes' changes to the navigation mesh.
+
+The editor edits one level at a time. **File > Levels of this project**
+lists the project's levels. A click on one first asks whether to save the
+changes not saved yet, then opens the project on that level. **Add a level** lists the
+install's modules, with a filter. A click on one adds it to the project,
+made from the install's area, and opens it. A level whose doors and
+triggers the project had already changed (`others`, in "Doors and the
+ways between levels") keeps those changes when it becomes a level.
+`kjk-level-editor GAME MODULE --project NAME` does the same: it opens the
+project on that level, and adds the level first when the project does not
+have it. A new map's project has one level, the map.
+
 ## Where projects live
 
 A project is a folder in `projects` in kjk's own folder, beside the saves:
@@ -342,12 +365,14 @@ folder for the projects alone. A name is 1 to 64 letters, digits, `-` and
 
 The folder holds these files.
 
-- `project.toml` names the game, the module, the area and the kjk that
-  wrote it.
+- `project.toml` names the game, the first level's module and area, and
+  the kjk that wrote it. `levels` lists the project's further levels, each
+  as `[module, area]`.
 - `AREA.git` is the area's object list as the editor changed it. It is a
   KOTOR file, and the original games could read it.
 - `kjk-area.toml` holds what only kjk understands: the Jedi Academy props
-  and the collision boxes. The original games never read it.
+  and the collision boxes. The original games never read it. Each further
+  level's is `kjk-area-AREA.toml`.
 - `kje1_metalbox001.utp` and the like are templates of the project's own
   (below, "An object's behaviour"). They are KOTOR files too.
 - `NAME.nss` files are the project's own scripts, and `NAME.ncs` each one
@@ -1030,6 +1055,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui view window on`, `edit ui view window off` | the viewer in a window of its own, or under the details |
 | `edit ui view tab source`, `summary`, `listing`, `try` | picks the viewer's tab |
 | `edit ui file open [PROJECT]` | opens the picker, or the project, in a new editor (a headless run names it instead) |
+| `edit ui file level MODULE` | opens the project on its level MODULE in a new editor, adding the level first when the project does not have it |
 | `edit ui file new NAME` | makes the new map NAME from this level in a new editor |
 | `edit ui quit` | closes the editor |
 | `edit ui confirm save`, `discard`, `cancel` | answers the question asked before leaving with changes not saved |
@@ -1091,8 +1117,9 @@ a new perch.
 - **Saves made in an edited area** hold the edited area's objects. Loading
   such a save without the project, or with a changed project, may move or
   lose objects. kjk does not warn about this yet.
-- **One area per project.** A module with more than one area is edited at
-  its entry area.
+- **One level at a time.** A project's levels are edited one by one, and
+  the editor starts again to move between them. A level cannot be taken
+  out of a project yet. A new map's project has one level.
 - **One object at a time.** There is no multiple selection, box selection,
   or copy and paste between areas.
 - **No export.** A new map's `.mod` and a project's `.git` file are KOTOR
@@ -1117,6 +1144,9 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_levels` adds levels to a project, keeps each level's
+  objects and kjk-only content apart, saves and reopens them, and refuses
+  a level for a new map.
 - `level_edit_templates` changes a creature's, a store's and an
   encounter's template beyond its scripts, places a new encounter with
   spawn points, reads the encounter as kjk's module reader reads it, and

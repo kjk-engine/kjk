@@ -1,5 +1,16 @@
 //! A project's folder: `project.toml`, the area's `.git` file,
 //! `kjk-area.toml` and the templates the project brings, read and written.
+//!
+//! A project of the install may edit several levels (`Project::levels`).
+//! Every module of KOTOR holds one area, so a level is a module and its
+//! area. The project's first level, its home, is the one `project.toml`
+//! names with `module` and `area`, and its kjk-only content is
+//! `kjk-area.toml`. Each further level is listed in `levels` as
+//! `[module, area]`, and its kjk-only content is `kjk-area-<area>.toml`.
+//! Every level's GIT is `<area>.git` and its changed ARE `<area>.are`,
+//! which the project's layer serves wherever that area is loaded. The
+//! editor edits one level at a time (the project's `module`, `area`,
+//! `git`, `kjk` and `are`) and parks the others in `levels`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -55,6 +66,53 @@ pub struct Project {
     /// copies of the game's, each `NAME.dlg` in the folder, which the
     /// project's layer serves in place of the game's of that name.
     pub conversations: BTreeMap<String, Gff>,
+    /// The project's first level, as `project.toml` names it: (module,
+    /// area). The level edited now is `module` and `area`.
+    pub home: (String, String),
+    /// The project's other levels of the install, by module: every level
+    /// it edits but the one edited now.
+    pub parked: BTreeMap<String, Level>,
+}
+
+/// A level of the install that a project edits, while another is edited
+/// (`Project::levels`): its area, its GIT, its kjk-only content and its
+/// changed ARE.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Level {
+    pub area: String,
+    pub git: Gff,
+    pub kjk: KjkArea,
+    pub are: Option<Gff>,
+}
+
+/// The file of a level's kjk-only content: `kjk-area.toml` for the home
+/// level's area, `kjk-area-<area>.toml` for another's.
+pub fn kjk_file(home_area: &str, area: &str) -> String {
+    if home_area.eq_ignore_ascii_case(area) {
+        AREA_FILE.to_string()
+    } else {
+        format!("kjk-area-{}.toml", area.to_ascii_lowercase())
+    }
+}
+
+/// The further levels `project.toml` lists (`levels`): (module, area),
+/// each lowercase.
+fn levels_of(document: &toml_edit::DocumentMut) -> Vec<(String, String)> {
+    pairs_of(document, "levels")
+}
+
+fn pairs_of(document: &toml_edit::DocumentMut, key: &str) -> Vec<(String, String)> {
+    let Some(list) = document.get(key).and_then(toml_edit::Item::as_array) else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|pair| {
+            let pair = pair.as_array()?;
+            let module = pair.get(0)?.as_str()?.to_ascii_lowercase();
+            let area = pair.get(1)?.as_str()?.to_ascii_lowercase();
+            Some((module, area))
+        })
+        .collect()
 }
 
 /// An area of another module whose doors and triggers the project changes
@@ -81,17 +139,7 @@ fn read_text(path: &Path) -> Result<String, String> {
 /// The other areas `project.toml` lists (`others`): (module, area), each
 /// lowercase.
 fn others_of(document: &toml_edit::DocumentMut) -> Vec<(String, String)> {
-    let Some(list) = document.get("others").and_then(toml_edit::Item::as_array) else {
-        return Vec::new();
-    };
-    list.iter()
-        .filter_map(|pair| {
-            let pair = pair.as_array()?;
-            let module = pair.get(0)?.as_str()?.to_ascii_lowercase();
-            let area = pair.get(1)?.as_str()?.to_ascii_lowercase();
-            Some((module, area))
-        })
-        .collect()
+    pairs_of(document, "others")
 }
 
 fn field(document: &toml_edit::DocumentMut, key: &str) -> Result<String, String> {
@@ -125,7 +173,87 @@ impl Project {
             others: BTreeMap::new(),
             are: None,
             conversations: BTreeMap::new(),
+            home: (module.to_ascii_lowercase(), area.to_ascii_lowercase()),
+            parked: BTreeMap::new(),
         }
+    }
+
+    /// Every level the project edits, by module, with its area: the one
+    /// edited now and the parked ones, the home level first.
+    pub fn level_list(&self) -> Vec<(String, String)> {
+        let mut list: Vec<(String, String)> =
+            std::iter::once((self.module.clone(), self.area.clone()))
+                .chain(
+                    self.parked
+                        .iter()
+                        .map(|(module, level)| (module.clone(), level.area.clone())),
+                )
+                .collect();
+        list.sort_by_key(|(module, _)| (*module != self.home.0, module.clone()));
+        list
+    }
+
+    /// The kjk-only content of the project's level `module`: the one edited
+    /// now, else a parked one.
+    pub fn kjk_of(&self, module: &str) -> Option<&KjkArea> {
+        if self.module.eq_ignore_ascii_case(module) {
+            return Some(&self.kjk);
+        }
+        self.parked
+            .get(&module.to_ascii_lowercase())
+            .map(|level| &level.kjk)
+    }
+
+    /// Edits the level `module` now, parking the one edited before. A
+    /// level the project does not have yet is added, made from the
+    /// install's area that `fresh` gives (its area and GIT). A project's
+    /// copy of that area's doors (`others`) becomes the new level's GIT. A
+    /// new map has one level: it adds none.
+    pub fn switch_to(
+        &mut self,
+        module: &str,
+        fresh: impl FnOnce() -> Result<(String, Gff), String>,
+    ) -> Result<(), String> {
+        let module = module.to_ascii_lowercase();
+        if module == self.module {
+            return Ok(());
+        }
+        let level = match self.parked.remove(&module) {
+            Some(level) => level,
+            None => {
+                if self.map.is_some() {
+                    return Err(format!(
+                        "{} makes a new map, which has one level: {module} is not added",
+                        self.name
+                    ));
+                }
+                let (area, git) = fresh()?;
+                let area = area.to_ascii_lowercase();
+                let git = match self.others.remove(&area) {
+                    Some(other) if other.module == module => other.git,
+                    Some(other) => {
+                        self.others.insert(area.clone(), other);
+                        git
+                    }
+                    None => git,
+                };
+                Level {
+                    area,
+                    git,
+                    kjk: KjkArea::default(),
+                    are: None,
+                }
+            }
+        };
+        let parked = Level {
+            area: std::mem::replace(&mut self.area, level.area),
+            git: std::mem::replace(&mut self.git, level.git),
+            kjk: std::mem::replace(&mut self.kjk, level.kjk),
+            are: std::mem::replace(&mut self.are, level.are),
+        };
+        let was = std::mem::replace(&mut self.module, module);
+        self.parked.insert(was, parked);
+        Ok(())
     }
 
     /// A project that makes a new map: the module `module`, whose one area
@@ -212,6 +340,37 @@ impl Project {
             let gff = Gff::parse(&bytes).map_err(|error| format!("{name}.dlg: {error}"))?;
             project.conversations.insert(name, gff);
         }
+        for (module, area) in levels_of(&document) {
+            let read_gff = |name: String| -> Result<Option<Gff>, String> {
+                let path = folder.join(&name);
+                if !path.is_file() {
+                    return Ok(None);
+                }
+                let bytes =
+                    std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+                Gff::parse(&bytes)
+                    .map(Some)
+                    .map_err(|error| format!("{name}: {error}"))
+            };
+            let git = read_gff(format!("{area}.git"))?
+                .ok_or(format!("the level {module}'s {area}.git is missing"))?;
+            let are = read_gff(format!("{area}.are"))?;
+            let kjk_path = folder.join(kjk_file(&project.home.1, &area));
+            let kjk = if kjk_path.is_file() {
+                KjkArea::parse(&read_text(&kjk_path)?)?
+            } else {
+                KjkArea::default()
+            };
+            project.parked.insert(
+                module,
+                Level {
+                    area,
+                    git,
+                    kjk,
+                    are,
+                },
+            );
+        }
         for (module, other) in others_of(&document) {
             let path = folder.join(format!("{other}.git"));
             let bytes =
@@ -253,6 +412,17 @@ impl Project {
                 "{} is the project's own area; its doors are changed in its own GIT",
                 self.area
             ));
+        }
+        for level in self.parked.values() {
+            if self.others.contains_key(&level.area) {
+                block(format!(
+                    "{} is one of the project's levels; its doors are changed in its own GIT",
+                    level.area
+                ));
+            }
+        }
+        if self.map.is_some() && !self.parked.is_empty() {
+            block("a new map's project has one level".into());
         }
         let mut names: Vec<&str> = Vec::new();
         for prop in &self.kjk.props {
@@ -320,8 +490,23 @@ impl Project {
         let mut project = format!(
             "# A kjk level editor project (docs/LEVEL-EDIT.md).\n\
              game = {:?}\nmodule = {:?}\narea = {:?}\nmade_by = {:?}\n",
-            self.game, self.module, self.area, made_by
+            self.game, self.home.0, self.home.1, made_by
         );
+        let further: Vec<(String, String)> = self
+            .level_list()
+            .into_iter()
+            .filter(|(module, _)| *module != self.home.0)
+            .collect();
+        if !further.is_empty() {
+            let listed: Vec<String> = further
+                .iter()
+                .map(|(module, area)| format!("[{module:?}, {area:?}]"))
+                .collect();
+            project.push_str(&format!(
+                "# Further levels it edits: [module, area].\nlevels = [{}]\n",
+                listed.join(", ")
+            ));
+        }
         if !self.others.is_empty() {
             let listed: Vec<String> = self
                 .others
@@ -349,8 +534,21 @@ impl Project {
         let mut files = vec![
             (PROJECT_FILE.to_string(), project.into_bytes()),
             (format!("{}.git", self.area), self.git.write()),
-            (AREA_FILE.to_string(), self.own_kjk().write().into_bytes()),
+            (
+                kjk_file(&self.home.1, &self.area),
+                self.own_kjk().write().into_bytes(),
+            ),
         ];
+        for level in self.parked.values() {
+            files.push((format!("{}.git", level.area), level.git.write()));
+            files.push((
+                kjk_file(&self.home.1, &level.area),
+                installed_kjk(&level.kjk).write().into_bytes(),
+            ));
+            if let Some(are) = &level.are {
+                files.push((format!("{}.are", level.area), are.write()));
+            }
+        }
         for (resref, made) in &self.templates {
             files.push((
                 format!("{resref}.{}", template::extension(made.restype)),
@@ -439,6 +637,19 @@ impl Project {
             hasher.update(&(bytes.len() as u64).to_le_bytes());
             hasher.update(&bytes);
         }
+        for (module, level) in &self.parked {
+            let are = level.are.as_ref().map_or_else(Vec::new, Gff::write);
+            for part in [
+                module.as_bytes(),
+                level.area.as_bytes(),
+                &level.git.write(),
+                installed_kjk(&level.kjk).write().as_bytes(),
+                &are,
+            ] {
+                hasher.update(&(part.len() as u64).to_le_bytes());
+                hasher.update(part);
+            }
+        }
         if let Some(map) = &self.map {
             for part in [map.write().into_bytes(), self.map_are(map).write()] {
                 hasher.update(&(part.len() as u64).to_le_bytes());
@@ -456,11 +667,7 @@ impl Project {
         if self.map.is_some() {
             return self.kjk.clone();
         }
-        KjkArea {
-            lights: Vec::new(),
-            lamps: Vec::new(),
-            ..self.kjk.clone()
-        }
+        installed_kjk(&self.kjk)
     }
 
     /// The map's ARE with its rooms' list made from its rooms.
@@ -492,6 +699,16 @@ impl Project {
             .and_then(|()| std::fs::rename(&fresh, &path))
             .map_err(|error| format!("{}: {error}", path.display()))?;
         Ok(Some(path))
+    }
+}
+
+/// What an installed level's kjk-area file holds of `kjk`: all but its
+/// lights and lamps placed by hand, which are saved to the light data.
+fn installed_kjk(kjk: &KjkArea) -> KjkArea {
+    KjkArea {
+        lights: Vec::new(),
+        lamps: Vec::new(),
+        ..kjk.clone()
     }
 }
 

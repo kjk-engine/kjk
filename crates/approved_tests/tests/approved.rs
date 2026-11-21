@@ -8506,3 +8506,174 @@ fn level_edit_templates() {
     assert_eq!(editor.project, without);
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// `level_edit::project`'s levels: a project of the install that edits
+/// several levels, each with its own objects and kjk-only content, kept
+/// in its folder, reopened on any of them, and refused for a new map
+/// (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_levels() {
+    use fmt_odyssey::gff::Gff;
+    use level_edit::area::{BoxRole, CollisionBox, KjkArea};
+    use level_edit::project::{OtherArea, kjk_file};
+    use level_edit::{Kind, Project, git};
+
+    let folder = std::env::temp_dir().join(format!("kjk-levels-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let shape = |name: &str| CollisionBox {
+        name: name.into(),
+        centre: [1.0, 2.0, 0.5],
+        size: [1.0, 1.0, 1.0],
+        yaw: 0.0,
+        role: BoxRole::Solid,
+    };
+    let with_waypoint = |tag: &str| {
+        let mut gff = git::empty();
+        let at = git::add(
+            &mut gff,
+            Kind::Waypoint,
+            "sw_waypoint001",
+            [1.0, 1.0, 0.0],
+            0.0,
+        );
+        git::set_entry_field(
+            &mut gff,
+            Kind::Waypoint,
+            at,
+            "Tag",
+            fmt_odyssey::gff::GffValue::String(tag.as_bytes().to_vec()),
+        );
+        gff
+    };
+
+    // The home level: the enclave, with a box of its own.
+    let mut project = Project::new(&folder, "k1", "danm13", "m13aa", git::empty());
+    project.kjk.boxes.push(shape("home_box"));
+    // The courtyard's doors were changed before it became a level: its
+    // copy of them becomes the level's GIT.
+    project.others.insert(
+        "m14aa".into(),
+        OtherArea {
+            module: "danm14aa".into(),
+            git: with_waypoint("from_others"),
+        },
+    );
+    project
+        .switch_to("danm14aa", || Ok(("m14aa".into(), git::empty())))
+        .unwrap();
+    assert_eq!(
+        (project.module.as_str(), project.area.as_str()),
+        ("danm14aa", "m14aa")
+    );
+    assert!(
+        project.others.is_empty(),
+        "the doors' copy became the level"
+    );
+    assert_eq!(git::entries(&project.git)[0].tag, "from_others");
+    assert!(
+        project.kjk.boxes.is_empty(),
+        "a new level starts with no kjk-only content"
+    );
+    project.kjk.boxes.push(shape("yard_box"));
+    // A third level, made from the install's area that `fresh` gives.
+    project
+        .switch_to("danm14ab", || Ok(("m14ab".into(), with_waypoint("plains"))))
+        .unwrap();
+    assert_eq!(
+        project.level_list(),
+        [
+            ("danm13".to_string(), "m13aa".to_string()),
+            ("danm14aa".to_string(), "m14aa".to_string()),
+            ("danm14ab".to_string(), "m14ab".to_string()),
+        ],
+        "the home level comes first"
+    );
+    assert_eq!(project.kjk_of("DANM13").unwrap().boxes[0].name, "home_box");
+    assert_eq!(
+        project.kjk_of("danm14aa").unwrap().boxes[0].name,
+        "yard_box"
+    );
+    assert!(project.kjk_of("danm15").is_none());
+    // Going back to a level takes it as it was left.
+    project
+        .switch_to("danm14aa", || Err("not asked for".into()))
+        .unwrap();
+    assert_eq!(project.kjk.boxes[0].name, "yard_box");
+
+    // Saved: project.toml names the home level and lists the others, each
+    // level has its GIT and its kjk-area file.
+    project.save("approved test").unwrap();
+    let text = std::fs::read_to_string(folder.join("project.toml")).unwrap();
+    assert!(text.contains("module = \"danm13\""), "{text}");
+    assert!(
+        text.contains("levels = [[\"danm14aa\", \"m14aa\"], [\"danm14ab\", \"m14ab\"]]"),
+        "{text}"
+    );
+    for file in [
+        "m13aa.git",
+        "m14aa.git",
+        "m14ab.git",
+        "kjk-area.toml",
+        "kjk-area-m14aa.toml",
+    ] {
+        assert!(folder.join(file).is_file(), "{file}");
+    }
+    assert_eq!(kjk_file("m13aa", "M13AA"), "kjk-area.toml");
+    assert_eq!(kjk_file("m13aa", "m14ab"), "kjk-area-m14ab.toml");
+
+    // Reopened: the home level is edited, the others are parked as they
+    // were saved, and the project reads back the same once on the same
+    // level.
+    let mut opened = Project::open(&folder).unwrap();
+    assert_eq!(opened.module, "danm13");
+    assert_eq!(opened.kjk.boxes[0].name, "home_box");
+    assert_eq!(opened.parked["danm14aa"].kjk.boxes[0].name, "yard_box");
+    assert_eq!(
+        git::entries(&opened.parked["danm14ab"].git)[0].tag,
+        "plains"
+    );
+    opened
+        .switch_to("danm14aa", || Err("not asked for".into()))
+        .unwrap();
+    assert_eq!(opened.level_list(), project.level_list());
+    assert_eq!(opened.kjk, project.kjk);
+    assert_eq!(opened.git, project.git);
+    assert_eq!(opened.digest(), project.digest());
+    // A change to a parked level changes the digest that play keys by.
+    let before = opened.digest();
+    opened.parked.get_mut("danm13").unwrap().kjk = KjkArea::default();
+    assert_ne!(opened.digest(), before);
+
+    // A level whose doors are also kept as another area's copy is refused.
+    opened.others.insert(
+        "m14ab".into(),
+        OtherArea {
+            module: "danm14ab".into(),
+            git: git::empty(),
+        },
+    );
+    assert!(opened.problems().iter().any(|problem| problem.blocks));
+    assert!(opened.save("approved test").is_err());
+
+    // A new map has one level.
+    let mut map = Project::new_map(
+        &folder.join("map"),
+        "k1",
+        "kje_yard",
+        "The yard",
+        (
+            "danm14aa",
+            Gff {
+                file_type: *b"ARE ",
+                root: git::empty().root,
+            },
+            &git::empty(),
+        ),
+    )
+    .unwrap();
+    assert!(
+        map.switch_to("danm13", || Ok(("m13aa".into(), git::empty())))
+            .is_err()
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+}
