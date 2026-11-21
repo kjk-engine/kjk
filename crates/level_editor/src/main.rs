@@ -347,9 +347,27 @@ fn setup(
     let creatures = sorted(ResType::UTC);
     let scripts = sorted(ResType::NCS);
     let catalog = script_view::catalog(&resolver);
+    let notes = resolver
+        .read("nwscript", ResType::NSS)
+        .map(|bytes| bytes.into_iter().map(char::from).collect::<String>())
+        .map_or_else(std::collections::BTreeMap::new, |text| {
+            script_ncs::catalog::notes(&text)
+        });
     let items = sorted(ResType::UTI);
     let waypoints = sorted(ResType::UTW);
     let doors = sorted(ResType::UTD);
+    // The globals scripts may keep (`globalcat.2da`): name and type.
+    let globals = resolver.two_da("globalcat").map_or_else(Vec::new, |table| {
+        let mut globals: Vec<(String, String)> = (0..table.row_labels.len())
+            .filter_map(|row| {
+                let name = table.text(row, "name")?;
+                let kind = table.text(row, "type")?.to_ascii_lowercase();
+                (!name.is_empty() && name != "****").then_some((name, kind))
+            })
+            .collect();
+        globals.sort();
+        globals
+    });
     let modules = discovery
         .get(game)
         .and_then(|install| vfs::DirIndex::of_install(install).ok())
@@ -385,10 +403,12 @@ fn setup(
         models,
         scripts,
         catalog,
+        notes,
         items,
         waypoints,
         doors,
         modules,
+        globals,
         triggers,
         sounds,
         stores,

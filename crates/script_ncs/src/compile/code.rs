@@ -104,6 +104,19 @@ struct Writer<'s, 'a> {
     labels: usize,
     /// The user's functions this one calls, in the order first called.
     calls: Vec<String>,
+    /// The file and the function being written, and for each open scope
+    /// the debug notes of its locals (`compile::Debug`), ended as it closes.
+    file: String,
+    function: String,
+    noted: Vec<Vec<usize>>,
+}
+
+/// A type's name in a debug note: one word.
+fn ty_name(ty: &Ty) -> String {
+    match ty {
+        Ty::Struct(name) => format!("struct:{name}"),
+        other => format!("{other:?}").to_ascii_lowercase(),
+    }
 }
 
 type Done<T> = Result<T, Error>;
@@ -626,10 +639,17 @@ impl Writer<'_, '_> {
     /// Opens a block's scope.
     fn open(&mut self) {
         self.locals.push(Vec::new());
+        self.noted.push(Vec::new());
     }
 
     /// Closes a block's scope: its locals popped.
     fn close(&mut self) {
+        let here = self.asm.code.len();
+        for at in self.noted.pop().unwrap_or_else(Vec::new) {
+            if let Some(local) = self.asm.debug.locals.get_mut(at) {
+                local.5 = here;
+            }
+        }
         let scope = self.locals.pop().unwrap_or_else(Vec::new);
         let size: i32 = scope.iter().map(|(_, var)| self.size(&var.ty)).sum();
         self.movsp(-size);
@@ -637,6 +657,15 @@ impl Writer<'_, '_> {
 
     fn statement(&mut self, statement: &Located<Stmt>) -> Done<()> {
         self.line = statement.line;
+        let here = self.asm.code.len();
+        // A statement written as no code (an empty one, a block's opening)
+        // starts no line of its own.
+        if !matches!(statement.item, Stmt::Block(_) | Stmt::Empty) {
+            self.asm
+                .debug
+                .lines
+                .push((here, self.file.clone(), statement.line));
+        }
         self.stmt(&statement.item)
     }
 
@@ -661,6 +690,18 @@ impl Writer<'_, '_> {
                         .last_mut()
                         .expect("a function's scope")
                         .push((name.clone(), var));
+                    let noted = self.asm.debug.locals.len();
+                    self.asm.debug.locals.push((
+                        self.function.clone(),
+                        name.clone(),
+                        ty_name(ty),
+                        start,
+                        self.asm.code.len(),
+                        usize::MAX,
+                    ));
+                    if let Some(scope) = self.noted.last_mut() {
+                        scope.push(noted);
+                    }
                     if let Some(value) = value {
                         let given = self.expr(value)?;
                         if given != *ty {
@@ -941,7 +982,7 @@ pub(super) fn program(
     name: &str,
     items: &[(String, Item)],
     catalog: &Catalog,
-) -> Result<Ncs, Error> {
+) -> Result<(Ncs, crate::compile::Debug), Error> {
     let mut scope = Scope {
         file: name.to_string(),
         catalog,
@@ -951,9 +992,10 @@ pub(super) fn program(
         globals_size: 0,
         functions: BTreeMap::new(),
     };
-    // The globals' values.
+    // The globals' values, and the file each function is defined in.
     let mut globals: Vec<(String, Ty, Option<Expr>)> = Vec::new();
-    for (_, item) in items {
+    let mut files: BTreeMap<String, String> = BTreeMap::new();
+    for (file, item) in items {
         match item {
             Item::Include(_) => {}
             Item::Define(name, value) => {
@@ -997,6 +1039,9 @@ pub(super) fn program(
                             param.default = old.default.clone();
                         }
                     }
+                }
+                if function.body.is_some() {
+                    files.insert(function.name.clone(), file.clone());
                 }
                 scope.functions.insert(function.name.clone(), function);
             }
@@ -1043,6 +1088,7 @@ pub(super) fn program(
         asm.to(Op::Jsr, "globals");
         asm.op(Op::Retn);
         asm.label("globals");
+        let globals_first = asm.code.len();
         let mut writer = Writer {
             scope: &scope,
             asm: &mut asm,
@@ -1055,6 +1101,9 @@ pub(super) fn program(
             line: 0,
             labels: 0,
             calls: Vec::new(),
+            file: name.to_string(),
+            function: "globals".into(),
+            noted: vec![Vec::new()],
         };
         for (global, ty, value) in &globals {
             writer.reserve(ty)?;
@@ -1087,6 +1136,15 @@ pub(super) fn program(
         writer.asm.op(Op::RestoreBp);
         writer.asm.op(Op::MovSp(-scope.globals_size));
         writer.asm.op(Op::Retn);
+        // The function that sets the globals and calls the script's own,
+        // named for a debugger's calls.
+        let past = writer.asm.code.len();
+        writer.asm.debug.functions.push((
+            "(globals)".to_string(),
+            name.to_string(),
+            globals_first,
+            past,
+        ));
     }
 
     // The entry, then each function as the code first calls it, each one's
@@ -1126,6 +1184,12 @@ pub(super) fn program(
             line: 0,
             labels,
             calls: Vec::new(),
+            file: files
+                .get(&next)
+                .cloned()
+                .unwrap_or_else(|| name.to_string()),
+            function: next.clone(),
+            noted: vec![Vec::new(), Vec::new()],
         };
         // The parameters lie below the frame, the first nearest it.
         let mut at = 0;
@@ -1140,6 +1204,22 @@ pub(super) fn program(
             ));
         }
         writer.asm.label(&format!("function {next}"));
+        let first = writer.asm.code.len();
+        // The parameters, noted for the whole function.
+        let mut at = 0;
+        let mut params_noted = Vec::new();
+        for param in &function.params {
+            at -= size(&param.ty, &scope.structs);
+            params_noted.push(writer.asm.debug.locals.len());
+            writer.asm.debug.locals.push((
+                next.clone(),
+                param.name.clone(),
+                ty_name(&param.ty),
+                at,
+                first,
+                usize::MAX,
+            ));
+        }
         writer.statements(&body)?;
         writer.close();
         let end = writer.end.clone();
@@ -1148,6 +1228,16 @@ pub(super) fn program(
             writer.asm.op(Op::MovSp(-params_size));
         }
         writer.asm.op(Op::Retn);
+        let past = writer.asm.code.len();
+        for noted in params_noted {
+            writer.asm.debug.locals[noted].5 = past;
+        }
+        let file = writer.file.clone();
+        writer
+            .asm
+            .debug
+            .functions
+            .push((next.clone(), file, first, past));
         labels = writer.labels;
         let calls = std::mem::take(&mut writer.calls);
         stack.extend(
@@ -1157,5 +1247,15 @@ pub(super) fn program(
                 .filter(|called| !written.contains(called)),
         );
     }
-    Ok(asm.build())
+    let ncs = asm.build();
+    let globals_noted = scope
+        .globals
+        .iter()
+        .filter_map(|(name, var)| match var.home {
+            Home::Global(at) => Some((name.clone(), ty_name(&var.ty), at)),
+            Home::Local(_) => None,
+        })
+        .collect();
+    let debug = crate::compile::Debug::of(&asm.debug, &ncs, globals_noted);
+    Ok((ncs, debug))
 }

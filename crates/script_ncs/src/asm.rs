@@ -25,6 +25,9 @@ pub struct Asm {
     /// How many deferred blocks and ifs are written, so each gets its own
     /// labels.
     blocks: usize,
+    /// What the compiler notes for a debugger as it writes
+    /// (`compile::Debug`), by instruction.
+    pub(crate) debug: crate::compile::Rec,
 }
 
 impl Asm {

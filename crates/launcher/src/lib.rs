@@ -484,6 +484,10 @@ enum Command {
         /// How long to step on after it runs, for what it delays
         #[arg(long, default_value_t = 2.0)]
         seconds: f32,
+        /// The script's debug notes (NAME.ndb, beside its .ncs): the run
+        /// is also printed line by line, with its locals and globals
+        #[arg(long)]
+        debug: Option<String>,
     },
     /// Copy one resource out of the install, after precedence.
     Extract {
@@ -839,7 +843,16 @@ pub fn run() -> ExitCode {
             script,
             on,
             seconds,
-        }) => script_try::run(&discover(), &game, &module, &script, on.as_deref(), seconds),
+            debug,
+        }) => script_try::run(
+            &discover(),
+            &game,
+            &module,
+            &script,
+            on.as_deref(),
+            seconds,
+            debug.as_deref(),
+        ),
         Some(Command::Extract {
             game,
             resource,

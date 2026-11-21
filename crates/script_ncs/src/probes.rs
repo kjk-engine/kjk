@@ -854,6 +854,58 @@ fn compiled(p: &mut Probes) {
             .is_some_and(|error| error.line == 3 && error.what.contains("nNothing")),
         format!("{wrong:?}"),
     );
+
+    // A debugger's view: the compiler's notes read back as written, and a
+    // run watched line by line (`vm::observe`) shows a function's parameter
+    // at each call, read where the notes put it.
+    let source = "int Twice(int n)\n{\n    return n * 2;\n}\n\
+                  void main()\n{\n    int i;\n    for (i = 0; i < 3; i++) {\n        Record(Twice(i));\n    }\n}\n";
+    let debugged = crate::compile::compile_debug("probe", source.as_bytes(), &include, &catalog);
+    let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::<i32>::new()));
+    let noted = match &debugged {
+        Ok((ncs, debug)) => {
+            let again = crate::compile::Debug::parse(&debug.write());
+            let program = Program::new(ncs.clone());
+            let watched = debug.clone();
+            let into = seen.clone();
+            vm::observe(Some(Box::new(move |watch| {
+                // At the start of Twice's line 3: its n.
+                if watched.line_at(watch.offset) == Some(("probe", 3))
+                    && let (Some((start, _)), Some(n)) = (
+                        watch.frames.last(),
+                        watched.locals.iter().find(|local| local.name == "n"),
+                    )
+                {
+                    let at = *start as i64 + i64::from(n.home) / 4;
+                    if let Some(Value::Int(value)) =
+                        usize::try_from(at).ok().and_then(|at| watch.stack.get(at))
+                    {
+                        into.borrow_mut().push(*value);
+                    }
+                }
+            })));
+            let mut host = Recorder::default();
+            let ran = vm::run(&program, &p.routines, CALLER, &mut host);
+            vm::observe(None);
+            again.as_ref() == Ok(debug) && ran.is_ok()
+        }
+        Err(_) => false,
+    };
+    let values = seen.borrow().clone();
+    p.check(
+        "a compiled script's debug notes read back, and a watched run shows a parameter at each call",
+        noted && values == [0, 1, 2],
+        format!("{:?}, the parameter {values:?}", debugged.as_ref().map(|(_, debug)| &debug.lines)),
+    );
+    // What nwscript.nss says of a routine: the comment over its prototype.
+    let notes = crate::catalog::notes(
+        "// 3: Get the name.\n// * Returns \"\".\nstring Name(object oWho);\n",
+    );
+    p.check(
+        "a routine's notes are the comment over its prototype, its number left out",
+        notes.get("Name").map(String::as_str) == Some("Get the name.\n* Returns \"\"."),
+        format!("{notes:?}"),
+    );
 }
 
 /// What an install's scripts came to (`install`).

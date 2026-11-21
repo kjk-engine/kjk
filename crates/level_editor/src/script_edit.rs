@@ -110,6 +110,68 @@ pub struct Plan {
     /// The tag of the object it runs for; the player when `None`.
     pub on: Option<String>,
     pub seconds: f32,
+    /// The script's debug notes (`NAME.ndb`): the run is recorded line by
+    /// line (`kjk try-script --debug`).
+    pub debug: Option<PathBuf>,
+}
+
+/// A debugged run where a source line starts (`kjk try-script --debug`):
+/// the file and line, the function, the calls that led there, and the
+/// locals and globals, each as name, type and value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stop {
+    pub file: String,
+    pub line: u32,
+    pub function: String,
+    pub calls: String,
+    pub locals: Vec<(String, String, String)>,
+    pub globals: Vec<(String, String, String)>,
+}
+
+/// The stops `kjk try-script --debug` printed, and the lines before them.
+pub fn stops_of(lines: &[String]) -> (Vec<String>, Vec<Stop>) {
+    let Some(start) = lines.iter().position(|line| line.starts_with("  debug: ")) else {
+        return (lines.to_vec(), Vec::new());
+    };
+    let mut stops: Vec<Stop> = Vec::new();
+    let mut rest = Vec::new();
+    for line in &lines[start + 1..] {
+        if let Some(stop) = line.strip_prefix("    stop ") {
+            let mut words = stop.splitn(3, ' ');
+            let (Some(file), Some(at), Some(function)) = (words.next(), words.next(), words.next())
+            else {
+                continue;
+            };
+            stops.push(Stop {
+                file: file.to_string(),
+                line: at.parse().unwrap_or(0),
+                function: function.to_string(),
+                calls: String::new(),
+                locals: Vec::new(),
+                globals: Vec::new(),
+            });
+        } else if let Some(last) = stops.last_mut()
+            && let Some(said) = line.strip_prefix("      ")
+        {
+            let named = |said: &str| {
+                let (left, value) = said.split_once(" = ")?;
+                let (name, ty) = left.split_once(' ')?;
+                Some((name.to_string(), ty.to_string(), value.to_string()))
+            };
+            if let Some(calls) = said.strip_prefix("calls ") {
+                last.calls = calls.to_string();
+            } else if let Some(local) = said.strip_prefix("local ").and_then(named) {
+                last.locals.push(local);
+            } else if let Some(global) = said.strip_prefix("global ").and_then(named) {
+                last.globals.push(global);
+            }
+        } else {
+            rest.push(line.clone());
+        }
+    }
+    let mut before = lines[..start].to_vec();
+    before.extend(rest);
+    (before, stops)
 }
 
 /// A try running, then its result.
@@ -128,6 +190,8 @@ pub struct Outcome {
     pub on: Option<String>,
     pub ok: bool,
     pub lines: Vec<String>,
+    /// The stops of a debugged run (`Plan::debug`), else none.
+    pub stops: Vec<Stop>,
 }
 
 impl Try {
@@ -149,6 +213,9 @@ impl Try {
             if let Some(on) = &plan.on {
                 command.args(["--on", on]);
             }
+            if let Some(debug) = &plan.debug {
+                command.arg("--debug").arg(debug);
+            }
             let result = command
                 .output()
                 .map_err(|error| format!("kjk try-script did not start: {error}"))
@@ -169,11 +236,13 @@ impl Try {
                             })
                             .map(str::to_string),
                     );
+                    let (lines, stops) = stops_of(&lines);
                     Outcome {
                         script: plan.script.clone(),
                         on: plan.on.clone(),
                         ok: output.status.success(),
                         lines,
+                        stops,
                     }
                 });
             let _ = send.send(result);

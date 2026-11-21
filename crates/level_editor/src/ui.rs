@@ -143,6 +143,12 @@ pub struct UiState {
     way_in_arrival: String,
     /// The area's and the module's script fields as typed, by label.
     area_typed: BTreeMap<String, String>,
+    /// The event whose logic blocks are shown, for the selection.
+    blocks_event: Option<(Target, String)>,
+    /// The breakpoints by script, as line numbers, and the stop of the
+    /// last debugged run shown.
+    breakpoints: BTreeMap<String, std::collections::BTreeSet<u32>>,
+    debug_at: usize,
     /// An outline being drawn by clicks on the floor: the trigger or
     /// encounter, and the points so far.
     drawing: Option<(Target, Vec<[f32; 3]>)>,
@@ -163,6 +169,8 @@ enum ViewTab {
     Listing,
     /// What the last try of the script said (`script try`).
     Try,
+    /// The last debugged run of the script, stop by stop (`script debug`).
+    Debug,
 }
 
 impl Default for UiState {
@@ -195,6 +203,9 @@ impl Default for UiState {
             way_in_module: None,
             way_in_arrival: String::new(),
             area_typed: BTreeMap::new(),
+            blocks_event: None,
+            breakpoints: BTreeMap::new(),
+            debug_at: 0,
             drawing: None,
             dragging_point: None,
             viewer_window: false,
@@ -657,6 +668,29 @@ fn panels(
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
             ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
             ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
+            ["blocks", event] => {
+                ui.blocks_event = state
+                    .editor
+                    .selected
+                    .map(|target| (target, event.to_string()));
+            }
+            ["blocks"] => ui.blocks_event = None,
+            ["debug", n] => {
+                if let Ok(n) = n.parse::<usize>() {
+                    ui.debug_at = n.saturating_sub(1);
+                }
+            }
+            ["break", script, line] => {
+                if let Ok(line) = line.parse::<u32>() {
+                    let marks = ui
+                        .breakpoints
+                        .entry(script.to_ascii_lowercase())
+                        .or_default();
+                    if !marks.remove(&line) {
+                        marks.insert(line);
+                    }
+                }
+            }
             ["way_in", module] => ui.way_in_module = Some(module.to_ascii_lowercase()),
             ["way_in", module, arrival] => {
                 ui.way_in_module = Some(module.to_ascii_lowercase());
@@ -670,13 +704,14 @@ fn panels(
                     "summary" => ViewTab::Summary,
                     "listing" => ViewTab::Listing,
                     "try" => ViewTab::Try,
+                    "debug" => ViewTab::Debug,
                     _ => ViewTab::Source,
                 }
             }
             words => {
                 if !crate::file::command(state, &mut ui.file, words) {
                     state.say(format!(
-                        "edit ui {}: takes tool, tab, search, find, snap, view, way_in, file, quit or confirm",
+                        "edit ui {}: takes tool, tab, search, find, snap, view, way_in, blocks, debug, break, file, quit or confirm",
                         words.join(" ")
                     ));
                 }
@@ -1551,19 +1586,34 @@ fn behaviour(
             if field.lost_focus() && typed.to_ascii_lowercase() != *script {
                 changes.push(Change::Script(label.clone(), typed.to_ascii_lowercase()));
             }
-            if !script.is_empty() {
-                let viewed = ui_state.viewing.as_deref() == Some(script.as_str());
+            ui.horizontal(|ui| {
+                if !script.is_empty() {
+                    let viewed = ui_state.viewing.as_deref() == Some(script.as_str());
+                    if ui
+                        .selectable_label(viewed, "View")
+                        .on_hover_text("Shows what the script does, under the details.")
+                        .clicked()
+                    {
+                        ui_state.viewing = (!viewed).then(|| script.clone());
+                    }
+                }
+                let shown = ui_state.blocks_event.as_ref() == Some(&(target, label.clone()));
                 if ui
-                    .selectable_label(viewed, "View")
-                    .on_hover_text("Shows what the script does, under the details.")
+                    .selectable_label(shown, "Blocks")
+                    .on_hover_text("What the object does on this event, picked from a list rather than written.")
                     .clicked()
                 {
-                    ui_state.viewing = (!viewed).then(|| script.clone());
+                    ui_state.blocks_event = (!shown).then(|| (target, label.clone()));
                 }
-            }
+            });
             ui.end_row();
         }
     });
+    if let Some((on, event)) = ui_state.blocks_event.clone()
+        && on == target
+    {
+        blocks_panel(ui, state, target, &event);
+    }
     if matches!(kind, Kind::Door | Kind::Trigger) {
         leads_to(ui, state, (kind, index));
     }
@@ -1848,6 +1898,161 @@ fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
     }
     for change in asked {
         state::change_area(state, change);
+    }
+}
+
+/// The logic blocks an object runs on `event`: each block's values, moved
+/// up or down or removed, and a block added from the list.
+fn blocks_panel(ui: &mut egui::Ui, state: &mut EditorState, target: Target, event: &str) {
+    use level_edit::blocks::{self, Block, Param};
+    ui.separator();
+    ui.label(egui::RichText::new(format!("Blocks on {event}")).strong());
+    let (script, held) = match state::event_blocks(state, target, event) {
+        Ok(found) => found,
+        Err(why) => {
+            ui.label(why);
+            return;
+        }
+    };
+    let Some(mut list) = held else {
+        ui.label(format!(
+            "{event} runs {script}, which is written by hand or is the game's, not made of blocks."
+        ));
+        if ui
+            .button("Replace it with blocks")
+            .on_hover_text(
+                "The event runs a new script made of blocks; the old script is left as it is.",
+            )
+            .clicked()
+            && let Err(why) = state::set_blocks(state, target, event, Vec::new())
+        {
+            state.say(why);
+        }
+        return;
+    };
+    ui.label(
+        egui::RichText::new(if script.is_empty() {
+            "The event runs nothing yet. Add a block, and the blocks run in order from the top.".to_string()
+        } else {
+            format!("Written as the script {script}, compiled when the project is saved. The blocks run in order from the top.")
+        })
+        .small(),
+    );
+    let globals = state.setup.globals.clone();
+    let mut changed = false;
+    let mut moved: Option<(usize, i32)> = None;
+    let mut removed: Option<usize> = None;
+    let count = list.len();
+    for (at, block) in list.iter_mut().enumerate() {
+        let Some(kind) = blocks::kind(&block.key) else {
+            ui.label(format!("{}: not a kind of block", block.key));
+            continue;
+        };
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("{}. {}", at + 1, kind.title)).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("Remove").clicked() {
+                        removed = Some(at);
+                    }
+                    if at + 1 < count && ui.small_button("Down").clicked() {
+                        moved = Some((at, 1));
+                    }
+                    if at > 0 && ui.small_button("Up").clicked() {
+                        moved = Some((at, -1));
+                    }
+                });
+            });
+            egui::Grid::new(("block", at))
+                .num_columns(2)
+                .show(ui, |ui| {
+                    for (n, (label, param)) in kind.params.iter().enumerate() {
+                        if block.values.len() <= n {
+                            block.values.push(String::new());
+                        }
+                        let value = &mut block.values[n];
+                        ui.label(*label);
+                        match param {
+                            Param::GlobalNumber | Param::GlobalBoolean => {
+                                let wanted = if *param == Param::GlobalNumber {
+                                    "number"
+                                } else {
+                                    "boolean"
+                                };
+                                egui::ComboBox::from_id_salt(("global", at, n))
+                                    .selected_text(if value.is_empty() {
+                                        "pick one"
+                                    } else {
+                                        value.as_str()
+                                    })
+                                    .height(320.0)
+                                    .show_ui(ui, |ui| {
+                                        for (name, kind) in
+                                            globals.iter().filter(|(_, kind)| kind == wanted)
+                                        {
+                                            let _ = kind;
+                                            if ui.selectable_label(*value == *name, name).clicked()
+                                            {
+                                                *value = name.clone();
+                                                changed = true;
+                                            }
+                                        }
+                                    });
+                            }
+                            Param::Truth => {
+                                let mut on = matches!(value.as_str(), "1" | "true" | "TRUE");
+                                if ui.checkbox(&mut on, "true").changed() {
+                                    *value = if on { "1" } else { "0" }.to_string();
+                                    changed = true;
+                                }
+                            }
+                            _ => {
+                                let width = if *param == Param::Text { 220.0 } else { 150.0 };
+                                changed |= ui
+                                    .add(egui::TextEdit::singleline(value).desired_width(width))
+                                    .changed();
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    }
+    if let Some(at) = removed {
+        list.remove(at);
+        changed = true;
+    }
+    if let Some((at, by)) = moved {
+        let to = (at as i32 + by) as usize;
+        list.swap(at, to);
+        changed = true;
+    }
+    let mut added = None;
+    egui::ComboBox::from_id_salt("add a block")
+        .selected_text("Add a block")
+        .height(360.0)
+        .show_ui(ui, |ui| {
+            for kind in blocks::KINDS {
+                if ui.selectable_label(false, kind.title).clicked() {
+                    added = Some(Block::new(kind));
+                }
+            }
+        });
+    if let Some(block) = added {
+        list.push(block);
+        changed = true;
+    }
+    for problem in blocks::problems(&list) {
+        ui.colored_label(ui.visuals().warn_fg_color, problem);
+    }
+    if let Some(why) = state.script_errors.get(&script) {
+        ui.colored_label(
+            ui.visuals().error_fg_color,
+            format!("It did not compile: {why}"),
+        );
+    }
+    if changed && let Err(why) = state::set_blocks(state, target, event, list) {
+        state.say(why);
     }
 }
 
@@ -2257,10 +2462,15 @@ fn script_viewer(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
             .script_try
             .as_ref()
             .is_some_and(|run| run.script == name);
+    let debugged_here = state
+        .tried
+        .as_ref()
+        .is_some_and(|tried| tried.script == name && !tried.stops.is_empty());
     // A tab the script has nothing for shows the next that it has.
     let tab = match ui_state.view_tab {
         ViewTab::Source if view.source.is_none() && !drafted => ViewTab::Summary,
         ViewTab::Try if !tried_here => ViewTab::Source,
+        ViewTab::Debug if !debugged_here => ViewTab::Source,
         tab => tab,
     };
     ui.horizontal(|ui| {
@@ -2269,6 +2479,7 @@ fn script_viewer(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
             (ViewTab::Summary, "Summary", view.listing.is_some()),
             (ViewTab::Listing, "Listing", view.listing.is_some()),
             (ViewTab::Try, "Try", tried_here),
+            (ViewTab::Debug, "Debug", debugged_here),
         ] {
             ui.add_enabled_ui(there, |ui| {
                 if ui.selectable_label(tab == each, label).clicked() {
@@ -2314,7 +2525,21 @@ fn script_viewer(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
             let Some(draft) = state.drafts.get_mut(&name) else {
                 return;
             };
-            let writing = script_text(ui, &mut draft.text, error_line);
+            let help = (state.setup.catalog.as_ref(), &state.setup.notes);
+            // The look-up stands under the text, which takes the rest.
+            let mut writing = false;
+            egui::Panel::bottom("script look-up")
+                .resizable(false)
+                .show(ui, |ui| look_up(ui, help.0, help.1));
+            let stop_line = state
+                .tried
+                .as_ref()
+                .filter(|tried| tried.script == name)
+                .and_then(|tried| tried.stops.get(ui_state.debug_at))
+                .filter(|stop| stop.file == name)
+                .map(|stop| stop.line as usize);
+            let marks = ui_state.breakpoints.entry(name.clone()).or_default();
+            writing |= script_text(ui, &mut draft.text, (error_line, stop_line, marks), help.0);
             // Ctrl+S while writing saves the scripts (the editor's own keys
             // are off while a text field has them).
             if writing
@@ -2382,6 +2607,7 @@ fn script_viewer(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
             });
         }
         ViewTab::Try => tried(ui, state, &name),
+        ViewTab::Debug => debugged(ui, state, ui_state, &name),
     }
 }
 
@@ -2439,6 +2665,19 @@ fn script_tools(ui: &mut egui::Ui, state: &mut EditorState, name: &str) {
                 None => format!("script try {name}"),
             });
         }
+        if ui
+            .add_enabled(!trying, egui::Button::new(format!("Debug for {whom}")))
+            .on_hover_text(
+                "Tries it as Try does, recording each line it runs with its locals and globals: \
+                 the Debug tab steps through them, and stops at the breakpoints set in the gutter.",
+            )
+            .clicked()
+        {
+            ask = Some(match &tag {
+                Some(tag) => format!("script debug {name} {tag}"),
+                None => format!("script debug {name}"),
+            });
+        }
         match &selected {
             Some((_, events)) if !events.is_empty() => {
                 ui.menu_button("Give to", |ui| {
@@ -2469,7 +2708,27 @@ fn script_tools(ui: &mut egui::Ui, state: &mut EditorState, name: &str) {
 
 /// A script's text, written in place: coloured, with its lines numbered,
 /// the line of a mistake in red. Whether it has the keys.
-fn script_text(ui: &mut egui::Ui, text: &mut String, error_line: Option<usize>) -> bool {
+fn script_text(
+    ui: &mut egui::Ui,
+    text: &mut String,
+    (error_line, stop_line, marks): (
+        Option<usize>,
+        Option<usize>,
+        &mut std::collections::BTreeSet<u32>,
+    ),
+    catalog: Option<&script_ncs::Catalog>,
+) -> bool {
+    // The completion offered last frame, which Tab takes.
+    let offered_id = egui::Id::new("script completion");
+    let offered: Option<(usize, usize, String)> = ui.data(|data| data.get_temp(offered_id));
+    let take = offered.is_some()
+        && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Tab));
+    let mut placed: Option<usize> = None;
+    if take && let Some((from, to, name)) = offered.clone() {
+        let (from_byte, to_byte) = (char_byte(text, from), char_byte(text, to));
+        text.replace_range(from_byte..to_byte, &name);
+        placed = Some(from + name.chars().count());
+    }
     let font = egui::FontId::monospace(12.0);
     let dark = ui.visuals().dark_mode;
     let weak = ui.visuals().weak_text_color();
@@ -2484,37 +2743,328 @@ fn script_text(ui: &mut egui::Ui, text: &mut String, error_line: Option<usize>) 
                 let mut numbers = egui::text::LayoutJob::default();
                 for line in 1..=lines {
                     let last = line == lines;
+                    // A breakpoint's dot, the shown stop's arrow.
+                    let mark = if Some(line) == stop_line {
+                        ">"
+                    } else if marks.contains(&(line as u32)) {
+                        "o"
+                    } else {
+                        " "
+                    };
+                    let colour = if Some(line) == stop_line {
+                        egui::Color32::YELLOW
+                    } else if Some(line) == error_line || marks.contains(&(line as u32)) {
+                        red
+                    } else {
+                        weak
+                    };
                     numbers.append(
-                        &format!("{line:>4}{}", if last { "" } else { "\n" }),
+                        &format!("{mark}{line:>4}{}", if last { "" } else { "\n" }),
                         0.0,
                         egui::TextFormat {
                             font_id: font.clone(),
-                            color: if Some(line) == error_line { red } else { weak },
+                            color: colour,
                             ..Default::default()
                         },
                     );
                 }
-                ui.add(egui::Label::new(numbers).selectable(false));
+                // A click on a line's number sets or clears its breakpoint.
+                let gutter = ui
+                    .add(
+                        egui::Label::new(numbers)
+                            .selectable(false)
+                            .sense(egui::Sense::click()),
+                    )
+                    .on_hover_text("Click a line's number to stop a debugged run there.");
+                if gutter.clicked()
+                    && let Some(at) = gutter.interact_pointer_pos()
+                {
+                    let row = gutter.rect.height() / lines.max(1) as f32;
+                    let line = ((at.y - gutter.rect.top()) / row).floor() as u32 + 1;
+                    if !marks.remove(&line) {
+                        marks.insert(line);
+                    }
+                }
                 let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _: f32| {
                     let job = crate::script_view::highlighted(text.as_str(), dark);
                     ui.fonts_mut(|fonts| fonts.layout_job(job))
                 };
-                ui.add(
-                    egui::TextEdit::multiline(text)
-                        .id_salt("script text field")
-                        .code_editor()
-                        .frame(egui::Frame::NONE)
-                        .margin(egui::Margin::ZERO)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(24)
-                        .lock_focus(true)
-                        .layouter(&mut layouter),
-                )
-                .has_focus()
+                let output = egui::TextEdit::multiline(text)
+                    .id_salt("script text field")
+                    .code_editor()
+                    .frame(egui::Frame::NONE)
+                    .margin(egui::Margin::ZERO)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(24)
+                    .lock_focus(true)
+                    .layouter(&mut layouter)
+                    .show(ui);
+                let id = output.response.id;
+                // The cursor after a completion taken.
+                if let Some(at) = placed
+                    && let Some(mut edit_state) = egui::TextEdit::load_state(ui.ctx(), id)
+                {
+                    let cursor = egui::text::CCursor::new(at);
+                    edit_state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::one(cursor)));
+                    edit_state.store(ui.ctx(), id);
+                }
+                let cursor =
+                    placed.or_else(|| output.cursor_range.map(|range| range.primary.index.0));
+                let focused = output.response.has_focus();
+                ui.data_mut(|data| data.remove::<(usize, usize, String)>(offered_id));
+                if focused && let (Some(cursor), Some(catalog)) = (cursor, catalog) {
+                    let offer = completion(text, cursor, catalog);
+                    if let Some(first) = offer.first() {
+                        let from = cursor - word_before(text, cursor).chars().count();
+                        ui.data_mut(|data| {
+                            data.insert_temp(offered_id, (from, cursor, first.clone()))
+                        });
+                    }
+                    ui.data_mut(|data| data.insert_temp(egui::Id::new("script offer"), offer));
+                    ui.data_mut(|data| {
+                        data.insert_temp(egui::Id::new("script word"), word_at(text, cursor))
+                    });
+                }
+                focused
             })
             .inner
         })
         .inner
+}
+
+/// The byte of `text` its `at`th character starts at.
+fn char_byte(text: &str, at: usize) -> usize {
+    text.char_indices()
+        .nth(at)
+        .map_or(text.len(), |(byte, _)| byte)
+}
+
+/// The part of a name that stands before character `cursor`.
+fn word_before(text: &str, cursor: usize) -> String {
+    let before: Vec<char> = text.chars().take(cursor).collect();
+    let start = before
+        .iter()
+        .rposition(|c| !(c.is_ascii_alphanumeric() || *c == '_'))
+        .map_or(0, |at| at + 1);
+    before[start..].iter().collect()
+}
+
+/// The whole name character `cursor` stands in or after.
+fn word_at(text: &str, cursor: usize) -> String {
+    let after: String = text
+        .chars()
+        .skip(cursor)
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    format!("{}{after}", word_before(text, cursor))
+}
+
+/// The routines and constants of `catalog` that the name before `cursor`
+/// begins, at most eight, when it is two characters or more and is not one
+/// of them whole already.
+fn completion(text: &str, cursor: usize, catalog: &script_ncs::Catalog) -> Vec<String> {
+    let typed = word_before(text, cursor);
+    if typed.len() < 2 || typed.starts_with(|c: char| c.is_ascii_digit()) {
+        return Vec::new();
+    }
+    let lower = typed.to_ascii_lowercase();
+    let names = catalog
+        .routines
+        .iter()
+        .map(|routine| routine.name.as_str())
+        .chain(
+            catalog
+                .constants
+                .iter()
+                .map(|constant| constant.name.as_str()),
+        );
+    let mut found: Vec<String> = names
+        .filter(|name| name.to_ascii_lowercase().starts_with(&lower) && *name != typed)
+        .map(str::to_string)
+        .collect();
+    found.sort_by_key(|name| name.len());
+    found.dedup();
+    found.truncate(8);
+    found
+}
+
+/// Under the script: the routine or constant the cursor stands in, its
+/// prototype and what `nwscript.nss` says of it; and the names Tab would
+/// complete.
+fn look_up(
+    ui: &mut egui::Ui,
+    catalog: Option<&script_ncs::Catalog>,
+    notes: &BTreeMap<String, String>,
+) {
+    let Some(catalog) = catalog else {
+        return;
+    };
+    let offer: Vec<String> = ui
+        .data(|data| data.get_temp(egui::Id::new("script offer")))
+        .unwrap_or_else(Vec::new);
+    let word: String = ui
+        .data(|data| data.get_temp(egui::Id::new("script word")))
+        .unwrap_or_else(String::new);
+    if !offer.is_empty() {
+        ui.label(
+            egui::RichText::new(format!("Tab: {}", offer.join(", ")))
+                .small()
+                .monospace(),
+        );
+    }
+    if let Some(routine) = catalog.routine_named(&word) {
+        ui.label(
+            egui::RichText::new(routine.to_string())
+                .monospace()
+                .small()
+                .strong(),
+        );
+        if let Some(note) = notes.get(&routine.name) {
+            let short: Vec<&str> = note.lines().take(4).collect();
+            ui.label(egui::RichText::new(short.join("\n")).small());
+        }
+    } else if let Some(constant) = catalog.constant_named(&word) {
+        ui.label(
+            egui::RichText::new(format!("{} = {:?}", constant.name, constant.value))
+                .monospace()
+                .small(),
+        );
+    }
+}
+
+/// The Debug tab: the last debugged run of `name`, a stop at a time: its
+/// source around the line, the calls that led there, its locals and the
+/// script's globals; stepped forward and back, or on to the next
+/// breakpoint.
+fn debugged(ui: &mut egui::Ui, state: &EditorState, ui_state: &mut UiState, name: &str) {
+    let Some(tried) = state.tried.as_ref().filter(|tried| tried.script == name) else {
+        return;
+    };
+    let stops = &tried.stops;
+    if stops.is_empty() {
+        ui.label("The run started no line of the script.");
+        return;
+    }
+    let last = stops.len() - 1;
+    ui_state.debug_at = ui_state.debug_at.min(last);
+    let breaking = |stop: &crate::script_edit::Stop| {
+        ui_state
+            .breakpoints
+            .get(&stop.file)
+            .is_some_and(|lines| lines.contains(&stop.line))
+    };
+    let at = ui_state.debug_at;
+    let mut to = at;
+    ui.horizontal_wrapped(|ui| {
+        if ui.small_button("First").clicked() {
+            to = 0;
+        }
+        if ui
+            .add_enabled(at > 0, egui::Button::new("Step back").small())
+            .clicked()
+        {
+            to = at - 1;
+        }
+        if ui
+            .add_enabled(at < last, egui::Button::new("Step").small())
+            .clicked()
+        {
+            to = at + 1;
+        }
+        if ui
+            .add_enabled(at < last, egui::Button::new("Continue").small())
+            .on_hover_text("On to the next stop at a breakpoint, else to the end.")
+            .clicked()
+        {
+            to = (at + 1..=last)
+                .find(|n| breaking(&stops[*n]))
+                .unwrap_or(last);
+        }
+        if ui
+            .add_enabled(at > 0, egui::Button::new("Back to a breakpoint").small())
+            .clicked()
+        {
+            to = (0..at).rev().find(|n| breaking(&stops[*n])).unwrap_or(0);
+        }
+    });
+    ui_state.debug_at = to;
+    let stop = &stops[to];
+    ui.label(
+        egui::RichText::new(format!(
+            "Stop {} of {}: {}.nss line {}, in {}",
+            to + 1,
+            stops.len(),
+            stop.file,
+            stop.line,
+            stop.function
+        ))
+        .strong(),
+    );
+    ui.label(egui::RichText::new(format!("Called by: {}", stop.calls)).small());
+    // The source around the line.
+    if let Some(text) = state::script_text(state, &stop.file).or_else(|| {
+        state
+            .setup
+            .resolver
+            .read(&stop.file, fmt_odyssey::ResType::NSS)
+            .map(|bytes| bytes.into_iter().map(char::from).collect())
+    }) {
+        let around: Vec<(usize, &str)> = text
+            .lines()
+            .enumerate()
+            .map(|(n, line)| (n + 1, line))
+            .filter(|(n, _)| n.abs_diff(stop.line as usize) <= 3)
+            .collect();
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            for (n, line) in around {
+                let shown = egui::RichText::new(format!("{n:>4}  {line}"))
+                    .monospace()
+                    .size(11.0);
+                ui.label(if n == stop.line as usize {
+                    shown.color(egui::Color32::YELLOW)
+                } else {
+                    shown
+                });
+            }
+        });
+    }
+    egui::ScrollArea::vertical()
+        .id_salt("debug values")
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new("Locals").strong());
+            if stop.locals.is_empty() {
+                ui.label("none");
+            }
+            egui::Grid::new("debug locals")
+                .num_columns(3)
+                .show(ui, |ui| {
+                    for (name, ty, value) in &stop.locals {
+                        ui.label(egui::RichText::new(name).monospace());
+                        ui.label(egui::RichText::new(ty).small().weak());
+                        ui.label(egui::RichText::new(value).monospace());
+                        ui.end_row();
+                    }
+                });
+            if !stop.globals.is_empty() {
+                egui::CollapsingHeader::new(format!("Globals ({})", stop.globals.len()))
+                    .id_salt("debug globals")
+                    .show(ui, |ui| {
+                        egui::Grid::new("debug globals grid")
+                            .num_columns(3)
+                            .show(ui, |ui| {
+                                for (name, ty, value) in &stop.globals {
+                                    ui.label(egui::RichText::new(name).monospace());
+                                    ui.label(egui::RichText::new(ty).small().weak());
+                                    ui.label(egui::RichText::new(value).monospace());
+                                    ui.end_row();
+                                }
+                            });
+                    });
+            }
+        });
 }
 
 /// The Try tab: a try running, or what the last one of the script said.

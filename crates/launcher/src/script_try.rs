@@ -8,6 +8,12 @@
 //! The script is read through the install's layers (with `--project`, the
 //! project's folder first) and added to the module's library
 //! (`Library::with_script`), so it runs where nothing names it yet.
+//!
+//! With `--debug FILE` (the script's debug notes, `NAME.ndb`, which the
+//! level editor writes beside its `.ncs`), the run is also recorded line by
+//! line (`script_ncs::vm::observe`): a stop at each source line the script
+//! starts, with the functions called to get there, the locals living there
+//! and the script's globals, which the level editor steps through.
 
 use std::process::ExitCode;
 
@@ -24,8 +30,9 @@ pub fn run(
     script: &str,
     on: Option<&str>,
     seconds: f32,
+    debug: Option<&str>,
 ) -> ExitCode {
-    match tried(discovery, game, module, script, on, seconds) {
+    match tried(discovery, game, module, script, (on, seconds), debug) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
@@ -41,9 +48,18 @@ fn tried(
     game: &str,
     module: &str,
     script: &str,
-    on: Option<&str>,
-    seconds: f32,
+    (on, seconds): (Option<&str>, f32),
+    debug: Option<&str>,
 ) -> Result<bool, String> {
+    let debug = debug
+        .map(|path| {
+            std::fs::read_to_string(path)
+                .map_err(|error| format!("{path}: {error}"))
+                .and_then(|text| {
+                    script_ncs::compile::Debug::parse(&text).map_err(|why| format!("{path}: {why}"))
+                })
+        })
+        .transpose()?;
     let game = Game::from_key(game)
         .filter(|game| *game != Game::JediAcademy)
         .ok_or(format!("{game:?}: use k1 or tsl"))?;
@@ -127,6 +143,27 @@ fn tried(
         script_ncs::vm::ObjectId(caller.0),
     ));
     world.set_script_state(state);
+    let stops = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Stop>::new()));
+    if let Some(debug) = debug {
+        let program = world
+            .level()
+            .scripts()
+            .and_then(|library| library.program(&script))
+            .map(|program| program as *const script_ncs::vm::Program)
+            .ok_or("the script is not in the library")?;
+        let stops = stops.clone();
+        script_ncs::vm::observe(Some(Box::new(move |watch| {
+            if !std::ptr::eq(watch.program, program) {
+                return;
+            }
+            let mut stops = stops.borrow_mut();
+            if stops.len() < MOST_STOPS
+                && let Some(stop) = stop_at(&debug, watch)
+            {
+                stops.push(stop);
+            }
+        })));
+    }
     let ticks = ((seconds.max(0.0) * sim::TICK_HZ as f32) as u64).max(2);
     let input = sim::TickInput::default();
     for tick in 1..=ticks {
@@ -139,6 +176,7 @@ fn tried(
         );
     }
 
+    script_ncs::vm::observe(None);
     let report = world.script_report();
     outln!(
         "{script} ran for {named} in {module}, then {:.1} s stepped",
@@ -194,5 +232,131 @@ fn tried(
             missing.join(", ")
         );
     }
+    let stops = stops.borrow();
+    if !stops.is_empty() {
+        outln!("  debug: {} stops", stops.len());
+        for stop in stops.iter() {
+            outln!("    stop {} {} {}", stop.file, stop.line, stop.function);
+            outln!("      calls {}", stop.calls.join(" > "));
+            for (name, ty, value) in &stop.locals {
+                outln!("      local {name} {ty} = {value}");
+            }
+            for (name, ty, value) in &stop.globals {
+                outln!("      global {name} {ty} = {value}");
+            }
+        }
+    }
     Ok(ran > 0 && !bad)
+}
+
+/// The most stops a debugged run keeps.
+const MOST_STOPS: usize = 2000;
+
+/// The most globals a stop shows.
+const MOST_GLOBALS: usize = 40;
+
+/// A debugged run where a source line starts: the file, the line and the
+/// function, the functions called to get there (the outermost first), the
+/// locals living there and the script's globals, each as name, type and
+/// value.
+struct Stop {
+    file: String,
+    line: u32,
+    function: String,
+    calls: Vec<String>,
+    locals: Vec<(String, String, String)>,
+    globals: Vec<(String, String, String)>,
+}
+
+/// The stop `watch` is at, when a source line starts there.
+fn stop_at(debug: &script_ncs::compile::Debug, watch: &script_ncs::vm::Watch<'_>) -> Option<Stop> {
+    let (file, line) = debug.line_at(watch.offset)?;
+    let function = debug
+        .function_at(watch.offset)
+        .map_or("?", |(name, ..)| name.as_str())
+        .to_string();
+    let named = |first: u32| {
+        debug
+            .functions
+            .iter()
+            .find(|(_, _, from, _)| *from == first)
+            .map_or("?", |(name, ..)| name.as_str())
+            .to_string()
+    };
+    let calls = if watch.deferred {
+        vec![format!("deferred code of {function}")]
+    } else {
+        watch
+            .frames
+            .iter()
+            .map(|(_, first)| named(*first))
+            .collect()
+    };
+    // The locals of the function the run is in, where its call's frame is
+    // known (deferred code keeps none).
+    let frame = watch
+        .frames
+        .last()
+        .filter(|_| !watch.deferred)
+        .map(|(start, _)| *start);
+    let locals = frame.map_or_else(Vec::new, |start| {
+        debug
+            .locals
+            .iter()
+            .filter(|local| {
+                local.function == function && (local.from..local.to).contains(&watch.offset)
+            })
+            .map(|local| {
+                let at = start as i64 + i64::from(local.home) / 4;
+                (
+                    local.name.clone(),
+                    local.ty.clone(),
+                    cells(watch.stack, at, &local.ty),
+                )
+            })
+            .collect()
+    });
+    let globals = debug
+        .globals
+        .iter()
+        .take(MOST_GLOBALS)
+        .filter(|_| watch.bp > 0)
+        .map(|(name, ty, home)| {
+            (
+                name.clone(),
+                ty.clone(),
+                cells(watch.stack, i64::from(*home) / 4, ty),
+            )
+        })
+        .collect();
+    Some(Stop {
+        file: file.to_string(),
+        line,
+        function,
+        calls,
+        locals,
+        globals,
+    })
+}
+
+/// The value of type `ty` whose first cell is the stack's `at`.
+fn cells(stack: &[script_ncs::vm::Value], at: i64, ty: &str) -> String {
+    use script_ncs::vm::Value;
+    let cell = |at: i64| usize::try_from(at).ok().and_then(|at| stack.get(at));
+    let shown = |value: &Value| match value {
+        Value::Int(v) => v.to_string(),
+        Value::Float(v) => format!("{v}"),
+        Value::String(text) => format!("{text:?}"),
+        Value::Object(id) => format!("object {}", id.0),
+        Value::Vector(v) => format!("[{}, {}, {}]", v[0], v[1], v[2]),
+        other => format!("{other:?}"),
+    };
+    match ty {
+        "vector" => {
+            let parts: Vec<String> = (0..3).filter_map(|n| cell(at + n).map(shown)).collect();
+            format!("[{}]", parts.join(", "))
+        }
+        _ if ty.starts_with("struct:") => "(a struct)".to_string(),
+        _ => cell(at).map_or_else(|| "(not on the stack)".to_string(), shown),
+    }
 }

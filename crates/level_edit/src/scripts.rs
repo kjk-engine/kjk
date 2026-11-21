@@ -2,7 +2,9 @@
 //! folder that has a body (`main` or `StartingConditional`) compiled to
 //! `NAME.ncs` beside it (`script_ncs::compile`), which the game then runs
 //! over the install's script of that name, as the folder is the highest
-//! layer of the install's files. A file of functions alone is an include,
+//! layer of the install's files, and its debug notes to `NAME.ndb`
+//! (`script_ncs::compile::Debug`, which `kjk try-script --debug` reads).
+//! A file of functions alone is an include,
 //! read by the scripts that include it and compiled with them.
 
 use std::path::{Path, PathBuf};
@@ -70,17 +72,23 @@ pub fn compile_all(
                 "{name}.nss: a script's name is at most {NAME_LENGTH} characters"
             ))
         } else {
-            script_ncs::compile::compile(name, &source, &read, catalog)
+            script_ncs::compile::compile_debug(name, &source, &read, catalog)
                 .map_err(|error| error.to_string())
-                .and_then(|ncs| {
+                .and_then(|(ncs, debug)| {
+                    // The debug notes first (`kjk try-script --debug`), then
+                    // the program, each written beside and moved over the
+                    // old file, so a failed write leaves the old one whole.
+                    let notes = folder.join(format!("{name}.ndb"));
                     let out = folder.join(format!("{name}.ncs"));
-                    // Written beside, then moved over the old file, so a
-                    // failed write leaves the old one whole.
-                    let fresh = out.with_extension("ncs.new");
-                    std::fs::write(&fresh, ncs.write())
-                        .and_then(|()| std::fs::rename(&fresh, &out))
-                        .map(|()| out.clone())
-                        .map_err(|error| format!("{}: {error}", out.display()))
+                    let put = |path: &Path, bytes: &[u8]| {
+                        let fresh = path.with_extension("new");
+                        std::fs::write(&fresh, bytes)
+                            .and_then(|()| std::fs::rename(&fresh, path))
+                            .map_err(|error| format!("{}: {error}", path.display()))
+                    };
+                    put(&notes, debug.write().as_bytes())?;
+                    put(&out, &ncs.write())?;
+                    Ok(out)
                 })
         };
         compiled.push(Compiled {

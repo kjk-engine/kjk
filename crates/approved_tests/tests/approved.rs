@@ -7908,3 +7908,100 @@ fn level_edit_ways_and_settings() {
     );
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// `level_edit::blocks`: an event's logic blocks written as a script and
+/// read back, and every kind of block compiled against the routines it
+/// calls (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_logic_blocks() {
+    use level_edit::blocks::{self, Block, KINDS};
+
+    let block = |key: &str, values: &[&str]| Block {
+        key: key.into(),
+        values: values.iter().map(|value| value.to_string()).collect(),
+    };
+    let list = vec![
+        block("once", &[]),
+        block("message", &["He said \"hello\" \\ left"]),
+        block("give_item", &["g_w_blstrpstl001", "2"]),
+        block("if_boolean", &["K_STAR_MAP", "1"]),
+        block("talk", &["kje_talk", ""]),
+    ];
+    let written = blocks::write(&list);
+    assert!(blocks::is_blocks(&written));
+    assert_eq!(
+        blocks::read(&written),
+        Some(list.clone()),
+        "the blocks read back, quotes and all"
+    );
+    assert!(
+        blocks::problems(&list).is_empty(),
+        "{:?}",
+        blocks::problems(&list)
+    );
+    assert!(
+        written.contains("SendMessageToPC(GetFirstPC(), \"He said \\\"hello\\\" \\\\ left\");")
+    );
+    assert!(written.contains(
+        "AssignCommand(OBJECT_SELF, ActionStartConversation(GetFirstPC(), \"kje_talk\"));"
+    ));
+    assert_eq!(
+        blocks::read("void main() {}\n"),
+        None,
+        "a script written by hand has no blocks"
+    );
+
+    // What is wrong is said, and the script is written all the same.
+    let wrong = vec![
+        block("give_credits", &["lots"]),
+        block("open_door", &[""]),
+        block("fly", &[]),
+    ];
+    let problems = blocks::problems(&wrong);
+    assert_eq!(problems.len(), 3, "{problems:?}");
+    assert!(blocks::write(&wrong).contains("GiveGoldToCreature(GetFirstPC(), 0);"));
+
+    // Every kind compiles against the routines it calls.
+    let catalog = script_ncs::Catalog::parse(
+        "int TRUE = 1;\nint FALSE = 0;\nint STANDARD_FACTION_HOSTILE_1 = 1;\n\
+         // 0\nvoid AssignCommand(object oActionSubject, action aActionToAssign);\n\
+         // 1\nvoid ActionOpenDoor(object oDoor);\n\
+         // 2\nvoid ActionCloseDoor(object oDoor);\n\
+         // 3\nobject GetObjectByTag(string sTag, int nNth = 0);\n\
+         // 4\nvoid ActionStartConversation(object oObjectToConverse, string sDialogResRef = \"\");\n\
+         // 5\nvoid SetLocked(object oTarget, int bLocked);\n\
+         // 6\nobject GetFirstPC();\n\
+         // 7\nvoid SendMessageToPC(object oPlayer, string szMessage);\n\
+         // 8\nint GetGlobalBoolean(string sIdentifier);\n\
+         // 9\nvoid SetGlobalBoolean(string sIdentifier, int nValue);\n\
+         // 10\nint GetGlobalNumber(string sIdentifier);\n\
+         // 11\nvoid SetGlobalNumber(string sIdentifier, int nValue);\n\
+         // 12\nobject CreateItemOnObject(string sItemTemplate, object oTarget = OBJECT_SELF, int nStackSize = 1);\n\
+         // 13\nvoid GiveGoldToCreature(object oCreature, int nGP);\n\
+         // 14\nvoid GiveXPToCreature(object oCreature, int nXpAmount);\n\
+         // 15\nvoid AddJournalQuestEntry(string szPlotID, int nState, int bAllowOverrideHigher = FALSE);\n\
+         // 16\nvoid ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);\n\
+         // 17\nvoid DestroyObject(object oDestroy, float fDelay = 0.0f);\n\
+         // 18\nvoid StartNewModule(string sModuleName, string sWayPoint = \"\");\n\
+         // 19\nint GetLocalBoolean(object oObject, int nIndex);\n\
+         // 20\nvoid SetLocalBoolean(object oObject, int nIndex, int nValue);\n",
+    )
+    .expect("the test's catalog reads");
+    let every: Vec<Block> = KINDS
+        .iter()
+        .map(|kind| {
+            let mut made = Block::new(kind);
+            for value in &mut made.values {
+                if value.is_empty() {
+                    *value = "kje_thing".into();
+                }
+            }
+            made
+        })
+        .collect();
+    let script = blocks::write(&every);
+    let none = |_: &str| -> Option<Vec<u8>> { None };
+    let compiled = script_ncs::compile::compile("kjb_1", script.as_bytes(), &none, &catalog);
+    assert!(compiled.is_ok(), "{compiled:?}\n{script}");
+    assert_eq!(blocks::fresh_name(|name| name == "kjb_1"), "kjb_2");
+}

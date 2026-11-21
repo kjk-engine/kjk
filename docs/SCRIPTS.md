@@ -85,6 +85,16 @@ the games' own compiled scripts; nothing of them is in the repo.
   scripts named but missing, and fails when the script did not run or
   faulted. The level editor's Try runs it, so it is in every build of
   kjk, the player's too (`launcher::script_try`).
+- `--debug NAME.ndb` records the run line by line as well: a stop at each
+  source line the script starts, with its function, the calls that led
+  there, its locals and the script's globals (at most 2 000 stops). The
+  notes it reads are the compiler's (`compile_debug`,
+  `script_ncs::compile::Debug`): where each line's code starts, each
+  function's code, each local's place on the stack while it lives, and
+  each global's, written as text (`kjk-ndb 1`). The VM shows a run to a
+  watcher (`vm::observe`, per thread, set only by a debugger: a run
+  without one pays nothing for it), each instruction with the stack and
+  the calls made and not returned.
 
 ## In the sim (`sim::script`, `world::scripts`)
 - A module's plan carries a `Library` (`Level::with_scripts`, in its

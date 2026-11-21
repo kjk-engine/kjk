@@ -65,11 +65,16 @@ pub struct EditSetup {
     pub scripts: Vec<String>,
     /// The game's routines, from its `nwscript.nss`, for the script viewer.
     pub catalog: Option<script_ncs::Catalog>,
+    /// What `nwscript.nss` says of each routine (`catalog::notes`).
+    pub notes: BTreeMap<String, String>,
     pub items: Vec<String>,
     /// The install's door templates (`.utd`).
     pub doors: Vec<String>,
     /// The install's modules, which a door or a trigger can lead to.
     pub modules: Vec<String>,
+    /// The globals scripts may keep (`globalcat.2da`): each one's name and
+    /// type (`number`, `boolean`, `string`, `location`).
+    pub globals: Vec<(String, String)>,
     /// The install's waypoint, trigger, sound and store templates.
     pub waypoints: Vec<String>,
     pub triggers: Vec<String>,
@@ -2077,6 +2082,38 @@ pub(crate) fn command(
             state.apply(Edit::Outline(target, points));
         }
         ["area", rest @ ..] => area_command(state, rest)?,
+        ["blocks", event, "clear"] => {
+            let target = selected(state)?;
+            set_blocks(state, target, event, Vec::new())?;
+        }
+        ["blocks", event, "remove", n] => {
+            let target = selected(state)?;
+            let mut blocks = event_blocks(state, target, event)?
+                .1
+                .unwrap_or_else(Vec::new);
+            let n: usize = n
+                .parse()
+                .map_err(|_| format!("{n:?} is not a block's place"))?;
+            if n == 0 || n > blocks.len() {
+                return Err(format!("there is no block {n}"));
+            }
+            blocks.remove(n - 1);
+            set_blocks(state, target, event, blocks)?;
+        }
+        ["blocks", event, "add", key, values @ ..] => {
+            let target = selected(state)?;
+            let kind =
+                level_edit::blocks::kind(key).ok_or(format!("{key:?} is not a kind of block"))?;
+            let mut block = level_edit::blocks::Block::new(kind);
+            for (slot, value) in block.values.iter_mut().zip(values.iter()) {
+                *slot = value.to_string();
+            }
+            let mut blocks = event_blocks(state, target, event)?
+                .1
+                .unwrap_or_else(Vec::new);
+            blocks.push(block);
+            set_blocks(state, target, event, blocks)?;
+        }
         ["link", "none"] => link(state, "", "")?,
         ["link", module] => link(state, module, "")?,
         ["link", module, tag] => link(state, module, tag)?,
@@ -2099,8 +2136,10 @@ pub(crate) fn command(
             state.write_drafts()?;
             compile_scripts(state);
         }
-        ["script", "try", name] => try_script(state, name, None, cameras)?,
-        ["script", "try", name, tag] => try_script(state, name, Some(tag), cameras)?,
+        ["script", "try", name] => try_script(state, name, None, false, cameras)?,
+        ["script", "try", name, tag] => try_script(state, name, Some(tag), false, cameras)?,
+        ["script", "debug", name] => try_script(state, name, None, true, cameras)?,
+        ["script", "debug", name, tag] => try_script(state, name, Some(tag), true, cameras)?,
         ["script", label, script] => {
             let target = selected(state)?;
             let script = if *script == "-" { "" } else { script };
@@ -2440,6 +2479,81 @@ pub(crate) fn walk(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Re
 
 /// Saves the project (`Editor::save_with`), saying its warnings and what
 /// was written.
+/// The text of the project's script `name`: its draft, else its file.
+pub(crate) fn script_text(state: &EditorState, name: &str) -> Option<String> {
+    if let Some(draft) = state.drafts.get(name) {
+        return Some(draft.text.clone());
+    }
+    let bytes = std::fs::read(state.editor.project.folder.join(format!("{name}.nss"))).ok()?;
+    Some(bytes.into_iter().map(char::from).collect())
+}
+
+/// The script an object runs on `event`, and its blocks: `None` when the
+/// script is no script of blocks (written by hand, or the game's), and
+/// none at all when the event runs nothing.
+pub(crate) fn event_blocks(
+    state: &EditorState,
+    target: Target,
+    event: &str,
+) -> Result<(String, Option<Vec<level_edit::blocks::Block>>), String> {
+    let Target::Object(kind, index) = target else {
+        return Err("only an object of the area runs scripts".into());
+    };
+    let entry = state
+        .editor
+        .entry(kind, index)
+        .ok_or("the object is not there")?;
+    let gff = state
+        .behaviour_source(kind, &entry)
+        .ok_or("the object's template does not read")?;
+    let script = level_edit::template::scripts(&gff)
+        .into_iter()
+        .find(|(label, _)| label == event)
+        .map(|(_, script)| script)
+        .ok_or(format!("the object has no event {event}"))?;
+    if script.is_empty() {
+        return Ok((script, Some(Vec::new())));
+    }
+    let blocks = script_text(state, &script).and_then(|text| level_edit::blocks::read(&text));
+    Ok((script, blocks))
+}
+
+/// Gives an object's `event` the script `blocks` make: the script of blocks
+/// it runs already, else a new one (`kjb_N`), written as a draft that the
+/// next save writes and compiles.
+pub(crate) fn set_blocks(
+    state: &mut EditorState,
+    target: Target,
+    event: &str,
+    blocks: Vec<level_edit::blocks::Block>,
+) -> Result<(), String> {
+    let (script, held) = event_blocks(state, target, event)?;
+    let name = if !script.is_empty() && held.is_some() {
+        script.clone()
+    } else {
+        let taken = |name: &str| {
+            state.project_scripts.contains(name)
+                || state.drafts.contains_key(name)
+                || state.setup.scripts.binary_search(&name.to_string()).is_ok()
+        };
+        level_edit::blocks::fresh_name(taken)
+    };
+    let text = level_edit::blocks::write(&blocks);
+    match state.drafts.get_mut(&name) {
+        Some(draft) => draft.text = text,
+        None => {
+            let saved = script_text(state, &name).unwrap_or_else(String::new);
+            state
+                .drafts
+                .insert(name.clone(), crate::script_edit::Draft { text, saved });
+        }
+    }
+    if script != name {
+        state.change_template(target, Change::Script(event.to_string(), name));
+    }
+    Ok(())
+}
+
 /// The area's ARE as the project has it now: a new map's, the project's
 /// copy of an installed area's, else the install's.
 pub(crate) fn area_are(state: &EditorState) -> Option<fmt_odyssey::gff::Gff> {
@@ -2709,6 +2823,7 @@ fn try_script(
     state: &mut EditorState,
     name: &str,
     on: Option<&str>,
+    debug: bool,
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
 ) -> Result<(), String> {
     if state.script_try.is_some() {
@@ -2728,6 +2843,7 @@ fn try_script(
         script: name.clone(),
         on: on.map(str::to_string),
         seconds: 3.0,
+        debug: debug.then(|| project.folder.join(format!("{name}.ndb"))),
     };
     state.script_try = Some(crate::script_edit::Try::start(plan));
     state.say(format!("trying {name} for {}", on.unwrap_or("the player")));

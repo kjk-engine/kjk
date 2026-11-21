@@ -450,6 +450,46 @@ the editor.
   script, as typing its name into the event's field does.
 - **Window** opens the viewer in a window of its own over the view, with
   room to write, and **Dock** puts it back under the details.
+- While writing, the routine or constant the cursor stands in is looked
+  up under the text: its prototype, and what `nwscript.nss` says of it
+  (the comment over its prototype, `script_ncs::catalog::notes`). The
+  routines and constants that begin the name being typed are listed
+  there too, and Tab takes the first.
+
+### Debugging a script
+
+**Debug for** tries the script as Try does, and records the run line by
+line: a stop at each source line the script starts, with the functions
+called to get there, the locals living there and the script's globals
+(`kjk try-script --debug`). The Debug tab steps through the stops,
+forward and back, and **Continue** goes on to the next stop at a
+breakpoint. A click on a line's number in the gutter sets or clears a
+breakpoint (a red dot), and the stop shown is marked there with an arrow.
+The run is over before it is read, so stepping back is as cheap as
+stepping on; locals of deferred code (`DelayCommand`'s) are not shown.
+The compiler writes the notes a run is read with (`NAME.ndb`, beside the
+`.ncs`).
+
+### Logic blocks
+
+An object's behaviour on one event can be picked from a list rather than
+written. **Blocks** beside an event's script field shows its blocks, run
+in order from the top: open, close, lock or unlock a door, start a
+conversation, tell the player something, set a global number or boolean,
+give the player an item, credits or experience, add a journal entry,
+turn a creature hostile, remove an object, take the party to a module,
+and guards that stop the rest: only the first time, only if a global
+number or boolean is a value. A global is picked from `globalcat.2da`'s:
+a global the table does not declare is not kept by the games or by kjk.
+
+The blocks are written as a script of the project (`kjb_N.nss`) whose
+header lists them, compiled when the project is saved and tried as any
+script; the header is what the editor reads them back from, so the
+script holds them and nothing else does. An event that runs another
+script offers to replace it with blocks, leaving the old script as it
+is. Editing a script of blocks by hand drops its header, and the editor
+then shows it as a script written by hand. `level_edit::blocks` does the
+work.
 
 ## Doors and the ways between levels
 
@@ -653,6 +693,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit script new NAME`, `edit script new NAME conditional` | makes a script of the project, a `main` or a `StartingConditional`, and opens it in the viewer |
 | `edit script edit NAME` | opens a script to be written: the project's own, else a copy of the install's |
 | `edit script write`, `edit script compile` | writes the scripts changed in the viewer; compile also compiles the project's scripts |
+| `edit script debug NAME`, `edit script debug NAME TAG` | tries the script as `edit script try` does and records it line by line; the stops are under the viewer's Debug tab |
+| `edit blocks EVENT add KEY [VALUE ...]`, `edit blocks EVENT remove N`, `edit blocks EVENT clear` | the selected object's logic blocks on the event (`OnUsed`): a block of the kind (`open_door`, `give_item`, `once`; `level_edit::blocks::KINDS`) added with its values, block N removed, or none left |
 | `edit script try NAME`, `edit script try NAME TAG` | saves, compiles, then runs the script for the player or the object tagged TAG in the module, headless; its trace is under the viewer's Try tab |
 | `edit flag useable on`, `edit flag inventory off` | sets the selected placeable's `Useable` or `HasInventory` |
 | `edit item add ITEM`, `edit item remove N` | adds an item template to the selected placeable's items, or removes its Nth, from 0 |
@@ -680,6 +722,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui search TEXT`, `edit ui find TEXT` | sets the asset picker's or the outliner's search |
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
 | `edit ui view SCRIPT`, `edit ui view` | opens the script viewer on the script, or closes it |
+| `edit ui blocks EVENT`, `edit ui blocks` | shows the selected object's blocks on the event, or none |
+| `edit ui debug N`, `edit ui break SCRIPT LINE` | the Debug tab's stop N (from 1); sets or clears a breakpoint |
 | `edit ui tab doors`, `edit ui way_in MODULE [TAG]` | the asset picker's Doors tab; the level and arrival Ways in shows |
 | `edit ui view window on`, `edit ui view window off` | the viewer in a window of its own, or under the details |
 | `edit ui view tab source`, `summary`, `listing`, `try` | picks the viewer's tab |
@@ -772,6 +816,9 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_logic_blocks` writes blocks as a script, reads them back,
+  and compiles every kind; `script_vm` checks the debug notes and a
+  watched run.
 - `level_edit_ways_and_settings` places a door, leads doors and a
   trigger's outline, leads another area's door into a new map, changes the
   area's settings, and saves and reads it all back.
