@@ -428,8 +428,8 @@ them on Windows and macOS on the 1st of each month and when started by hand.
 - The sim hash, when the sim changes on purpose (docs/SIM.md): never by
   hand on a branch. Add `bumps/<branch>.toml` with `sim = "why"` (a
   snapshot bump moves it too); `sim_determinism` then checks every way
-  agrees but leaves the hash to the merge, whose pin workflow writes it
-  into `bumps/SIM_HASH` (`bumps/README.md`).
+  agrees but leaves the hash to the pin workflow, which is run by hand
+  before a release and writes it into `bumps/SIM_HASH` (`bumps/README.md`).
 - A jolt ceiling, when an animation change moves a peak on purpose: read
   the new peaks (`--nocapture` prints them), check each sits on a cue or a
   landing (docs/SKELETON.md), and set the ceiling a little above.

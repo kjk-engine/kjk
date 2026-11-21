@@ -62,7 +62,8 @@ merges it. What has gone wrong before, and the rule that prevents it:
 * **The sim hash and format versions are numbered at merge.** Never edit
   `bumps/SIM_HASH` or a `VERSION` number on a branch: say the change in
   `bumps/<branch>.toml` (`sim = "why"`, `[formats] snapshot = "…"`) and
-  the merge pins and numbers it (`bumps/README.md`). Say so in the report.
+  the pin before the next release numbers it (`bumps/README.md`). Say so
+  in the report.
 * **Reserved numbers.** The parent hands each agent its `QUIRKS.md` numbers
   (e.g. Q-0023 to Q-0029); agents never guess the next free one.
 * **Journals in the worktree** (`<worktree>/context/artifacts/…`); the
