@@ -555,6 +555,42 @@ the view's centre meets the floor, facing as the camera faces (`kjk play
 --at`), to test one corner of a level without walking there. `edit walk
 here` does the same for walk mode.
 
+## Working with an agent
+
+An agent, such as Claude, can help with a level in two ways.
+
+**Copy** in the toolbar (Ctrl+Shift+C) copies the selected object as
+text, to paste to an agent. The text names the project and the level, the
+object's kind, and the command that selects it again (`edit select
+MetalBox`). It holds everything the details panel knows of the object:
+its template, tag, position, facing, scripts and the rest. It ends with
+the camera, as a `camera` command. With nothing selected, it copies the
+level and the camera.
+
+**Agent link** in the toolbar lets an agent on the same computer see what
+is selected and change the level while you watch. It is off until it is
+ticked, or until the editor starts with `KJK_EDITOR_LINK=1`. While it is
+on, the editor uses the folder `editor-link` in kjk's own folder
+(`%APPDATA%\kjk\editor-link` on Windows):
+
+- It writes `live.json` there four times a second, when anything in it
+  changed. The file holds the project and the level, whether there are
+  changes not saved, the selected object with its details and the command
+  that selects it, the camera, the editor's last messages, and the
+  answers to the agent's last 20 commands.
+- It runs each line an agent writes to `inbox.txt` there as a command, in
+  order, and then deletes the file. A line is one of the editor's own
+  commands (the table below), with or without its `edit`; `camera X Y Z
+  YAW PITCH`, which moves the view; or `frame`, which looks at the
+  selection. Each command's answer is `ok` or the reason it failed, and
+  the editor's messages show it too.
+- It writes a `README.md` there that tells an agent the same.
+
+Nothing listens on the network: only a program that can write to the
+user's own folder can send the editor commands. The editor saves only on
+`save`, and every change an agent makes can be undone as any other.
+`level_editor::agent` does the work.
+
 ## The editor's window
 
 - **The toolbar**, along the top, has the File menu, picks the tool
@@ -633,6 +669,7 @@ so later runs show it at once and a changed file is drawn again.
 | Delete | delete the selection |
 | Ctrl+Z, Ctrl+Y | undo, redo |
 | Ctrl+S | save the project |
+| Ctrl+Shift+C | copy the selected object, or the level, as text for an agent |
 | Enter | place the asset picked in the picker where the view's centre meets the level |
 | F2 | show or hide the collision: walkable walkmesh in green, other solid surfaces in orange, the walls along the walkmesh's open edges in blue |
 | F3 | show or hide the navigation mesh |
@@ -723,6 +760,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
 | `edit ui view SCRIPT`, `edit ui view` | opens the script viewer on the script, or closes it |
 | `edit ui blocks EVENT`, `edit ui blocks` | shows the selected object's blocks on the event, or none |
+| `edit ui link on`, `edit ui link off` | turns the agent link on or off |
 | `edit ui debug N`, `edit ui break SCRIPT LINE` | the Debug tab's stop N (from 1); sets or clears a breakpoint |
 | `edit ui tab doors`, `edit ui way_in MODULE [TAG]` | the asset picker's Doors tab; the level and arrival Ways in shows |
 | `edit ui view window on`, `edit ui view window off` | the viewer in a window of its own, or under the details |

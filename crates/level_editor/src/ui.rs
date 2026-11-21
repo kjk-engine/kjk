@@ -145,6 +145,10 @@ pub struct UiState {
     area_typed: BTreeMap<String, String>,
     /// The event whose logic blocks are shown, for the selection.
     blocks_event: Option<(Target, String)>,
+    /// The agent link while it is on (`agent`), and a copy of the
+    /// selection asked for.
+    link: Option<crate::agent::Link>,
+    copy_asked: bool,
     /// The breakpoints by script, as line numbers, and the stop of the
     /// last debugged run shown.
     breakpoints: BTreeMap<String, std::collections::BTreeSet<u32>>,
@@ -204,6 +208,11 @@ impl Default for UiState {
             way_in_arrival: String::new(),
             area_typed: BTreeMap::new(),
             blocks_event: None,
+            link: std::env::var("KJK_EDITOR_LINK")
+                .is_ok_and(|on| on == "1")
+                .then(crate::agent::Link::open)
+                .and_then(Result::ok),
+            copy_asked: false,
             breakpoints: BTreeMap::new(),
             debug_at: 0,
             drawing: None,
@@ -675,6 +684,17 @@ fn panels(
                     .map(|target| (target, event.to_string()));
             }
             ["blocks"] => ui.blocks_event = None,
+            ["link", on @ ("on" | "off")] => {
+                ui.link = (*on == "on")
+                    .then(crate::agent::Link::open)
+                    .and_then(|opened| match opened {
+                        Ok(link) => Some(link),
+                        Err(why) => {
+                            state.say(format!("the agent link did not open: {why}"));
+                            None
+                        }
+                    });
+            }
             ["debug", n] => {
                 if let Ok(n) = n.parse::<usize>() {
                     ui.debug_at = n.saturating_sub(1);
@@ -711,7 +731,7 @@ fn panels(
             words => {
                 if !crate::file::command(state, &mut ui.file, words) {
                     state.say(format!(
-                        "edit ui {}: takes tool, tab, search, find, snap, view, way_in, blocks, debug, break, file, quit or confirm",
+                        "edit ui {}: takes tool, tab, search, find, snap, view, way_in, blocks, debug, break, link, file, quit or confirm",
                         words.join(" ")
                     ));
                 }
@@ -740,6 +760,17 @@ fn panels(
     if let Some(command) = state.pending_command.take() {
         let words: Vec<&str> = command.split_whitespace().collect();
         state::run(state, &words, &cameras);
+    }
+    // The selection copied as text for an agent, and the agent link's turn.
+    if std::mem::take(&mut ui.copy_asked) {
+        ctx.copy_text(crate::agent::selection_text(state, &cameras));
+        state.say(match state.editor.selected {
+            Some(_) => "copied the selection for an agent",
+            None => "copied the level and the camera for an agent",
+        });
+    }
+    if let Some(link) = ui.link.as_mut() {
+        link.tick(state, &cameras, &mut camera_request);
     }
 
     // The keys, when no text field has them and the camera is not flying.
@@ -792,6 +823,11 @@ fn shortcuts(
             &["save"]
         } else if pressed(KeyCode::KeyD) {
             &["duplicate"]
+        } else if pressed(KeyCode::KeyC)
+            && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight))
+        {
+            ui.copy_asked = true;
+            &[]
         } else {
             &[]
         };
@@ -847,7 +883,7 @@ fn shortcuts(
     }
 }
 
-fn frame_selection(
+pub(crate) fn frame_selection(
     state: &EditorState,
     camera_request: &mut CameraRequest,
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
@@ -941,6 +977,46 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
                 .on_hover_text("F2: walkable floor green, solid surfaces orange, edge walls blue");
             lighting_menu(ui, state);
             scripts_menu(ui, state, ui_state);
+            ui.separator();
+            if ui
+                .button("Copy")
+                .on_hover_text(
+                    "Ctrl+Shift+C: copies the selected object (else the level) and the camera as text, \
+                     to paste to an agent",
+                )
+                .clicked()
+            {
+                ui_state.copy_asked = true;
+            }
+            let mut on = ui_state.link.is_some();
+            let shown = match &ui_state.link {
+                Some(link) => format!(
+                    "While on, the editor writes what is selected to live.json and runs the commands an \
+                     agent writes to inbox.txt, in {}",
+                    link.folder.display()
+                ),
+                None => "Lets an agent on this computer see what is selected and change the level \
+                         while you watch: the editor shares its state in a file and runs the commands \
+                         the agent writes to another (docs/LEVEL-EDIT.md)"
+                    .to_string(),
+            };
+            if ui.checkbox(&mut on, "Agent link").on_hover_text(shown).changed() {
+                ui_state.link = if on {
+                    match crate::agent::Link::open() {
+                        Ok(link) => {
+                            state.say(format!("agent link on: {}", link.folder.display()));
+                            Some(link)
+                        }
+                        Err(why) => {
+                            state.say(format!("the agent link did not open: {why}"));
+                            None
+                        }
+                    }
+                } else {
+                    state.say("agent link off");
+                    None
+                };
+            }
             if let Some(job) = &state.bake_job {
                 ui.label(
                     egui::RichText::new(format!(
@@ -1421,7 +1497,7 @@ fn details(
                             && ui
                                 .button("Meet a seam")
                                 .on_hover_text(
-                                    "Moves the room so that an edge of its floor meets the                                      nearest edge of another room's",
+                                    "Moves the room so that an edge of its floor meets the nearest edge of another room's",
                                 )
                                 .clicked()
                         {

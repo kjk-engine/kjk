@@ -5,6 +5,7 @@
 //! NAME` plays. It never writes into a game install. Started with no
 //! module, it lists the projects and the levels to pick from (`picker`).
 
+mod agent;
 mod bake;
 mod file;
 mod picker;
