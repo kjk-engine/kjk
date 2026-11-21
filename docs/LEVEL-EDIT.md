@@ -86,7 +86,10 @@ and so are its music and ambient sound (its GIT's area properties).
   is placed by dragging or double-clicking it, with its floor's middle where
   the view meets the level, else a few metres ahead. Rooms are moved,
   copied and deleted like objects, with undo. They do not turn, since the
-  layout places rooms unturned.
+  layout places rooms unturned. KOTOR 2's rooms are listed the same way:
+  its layouts and room models are in the game's shared data
+  (`chitin.key`), as KOTOR 1's are, and a TSL new map of Peragus's rooms
+  plays (checked on 2026-11-21).
 - **Seams.** Two rooms are walked across where an edge of one's floor lies
   on an edge of the other's (`docs/NAV.md`, room seams). "Meet a seam"
   moves the selected room by the shortest way, 1.5 m at most, that puts an
