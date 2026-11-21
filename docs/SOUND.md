@@ -189,7 +189,8 @@ the view's:
   ms after one ends, picked at random (`Random`) or in order, and stop
   after the last unless `Continuous` or `Looping`; the first within its
   first interval, so objects placed together do not all sound at once (a
-  sound not read yet waits its turn). Gain `Volume`/127 ± `VolumeVrtn`,
+  sound not read yet waits its turn). Volume `Volume` ± `VolumeVrtn` in its
+  group ("Placed sounds by group" below),
   speed 1 ± `PitchVariation`, `Elevation` metres up, a random spot within
   `RandomRangeX/Y` (`RandomPosition`); full within `MinDistance`, nothing
   past `MaxDistance`, placed if `Positional`, else in both ears alike.
@@ -208,9 +209,9 @@ the view's:
 - **Scripts' sounds** (`PlaySound`): told to every player as a notice
   (`sim::notice::Sound`, the network's message 12), each played once as
   soon as its file is read (dropped if not read within 2 s): at the object
-  that played it and moving with it (a ronto's bellow, a tach's cry),
-  falling off as most sounds do; the module's or area's heard alike
-  everywhere. `dump`'s `ambience.scripted` counts them.
+  that played it and moving with it (a ronto's bellow, a tach's cry), in
+  the scripts' sounds' group ("Placed sounds by group" below); the
+  module's or area's heard alike everywhere. `dump`'s `ambience.scripted` counts them.
 - **Sound-set lines** the engine has a character say (Security: begun
   "No problem.", failed "Didn't work.", done "Got it." for K1's male
   player; slots 22, 23, 24, `fmt_odyssey::ssf::slots`): a `Sound` named
@@ -261,8 +262,10 @@ the view's:
   `footsteptype` (players: row 0, `Soft`), column the floor's
   (`surfacemat.2da` `sound` code of the walkmesh face traced under it:
   dirt, grass, stone, wood, water, carpet, metal, leaves), one of three at
-  random, at its soles, speed 1 + `pitchoffset`, gain 0.6. A rolling or
-  floating droid holds its `rolling` sound while it moves. A character
+  random, at its soles, speed 1 + `pitchoffset`, in its footsteps' group
+  ("Placed sounds by group" below). A rolling or floating droid holds its
+  `rolling` sound while it moves, in the same group: an astromech's hum is
+  heard within 8 m of it, not across the room. A character
   standing still steps where its KOTOR clip passes an `snd_Footstep` event
   (a script's clip, a cutscene's stunt: `ambience::ClipSteps`), the K1
   executable's only source of footsteps; one moving is stepped by its walk
@@ -293,9 +296,36 @@ the view's:
   64, stingers `Music_Stingers` 64) at 0.36, its ambience
   (`Looping_AreaWide_Ambients` 95) at 0.53 × its volume over 127; TSL's
   ambience 112. The menu's and credits' music, with no area's tables, as
-  K1's. Not yet the groups' other rows: objects play their volume,
-  footsteps 0.6 (K1's `Player_Footsteps` 65), and the executables' 3D
-  samples (`Set3D`) take `(volume × group × slider)^0.6`.
+  K1's.
+- **Placed sounds by group** (`Tables::placed_gain`, `ambience::placed`):
+  every sound in the world that comes from KOTOR's files plays in the
+  priority group the executables give it (read in TSL's Mac executable).
+  The group sets how loud the sound is and how far it carries. A sound is
+  at full volume within the row's `maxvolumedist` and silent past its
+  `minvolumedist` (TSL's `_pc` columns), falling straight between the two
+  as a sound object does. A group without distances is heard alike
+  everywhere. The executables first scale a sound's volume by its
+  group's (`volume × group / 127`, rounded down). A streamed sound (a
+  sound object's loop, a sound-set line) then plays at that over 127
+  times its slider. Any other placed sound (`Set3D`: a footstep, a door, a
+  script's sound) plays at that product raised to the power 0.6. The gain
+  here is that level over a conversation's voice at the same slider, so
+  at 85 of 127 a small creature's footstep (K1 65) is 1.11 times a voice.
+  The groups:
+
+  | Sound | Group (row) | K1: volume, full within, silent past |
+  |---|---|---|
+  | A footstep or a droid's rolling or hovering loop | the player's character's `Player_Footsteps` (19); a creature of size category 1 to 3 `Medium_and_Small_Creature_Footsteps` (20); any other size `Large_Creature_Footsteps` (18) | 65, 4 m, 8 m; 65, 4 m, 8 m; 100, 25 m, 30 m |
+  | A door's or a container's sound | `Single_Shot_Positional` (22) | 120, 20 m, 30 m |
+  | A sound object's loop | `Looping_Positional_Ambients` (5), or `Looping_AreaWide_Ambients` (4) when not `Positional` | 100 or 95, at the object's own distances |
+  | A sound object's single sounds | `Single_Shot_Positional` (22), or `Single_Shot_Global` (21) when not `Positional` | 120, at the object's own distances |
+  | A script's `PlaySound` | `Scripted_PlaySound` (10) | 127, 10 m, 80 m |
+  | A sound-set line (a grunt, a battle cry) | a creature of size category 4 or more `Large_Creature_Vocalizations` (16); any other `Medium_and_Small_Creature_Voclizations` (17) | 127, 30 m, 50 m; 127, 15 m, 25 m |
+  | A visual effect's sound (`script_fx`) | `Normal_Spell_Effects` (13) | 127, 25 m, 40 m |
+
+  JA's humanoid footsteps carry as far as KOTOR's steps of the same
+  group but keep their gain of 0.6 (JA's own mix). JA's fight sounds
+  (sabers, blasters, grunts JA plays) keep JA's placing above.
 - **The menu** (before a game): K1's main menu plays `mus_theme_cult`,
   character creation `mus_theme_rep` (reone's and xoreos's), looped.
 - Nothing plays while a movie is up; the music begins again after it.

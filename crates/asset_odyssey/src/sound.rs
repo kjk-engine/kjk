@@ -111,14 +111,53 @@ pub struct Steps {
     pub pitch: f32,
 }
 
-/// A `prioritygroups.2da` row: the executables' kinds of sound, each
-/// played at its row's volume (out of 127) on top of its own.
+/// A `prioritygroups.2da` row: the executables' kinds of sound. A sound
+/// plays at its group's volume (out of 127) on top of its own, and a placed
+/// one at full volume within its group's near distance, falling to nothing
+/// at its far one. These are the rows the executables give the sounds kjk
+/// plays from KOTOR's files (read in TSL's Mac executable, which keeps its
+/// function names).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group {
     Stingers = 1,
     Music = 2,
+    /// A sound object's loop heard alike everywhere.
     AreaAmbient = 4,
+    /// A sound object's loop heard from where it stands.
+    PositionalAmbient = 5,
     Conversation = 9,
+    /// A script's `PlaySound`.
+    Scripted = 10,
+    /// A visual effect's sound.
+    SpellEffect = 13,
+    /// A sound set's line (a grunt, a battle cry) by a creature of size
+    /// category 4 or more, and by a smaller one.
+    LargeVoice = 16,
+    SmallVoice = 17,
+    /// A footstep or a droid's rolling or hovering sound: a creature's of
+    /// size category 4 or more, the player's character's, and a smaller
+    /// creature's.
+    LargeSteps = 18,
+    PlayerSteps = 19,
+    SmallSteps = 20,
+    /// A sound object's single sound heard alike everywhere, and one heard
+    /// from where it stands (also a door's or a container's sound).
+    GlobalShot = 21,
+    PositionalShot = 22,
+}
+
+/// The highest `sizecategory` a creature of the small groups has.
+const SMALL_SIZE: u8 = 3;
+
+/// The volume sliders' default (85 of 127), the same in both games.
+const SLIDER: f32 = 85.0 / 127.0;
+
+/// A `prioritygroups.2da` row as read: its volume (0 to 127) and the
+/// distances a placed sound of it is full within and silent beyond (m).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GroupRow {
+    volume: u8,
+    range: Option<(f32, f32)>,
 }
 
 /// The rows of `ambientmusic.2da` and `ambientsound.2da`: each one's file
@@ -132,10 +171,12 @@ pub struct Tables {
     /// (a `FLOORS` index).
     steps: Vec<Steps>,
     floors: Vec<Option<usize>>,
-    /// Each `appearance.2da` row's footstep row (`footsteptype`).
+    /// Each `appearance.2da` row's footstep row (`footsteptype`) and size
+    /// (`sizecategory`).
     walks: Vec<Option<u8>>,
-    /// `prioritygroups.2da`'s `volume_pc` (TSL) or `volume` (K1) by row.
-    groups: Vec<Option<u8>>,
+    sizes: Vec<Option<u8>>,
+    /// `prioritygroups.2da` by row (TSL's `_pc` columns).
+    groups: Vec<Option<GroupRow>>,
 }
 
 impl Tables {
@@ -203,20 +244,33 @@ impl Tables {
                 })
                 .collect()
         });
-        let walks = table("appearance").map_or_else(Vec::new, |table| {
-            (0..table.cells.len())
-                .map(|row| {
-                    let walk = table.int(row, "footsteptype")?;
-                    u8::try_from(walk).ok()
-                })
-                .collect()
+        let (walks, sizes) = table("appearance").map_or_else(Default::default, |table| {
+            let column = |name| {
+                (0..table.cells.len())
+                    .map(|row| u8::try_from(table.int(row, name)?).ok())
+                    .collect()
+            };
+            (column("footsteptype"), column("sizecategory"))
         });
         let groups = table("prioritygroups").map_or_else(Vec::new, |table| {
-            let column = ["volume_pc", "volume"]
-                .into_iter()
-                .find(|column| table.column(column).is_some());
+            // TSL names its PC columns `…_pc`, K1 has no suffix.
+            let named = |name: &str| {
+                [format!("{name}_pc"), name.to_string()]
+                    .into_iter()
+                    .find(|column| table.column(column).is_some())
+            };
+            let [volume, near, far] =
+                ["volume", "maxvolumedist", "minvolumedist"].map(|name| named(name));
             (0..table.cells.len())
-                .map(|row| u8::try_from(table.int(row, column?)?).ok())
+                .map(|row| {
+                    let volume = u8::try_from(table.int(row, volume.as_deref()?)?).ok()?;
+                    let distance = |column: &Option<String>| table.float(row, column.as_deref()?);
+                    let range = distance(&near).zip(distance(&far));
+                    Some(GroupRow {
+                        volume: volume.min(127),
+                        range,
+                    })
+                })
                 .collect()
         });
         Tables {
@@ -225,15 +279,74 @@ impl Tables {
             steps,
             floors,
             walks,
+            sizes,
             groups,
         }
+    }
+
+    fn group(&self, group: Group) -> Option<GroupRow> {
+        self.groups.get(group as usize).copied().flatten()
     }
 
     /// The executables' gain for a sound of `group`: its row's volume over
     /// 127 (full where the table has none).
     pub fn group_gain(&self, group: Group) -> f32 {
-        let volume = self.groups.get(group as usize).copied().flatten();
-        f32::from(volume.unwrap_or(127).min(127)) / 127.0
+        f32::from(self.group_volume(group)) / 127.0
+    }
+
+    /// The distances (m) a placed sound of `group` plays at full volume
+    /// within and is silent beyond; none for a group heard alike
+    /// everywhere.
+    pub fn group_range(&self, group: Group) -> Option<(f32, f32)> {
+        self.group(group)?.range
+    }
+
+    /// How loud a placed sound of `group` at `volume` (0 to 127) is next to
+    /// it, as a share of a conversation's voice, both at the sliders'
+    /// default. The executables first scale the volume by the group's
+    /// (`volume × group / 127`, rounded down). A streamed sound (a sound
+    /// object's loop, a sound set's line) then plays at that over 127
+    /// times the slider. Any other placed sound (a footstep, a door, a
+    /// script's sound) plays at that same product raised to the power 0.6,
+    /// which makes a quiet sound louder than its volume says.
+    pub fn placed_gain(&self, group: Group, volume: u8, streamed: bool) -> f32 {
+        let scaled = (u32::from(volume.min(127)) * u32::from(self.group_volume(group))) / 127;
+        let level = scaled as f32 / 127.0 * SLIDER;
+        let heard = if streamed { level } else { level.powf(0.6) };
+        let voice = self.group_gain(Group::Conversation) * SLIDER;
+        heard / voice.max(f32::EPSILON)
+    }
+
+    fn group_volume(&self, group: Group) -> u8 {
+        self.group(group).map_or(127, |row| row.volume)
+    }
+
+    /// The group of a footstep (or a rolling droid's sound) by a body of
+    /// `appearance.2da` row `appearance`. `player` is the player's own
+    /// character, whose steps have a group of their own. A body of size
+    /// category 1 to 3 steps as a small creature, any other as a large one,
+    /// as the executables have it. A body whose row is not known steps as a
+    /// small one.
+    pub fn step_group(&self, appearance: Option<u16>, player: bool) -> Group {
+        match (player, self.size(appearance)) {
+            (true, _) => Group::PlayerSteps,
+            (false, None | Some(1..=SMALL_SIZE)) => Group::SmallSteps,
+            (false, Some(_)) => Group::LargeSteps,
+        }
+    }
+
+    /// The group of a sound set's line by a body of `appearance.2da` row
+    /// `appearance`: a creature of size category 4 or more speaks as a
+    /// large one, any other (and one whose row is not known) as a small one.
+    pub fn voice_group(&self, appearance: Option<u16>) -> Group {
+        match self.size(appearance) {
+            Some(size) if size > SMALL_SIZE => Group::LargeVoice,
+            _ => Group::SmallVoice,
+        }
+    }
+
+    fn size(&self, appearance: Option<u16>) -> Option<u8> {
+        self.sizes.get(usize::from(appearance?)).copied().flatten()
     }
 
     /// Footstep row `row`.
@@ -558,4 +671,135 @@ pub fn area(source: &dyn Source, area: &str) -> Option<AreaSound> {
 pub fn placeable_appearance(source: &dyn Source, template: &str) -> Option<u16> {
     let utp = Gff::parse(&source.read(template, ResType::UTP)?).ok()?;
     u16::try_from(utp.root.uint("Appearance")?).ok()
+}
+
+/// K1's `prioritygroups.2da` rows the group probes use: (row, volume,
+/// range), and three bodies of size categories 3, 4 and 0.
+fn k1_group_tables() -> Tables {
+    let mut groups = vec![None; 23];
+    for (row, volume, range) in [
+        (5, 100, Some((3.0, 30.0))),
+        (9, 90, Some((5.0, 20.0))),
+        (18, 100, Some((25.0, 30.0))),
+        (19, 65, Some((4.0, 8.0))),
+        (20, 65, Some((4.0, 8.0))),
+        (21, 120, None),
+    ] {
+        groups[row] = Some(GroupRow { volume, range });
+    }
+    Tables {
+        groups,
+        sizes: vec![Some(3), Some(4), Some(0)],
+        ..Tables::default()
+    }
+}
+
+/// Placed sounds' gains and groups as the executables have them (`kjk sim
+/// probes --only "sound groups"`), each a name and whether it passed with
+/// what it saw.
+pub fn group_probes() -> Vec<(&'static str, Result<String, String>)> {
+    let tables = k1_group_tables();
+    let checked = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    // (name, group, volume, streamed, gain as a share of a voice)
+    let gains = [
+        (
+            "a small creature's footstep is 65 of 127 raised to 0.6",
+            Group::SmallSteps,
+            127,
+            false,
+            1.1086,
+        ),
+        (
+            "a positional loop streams at 100 over a voice's 90",
+            Group::PositionalAmbient,
+            127,
+            true,
+            100.0 / 90.0,
+        ),
+        (
+            "a voice is the reference",
+            Group::Conversation,
+            127,
+            true,
+            1.0,
+        ),
+        (
+            "a group the table lacks plays at its own volume",
+            Group::Scripted,
+            127,
+            true,
+            127.0 / 90.0,
+        ),
+    ];
+    let mut checks: Vec<_> = gains
+        .into_iter()
+        .map(|(name, group, volume, streamed, expected)| {
+            let gain = tables.placed_gain(group, volume, streamed);
+            (
+                name,
+                checked(
+                    (gain - expected).abs() < 1e-3,
+                    format!("{gain} (expected {expected})"),
+                ),
+            )
+        })
+        .collect();
+    // (name, appearance, player, steps' group, voice's group)
+    let sizes = [
+        (
+            "size 3 steps and speaks as a small creature",
+            Some(0),
+            false,
+            Group::SmallSteps,
+            Group::SmallVoice,
+        ),
+        (
+            "size 4 steps and speaks as a large creature",
+            Some(1),
+            false,
+            Group::LargeSteps,
+            Group::LargeVoice,
+        ),
+        (
+            "size 0 steps as a large creature but speaks as a small one",
+            Some(2),
+            false,
+            Group::LargeSteps,
+            Group::SmallVoice,
+        ),
+        (
+            "an unknown body steps and speaks as a small creature",
+            None,
+            false,
+            Group::SmallSteps,
+            Group::SmallVoice,
+        ),
+        (
+            "the player's character steps in its own group",
+            Some(1),
+            true,
+            Group::PlayerSteps,
+            Group::LargeVoice,
+        ),
+    ];
+    checks.extend(
+        sizes
+            .into_iter()
+            .map(|(name, appearance, player, steps, voice)| {
+                let seen = (
+                    tables.step_group(appearance, player),
+                    tables.voice_group(appearance),
+                );
+                (name, checked(seen == (steps, voice), format!("{seen:?}")))
+            }),
+    );
+    let ranges = (
+        tables.group_range(Group::SmallSteps),
+        tables.group_range(Group::GlobalShot),
+    );
+    checks.push((
+        "a group's distances are read, and a global group has none",
+        checked(ranges == (Some((4.0, 8.0)), None), format!("{ranges:?}")),
+    ));
+    checks
 }
