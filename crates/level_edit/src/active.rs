@@ -28,6 +28,12 @@ pub struct Active {
     pub parked_added: std::collections::BTreeMap<String, Added>,
     /// `Project::digest`.
     pub digest: [u8; 32],
+    /// The project's own lighting rules (`lighting`): the kinds of fitting
+    /// it changed, which the game reads in place of the light data's.
+    pub lighting: crate::lighting::OwnLighting,
+    /// The bake the project keeps of each of its levels that has one
+    /// (`lighting::kept_bake`), by module: the folder of its lightmaps.
+    pub bakes: std::collections::BTreeMap<String, std::path::PathBuf>,
     /// What could not be read: a prop whose model Jedi Academy's archives
     /// lack, or whose model does not parse. Such a prop is neither drawn
     /// nor solid.
@@ -178,11 +184,26 @@ pub fn activate(discovery: &Discovery, folder: &Path) -> Result<&'static Active,
     }
     vfs::project::activate(game, folder)?;
     let digest = project.digest();
+    let lighting = match crate::lighting::OwnLighting::read(folder) {
+        Ok(lighting) => lighting,
+        Err(why) => {
+            notes.push(why);
+            crate::lighting::OwnLighting::default()
+        }
+    };
+    let bakes = (project.level_list().into_iter())
+        .filter_map(|(module, _)| {
+            let bake = crate::lighting::kept_bake(folder, &module)?;
+            Some((module, bake))
+        })
+        .collect();
     let active = Active {
         project,
         added,
         parked_added,
         digest,
+        lighting,
+        bakes,
         notes,
     };
     ACTIVE
@@ -229,20 +250,50 @@ pub fn nav_links(game: &str, module: &str) -> Vec<(collision::nav::LinkKind, [f3
         })
 }
 
-/// The lights placed by hand in the active project's new map, when
-/// `module` is it: the game reads them in place of `fittings.toml`'s
-/// (`game::fitted_lights`). An installed level's are saved to that file.
-pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]> {
-    let active = get()?;
-    (active.project.map.is_some() && active.project.module.eq_ignore_ascii_case(module))
-        .then_some(active.project.kjk.lights.as_slice())
+/// The folder of the bake the active project keeps of its level `module`,
+/// when it keeps one: the game draws the level's rooms with it
+/// (`game::fitted_lights::for_module`, `game::viewer`).
+pub fn bake_of(module: &str) -> Option<&'static Path> {
+    (get()?.bakes.get(&module.to_ascii_lowercase())).map(std::path::PathBuf::as_path)
 }
 
-/// The lamps placed by hand in the active project's new map, when `module`
-/// is it: the game draws them in place of `fittings.toml`'s
-/// (`game::lamps`). An installed level's are saved to that file.
+/// The folder of every bake the active project keeps.
+pub fn bake_folders() -> Vec<&'static Path> {
+    get().map_or_else(Vec::new, |active| {
+        active
+            .bakes
+            .values()
+            .map(std::path::PathBuf::as_path)
+            .collect()
+    })
+}
+
+/// The kinds of light fitting the active project changed, as `[[kind]]`
+/// entries, when the project is of `game` (`k1` or `tsl`) and changed any:
+/// the game reads them in place of the light data's
+/// (`game::fitted_lights`).
+pub fn own_kinds(game: &str) -> Option<String> {
+    let active = get()?;
+    (active.project.game == game && !active.lighting.kinds.is_empty())
+        .then(|| active.lighting.kinds_text())
+}
+
+/// The lights placed by hand that the active project keeps for its level
+/// `module`: a new map's, or an installed level's once they are the
+/// project's own (`KjkArea::own_lights`). The game reads them in place of
+/// `fittings.toml`'s (`game::fitted_lights`). `None` for a level whose
+/// lights are the light data's.
+pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]> {
+    let active = get()?;
+    let kjk = active.project.kjk_of(module)?;
+    (active.project.map.is_some() || kjk.own_lights).then_some(kjk.lights.as_slice())
+}
+
+/// The lamps placed by hand that the active project keeps for its level
+/// `module`, as `map_lights` gives its lights: the game draws them in
+/// place of `fittings.toml`'s (`game::lamps`).
 pub fn map_lamps(module: &str) -> Option<&'static [crate::lamps::PlacedLamp]> {
     let active = get()?;
-    (active.project.map.is_some() && active.project.module.eq_ignore_ascii_case(module))
-        .then_some(active.project.kjk.lamps.as_slice())
+    let kjk = active.project.kjk_of(module)?;
+    (active.project.map.is_some() || kjk.own_lights).then_some(kjk.lamps.as_slice())
 }

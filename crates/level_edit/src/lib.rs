@@ -26,6 +26,7 @@ pub mod git;
 pub mod kinds;
 pub mod lamps;
 pub mod levels;
+pub mod lighting;
 pub mod lights;
 pub mod map;
 pub mod nav;

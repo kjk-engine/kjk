@@ -102,13 +102,6 @@ pub struct EditSetup {
     pub tools: bool,
 }
 
-/// Why an installed level's lights and lamps placed by hand are not saved
-/// by a build that has no light data folder.
-pub(crate) const NO_LIGHT_DATA: &str = "this editor cannot save lights and lamps placed by hand in \
-     an installed level: they are kept in kjk's light data, which comes with kjk built from \
-     source (or set KJK_LIGHT_DATA to a data/lights folder). In a new map they are saved \
-     with the project";
-
 /// Why the audit and the bake are not there with a player's build of kjk.
 pub(crate) const NO_TOOLS: &str = "the kjk beside the editor is a player's build, without the \
      audit and the bake: they come with kjk built from source (docs/BUILD.md)";
@@ -346,9 +339,10 @@ pub struct EditorState {
     /// Why the last edit was refused and when, for the view to show over
     /// the level for a few seconds.
     pub(crate) refusal: Option<(std::time::Instant, String)>,
-    /// Whether the editor has said that this build cannot save an
-    /// installed level's lights and lamps placed by hand.
-    warned_lights: bool,
+    /// An installed level's lights and lamps placed by hand as kjk's light
+    /// data holds them: what the level has until the project changes them
+    /// (`lights_own`).
+    shipped_lights: (Vec<level_edit::PlacedLight>, Vec<level_edit::PlacedLamp>),
     /// A picture of the window the agent link asked for, and the file it
     /// goes to (`ui::take_shot`).
     pub(crate) pending_shot: Option<PathBuf>,
@@ -369,18 +363,27 @@ impl EditorState {
     /// The state `setup` starts from, with its scene drawn.
     pub fn new(setup: EditSetup) -> Result<(EditorState, LoadedScene), String> {
         let mut project = setup.project.clone();
-        // An installed level's lights placed by hand are the light data's
-        // (`fittings.toml`), not the project's.
-        if project.map.is_none()
-            && let Some(folder) = &setup.light_data
-        {
-            let path = folder.join("fittings.toml");
-            let text = std::fs::read_to_string(&path)
-                .map_err(|error| format!("{}: {error}", path.display()))?;
-            project.kjk.lights =
-                level_edit::lights::read_placed(&text, &project.game, &project.module)?;
-            project.kjk.lamps =
-                level_edit::lamps::read_lamps(&text, &project.game, &project.module)?;
+        // An installed level's lights and lamps placed by hand are the ones
+        // kjk's light data holds for it (`fittings.toml`: the folder's, else
+        // the copy built into kjk), until the project has its own.
+        let mut shipped_lights = (Vec::new(), Vec::new());
+        if project.map.is_none() {
+            let text = match &setup.light_data {
+                Some(folder) => {
+                    let path = folder.join("fittings.toml");
+                    std::fs::read_to_string(&path)
+                        .map_err(|error| format!("{}: {error}", path.display()))?
+                }
+                None => kjk_game::fitted_lights::fittings_text().into_owned(),
+            };
+            shipped_lights = (
+                level_edit::lights::read_placed(&text, &project.game, &project.module)?,
+                level_edit::lamps::read_lamps(&text, &project.game, &project.module)?,
+            );
+            if !project.kjk.own_lights {
+                project.kjk.lights = shipped_lights.0.clone();
+                project.kjk.lamps = shipped_lights.1.clone();
+            }
         }
         // The module's bake, and the levels its rooms aim at.
         let (bake_entry, levels_original) = match &setup.light_data {
@@ -396,7 +399,17 @@ impl EditorState {
             }
             None => (level_edit::levels::BakeEntry::default(), BTreeMap::new()),
         };
-        project.levels = levels_original.clone();
+        // The project's own rules (`level_edit::lighting`): its levels for
+        // this module in place of the light data's, and the kinds it changed.
+        let mut setup = setup;
+        if let Some(kept) = level_edit::lighting::kept_bake(&project.folder, &project.module) {
+            setup.bakes.retain(|had| *had != kept);
+            setup.bakes.insert(0, kept);
+        }
+        let own = level_edit::lighting::OwnLighting::read(&project.folder)?;
+        project.levels =
+            (own.levels.get(&project.module).cloned()).unwrap_or_else(|| levels_original.clone());
+        project.kinds = own.kinds;
         let project_scripts = crate::script_edit::project_scripts(&project.folder);
         let recovery = crate::recover::found(&project.name);
         let editor = Editor::new(project);
@@ -447,13 +460,22 @@ impl EditorState {
             autosave: Default::default(),
             hidden: Vec::new(),
             refusal: None,
-            warned_lights: false,
+            shipped_lights,
             pending_shot: None,
             refused: None,
             install_templates: Default::default(),
             audit_job: None,
             redraws: 0,
         };
+        // How the light data holds each kind the project changed: what the
+        // view shows again when a change is undone, and what Publish and a
+        // save compare with.
+        for kind in state.editor.project.kinds.clone() {
+            let shipped = shipped_kind(&state, &kind.texture, kind.placeable);
+            state
+                .kind_originals
+                .insert((kind.texture.clone(), kind.placeable), shipped);
+        }
         let scene = draw(&mut state)?;
         if let Some(folder) = &state.recovery {
             let what = crate::recover::describe(folder);
@@ -556,16 +578,6 @@ impl EditorState {
     }
 
     pub(crate) fn apply(&mut self, edit: Edit) {
-        // An installed level's lights and lamps placed by hand are saved to
-        // kjk's light data, which a packaged build does not have.
-        if matches!(edit, Edit::AddLight(_) | Edit::AddLamp(_))
-            && self.editor.project.map.is_none()
-            && self.setup.light_data.is_none()
-            && !self.warned_lights
-        {
-            self.warned_lights = true;
-            self.say(NO_LIGHT_DATA);
-        }
         let (before, follows) = (self.editor.changes(), self.follows(&edit));
         if let Err(why) = self.editor.apply(edit) {
             self.refuse(why);
@@ -2183,6 +2195,21 @@ fn command_words(
                 }
             }
         }
+        // The level's lights and lamps given to kjk's light data, then the
+        // project saved without them.
+        ["publish"] => {
+            if state.setup.light_data.is_none() {
+                return Err(
+                    "kjk's light data was not found: publishing needs kjk built from source, or KJK_LIGHT_DATA set to a data/lights folder"
+                        .into(),
+                );
+            }
+            if state.editor.project.map.is_none() {
+                publish_lights(state)?;
+            }
+            publish_rules(state)?;
+            command(state, &["save"], cameras)?;
+        }
         ["recover"] => crate::recover::take(state)?,
         ["recover", "discard"] => crate::recover::discard(state)?,
         // The recovery copy written now, not at its next turn.
@@ -2613,6 +2640,42 @@ fn command_words(
             state.bake_request = Some(crate::bake::label_now());
             state.quiet = SETTLE_FRAMES;
         }
+        // The bake the view shows kept in the project, where play with the
+        // project finds it; and the project's bake taken out again.
+        ["bake", "keep"] => {
+            let shown = (state.bake.clone()).ok_or(
+                "the view shows no bake to keep: bake first, or pick one in the Lighting menu",
+            )?;
+            let project = &state.editor.project;
+            let kept = level_edit::lighting::bake_folder(&project.folder, &project.module);
+            if shown == kept {
+                return Err("the bake shown is the one the project keeps already".into());
+            }
+            let count = level_edit::lighting::keep_bake(&project.folder, &project.module, &shown)?;
+            // The view goes on showing the same lightmaps, now the project's.
+            state.setup.bakes.retain(|had| *had != kept);
+            state.setup.bakes.insert(0, kept.clone());
+            state.bake = Some(kept.clone());
+            state.say(format!(
+                "kept the bake's {count} lightmaps in the project, at {}; play with the project is lit with it",
+                kept.display()
+            ));
+        }
+        ["bake", "drop"] => {
+            let project = &state.editor.project;
+            let kept = level_edit::lighting::bake_folder(&project.folder, &project.module);
+            if !level_edit::lighting::drop_bake(&project.folder, &project.module)? {
+                return Err("the project keeps no bake of this level".into());
+            }
+            state.setup.bakes.retain(|had| *had != kept);
+            if state.bake.as_ref() == Some(&kept) {
+                state.bake = state.setup.bakes.first().cloned();
+                if state.bake.is_none() {
+                    state.light_view = kjk_game::fitted_lights::Mode::Off;
+                }
+            }
+            state.say("took the project's bake of this level out; play with the project is lit as the game stores it");
+        }
         ["bake", "compare"] => {
             let [newest, before, ..] = state.setup.bakes.as_slice() else {
                 return Err("there are not two bakes of this area to compare".into());
@@ -2925,6 +2988,7 @@ fn start_bake(
         module: project.module.clone(),
         game: project.game.clone(),
         light_data,
+        own_levels: levels_own(state).then(|| project.levels.clone()),
         entry,
         folder,
         label,
@@ -2969,29 +3033,33 @@ pub(crate) fn kind_of(
     {
         return Ok(kind.clone());
     }
-    let folder = state
-        .setup
-        .light_data
-        .as_ref()
-        .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
-    let path = folder.join(format!("{}.toml", state.editor.project.game));
-    let text =
-        std::fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-    Ok(
-        level_edit::kinds::read_kind(&text, texture, placeable).unwrap_or(
-            level_edit::kinds::KindEdit {
-                texture: texture.to_string(),
-                placeable,
-                lamp: true,
-                form: "faint".into(),
-                colour: [1.0; 3],
-                reach: 3.0,
-                strength: 0.5,
-                cone: 0.2,
-                reason: String::new(),
-            },
-        ),
-    )
+    Ok(shipped_kind(state, texture, placeable))
+}
+
+/// The kind `texture` (on placeables or rooms) as kjk's light data holds
+/// it: the folder's `<game>.toml`, else the copy built into kjk. A texture
+/// the data does not name is the general rules' faint light.
+fn shipped_kind(
+    state: &EditorState,
+    texture: &str,
+    placeable: bool,
+) -> level_edit::kinds::KindEdit {
+    let game = &state.editor.project.game;
+    let text = (state.setup.light_data.as_ref())
+        .and_then(|folder| std::fs::read_to_string(folder.join(format!("{game}.toml"))).ok())
+        .or_else(|| kjk_game::fitted_lights::kinds_text(game).map(std::borrow::Cow::into_owned))
+        .unwrap_or_else(String::new);
+    level_edit::kinds::read_kind(&text, texture, placeable).unwrap_or(level_edit::kinds::KindEdit {
+        texture: texture.to_string(),
+        placeable,
+        lamp: true,
+        form: "faint".into(),
+        colour: [1.0; 3],
+        reach: 3.0,
+        strength: 0.5,
+        cone: 0.2,
+        reason: String::new(),
+    })
 }
 
 /// Changes a kind of fitting (`Edit::SetKind`), keeping how the light data
@@ -3977,6 +4045,11 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
     for warning in warnings {
         state.say(warning);
     }
+    // An installed level's lights and lamps placed by hand are the
+    // project's own from the save at which they differ from the light
+    // data's, and the light data's again once they are the same.
+    let own = lights_own(state);
+    state.editor.project.kjk.own_lights = own;
     let resolver = state.setup.resolver.clone();
     let read = |name: &str, restype: ResType| resolver.read(name, restype);
     let written = state.editor.save_with(&made_by, &read)?;
@@ -3988,38 +4061,15 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
         state.editor.project.folder.display()
     ));
     compile_scripts(state);
-    save_light_data(state).map_err(|why| {
-        format!("the project's own files were saved, but the light data was not: {why}")
+    save_own_rules(state).map_err(|why| {
+        format!("the project's own files were saved, but its lighting rules were not: {why}")
     })
 }
 
-/// Saves what the light data holds of the level: the kinds of fitting
-/// changed, the levels the bake's rooms aim at, and an installed level's
-/// lights and lamps placed by hand.
-fn save_light_data(state: &mut EditorState) -> Result<(), String> {
-    // Without a light data folder, an installed level's lights and lamps
-    // placed by hand have nowhere to go: said, never dropped in silence.
-    let project = &state.editor.project;
-    let (lights, lamps) = (project.kjk.lights.len(), project.kjk.lamps.len());
-    if project.map.is_none() && state.setup.light_data.is_none() && lights + lamps > 0 {
-        let count = |n: usize, one: &str| {
-            if n == 1 {
-                format!("1 {one}")
-            } else {
-                format!("{n} {one}s")
-            }
-        };
-        return Err(format!(
-            "{} and {} placed by hand were not saved, because {NO_LIGHT_DATA}",
-            count(lights, "light"),
-            count(lamps, "lamp")
-        ));
-    }
-    // The kinds of fitting changed go to the light data: their `[[kind]]`
-    // entries, which the game reads, and a `[[fitting]]` each, which
-    // `kinds.py` reads.
-    let changed: Vec<level_edit::kinds::KindEdit> = (state.editor.project.kinds)
-        .iter()
+/// The kinds of fitting the project changed: each that differs from how
+/// the light data holds it.
+pub(crate) fn kinds_own(state: &EditorState) -> Vec<level_edit::kinds::KindEdit> {
+    (state.editor.project.kinds.iter())
         .filter(|kind| {
             state
                 .kind_originals
@@ -4027,70 +4077,62 @@ fn save_light_data(state: &mut EditorState) -> Result<(), String> {
                 .is_none_or(|original| original != *kind)
         })
         .cloned()
-        .collect();
-    if !changed.is_empty() {
-        let folder = (state.setup.light_data.clone())
-            .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
-        let game = state.editor.project.game.clone();
-        let kinds_path = folder.join(format!("{game}.toml"));
-        let fittings_path = folder.join("fittings.toml");
-        let read = |path: &std::path::Path| {
-            std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
-        };
-        let (mut kinds_text, mut fittings_text) = (read(&kinds_path)?, read(&fittings_path)?);
-        for kind in &changed {
-            kinds_text = level_edit::kinds::write_kind(&kinds_text, kind)?;
-            fittings_text = level_edit::kinds::write_fitting(&fittings_text, &game, kind)?;
-        }
-        for (path, text) in [(&kinds_path, kinds_text), (&fittings_path, fittings_text)] {
-            std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
-        }
-        for kind in &changed {
-            state
-                .kind_originals
-                .insert((kind.texture.clone(), kind.placeable), kind.clone());
-        }
-        let message = format!(
-            "saved {} kinds of fitting to {} and {}",
-            changed.len(),
-            kinds_path.display(),
-            fittings_path.display()
-        );
-        state.say(message);
+        .collect()
+}
+
+/// Whether the level's room levels are the project's own: they differ
+/// from the ones the light data holds for the module.
+pub(crate) fn levels_own(state: &EditorState) -> bool {
+    state.editor.project.levels != state.levels_original
+}
+
+/// Saves the project's own lighting rules to its `kjk-lighting.toml`
+/// (`level_edit::lighting`): the kinds of fitting it changed, and this
+/// level's room levels when it changed them. The other levels' room levels
+/// the file holds stay as they are.
+fn save_own_rules(state: &mut EditorState) -> Result<(), String> {
+    let folder = state.editor.project.folder.clone();
+    let module = state.editor.project.module.clone();
+    let mut own = level_edit::lighting::OwnLighting::read(&folder)?;
+    own.kinds = kinds_own(state);
+    if levels_own(state) {
+        own.levels
+            .insert(module, state.editor.project.levels.clone());
+    } else {
+        own.levels.remove(&module);
     }
-    // The levels the bake's rooms aim at go to the module's levels file,
-    // which `bake.toml` names (and is made to name, the first time).
-    if state.editor.project.levels != state.levels_original {
-        let folder = (state.setup.light_data.clone())
-            .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
-        let module = state.editor.project.module.clone();
-        let file =
-            (state.bake_entry.levels.clone()).unwrap_or_else(|| format!("levels/{module}.txt"));
-        let path = folder.join(&file);
-        let old = std::fs::read_to_string(&path).ok();
-        let text = level_edit::levels::write_levels(
-            old.as_deref(),
-            &state.editor.project.levels,
-            &format!(
-                "The level each room of {module} aims at in the bake, of its {} level, set in kjk's level editor.",
-                state.bake_entry.of
-            ),
+    own.save(&folder)
+}
+
+/// The bake the project keeps of the level being edited, if it keeps one.
+pub(crate) fn bake_kept(state: &EditorState) -> Option<PathBuf> {
+    let project = &state.editor.project;
+    level_edit::lighting::kept_bake(&project.folder, &project.module)
+}
+
+/// Whether an installed level's lights and lamps placed by hand are the
+/// project's own: they differ from the ones kjk's light data holds for the
+/// level. A new map's are always its own, and this is false for it.
+pub(crate) fn lights_own(state: &EditorState) -> bool {
+    let project = &state.editor.project;
+    project.map.is_none()
+        && (project.kjk.lights != state.shipped_lights.0
+            || project.kjk.lamps != state.shipped_lights.1)
+}
+
+/// Writes an installed level's lights and lamps placed by hand to kjk's
+/// light data (`fittings.toml`), where a build of kjk takes them for every
+/// player. They are then the light data's, and the next save leaves them
+/// out of the project.
+fn publish_lights(state: &mut EditorState) -> Result<(), String> {
+    if state.editor.project.map.is_some() {
+        return Err("a new map's lights and lamps are saved with its project".into());
+    }
+    if state.setup.light_data.is_none() {
+        return Err(
+            "kjk's light data was not found: publishing needs kjk built from source, or KJK_LIGHT_DATA set to a data/lights folder"
+                .into(),
         );
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| format!("{}: {error}", parent.display()))?;
-        }
-        std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
-        if state.bake_entry.levels.is_none() {
-            let bake = folder.join("bake.toml");
-            let text = std::fs::read_to_string(&bake)
-                .map_err(|error| format!("{}: {error}", bake.display()))?;
-            let text = level_edit::levels::with_levels_file(&text, &module, &file)?;
-            std::fs::write(&bake, &text).map_err(|error| format!("{}: {error}", bake.display()))?;
-            state.bake_entry = level_edit::levels::bake_entry(&text, &module);
-        }
-        state.levels_original = state.editor.project.levels.clone();
-        state.say(format!("saved the rooms' levels to {}", path.display()));
     }
     // An installed level's lights placed by hand go to the light data's
     // `fittings.toml`, where the game reads them.
@@ -4131,6 +4173,85 @@ fn save_light_data(state: &mut EditorState) -> Result<(), String> {
             let message = format!("saved {} lamps to {}", lamps.len(), path.display());
             state.say(message);
         }
+    }
+    let project = &state.editor.project;
+    state.shipped_lights = (project.kjk.lights.clone(), project.kjk.lamps.clone());
+    Ok(())
+}
+
+/// Writes the project's own lighting rules to kjk's light data, where a
+/// build of kjk takes them for every player: the kinds of fitting it
+/// changed and the levels this level's rooms aim at in the bake. They are
+/// then the light data's, and the next save leaves them out of the
+/// project.
+fn publish_rules(state: &mut EditorState) -> Result<(), String> {
+    // The kinds of fitting changed go to the light data: their `[[kind]]`
+    // entries, which the game reads, and a `[[fitting]]` each, which
+    // `kinds.py` reads.
+    let changed = kinds_own(state);
+    if !changed.is_empty() {
+        let folder = (state.setup.light_data.clone())
+            .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+        let game = state.editor.project.game.clone();
+        let kinds_path = folder.join(format!("{game}.toml"));
+        let fittings_path = folder.join("fittings.toml");
+        let read = |path: &std::path::Path| {
+            std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
+        };
+        let (mut kinds_text, mut fittings_text) = (read(&kinds_path)?, read(&fittings_path)?);
+        for kind in &changed {
+            kinds_text = level_edit::kinds::write_kind(&kinds_text, kind)?;
+            fittings_text = level_edit::kinds::write_fitting(&fittings_text, &game, kind)?;
+        }
+        for (path, text) in [(&kinds_path, kinds_text), (&fittings_path, fittings_text)] {
+            std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+        for kind in &changed {
+            state
+                .kind_originals
+                .insert((kind.texture.clone(), kind.placeable), kind.clone());
+        }
+        let message = format!(
+            "published {} kinds of fitting to {} and {}",
+            changed.len(),
+            kinds_path.display(),
+            fittings_path.display()
+        );
+        state.say(message);
+    }
+    // The levels the bake's rooms aim at go to the module's levels file,
+    // which `bake.toml` names (and is made to name, the first time).
+    if state.editor.project.levels != state.levels_original {
+        let folder = (state.setup.light_data.clone())
+            .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
+        let module = state.editor.project.module.clone();
+        let file =
+            (state.bake_entry.levels.clone()).unwrap_or_else(|| format!("levels/{module}.txt"));
+        let path = folder.join(&file);
+        let old = std::fs::read_to_string(&path).ok();
+        let text = level_edit::levels::write_levels(
+            old.as_deref(),
+            &state.editor.project.levels,
+            &format!(
+                "The level each room of {module} aims at in the bake, of its {} level, set in kjk's level editor.",
+                state.bake_entry.of
+            ),
+        );
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+        if state.bake_entry.levels.is_none() {
+            let bake = folder.join("bake.toml");
+            let text = std::fs::read_to_string(&bake)
+                .map_err(|error| format!("{}: {error}", bake.display()))?;
+            let text = level_edit::levels::with_levels_file(&text, &module, &file)?;
+            std::fs::write(&bake, &text).map_err(|error| format!("{}: {error}", bake.display()))?;
+            state.bake_entry = level_edit::levels::bake_entry(&text, &module);
+        }
+        state.levels_original = state.editor.project.levels.clone();
+        state.say(format!("published the rooms' levels to {}", path.display()));
     }
     Ok(())
 }

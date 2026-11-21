@@ -520,6 +520,12 @@ impl Link {
             })),
             "trying": state.script_try.as_ref().map(|run| run.script.clone()),
             "recovery_found": state.recovery.is_some(),
+            "lights_own": state::lights_own(state),
+            "kinds_own": state::kinds_own(state)
+                .iter()
+                .map(|kind| format!("{} on {}s", kind.texture, kind.on()))
+                .collect::<Vec<_>>(),
+            "levels_own": state::levels_own(state),
             "markers_hidden": state
                 .hidden
                 .iter()
@@ -532,6 +538,7 @@ impl Link {
                 "status": job.status,
             })),
             "bake_shown": state.bake.as_ref().map(|bake| bake.display().to_string()),
+            "bake_kept": state::bake_kept(state).map(|bake| bake.display().to_string()),
             "light_view": format!("{:?}", state.light_view),
             "answered": self.answered,
             "answers": self

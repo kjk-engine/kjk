@@ -847,27 +847,43 @@ pub fn set_bake_folder(folder: Option<std::path::PathBuf>) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(folder);
 }
 
-fn bake_folder() -> Option<std::path::PathBuf> {
+/// The folders a baked lightmap is looked for in: the one a program set,
+/// else the one `KJK_DETAIL_BAKE` names, else, while the rooms are lit
+/// `Baked`, the bakes the active level editor project keeps
+/// (`level_edit::lighting`).
+fn bake_folders() -> Vec<std::path::PathBuf> {
     if let Some(set) = BAKE_FOLDER
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .as_ref()
     {
-        return set.clone();
+        return set.iter().cloned().collect();
     }
-    std::env::var_os("KJK_DETAIL_BAKE")
+    let named = std::env::var_os("KJK_DETAIL_BAKE")
         .filter(|folder| !folder.is_empty())
-        .map(std::path::PathBuf::from)
+        .map(std::path::PathBuf::from);
+    if let Some(named) = named {
+        return vec![named];
+    }
+    if !crate::fitted_lights::baked() {
+        return Vec::new();
+    }
+    (level_edit::active::bake_folders().into_iter())
+        .map(std::path::Path::to_path_buf)
+        .collect()
 }
 
 fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
-    let Some(folder) = bake_folder() else {
-        return texture;
-    };
-    let path = folder.join(format!("{}.png", name.to_ascii_lowercase()));
-    if texture.cube || texture.frames > 1 || !path.is_file() {
+    if texture.cube || texture.frames > 1 {
         return texture;
     }
+    let file = format!("{}.png", name.to_ascii_lowercase());
+    let Some(path) = (bake_folders().into_iter())
+        .map(|folder| folder.join(&file))
+        .find(|path| path.is_file())
+    else {
+        return texture;
+    };
     match image::open(&path) {
         Ok(picture) => {
             let picture = picture.into_rgba8();
@@ -1271,6 +1287,8 @@ pub fn module_scene(
     area: usize,
 ) -> Result<LoadedScene, String> {
     let module = ir.name.as_str();
+    // A level whose project keeps a bake of it is lit with that bake.
+    crate::fitted_lights::for_module(module);
     let area = &ir.areas[area];
     let mut laps = crate::launch_times::Laps::new("kotor stage/scene");
     let walkable = walkable_surfaces(resolver);

@@ -58,6 +58,11 @@ pub enum Mode {
 
 static MODE: std::sync::RwLock<Option<Mode>> = std::sync::RwLock::new(None);
 
+/// Whether the mode was chosen: `KJK_FITTED_LIGHTS` is set, or a program
+/// set it (`set_mode`). A chosen mode stays; without one, a level takes the
+/// mode its project's bake asks for (`for_module`).
+static CHOSEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The mode the rooms are lit in now.
 pub fn mode() -> Mode {
     if let Some(mode) = *MODE
@@ -66,18 +71,49 @@ pub fn mode() -> Mode {
     {
         return mode;
     }
-    let mode = match std::env::var("KJK_FITTED_LIGHTS").as_deref() {
+    let named = std::env::var("KJK_FITTED_LIGHTS");
+    if named.is_ok() {
+        CHOSEN.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    let mode = match named.as_deref() {
         Err(_) | Ok("off") => Mode::Off,
         Ok("baked") => Mode::Baked,
         Ok("lamps") => Mode::LampsOnly,
         Ok(_) => Mode::Live,
     };
-    set_mode(mode);
+    *MODE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
     mode
 }
 
-/// Lights the rooms in `mode` from the next scene drawn on.
+/// Lights the rooms in `mode` from the next scene drawn on. The mode is
+/// then chosen, and no level changes it by itself (`for_module`).
 pub fn set_mode(mode: Mode) {
+    CHOSEN.store(true, std::sync::atomic::Ordering::Relaxed);
+    *MODE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
+}
+
+/// Before the scene of `module` is drawn: where no mode was chosen, a level
+/// whose level editor project keeps a bake of it (`level_edit::lighting`)
+/// is lit `Baked`, with that bake (`viewer`), and every other level `Off`.
+pub fn for_module(module: &str) {
+    let _ = mode();
+    if CHOSEN.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let mode = match level_edit::active::bake_of(module) {
+        Some(bake) => {
+            bevy::log::info!(
+                "{module} is lit with its project's bake, {}",
+                bake.display()
+            );
+            Mode::Baked
+        }
+        None => Mode::Off,
+    };
     *MODE
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
@@ -120,9 +156,20 @@ fn data_text(name: &str, built_in: &'static str) -> std::borrow::Cow<'static, st
         )
 }
 
+/// The text of the light data's kinds of `game` (`k1.toml` or `tsl.toml`,
+/// `data_text`); `None` for another game. The level editor reads how the
+/// light data holds a kind from it.
+pub fn kinds_text(game: &str) -> Option<std::borrow::Cow<'static, str>> {
+    match game {
+        "k1" => Some(data_text("k1.toml", TABLES[0])),
+        "tsl" => Some(data_text("tsl.toml", TABLES[1])),
+        _ => None,
+    }
+}
+
 /// The text of the light data's `fittings.toml` (`data_text`): its
 /// `[[placed]]` lights, and the `[[lamp]]` tables `lamps` reads.
-pub(crate) fn fittings_text() -> std::borrow::Cow<'static, str> {
+pub fn fittings_text() -> std::borrow::Cow<'static, str> {
     data_text("fittings.toml", FITTINGS)
 }
 
@@ -443,9 +490,18 @@ fn kinds() -> std::sync::Arc<[Kinds; 2]> {
     {
         return kinds.clone();
     }
+    // The light data's kinds, with a level editor project's own over them
+    // (`level_edit::lighting`).
     let read = std::sync::Arc::new(
-        [("k1.toml", TABLES[0]), ("tsl.toml", TABLES[1])]
-            .map(|(name, text)| read_kinds(&data_text(name, text)).unwrap_or(Kinds::new())),
+        [("k1", "k1.toml", TABLES[0]), ("tsl", "tsl.toml", TABLES[1])].map(|(game, name, text)| {
+            let mut kinds = read_kinds(&data_text(name, text)).unwrap_or(Kinds::new());
+            if let Some(own) = level_edit::active::own_kinds(game)
+                && let Some(own) = read_kinds(&own)
+            {
+                kinds.extend(own);
+            }
+            kinds
+        }),
     );
     *KINDS
         .write()
@@ -561,7 +617,8 @@ fn placed(area: &str) -> Vec<Light> {
     {
         return set.clone();
     }
-    // A level editor project's new map keeps its own (`level_edit`).
+    // A level editor project keeps its own for a new map, and for an
+    // installed level whose lights it changed (`level_edit`).
     if let Some(lights) = level_edit::active::map_lights(area) {
         return lights.iter().map(Light::of_placed).collect();
     }

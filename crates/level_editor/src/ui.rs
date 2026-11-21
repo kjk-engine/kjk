@@ -6359,6 +6359,95 @@ fn recovery_window(ctx: &egui::Context, state: &mut EditorState) {
 fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
     use kjk_game::fitted_lights::Mode;
     ui.menu_button("Lighting", |ui| {
+        // Whose the level's lights and lamps placed by hand are.
+        if state.editor.project.map.is_none() {
+            let own = state::lights_own(state);
+            ui.label(
+                egui::RichText::new(if own {
+                    "This level's lights and lamps placed by hand are the project's own. A save keeps them in the project, and play with the project uses them."
+                } else {
+                    "This level's lights and lamps placed by hand are kjk's. A change makes them the project's own."
+                })
+                .small(),
+            );
+            ui.separator();
+        }
+        // The rules the project changed, and the step that gives all of its
+        // lighting to kjk's light data.
+        {
+            let kinds = state::kinds_own(state).len();
+            let levels = state::levels_own(state);
+            let lights = state::lights_own(state);
+            if kinds > 0 || levels {
+                let mut held = Vec::new();
+                if kinds > 0 {
+                    held.push(format!("{kinds} kinds of fitting it changed"));
+                }
+                if levels {
+                    held.push("this level's room levels".to_string());
+                }
+                ui.label(
+                    egui::RichText::new(format!(
+                        "The project keeps {} as its own. They apply to this project only.",
+                        held.join(" and ")
+                    ))
+                    .small(),
+                );
+            }
+            // The bake the project keeps, which play with the project uses.
+            let kept = state::bake_kept(state);
+            ui.label(
+                egui::RichText::new(match &kept {
+                    Some(_) => {
+                        "The project keeps a bake of this level. Play with the project is lit with it."
+                    }
+                    None => {
+                        "The project keeps no bake of this level. Play with the project is lit as the game stores it."
+                    }
+                })
+                .small(),
+            );
+            let shown_is_kept = kept.is_some() && state.bake == kept;
+            if ui
+                .add_enabled(
+                    state.bake.is_some() && !shown_is_kept,
+                    egui::Button::new("Keep the bake shown in the project"),
+                )
+                .on_hover_text(
+                    "Copies the lightmaps of the bake the Baked view shows into the project's folder, in place of the bake kept before.",
+                )
+                .on_disabled_hover_text(
+                    "The Baked view shows no bake, or it shows the one the project keeps already.",
+                )
+                .clicked()
+            {
+                state.pending_command = Some("bake keep".into());
+                ui.close();
+            }
+            if kept.is_some() && ui.button("Take the project's bake out").clicked() {
+                state.pending_command = Some("bake drop".into());
+                ui.close();
+            }
+            ui.separator();
+            let own = lights || kinds > 0 || levels;
+            if ui
+                .add_enabled(
+                    own && state.setup.light_data.is_some(),
+                    egui::Button::new("Publish to kjk's light data"),
+                )
+                .on_hover_text(
+                    "Writes the project's own lights, lamps, kinds of fitting and room levels to data/lights, where the next build of kjk takes them for every player, then saves the project without them.",
+                )
+                .on_disabled_hover_text(
+                    "Publishing needs lighting of the project's own, and kjk built from source (or KJK_LIGHT_DATA set to a data/lights folder).",
+                )
+                .clicked()
+            {
+                state.pending_command = Some("publish".into());
+                ui.close();
+            }
+            ui.separator();
+        }
         for (mode, label, hint) in [
             (Mode::Off, "Game", "The game's stored lightmaps"),
             (

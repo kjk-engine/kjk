@@ -162,20 +162,78 @@ hand.
   taken away, with undo. The window says how the module's bake is set in
   `bake.toml`.
 
-An installed level's lights placed by hand are the `[[placed]]` tables of
-the light data's `fittings.toml` whose `area` is its module. The light
-data is the folder `KJK_LIGHT_DATA` names, else the `data/lights` of the
-kjk checkout the editor was built in; the Lighting menu names it. Saving
-replaces that area's tables and leaves every other line of the file as it
-was, so the change is a diff the lighting's maintainer reviews. A new
-map's lights placed by hand are `[[light]]` tables of its `kjk-area.toml`.
+### Whose the lights placed by hand are
 
-A changed kind is saved to the light data twice, so the two files agree:
+A level's lights and lamps placed by hand belong to the project once the
+project changes them.
+
+- **Until then they are kjk's.** An installed level starts with the
+  lights and lamps kjk's light data holds for it: the `[[placed]]` and
+  `[[lamp]]` tables of `fittings.toml` whose `area` is its module. The
+  light data is the folder `KJK_LIGHT_DATA` names, else the `data/lights`
+  of the kjk checkout the editor was built in, else the copy built into
+  kjk. The project's files hold none of them, so a later build of kjk
+  with better lights for the level reaches the project.
+- **A change makes them the project's own.** A save at which the level's
+  lights or lamps differ from the light data's writes all of them to the
+  project's `kjk-area.toml`, as `[[light]]` and `[[lamp]]` tables under
+  `own_lights = true`. They are then the level's whole list. `kjk play
+  --project NAME` uses them in place of the light data's, and so does
+  every editor, built from source or not. Changed back to what the light
+  data holds, they are kjk's again and leave the file at the next save.
+- **A new map's are always its own**, in its `kjk-area.toml`.
+
+The Lighting menu says which of the two holds, and `lights_own` in the
+agent link's `live.json` says it too.
+
+### The project's own kinds and room levels
+
+The kinds of fitting and the rooms' bake levels follow the same rule as
+the lights placed by hand. They are kjk's until the project changes
+them, and the project's own from then on.
+
+- **A changed kind of fitting is the project's own.** It applies to this
+  project only. Every level the project plays takes it, and no other
+  project or player does. Changed back to what the light data holds, it
+  is kjk's again.
+- **A level's changed room levels are the project's own.** They are that
+  level's whole list. A bake from the editor is then held to them, not
+  to the light data's levels file or share.
+
+A save writes both to `kjk-lighting.toml` in the project's folder. The
+file has a `[[kind]]` table for each changed kind, in the layout of
+`data/lights/<game>.toml` with the kind's reason, and a
+`[levels.<module>]` table of each room's level. A project that changed
+neither has no such file. `kjk play --project NAME` reads the project's
+kinds in place of the light data's. The Lighting menu says what the
+project keeps as its own, and `kinds_own` and `levels_own` in the agent
+link's `live.json` say it too. An editor from a release package changes
+and saves both, as an editor built from source does.
+
+### Publishing to kjk's light data
+
+**Publish to kjk's light data** (in the Lighting menu, `edit publish`)
+is for whoever maintains kjk's own lighting of the games. It writes
+everything of the project's own lighting to the light data, where the
+next build of kjk takes it for every player, and then saves the project
+without it:
+
+- the level's lights and lamps placed by hand, to `fittings.toml`. That
+  area's tables are replaced and every other line of the file is left as
+  it was.
+- the kinds of fitting the project changed.
+- the level's room levels.
+
+Each change is a diff the lighting's maintainer reviews. Publishing needs
+a light data folder: kjk built from source, or `KJK_LIGHT_DATA`. A save
+alone never writes to the light data.
+
+A published kind is written to the light data twice, so the two files agree:
 its `[[kind]]` entry of `k1.toml` or `tsl.toml`, which the game reads, and
 a `[[fitting]]` of `fittings.toml` with the same numbers and the reason,
 which `tools/light-kinds/kinds.py` reads when it writes those entries
 again. An existing `[[fitting]]` for the kind is changed in place, its
-other fields kept. The rooms' targets are saved to the module's levels
+other fields kept. The published room levels are written to the module's levels
 file (`levels/<module>.txt`), each line kept but the changed rooms'. A
 module whose bake aimed at a share of each room's level is set to aim at
 the file (`bake.toml`'s `levels`); a room the file has no line for keeps
@@ -237,11 +295,11 @@ A lamp is drawn a little differently from the place it came from:
 - A lamp casts no shadow, so its own mesh never darkens its light.
 - A lamp is not solid. Characters walk through it.
 
-An installed level's lamps are the `[[lamp]]` tables of the light data's
-`fittings.toml` whose `area` is its module, saved beside its lights placed
-by hand and in the same way. Every scene of the module draws them,
-including play without a project. A new map's lamps are `[[lamp]]` tables
-of its `kjk-area.toml`.
+A level's lamps are kept as its lights placed by hand are ("Whose the
+lights placed by hand are", above): kjk's until the project changes them,
+then the project's own `[[lamp]]` tables. The light data's lamps are
+drawn in every scene of the module, including play without a project. A
+project's own are drawn in play with that project.
 
 ```toml
 [[lamp]]
@@ -271,8 +329,8 @@ added, kinds and levels changed, and the area baked again until it looks
 right. It does what `tools/light-kinds/bake.sh` does, with the editor's
 own scene in place of a launch of the game:
 
-1. The project is saved, so the light data holds the editor's lights,
-   kinds and levels.
+1. The project is saved, so the project holds the editor's lights and
+   lamps, and the light data its kinds and levels.
 2. The scene's lights are written to a dump (`lights-<label>.txt`), as
    the game writes them for `KJK_FITTED_DUMP` under the live lights
    (`fitted_lights::dump_lights`).
@@ -291,6 +349,37 @@ and logs beside it. When it is done, the view shows it (Baked) and the
 Lighting menu lists it first. **Compare with the bake before** (`edit bake
 compare`) shows the newest bake and the one before it in turn. Walk takes
 the bake shown.
+
+### The project's bake
+
+A bake from the editor is a trial: it lands in the kjk checkout, and the
+next bake stands beside it. **Keep the bake shown in the project** (in the
+Lighting menu, `edit bake keep`) makes the bake the Baked view shows the
+project's own. It copies the bake's lightmaps into the project's folder,
+as `kjk-bake/<module>/<lightmap>.png`, in place of the bake kept before.
+The Dantooine enclave's bake is 110 lightmaps, about 3 MB.
+
+- **Play is lit with it.** `kjk play --project NAME` draws the level's
+  rooms with the project's bake, as the editor's Baked view does. Every
+  other level is lit as the game stores it. `KJK_FITTED_LIGHTS` still
+  chooses the lighting when it is set, and a bake `KJK_DETAIL_BAKE` names
+  is still used in place of the project's.
+- **It travels with the project.** A copy of the project's folder has
+  the bake, so a player with a release package sees it. Such a player
+  cannot make a bake, because a bake needs the `kjk` that has
+  `detail-bake`.
+- **It is kept at once**, not at the next save, as a bake itself is made
+  at once. It is not part of undo.
+- **The editor offers it first.** The Baked view of a level whose project
+  keeps a bake shows that bake when the editor opens.
+
+**Take the project's bake out** (`edit bake drop`) removes it. The level
+is then lit as the game stores it in play. `bake_kept` in the agent
+link's `live.json` is the kept bake's folder, or null.
+
+A kept bake is not made again when the lights change. After a change to
+a light, a lamp, a kind or a room's level, bake again and keep the new
+bake.
 
 **Walk** (F7, in the Lighting menu) saves, then starts play's walk mode
 (`kjk play --walk`) on the level, lit as the view is: with
@@ -1202,6 +1291,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui levels on`, `edit ui levels off` | opens or closes the Room levels window |
 | `edit bake` | saves, then bakes the area's lightmaps from its lights and shows the bake when it is done |
 | `edit bake compare` | shows the newest bake and the one before it in turn |
+| `edit bake keep`, `edit bake drop` | keeps the bake the Baked view shows in the project, where play with the project is lit with it; takes the project's bake out |
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit play here`, `edit walk here` | the same, the player starting where the view looks at the floor |
@@ -1227,6 +1317,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit seam` | moves the selected room to meet the nearest seam |
 | `edit drop` | puts everything selected on the walkable floor under it, as one edit |
 | `edit markers KIND on`, `edit markers KIND off`, `edit markers all on` | shows or hides the markers and labels of a kind of object (`creature`, `placeable`, `door`, `waypoint`, `trigger`, `sound`, `store`, `encounter`), or of every kind |
+| `edit publish` | writes the project's own lights, lamps, kinds of fitting and room levels to kjk's light data, then saves the project without them |
 | `edit recover`, `edit recover discard` | takes the work an editor that did not close left, as one edit, or removes it |
 | `edit recover write` | writes the recovery copy now, not at its next turn |
 | `edit entry [X Y Z]` | moves a new map's entry to the point or where the view's centre meets the level |
@@ -1314,12 +1405,15 @@ top of the view for five seconds, as well as among the messages.
   which the original game needs. Every room sees every room.
 - **KOTOR 2's rooms are not listed yet.** Its layouts are in its modules'
   archives, which the Rooms tab does not read.
-- **An installed level's lights and lamps need kjk built from source.**
-  A light or a lamp placed by hand in an installed level is kept in kjk's
-  light data (`data/lights`), not in the project. An editor from a
-  release package has no light data folder, so it cannot save them. It
-  says so when one is placed and again at each save. In a new map they
-  are saved with the project.
+- **Making a bake needs kjk built from source.** A project keeps its
+  own lights, lamps, kinds of fitting, room levels and a bake, and play
+  with the project uses them. But a bake is made by the `kjk` that has
+  `detail-bake`, in the kjk checkout, so an editor from a release package
+  cannot make one.
+- **Lights without a bake do not show in play by themselves.** A level
+  whose project has its own lights or kinds but keeps no bake is lit as
+  the game stores it, unless `KJK_FITTED_LIGHTS` is set. The live fitted
+  lights are still a trial.
 - **Props are not in the navigation mesh.** A solid prop is solid for
   every body, but the game's characters do not path onto it or around it.
   A walkable box or a nav blocker placed with it does that.

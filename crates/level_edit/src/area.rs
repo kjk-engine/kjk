@@ -36,14 +36,21 @@ use collision::trig;
 pub struct KjkArea {
     pub props: Vec<Prop>,
     pub boxes: Vec<CollisionBox>,
-    /// The lights placed by hand (`lights`). A new map keeps them here as
-    /// `[[light]]` tables; an installed level's are saved to
-    /// `data/lights/fittings.toml` instead (`Project::save`).
+    /// The lights placed by hand (`lights`), as `[[light]]` tables. A new
+    /// map keeps its own here. An installed level takes the ones kjk's
+    /// light data holds for it (`data/lights/fittings.toml`) until the
+    /// project changes them, and keeps its own here from then on
+    /// (`own_lights`).
     pub lights: Vec<crate::lights::PlacedLight>,
-    /// The lamps placed by hand (`lamps`), kept as the lights are: a new
-    /// map's here as `[[lamp]]` tables, an installed level's in
-    /// `data/lights/fittings.toml`.
+    /// The lamps placed by hand (`lamps`), as `[[lamp]]` tables, kept as
+    /// the lights are.
     pub lamps: Vec<crate::lamps::PlacedLamp>,
+    /// Whether an installed level's `lights` and `lamps` are the project's
+    /// own: its whole list of both, used in place of the ones kjk's light
+    /// data holds for the level. False while the project has not changed
+    /// them, and they are then left out of the file. Written as
+    /// `own_lights = true`.
+    pub own_lights: bool,
     /// The links between floors that walkers jump or drop across
     /// (`collision::nav::Link`), as `[[link]]` tables.
     pub links: Vec<NavLink>,
@@ -365,7 +372,13 @@ impl KjkArea {
     /// Reads the file's text. Every entry must have all its fields.
     pub fn parse(source: &str) -> Result<KjkArea, String> {
         let document: toml_edit::DocumentMut = source.parse().map_err(bad)?;
-        let mut area = KjkArea::default();
+        let mut area = KjkArea {
+            own_lights: document
+                .get("own_lights")
+                .and_then(toml_edit::Item::as_bool)
+                .unwrap_or(false),
+            ..KjkArea::default()
+        };
         let tables = |key: &str| {
             document
                 .get(key)
@@ -440,6 +453,13 @@ impl KjkArea {
         );
         let quote = |text: &str| format!("{text:?}");
         let triple = |v: [f32; 3]| format!("[{:?}, {:?}, {:?}]", v[0], v[1], v[2]);
+        if self.own_lights {
+            out.push_str(
+                "\n# The lights and lamps placed by hand below are this level's whole\n\
+                 # list, used in place of the ones kjk's light data holds for it.\n\
+                 own_lights = true\n",
+            );
+        }
         for prop in &self.props {
             out.push_str(&format!(
                 "\n[[prop]]\nname = {}\nmodel = {}\nposition = {}\nyaw = {:?}\nscale = {:?}\nsolid = {}\n",

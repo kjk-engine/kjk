@@ -66,12 +66,21 @@ changed. It holds these fields:
 - `recovery_found` is true while the editor offers work that an editor
   that did not close left. `recover` takes it and `recover discard`
   removes it. Leave that choice to the person.
+- `lights_own` is true when the level's lights and lamps placed by hand
+  are the project's own, and false while they are the ones kjk's light
+  data holds. `kinds_own` names each kind of fitting the project
+  changed, and `levels_own` is true when the level's room levels are the
+  project's own. A save keeps all of these in the project. `publish`
+  writes them into kjk's own light data for every player: do not send it
+  unless the person asks.
 - `markers_hidden` names the kinds of object whose markers the person has
   hidden. They are still in the level and in `objects.json`.
 - `auditing` is true while a containment audit runs. `audit` holds the
   lines of the last audit's result.
 - `baking` holds a running bake's label and what it is doing now, and is
   null otherwise. `bake_shown` is the folder of the bake the view shows,
+  `bake_kept` is the folder of the bake the project keeps for play
+  (`bake keep` keeps the bake shown, `bake drop` takes it out),
   and `light_view` is how the view lights the rooms (`Off`, `Live`,
   `LampsOnly` or `Baked`).
 

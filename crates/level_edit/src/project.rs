@@ -47,7 +47,9 @@ pub struct Project {
     pub templates: BTreeMap<String, Template>,
     /// The map the project makes, when its module is its own (`map`).
     pub map: Option<NewMap>,
-    /// The kinds of light fitting changed in the editor (`kinds`), saved to
+    /// The kinds of light fitting changed in the editor (`kinds`). The
+    /// editor keeps them in the project's `kjk-lighting.toml` (`lighting`),
+    /// which this type neither reads nor writes. Before, they were saved to
     /// the light data, never to the project's folder.
     pub kinds: Vec<crate::kinds::KindEdit>,
     /// The level each room of the bake aims at (`levels`), as the editor
@@ -659,10 +661,10 @@ impl Project {
         *hasher.finalize().as_bytes()
     }
 
-    /// What the project's `kjk-area.toml` holds: its kjk-only content, the
-    /// lights placed by hand left out for an installed level, whose lights
-    /// are saved to `data/lights/fittings.toml` (`lights::write_placed`), and
-    /// its lamps likewise (`lamps::write_lamps`).
+    /// What the project's `kjk-area.toml` holds: its kjk-only content. An
+    /// installed level's lights and lamps placed by hand are left out while
+    /// they are the ones kjk's light data holds, and kept once they are the
+    /// project's own (`KjkArea::own_lights`).
     pub fn own_kjk(&self) -> KjkArea {
         if self.map.is_some() {
             return self.kjk.clone();
@@ -702,9 +704,13 @@ impl Project {
     }
 }
 
-/// What an installed level's kjk-area file holds of `kjk`: all but its
-/// lights and lamps placed by hand, which are saved to the light data.
+/// What an installed level's kjk-area file holds of `kjk`: all of it when
+/// its lights and lamps placed by hand are the project's own, else all but
+/// them, which are the light data's.
 fn installed_kjk(kjk: &KjkArea) -> KjkArea {
+    if kjk.own_lights {
+        return kjk.clone();
+    }
     KjkArea {
         lights: Vec::new(),
         lamps: Vec::new(),

@@ -48,6 +48,9 @@ pub struct Plan {
     /// to.
     pub light_data: PathBuf,
     pub entry: level_edit::levels::BakeEntry,
+    /// The level each room aims at as the project has changed them, when
+    /// it has: the bake is held to these, not to the light data's.
+    pub own_levels: Option<std::collections::BTreeMap<String, f32>>,
     /// The area's scratch folder (`target/light-kinds/game/bake-<module>`).
     pub folder: PathBuf,
     pub label: String,
@@ -206,6 +209,23 @@ fn run(plan: &Plan, send: &Sender<Step>) -> Result<PathBuf, String> {
     let levels_path = plan.folder.join(format!("levels-{label}.txt"));
     let weigh = plan.entry.of == "lit";
     match (&plan.entry.levels, plan.entry.share) {
+        _ if plan.own_levels.is_some() => {
+            let levels = (plan.own_levels.clone()).unwrap_or_else(std::collections::BTreeMap::new);
+            let text = level_edit::levels::write_levels(
+                None,
+                &levels,
+                &format!(
+                    "The level each room of {} aims at, as the project {} has them.",
+                    plan.module, plan.project
+                ),
+            );
+            std::fs::write(&levels_path, text)
+                .map_err(|error| format!("{}: {error}", levels_path.display()))?;
+            say(format!(
+                "baking, {} rooms held to the project's levels",
+                levels.len()
+            ));
+        }
         (Some(file), _) => {
             let source = plan.light_data.join(file);
             std::fs::copy(&source, &levels_path)
