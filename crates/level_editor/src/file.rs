@@ -380,6 +380,9 @@ pub(crate) fn leave(
             }
         }
     }
+    // Left by choice: what was not saved was given up, so no copy of it
+    // waits for the next start.
+    crate::recover::clear(&mut state);
     info!(target: "editor", "left the level: {leave:?}");
     exit.write(AppExit::Success);
 }

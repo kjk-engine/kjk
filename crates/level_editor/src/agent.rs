@@ -300,6 +300,22 @@ impl Link {
                     _ => "ground takes a place of the level in metres: X Y".to_string(),
                 },
                 ["ground", ..] => "ground takes a place of the level in metres: X Y".to_string(),
+                // The floor that can be walked on there, without the
+                // furniture, walls and roofs `ground` also finds.
+                ["floor", x, y] => match (state::number(x), state::number(y)) {
+                    (Ok(x), Ok(y)) => {
+                        let found = state::walkable_at(state, x, y, None);
+                        if found.is_empty() {
+                            format!("no walkable floor is at {x} {y}")
+                        } else {
+                            let heights: Vec<String> =
+                                found.iter().map(|z| format!("{z:.2}")).collect();
+                            format!("ok: {}", heights.join(" "))
+                        }
+                    }
+                    _ => "floor takes a place of the level in metres: X Y".to_string(),
+                },
+                ["floor", ..] => "floor takes a place of the level in metres: X Y".to_string(),
                 ["list"] => match self.write_objects(state) {
                     Ok(count) => format!("ok: {count} things listed in objects.json"),
                     Err(why) => why,
@@ -503,6 +519,12 @@ impl Link {
                 "debug_stops": tried.stops.len(),
             })),
             "trying": state.script_try.as_ref().map(|run| run.script.clone()),
+            "recovery_found": state.recovery.is_some(),
+            "markers_hidden": state
+                .hidden
+                .iter()
+                .map(|kind| state::kind_name(*kind))
+                .collect::<Vec<_>>(),
             "auditing": state.audit_job.is_some(),
             "audit": state.audit,
             "baking": state.bake_job.as_ref().map(|job| serde_json::json!({

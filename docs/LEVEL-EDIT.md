@@ -1081,6 +1081,7 @@ so later runs show it at once and a changed file is drawn again.
 | Ctrl+A | select every object, prop, collision box and lamp of the level, and every room of a new map |
 | Ctrl+D | copy everything selected, in the same place |
 | Delete | delete everything selected |
+| End | put everything selected on the walkable floor under it |
 | Ctrl+Z, Ctrl+Y | undo, redo |
 | Ctrl+S | save the project |
 | Ctrl+Shift+C | copy the selected object, or the level, as text for an agent |
@@ -1224,6 +1225,10 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit add room MODEL [X Y Z]` | adds the install's room to a new map, its floor's middle at the point or where the view's centre meets the level |
 | `edit select room N`, `edit select entry` | selects a new map's room (from 0) or its entry |
 | `edit seam` | moves the selected room to meet the nearest seam |
+| `edit drop` | puts everything selected on the walkable floor under it, as one edit |
+| `edit markers KIND on`, `edit markers KIND off`, `edit markers all on` | shows or hides the markers and labels of a kind of object (`creature`, `placeable`, `door`, `waypoint`, `trigger`, `sound`, `store`, `encounter`), or of every kind |
+| `edit recover`, `edit recover discard` | takes the work an editor that did not close left, as one edit, or removes it |
+| `edit recover write` | writes the recovery copy now, not at its next turn |
 | `edit entry [X Y Z]` | moves a new map's entry to the point or where the view's centre meets the level |
 | `edit ui tab rooms` | shows the Rooms tab of a new map |
 
@@ -1251,6 +1256,53 @@ project's boxes and props are in the level the audit floods, so a box that
 closes a gap removes the escape, and a box that makes a new ledge shows as
 a new perch.
 
+## Work that is not saved
+
+The editor keeps a recovery copy of work that is not saved, so a crash or
+a power cut does not lose it. While the project has changes that are not
+saved, the editor writes the copy once a minute to `recovery/<project>`
+in kjk's own folder. The copy holds the project as a save would write it,
+the level's lights and lamps placed by hand, and each script changed in
+the script window. The project's own folder is not touched.
+
+A save removes the copy. So does leaving the level by choice, with or
+without saving. A copy is left only when the editor did not close.
+
+When the editor opens a project that has a copy, a window says so, with
+the level the copy is of and how long ago it was written.
+
+- **Recover** takes the copy into the level as one edit. The level then
+  has changes that are not saved, and nothing is written to the project
+  until a save. Undo gives the saved level back.
+- **Discard** removes the copy.
+
+Until one of the two is chosen, the editor writes no new copy, so the
+old one is not lost. Two editors open on one project at once share one
+copy, and the second one offers the first one's work as if it had been
+left behind.
+
+## Placing things
+
+**Drop to floor** (the End key, the details panel's button, or `edit
+drop`) puts everything selected on the walkable floor under it. Each
+thing goes straight down to the highest floor at or under it. A thing
+with no floor under it goes up to the lowest floor above it. A collision
+box rests its underside on the floor. The floor is the rooms' walkable
+walkmesh and the tops of the project's boxes that are walked on, so
+furniture, walls and roofs do not catch a dropped thing. The sun, the
+game's own lights and a new map's rooms are not dropped.
+
+The toolbar's **Markers** menu hides the markers and labels of a kind of
+object, such as every waypoint, so a crowded level can be read. A hidden
+kind still shows what is selected of it, and its models stay drawn.
+
+With several things selected, the details panel says how far their
+places span along X, along Y and in height. With two selected it also
+says how far apart they are.
+
+An edit or a command that does nothing says why in a red notice at the
+top of the view for five seconds, as well as among the messages.
+
 ## Limits of the prototype
 
 - **A new map's rooms are the games' own.** There is no new geometry
@@ -1262,6 +1314,12 @@ a new perch.
   which the original game needs. Every room sees every room.
 - **KOTOR 2's rooms are not listed yet.** Its layouts are in its modules'
   archives, which the Rooms tab does not read.
+- **An installed level's lights and lamps need kjk built from source.**
+  A light or a lamp placed by hand in an installed level is kept in kjk's
+  light data (`data/lights`), not in the project. An editor from a
+  release package has no light data folder, so it cannot save them. It
+  says so when one is placed and again at each save. In a new map they
+  are saved with the project.
 - **Props are not in the navigation mesh.** A solid prop is solid for
   every body, but the game's characters do not path onto it or around it.
   A walkable box or a nav blocker placed with it does that.

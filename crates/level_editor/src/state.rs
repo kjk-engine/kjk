@@ -102,6 +102,13 @@ pub struct EditSetup {
     pub tools: bool,
 }
 
+/// Why an installed level's lights and lamps placed by hand are not saved
+/// by a build that has no light data folder.
+pub(crate) const NO_LIGHT_DATA: &str = "this editor cannot save lights and lamps placed by hand in \
+     an installed level: they are kept in kjk's light data, which comes with kjk built from \
+     source (or set KJK_LIGHT_DATA to a data/lights folder). In a new map they are saved \
+     with the project";
+
 /// Why the audit and the bake are not there with a player's build of kjk.
 pub(crate) const NO_TOOLS: &str = "the kjk beside the editor is a player's build, without the \
      audit and the bake: they come with kjk built from source (docs/BUILD.md)";
@@ -329,6 +336,19 @@ pub struct EditorState {
     pub(crate) pending_ui: Vec<Vec<String>>,
     pub(crate) messages: Vec<String>,
     pub(crate) audit: Vec<String>,
+    /// A recovery copy an editor that did not close left of this project
+    /// (`recover`), until it is taken or discarded.
+    pub(crate) recovery: Option<PathBuf>,
+    /// When this editor's own recovery copy was last written.
+    pub(crate) autosave: crate::recover::Autosave,
+    /// The kinds of object whose markers and labels the view hides.
+    pub(crate) hidden: Vec<Kind>,
+    /// Why the last edit was refused and when, for the view to show over
+    /// the level for a few seconds.
+    pub(crate) refusal: Option<(std::time::Instant, String)>,
+    /// Whether the editor has said that this build cannot save an
+    /// installed level's lights and lamps placed by hand.
+    warned_lights: bool,
     /// A picture of the window the agent link asked for, and the file it
     /// goes to (`ui::take_shot`).
     pub(crate) pending_shot: Option<PathBuf>,
@@ -378,6 +398,7 @@ impl EditorState {
         };
         project.levels = levels_original.clone();
         let project_scripts = crate::script_edit::project_scripts(&project.folder);
+        let recovery = crate::recover::found(&project.name);
         let editor = Editor::new(project);
         let mut state = EditorState {
             setup,
@@ -422,6 +443,11 @@ impl EditorState {
             pending_ui: Vec::new(),
             messages: Vec::new(),
             audit: Vec::new(),
+            recovery,
+            autosave: Default::default(),
+            hidden: Vec::new(),
+            refusal: None,
+            warned_lights: false,
             pending_shot: None,
             refused: None,
             install_templates: Default::default(),
@@ -429,6 +455,12 @@ impl EditorState {
             redraws: 0,
         };
         let scene = draw(&mut state)?;
+        if let Some(folder) = &state.recovery {
+            let what = crate::recover::describe(folder);
+            state.say(format!(
+                "work that was not saved was found, {what}: Recover takes it, Discard removes it"
+            ));
+        }
         Ok((state, scene))
     }
 }
@@ -519,10 +551,21 @@ impl EditorState {
     /// asked for the edit (`command`), which answers with it.
     fn refuse(&mut self, why: String) {
         self.refused = Some(why.clone());
+        self.refusal = Some((std::time::Instant::now(), why.clone()));
         self.say(why);
     }
 
     pub(crate) fn apply(&mut self, edit: Edit) {
+        // An installed level's lights and lamps placed by hand are saved to
+        // kjk's light data, which a packaged build does not have.
+        if matches!(edit, Edit::AddLight(_) | Edit::AddLamp(_))
+            && self.editor.project.map.is_none()
+            && self.setup.light_data.is_none()
+            && !self.warned_lights
+        {
+            self.warned_lights = true;
+            self.say(NO_LIGHT_DATA);
+        }
         let (before, follows) = (self.editor.changes(), self.follows(&edit));
         if let Err(why) = self.editor.apply(edit) {
             self.refuse(why);
@@ -1378,6 +1421,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
 /// The scene drawn again once the edits have stopped for a moment.
 pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
     state.quiet = state.quiet.saturating_add(1);
+    crate::recover::tick(&mut state);
     // A bake that ended is shown.
     let ended = state.bake_job.as_mut().and_then(crate::bake::BakeJob::poll);
     if let Some(ended) = ended {
@@ -1615,6 +1659,94 @@ pub(crate) fn surfaces_at(state: &mut EditorState, x: f32, y: f32) -> Option<Vec
         from = z - 0.05;
     }
     Some(found)
+}
+
+/// How high the walkable floor is at `x` `y` (metres), from the top down:
+/// each walkable face of the rooms' walkmeshes there, and the top of each
+/// of the project's boxes that are walked on (but the box `but`, which is
+/// the one being dropped). Furniture, walls and roofs are left out.
+pub(crate) fn walkable_at(state: &mut EditorState, x: f32, y: f32, but: Option<usize>) -> Vec<f32> {
+    let mut faces: Vec<[[f32; 3]; 3]> = Vec::new();
+    for (at, shape) in state.editor.project.kjk.boxes.iter().enumerate() {
+        if Some(at) != but && matches!(shape.role, BoxRole::Walkable | BoxRole::NavFloor) {
+            faces.extend(shape.top());
+        }
+    }
+    if let Some(built) = state.collision() {
+        for triangle in &built.collision.triangles {
+            if matches!(triangle.origin, collision_odyssey::Origin::Walkmesh)
+                && built.surfaces.walkable(triangle.material)
+            {
+                faces.push(triangle.corners);
+            }
+        }
+    }
+    let mut found: Vec<f32> = Vec::new();
+    for [a, b, c] in faces {
+        // Where the point lies in the face, seen from above.
+        let d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+        if d.abs() < 1e-9 {
+            continue;
+        }
+        let u = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d;
+        let v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d;
+        let w = 1.0 - u - v;
+        if u >= -1e-4 && v >= -1e-4 && w >= -1e-4 {
+            found.push(u * a[2] + v * b[2] + w * c[2]);
+        }
+    }
+    found.sort_by(|a, b| b.total_cmp(a));
+    found.dedup_by(|a, b| (*a - *b).abs() < 0.02);
+    found
+}
+
+/// Puts everything selected on the walkable floor under it, as one edit:
+/// each thing goes straight down to the highest floor at or under it, or,
+/// with none under it, up to the lowest above. A box rests its underside
+/// on the floor. The sun, the game's own lights and a new map's rooms stay.
+fn drop_to_floor(state: &mut EditorState) -> Result<(), String> {
+    let selection = state.editor.selection();
+    if selection.is_empty() {
+        return Err("nothing is selected".into());
+    }
+    let mut edits = Vec::new();
+    for target in selection {
+        if matches!(target, Target::Sun | Target::Fitted(_) | Target::Room(_)) {
+            continue;
+        }
+        let Some((at, _)) = state.editor.placement(target) else {
+            continue;
+        };
+        let (lift, own) = match target {
+            Target::Box(n) => (
+                (state.editor.project.kjk.boxes.get(n)).map_or(0.0, |shape| shape.size[2] * 0.5),
+                Some(n),
+            ),
+            _ => (0.0, None),
+        };
+        let floors = walkable_at(state, at[0], at[1], own);
+        let under = at[2] - lift + 0.5;
+        let floor = (floors.iter().copied().find(|z| *z <= under)).or(floors.last().copied());
+        if let Some(floor) = floor
+            && (floor + lift - at[2]).abs() > 1e-3
+        {
+            edits.push(Edit::Move(target, [at[0], at[1], floor + lift]));
+        }
+    }
+    if edits.is_empty() {
+        return Err(
+            "nothing selected moved: each thing stands on its floor already, or has no walkable floor under it"
+                .into(),
+        );
+    }
+    state.apply_many(edits);
+    Ok(())
+}
+
+/// The text of the project's script `name` as its folder holds it.
+pub(crate) fn script_text_on_disk(state: &EditorState, name: &str) -> Option<String> {
+    let bytes = std::fs::read(state.editor.project.folder.join(format!("{name}.nss"))).ok()?;
+    Some(bytes.into_iter().map(char::from).collect())
 }
 
 /// Where a new thing goes: the level under the screen's centre, else a
@@ -1938,11 +2070,15 @@ pub(crate) fn command(
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
 ) -> Result<(), String> {
     state.refused = None;
-    command_words(state, words, cameras)?;
-    match state.refused.take() {
+    let done = command_words(state, words, cameras).and_then(|()| match state.refused.take() {
         Some(why) => Err(why),
         None => Ok(()),
+    });
+    // A command that did nothing says why over the view too.
+    if let Err(why) = &done {
+        state.refusal = Some((std::time::Instant::now(), why.clone()));
     }
+    done
 }
 
 fn command_words(
@@ -2034,6 +2170,29 @@ fn command_words(
             state.editor.select(Some(Target::Entry), false);
         }
         ["select", "none"] | ["deselect"] => state.editor.select(None, false),
+        ["drop"] => drop_to_floor(state)?,
+        ["markers", kind, on @ ("on" | "off")] => {
+            let kinds: Vec<Kind> = match *kind {
+                "all" => Kind::ALL.to_vec(),
+                kind => vec![kind_named(kind).ok_or("markers takes a kind of object, or all")?],
+            };
+            for kind in kinds {
+                state.hidden.retain(|hidden| *hidden != kind);
+                if *on == "off" {
+                    state.hidden.push(kind);
+                }
+            }
+        }
+        ["recover"] => crate::recover::take(state)?,
+        ["recover", "discard"] => crate::recover::discard(state)?,
+        // The recovery copy written now, not at its next turn.
+        ["recover", "write"] => {
+            if state.recovery.is_some() {
+                return Err("a recovery copy waits to be taken or discarded first".into());
+            }
+            let folder = crate::recover::write(state)?;
+            state.say(format!("recovery copy written to {}", folder.display()));
+        }
         // An object by its kind and its place in that kind's list, for one
         // whose tag names another object first, or has a space in it.
         ["select", kind, n] if kind_named(kind).is_some() => {
@@ -3822,6 +3981,7 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
     let read = |name: &str, restype: ResType| resolver.read(name, restype);
     let written = state.editor.save_with(&made_by, &read)?;
     state.write_drafts()?;
+    crate::recover::clear(state);
     state.say(format!(
         "saved {} files to {}",
         written.len(),
@@ -3837,6 +3997,24 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
 /// changed, the levels the bake's rooms aim at, and an installed level's
 /// lights and lamps placed by hand.
 fn save_light_data(state: &mut EditorState) -> Result<(), String> {
+    // Without a light data folder, an installed level's lights and lamps
+    // placed by hand have nowhere to go: said, never dropped in silence.
+    let project = &state.editor.project;
+    let (lights, lamps) = (project.kjk.lights.len(), project.kjk.lamps.len());
+    if project.map.is_none() && state.setup.light_data.is_none() && lights + lamps > 0 {
+        let count = |n: usize, one: &str| {
+            if n == 1 {
+                format!("1 {one}")
+            } else {
+                format!("{n} {one}s")
+            }
+        };
+        return Err(format!(
+            "{} and {} placed by hand were not saved, because {NO_LIGHT_DATA}",
+            count(lights, "light"),
+            count(lamps, "lamp")
+        ));
+    }
     // The kinds of fitting changed go to the light data: their `[[kind]]`
     // entries, which the game reads, and a `[[fitting]]` each, which
     // `kinds.py` reads.

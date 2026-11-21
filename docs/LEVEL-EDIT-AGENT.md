@@ -63,6 +63,11 @@ changed. It holds these fields:
   recorded.
 - `trying` names the script being tried while a try runs, and is null
   otherwise. A try takes a few seconds, most of them to load the level.
+- `recovery_found` is true while the editor offers work that an editor
+  that did not close left. `recover` takes it and `recover discard`
+  removes it. Leave that choice to the person.
+- `markers_hidden` names the kinds of object whose markers the person has
+  hidden. They are still in the level and in `objects.json`.
 - `auditing` is true while a containment audit runs. `audit` holds the
   lines of the last audit's result.
 - `baking` holds a running bake's label and what it is doing now, and is
@@ -105,6 +110,11 @@ A line is one of these.
   roof and the next is the floor under it. The answer is `ok: 8.76` for
   one floor, or `ok: 14.20 8.76` for a roof over a floor. Use it to find
   the Z of a place before `add`, `move` or `box`.
+- `floor X Y` answers how high the walkable floor is at that place, from
+  the top down, without the furniture, walls and roofs that `ground`
+  also finds. It answers `ok: 8.76` where one floor is. Prefer it to
+  `ground` for the Z of a thing that stands on the floor. `drop` puts
+  what is selected on that floor without a Z at all.
 - `frame` moves the view to look at the selection. Its answer is `nothing
   is selected` when there is none.
 

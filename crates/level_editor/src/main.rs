@@ -11,6 +11,7 @@ mod file;
 mod lamps;
 mod markers;
 mod picker;
+mod recover;
 mod script_edit;
 mod script_view;
 mod state;

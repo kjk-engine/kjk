@@ -261,6 +261,12 @@ pub fn rise(target: Target) -> f32 {
 pub fn layout(state: &EditorState, camera: &Camera, eye: &GlobalTransform) -> Vec<Shown> {
     let mut wanted: Vec<(Target, Icon, egui::Color32, f32)> = Vec::new();
     for entry in state.editor.entries() {
+        // A kind whose markers are hidden shows only what is selected of it.
+        if state.hidden.contains(&entry.kind)
+            && state.editor.selected != Some(Target::Object(entry.kind, entry.index))
+        {
+            continue;
+        }
         let icon = match entry.kind {
             Kind::Placeable => Icon::Square,
             Kind::Sound => Icon::Sound,

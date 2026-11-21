@@ -959,6 +959,7 @@ fn panels(
     assets(&mut root, state, ui, &cameras);
     viewport(&mut root, state, ui, &cameras, looking);
     crate::file::dialogs(&ctx, state, &mut ui.file);
+    recovery_window(&ctx, state);
     conversation_window(&ctx, state, ui);
     room_levels(&ctx, state);
     // The buttons' commands, run as their keys run them.
@@ -1078,6 +1079,9 @@ fn shortcuts(
     }
     if pressed(KeyCode::Delete) {
         state::run(state, &["delete"], cameras);
+    }
+    if pressed(KeyCode::End) {
+        state::run(state, &["drop"], cameras);
     }
     if pressed(KeyCode::KeyF) {
         frame_selection(state, camera_request, cameras);
@@ -1222,6 +1226,7 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
             ui.checkbox(&mut state.show_collision, "Collision")
                 .on_hover_text("F2: walkable floor green, solid surfaces orange, edge walls blue");
             lighting_menu(ui, state);
+            markers_menu(ui, state);
             scripts_menu(ui, state, ui_state);
             conversations_menu(ui, state, ui_state);
             ui.separator();
@@ -1588,10 +1593,35 @@ fn details(
                     if together > 1 {
                         ui.label(
                             egui::RichText::new(format!(
-                                "{together} things are selected. Move, Rotate, Duplicate (Ctrl+D), Delete and copying them (Ctrl+C) act on all of them. The details below are the first one's."
+                                "{together} things are selected. Move, Rotate, Duplicate (Ctrl+D), Delete, Drop to floor (End) and copying them (Ctrl+C) act on all of them. The details below are the first one's."
                             ))
                             .small(),
                         );
+                        // How far the selection reaches, and how far apart
+                        // two things are.
+                        let places: Vec<Vec3> = (state.editor.selection().into_iter())
+                            .filter_map(|each| state.editor.placement(each))
+                            .map(|(at, _)| Vec3::from_array(at))
+                            .collect();
+                        if let Some((low, high)) = kjk_game::scene::span(places.iter().copied()) {
+                            let size = high - low;
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Their places span {:.2} m along X, {:.2} m along Y and {:.2} m in height.",
+                                    size.x, size.y, size.z
+                                ))
+                                .small(),
+                            );
+                        }
+                        if let [a, b] = places.as_slice() {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "The two are {:.2} m apart.",
+                                    a.distance(*b)
+                                ))
+                                .small(),
+                            );
+                        }
                     }
                     let facts = state::describe(state, target);
                     let text = |key: &str| facts[key].as_str().map(str::to_string);
@@ -1816,6 +1846,15 @@ fn details(
                             }
                             if ui.button("Delete").on_hover_text("Delete").clicked() {
                                 state.pending_command = Some("delete".into());
+                            }
+                            if ui
+                                .button("Drop to floor")
+                                .on_hover_text(
+                                    "End: puts everything selected on the walkable floor under it",
+                                )
+                                .clicked()
+                            {
+                                state.pending_command = Some("drop".into());
                             }
                         });
                         if let Target::Room(_) = target
@@ -5428,6 +5467,22 @@ fn viewport(
             crate::markers::draw(&painter, icons, &shown, state.editor.selected);
             labels(&painter, state, camera, eye);
             reach_in_view(&painter, state, camera, eye);
+            // An edit that was refused says why over the view for a few
+            // seconds, where the eye is.
+            if let Some((when, why)) = &state.refusal
+                && when.elapsed().as_secs_f32() < 5.0
+            {
+                let galley = painter.layout(
+                    why.clone(),
+                    egui::FontId::proportional(14.0),
+                    egui::Color32::WHITE,
+                    (rect.width() - 80.0).max(120.0),
+                );
+                let at = egui::pos2(rect.center().x - galley.size().x * 0.5, rect.top() + 16.0);
+                let back = egui::Rect::from_min_size(at, galley.size()).expand(8.0);
+                painter.rect_filled(back, 4.0, egui::Color32::from_rgb(150, 40, 40));
+                painter.galley(at, galley, egui::Color32::WHITE);
+            }
             let on_outline = outline_in_view(
                 ui,
                 &response,
@@ -5951,6 +6006,11 @@ fn labels(painter: &egui::Painter, state: &EditorState, camera: &Camera, eye: &G
     let eye_game = game_to_bevy().inverse() * eye.translation();
     let mut near: Vec<(f32, String, Vec3, bool)> = Vec::new();
     for entry in state.editor.entries() {
+        if state.hidden.contains(&entry.kind)
+            && state.editor.selected != Some(Target::Object(entry.kind, entry.index))
+        {
+            continue;
+        }
         let at = Vec3::from_array(entry.position);
         let tag = if entry.tag.is_empty() {
             entry.template.clone()
@@ -6230,6 +6290,72 @@ fn lamp_rows(
 
 /// The toolbar's Lighting menu: how the view lights the rooms, which bake
 /// the Baked view shows, whether the lights are drawn, and walk mode.
+/// The Markers menu: which kinds of object show their markers and labels
+/// over the view. A hidden kind still shows what is selected of it.
+fn markers_menu(ui: &mut egui::Ui, state: &mut EditorState) {
+    let label = if state.hidden.is_empty() {
+        "Markers".to_string()
+    } else {
+        format!("Markers ({} hidden)", state.hidden.len())
+    };
+    ui.menu_button(label, |ui| {
+        ui.label(egui::RichText::new("The kinds whose markers and labels the view shows.").small());
+        for kind in Kind::ALL {
+            let mut shown = !state.hidden.contains(&kind);
+            if ui.checkbox(&mut shown, kind_label(kind)).changed() {
+                state.hidden.retain(|hidden| *hidden != kind);
+                if !shown {
+                    state.hidden.push(kind);
+                }
+            }
+        }
+        ui.separator();
+        if ui.button("Show all").clicked() {
+            state.hidden.clear();
+        }
+        if ui.button("Hide all").clicked() {
+            state.hidden = Kind::ALL.to_vec();
+        }
+    });
+}
+
+/// The window that offers the work an editor that did not close left
+/// (`recover`): to take it, or to discard it.
+fn recovery_window(ctx: &egui::Context, state: &mut EditorState) {
+    let Some(folder) = state.recovery.clone() else {
+        return;
+    };
+    let mut command = None;
+    egui::Window::new("Work that was not saved")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_TOP, [0.0, 48.0])
+        .show(ctx, |ui| {
+            ui.label(format!(
+                "The editor did not close the project {} the last time. A copy of the work that was not saved was kept, {}.",
+                state.editor.project.name,
+                crate::recover::describe(&folder)
+            ));
+            ui.label(
+                egui::RichText::new(
+                    "Recover takes it into the level as one edit, which Undo takes back. Nothing is written to the project until you save.",
+                )
+                .small(),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Recover").clicked() {
+                    command = Some("recover");
+                }
+                if ui.button("Discard").clicked() {
+                    command = Some("recover discard");
+                }
+            });
+        });
+    if let Some(command) = command {
+        state.pending_command = Some(command.to_string());
+    }
+}
+
 fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
     use kjk_game::fitted_lights::Mode;
     ui.menu_button("Lighting", |ui| {

@@ -1259,6 +1259,26 @@ impl Editor {
         }
     }
 
+    /// Gives the edited level what `other` holds of it, as one edit that
+    /// undo takes back: its objects, kjk-only content, templates, new map,
+    /// other areas, area settings and conversations. `other` is the same
+    /// project read from another folder (a recovery copy), opened on the
+    /// same level. Nothing stays selected.
+    pub fn replace_content(&mut self, other: Project) {
+        let before = self.state();
+        self.project.git = other.git;
+        self.project.kjk = other.kjk;
+        self.project.templates = other.templates;
+        self.project.map = other.map;
+        self.project.others = other.others;
+        self.project.are = other.are;
+        self.project.conversations = other.conversations;
+        self.keep(before);
+        self.redo.clear();
+        self.select_all(Vec::new());
+        self.changed();
+    }
+
     /// Makes every edit since the undo list was `depth` deep one undo step:
     /// one undo then takes all of them back. How many edits were joined.
     /// Nothing is joined when fewer than two were made since, or when an
