@@ -1058,6 +1058,10 @@ fn sight(g: &mut Gen, now: u64) -> Sight {
         own_running: false,
         own_rolling: false,
         own_drawn: true,
+        foe_away: 0.0,
+        foe_around: 0.0,
+        foe_disabled: false,
+        foe_hit_at: 0,
     }
 }
 

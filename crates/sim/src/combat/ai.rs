@@ -284,6 +284,8 @@ fn intense_until_kept() -> Result<String, String> {
     mind.pace.escape_side = 1;
     mind.pace.escape_since = 5_000;
     mind.pace.escape_after = 6_000;
+    mind.pace.drift = [40.0, -2.5];
+    mind.pace.special_began = 7_000;
     let mut out = Writer::default();
     mind.encode(&mut out);
     let bytes = out.0;
@@ -293,9 +295,10 @@ fn intense_until_kept() -> Result<String, String> {
         wrong.push(format!("read back {again:?}"));
     }
     // Each version gate, with the bytes that came in with it and after it.
-    // The bytes before them are the old layout. The escape is one byte and
-    // two times of eight bytes each.
-    let escape = std::mem::size_of::<u8>() + 2 * std::mem::size_of::<u64>();
+    // The bytes before them are the old layout. The escape is one byte, two
+    // times of eight bytes each, two speeds of four bytes and one more time.
+    let escape =
+        std::mem::size_of::<u8>() + 3 * std::mem::size_of::<u64>() + 2 * std::mem::size_of::<f32>();
     let older = |since: crate::wire::Since, cut: usize| -> Result<Mind, String> {
         let versions = Versions {
             snapshot: since.1 - 1,
@@ -312,6 +315,8 @@ fn intense_until_kept() -> Result<String, String> {
     still.pace.escape_side = 0;
     still.pace.escape_since = 0;
     still.pace.escape_after = 0;
+    still.pace.drift = [0.0; 2];
+    still.pace.special_began = 0;
     let before_escape = older(crate::since::snapshot::AI_CHOICES_KATAS, escape)?;
     if before_escape != still {
         wrong.push(format!("before the escape {before_escape:?}"));

@@ -87,6 +87,8 @@ struct Seen {
     stunned: bool,
     /// It lies knocked down.
     floored: bool,
+    /// Who hit it last, and when (`Fighter::last_attacker`).
+    hit_by: Option<(SimId, u64)>,
     /// A Force Scream cannot make it cover its ears now
     /// (`ForceState::deaf`).
     deaf: bool,
@@ -338,6 +340,7 @@ pub(super) fn think(
                 ) == pace::Tier::Boss,
                 stunned: fighting.0.force.stunned(now),
                 floored: fighting.0.saber.floored(),
+                hit_by: fighting.0.last_attacker,
                 deaf: fighting.0.force.deaf(now),
                 buff: crate::combat::effects::weakest_buff(&fighting.0, now),
                 pack: fighting.0.pack,
@@ -2699,6 +2702,13 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
     let (ahead, ..) = math::angle_vectors(ps.view);
     let swing = own.saber_move;
     let receding = pace::moving_away(target.ps.velocity, me_to_it);
+    // The target's speed away from it and across, on the flat.
+    let flat = |v: Vec3| [v[0], v[1], 0.0];
+    let foe_away = math::dot(flat(target.ps.velocity), flat(me_to_it));
+    let foe_around = math::length(math::sub(
+        flat(target.ps.velocity),
+        math::scale(flat(me_to_it), foe_away),
+    ));
     let (target_ahead, ..) = math::angle_vectors(target.ps.view);
     pace::Sight {
         foe: target.id,
@@ -2756,6 +2766,13 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         own_running: own.running,
         own_rolling: own.rolling,
         own_drawn: own.drawn,
+        foe_away,
+        foe_around,
+        foe_disabled: target.stunned || target.floored,
+        foe_hit_at: target
+            .hit_by
+            .filter(|(by, _)| *by == own.id)
+            .map_or(0, |(_, at)| at),
     }
 }
 

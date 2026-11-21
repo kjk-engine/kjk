@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b27fac8cf2e06acd`.
+Edition `e818f98e48b587d5`.
 
 ## Contents
 
@@ -8397,6 +8397,9 @@ themselves, such as a kata, a lunge or a leap. They do so under the Advanced
 rules and under the Jedi Academy rules. Under the Advanced rules a special
 move uses Stamina. Under the Jedi Academy rules it uses Force points, or the
 stamina of a fighter without the Force, as the player's special moves do. A
+fighter starts a special move only for a reason. Its target is stunned,
+knocked down or staggered, is tired, swings, holds its block and stands still,
+or stands still or comes at the fighter. Its chance then decides. A
 fighter that holds a melee weapon that is not a lightsaber is Skilled when it
 knows the second or third rank of Power Attack, Critical Strike or Flurry, or
 when its tag is in the list `data/duel_skilled.txt`. A companion is always
@@ -8413,6 +8416,52 @@ A Skilled fighter that is about to attack starts a special move of its saber sty
 A companion of level 15 or higher starts special moves at a Boss's chance, and waits after a choice of a power or an item as long as a Boss does. It keeps the Skilled tier for every other rule.
 
 <sub>Source: the design of 18 November 2026, docs/superpowers/specs/2026-11-18-combat-ai-choices-design.md section Special saber moves. Code: `sim::combat::pace::veteran`.</sub>
+
+<a id="ai-choices-specials-leaving-m-s"></a>**Target Leaving or Circling** = **1.5 m/s** · `ai.choices.specials.leaving_m_s`
+
+A fighter starts no special move at a target that moves away from it, or sideways around it, faster than 1.5 meters a second. The speed is the target's average over the last 0.5 seconds, so a target that only jitters does not count.
+
+<sub>Source: the owner's call of 21 November 2026: skilled enemies must not get stuck in special moves while the player runs away or circles them. Code: `sim::combat::pace::special_reason`.</sub>
+
+<a id="ai-choices-specials-still-m-s"></a>**Target Standing Still** = **0.5 m/s** · `ai.choices.specials.still_m_s`
+
+A target that moves slower than 0.5 meters a second, on average over the last 0.5 seconds, stands still.
+
+<sub>Source: the builder's call of 21 November 2026. Code: `sim::combat::pace::special_reason`.</sub>
+
+<a id="ai-choices-specials-drift-ms"></a>**Target Speed Window** = **0.5 seconds** (`500 ms`) · `ai.choices.specials.drift_ms`
+
+A fighter judges how fast its target moves away from it and around it as an average over about 0.5 seconds. Each look the fighter takes moves the average toward what it sees by its share of that time.
+
+<sub>Source: the builder's call of 21 November 2026. Code: `sim::combat::pace::Pace::note_drift`.</sub>
+
+<a id="ai-choices-specials-length-ms"></a>**Length of Each Special Move** = **0.8 seconds / 4.1 seconds / 2 seconds / 1.5 seconds / 2.8 seconds / 2.3 seconds** (`800 / 4050 / 2000 / 1500 / 2800 / 2300 ms`) · `ai.choices.specials.length_ms`
+
+lunge **0.8 seconds** · kata **4.1 seconds** · flip_slash **2 seconds** · leap **1.5 seconds** · jump_attack **2.8 seconds** · spin **2.3 seconds**
+
+How long each special move that a fighter starts itself plays, from Jedi Academy's animation of it: the lunge 0.8 seconds, the longest kata (the two-weapon one) 4.1 seconds, the flip attack 2 seconds, the strong style's leap 1.5 seconds, the longest jump attack (the staff's) 2.8 seconds and the longest spin (the staff's) 2.3 seconds.
+
+The other katas take 2.45 to 4.0 seconds, the two-weapon jump attack 2.1 seconds and the two-weapon spin 2.05 seconds. A move counts by its longest form.
+
+<sub>Source: Jedi Academy's models/players/_humanoid/animation.cfg, frames and frame rate of each move's animation. Code: `sim::combat::pace::Special::long`.</sub>
+
+<a id="ai-choices-specials-long-from-ms"></a>**Long Special Move** = **2.4 seconds** (`2400 ms`) · `ai.choices.specials.long_from_ms`
+
+A special move that plays for 2.4 seconds or longer is a long move. The katas and the jump attacks are long. A fighter starts a long move only at a target that is stunned or knocked down, or that is tired and stands still. Against any other target it starts a short move.
+
+<sub>Source: the owner's call of 21 November 2026: fewer long katas. Code: `sim::combat::pace::Special::long`.</sub>
+
+<a id="ai-choices-specials-skip-log-ms"></a>**Skipped Special Moves in the Log** = **3 seconds** (`3000 ms`) · `ai.choices.specials.skip_log_ms`
+
+With the choice log on, a fighter that skips a special move because its target leaves or circles it writes a line about it at most once in 3 seconds. This changes nothing in the fight.
+
+<sub>Source: the builder's call of 21 November 2026. Code: `sim::combat::pace::Pace::begin_special`.</sub>
+
+<a id="ai-choices-specials-miss-wait-ms"></a>**Wait After a Missed Special Move** = **15 seconds** (`15000 ms`) · `ai.choices.specials.miss_wait_ms`
+
+A fighter whose special move ends without having hit its target starts no special move for 15 seconds.
+
+<sub>Source: the owner's call of 21 November 2026, relayed by the coordinator. Code: `sim::combat::pace::Pace::note_special_end`.</sub>
 
 #### <a id="ai-choices-escapes"></a>Rolls and Cartwheels Out of Danger
 

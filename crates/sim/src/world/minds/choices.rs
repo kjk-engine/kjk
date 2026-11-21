@@ -435,11 +435,10 @@ pub(super) fn log_told(tag: &str, now: u64, told: Option<pace::Told>) {
     };
     match told {
         pace::Told::Special(special, why) => {
-            let why = match why {
-                pace::SpecialWhy::Attacks => "the fighter attacks and its chance came up",
-                pace::SpecialWhy::BreaksBlock => "the target has held its block for long",
-            };
-            eprintln!("choice {now} ms {tag} Special {special:?}: {why}");
+            eprintln!("choice {now} ms {tag} Special {special:?}: {}", why.text());
+        }
+        pace::Told::Skipped(skip) => {
+            eprintln!("choice {now} ms {tag} Special skipped: {}", skip.text());
         }
         pace::Told::Escape(escape, side, danger) => {
             let side = if side > 0 { "Right" } else { "Left" };

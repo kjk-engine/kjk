@@ -606,7 +606,7 @@ fn runs_after_a_backing_target() -> Result<String, String> {
 
 /// A melee target `apart` units away (centre to centre) that does not
 /// move, seen by a creature that holds its place.
-fn duel_sight(apart: f32) -> Sight {
+pub(crate) fn duel_sight(apart: f32) -> Sight {
     Sight {
         foe: SimId(2),
         gap: apart - TIP,
@@ -663,6 +663,10 @@ fn duel_sight(apart: f32) -> Sight {
         own_running: false,
         own_rolling: false,
         own_drawn: true,
+        foe_away: 0.0,
+        foe_around: 0.0,
+        foe_disabled: false,
+        foe_hit_at: 0,
     }
 }
 
@@ -2049,6 +2053,15 @@ fn tiered(tier: Tier, style: Option<Style>, points: i32) -> Sight {
     sight
 }
 
+/// `sight` with its target stunned, so that the long special moves are open
+/// too (`pace::long_allowed`).
+fn disabled(sight: Sight) -> Sight {
+    Sight {
+        foe_disabled: true,
+        ..sight
+    }
+}
+
 /// The special moves a drive pressed the keys of, in the order it began them.
 fn begun(run: &[(Pacing, Keys)]) -> Vec<Special> {
     let before = std::iter::once(0).chain(run.iter().map(|(pace, _)| pace.special));
@@ -2103,7 +2116,8 @@ fn ordinary_stays_plain() -> Result<String, String> {
     )
 }
 
-/// A boss starts the special moves of its style, and a style names them.
+/// A boss starts the special moves of its style, and a style names them. Its
+/// target is stunned, so that the long moves are open too.
 fn boss_uses_its_style() -> Result<String, String> {
     let has = |style: Style, wanted: &[Special]| {
         wanted
@@ -2124,7 +2138,9 @@ fn boss_uses_its_style() -> Result<String, String> {
     let seen: Vec<(Style, Vec<Special>)> = styles
         .into_iter()
         .map(|style| {
-            let run = drive(600, true, |_| tiered(Tier::Boss, Some(style), 100));
+            let run = drive(600, true, |_| {
+                disabled(tiered(Tier::Boss, Some(style), 100))
+            });
             (style, begun(&run))
         })
         .collect();
@@ -2199,9 +2215,11 @@ fn refused_special_gives_up() -> Result<String, String> {
 }
 
 /// A boss never starts the same special move twice in a row when its style has
-/// more than one.
+/// more than one. Its target is stunned, so that the long moves are open too.
 fn no_special_twice() -> Result<String, String> {
-    let run = drive(1200, true, |_| tiered(Tier::Boss, Some(Style::Staff), 100));
+    let run = drive(1200, true, |_| {
+        disabled(tiered(Tier::Boss, Some(Style::Staff), 100))
+    });
     let moves = begun(&run);
     let twice = moves.windows(2).any(|pair| pair[0] == pair[1]);
     check(

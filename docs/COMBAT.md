@@ -430,7 +430,14 @@ the character switches weapon sets. A line the player picked with the
 next-feat key or the action bar stays. A Skilled fighter starts the
 special moves of its saber style itself, under both rule sets, by a
 chance as it attacks, and a Boss by a higher chance (`pace::special_one_in`, the
-rulebook's Special Saber Moves by Tier). A fighter with a melee weapon that
+rulebook's Special Saber Moves by Tier). It needs a reason first
+(`pace::special_reason`): a stunned, knocked down, staggered or tired target,
+a target that swings, blocks standing still, or stands still or comes at it.
+A target that leaves it or circles it gets none, judged from the target's
+speed averaged over a short time (`Pace::drift`). The long moves, the katas
+and the jump attacks, need a stunned or knocked down target, or a tired one
+that stands still. A special move that hits nothing makes the fighter wait
+longer before the next (`Pace::note_special_end`). A fighter with a melee weapon that
 is not a lightsaber is Skilled when it knows a second or third rank of a
 melee feat attack or its tag is in `data/duel_skilled.txt`, and a companion
 is always Skilled. A Skilled fighter and a Boss roll or cartwheel to a side

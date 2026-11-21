@@ -5981,8 +5981,11 @@ fn choice_waits() {
 /// in 10 and a Boss one time in 4. An Ordinary fighter never does. A
 /// restrained fighter does so only as a Boss under the Advanced rules. Under
 /// the Jedi Academy rules a special move is paid from the older bar. A
-/// fighter escapes to the side away from a danger. (proposed 2026-11-21,
-/// awaiting approval)
+/// fighter escapes to the side away from a danger. The katas and the jump
+/// attacks are the long moves, and a long move needs a stunned or knocked
+/// down target, or a tired one that stands still. A special move missed when
+/// the fighter did not hit its target after it began. (proposed 2026-11-21,
+/// changed 2026-11-21, awaiting approval)
 #[test]
 fn choice_specials() {
     use rules::ai::choices::specials::{COMPANION_BOSS_LEVEL, SKILLED_ONE_IN};
@@ -6078,6 +6081,40 @@ fn choice_specials() {
         (side_away(12.0), side_away(-3.0), side_away(0.0)),
         (-1, 1, 1)
     );
+    // The long moves are the katas and the jump attacks.
+    use sim::combat::pace::Special;
+    let long: Vec<bool> = ["lunge", "kata", "flip_slash", "leap", "jump_attack", "spin"]
+        .iter()
+        .filter_map(|name| Special::named(name))
+        .map(Special::long)
+        .collect();
+    assert_eq!(long, [false, true, false, false, true, false], "long moves");
+    // A special move that began at 5 seconds missed unless the fighter hit
+    // its target at or after then.
+    use sim::combat::pace::{SpecialWhy, long_allowed, missed};
+    let misses = [
+        (5_000, 0, true),
+        (5_000, 4_999, true),
+        (5_000, 5_000, false),
+        (5_000, 6_000, false),
+    ];
+    for (began, hit, want) in misses {
+        assert_eq!(missed(began, hit), want, "began {began} hit {hit}");
+    }
+    // A long move needs a disabled target, or a tired one that stands
+    // still. The drift is away and around, in units a second.
+    let fast = rules::ai::choices::specials::LEAVING_M_S / collision::UNIT;
+    let longs = [
+        (SpecialWhy::Disabled, [0.0, 0.0], true),
+        (SpecialWhy::Tired, [0.0, 0.0], true),
+        (SpecialWhy::Tired, [0.0, fast * 0.9], false),
+        (SpecialWhy::Staggered, [0.0, 0.0], false),
+        (SpecialWhy::Coming, [0.0, 0.0], false),
+        (SpecialWhy::BlocksStill, [0.0, 0.0], false),
+    ];
+    for (why, drift, want) in longs {
+        assert_eq!(long_allowed(why, drift), want, "{why:?} at {drift:?}");
+    }
 }
 
 /// The feat line the combat AI takes against its target
@@ -6342,11 +6379,17 @@ fn feat_choices() {
 /// with a vibroblade does too. A Skilled fighter rolls or cartwheels away
 /// from a grenade that rests beside it within 3 seconds under both rule
 /// sets. An ordinary enemy, and a Mandalorian its scripts set to attack
-/// only, start neither in 30 seconds. (proposed 2026-11-21, awaiting
+/// only, start neither in 30 seconds. A Mandalorian at a target that stands
+/// still starts no kata. A Boss at a player who circles it starts no special
+/// move in 20 attacks (10 under the Advanced rules). A companion starts a
+/// kata against a stunned foe. After each special move that missed, a Boss
+/// waits the wait after a miss. A Boss's pace alone starts special moves at
+/// a still target and none at a target that runs away or around it, under
+/// both rule sets. (proposed 2026-11-21, changed 2026-11-21, awaiting
 /// approval)
 #[test]
 fn special_choices() {
-    probed("special choices", &sim::special_choice_probes::probes(), 8);
+    probed("special choices", &sim::special_choice_probes::probes(), 13);
 }
 
 /// Whether a fight is intense for the party (`sim::combat::choose`), how

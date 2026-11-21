@@ -189,10 +189,133 @@ pub fn special_one_in(tier: Tier, veteran: bool, restrained: bool, duel: bool) -
 /// Why a fighter starts a special move, as the choice log writes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpecialWhy {
-    /// It is about to attack, and its chance came up.
-    Attacks,
-    /// Its target has held its block for long.
+    /// The target is stunned or knocked down.
+    Disabled,
+    /// The target is staggered, knocked aside or has its guard broken.
+    Staggered,
+    /// The target is tired (only the Advanced rules make it so).
+    Tired,
+    /// The target's own swing is under way.
+    Swinging,
+    /// The target holds its block and stands still.
+    BlocksStill,
+    /// The target stands still or comes at the fighter.
+    Coming,
+    /// Its target has held its block for long (a boss's breaker).
     BreaksBlock,
+}
+
+impl SpecialWhy {
+    /// The reason as the choice log writes it.
+    pub fn text(self) -> &'static str {
+        match self {
+            SpecialWhy::Disabled => "the target is stunned or knocked down",
+            SpecialWhy::Staggered => "the target is staggered",
+            SpecialWhy::Tired => "the target is tired",
+            SpecialWhy::Swinging => "the target is in the middle of its own swing",
+            SpecialWhy::BlocksStill => "the target holds its block and stands still",
+            SpecialWhy::Coming => "the target stands still or comes at the fighter",
+            SpecialWhy::BreaksBlock => "the target has held its block for long",
+        }
+    }
+}
+
+/// Why a fighter starts no special move at its target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Skip {
+    /// The target moves away from the fighter.
+    Leaving,
+    /// The target moves sideways around the fighter.
+    Circling,
+    /// No reason holds (`special_reason`).
+    NoReason,
+}
+
+impl Skip {
+    /// The skip as the choice log writes it.
+    pub fn text(self) -> &'static str {
+        match self {
+            Skip::Leaving => "the target moves away",
+            Skip::Circling => "the target circles the fighter",
+            Skip::NoReason => "no reason holds",
+        }
+    }
+}
+
+/// How fast (units a second) a target that leaves or circles a fighter
+/// moves at least (`ai.choices.specials.leaving_m_s`), and how slow one that
+/// stands still moves (`ai.choices.specials.still_m_s`).
+fn leaving_speed() -> f32 {
+    rules::ai::choices::specials::LEAVING_M_S / collision::UNIT
+}
+
+fn still_speed() -> f32 {
+    rules::ai::choices::specials::STILL_M_S / collision::UNIT
+}
+
+/// Whether a target that moves `drift` (away from the fighter and around it,
+/// units a second, averaged over `ai.choices.specials.drift_ms`) stands still.
+pub fn stands_still(drift: [f32; 2]) -> bool {
+    drift[0].abs() < still_speed() && drift[1] < still_speed()
+}
+
+/// Why a fighter may start a special move at the target it sees as `sight`,
+/// which moves `drift` (`stands_still`), or why it may not. A target that
+/// moves away from the fighter, or around it, faster than
+/// `ai.choices.specials.leaving_m_s` gets none. Otherwise, in this order: the
+/// target is stunned or knocked down, is staggered, is tired, swings, holds
+/// its block and stands still, or stands still or comes at the fighter.
+pub fn special_reason(sight: &Sight, drift: [f32; 2]) -> Result<SpecialWhy, Skip> {
+    if drift[0] > leaving_speed() {
+        return Err(Skip::Leaving);
+    }
+    if drift[1] > leaving_speed() {
+        return Err(Skip::Circling);
+    }
+    let still = stands_still(drift);
+    let why = if sight.foe_disabled {
+        SpecialWhy::Disabled
+    } else if sight.reeling {
+        SpecialWhy::Staggered
+    } else if sight.tired {
+        SpecialWhy::Tired
+    } else if sight.swinging {
+        SpecialWhy::Swinging
+    } else if sight.blocking && still {
+        SpecialWhy::BlocksStill
+    } else if still || drift[0] <= 0.0 {
+        SpecialWhy::Coming
+    } else {
+        return Err(Skip::NoReason);
+    };
+    Ok(why)
+}
+
+/// Whether a fighter with the reason `why` may start a long special move
+/// (`Special::long`): its target is stunned or knocked down, or is tired and
+/// stands still (`stands_still`).
+pub fn long_allowed(why: SpecialWhy, drift: [f32; 2]) -> bool {
+    why == SpecialWhy::Disabled || (why == SpecialWhy::Tired && stands_still(drift))
+}
+
+/// Whether a special move that began at `began` (sim ms) missed: its target
+/// was last hit by the fighter before then (`foe_hit_at`, 0 for never).
+pub fn missed(began: u64, foe_hit_at: u64) -> bool {
+    foe_hit_at < began
+}
+
+/// Whether `current` is a cartwheel move: an arial, a cartwheel or a
+/// butterfly, which a fighter makes as an escape.
+fn is_cartwheel_move(current: Move) -> bool {
+    matches!(
+        current,
+        Move::JUMPATTACK_ARIAL_LEFT
+            | Move::JUMPATTACK_ARIAL_RIGHT
+            | Move::JUMPATTACK_CART_LEFT
+            | Move::JUMPATTACK_CART_RIGHT
+            | Move::BUTTERFLY_LEFT
+            | Move::BUTTERFLY_RIGHT
+    )
 }
 
 /// What a fighter gets out of the way of.
@@ -226,6 +349,8 @@ pub enum Escape {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Told {
     Special(Special, SpecialWhy),
+    /// A special move it skipped, and why.
+    Skipped(Skip),
     /// The escape, its side (1 right, -1 left) and its danger.
     Escape(Escape, i8, Danger),
 }
@@ -354,6 +479,14 @@ impl Special {
             Special::Kata => sight.kata_cost,
             _ => Some(sight.lunge_cost),
         }
+    }
+
+    /// Whether it is a long move: it plays for
+    /// `ai.choices.specials.long_from_ms` or longer
+    /// (`ai.choices.specials.length_ms`).
+    pub fn long(self) -> bool {
+        let at = Special::ALL.iter().position(|&s| s == self).unwrap_or(0);
+        rules::ai::choices::specials::LENGTH_MS[at] >= rules::ai::choices::specials::LONG_FROM_MS
     }
 
     /// The part of the bar it uses up (`saber_moves.costs`), in percent.
@@ -867,6 +1000,14 @@ pub struct Sight {
     pub own_rolling: bool,
     /// Its weapon is drawn (a lightsaber's blade is lit).
     pub own_drawn: bool,
+    /// How fast its target moves away from it (units a second, negative
+    /// toward it) and sideways around it, on this think.
+    pub foe_away: f32,
+    pub foe_around: f32,
+    /// Its target is stunned or knocked down.
+    pub foe_disabled: bool,
+    /// When it last hit its target (sim ms, 0 for never).
+    pub foe_hit_at: u64,
 }
 
 /// The keys a think leaves held.
@@ -998,6 +1139,11 @@ pub struct Pace {
     /// A swing of its own began since its last think: its move changed to an
     /// attack (`seen_move`, which is saved). Set on each think, never saved.
     pub swing_began: bool,
+    /// Its average of how fast its target moves away from it and around it
+    /// (units a second, `note_drift`).
+    pub drift: [f32; 2],
+    /// When the special move of its own that plays began (0: none plays).
+    pub special_began: u64,
 }
 
 const FORWARD: usize = 0;
@@ -1314,10 +1460,16 @@ impl Pace {
 
     /// Writes its escape (`Mind::encode` writes it last): the kind and the
     /// side in one byte, then when it began and when the next may begin.
+    /// Then what it keeps of its special moves: its average of its target's
+    /// speed (`drift`) and when its special move began (`special_began`).
     pub(crate) fn encode_escape(&self, out: &mut Writer) {
         out.u8(self.escape | u8::from(self.escape_side > 0) << 2);
         out.u64(self.escape_since);
         out.u64(self.escape_after);
+        for speed in self.drift {
+            out.f32(speed);
+        }
+        out.u64(self.special_began);
     }
 
     /// Reads what `encode_escape` wrote.
@@ -1337,6 +1489,8 @@ impl Pace {
         };
         self.escape_since = input.u64()?;
         self.escape_after = input.u64()?;
+        self.drift = [input.f32()?, input.f32()?];
+        self.special_began = input.u64()?;
         Ok(())
     }
 }
@@ -1367,6 +1521,8 @@ impl Pace {
         self.swing_began = sight.saber_move != self.seen_move
             && move_of(sight.saber_move).is_some_and(Move::attack);
         self.meet(sight);
+        self.note_drift(sight);
+        self.note_special_end(sight, now);
         self.events(sight, now, dice);
         self.rise(sight, now, dice);
         if !sight.duel {
@@ -1520,13 +1676,16 @@ impl Pace {
     /// last move when it has another it may start.
     /// Under the Jedi Academy rules a fighter in a chain of swings may
     /// choose one too (`note_special`).
-    fn specials_open(&self, sight: &Sight, now: u64) -> Vec<Special> {
+    /// A long move (`Special::long`) is open only when `long` says so.
+    fn specials_open(&self, sight: &Sight, now: u64, long: bool) -> Vec<Special> {
         let ready = !sight.busy && !sight.own_swinging && sight.own_ready;
         let free = sight.own_free
             && (ready || !sight.duel)
             && !sight.own_lock
             && now >= self.special_after;
-        let may = |special: &Special| free && special.affordable(sight) && special.reaches(sight);
+        let may = |special: &Special| {
+            free && (long || !special.long()) && special.affordable(sight) && special.reaches(sight)
+        };
         let open: Vec<Special> = specials(sight.style).iter().copied().filter(may).collect();
         let others: Vec<Special> = open
             .iter()
@@ -1574,11 +1733,14 @@ impl Pace {
         keys
     }
 
-    /// It starts a special move now, if it may: a boss that is about to
-    /// attack (`attacks`) does so one time in `ai.duelling.tiers.special_one_in`,
-    /// and one that breaks a long block with a special move
-    /// (`Breaker::Special`) does. It picks at random among the moves it may
-    /// start. Returns the keys of the first think.
+    /// It starts a special move now, if it may. It needs a reason
+    /// (`special_reason`): no special move goes at a target that leaves or
+    /// circles it. With a reason, a fighter that is about to attack
+    /// (`attacks`) starts one by its chance (`special_one_in`), and a boss
+    /// that breaks a long block with a special move (`Breaker::Special`)
+    /// always does. A long move (`Special::long`) needs a stunned, knocked
+    /// down, or tired and still target (`long_allowed`). It picks at random
+    /// among the moves it may start. Returns the keys of the first think.
     fn begin_special(
         &mut self,
         sight: &Sight,
@@ -1591,26 +1753,69 @@ impl Pace {
             return None;
         }
         let one_in = special_one_in(sight.tier, sight.veteran, sight.restrained, sight.duel)?;
-        let open = self.specials_open(sight, now);
+        let reason = special_reason(sight, self.drift);
+        let long = reason.is_ok_and(|why| long_allowed(why, self.drift));
+        let open = self.specials_open(sight, now, long);
         let breaks = sight.duel
             && reaction == Reaction::BreakBlock
             && breaker(sight.tier, sight.knows_push, !open.is_empty()) == Breaker::Special;
         // Under the Jedi Academy rules a fighter holds attack through its
         // chain, so its chance comes as each swing of the chain begins.
         let attacks = attacks && (sight.duel || self.swing_began);
-        if open.is_empty() || !(breaks || (attacks && dice.one_in(one_in - 1))) {
+        if open.is_empty() || !(breaks || attacks) {
+            return None;
+        }
+        let why = match reason {
+            Ok(_) if breaks => SpecialWhy::BreaksBlock,
+            Ok(why) => why,
+            Err(skip) => {
+                let window = rules::ai::choices::specials::SKIP_LOG_MS;
+                if skip != Skip::NoReason && now % window < THINK_MS {
+                    self.told = Some(Told::Skipped(skip));
+                }
+                return None;
+            }
+        };
+        if !(breaks || dice.one_in(one_in - 1)) {
             return None;
         }
         let special = open[dice.roll_between(0, open.len() as i64 - 1) as usize];
         self.special = special.mark();
         self.special_since = now;
-        let why = if breaks {
-            SpecialWhy::BreaksBlock
-        } else {
-            SpecialWhy::Attacks
-        };
         self.told = Some(Told::Special(special, why));
         Some(Self::special_keys(special, sight, crouched, clear))
+    }
+
+    /// Moves its average of how fast its target moves away from it and
+    /// around it (`drift`) toward what it sees on this think, by its share of
+    /// `ai.choices.specials.drift_ms`.
+    fn note_drift(&mut self, sight: &Sight) {
+        let share = (THINK_MS as f32 / rules::ai::choices::specials::DRIFT_MS as f32).min(1.0);
+        let seen = [sight.foe_away, sight.foe_around.abs()];
+        for (kept, now) in self.drift.iter_mut().zip(seen) {
+            *kept += share * (now - *kept);
+        }
+    }
+
+    /// A special move of its own that plays on this think is noted, and when
+    /// it ends without having hit its target since it began
+    /// (`Sight::foe_hit_at`), it starts no other for
+    /// `ai.choices.specials.miss_wait_ms`. A cartwheel is an escape, not a
+    /// special move.
+    fn note_special_end(&mut self, sight: &Sight, now: u64) {
+        let playing = move_of(sight.saber_move)
+            .is_some_and(|current| current.special() && !is_cartwheel_move(current));
+        if playing {
+            if self.special_began == 0 {
+                self.special_began = now.max(1);
+            }
+        } else if self.special_began != 0 {
+            if missed(self.special_began, sight.foe_hit_at) {
+                let wait = now + rules::ai::choices::specials::MISS_WAIT_MS;
+                self.special_after = self.special_after.max(wait);
+            }
+            self.special_began = 0;
+        }
     }
 
     /// What the last think started, once.
@@ -2401,6 +2606,7 @@ impl Pace {
             self.aggression = aggression::START;
         }
         self.weighed = key;
+        self.drift = [0.0; 2];
         if sight.duel {
             self.forget_fight();
         }
