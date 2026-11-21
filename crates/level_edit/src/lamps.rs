@@ -27,8 +27,16 @@
 //! on = "room"
 //! at = [102.5, 64.0, 4.2]
 //! yaw = 90.0
+//! pitch = 45.0
 //! reason = "The corridor to the council chamber was dark."
 //! ```
+//!
+//! A lamp turns on every axis, which no object of the games' own does: an
+//! area's object list keeps one facing for each. A lamp is kjk's alone, so
+//! it is turned first by its roll about its own front (X), then tipped by
+//! its pitch about its own side (Y), then turned by its yaw about the
+//! vertical (Z). A light mesh tipped against a wall shows its lit face to
+//! the room and hides its back, which has no faces, in the wall.
 
 use toml_edit::{Item, Table, value};
 
@@ -49,6 +57,11 @@ pub struct PlacedLamp {
     pub at: [f32; 3],
     /// Degrees from +X, turning left.
     pub yaw: f32,
+    /// Degrees it is tipped about its own side (Y, before its yaw): its
+    /// front goes down for more.
+    pub pitch: f32,
+    /// Degrees it is rolled about its own front (X, before its pitch).
+    pub roll: f32,
     /// Why it is there, in a sentence.
     pub reason: String,
 }
@@ -63,6 +76,8 @@ impl PlacedLamp {
             on_placeable: mesh.is_empty(),
             at,
             yaw: 0.0,
+            pitch: 0.0,
+            roll: 0.0,
             reason: String::new(),
         }
     }
@@ -95,6 +110,8 @@ impl PlacedLamp {
             on_placeable,
             at: triple(table.get("at")).ok_or_else(|| bad("a lamp's at is not three numbers"))?,
             yaw: number(table.get("yaw")).unwrap_or(0.0),
+            pitch: number(table.get("pitch")).unwrap_or(0.0),
+            roll: number(table.get("roll")).unwrap_or(0.0),
             reason: text(table.get("reason")),
         })
     }
@@ -119,8 +136,14 @@ impl PlacedLamp {
             }),
         );
         table.insert("at", triple_value(self.at));
-        if self.yaw != 0.0 {
-            table.insert("yaw", float(self.yaw));
+        for (key, degrees) in [
+            ("yaw", self.yaw),
+            ("pitch", self.pitch),
+            ("roll", self.roll),
+        ] {
+            if degrees != 0.0 {
+                table.insert(key, float(degrees));
+            }
         }
         if !self.reason.is_empty() {
             table.insert("reason", value(self.reason.as_str()));
@@ -176,6 +199,8 @@ mod tests {
     fn a_lamp_reads_back_as_written() {
         let lamp = PlacedLamp {
             yaw: 90.0,
+            pitch: -45.0,
+            roll: 12.5,
             reason: "Dark corner.".into(),
             ..PlacedLamp::new("M13AA_01A", "m13aa_01a_lamp2", [1.5, -2.0, 4.2])
         };
@@ -184,6 +209,17 @@ mod tests {
         assert!(read_lamps(&text, "tsl", "danm13").unwrap().is_empty());
         assert!(text.contains("model = \"m13aa_01a\""));
         assert!(text.contains("on = \"room\""));
+        assert!(text.contains("pitch = -45"));
+        let flat = write_lamps(
+            "",
+            "k1",
+            "danm13",
+            &[PlacedLamp::new("plc_lamp", "", [0.0; 3])],
+        );
+        assert!(
+            !flat.unwrap().contains("pitch"),
+            "a lamp not tipped says nothing of it"
+        );
     }
 
     #[test]

@@ -516,7 +516,13 @@ fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform
         | Target::Fitted(_) => Vec3::ONE,
     };
     let p = Vec3::from_array(position).as_dvec3();
-    let r = bevy::math::DQuat::from_rotation_z(f64::from(facing).to_radians());
+    let mut r = bevy::math::DQuat::from_rotation_z(f64::from(facing).to_radians());
+    // A lamp turns on every axis: its yaw, then its pitch, then its roll.
+    if let Target::Lamp(at) = target
+        && let Some(lamp) = state.editor.project.kjk.lamps.get(at)
+    {
+        r = lamp_turn(lamp);
+    }
     let s = scale.as_dvec3();
     Some(GizmoTransform::from_scale_rotation_translation(
         mint::Vector3 {
@@ -540,8 +546,42 @@ fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform
     ))
 }
 
-/// The edits a gizmo's new transform makes of the selection.
-fn gizmo_edits(target: Target, result: &GizmoResult, moved: &GizmoTransform) -> Vec<Edit> {
+/// A lamp's whole turn: its yaw about Z, after its pitch about Y, after
+/// its roll about X (`level_edit::lamps`).
+fn lamp_turn(lamp: &level_edit::PlacedLamp) -> bevy::math::DQuat {
+    bevy::math::DQuat::from_euler(
+        bevy::math::EulerRot::ZYX,
+        f64::from(lamp.yaw).to_radians(),
+        f64::from(lamp.pitch).to_radians(),
+        f64::from(lamp.roll).to_radians(),
+    )
+}
+
+/// `lamp` turned to `rotation`, as its yaw, pitch and roll in degrees.
+fn lamp_turned(
+    lamp: &level_edit::PlacedLamp,
+    rotation: bevy::math::DQuat,
+) -> level_edit::PlacedLamp {
+    let (yaw, pitch, roll) = rotation.to_euler(bevy::math::EulerRot::ZYX);
+    // Whole tenths of a degree, so a lamp let go reads back as shown.
+    // Adding 0 turns a -0 into 0, which the details show as "0.0°".
+    let degrees = |radians: f64| ((radians.to_degrees() * 10.0).round() / 10.0 + 0.0) as f32;
+    level_edit::PlacedLamp {
+        yaw: degrees(yaw).rem_euclid(360.0),
+        pitch: degrees(pitch),
+        roll: degrees(roll),
+        ..lamp.clone()
+    }
+}
+
+/// The edits a gizmo's new transform makes of the selection. `lamp` is
+/// the selected lamp, which the gizmo turns on every axis.
+fn gizmo_edits(
+    target: Target,
+    lamp: Option<&level_edit::PlacedLamp>,
+    result: &GizmoResult,
+    moved: &GizmoTransform,
+) -> Vec<Edit> {
     let position = [
         moved.translation.x,
         moved.translation.y,
@@ -553,6 +593,9 @@ fn gizmo_edits(target: Target, result: &GizmoResult, moved: &GizmoTransform) -> 
         GizmoResult::Rotation { .. } | GizmoResult::Arcball { .. } => {
             let q = moved.rotation;
             let rotation = bevy::math::DQuat::from_xyzw(q.v.x, q.v.y, q.v.z, q.s);
+            if let (Target::Lamp(at), Some(lamp)) = (target, lamp) {
+                return vec![Edit::SetLamp(at, lamp_turned(lamp, rotation))];
+            }
             let ahead = rotation * bevy::math::DVec3::X;
             let facing = ahead.y.atan2(ahead.x).to_degrees() as f32;
             vec![Edit::Turn(target, facing)]
@@ -590,9 +633,13 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
     match (tool, target) {
         (Tool::Select, _) => None,
         (Tool::Move, _) => Some(GizmoMode::all_from_kind(GizmoModeKind::Translate)),
-        // Everything turns about Z alone.
+        // Everything turns about Z alone but a lamp, which is kjk's own and
+        // turns on every axis.
         (Tool::Rotate, Target::Object(Kind::Trigger | Kind::Encounter, _) | Target::Room(_)) => {
             None
+        }
+        (Tool::Rotate, Target::Lamp(_)) => {
+            Some(GizmoMode::RotateX | GizmoMode::RotateY | GizmoMode::RotateZ)
         }
         (Tool::Rotate, _) => Some(EnumSet::only(GizmoMode::RotateZ)),
         (Tool::Scale, Target::Prop(_)) => Some(EnumSet::only(GizmoMode::ScaleUniform)),
@@ -5033,7 +5080,11 @@ fn viewport(
                     projection_matrix: rows(projection),
                     viewport: drawn_on,
                     modes,
-                    orientation: if ui_state.tool == Tool::Scale {
+                    // A lamp turns about its own axes, to lay it along a
+                    // wall.
+                    orientation: if ui_state.tool == Tool::Scale
+                        || (ui_state.tool == Tool::Rotate && matches!(target, Target::Lamp(_)))
+                    {
                         GizmoOrientation::Local
                     } else {
                         GizmoOrientation::Global
@@ -5048,7 +5099,11 @@ fn viewport(
                 if let Some((result, moved)) = ui_state.gizmo.interact(ui, &[transform]) {
                     on_gizmo = true;
                     if let Some(moved) = moved.first() {
-                        for edit in gizmo_edits(target, &result, moved) {
+                        let lamp = match target {
+                            Target::Lamp(at) => state.editor.project.kjk.lamps.get(at).cloned(),
+                            _ => None,
+                        };
+                        for edit in gizmo_edits(target, lamp.as_ref(), &result, moved) {
                             drag_edit(state, ui_state, edit);
                         }
                     }
@@ -5608,6 +5663,31 @@ fn lamp_rows(
             .changed();
     });
     ui.end_row();
+    for (label, degrees, hint) in [
+        (
+            "Pitch",
+            &mut lamp.pitch,
+            "Degrees the lamp is tipped about its own side: its front goes down for more",
+        ),
+        (
+            "Roll",
+            &mut lamp.roll,
+            "Degrees the lamp is rolled about its own front",
+        ),
+    ] {
+        ui.label(label).on_hover_text(hint);
+        touched |= ui
+            .add(
+                egui::DragValue::new(degrees)
+                    .speed(0.5)
+                    .range(-180.0..=180.0)
+                    .suffix("°")
+                    .max_decimals(1),
+            )
+            .on_hover_text(hint)
+            .changed();
+        ui.end_row();
+    }
     ui.label("Reason");
     touched |= ui.text_edit_singleline(&mut lamp.reason).changed();
     ui.end_row();

@@ -164,6 +164,24 @@ pub fn light_mesh(ir: ModelIr, node: &str) -> Result<ModelIr, String> {
     })
 }
 
+/// A lamp's pitch and roll as the turn its model takes under its yaw
+/// (`Placed::attach`, which `scene::placement` applies after the facing):
+/// its roll about X first, then its pitch about Y. `None` for a lamp that
+/// is neither tipped nor rolled.
+pub fn tilt(lamp: &PlacedLamp) -> Option<asset_odyssey::model::Matrix> {
+    if lamp.pitch == 0.0 && lamp.roll == 0.0 {
+        return None;
+    }
+    let turn = bevy::math::Quat::from_rotation_y(lamp.pitch.to_radians())
+        * bevy::math::Quat::from_rotation_x(lamp.roll.to_radians());
+    // `Matrix` is kept by rows (`scene::to_mat4`).
+    Some(
+        bevy::math::Mat4::from_quat(turn)
+            .transpose()
+            .to_cols_array_2d(),
+    )
+}
+
 /// Adds `game`'s area `module`'s lamps to `models` (a module's scene
 /// before its textures are read). Returns each lamp's model index (`None`
 /// for one whose model does not read) and whether its glowing texture is a
@@ -187,6 +205,7 @@ pub fn place(
         let index = ir.as_ref().map(|ir| {
             models.push(Placed {
                 facing: lamp.yaw.to_radians(),
+                attach: tilt(&lamp),
                 ..Placed::at(ir.clone(), lamp.at)
             });
             models.len() - 1

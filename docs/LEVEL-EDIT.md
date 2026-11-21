@@ -203,10 +203,19 @@ meshes of one texture are listed. Each tile shows the lamp's texture and
 the model it is from.
 
 A lamp is placed by dragging it into the view or double-clicking it. It is
-moved, turned about Z, copied and deleted like an object, with undo. Its
+moved, turned, copied and deleted like an object, with undo. Its
 details show its model and mesh, whether its texture is read as a room's
-fitting or a placeable's (which can be changed), and the reason it is
-there. The outliner lists the lamps under Lamps.
+fitting or a placeable's (which can be changed), its pitch and roll, and
+the reason it is there. The outliner lists the lamps under Lamps.
+
+A lamp turns on every axis, unlike the games' own objects. The area's
+object list keeps a single facing for each of those, so the editor turns
+them about Z alone. A lamp is kjk's own, so the Rotate tool shows three
+rings for it, turning it about its own axes. A light mesh tipped against
+a wall at an angle shows its lit face to the room, and its back, which
+has no faces, lies against the wall. The **Pitch** and **Roll** fields set
+the same turns by their numbers. Pitch tips the lamp's front down about
+its own side. Roll turns it about its own front.
 
 A lamp is drawn a little differently from the place it came from:
 
@@ -234,13 +243,16 @@ mesh = "m13aa_01a_lamp2"
 on = "room"
 at = [102.5, 64.0, 4.2]
 yaw = 90.0
+pitch = 45.0
 reason = "The corridor to the council chamber was dark."
 ```
 
 `model` is the model's resref. `mesh` names the node of a light mesh and is
 left out for a whole model. `on` says which kind of fitting the glowing
 texture is read as (`room` or `placeable`). `yaw` is degrees from +X,
-turning left.
+turning left. `pitch` and `roll` are degrees, and each is left out when it
+is 0. The lamp is rolled about its own X first, then tipped about its own
+Y, then turned by its yaw about Z.
 
 ### Bakes
 
@@ -990,7 +1002,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit light copy` | copies the selected fitted light as a light placed by hand |
 | `edit add lamp MODEL [MESH] [X Y Z]` | places a lamp: the whole model, or (with `MESH`, a node's name) that one mesh of it. `-` in place of `MESH` names the whole model |
 | `edit select lamp N` | selects the Nth lamp, from 0 |
-| `edit lamp kind room\|placeable`, `edit lamp reason TEXT` | changes the selected lamp |
+| `edit lamp kind room\|placeable`, `edit lamp pitch DEGREES`, `edit lamp roll DEGREES`, `edit lamp reason TEXT` | changes the selected lamp |
 | `edit lamps list` | looks through the install at once and lists every lamp the Lamps tab offers |
 | `edit ui tab lamps` | shows the Lamps tab |
 | `edit walk` | saves, then starts play's walk mode lit as the view is |
@@ -1067,8 +1079,9 @@ a new perch.
   Jedi Academy prop does not have. In a dark room the area's ambient light
   alone left a prop nearly black, so a prop gives itself some light of its
   own (`project_props::PROP_GLOW`). It does not match the room around it.
-- **Everything turns about Z only.** A box has a yaw but no pitch or roll,
-  so a ramp is built from boxes laid as steps.
+- **Everything but a lamp turns about Z only.** A box has a yaw but no
+  pitch or roll, so a ramp is built from boxes laid as steps. A Jedi
+  Academy prop has a yaw alone too.
 - **Co-op does not check projects.** The co-op fingerprint does not cover
   a project's folder. A host and a guest must play the same project by
   hand, or their worlds differ.

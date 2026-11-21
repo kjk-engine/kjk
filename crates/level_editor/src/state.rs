@@ -1740,7 +1740,24 @@ pub(crate) fn command(
             match (*field, rest) {
                 ("kind", [on @ ("room" | "placeable")]) => lamp.on_placeable = *on == "placeable",
                 ("reason", words) => lamp.reason = words.join(" "),
-                _ => return Err("lamp kind room|placeable or reason TEXT".into()),
+                (turn @ ("pitch" | "roll"), [degrees]) => {
+                    let degrees: f32 = degrees
+                        .parse()
+                        .ok()
+                        .filter(|degrees: &f32| degrees.is_finite())
+                        .ok_or(format!("{degrees:?} is not a number of degrees"))?;
+                    if turn == "pitch" {
+                        lamp.pitch = degrees;
+                    } else {
+                        lamp.roll = degrees;
+                    }
+                }
+                _ => {
+                    return Err(
+                        "lamp kind room|placeable, lamp pitch DEGREES, lamp roll DEGREES or lamp reason TEXT"
+                            .into(),
+                    );
+                }
             }
             state.apply(Edit::SetLamp(at, lamp));
         }
