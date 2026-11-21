@@ -329,6 +329,24 @@ fn disruptor_beams() {
     probed("disruptor beams", &kjk_game::shot_fx::probes(), 1);
 }
 
+/// Both blades of a double-bladed lightsaber whose blade nodes share one
+/// name (`kjk_game::weapons::blade_probes`). Lightsaber Hilt Variety names
+/// all eight blade nodes of its double-bladed hilts `plane239`, and kjk
+/// built only the upper blade for them. A made-up hilt with eight blade
+/// nodes of one name builds two blades, one up and one down. With K1
+/// installed, `w_dblsbr_001` with its blade nodes renamed in memory builds
+/// the same two blades as with its own names. Needs `--features rig`
+/// (proposed 2026-11-21, awaiting approval).
+#[test]
+fn double_blades_sharing_a_name() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "double_blades_sharing_a_name skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed("saber blades", &kjk_game::weapons::blade_probes(), 2);
+}
+
 /// A walker at a dung heap (`sim::motion::prop_step_probes::heap_probes`).
 /// From the ground, the heap's non-walkable flank is an upright wall,
 /// though it rises gently with no step. A walker run straight at it stops

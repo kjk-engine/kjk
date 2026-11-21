@@ -694,7 +694,8 @@ impl JaHilt {
     /// Its model, named as the KOTOR hilt it stands for (`kotor`). It keeps
     /// the KOTOR hilt's refused saber meshes, which name the blade texture:
     /// the scene loads that texture by them, and a blade in a colour JA has
-    /// no blade of (`BladeSpec::own`) takes its colour from it.
+    /// no blade of (`BladeSpec::own`) takes its colour from it. Their node
+    /// numbers are the KOTOR hilt's, so nothing places a blade by them here.
     fn model(&self, kotor: &ModelIr) -> ModelIr {
         let blades = (kotor.refusals.iter())
             .filter(|(_, refusal)| matches!(refusal, Refusal::SaberBlade { .. }))
@@ -922,11 +923,15 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
                 .collect::<Vec<_>>()
         })
         .chain(parts.iter().map(points));
-    let boxes = ir.refusals.iter().filter_map(|(name, refusal)| {
-        let Refusal::SaberBlade { bounds: b, .. } = refusal else {
+    let boxes = ir.refusals.iter().filter_map(|(_, refusal)| {
+        let Refusal::SaberBlade {
+            node, bounds: b, ..
+        } = refusal
+        else {
             return None;
         };
-        let node = ir.node_index(name)?;
+        let node = *node;
+        ir.nodes.get(node)?;
         let corners = (0..8).map(|c: usize| {
             let pick = |axis: usize| b[axis + 3 * ((c >> axis) & 1)];
             place(node, [pick(0), pick(1), pick(2)])
@@ -2119,7 +2124,131 @@ pub fn view_probes() -> sim::probe::Checks {
     checks.push(("crystal blades", crystal_blades()));
     checks.push(("short saber blades", short_saber_blades()));
     checks.push(("back lay", back_lays()));
+    checks.extend(blade_probes());
     checks
+}
+
+/// The blades built from a KOTOR hilt's saber nodes (`kotor_blades`).
+/// Lightsaber Hilt Variety names all eight blade nodes of its
+/// double-bladed hilts `plane239`, and kjk built one blade for them.
+#[cfg(feature = "probes")]
+pub fn blade_probes() -> sim::probe::Checks {
+    vec![
+        ("double blades sharing a name", made_double_blades()),
+        ("vanilla double blades renamed", renamed_double_blades()),
+    ]
+}
+
+/// `(origin, dir, length)` of each blade, to compare two builds.
+#[cfg(feature = "probes")]
+fn blade_lines(blades: &[BladeSpec]) -> Vec<String> {
+    (blades.iter())
+        .map(|b| format!("{:.3?} {:.0?} {:.2}", b.origin, b.dir, b.length))
+        .collect()
+}
+
+/// A made-up double-bladed hilt: a grip and eight saber nodes, all named
+/// `plane239`. Each has a blade box 0.8 long running up from its node.
+/// Four sit 0.1 above the grip, and four sit 0.9 below it, so that their
+/// boxes end 0.1 below the grip. It builds two blades of the same length.
+/// One leaves the grip 0.1 above it and runs up +Z, and the other leaves
+/// it 0.1 below it and runs down −Z.
+#[cfg(feature = "probes")]
+fn made_double_blades() -> Result<String, String> {
+    use fmt_odyssey::mdl::{Mesh, Model, Node};
+    let node = |name: &str, position: [f32; 3], mesh: Option<Mesh>| Node {
+        flags: 0,
+        number: 0,
+        name: name.into(),
+        position,
+        orientation: [1.0, 0.0, 0.0, 0.0],
+        controllers: Vec::new(),
+        light: None,
+        reference: None,
+        emitter: None,
+        mesh,
+        children: Vec::new(),
+        animated: false,
+    };
+    let saber_mesh = || Mesh {
+        bounds: [-0.01, -0.01, 0.0, 0.01, 0.01, 0.8],
+        textures: ["w_lsabre_red01".into(), "".into(), "".into(), "".into()],
+        diffuse: [1.0; 3],
+        ambient: [1.0; 3],
+        transparency_hint: 0,
+        render: true,
+        shadow: false,
+        lightmapped: false,
+        background: false,
+        beaming: false,
+        rotate_texture: false,
+        animate_uv: None,
+        positions: Vec::new(),
+        normals: Vec::new(),
+        uv1: Vec::new(),
+        uv2: Vec::new(),
+        faces: Vec::new(),
+        indices: Vec::new(),
+        skin: None,
+        dangly: None,
+        aabb: None,
+        saber: true,
+    };
+    let mut root = node("w_dblsbr_probe", [0.0; 3], None);
+    for z in [0.1, -0.9] {
+        for _ in 0..4 {
+            let piece = node("plane239", [0.0, 0.0, z], Some(saber_mesh()));
+            root.children.push(piece);
+        }
+    }
+    let model = Model {
+        name: "w_dblsbr_probe".into(),
+        classification: 0,
+        subclassification: 0,
+        affected_by_fog: false,
+        supermodel: None,
+        bounding_box: [0.0; 6],
+        radius: 0.0,
+        animation_scale: 1.0,
+        root,
+        animations: Vec::new(),
+    };
+    let ir = ModelIr::from_model(&model);
+    let (_, blades) = kotor_blades(ir).ok_or("no blades")?;
+    let ends: Vec<[f32; 2]> = (blades.iter())
+        .map(|blade| [blade.origin[2], blade.dir[2]])
+        .collect();
+    let placed = ends.len() == 2
+        && (ends.iter().zip([[0.1, 1.0], [-0.1, -1.0]]))
+            .all(|(got, want)| (0..2).all(|at| (got[at] - want[at]).abs() < 1e-4));
+    let same_length = blades
+        .windows(2)
+        .all(|pair| (pair[0].length - pair[1].length).abs() < 1e-4);
+    sim::probe::check(placed && same_length, format!("{:?}", blade_lines(&blades)))
+}
+
+/// K1's `w_dblsbr_001` read from the install, with every saber node given
+/// one name in memory, as Lightsaber Hilt Variety names them. It builds
+/// the same two blades as the model with its own names.
+#[cfg(feature = "probes")]
+fn renamed_double_blades() -> Result<String, String> {
+    let Some(resolver) = crate::k1_resolver() else {
+        return Ok("skipped: no K1 install".into());
+    };
+    let ir = viewer::model(&resolver, "w_dblsbr_001")?.ok_or("w_dblsbr_001: not read")?;
+    let mut renamed = ir.clone();
+    for (name, refusal) in &mut renamed.refusals {
+        if let Refusal::SaberBlade { node, .. } = refusal {
+            *name = "plane239".into();
+            renamed.nodes[*node].name = "plane239".into();
+        }
+    }
+    let lines = |ir: ModelIr| kotor_blades(ir).map(|(_, blades)| blade_lines(&blades));
+    let (own, shared) = (lines(ir), lines(renamed));
+    sim::probe::check(
+        own.as_ref().is_some_and(|own| own.len() == 2) && own == shared,
+        format!("own names {own:?}, one name {shared:?}"),
+    )
 }
 
 /// How weapons lie on the back (`back_lay`), on boxes shaped like KOTOR's
