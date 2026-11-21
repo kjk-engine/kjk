@@ -1467,10 +1467,11 @@ pub(super) fn scripts(
         // `OnApplyDeath` does when a party member's hit points reach 0
         // (Atton's `a_attonspirit`); only a death records a killer or gives
         // XP.
-        if !was.dead && dead {
-            if let Some(by) = by {
-                state.last.insert((id.0, script::last::KILLER), by);
-            }
+        if !was.dead
+            && dead
+            && let Some(by) = by
+        {
+            state.last.insert((id.0, script::last::KILLER), by);
         }
         if (was.alive && !alive) || (!was.dead && dead) {
             raise(&view, state, id, Hook::Death, None);
