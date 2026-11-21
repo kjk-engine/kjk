@@ -160,6 +160,27 @@ pub fn key(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
+/// `digest` with the templates of one `kind` a library gains folded in;
+/// unchanged when there are none.
+fn templates_digest(
+    digest: [u8; 32],
+    kind: &str,
+    templates: &BTreeMap<String, Arc<ObjectData>>,
+) -> [u8; 32] {
+    if templates.is_empty() {
+        return digest;
+    }
+    let mut out = crate::wire::Writer::default();
+    out.bytes(&digest);
+    out.string(kind);
+    out.u32(templates.len() as u32);
+    for (name, facts) in templates {
+        out.string(name);
+        facts.digest_into(&mut out);
+    }
+    *blake3::hash(&out.0).as_bytes()
+}
+
 /// The characters a resref holds.
 const RESREF_LEN: usize = 16;
 
@@ -730,6 +751,9 @@ pub struct Library {
     /// The waypoint templates scripts may make (`CreateObject`), by
     /// lowercase resref.
     waypoints: Arc<BTreeMap<String, Arc<ObjectData>>>,
+    /// The store templates scripts may make (`CreateObject`), by lowercase
+    /// resref.
+    stores: Arc<BTreeMap<String, Arc<ObjectData>>>,
     /// The journal's quests (`global.jrl`, I19).
     quests: Arc<journal::Quests>,
     /// The XP tables (`plot.2da`, `xptable.2da`, I19).
@@ -908,6 +932,7 @@ impl Library {
             creatures: Arc::default(),
             placeables: Arc::default(),
             waypoints: Arc::default(),
+            stores: Arc::default(),
             quests: Arc::default(),
             experience: Arc::default(),
             classes: Arc::default(),
@@ -1639,20 +1664,21 @@ impl Library {
     /// This library with the waypoint templates scripts may make, in the
     /// digest when it has any (a library without keeps its digest).
     pub fn with_waypoints(self, waypoints: BTreeMap<String, Arc<ObjectData>>) -> Library {
-        if waypoints.is_empty() {
-            return self;
-        }
-        let mut out = crate::wire::Writer::default();
-        out.bytes(&self.digest);
-        out.string("waypoints");
-        out.u32(waypoints.len() as u32);
-        for (name, facts) in &waypoints {
-            out.string(name);
-            facts.digest_into(&mut out);
-        }
+        let digest = templates_digest(self.digest, "waypoints", &waypoints);
         Library {
             waypoints: Arc::new(waypoints),
-            digest: *blake3::hash(&out.0).as_bytes(),
+            digest,
+            ..self
+        }
+    }
+
+    /// This library with the store templates scripts may make, in the
+    /// digest when it has any (a library without keeps its digest).
+    pub fn with_stores(self, stores: BTreeMap<String, Arc<ObjectData>>) -> Library {
+        let digest = templates_digest(self.digest, "stores", &stores);
+        Library {
+            stores: Arc::new(stores),
+            digest,
             ..self
         }
     }
@@ -1785,6 +1811,11 @@ impl Library {
         self.waypoints.get(&key(template))
     }
 
+    /// A store template's facts, if the library has it.
+    pub fn store(&self, template: &str) -> Option<&Arc<ObjectData>> {
+        self.stores.get(&key(template))
+    }
+
     /// How many creature templates it has.
     pub fn creature_count(&self) -> usize {
         self.creatures.len()
@@ -1853,6 +1884,18 @@ impl Library {
             && spells
                 .get(usize::from(row))
                 .is_none_or(|talent| !talent.shown)
+    }
+
+    /// What `spells.2da` row `row` says to the item buttons
+    /// (`inventory::kinds`): whether its impact script is here, and whether
+    /// an item casting it uses it on its own user (`Talent::on_user`, or a
+    /// row not used on a foe).
+    pub fn item_row(&self, row: u16) -> crate::inventory::RowUse {
+        let talent = self.spell(row);
+        crate::inventory::RowUse {
+            scripted: self.impact(row).is_some(),
+            on_user: !talent.hostile || talent.on_user,
+        }
     }
 
     pub fn impact(&self, row: u16) -> Option<&str> {
@@ -4652,22 +4695,24 @@ pub(crate) fn make(
     Some(make_of(library, view, state, out, facts, at, yaw))
 }
 
-/// A waypoint of `template` made at `at` facing `yaw`. KOTOR's
-/// `CreateObject` makes one from its UTW and adds it to the area, so a
-/// later `StartNewModule` can arrive at it (TSLRCM's Red Eclipse scene
-/// marks where the player stood before it leaves the module).
-pub(crate) fn make_waypoint(
+/// A waypoint or a store of `facts` (its template's) made at `at` facing
+/// `yaw`. KOTOR's `CreateObject` makes one from its UTW or UTM and adds it
+/// to the area. A later `StartNewModule` can arrive at the waypoint
+/// (TSLRCM's Red Eclipse scene marks where the player stood before it
+/// leaves the module), and `OpenStore` can open the store (a mod's merchant
+/// makes its store at the player and opens it).
+pub(crate) fn make_placed(
     library: &Library,
     view: &View,
     state: &mut State,
     out: &mut Out,
-    template: &str,
+    facts: &ObjectData,
     at: [f32; 3],
     yaw: f32,
-) -> Option<ObjectId> {
-    let mut facts = (**library.waypoint(template)?).clone();
+) -> ObjectId {
+    let mut facts = facts.clone();
     (facts.position, facts.yaw) = (at, yaw);
-    Some(make_of(library, view, state, out, Arc::new(facts), at, yaw))
+    make_of(library, view, state, out, Arc::new(facts), at, yaw)
 }
 
 /// An object of `facts` made at `at` facing `yaw` (`make`).

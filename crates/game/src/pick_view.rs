@@ -16,7 +16,7 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use sim::action::Action;
 use sim::combat::bar::{Bar, Content};
-use sim::combat::items::{Shelf, use_of};
+use sim::combat::items::Shelf;
 use sim::combat::{Fighter, Sheet};
 use sim::inventory::PARTY;
 use sim::notice::Notice;
@@ -468,7 +468,7 @@ pub fn kinds(
         sim::inventory::kinds(
             sheet.race,
             held.iter().map(|(uses, facts, _)| (*uses, *facts)),
-            |row| library.impact(row).is_some(),
+            |row| library.item_row(row),
         )
     });
     let shown = sheet.items.iter().flatten().copied();
@@ -479,9 +479,7 @@ pub fn kinds(
     );
     let mut out: [Vec<Kind>; SHELVES] = Default::default();
     for kind in rows {
-        let Some(on) = use_of(kind.row) else {
-            continue;
-        };
+        let on = kind.kind();
         let slot = sheet
             .items
             .iter()

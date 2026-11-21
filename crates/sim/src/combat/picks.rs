@@ -163,9 +163,14 @@ impl Picks {
         self.items[shelf as usize]
     }
 
-    /// The kind of `row` picked for its key; which key, if a key takes it.
-    pub fn pick_item(&mut self, row: u16) -> Option<Shelf> {
-        let shelf = items::use_of(row)?.shelf();
+    /// The kind of `row` picked for its key; which key, if a key takes it:
+    /// the key of the kind of `row` among `carried`, else the key of a row
+    /// the engine names.
+    pub fn pick_item(&mut self, row: u16, carried: &[Option<Carried>]) -> Option<Shelf> {
+        let kind = (carried.iter().flatten())
+            .find(|kind| kind.row == row)
+            .map(|kind| kind.kind());
+        let shelf = kind.or_else(|| items::use_of(row))?.shelf();
         self.items[shelf as usize] = Some(row);
         Some(shelf)
     }
@@ -175,16 +180,26 @@ impl Picks {
     /// medpac key's a heal for its race (a `droid`'s or not) over an antidote,
     /// then the rest in order.
     pub fn slotted(&self, kinds: &[Carried], droid: bool) -> Vec<Carried> {
-        let on = |row: u16, shelf| items::use_of(row).is_some_and(|u| u.shelf() == shelf);
-        let heal = |row: u16| matches!(items::use_of(row), Some(Use::Heal { droid: kit, .. }) if kit == droid);
+        let on = |kind: &&Carried, shelf| kind.kind().shelf() == shelf;
+        let heal =
+            |kind: &&Carried| matches!(kind.kind(), Use::Heal { droid: kit, .. } if kit == droid);
         let mut kept: Vec<u16> = Shelf::ALL
             .into_iter()
             .filter_map(|shelf| {
-                let rows = || kinds.iter().map(|kind| kind.row);
                 self.item(shelf)
-                    .filter(|row| rows().any(|known| known == *row))
-                    .or_else(|| rows().find(|row| on(*row, shelf) && heal(*row)))
-                    .or_else(|| rows().find(|row| on(*row, shelf)))
+                    .filter(|row| kinds.iter().any(|known| known.row == *row))
+                    .or_else(|| {
+                        kinds
+                            .iter()
+                            .find(|kind| on(kind, shelf) && heal(kind))
+                            .map(|kind| kind.row)
+                    })
+                    .or_else(|| {
+                        kinds
+                            .iter()
+                            .find(|kind| on(kind, shelf))
+                            .map(|kind| kind.row)
+                    })
             })
             .collect();
         for kind in kinds {

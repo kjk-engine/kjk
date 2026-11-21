@@ -850,7 +850,7 @@ fn colour(kind: Use) -> Vec4 {
     match kind {
         Use::Grenade => Vec4::new(1.0, 0.55, 0.1, 0.95),
         Use::Heal { .. } | Use::Antidote | Use::Squad { .. } => Vec4::new(0.3, 0.9, 0.35, 0.95),
-        Use::Shield { .. } => Vec4::new(0.3, 0.9, 1.0, 0.95),
+        Use::Shield { .. } | Use::Activated => Vec4::new(0.3, 0.9, 1.0, 0.95),
         Use::Stim(_) => Vec4::new(1.0, 0.9, 0.2, 0.95),
     }
 }
@@ -1059,7 +1059,7 @@ fn show(
     // The items: a slot by kind, a pip a use left.
     let mut carried = Vec::new();
     for (at, item) in sheet.items.iter().enumerate() {
-        let kind = item.and_then(|item| items::use_of(item.row).map(|kind| (item, kind)));
+        let kind = item.map(|item| (item, item.kind()));
         let left = kind.map_or(0, |(item, _)| {
             item.count.saturating_sub(fighter.pack.used[at])
         });

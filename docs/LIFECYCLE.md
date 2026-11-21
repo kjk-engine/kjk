@@ -64,9 +64,12 @@ Locks). Entering an open exit door's
 doorway (the box a unit larger overlaps the door's own closed shape:
 `collision::Level::entity_overlaps`) or a trigger that leads out (over its
 outline, on its floor: `ObjectData::contains`, below) asks once. Any module link leads out, its own included (reone
-reinstalls it), unless its `LinkedToFlags` is 0 (links to nothing,
-xoreos): the Taris hideout's door names its module, but its own `OnOpen`
-and the party screen take the player out. The ask goes to the ready check
+reinstalls it). A door whose `LinkedToFlags` is 0 links to nothing
+(xoreos): the Taris hideout's door names its module, but its own `OnOpen`
+and the party screen take the player out. A trigger leads out by its
+module and tag whatever its flags say, as K1's executable reads them only
+for the script routine that asks where a transition leads (Mission to
+Sleheyron's trigger back onto the Ebon Hawk has flags 0). The ask goes to the ready check
 (`PARTY.md`): the party goes when everyone is ready, and the move is in
 that step's snapshot for the host to install; a script's `StartNewModule`
 skips the check.

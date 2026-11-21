@@ -399,10 +399,10 @@ pub fn choose_item(sheet: &Sheet, fighter: &Fighter, now: u64) -> Option<Cast> {
         Use::Squad { .. } => hurt && pack.using.is_none(),
         Use::Antidote => afflicted,
         Use::Stim(_) => pack.stim.is_none(),
-        Use::Shield { .. } | Use::Grenade => false,
+        Use::Shield { .. } | Use::Grenade | Use::Activated => false,
     };
     let (_, carried) = pack.next(&sheet.items, wanted)?;
-    Some(Cast::Hold(items::use_of(carried.row)?.button(), 1))
+    Some(Cast::Hold(carried.kind().button(), 1))
 }
 
 /// A grenade thrown at a target `distance` units away, now and then
