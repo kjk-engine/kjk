@@ -145,8 +145,9 @@ pub enum Source {
     /// A grenade's blast (`combat::grenades`, by its `spells.2da` row):
     /// KOTOR's whole points of its type, halved by a Reflex save; an area.
     Blast { row: u16 },
-    /// A script's `EffectDeath`: its target dies, a party member too,
-    /// downed or not: the story's death (I30 P13); never filtered.
+    /// A script's `EffectDeath`: its target dies, a companion too, downed
+    /// or not: the story's death (I30 P13); never filtered. The player's
+    /// own character goes down instead (`Member::Player`).
     Death,
 }
 
@@ -810,11 +811,39 @@ pub fn assess(
     }
 }
 
-/// Lands an assessed hit on `state` (the target's, with its sheet; `party`
-/// whether it is in the party): Min1HP holds it at 1 HP, the hit points
-/// fall, a fall or a death is marked, the attacker remembered and the event
-/// recorded. At 0 HP a party member is downed (I30 P11) and anyone else
-/// dies; a `Source::Death` kills a party member too, downed or standing.
+/// Who a blow lands on, as `apply` decides whether it downs or kills.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Member {
+    /// A character outside the party. It dies at 0 HP.
+    Outsider,
+    /// A companion, driven by a seat or not. It goes down at 0 HP, and a
+    /// script's `EffectDeath` kills it, standing or down. That death is the
+    /// story's (I30 P13): Trask dies so in his scene on the Endar Spire.
+    Companion,
+    /// A seat's own character, the player's. It goes down at 0 HP, and a
+    /// script's `EffectDeath` downs it too. The player's character then gets
+    /// up after the fight like any party member, and the whole party down is
+    /// the loss. Killed for good while its companions stood, it lay dead
+    /// with the game going on and nothing to end it: the pillars that guard
+    /// the Rakata's settlement on South Beach kill whoever is near them, and
+    /// left the player's character so (`blow1`…`blowd6`).
+    Player,
+}
+
+impl Member {
+    /// Whether a script's `EffectDeath` kills this character rather than
+    /// downing it.
+    pub fn dies_of_death(self) -> bool {
+        self != Member::Player
+    }
+}
+
+/// Lands an assessed hit on `state` (the target's, with its sheet, `member`
+/// who it is): Min1HP holds it at 1 HP, the hit points fall, a fall or a
+/// death is marked, the attacker remembered and the event recorded. At 0 HP
+/// a party member is downed (I30 P11) and anyone else dies; a
+/// `Source::Death` kills a companion too, downed or standing, and downs the
+/// player's character (`Member`).
 pub fn apply(
     blow: &Blow,
     assessed: Assessed,
@@ -822,13 +851,14 @@ pub fn apply(
     state: &mut Fighter,
     now: u64,
     tick: u64,
-    party: bool,
+    member: Member,
 ) -> Resolved {
     let mut damage = assessed.damage;
     if target.flags & (flags::MIN_ONE_HP | flags::IMMORTAL) != 0 {
         damage = damage.min(state.hp.saturating_sub(100).max(0));
     }
     let death = matches!(blow.source, Source::Death);
+    let kills = death && member.dies_of_death();
     // A victim held in a grapple finisher falls only when the finisher lets
     // it go (`world::grapples`): a blow that would take its last hit point
     // leaves it at 1 and marks it to die then.
@@ -841,8 +871,8 @@ pub fn apply(
         damage = damage.min(state.hp.saturating_sub(100).max(0));
     }
     state.hp = state.hp.saturating_sub(damage);
-    let falls = state.hp <= 0 && (state.alive() || (death && state.downed()));
-    let downed = falls && party && !death;
+    let falls = state.hp <= 0 && (state.alive() || (kills && state.downed()));
+    let downed = falls && member != Member::Outsider && !kills;
     let died = falls && !downed;
     if downed {
         state.fall(now);

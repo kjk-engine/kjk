@@ -763,10 +763,15 @@ pub(super) fn hurt(
         // A body a seat plays (`world::played`) never flinches and is never
         // caught unaware.
         let played = super::played(hit.target, *avatar, lent);
+        let member = match (target_party, avatar.is_some()) {
+            (false, _) => damage::Member::Outsider,
+            (true, false) => damage::Member::Companion,
+            (true, true) => damage::Member::Player,
+        };
         // The dead take nothing more; the downed nothing but the story's
-        // death.
+        // death of a companion.
         let death = matches!(hit.source, Source::Death);
-        if !fighting.0.alive() && !(death && fighting.0.downed()) {
+        if !fighting.0.alive() && !(death && fighting.0.downed() && member.dies_of_death()) {
             continue;
         }
         let was_down = fighting.0.downed();
@@ -961,7 +966,7 @@ pub(super) fn hurt(
             &mut fighting.0,
             clock.time_ms,
             clock.tick,
-            target_party,
+            member,
         );
         // A creature with Min1HP takes a blow's damage, but its hit points
         // stop at 1. Its damaged script still runs for the part the floor
