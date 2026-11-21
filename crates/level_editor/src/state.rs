@@ -233,6 +233,11 @@ pub struct EditorState {
     pub editor: Editor,
     pub(crate) drawn: Drawn,
     built: u64,
+    /// The editor's count of changes after the last edit that only moved
+    /// or turned things the drawing follows (`follows`), when every change
+    /// since the scene was drawn was such an edit. The scene is then not
+    /// drawn again: `follow` has put each moved thing where it now is.
+    followed: u64,
     /// Frames since the last edit.
     pub(crate) quiet: u32,
     pub(crate) prop_models: BTreeMap<String, Result<PropModel, String>>,
@@ -350,6 +355,7 @@ impl EditorState {
             editor,
             drawn: Drawn::default(),
             built: u64::MAX,
+            followed: u64::MAX,
             quiet: SETTLE_FRAMES,
             prop_models: BTreeMap::new(),
             lamp_library: Default::default(),
@@ -474,18 +480,85 @@ impl EditorState {
     }
 
     pub(crate) fn apply(&mut self, edit: Edit) {
+        let (before, follows) = (self.editor.changes(), self.follows(&edit));
         if let Err(why) = self.editor.apply(edit) {
             self.say(why);
         }
+        self.followed_to(before, follows);
         self.quiet = 0;
     }
 
     /// `apply`, joining the last edit's undo step (a drag).
     pub(crate) fn apply_continuing(&mut self, edit: Edit) {
+        let (before, follows) = (self.editor.changes(), self.follows(&edit));
         if let Err(why) = self.editor.apply_continuing(edit) {
             self.say(why);
         }
+        self.followed_to(before, follows);
         self.quiet = 0;
+    }
+
+    /// Whether `edit` only moves or turns a thing that `follow` puts where
+    /// it now is, with nothing else drawn changing with it. A thing whose
+    /// fittings light the room (a placeable, a door, a lamp, a light, a
+    /// new map's room) counts only while the view shows the game's own
+    /// lightmaps. The collision and the navigation mesh, while shown, are
+    /// drawn again after any move.
+    fn follows(&self, edit: &Edit) -> bool {
+        use kjk_game::fitted_lights::Mode;
+        let target = match edit {
+            Edit::Move(target, _) | Edit::Turn(target, _) => *target,
+            // A lamp moved or turned in its details, as the gizmo turns it.
+            Edit::SetLamp(at, lamp) => {
+                let Some(was) = self.editor.project.kjk.lamps.get(*at) else {
+                    return false;
+                };
+                let placed_alone = level_edit::PlacedLamp {
+                    at: was.at,
+                    yaw: was.yaw,
+                    pitch: was.pitch,
+                    roll: was.roll,
+                    ..lamp.clone()
+                } == *was;
+                if !placed_alone {
+                    return false;
+                }
+                Target::Lamp(*at)
+            }
+            _ => return false,
+        };
+        if self.show_collision || self.show_nav {
+            return false;
+        }
+        let unlit = self.light_view == Mode::Off;
+        match target {
+            Target::Object(
+                Kind::Creature
+                | Kind::Waypoint
+                | Kind::Sound
+                | Kind::Store
+                | Kind::Encounter
+                | Kind::Trigger,
+                _,
+            )
+            | Target::Prop(_)
+            | Target::Box(_)
+            | Target::Entry => true,
+            Target::Object(Kind::Placeable | Kind::Door, _)
+            | Target::Room(_)
+            | Target::Lamp(_)
+            | Target::Light(_) => unlit,
+            Target::Fitted(_) => false,
+        }
+    }
+
+    /// Keeps the scene as it is drawn after an edit that `follows`, when
+    /// every change since the drawing was one (`followed`).
+    fn followed_to(&mut self, before: u64, follows: bool) {
+        let chained = before == self.built || before == self.followed;
+        if follows && chained {
+            self.followed = self.editor.changes();
+        }
     }
 
     fn area_index(ir: &ModuleIr, area: &str) -> Option<usize> {
@@ -1141,6 +1214,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     }
     state.drawn = drawn;
     state.built = state.editor.changes();
+    state.followed = u64::MAX;
     state.shown_collision = state.show_collision;
     state.shown_nav = state.show_nav;
     state.redraws += 1;
@@ -1211,6 +1285,19 @@ pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
     if !stale || state.quiet < SETTLE_FRAMES || state.dragging {
         return;
     }
+    // Only moved or turned things since the drawing, which `follow` has put
+    // where they are: the scene stays, and letting go of a drag does not
+    // stop the editor while the whole area is drawn again.
+    let others_stale = measure
+        || asked
+        || state.shown_collision != state.show_collision
+        || state.shown_nav != state.show_nav
+        || state.shown_lights != (state.light_view, state.bake.clone(), state.show_lights);
+    if !others_stale && state.followed == state.editor.changes() {
+        state.built = state.editor.changes();
+        state.followed = u64::MAX;
+        return;
+    }
     match draw(&mut state) {
         Ok(scene) => commands.insert_resource(SceneContent(Box::new(scene))),
         Err(why) => {
@@ -1233,6 +1320,19 @@ pub(crate) fn follow(
         let Some((position, facing)) = state.editor.placement(*target) else {
             continue;
         };
+        // A lamp's pitch and roll as it has them now, not as it was drawn.
+        let tilt = match target {
+            Target::Lamp(at) => Some(
+                state
+                    .editor
+                    .project
+                    .kjk
+                    .lamps
+                    .get(*at)
+                    .and_then(kjk_game::lamps::tilt),
+            ),
+            _ => None,
+        };
         for &model in models {
             let Some(placed) = scene.0.models.get(model) else {
                 continue;
@@ -1240,7 +1340,18 @@ pub(crate) fn follow(
             if placed.hook.is_some() {
                 continue;
             }
-            wanted.insert(model, root(placed, position, facing));
+            let frame = match &tilt {
+                Some(attach) => root(
+                    &Placed {
+                        attach: *attach,
+                        ..Placed::at(placed.ir.clone(), placed.offset)
+                    },
+                    position,
+                    facing,
+                ),
+                None => root(placed, position, facing),
+            };
+            wanted.insert(model, frame);
         }
     }
     for (model, mut transform) in &mut roots {
