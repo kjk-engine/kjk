@@ -3698,10 +3698,17 @@ that were never shipped.
   is black.
 - `fill = "stored"` in `data/lights/bake.toml` gives such a room its own
   stored light for the part its lamps cannot reach. 35 modules have it.
-- This is not a bake from the lamps alone. The fill is BioWare's lightmap,
-  scaled. If "so we can actually ship it" means that no pixel of BioWare's
-  lightmaps may be in the bake, these rooms do not meet it. The owner has
-  not been asked that question in those words.
+- The baked files hold nothing of BioWare's lightmaps. A baked lightmap
+  holds the room's lamps alone, and `fill.txt` beside it holds one number
+  for each lightmap of a room with a fill. When the game loads the
+  lightmap it adds the stored lightmap of the player's own files, times
+  that number (`add_stored_fill` in `crates/game/src/viewer.rs`). The
+  owner asked for this on 21 November 2026: "do we need to hold bioware
+  lightmap pixels? or could we load them from the game files instead".
+- The first version mixed the stored light into the baked files. On
+  `902mal` and `107per` the pictures of the two versions differ by 1 to 2
+  of 255 on average. The rooms' surfaces are the same, and the seams
+  between a lightmap's patches differ.
 - A room whose lamps reach its level takes no fill. Lamps placed in such a
   room later replace it.
 

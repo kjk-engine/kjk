@@ -818,6 +818,112 @@ pub(crate) fn stored_lightmap(name: &str) -> Option<TextureIr> {
         .cloned()
 }
 
+/// How much of its stored light each baked lightmap takes, by name in
+/// lower case: `fill.txt` of the `KJK_DETAIL_BAKE` folder, which
+/// `kjk detail-bake --fill-stored` writes.
+static BAKED_FILLS: std::sync::LazyLock<BTreeMap<String, f32>> = std::sync::LazyLock::new(|| {
+    let Some(folder) = std::env::var_os("KJK_DETAIL_BAKE").filter(|folder| !folder.is_empty())
+    else {
+        return BTreeMap::new();
+    };
+    let Ok(text) = std::fs::read_to_string(std::path::Path::new(&folder).join("fill.txt")) else {
+        return BTreeMap::new();
+    };
+    (text.lines())
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| {
+            let (name, fill) = line.split_once(' ')?;
+            Some((name.to_ascii_lowercase(), fill.trim().parse().ok()?))
+        })
+        .collect()
+});
+
+/// Adds `fill` times the stored lightmap's linear light to a baked
+/// lightmap. A room with no lamp that the level art shows was lit by lamps
+/// the games never shipped, and its stored lightmap is all that is left of
+/// them. The bake holds the room's lamps alone, so that its files carry
+/// nothing of the game's own lightmaps, and the stored light comes from the
+/// player's files here.
+///
+/// The numbers are the bake's (`crates/launcher/src/detail_bake.rs` and
+/// `detail_bake/gpu.rs`): a baked level is stored at 1 / `GAIN`, a level is
+/// linear light to the power 1 / `GAMMA`, and a level above `KNEE` is eased
+/// so that it never passes `KNEE + OVER` (`eased_level`).
+fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32) {
+    use asset_odyssey::texture::Encoding;
+    const GAIN: f32 = 2.0;
+    const GAMMA: f32 = 2.2;
+    const KNEE: f32 = 0.8;
+    const OVER: f32 = 0.45;
+    let (width, height) = (stored.width as usize, stored.height as usize);
+    let Some(data) = stored.mips.first() else {
+        return;
+    };
+    let rgba = match stored.encoding {
+        Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone()),
+        Encoding::Bc1 | Encoding::Bc1Holes => fmt_odyssey::dxt::decode(data, width, height, false),
+        Encoding::Bc3 => fmt_odyssey::dxt::decode(data, width, height, true),
+    };
+    let Some(rgba) = rgba.filter(|rgba| width > 0 && rgba.len() >= width * height * 4) else {
+        return;
+    };
+    let clamp = stored.facts.clamp;
+    let texel = |tx: i64, ty: i64| {
+        let (w, h) = (width as i64, height as i64);
+        let (tx, ty) = if clamp {
+            (tx.clamp(0, w - 1), ty.clamp(0, h - 1))
+        } else {
+            (tx.rem_euclid(w), ty.rem_euclid(h))
+        };
+        let at = (ty * w + tx) as usize * 4;
+        Vec3::new(
+            f32::from(rgba[at]),
+            f32::from(rgba[at + 1]),
+            f32::from(rgba[at + 2]),
+        ) / 255.0
+    };
+    let luma = |c: Vec3| 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z;
+    let (w, h) = (picture.width() as usize, picture.height() as usize);
+    for y in 0..h {
+        for x in 0..w {
+            // The stored light here, read between the four nearest texels.
+            let sx = (x as f32 + 0.5) / w as f32 * width as f32 - 0.5;
+            let sy = (y as f32 + 0.5) / h as f32 * height as f32 - 0.5;
+            let (x0, y0) = (sx.floor(), sy.floor());
+            let (fx, fy) = (sx - x0, sy - y0);
+            let (x0, y0) = (x0 as i64, y0 as i64);
+            let top = texel(x0, y0).lerp(texel(x0 + 1, y0), fx);
+            let bottom = texel(x0, y0 + 1).lerp(texel(x0 + 1, y0 + 1), fx);
+            let added = top.lerp(bottom, fy).powf(GAMMA) * fill;
+            // The baked level back to linear light, with its easing undone.
+            let pixel = picture.get_pixel_mut(x as u32, y as u32);
+            let mut level = Vec3::new(
+                f32::from(pixel[0]),
+                f32::from(pixel[1]),
+                f32::from(pixel[2]),
+            ) / 255.0
+                * GAIN;
+            let brightness = luma(level);
+            if brightness > KNEE {
+                let eased = (brightness - KNEE).min(OVER * 0.999);
+                level *= (KNEE + eased * OVER / (OVER - eased)) / brightness;
+            }
+            let light = level.powf(GAMMA) + added;
+            // And the sum eased again, as the bake eases it.
+            let mut level = light.max(Vec3::ZERO).powf(1.0 / GAMMA);
+            let brightness = luma(level);
+            if brightness > KNEE {
+                let over = brightness - KNEE;
+                level *= (KNEE + over * OVER / (OVER + over)) / brightness;
+            }
+            let bytes = (level / GAIN).clamp(Vec3::ZERO, Vec3::ONE) * 255.0;
+            pixel[0] = bytes.x.round() as u8;
+            pixel[1] = bytes.y.round() as u8;
+            pixel[2] = bytes.z.round() as u8;
+        }
+    }
+}
+
 fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
     static FOLDER: std::sync::LazyLock<Option<std::path::PathBuf>> =
         std::sync::LazyLock::new(|| {
@@ -834,7 +940,10 @@ fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
     }
     match image::open(&path) {
         Ok(picture) => {
-            let picture = picture.into_rgba8();
+            let mut picture = picture.into_rgba8();
+            if let Some(fill) = BAKED_FILLS.get(&name.to_ascii_lowercase()) {
+                add_stored_fill(&mut picture, &texture, *fill);
+            }
             STORED_LIGHTMAPS
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)

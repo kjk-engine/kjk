@@ -349,3 +349,33 @@ The owner said "Yes, write them" to the settings on 20 November 2026. They
 are in `data/lights/bake.toml` as `fill`, `most` and `least`, and `bake.sh`
 passes them on. `bake.sh` gave `902mal` and `ebo_m12aa` the same lightmaps
 as the batch, to the last pixel. `tat_m17ac` has no entry.
+
+## The fill comes from the player's files
+
+The owner asked on 21 November 2026: "do we need to hold bioware lightmap
+pixels? or could we load them from the game files instead in a smart way".
+He said "yes" to building it.
+
+- `detail-bake --fill-stored` now writes a filled room's lightmaps with
+  its lamps alone. It writes `fill.txt` into set `b`, with one line for
+  each lightmap of such a room: its name and a number.
+- The game reads `fill.txt` from the `KJK_DETAIL_BAKE` folder. When it
+  loads a baked lightmap that the file names, it adds the stored
+  lightmap's linear light times the number (`add_stored_fill` in
+  `crates/game/src/viewer.rs`). It undoes the bake's easing first and
+  eases the sum again, so the result is the mixed bake's apart from
+  rounding.
+- `902mal` and `107per` were baked this way as `bake/t2` and shot. Against
+  the mixed bake `bake/b3` the pictures differ by 0.6 to 1.9 of 255 on
+  average. The rooms' surfaces are the same. Thin lines differ at the
+  seams between a lightmap's patches, where the mixed bake had black
+  beyond its filled rings and the new one has the stored light.
+- The batch's bakes `b3` of the other 33 filled modules are still the
+  mixed kind. `bake.sh` makes the new kind.
+- The six approved areas baked the same as before with this build, to the
+  last pixel (`g15`, `h8` and `a12` against `g12`, `h5` and `a8`).
+- A bake sometimes dies without a message. Anchorhead's second bake ended
+  with exit code 127 four times on 21 November 2026 and passed on the
+  fifth, with the same command. `101per` failed once the same way. The
+  first batch had this too, on `202tel` and `209tel`. The cause is not
+  found. A bake that fails so is worth one more try.

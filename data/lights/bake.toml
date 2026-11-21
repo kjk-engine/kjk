@@ -158,7 +158,10 @@ sun = { toward = [0.831, -0.418, 0.367], colour = [0.76, 0.70, 0.57], toward2 = 
 #   "it seems to be some light they have baked in there from the ceiling",
 #   "We should make that one stronger and work with that". A room whose
 #   lamps reach its level takes none of it, so lamps placed there later
-#   replace it.
+#   replace it. The baked files hold the lamps alone. `fill.txt` in the
+#   bake's folder holds one number for each lightmap of such a room, and
+#   the game adds the player's own stored lightmap times that number when
+#   it loads the baked one.
 # - `most` and `least`. The most and the least a room's lamps are scaled
 #   by. They are 6 and 0.5 when left out. The Ebon Hawk's hold counts a few
 #   bright texels that no lamp reaches, so its lamps went to 6 times their
