@@ -94,7 +94,7 @@ and so are its music and ambient sound (its GIT's area properties).
   snapping on, a room placed or let go after a drag meets the nearest seam
   by itself.
 - **The entry.** The outliner's Entry is where the player starts: a yellow
-  marker that moves and turns like an object.
+  map marker that moves and turns like an object.
 
 A room's walkmesh is in the coordinates of the area it was made for, so a
 room placed anywhere else is copied: its model under the name
@@ -123,10 +123,12 @@ hand.
   stored light, so each light's pool shows on its own) and **Baked** (a
   bake of `kjk detail-bake`, picked from the bakes `tools/light-kinds`
   made of the area). The scene is drawn again in the mode picked.
-- **Show lights** (F4) draws every light as a marker in its colour: a
-  large one for a light placed by hand, a small one for a light the game
-  places at a fitting. The selected light shows its reach as a
-  see-through sphere. The outliner's Lights lists the lights placed by
+- **Show lights** (F4) draws every light as a sun in its colour: a large
+  one for a light placed by hand, a small one for a light the game places
+  at a fitting. The selected light shows its reach as three rings round
+  it, one level and two upright, as wide as the light reaches. A light with
+  a cone also shows a line the way it shines. The rings are drawn over the
+  view, so selecting a light never draws the scene again. The outliner's Lights lists the lights placed by
   hand and the game's own by where they come from: the glowing texture of
   their fitting, or `hidden lamp` for a room's hidden lamp.
 - **A fitted light** is the game's and is not changed. Its details say
@@ -827,14 +829,34 @@ user's own folder can send the editor commands. The editor saves only on
   waypoint, trigger, sound and store
   templates. A search box filters the tab. Each asset is a tile with a
   thumbnail; an object with no model of its own (a waypoint, a trigger, a
-  sound, a store) has its marker instead. An asset dragged into the view is placed where the
+  sound, a store) has its marker's icon instead. An asset dragged into the view is placed where the
   pointer meets the level. A double-click places it where the centre of the
   view meets the level.
 - **The view**, in the middle, draws the area as `kjk module` does. Every
-  object has a marker: a small diamond in its kind's colour. Creatures are
-  red, doors purple, placeables orange, triggers light blue, waypoints
-  green, sounds pink, encounters white and stores yellow. Props get a pale
-  blue marker. A box is drawn see-through in its role's colour: a solid box
+  object has a marker: an icon on a dark disc, in its kind's colour, drawn
+  over the view. Creatures are red, doors purple, placeables orange,
+  triggers light blue, waypoints green, sounds pink, encounters white and
+  stores yellow. Props are pale blue and lamps warm yellow. The icon says
+  what the thing is:
+
+  | Icon | Marks |
+  |---|---|
+  | a filled square | a placeable, or a Jedi Academy prop |
+  | a speaker | a sound |
+  | an arrow down | a waypoint |
+  | a map marker | a place a character is put, and a new map's entry. A waypoint is such a place when a word of its tag (between `_`s, with its trailing digits left off) names a party member of either game, the player (`pc`, `party`) or a post (`post`). `dan13_wp_carth_halk` and `POST_dan13_zzshari` are such places |
+  | a person | a creature with a conversation |
+  | a person with an alert | a creature whose conversation updates the journal: one of its lines has a quest |
+  | an alert circle | a trigger, or an encounter |
+  | a sun | a light, or a lamp |
+  | a dot | a creature with no conversation, a door, or a store |
+
+  A marker stands over a creature's head, at a light's or a lamp's own
+  place, and a little above any other thing's place. A marker grows the
+  nearer it is and fades the farther it is. Markers more than 80 m away
+  are not drawn. The selected one is ringed in yellow and drawn over the
+  rest. A click on a marker selects its thing before any model under the
+  pointer. A box is drawn see-through in its role's colour: a solid box
   cyan, a walked-on box green-blue, a nav blocker red and a nav floor
   green. A trigger's or an encounter's outline is drawn as a see-through
   floor of its shape, light blue or white. The 24
@@ -863,7 +885,7 @@ so later runs show it at once and a changed file is drawn again.
 | right mouse button held, mouse | look around |
 | right mouse button held, W, A, S, D, Q, E | fly forward, left, back, right, down and up |
 | Shift | fly faster |
-| left mouse button | select the object, prop or box under the pointer (its model or its marker); drag a gizmo's handle |
+| left mouse button | select the object, prop or box under the pointer (its marker, else its model); drag a gizmo's handle |
 | Q, W, E, R | the Select, Move, Rotate and Scale tools |
 | F | move the camera to the selection |
 | Ctrl+D | copy the selection, in the same place |

@@ -9,6 +9,7 @@ mod agent;
 mod bake;
 mod file;
 mod lamps;
+mod markers;
 mod picker;
 mod script_edit;
 mod script_view;

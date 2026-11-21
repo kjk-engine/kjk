@@ -49,5 +49,11 @@ build made from source with `dlss` needs the SDK, under its licence. NVIDIA,
 RTX and DLSS are trademarks of NVIDIA Corporation. kjk is not sponsored or
 endorsed by NVIDIA.
 
+Level editor icons
+------------------
+The level editor's marker icons (crates/level_editor/icons) are from line-md
+by Vjacheslav Trushkin (https://github.com/cyberalien/line-md), under the
+MIT License. The licence is in that folder's LICENSE.md.
+
 Binary releases include THIRD-PARTY-LICENSES.html for the Rust crates they
 are built from.

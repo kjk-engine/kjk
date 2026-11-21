@@ -4110,6 +4110,7 @@ dependencies = [
  "fmt_odyssey",
  "game",
  "level_edit",
+ "resvg",
  "save_editor",
  "script_ncs",
  "serde_json",

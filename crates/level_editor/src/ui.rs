@@ -126,6 +126,8 @@ pub struct UiState {
     store: Option<store::Store>,
     /// The view's part of the window, in points.
     viewport: egui::Rect,
+    /// The markers' icons, made the first time the view is shown.
+    icons: Option<crate::markers::Icons>,
     fonts_set: bool,
     /// The behaviour section's text fields: each event's script, and the
     /// item to add, as typed, for the selection they were typed for.
@@ -222,6 +224,7 @@ impl Default for UiState {
             textures: BTreeMap::new(),
             store: store::Store::open(),
             viewport: egui::Rect::NOTHING,
+            icons: None,
             fonts_set: false,
             typed: BTreeMap::new(),
             typed_for: None,
@@ -347,6 +350,15 @@ fn pick_pending(
     let Some(point) = state.pending_pick.take() else {
         return;
     };
+    // A marker under the point is picked first, as the view shows it.
+    if let Some((camera, eye)) = cameras.iter().next() {
+        let shown = crate::markers::layout(state, camera, eye);
+        if let Some(target) = crate::markers::under(&shown, egui::pos2(point.x, point.y)) {
+            state.editor.selected = Some(target);
+            state.say(format!("picked {target:?}"));
+            return;
+        }
+    }
     match state::ray_at(&cameras, point) {
         Some(ray) => {
             let floor = state::ground(state, ray);
@@ -4895,28 +4907,36 @@ fn tile(
                         }
                     }
                 }
-                Asset::Object(kind, _) => {
-                    // The object's marker, in its kind's colour.
+                Asset::Object(kind, name) => {
+                    // The object's marker, as the view shows it.
                     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                    let icon = match kind {
+                        Kind::Sound => crate::markers::Icon::Sound,
+                        Kind::Waypoint if crate::markers::is_post(name) => {
+                            crate::markers::Icon::Post
+                        }
+                        Kind::Waypoint => crate::markers::Icon::Waypoint,
+                        Kind::Trigger | Kind::Encounter => crate::markers::Icon::Alert,
+                        Kind::Placeable => crate::markers::Icon::Square,
+                        _ => crate::markers::Icon::Dot,
+                    };
                     let [r, g, b, _] = state::kind_colour(*kind).1;
-                    let c = rect.center();
-                    let (w, h) = (rect.width() * 0.22, rect.height() * 0.34);
-                    ui.painter().add(egui::Shape::convex_polygon(
-                        vec![
-                            egui::pos2(c.x, c.y - h),
-                            egui::pos2(c.x + w, c.y),
-                            egui::pos2(c.x, c.y + h),
-                            egui::pos2(c.x - w, c.y),
-                        ],
-                        egui::Color32::from_rgb(r, g, b),
-                        egui::Stroke::NONE,
-                    ));
+                    let icons = ui_state
+                        .icons
+                        .get_or_insert_with(|| crate::markers::Icons::new(ctx));
+                    let shown = egui::Rect::from_center_size(rect.center(), rect.size() * 0.5);
+                    icons.paint(ui.painter(), icon, shown, egui::Color32::from_rgb(r, g, b));
                 }
                 Asset::Light(_) => {
                     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                    ui.painter().circle_filled(
-                        rect.center(),
-                        rect.width() * 0.22,
+                    let icons = ui_state
+                        .icons
+                        .get_or_insert_with(|| crate::markers::Icons::new(ctx));
+                    let shown = egui::Rect::from_center_size(rect.center(), rect.size() * 0.5);
+                    icons.paint(
+                        ui.painter(),
+                        crate::markers::Icon::Light,
+                        shown,
                         egui::Color32::from_rgb(255, 230, 160),
                     );
                 }
@@ -4961,6 +4981,11 @@ fn viewport(
                     egui::Id::new("editor labels"),
                 ))
                 .with_clip_rect(rect);
+            let icons = ui_state
+                .icons
+                .get_or_insert_with(|| crate::markers::Icons::new(ctx));
+            let shown = crate::markers::layout(state, camera, eye);
+            crate::markers::draw(&painter, icons, &shown, state.editor.selected);
             labels(&painter, state, camera, eye);
             reach_in_view(&painter, state, camera, eye);
             let on_outline = outline_in_view(
@@ -4990,10 +5015,23 @@ fn viewport(
                 let to_bevy = Mat4::from_quat(game_to_bevy());
                 let view = eye.to_matrix().inverse() * to_bevy;
                 let projection = camera.clip_from_view();
+                // The camera draws the whole window, under the panels, so
+                // the gizmo is placed on the camera's viewport, not on the
+                // view's part of the window: placed on that part, it stood
+                // off its object toward the part's middle.
+                let drawn_on = camera
+                    .logical_viewport_rect()
+                    .map(|area| {
+                        egui::Rect::from_min_max(
+                            egui::pos2(area.min.x, area.min.y),
+                            egui::pos2(area.max.x, area.max.y),
+                        )
+                    })
+                    .unwrap_or(rect);
                 ui_state.gizmo.update_config(GizmoConfig {
                     view_matrix: rows(view),
                     projection_matrix: rows(projection),
-                    viewport: rect,
+                    viewport: drawn_on,
                     modes,
                     orientation: if ui_state.tool == Tool::Scale {
                         GizmoOrientation::Local

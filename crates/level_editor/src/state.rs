@@ -36,8 +36,6 @@ pub(crate) const STEP_M: f32 = 0.25;
 pub(crate) const TURN_DEG: f32 = 15.0;
 /// How far a marker sits above its object's origin, metres.
 pub(crate) const MARKER_RISE: f32 = 0.35;
-/// A marker's radius, metres; also how near a click must pass to pick it.
-const MARKER_R: f32 = 0.22;
 /// The size a new collision box starts at, metres: a ledge.
 const NEW_BOX: [f32; 3] = [2.0, 1.0, 0.3];
 /// How far ahead of the camera something is placed when nothing is under
@@ -220,8 +218,9 @@ type MadeRooms = BTreeMap<(String, String, [u32; 3]), Vec<(String, ResType, Vec<
 /// What a scene's drawing placed for each thing the project holds.
 #[derive(Default)]
 pub(crate) struct Drawn {
-    /// Each target's own model roots (not attached ones) and its marker.
-    pub(crate) things: Vec<(Target, Vec<usize>, Option<usize>)>,
+    /// Each target's own model roots (not attached ones). Its marker is an
+    /// icon over the view (`markers`), not a model of the scene.
+    pub(crate) things: Vec<(Target, Vec<usize>)>,
     /// The collision overlay's model, when drawn.
     pub(crate) overlay: Option<usize>,
 }
@@ -240,6 +239,10 @@ pub struct EditorState {
     /// The lamps the asset picker offers (`lamps`), found a few models a
     /// frame.
     pub(crate) lamp_library: crate::lamps::LampLibrary,
+    /// Whether each creature template of the area has a conversation, and
+    /// whether it updates the journal (`markers::creature_talks`), read when
+    /// the scene is drawn.
+    pub(crate) creature_talks: BTreeMap<String, Option<bool>>,
     /// The rooms' copies made so far (`level_edit::map::room_copy`).
     made_rooms: MadeRooms,
     collision: Option<(u64, collision_odyssey::ModuleCollision)>,
@@ -350,6 +353,7 @@ impl EditorState {
             quiet: SETTLE_FRAMES,
             prop_models: BTreeMap::new(),
             lamp_library: Default::default(),
+            creature_talks: BTreeMap::new(),
             made_rooms: BTreeMap::new(),
             collision: None,
             show_collision: false,
@@ -763,43 +767,13 @@ fn flat_model(name: &str, triangles: &[[[f32; 3]; 3]], texture: &str, glow: bool
 /// An octahedron of radius `r` about the origin: a marker.
 /// A light's marker texture: its name and its colour, the colour scaled so
 /// its strongest channel is full.
-fn light_texture(colour: [f32; 3]) -> (String, [u8; 4]) {
+pub(crate) fn light_texture(colour: [f32; 3]) -> (String, [u8; 4]) {
     let most = colour.iter().fold(0.0f32, |a, b| a.max(*b)).max(1e-3);
     let [r, g, b] = colour.map(|value| ((value / most).clamp(0.0, 1.0) * 255.0) as u8);
     (
         format!("kjk-editor-light-{r:02x}{g:02x}{b:02x}"),
         [r, g, b, 255],
     )
-}
-
-/// A texture's name for the scene's list, which holds `&'static str`s.
-/// The editor makes few colours, so the names it keeps are few.
-fn leak(name: String) -> &'static str {
-    static NAMES: std::sync::Mutex<BTreeMap<String, &'static str>> =
-        std::sync::Mutex::new(BTreeMap::new());
-    let mut names = NAMES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    names
-        .entry(name.clone())
-        .or_insert_with(|| Box::leak(name.into_boxed_str()))
-}
-
-fn diamond(r: f32) -> Vec<[[f32; 3]; 3]> {
-    let points = [
-        [r, 0.0, 0.0],
-        [-r, 0.0, 0.0],
-        [0.0, r, 0.0],
-        [0.0, -r, 0.0],
-        [0.0, 0.0, r * 1.6],
-        [0.0, 0.0, -r * 1.6],
-    ];
-    let mut out = Vec::new();
-    for (a, b) in [(0, 2), (2, 1), (1, 3), (3, 0)] {
-        out.push([points[a], points[b], points[4]]);
-        out.push([points[b], points[a], points[5]]);
-    }
-    out
 }
 
 /// The marker colour of each kind.
@@ -816,10 +790,10 @@ pub(crate) fn kind_colour(kind: Kind) -> (&'static str, [u8; 4]) {
     }
 }
 
-const PROP_MARKER: (&str, [u8; 4]) = ("kjk-editor-prop", [120, 200, 255, 255]);
+pub(crate) const PROP_MARKER: (&str, [u8; 4]) = ("kjk-editor-prop", [120, 200, 255, 255]);
 /// A lamp placed by hand: warm yellow.
-const LAMP_MARKER: (&str, [u8; 4]) = ("kjk-editor-lamp", [255, 210, 90, 255]);
-const ENTRY_MARKER: (&str, [u8; 4]) = ("kjk-editor-entry", [255, 230, 60, 255]);
+pub(crate) const LAMP_MARKER: (&str, [u8; 4]) = ("kjk-editor-lamp", [255, 210, 90, 255]);
+pub(crate) const ENTRY_MARKER: (&str, [u8; 4]) = ("kjk-editor-entry", [255, 230, 60, 255]);
 const BOX_FILL: (&str, [u8; 4]) = ("kjk-editor-box", [60, 230, 255, 110]);
 const TRIGGER_FILL: (&str, [u8; 4]) = ("kjk-editor-trigger-fill", [80, 220, 255, 70]);
 const ENCOUNTER_FILL: (&str, [u8; 4]) = ("kjk-editor-encounter-fill", [255, 255, 255, 60]);
@@ -936,9 +910,8 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         state.say(note);
     }
 
-    // Markers and boxes.
+    // Boxes and outlines. The markers are icons over the view (`markers`).
     let mut textures: Vec<(&str, [u8; 4])> = vec![
-        PROP_MARKER,
         BOX_FILL,
         WALKABLE_BOX,
         NAV_BLOCK_BOX,
@@ -946,19 +919,10 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         TRIGGER_FILL,
         ENCOUNTER_FILL,
     ];
-    textures.extend(Kind::ALL.map(kind_colour));
     for (entry, models) in entries.iter().zip(models_of) {
-        let (texture, _) = kind_colour(entry.kind);
-        let marker = scene.models.len();
-        scene.models.push(Placed::at(
-            flat_model("marker", &diamond(MARKER_R), texture, true),
-            entry.position,
-        ));
-        drawn.things.push((
-            Target::Object(entry.kind, entry.index),
-            models,
-            Some(marker),
-        ));
+        drawn
+            .things
+            .push((Target::Object(entry.kind, entry.index), models));
     }
     // A trigger's and an encounter's outline: a see-through floor of its
     // shape, a few centimetres up, moved with the object.
@@ -984,31 +948,19 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             flat_model("outline", &fan, texture, true),
             entry.position,
         ));
-        if let Some((_, models, _)) = drawn.things.get_mut(entry_at) {
+        if let Some((_, models)) = drawn.things.get_mut(entry_at) {
             models.push(model);
         }
     }
-    for (at, prop) in props.iter().enumerate() {
-        let marker = scene.models.len();
-        scene.models.push(Placed::at(
-            flat_model("marker", &diamond(MARKER_R), PROP_MARKER.0, true),
-            prop.position,
-        ));
-        drawn.things.push((
-            Target::Prop(at),
-            prop_models[at].into_iter().collect(),
-            Some(marker),
-        ));
+    for (at, model) in prop_models.into_iter().enumerate() {
+        drawn
+            .things
+            .push((Target::Prop(at), model.into_iter().collect()));
     }
     // The lamps placed by hand: the scene drew their models
     // (`kjk_game::lamps`), in the order the project lists them.
     let lamps = state.editor.project.kjk.lamps.clone();
     for (at, lamp) in lamps.iter().enumerate() {
-        let marker = scene.models.len();
-        scene.models.push(Placed::at(
-            flat_model("marker", &diamond(MARKER_R), LAMP_MARKER.0, true),
-            lamp.at,
-        ));
         let models = scene.lamps.get(at).and_then(|(model, _)| *model);
         if models.is_none() {
             state.say(format!(
@@ -1018,9 +970,8 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         }
         drawn
             .things
-            .push((Target::Lamp(at), models.into_iter().collect(), Some(marker)));
+            .push((Target::Lamp(at), models.into_iter().collect()));
     }
-    textures.push(LAMP_MARKER);
     for (at, shape) in state.editor.project.kjk.boxes.iter().enumerate() {
         let local = CollisionBox {
             centre: [0.0; 3],
@@ -1041,7 +992,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
                 shape.centre,
             )
         });
-        drawn.things.push((Target::Box(at), vec![model], None));
+        drawn.things.push((Target::Box(at), vec![model]));
     }
 
     // A new map's rooms, in the layout's order, and its entry.
@@ -1053,15 +1004,8 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
                 .and_then(|room| room.model)
                 .into_iter()
                 .collect();
-            drawn.things.push((Target::Room(at), models, None));
+            drawn.things.push((Target::Room(at), models));
         }
-        let marker = scene.models.len();
-        scene.models.push(Placed::at(
-            flat_model("marker", &diamond(MARKER_R * 1.6), ENTRY_MARKER.0, true),
-            map.entry,
-        ));
-        drawn.things.push((Target::Entry, Vec::new(), Some(marker)));
-        textures.push(ENTRY_MARKER);
     }
 
     // The collision overlay.
@@ -1109,9 +1053,10 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         state.room_measures = Some(measure_rooms(&scene));
     }
 
-    // The lights: each a marker in its colour, the selected one with its
-    // reach drawn round it. The game's own are read from the scene as play
-    // places them (`fitted_lights::explained`).
+    // The lights the game places itself, read from the scene as play
+    // places them (`fitted_lights::explained`). Each light's marker is an
+    // icon over the view (`markers`), and the selected one's reach is drawn
+    // there too (`ui::reach_in_view`).
     state.editor.seen_lights.clear();
     if state.show_lights {
         let found = kjk_game::fitted_lights::explained(&scene);
@@ -1124,34 +1069,9 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
             .map(|(light, source, _)| (light.placed(), source.clone()))
             .collect();
         state.editor.seen_on_placeable = fitted.iter().map(|(_, _, on)| *on).collect();
-        let placed: Vec<(Target, level_edit::PlacedLight)> = (state.editor.project.kjk.lights)
-            .iter()
-            .enumerate()
-            .map(|(at, light)| (Target::Light(at), light.clone()))
-            .chain(
-                (state.editor.seen_lights)
-                    .iter()
-                    .enumerate()
-                    .map(|(at, (light, _))| (Target::Fitted(at), light.clone())),
-            )
-            .collect();
-        for (target, light) in placed {
-            let texture = light_texture(light.colour);
-            let size = if matches!(target, Target::Light(_)) {
-                MARKER_R
-            } else {
-                MARKER_R * 0.6
-            };
-            let marker = scene.models.len();
-            scene.models.push(Placed::at(
-                flat_model("light", &diamond(size), &texture.0, true),
-                light.at,
-            ));
-            textures.push((leak(texture.0.clone()), texture.1));
-            drawn.things.push((target, Vec::new(), Some(marker)));
-        }
     }
     state.shown_lights = (state.light_view, state.bake.clone(), state.show_lights);
+    state.creature_talks = crate::markers::creature_talks(state);
 
     // The navigation mesh, as play bakes it with the project's changes
     // (`level_edit::nav`).
@@ -1309,7 +1229,7 @@ pub(crate) fn follow(
 ) {
     let Some(scene) = scene else { return };
     let mut wanted: BTreeMap<usize, Mat4> = BTreeMap::new();
-    for (target, models, marker) in &state.drawn.things {
+    for (target, models) in &state.drawn.things {
         let Some((position, facing)) = state.editor.placement(*target) else {
             continue;
         };
@@ -1321,25 +1241,6 @@ pub(crate) fn follow(
                 continue;
             }
             wanted.insert(model, root(placed, position, facing));
-        }
-        if let Some(marker) = *marker {
-            let rise = match target {
-                Target::Object(Kind::Creature, _) => 2.0,
-                _ => MARKER_RISE,
-            };
-            let grown = if state.editor.selected == Some(*target) {
-                1.8
-            } else {
-                1.0
-            };
-            wanted.insert(
-                marker,
-                Mat4::from_scale_rotation_translation(
-                    Vec3::splat(grown),
-                    Quat::IDENTITY,
-                    Vec3::from_array(position) + Vec3::Z * rise,
-                ),
-            );
         }
     }
     for (model, mut transform) in &mut roots {
@@ -1415,8 +1316,8 @@ pub(crate) fn place_point(
         .unwrap_or_else(|| (ray.0 + ray.1.normalize_or_zero() * PLACE_AHEAD_M).to_array())
 }
 
-/// The nearest drawn thing a ray passes through: its marker, or its model's
-/// bounds. A new map's room is picked last, when nothing else is: the room
+/// The nearest drawn thing a ray passes through: its model's bounds. A
+/// marker is picked on the screen before this (`markers::under`). A new map's room is picked last, when nothing else is: the room
 /// whose model holds `floor`, where the ray meets the level, and of those
 /// the smallest.
 pub(crate) fn pick(
@@ -1432,22 +1333,10 @@ pub(crate) fn pick(
             best = Some((distance, target));
         }
     };
-    for (target, models, marker) in &state.drawn.things {
+    for (target, models) in &state.drawn.things {
         let Some((position, facing)) = state.editor.placement(*target) else {
             continue;
         };
-        if marker.is_some() {
-            let rise = match target {
-                Target::Object(Kind::Creature, _) => 2.0,
-                _ => MARKER_RISE,
-            };
-            let centre = Vec3::from_array(position) + Vec3::Z * rise;
-            let along = (centre - origin).dot(direction);
-            let off = (origin + direction * along - centre).length();
-            if along > 0.0 && off < MARKER_R * 1.5 {
-                offer(along, *target);
-            }
-        }
         if let Target::Room(_) = target {
             continue;
         }
@@ -1492,7 +1381,7 @@ pub(crate) fn pick(
     {
         let floor = Vec3::from_array(floor);
         let mut smallest: Option<(f32, Target)> = None;
-        for (target, models, _) in &state.drawn.things {
+        for (target, models) in &state.drawn.things {
             let (Target::Room(_), Some((position, _))) = (target, state.editor.placement(*target))
             else {
                 continue;
@@ -3550,7 +3439,7 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
         Target::Lamp(at) => {
             let lamp = state.editor.project.kjk.lamps.get(at);
             let drawn = (state.drawn.things.iter())
-                .any(|(target, models, _)| *target == Target::Lamp(at) && !models.is_empty());
+                .any(|(target, models)| *target == Target::Lamp(at) && !models.is_empty());
             serde_json::json!({
                 "kind": "lamp",
                 "index": at,
@@ -3650,7 +3539,7 @@ pub(crate) fn publish(state: Res<EditorState>, mut facts: ResMut<DumpFacts>) {
                 }),
                 Err(why) => serde_json::json!({"model": path, "error": why}),
             }).collect::<Vec<_>>(),
-            "drawn_props": state.drawn.things.iter().filter(|(t, models, _)| matches!(t, Target::Prop(_)) && !models.is_empty()).count(),
+            "drawn_props": state.drawn.things.iter().filter(|(t, models)| matches!(t, Target::Prop(_)) && !models.is_empty()).count(),
             "collision_overlay": state.drawn.overlay.is_some(),
             "templates": { "placeables": state.setup.placeables.len(), "creatures": state.setup.creatures.len(), "ja_models": state.setup.models.len() },
             "messages": state.messages,

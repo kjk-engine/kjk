@@ -35,6 +35,8 @@ bevy_egui = { version = "0.42.0", default-features = false, features = ["render"
 # The move, rotate and scale handles, drawn with egui (its 0.11 is for
 # egui 0.36, bevy_egui 0.42's).
 transform-gizmo-egui = "0.11.0"
+# The markers' icons (`markers`), drawn from SVG once as the window opens.
+resvg = { version = "0.49", default-features = false }
 
 [lints]
 workspace = true
