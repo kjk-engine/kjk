@@ -628,7 +628,8 @@ impl Step<'_> {
     /// good parry, when `d`'s stance set has the parry for where the blades
     /// met and `d`'s weapon. The parry is not a saber move: `d` stays in
     /// the ready move, its torso plays the parry over it, and its weapon
-    /// timer is set to a random 300 to 600 ms. It is skipped, with the
+    /// timer is set to a random 150 to 300 ms after a perfect block, or 300
+    /// to 600 ms after a good parry (`duel::parry_wait`). It is skipped, with the
     /// perfect block's rewards kept, while `d` is in a transition, a
     /// bounce, a knockaway, an attack or a broken move, rolling, down, or
     /// raising or lowering its blade. A perfect block of an unblockable
@@ -675,7 +676,7 @@ impl Step<'_> {
             return if perfect { Took::Nothing } else { took };
         }
         let length = i64::from(sequence.frames) * i64::from(sequence.frame_lerp.abs());
-        let wait = duel::parry_wait(|low, high| roll_between(self.rng, low, high));
+        let wait = duel::parry_wait(perfect, |low, high| roll_between(self.rng, low, high));
         let now = self.now;
         let f = &mut self.men[d].f;
         f.weapon_wait_ms = wait;

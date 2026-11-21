@@ -1369,7 +1369,9 @@ of it runs: every path is gated on `SaberRules::duel`. A saved setting of
   `docs/SABER-RULES.md` 3.1): after a perfect block, or a creature's good
   parry, a fighter whose stance set has the parry stays in the ready move.
   Its torso plays the set's parry for where the blades met and its
-  weapon, and its weapon timer is set to a random 300 to 600 ms. Once the
+  weapon. Its weapon timer is set to a random 150 to 300 ms after a
+  perfect block, and to a random 300 to 600 ms after a creature's good
+  parry. Once the
   timer has run out a new swing replaces the parry. A fighter without
   such a parry plays JA's knockaway as a saber move.
 - **The upkeep** (`duel::meter::refill`): Stamina coming back, a worn

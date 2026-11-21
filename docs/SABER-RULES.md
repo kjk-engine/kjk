@@ -265,7 +265,9 @@ Read from the source of 2026-11-11.
 
 - **How it plays.** On the torso only. The legs keep their stand, walk or run, and the blocker may move. It is forced
   over what the torso played, from its start, with a 100 ms blend, and it is held for its whole length. The weapon
-  timer is set to a random 300 to 600 ms. The MD knockaways and the back parries play at their own rate. The bounce
+  timer is set to a random 300 to 600 ms. In kjk the timer after a perfect block is a random 150 to 300 ms instead.
+  The attacker is frozen for 350 ms, so the blocker can always strike back first, and inside the 500 ms riposte
+  window. A creature's good parry keeps the 300 to 600 ms. The MD knockaways and the back parries play at their own rate. The bounce
   sequences (BOTH_B#_) follow the speed rules of 6.4.
 - **Not a saber move.** The blocker's saber move stays the ready move, with no start or end quadrant. When the hold
   ends the blocker shows the held-block pose (11.5) if block is still held, else the ready stance. There is no return

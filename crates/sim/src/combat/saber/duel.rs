@@ -653,9 +653,15 @@ pub fn parry_blades(style: Option<Style>) -> usize {
 }
 
 /// A perfect parry's weapon timer (`docs/SABER-RULES.md` 3.1): a roll of
-/// `roll` between `perfect::PARRY_WAIT_MS`'s shortest and longest.
-pub fn parry_wait(roll: impl FnOnce(i32, i32) -> i32) -> i32 {
-    let [shortest, longest] = perfect::PARRY_WAIT_MS;
+/// `roll` between the shortest and longest of `perfect::BLOCK_WAIT_MS`
+/// after a `perfect` block, else of `perfect::PARRY_WAIT_MS` (a creature's
+/// good parry).
+pub fn parry_wait(perfect: bool, roll: impl FnOnce(i32, i32) -> i32) -> i32 {
+    let [shortest, longest] = if perfect {
+        perfect::BLOCK_WAIT_MS
+    } else {
+        perfect::PARRY_WAIT_MS
+    };
     roll(shortest, longest)
 }
 

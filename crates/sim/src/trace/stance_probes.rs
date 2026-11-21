@@ -1060,7 +1060,7 @@ fn perfect_parry() -> Result<String, String> {
     let (_, table) = tables()?;
     let sets = sets_of(&table)?;
     let kinds = [("medium", 0), ("dual", 1), ("staff", 2)];
-    let wait = rules::duel::perfect::PARRY_WAIT_MS;
+    let wait = rules::duel::perfect::BLOCK_WAIT_MS;
     let mut wrong = Vec::new();
     let mut said = Vec::new();
     for (kind, blades) in kinds {
