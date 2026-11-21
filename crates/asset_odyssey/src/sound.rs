@@ -259,8 +259,7 @@ impl Tables {
                     .into_iter()
                     .find(|column| table.column(column).is_some())
             };
-            let [volume, near, far] =
-                ["volume", "maxvolumedist", "minvolumedist"].map(|name| named(name));
+            let [volume, near, far] = ["volume", "maxvolumedist", "minvolumedist"].map(named);
             (0..table.cells.len())
                 .map(|row| {
                     let volume = u8::try_from(table.int(row, volume.as_deref()?)?).ok()?;
@@ -301,20 +300,22 @@ impl Tables {
         self.group(group)?.range
     }
 
-    /// How loud a placed sound of `group` at `volume` (0 to 127) is next to
-    /// it, as a share of a conversation's voice, both at the sliders'
-    /// default. The executables first scale the volume by the group's
-    /// (`volume × group / 127`, rounded down). A streamed sound (a sound
-    /// object's loop, a sound set's line) then plays at that over 127
-    /// times the slider. Any other placed sound (a footstep, a door, a
-    /// script's sound) plays at that same product raised to the power 0.6,
-    /// which makes a quiet sound louder than its volume says.
-    pub fn placed_gain(&self, group: Group, volume: u8, streamed: bool) -> f32 {
+    /// The level a placed sound of `group` at `volume` (0 to 127) is given
+    /// at the sliders' default, from 0 to 1. The executables first scale
+    /// the volume by the group's (`volume × group / 127`, rounded down),
+    /// then take that over 127 times the slider. A streamed sound (a sound
+    /// object's loop, a sound set's line) plays at this level. Any other
+    /// placed sound (a footstep, a door, a script's sound) plays at it
+    /// raised to the power 0.6 (the view does that: `ambience::placed`).
+    pub fn placed_level(&self, group: Group, volume: u8) -> f32 {
         let scaled = (u32::from(volume.min(127)) * u32::from(self.group_volume(group))) / 127;
-        let level = scaled as f32 / 127.0 * SLIDER;
-        let heard = if streamed { level } else { level.powf(0.6) };
-        let voice = self.group_gain(Group::Conversation) * SLIDER;
-        heard / voice.max(f32::EPSILON)
+        scaled as f32 / 127.0 * SLIDER
+    }
+
+    /// A conversation's voice's level at the sliders' default, which the
+    /// view measures every placed sound's loudness against.
+    pub fn voice_level(&self) -> f32 {
+        self.group_gain(Group::Conversation) * SLIDER
     }
 
     fn group_volume(&self, group: Group) -> u8 {
@@ -700,46 +701,43 @@ fn k1_group_tables() -> Tables {
 pub fn group_probes() -> Vec<(&'static str, Result<String, String>)> {
     let tables = k1_group_tables();
     let checked = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
-    // (name, group, volume, streamed, gain as a share of a voice)
-    let gains = [
+    // (name, group, volume, level as a share of a voice's)
+    let levels = [
         (
-            "a small creature's footstep is 65 of 127 raised to 0.6",
+            "a small creature's footstep is at 65 of a voice's 90",
             Group::SmallSteps,
             127,
-            false,
-            1.1086,
+            65.0 / 90.0,
         ),
         (
-            "a positional loop streams at 100 over a voice's 90",
+            "a positional loop is at 100 of a voice's 90",
             Group::PositionalAmbient,
             127,
-            true,
             100.0 / 90.0,
         ),
-        (
-            "a voice is the reference",
-            Group::Conversation,
-            127,
-            true,
-            1.0,
-        ),
+        ("a voice is the reference", Group::Conversation, 127, 1.0),
         (
             "a group the table lacks plays at its own volume",
             Group::Scripted,
             127,
-            true,
             127.0 / 90.0,
         ),
+        (
+            "a volume scaled by its group is rounded down",
+            Group::SmallSteps,
+            100,
+            51.0 / 90.0,
+        ),
     ];
-    let mut checks: Vec<_> = gains
+    let mut checks: Vec<_> = levels
         .into_iter()
-        .map(|(name, group, volume, streamed, expected)| {
-            let gain = tables.placed_gain(group, volume, streamed);
+        .map(|(name, group, volume, expected)| {
+            let share = tables.placed_level(group, volume) / tables.voice_level();
             (
                 name,
                 checked(
-                    (gain - expected).abs() < 1e-3,
-                    format!("{gain} (expected {expected})"),
+                    (share - expected).abs() < 1e-5,
+                    format!("{share} (expected {expected})"),
                 ),
             )
         })

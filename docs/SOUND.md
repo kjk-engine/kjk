@@ -297,7 +297,7 @@ the view's:
   (`Looping_AreaWide_Ambients` 95) at 0.53 × its volume over 127; TSL's
   ambience 112. The menu's and credits' music, with no area's tables, as
   K1's.
-- **Placed sounds by group** (`Tables::placed_gain`, `ambience::placed`):
+- **Placed sounds by group** (`Tables::placed_level`, `ambience::placed`):
   every sound in the world that comes from KOTOR's files plays in the
   priority group the executables give it (read in TSL's Mac executable).
   The group sets how loud the sound is and how far it carries. A sound is

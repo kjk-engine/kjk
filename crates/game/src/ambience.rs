@@ -1470,7 +1470,7 @@ fn emit(
         (false, true) => Group::PositionalShot,
         (false, false) => Group::GlobalShot,
     };
-    let gain = |volume: u8| tables.placed_gain(group, volume, emitter.looping);
+    let gain = |volume: u8| placed_gain(tables, group, volume, emitter.looping);
     // One looping sound loops seamlessly; several play in turn.
     if emitter.looping && emitter.sounds.len() == 1 {
         let file = &emitter.sounds[0];
@@ -1733,10 +1733,10 @@ impl Ambience {
 }
 
 /// How a placed sound of `group` at `volume` (0 to 127) falls off and how
-/// loud it is, as the executables play it (`Tables::placed_gain`): full
-/// within the group's near distance, silent past its far one, or heard
-/// alike everywhere for a group without distances. `streamed` is a sound
-/// the executables stream (a sound object's loop, a sound set's line).
+/// loud it is, as the executables play it: full within the group's near
+/// distance, silent past its far one, or heard alike everywhere for a
+/// group without distances. `streamed` is a sound the executables stream
+/// (a sound object's loop, a sound set's line).
 fn placed(tables: &Tables, group: Group, volume: u8, streamed: bool) -> (Falloff, f32) {
     let falloff = match tables.group_range(group) {
         Some((near, far)) => Falloff::Range {
@@ -1746,7 +1746,17 @@ fn placed(tables: &Tables, group: Group, volume: u8, streamed: bool) -> (Falloff
         },
         None => Falloff::Everywhere,
     };
-    (falloff, tables.placed_gain(group, volume, streamed))
+    (falloff, placed_gain(tables, group, volume, streamed))
+}
+
+/// How loud a placed sound of `group` at `volume` is next to it, as a share
+/// of a conversation's voice (`Tables::placed_level`). A streamed sound
+/// plays at its level. Any other placed sound plays at its level raised to
+/// the power 0.6, which makes a quiet sound louder than its volume says.
+fn placed_gain(tables: &Tables, group: Group, volume: u8, streamed: bool) -> f32 {
+    let level = tables.placed_level(group, volume);
+    let heard = if streamed { level } else { level.powf(0.6) };
+    heard / tables.voice_level().max(f32::EPSILON)
 }
 
 /// The `footstepsounds.2da` row `entity` walks with: its body's appearance's
