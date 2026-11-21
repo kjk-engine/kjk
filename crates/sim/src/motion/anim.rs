@@ -829,6 +829,8 @@ anims!(
     BOTH_PLAYER_PA_3,
     BOTH_PLAYER_PA_FLY,
     BOTH_PLAYER_PA_3_FLY,
+    // Lightning cast with both hands, by a character with no weapon.
+    BOTH_FORCE_2HANDEDLIGHTNING_HOLD,
 );
 
 impl Anim {
