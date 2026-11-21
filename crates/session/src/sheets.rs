@@ -1593,6 +1593,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
     let score = |label: &str| root.int(label).unwrap_or(10).clamp(0, 255) as u8;
     let abilities = ["Str", "Dex", "Con", "Int", "Wis", "Cha"].map(score);
     let (mut level, mut bab, mut saves, mut class_ac) = (0i64, 0i64, [0i64; 3], 0i64);
+    let mut has_force = false;
     let mut powers = sim::combat::sheet::Powers::default();
     for class in root.list("ClassList") {
         let (Some(row), Some(levels)) = (class.int("Class"), class.int("ClassLevel")) else {
@@ -1600,6 +1601,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         };
         let (row, levels) = (usize::try_from(row).ok()?, levels.max(0));
         level += levels;
+        has_force |= tables.int("classes", row, "forcedie").unwrap_or(0) > 0;
         let cell = |tables: &mut Tables, table: &str, column: &str| {
             crate::classes::level_cell(tables, table, column, levels).unwrap_or(0)
         };
@@ -1655,6 +1657,17 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             .unwrap_or(0)
             .clamp(0, i64::from(u16::MAX)) as u16
     };
+    let force_sensitive = feats.has(sim::combat::sheet::feats::FORCE_SENSITIVE);
+    let max_fp = if (has_force || force_sensitive) && race != races::DROID {
+        let sensitive = if force_sensitive {
+            rules::feats::force_sensitive::POINTS
+        } else {
+            0
+        };
+        points("ForcePoints", "CurrentForce").saturating_add(sensitive)
+    } else {
+        0
+    };
     // The sheet without its items, then what they add (`sim::inventory`).
     let naked = Sheet {
         abilities,
@@ -1662,7 +1675,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         bab: bab.clamp(0, 255) as u8,
         saves: saves.map(|save| save.clamp(-128, 127) as i8),
         max_hp: points("MaxHitPoints", "HitPoints").max(1),
-        max_fp: points("ForcePoints", "CurrentForce"),
+        max_fp,
         defence: defence.clamp(-128, 127) as i8,
         dex_cap: None,
         feats,

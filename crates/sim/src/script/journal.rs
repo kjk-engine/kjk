@@ -167,7 +167,8 @@ impl Engine<'_> {
                         entry,
                     });
                     self.out.statuses.push(StatusKind::Journal);
-                    let xp = self.library.quest_xp(tag, entry);
+                    let xp =
+                        super::xp::mentor(self.view, self.state, self.library.quest_xp(tag, entry));
                     self.out.story_xp(self.state, xp);
                     super::xp::tell_pc_level(self.library, self.view, self.state);
                 }

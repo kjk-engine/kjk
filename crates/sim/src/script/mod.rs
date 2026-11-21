@@ -3967,7 +3967,7 @@ impl Step<'_> {
                 Target::Point(at, _) => (ObjectId::INVALID, at),
             };
             let caught = Some(object)
-                .filter(|id| *id != ObjectId::INVALID)
+                .filter(|id| *id != ObjectId::INVALID && *id != who)
                 .into_iter()
                 .collect();
             self.impact(&Cast {

@@ -250,6 +250,7 @@ crates/sim/src/combat/sheet.rs INSANE  # repute.2da row
 crates/sim/src/combat/sheet.rs ION  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs JEDI_DEFENSE  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs MASTER_FLURRY  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs MENTOR  # feat.2da row
 crates/sim/src/combat/sheet.rs MIGHTY  # a bit flag
 crates/sim/src/combat/sheet.rs MINE_IMMUNITY  # feat.2da row
 crates/sim/src/combat/sheet.rs MIN_ONE_HP  # a bit flag
