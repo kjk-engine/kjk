@@ -46,6 +46,7 @@ const CASES: &[(&str, Case)] = &[
     ("revive_chosen_broken", revive_chosen_broken),
     ("free_play_poison_death", free_play_poison_death),
     ("poison_ends_with_the_fall", poison_ends_with_the_fall),
+    ("resurrect_percent", resurrect_percent),
 ];
 
 /// A downed fighter, and one being revived, read back as written.
@@ -438,7 +439,7 @@ fn raised_from_death() -> Result<String, String> {
         }
         run.step(&[]);
         let dead = run.life(who).0;
-        run.effect(who, Effect::Resurrection);
+        run.effect(who, Effect::Resurrection(0));
         run.step(&[]);
         let (life, hp) = run.life(who);
         let lying = run
@@ -1138,5 +1139,30 @@ fn poison_ends_with_the_fall() -> Result<String, String> {
         "downed by the dose, the poison gone; up {} ms later and standing 5 s on at {} HP",
         rose - downed_at,
         host.hp / 100
+    ))
+}
+
+/// `EffectResurrection(nHPPercent)` revives a downed companion at `nHPPercent`%
+/// of its maximum health (TSL's `a_attonspirit` passes 20).
+fn resurrect_percent() -> Result<String, String> {
+    let mut run = Run::new(2, false)?;
+    run.step(&[]);
+    let max_hp = run.fighter(Who::Ally).hp / 100;
+    run.hit(Who::Ally, 999);
+    run.step(&[]);
+    let downed = run.life(Who::Ally).0;
+    run.effect(Who::Ally, Effect::Resurrection(20));
+    run.step(&[]);
+    let (life, hp) = run.life(Who::Ally);
+    let expected = (max_hp * 20 / 100).clamp(1, max_hp) * 100;
+    if downed != Life::Downed || life != Life::Alive || hp != expected {
+        return Err(format!(
+            "downed {downed:?}, then {life:?} at {hp}/100 HP (expected {expected}/100 of {max_hp})"
+        ));
+    }
+    Ok(format!(
+        "downed companion revived with EffectResurrection(20) at {}/{} HP",
+        hp / 100,
+        max_hp
     ))
 }

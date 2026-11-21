@@ -1,0 +1,6 @@
+# EffectResurrection carries its health percentage (nHPPercent) for Atton's spirit revival.
+[formats]
+save = "Effect::Resurrection carries its nHPPercent (tag 19 when non-zero; tag 12 stays 0)."
+
+[migrations]
+save = "old saves carry tag 12 for Effect::Resurrection(0); tag 19 adds the health percentage."

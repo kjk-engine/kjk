@@ -177,8 +177,9 @@ pub enum Effect {
         vulnerable: u16,
         resist: u16,
     },
-    /// A downed party member up again (`EffectResurrection`).
-    Resurrection,
+    /// A downed party member up again (`EffectResurrection`), with its share
+    /// of its most HP (`0..=100`; 0 for `falls::RISE_HP`).
+    Resurrection(u8),
     /// A poison's course (`EffectPoison`, a `poison.2da` row's).
     Poison(crate::combat::items::Course),
     /// Thrown back and knocked down, away from `from` (metres;
@@ -243,7 +244,7 @@ impl Effect {
             Effect::Hold(hold) => format!("Effect{hold:?}"),
             Effect::State { state, .. } => format!("a state ({state})"),
             Effect::Shield { .. } => "EffectForceShield".into(),
-            Effect::Resurrection => "EffectResurrection".into(),
+            Effect::Resurrection(_) => "EffectResurrection".into(),
             Effect::Poison(_) => "EffectPoison".into(),
             Effect::Pushed { from: Some(_) } => "EffectForcePushTargeted".into(),
             Effect::Pushed { from: None } => "EffectForcePushed".into(),
@@ -326,7 +327,11 @@ impl Effect {
                 out.u16(*vulnerable);
                 out.u16(*resist);
             }
-            Effect::Resurrection => out.u8(12),
+            Effect::Resurrection(0) => out.u8(12),
+            Effect::Resurrection(percent) => {
+                out.u8(19);
+                out.u8(*percent);
+            }
             Effect::Knockdown => out.u8(17),
             Effect::Ints {
                 modifies,
@@ -416,7 +421,8 @@ impl Effect {
                     resist,
                 }
             }
-            12 => Effect::Resurrection,
+            12 => Effect::Resurrection(0),
+            19 => Effect::Resurrection(input.u8()?.min(100)),
             17 => Effect::Knockdown,
             18 => Effect::Ints {
                 modifies: Modifies::of_index(input.u8()?)

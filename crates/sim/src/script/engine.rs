@@ -496,14 +496,13 @@ const SAVES: [(&str, u8); 3] = [
     ("SAVING_THROW_WILL", 2),
 ];
 
-/// Whether `cast` is an item its user used on itself: no Force power (it
-/// costs no Force points), no grenade, cast on its own caster, catching no
+/// Whether `cast` is a self-targeted cast with no delivery of JA's (an item
+/// its user used on itself, or a power cast from the action bar or by a
+/// script on `OBJECT_SELF`): no grenade, cast on its own caster, catching no
 /// one by JA's delivery. Its impact's shapes are the world's.
-fn own_item_use(view: &View, cast: &super::Cast) -> bool {
-    let power = (view.module.force_costs.get(usize::from(cast.row))).is_some_and(|cost| *cost > 0);
+fn own_item_use(_view: &View, cast: &super::Cast) -> bool {
     cast.caught.is_empty()
         && cast.target == cast.caster
-        && !power
         && !crate::combat::grenades::is_grenade(cast.row)
 }
 
@@ -1353,7 +1352,7 @@ impl Engine<'_> {
                     | Effect::Death
                     | Effect::HealForcePoints(_)
                     | Effect::DamageForcePoints(_)
-                    | Effect::Resurrection
+                    | Effect::Resurrection(_)
                     | Effect::Poison { .. }
                     | Effect::Pushed { .. }
                     | Effect::Knockdown
@@ -2454,6 +2453,7 @@ impl Engine<'_> {
                 });
                 truth(
                     attacking
+                        || self.view.embattled.contains(&who)
                         || self
                             .character(who)
                             .is_some_and(|c| c.in_combat && !(only_real && c.fake_combat)),
@@ -3638,7 +3638,10 @@ impl Engine<'_> {
                     None => self.effect_value(Effect::Other("EffectForceShield".into())),
                 }
             }
-            EffectResurrection => self.effect_value(Effect::Resurrection),
+            EffectResurrection => {
+                let percent = int(args, 0).clamp(0, 100) as u8;
+                self.effect_value(Effect::Resurrection(percent))
+            }
             EffectACIncrease | EffectACDecrease => {
                 let sign = if bound == EffectACIncrease { 1 } else { -1 };
                 self.modifier(Modifies::Defence, sign * int(args, 0), 0)

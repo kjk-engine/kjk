@@ -453,11 +453,18 @@ pub(super) fn hurt(
                 // (TSL's academy: Bao-Dur spawned in his cell, killed where
                 // he lies by `EffectDeath`, and raised as the cells open,
                 // `a_shutdowncells`, to speak to the Exile).
-                ScriptEffect::Resurrection => {
+                ScriptEffect::Resurrection(percent) => {
+                    let percent = *percent;
                     if let Some(at) = at {
-                        let (.., player, fighting) = &mut actors[at];
+                        let (_, _, object, sheet, player, fighting) = &mut actors[at];
                         if fighting.0.downed() || fighting.0.dead() {
-                            falls::stand(&mut player.0, &mut fighting.0, &level.0.anims, now);
+                            let max_hp = i32::from(sheet_of(*sheet, *object).max_hp);
+                            let hp = if percent > 0 {
+                                (max_hp * i32::from(percent) / 100).clamp(1, max_hp) * 100
+                            } else {
+                                falls::RISE_HP
+                            };
+                            falls::get_up(&mut player.0, &mut fighting.0, &level.0.anims, hp, now);
                         }
                     }
                 }

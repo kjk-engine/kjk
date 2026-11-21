@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d478d4b3ea50a68d`.
+Edition `99e4a0aff324c12e`.
 
 ## Contents
 
@@ -9633,6 +9633,22 @@ multiplies the result by its experience percentage and rounds it up.
 KOTOR 2's experience table for defeated enemies stops at row and column 30. A higher level or challenge rating counts as the last row or column.
 
 <sub>Source: TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`). Code: `sim::script::xp::Experience::tsl_kill`.</sub>
+
+<a id="progression-experience-mentor-levels"></a>**Mentor Tiers** = **6 / 12** · `progression.experience.mentor_levels`
+
+first tier's top level **6** · second tier's top level **12**
+
+In KOTOR 2, Mentor gives its first experience bonus up to level 6, its second up to level 12, and its third above that.
+
+<sub>Source: TSL's executable (`CSWPartyTable::DistributeExperience`) and the feat's description. Code: `sim::script::xp::mentor`.</sub>
+
+<a id="progression-experience-mentor-share"></a>**Mentor Bonus** = **0.03 / 0.05 / 0.07** · `progression.experience.mentor_share`
+
+to the first tier **0.03** · to the second **0.05** · above it **0.07**
+
+A party member in the active party with Mentor adds 0.03 / 0.05 / 0.07 of each experience reward, rounded up, by the mentor's level.
+
+<sub>Source: TSL's executable (`CSWPartyTable::DistributeExperience`: 3%, 5%, 7% by the first active mentor's total level, rounded up) and the feat's description. Code: `sim::script::xp::mentor`.</sub>
 
 ### <a id="progression-skill-xp"></a>Experience for Mines and Locks
 

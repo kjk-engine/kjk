@@ -222,8 +222,47 @@ pub(crate) fn reward_skill(
     let Some(level) = level else {
         return;
     };
-    out.reward(state, used.worth(level, dc));
+    out.reward(state, mentor(view, state, used.worth(level, dc)));
     tell_pc_level(library, view, state);
+}
+
+/// `amount` with the first active party member's Mentor bonus added, rounded
+/// up (`CSWPartyTable::DistributeExperience`: 3 % up to level 6, 5 % up to
+/// 12, 7 % above that).
+pub(crate) fn mentor(view: &View, state: &State, amount: i32) -> i32 {
+    if amount <= 0 {
+        return amount;
+    }
+    let level = view
+        .party
+        .iter()
+        .copied()
+        .chain(state.party.creatures().map(ObjectId))
+        .filter_map(|id| view.thing(id)?.character)
+        .find(|character| character.worn.knows(crate::combat::sheet::feats::MENTOR))
+        .map(|character| character.worn.level)
+        .unwrap_or(0);
+    if level == 0 {
+        return amount;
+    }
+    mentor_bonus(amount, level)
+}
+
+/// `amount` with the Mentor bonus for `level` added, rounded up.
+fn mentor_bonus(amount: i32, level: u8) -> i32 {
+    if amount <= 0 || level == 0 {
+        return amount;
+    }
+    let [first, second] = rules::progression::experience::MENTOR_LEVELS;
+    let [one, two, three] = rules::progression::experience::MENTOR_SHARE;
+    let share = if level <= first {
+        one
+    } else if level <= second {
+        two
+    } else {
+        three
+    };
+    amount.saturating_add((amount as f32 * share).ceil() as i32)
 }
 
 /// The global TSL's scripts read the player's level from.
@@ -313,6 +352,7 @@ impl Engine<'_> {
                     _ => amount,
                 };
                 if holder == PARTY && bound == Bound::GiveXPToCreature {
+                    let amount = mentor(self.view, self.state, amount);
                     // Told only when it is given a player's character.
                     if self.is_pc(object(args, 0)) {
                         self.out.story_xp(self.state, amount);
@@ -333,6 +373,7 @@ impl Engine<'_> {
                 let xp = experience.plot_named(text(args, 0)).unwrap_or(0);
                 let share = i64::from(xp) * i64::from(int(args, 1)) / 100;
                 let share = share.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+                let share = mentor(self.view, self.state, share);
                 self.out.story_xp(self.state, share);
                 tell_pc_level(self.library, self.view, self.state);
                 Value::Int(0)
