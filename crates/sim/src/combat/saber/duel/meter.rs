@@ -241,8 +241,8 @@ pub fn scene(f: &mut Fighter, player: bool, cap: u8) {
 
 /// The block points' refill (`docs/SABER-RULES.md` 1.3), the same for a
 /// player and a creature: `refill::GAIN` points every `refill::TICK_MS`
-/// scaled by how the fighter moves (`Stance::percent`: less walking, none
-/// running) and slowed for an NPC under fire (`refill::UNDER_FIRE`),
+/// scaled by how the fighter moves (`Stance::percent`: less walking, still
+/// less running) and slowed for an NPC under fire (`refill::UNDER_FIRE`),
 /// unless it is spending them: swinging, shaken, down, off the ground or,
 /// for a player, holding block. A thrown saber, or a rage's
 /// recovery, makes each wait longer.

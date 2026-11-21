@@ -103,7 +103,7 @@ block).
 
 **Block-point regeneration (kjk's Advanced rules, players and NPCs alike; this replaces what Movie Duels does):**
 a fighter regains 1 block point every 100 ms, scaled by how it moves: standing 100%, walking 75%,
-running 0% (`duel::refill::by_stance`). Nothing comes back while the fighter swings, is in a special, parry, return,
+running 50% (`duel::refill::by_stance`). Nothing comes back while the fighter swings, is in a special, parry, return,
 stab, bounce or broken move, is knocked down or off the ground, was just staggered or blocked, or (a player) holds the
 block button. A thrown saber adds 2000 ms to each wait, and Rage recovery one regen interval. Crouching changes none of this: a crouched fighter counts as standing or walking by its speed. Movie
 Duels' own rules, which kjk no longer uses, were: a player +1 per 100 ms but waiting 2000 ms more above 75 points, with
