@@ -1023,7 +1023,21 @@ pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<O
     let shown = |label| crate::objects::shown(&localized(root.get(label)), talk.as_deref());
     let noted = root.int("HasMapNote").is_some_and(|has| has != 0);
     Some(ObjectData {
-        kind: ObjectKind::Waypoint,
+        name: shown("LocalizedName"),
+        map_note: noted.then(|| sim::module::MapNote {
+            text: shown("MapNote"),
+            enabled: root.int("MapNoteEnabled").is_some_and(|on| on != 0),
+        }),
+        ..marker(ObjectKind::Waypoint, template, root)
+    })
+}
+
+/// A waypoint's or a store's facts from its template's `root` before what
+/// is its kind's own: its tag and template, with no body, scripts, items or
+/// name.
+fn marker(kind: ObjectKind, template: &str, root: &GffStruct) -> ObjectData {
+    ObjectData {
+        kind,
         tag: root.resref("Tag").unwrap_or_else(String::new),
         cased_tag: cased(root.bytes("Tag").unwrap_or(&[])),
         template: template.to_string(),
@@ -1046,7 +1060,7 @@ pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<O
         strike: None,
         challenge: 0.0,
         multiplier_set: 0,
-        name: shown("LocalizedName"),
+        name: String::new(),
         inventory: Vec::new(),
         container: false,
         useable: false,
@@ -1058,14 +1072,27 @@ pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<O
         toughness: sim::module::Toughness::default(),
         faction: 0,
         body: None,
-        map_note: noted.then(|| sim::module::MapNote {
-            text: shown("MapNote"),
-            enabled: root.int("MapNoteEnabled").is_some_and(|on| on != 0),
-        }),
+        map_note: None,
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
         spared_locks: Vec::new(),
+    }
+}
+
+/// A store's facts from its UTM alone, as a script makes one
+/// (`CreateObject`): its tag, name, scripts, stock and terms. Its place is
+/// the script's.
+pub(crate) fn store_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
+    let utm = Gff::parse(&tables.source.read(template, ResType::UTM)?).ok()?;
+    let root = &utm.root;
+    let talk = tables.source.talk();
+    Some(ObjectData {
+        scripts: asset_odyssey::module::scripts(root),
+        name: crate::objects::shown(&localized(root.get("LocName")), talk.as_deref()),
+        inventory: crate::items::held(tables, root, true),
+        store: Some(crate::items::terms(root)),
+        ..marker(ObjectKind::Store, template, root)
     })
 }
 

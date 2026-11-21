@@ -4662,10 +4662,13 @@ fn placeable_facing_is_its_front() {
 /// A script makes a waypoint from its template, and a party that leaves the
 /// module and comes back by the waypoint's tag arrives at it, not at the
 /// module's entry: `sim::made_waypoint_probes` (TSLRCM's Red Eclipse scene
-/// on the Nar Shaddaa landing pad, issue 519).
+/// on the Nar Shaddaa landing pad, issue 519). A script also makes a store
+/// from its template, with the template's terms, as Brotherhood of Shadow's
+/// merchants make the stores they open (added 2026-11-21, awaiting
+/// approval).
 #[test]
 fn made_waypoint_is_an_arrival() {
-    probed("made_waypoint", &sim::made_waypoint_probes::probes(), 2);
+    probed("made_waypoint", &sim::made_waypoint_probes::probes(), 3);
 }
 
 /// A playthrough's character up on a raised floor its walk's goal is not

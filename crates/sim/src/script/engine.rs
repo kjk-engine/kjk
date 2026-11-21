@@ -4616,37 +4616,43 @@ impl Engine<'_> {
             // Creatures, placeables and waypoints; other kinds are not
             // made in play yet.
             CreateObject => {
-                // A creature, a placeable or a waypoint, of the templates
-                // the module's plan gathered (`Library::creature`,
-                // `placeable`, `waypoint`).
+                // A creature, a placeable, a waypoint or a store, of the
+                // templates the module's plan gathered (`Library::creature`,
+                // `placeable`, `waypoint`, `store`).
                 let kind = [
                     ObjectKind::Creature,
                     ObjectKind::Placeable,
                     ObjectKind::Waypoint,
+                    ObjectKind::Store,
                 ]
                 .into_iter()
                 .find(|kind| self.library.object_types.get(kind).copied() == Some(int(args, 0)));
                 let template = resref(text(args, 1));
+                let placed = match kind {
+                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template),
+                    Some(ObjectKind::Store) => self.library.store(&template),
+                    _ => None,
+                };
                 let known = match kind {
                     Some(ObjectKind::Creature) => self.library.creature(&template).is_some(),
-                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template).is_some(),
+                    Some(ObjectKind::Waypoint | ObjectKind::Store) => placed.is_some(),
                     Some(_) => self.library.placeable(&template).is_some(),
                     None => false,
                 };
                 let made = known
                     .then(|| self.place(args, 2))
                     .flatten()
-                    .and_then(|(at, yaw)| match kind {
-                        Some(ObjectKind::Waypoint) => super::make_waypoint(
+                    .and_then(|(at, yaw)| match placed {
+                        Some(facts) => Some(super::make_placed(
                             self.library,
                             self.view,
                             self.state,
                             self.out,
-                            &template,
+                            facts,
                             at,
                             yaw,
-                        ),
-                        _ => self.make(&template, at, yaw),
+                        )),
+                        None => self.make(&template, at, yaw),
                     });
                 if made.is_none() {
                     self.trace(&format!(
