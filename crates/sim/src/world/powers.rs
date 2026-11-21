@@ -2096,8 +2096,14 @@ impl Cast<'_, '_> {
             (Some((Gesture::Pull, _)), _) => Some((Anim::BOTH_FORCEPULL, false)),
             // The row's own clips show it (`Fighter::acting`).
             (Some((Gesture::Cast, _)), _) => None,
+            // A character with no weapon casts lightning with both hands.
             (None, Some(channel)) if channel.power == Power::Lightning => {
-                Some((Anim::BOTH_FORCELIGHTNING_HOLD, false))
+                let anim = if two_handed_lightning(&sheet) {
+                    Anim::BOTH_FORCE_2HANDEDLIGHTNING_HOLD
+                } else {
+                    Anim::BOTH_FORCELIGHTNING_HOLD
+                };
+                Some((anim, false))
             }
             (None, Some(_)) => Some((Anim::BOTH_FORCEGRIP_HOLD, false)),
             (None, None) => None,
@@ -2106,4 +2112,12 @@ impl Cast<'_, '_> {
             motion::hold(body, anims, anim, whole, self.msec);
         }
     }
+}
+
+/// Whether a character casts lightning with both hands: it holds no weapon
+/// in either hand. A creature's own unarmed weapon counts as no weapon.
+pub(crate) fn two_handed_lightning(sheet: &Sheet) -> bool {
+    use crate::combat::sheet::Delivery;
+    let [right, left] = &sheet.weapons;
+    right.is_none_or(|weapon| weapon.delivery == Delivery::Unarmed) && left.is_none()
 }

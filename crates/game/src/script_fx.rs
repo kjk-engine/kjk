@@ -41,7 +41,8 @@
 //!   `Row::lasts_with`): a Force power's fizzle and resistance (1200 to
 //!   1202, models at the hand, middle and head), Knight and Master Speed's
 //!   widening of the player's view (1500, `OwnScreen`), Force Speed's blur
-//!   of it (1601, 1602, `speed_blur`), the medal and Revan's masks on their
+//!   of it (1601, 1602, `speed_blur`; neither is drawn while a
+//!   conversation is under way), the medal and Revan's masks on their
 //!   hooks (1700 to 1702) and a distortion (1800, `glow_shell`; a
 //!   fire-and-forget row's for its impact phase, `FLASH_MS`). 2000 and
 //!   2001 (the stealth pulse, invisibility) it has nothing for; 1300 (a
@@ -2091,10 +2092,13 @@ fn glow(
     // The player's own screen: the newest widening on its body, a blur.
     let me = crate::cast::me(current, own.map_or(sim::Seat(0), |own| own.0));
     view.screens.retain(|live| now < live.until);
+    // The speed powers' widening and blur are not drawn over a
+    // conversation.
+    let talking = !current.talk.conversations.is_empty();
     let mine = || {
         view.screens
             .iter()
-            .filter(|live| Some(live.on) == me && live.since <= now)
+            .filter(|live| !talking && Some(live.on) == me && live.since <= now)
     };
     let widen = mine()
         .filter(|live| live.widen)

@@ -9,6 +9,7 @@
 //!   JA's `speed`, `protect`, `absorb`, `rage`, `see`, `distract`; while one
 //!   runs its loop is held at the character (`speedloop`, `protectloop`,
 //!   `absorbloop`, `rageloop`, `seeloop`; the mind trick has none).
+//!   Force Speed makes neither sound while a conversation is under way.
 //! - Channels starting: lightning's `lightning`, drain's `drain` (body
 //!   slot). Each hit lightning lands sounds one of `lightninghit1–3` one
 //!   time in three on the struck; each drain, `drained` there. A gripped
@@ -239,6 +240,7 @@ fn sound(
     }
     // Borrowed, not copied: a fighter is large, and every entity is looked
     // at each frame.
+    let talking = !current.talk.conversations.is_empty();
     for entity in &current.entities {
         let Some(f) = entity.fighter.as_ref().filter(|f| f.alive()) else {
             continue;
@@ -254,7 +256,7 @@ fn sound(
             (force.sight_until, "seeloop.wav"),
         ];
         for (until, name) in running {
-            if until > now {
+            if until > now && !(talking && name == "speedloop.wav") {
                 loops.0.push(Hold::at(ja(name), at));
             }
         }
@@ -361,8 +363,10 @@ fn changes(
         ),
         (force.rage_until, was.rage_until, "rage.wav", Channel::Auto),
     ];
+    // Force Speed makes no sound in a conversation.
+    let talking = !snapshot.talk.conversations.is_empty();
     for (until, before_until, name, channel) in toggles {
-        if started(until, before_until, now) {
+        if started(until, before_until, now) && !(talking && name == "speed.wav") {
             cues.push(on(entity, ja(name), channel, ms));
             cast = true;
         }

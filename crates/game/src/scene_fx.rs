@@ -528,11 +528,6 @@ pub(crate) struct Puff {
 }
 
 impl Puff {
-    /// Whether it shows at `now` (its first and last moments included).
-    pub(crate) fn alive(&self, now: f32) -> bool {
-        self.start_ms <= now && now <= self.end_ms
-    }
-
     /// Its quad at `now` into `batch`, coloured for `blend`.
     pub(crate) fn draw(
         &self,
