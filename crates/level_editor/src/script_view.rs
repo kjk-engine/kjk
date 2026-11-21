@@ -45,6 +45,27 @@ pub fn catalog(resolver: &Resolver) -> Option<Catalog> {
 /// The layer name the viewer gives the project's folder.
 const PROJECT: &str = "the project";
 
+/// How the viewer names a source read back from a compiled script.
+pub const DECOMPILED: &str = "kjk's decompiler, from the compiled script in";
+
+/// The source of the compiled script `ncs`, read back by kjk's decompiler
+/// (`script_ncs::decompile`) and proven by compiling to the same bytes,
+/// headed by a comment that says its names are made up.
+pub fn decompiled(
+    name: &str,
+    ncs: &fmt_odyssey::ncs::Ncs,
+    catalog: &Catalog,
+) -> Result<String, String> {
+    let read = script_ncs::decompile::decompile_checked(name, ncs, catalog)
+        .map_err(|error| error.to_string())?;
+    Ok(format!(
+        "// {name}, read back by kjk's decompiler from its compiled form. A compiled\n\
+         // script keeps no names or comments, so its functions, variables and\n\
+         // constants are named here by their type and order.\n\n{}",
+        text(&read.source)
+    ))
+}
+
 /// Reads `name`, the project's folder `project` first (read now, so a
 /// script written or compiled since the editor opened shows), then
 /// through `resolver`, its routines named from `catalog`.
@@ -92,6 +113,19 @@ pub fn read(
             return view;
         }
     };
+    // A script shipped compiled only (most of a module's own) is read back
+    // into source, proven by compiling to its bytes again.
+    if view.source.is_none()
+        && let Some(catalog) = catalog
+    {
+        match decompiled(name, &ncs, catalog) {
+            Ok(text) => {
+                let from = view.compiled_from.clone().unwrap_or_else(String::new);
+                view.source = Some((text, format!("{DECOMPILED} {from}")));
+            }
+            Err(why) => view.problem = Some(format!("it is not read back into source: {why}")),
+        }
+    }
     let mut order: Vec<u16> = Vec::new();
     let mut counts: BTreeMap<u16, usize> = BTreeMap::new();
     for instruction in &ncs.code {

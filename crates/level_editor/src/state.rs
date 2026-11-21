@@ -425,11 +425,20 @@ impl EditorState {
                 text,
             },
             None => {
+                // The install's source, else its compiled script read back
+                // into source, else a new script.
+                let decompiled = || {
+                    let bytes = self.setup.resolver.read(name, ResType::NCS)?;
+                    let ncs = fmt_odyssey::ncs::Ncs::parse(&bytes).ok()?;
+                    let catalog = self.setup.catalog.as_ref()?;
+                    crate::script_view::decompiled(name, &ncs, catalog).ok()
+                };
                 let text = self
                     .setup
                     .resolver
                     .read(name, ResType::NSS)
                     .map(text_of)
+                    .or_else(decompiled)
                     .unwrap_or_else(|| crate::script_edit::template(name, false));
                 // Not in the folder yet: it is written at the next save.
                 crate::script_edit::Draft {

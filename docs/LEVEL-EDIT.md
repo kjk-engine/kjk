@@ -377,7 +377,13 @@ viewer at the bottom of the details panel, which has three tabs.
 
 - **Source** shows the script's source (`.nss`), coloured, where the
   install has it. KOTOR 1's install holds the source of most of its
-  scripts in `chitin.key`.
+  scripts in `chitin.key`. A script the install has compiled only (most
+  of a module's own) is read back into source by kjk's decompiler
+  (`script_ncs::decompile`). The viewer shows that source only when it
+  compiles back to the script's own bytes. A compiled script keeps no
+  names or comments, so its functions, variables and constants are named
+  by their type and order (`sub1`, `nLocal1`), and a comment at its top
+  says so. **Edit a copy in the project** works on it as on any source.
 - **Summary** reads the compiled script (`.ncs`). It lists the engine
   routines the script calls, each with its prototype from the game's
   `nwscript.nss` and how many times it is called, and the strings the
