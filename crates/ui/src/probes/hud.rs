@@ -10,9 +10,9 @@ use crate::draw::{DrawList, TextureId};
 use crate::paint::{Painter, Palette, rect_of};
 use crate::screens::floaty::{OverheadArt, bars};
 use crate::screens::hud::{
-    BarArt, BusyMark, FEAT, FloatHold, SWAP, action_keys, backed, bar_extra, busy, busy_marks,
-    crosshair, cycle_badges, duel_bars, effect_icons, float_at, floated, known, place, portrait_at,
-    state, to_top, watch_at,
+    BarArt, BusyMark, FEAT, FloatHold, SOLO, SWAP, action_keys, backed, bar_extra, busy,
+    busy_marks, crosshair, cycle_badges, duel_bars, effect_icons, float_at, floated, known, place,
+    portrait_at, solo_at, solo_beside_portrait, state, to_top, watch_at,
 };
 use crate::vm::{
     Bar, BarSlot, Busy, DuelBars, EffectIcon, HudView, KeyLabel, MemberView, OverheadView,
@@ -67,6 +67,51 @@ pub(super) fn feat_slot() -> Vec<Check> {
                 && swap_hidden,
         )
         .map(|()| "the feat slot stands after the Form slot, and the swap button is gone".into()),
+    )]
+}
+
+/// The solo mode button beside the portrait. KOTOR 2's layout puts it far
+/// left of the portrait (584, 562). The HUD moves it just left of the
+/// vitality bar, at half the portrait's height, its bottom level with the
+/// portrait's. It shows, lit, only while the party is in solo mode, and
+/// only then does a click on it count.
+pub(super) fn solo_button() -> Vec<Check> {
+    let mut gui = root(
+        800,
+        600,
+        vec![
+            button("LBL_CHAR1", [707, 523, 72, 72], b""),
+            button("PB_VIT1", [677, 520, 39, 78], b""),
+            button(SOLO, [584, 562, 36, 36], b""),
+        ],
+    );
+    solo_beside_portrait(&mut gui);
+    let placed = gui.find(SOLO).map(|control| control.extent);
+    let vm = |solo: bool| ViewModel {
+        hud: Some(HudView {
+            solo,
+            ..HudView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let (on, off) = (vm(true), vm(false));
+    let shown = |vm: &ViewModel| state(&button(SOLO, [0, 0, 1, 1], b""), vm);
+    let looks = (shown(&on).selected, shown(&off).hidden);
+    let clicks = (
+        solo_at(&gui, &on, [670.0, 580.0]),
+        solo_at(&gui, &on, [600.0, 580.0]),
+        solo_at(&gui, &off, [670.0, 580.0]),
+    );
+    let at = placed.map(|rect| [rect.left, rect.top, rect.width, rect.height]);
+    vec![check(
+        "hud_solo_button",
+        expect(
+            &format!("at {at:?}, lit and hidden {looks:?}, clicks {clicks:?}"),
+            at == Some([650, 559, 36, 36])
+                && looks == (true, true)
+                && clicks == (true, false, false),
+        )
+        .map(|()| "lit beside the portrait in solo mode, hidden otherwise".into()),
     )]
 }
 

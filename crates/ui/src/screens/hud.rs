@@ -36,7 +36,9 @@
 //! The stealth toggle shows, lit, while the character is in stealth mode.
 //! The minimap shows the area's picture where it has one, the player's
 //! place at its middle, the arrow turned the player's way. The combat
-//! queue and messages, solo and pause are hidden: none has its data yet.
+//! queue and messages and pause are hidden: none has its data yet. The
+//! solo mode button shows, lit, beside the portrait while the party
+//! is in solo mode, and a click on it ends solo mode (`SOLO`).
 //! KOTOR 2's six action slots show the action bar (`HudView::bar`): all six
 //! while the keyboard is in use, and the first four while a controller is
 //! in use. The bar has ten slots. The four after the sixth are copies of
@@ -1343,6 +1345,48 @@ pub fn minimap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
             .is_some_and(|control| within(rect_of(control), point))
 }
 
+/// KOTOR's solo mode button. The HUD shows it, lit, only while the
+/// party is in solo mode, beside the portrait (`solo_beside_portrait`).
+/// A click on it ends solo mode (`solo_at`).
+pub const SOLO: &str = "TB_SOLO";
+
+/// The solo mode button's size, as a part of the portrait's height.
+const SOLO_SIZE: f32 = 0.5;
+
+/// `gui` (placed by `place`) with the solo mode button (`SOLO`) moved
+/// beside the portrait. The button is square, `SOLO_SIZE` of the
+/// portrait's height. It stands just left of the vitality bar, and its
+/// bottom is level with the portrait's bottom. The vitality bar's control
+/// (`PB_VIT1`) is twice as wide as the bar it draws, and the bar is drawn
+/// in its right half, so the button's right edge is a quarter of the way
+/// into the control.
+pub fn solo_beside_portrait(gui: &mut Gui) {
+    let extent = |tag: &str| gui.find(tag).map(|control| control.extent);
+    let (Some(portrait), Some(bar)) = (extent("LBL_CHAR1"), extent("PB_VIT1")) else {
+        return;
+    };
+    let size = (portrait.height as f32 * SOLO_SIZE).round() as i32;
+    let right = bar.left + bar.width / 4;
+    let bottom = portrait.top + portrait.height;
+    if let Some(solo) = (gui.controls.iter_mut()).find(|control| control.tag == SOLO) {
+        solo.extent = Rect {
+            left: right - size,
+            top: bottom - size,
+            width: size,
+            height: size,
+        };
+    }
+}
+
+/// Whether `point` (layout pixels of `gui`, placed by `place`) is on the
+/// solo mode button, which shows only while the party is in solo mode.
+pub fn solo_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
+    vm.hud.as_ref().is_some_and(|hud| hud.solo)
+        && gui
+            .find(SOLO)
+            .is_some_and(|control| within(rect_of(control), point))
+}
+
 /// KOTOR 2's weapon swap button. The HUD hides it, and the feat slot
 /// (`FEAT`) stands on the action bar instead.
 pub const SWAP: &str = "BTN_SWAPWEAPONS";
@@ -2161,7 +2205,7 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     match tag {
         "LBL_MAPBORDER" => return shown(hud.minimap.is_some()),
         "TB_STEALTH" if hud.stealth => return lit(),
-        "TB_SOLO" if hud.solo => return lit(),
+        SOLO if hud.solo => return lit(),
         _ => {}
     }
     if let Some(shown) = target_state(tag, vm.target.as_ref()) {
