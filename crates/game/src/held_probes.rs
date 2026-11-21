@@ -16,6 +16,10 @@ use crate::{acting, viewer};
 pub fn probes() -> Checks {
     vec![
         ("each state's clip", states_play_their_clips()),
+        (
+            "a long hold's clip from its start",
+            long_hold_plays_from_start(),
+        ),
         ("a clip's blend", clips_blend_as_the_engine_does()),
         ("clips handed on cover the body", clips_handed_on_cover()),
         (
@@ -187,6 +191,42 @@ fn states_play_their_clips() -> Result<String, String> {
         }
     }
     Ok(format!("{} states", held.len()))
+}
+
+/// A combat hold that lasts longer than a stun without a duration (a Force
+/// Whirlwind held for its whole length, which the bug report "not spinning
+/// in the whirlwind" showed standing idle) plays its clip from the moment
+/// it takes hold, and again from where it went on after a failed saving
+/// throw. Before, the clip was reckoned from a stun's length before the
+/// hold's end, so it began only near the end. Covering the ears is reckoned
+/// from its own start.
+fn long_hold_plays_from_start() -> Result<String, String> {
+    use sim::combat::force::{HoldKind, ja};
+    use sim::script::effects::Hold;
+    let start = 10_000;
+    let mut fighter = sim::combat::Fighter::fresh(10, 0);
+    let force = &mut fighter.force;
+    if !force.hold(start, ja::LONGEST_MS, HoldKind::Combat(None)) {
+        return Err("the hold did not take".to_string());
+    }
+    force.hold = Hold::Whirlwind;
+    let shown = |fighter: &sim::combat::Fighter, at: u64| {
+        crate::cast::drawn_acting(fighter, false, at as f64, false)
+            .map(|acting| (acting.animation, acting.since))
+    };
+    let first = shown(&fighter, start + 100);
+    fighter.force.struggle(fighter.force.save_due, false);
+    let later = shown(&fighter, fighter.force.save_due - 100);
+    let mut ears = sim::combat::Fighter::fresh(10, 0);
+    ears.force.cover_ears(start);
+    let covered = ears.force.held_since();
+    let want = Some((acting::WHIRLWIND, start));
+    check(
+        first == want && later == want && covered == start,
+        format!(
+            "first {first:?}, after a failed save {later:?}, ears from {covered} (want {want:?})"
+        ),
+    )
 }
 
 fn clips_blend_as_the_engine_does() -> Result<String, String> {
