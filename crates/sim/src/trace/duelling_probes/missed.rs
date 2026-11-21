@@ -16,10 +16,7 @@ use crate::snapshot::Snapshot;
 use rules::duel::{perfect, refill};
 
 pub(super) fn probes() -> Checks {
-    MISSED
-        .iter()
-        .map(|row| (row.name, missed(row)))
-        .collect()
+    MISSED.iter().map(|row| (row.name, missed(row))).collect()
 }
 
 /// A press of attack with block held, the keys seat 1 plays after it, and
@@ -83,7 +80,10 @@ fn points(ticks: &[Snapshot], n: u8) -> Vec<i32> {
 
 /// The bolts seat 1 turned in `ticks`.
 fn turned(ticks: &[Snapshot]) -> usize {
-    let last = ticks.last().and_then(|t| t.own(Seat(1))).and_then(|e| e.fighter);
+    let last = ticks
+        .last()
+        .and_then(|t| t.own(Seat(1)))
+        .and_then(|e| e.fighter);
     (last.iter())
         .flat_map(|f| f.events.iter().flatten())
         .filter(|event| event.result == Outcome::Deflected)
@@ -117,7 +117,10 @@ fn missed(row: &Missed) -> Result<String, String> {
         let held = BEFORE_PRESS + 150;
         (points.get(held).copied(), points.last().copied())
     } else {
-        (points.get(BEFORE_PRESS - 1).copied(), points[BEFORE_PRESS..].iter().min().copied())
+        (
+            points.get(BEFORE_PRESS - 1).copied(),
+            points[BEFORE_PRESS..].iter().min().copied(),
+        )
     };
     let (Some(from), Some(to)) = (from, to) else {
         return Err(format!("the fight played only {} steps", points.len()));
