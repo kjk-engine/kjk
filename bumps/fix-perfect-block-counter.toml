@@ -1,2 +1,2 @@
 # The sim's hash moves on purpose.
-sim = "after a perfect block the blocker can swing again after a random 150 to 300 ms instead of 300 to 600 ms (`rules::duel::perfect::BLOCK_WAIT_MS`); a creature's good parry keeps 300 to 600 ms"
+sim = "after a perfect block the blocker can swing again after a random 150 to 300 ms instead of 300 to 600 ms (`rules::duel::perfect::BLOCK_WAIT_MS`), and a creature's good parry keeps 300 to 600 ms; a player's press of attack with block held that makes no perfect block and turns no bolt costs 5 Stamina (`perfect::MISS_COST`)"

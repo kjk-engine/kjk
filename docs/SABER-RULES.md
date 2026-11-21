@@ -178,6 +178,13 @@ back-left, back-right, back, forward-left, forward-right, forward, left, right, 
 attack ends the state and resets the window, and a new press is needed for a new window. In kjk, releasing attack ends
 the state but leaves a player's window open for its full length (section 3).
 
+**A missed press costs Stamina (kjk only).** A player who presses attack while holding block, and neither makes a
+perfect block nor turns a blaster bolt with that press, loses 5 Stamina. The press is judged once it is over: when its
+window has run out and attack is no longer held, when the player lets go of block, or when the player presses attack
+again. A perfect block made in the window, a late perfect block, or a bolt turned while the press lasts makes the
+press free. A turned bolt closes the window, as a perfect block does, so a saber blow later in the same window meets
+an ordinary block.
+
 Holding block plus attack for 3 s or more: the directional "accurate parry" test fails, and bolt block costs double.
 
 Holding walk + block + attack together is a separate "accurate missile block" input; it only has an effect with a

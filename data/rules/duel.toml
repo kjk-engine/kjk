@@ -531,6 +531,15 @@ summary = "After a perfect block, the blocker can swing again only after a rando
 source = "ours"
 see = "sim::world::sabers"
 
+[perfect.miss_cost]
+name = "Missed Perfect Block"
+type = "i32"
+value = 5
+unit = "points"
+summary = "A player who presses attack while holding block, and neither makes a perfect block nor deflects a blaster bolt with that press, loses {duel.perfect.miss_cost} Stamina. The press is judged when its perfect block window has closed and attack is no longer held, or when the player lets go of block or presses attack again. This keeps a player from pressing attack over and over to catch every blow."
+source = "ours"
+see = "sim::motion::saber"
+
 [perfect.parry_blend_ms]
 name = "Perfect Parry Blend"
 type = "u32"

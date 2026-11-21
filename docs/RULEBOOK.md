@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `ae1427c0f34b5a27`.
+Edition `3421dd1adbe8988e`.
 
 ## Contents
 
@@ -12302,6 +12302,12 @@ shortest **0.15 seconds** · longest **0.3 seconds**
 After a perfect block, the blocker can swing again only after a random time between 150 ms and 300 ms. This is always shorter than the 350 ms the attacker is frozen for, so the blocker can strike back before the attacker recovers, and always inside the riposte window.
 
 <sub>Source: ours. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-miss-cost"></a>**Missed Perfect Block** = **5 points** · `duel.perfect.miss_cost`
+
+A player who presses attack while holding block, and neither makes a perfect block nor deflects a blaster bolt with that press, loses 5 points Stamina. The press is judged when its perfect block window has closed and attack is no longer held, or when the player lets go of block or presses attack again. This keeps a player from pressing attack over and over to catch every blow.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
 
 <a id="duel-perfect-parry-blend-ms"></a>**Perfect Parry Blend** = **0.1 seconds** (`100 ms`) · `duel.perfect.parry_blend_ms`
 

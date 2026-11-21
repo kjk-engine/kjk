@@ -1066,6 +1066,12 @@ pub(in crate::world) fn bolt_block(
     let swinging = !current.idle();
     let way = if blocking {
         meter::spend(fighter, cost.min(left), cap);
+        // A turned bolt uses the press of attack that is not yet paid for, as
+        // a perfect block does, so the press costs nothing
+        // (`perfect::MISS_COST`).
+        if player {
+            fighter.saber.duel.perfect_until = 0;
+        }
         let aim = match (player, aimed, shooter) {
             (true, false, _) | (_, _, None) => shots::Aim::Crosshair {
                 forward,
