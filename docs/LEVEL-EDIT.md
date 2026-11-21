@@ -523,6 +523,70 @@ map and the way into it from the story: the Ebon Hawk's exit trigger
 Give back drops the copy, and that area's doors lead where the game has
 them again. The project's own area is changed in its own list instead.
 
+## Creatures, stores and encounters
+
+A creature, a store and an encounter have more in their templates than
+scripts. The Behaviour section shows these fields under the scripts. A
+change to one of them copies the template into the project first, as any
+other change to a template does. Each field here is one kjk reads when it
+makes the object, so every change shows in play.
+
+A creature's fields:
+
+- **First name** and **Last name**. The game's names come from its talk
+  table. A name typed here is kept in the template itself, with no
+  talk-table line, and kjk shows it as it shows the game's names.
+- **Statistics**: its appearance (its model, size and speed), its faction,
+  its race, its six ability scores, its hit points, its Force points, its
+  natural defence, its challenge rating, its speed, how far it sees and
+  hears, and its alignment. Four check boxes make it a plot creature that
+  takes no damage, stop damage at 1 hit point, let its weapons be knocked
+  away, and keep its body where it fell. The appearance, faction and race
+  are picked from a list of the game's own rows (`appearance.2da`,
+  `repute.2da`, `racialtypes.2da`), with a filter.
+- **Classes and Force powers**: up to three classes, each with its levels,
+  and the Force powers each class knows. A class is picked from
+  `classes.2da` and a power from `spells.2da`. A power's button takes it
+  away.
+- **Feats**, picked from `feat.2da`. A feat's button takes it away.
+- **Skills**: the rank of each of the 8 skills.
+- **Equipment**: the item in each slot (head, body, hands, both hands, both
+  arms, implant, belt, and a creature's own claws, bite and hide). An item
+  is typed by its template's name, and the install's items that match are
+  listed to click. An empty field leaves the slot empty.
+- **Items it carries**, added and removed as a placeable's are. **Drops**
+  makes an item drop when the creature dies.
+
+A store's fields:
+
+- its **Name**;
+- **Prices**: what it charges for an item and what it pays, each as a
+  share of the item's value (100 is the value), and whether it sells,
+  buys, or both;
+- **Items it sells**, added and removed as a placeable's are. **Never runs
+  out** keeps an item in stock however many are bought.
+
+An encounter's fields:
+
+- its **Name**;
+- **Spawning**: whether it is active, its difficulty, the most and the
+  fewest creatures it spawns, whether only the player's party sets it
+  off, whether it resets and after how many seconds, how many times it
+  spawns again, and its faction. An encounter resets only when both
+  **Resets** and **Can spawn again** are on.
+- **Creatures it spawns**: each creature's template, the challenge it
+  counts for, and **Once** for a creature it spawns once at most. A
+  creature added takes its template's challenge rating.
+- **Spawn points**: the places its creatures appear, and the way each
+  faces. With none, they appear where the party walks in. Each point is
+  set by its numbers or removed. **Place spawn points** adds a point at
+  each click on the floor in the view, until Enter or Escape. A selected
+  encounter shows its spawn points in the view as pink rings, each with a
+  line the way it faces.
+
+New encounters are placed from the asset picker's Encounters tab. A new
+encounter gets a square outline 2 metres wide and no spawn points.
+
 ## Trigger outlines
 
 A selected trigger or encounter shows its outline over the view, its
@@ -757,7 +821,7 @@ and every kind but triggers and encounters turned. A door's walkmesh moves
 with it; an installed door moved out of its doorway leaves the doorway
 open. A trigger's or an encounter's outline moves with it but does not
 turn, and an encounter's spawn points move with it. New objects can be
-creatures, placeables, doors, waypoints, triggers, sounds and stores, made
+creatures, placeables, doors, waypoints, triggers, sounds, stores and encounters, made
 from the install's templates. A new door or waypoint takes its template's
 own fields (its tag, name, look, lock and scripts) into its entry. A new
 trigger gets a square outline 2 m on a side round where it is placed.
@@ -813,7 +877,16 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit blocks EVENT add KEY [VALUE ...]`, `edit blocks EVENT remove N`, `edit blocks EVENT clear` | the selected object's logic blocks on the event (`OnUsed`): a block of the kind (`open_door`, `give_item`, `once`; `level_edit::blocks::KINDS`) added with its values, block N removed, or none left |
 | `edit script try NAME`, `edit script try NAME TAG` | saves, compiles, then runs the script for the player or the object tagged TAG in the module, headless; its trace is under the viewer's Try tab |
 | `edit flag useable on`, `edit flag inventory off` | sets the selected placeable's `Useable` or `HasInventory` |
-| `edit item add ITEM`, `edit item remove N` | adds an item template to the selected placeable's items, or removes its Nth, from 0 |
+| `edit item add ITEM`, `edit item remove N` | adds an item template to the selected placeable's, creature's or store's items, or removes its Nth, from 0 |
+| `edit item N drops on\|off`, `edit item N infinite on\|off` | sets whether a creature's Nth item drops when it dies, or a store's Nth item never runs out |
+| `edit number LABEL VALUE` | sets a number of the selected creature, store or encounter by its template field (`Str`, `Appearance_Type`, `MarkUp`, `MaxCreatures`); a check box is 0 or 1 |
+| `edit name LABEL TEXT ...` | sets a name (`FirstName`, `LastName`, a store's `LocName`, an encounter's `LocalizedName`) to its own text |
+| `edit class N ROW LEVELS`, `edit class N -` | sets the creature's Nth class (from 0) to a `classes.2da` row and its levels, adds one at the end, or removes it |
+| `edit feat ROW on\|off`, `edit power N ROW on\|off` | gives or takes a feat, or a Force power of the Nth class (`feat.2da`, `spells.2da` rows) |
+| `edit skill N RANK` | sets the rank of the creature's Nth skill (0 to 7) |
+| `edit equip SLOT ITEM\|-` | puts an item in a slot, by its number or its name (`right_hand`), or empties it |
+| `edit spawn N TEMPLATE CR [single]`, `edit spawn N -` | sets the encounter's Nth creature, adds one at the end, or removes it |
+| `edit spawnpoint add X Y Z [FACING]`, `edit spawnpoint remove N` | adds a spawn point to the selected encounter (facing in radians), or removes its Nth |
 | `edit collision on`, `edit collision off` | shows or hides the collision |
 | `edit nav on`, `edit nav off` | shows or hides the navigation mesh |
 | `edit role solid`, `walkable`, `block`, `floor` | gives the selected box a role |
@@ -907,8 +980,6 @@ a new perch.
   lose objects. kjk does not warn about this yet.
 - **One area per project.** A module with more than one area is edited at
   its entry area.
-- **New encounters are not placed**: their spawn points are not made
-  here.
 - **One object at a time.** There is no multiple selection, box selection,
   or copy and paste between areas.
 - **No export.** A new map's `.mod` and a project's `.git` file are KOTOR
@@ -933,6 +1004,10 @@ together in co-op.
   back. It needs no install.
 - `level_edit_project_scripts` compiles a project's scripts in a folder the
   test makes, and `script_vm` runs scripts compiled from source.
+- `level_edit_templates` changes a creature's, a store's and an
+  encounter's template beyond its scripts, places a new encounter with
+  spawn points, reads the encounter as kjk's module reader reads it, and
+  has a project keep the templates.
 - `level_edit_conversations` builds and changes a conversation, reads
   it as the walk reads it, and has a project keep it.
 - `level_edit_logic_blocks` writes blocks as a script, reads them back,

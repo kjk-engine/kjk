@@ -94,6 +94,9 @@ pub enum Edit {
     /// A trigger's or an encounter's outline: its points where they are in
     /// the area (metres), three or more, in order round it.
     Outline(Target, Vec<[f32; 3]>),
+    /// An encounter's spawn points: where each is in the area (metres) and
+    /// the way it faces (radians).
+    SpawnPoints(Target, Vec<([f32; 3], f32)>),
     /// The area's settings (`settings`). `base` is the install's ARE, for
     /// the first change of an installed area's ARE.
     Area {
@@ -124,9 +127,8 @@ pub const EDITABLE: [Kind; 8] = [
     Kind::Store,
 ];
 
-/// The kinds `Edit::AddObject` makes, from a template of the install. An
-/// encounter is left out: its spawn points are not made here.
-pub const ADDABLE: [Kind; 7] = [
+/// The kinds `Edit::AddObject` makes, from a template of the install.
+pub const ADDABLE: [Kind; 8] = [
     Kind::Creature,
     Kind::Placeable,
     Kind::Door,
@@ -134,6 +136,7 @@ pub const ADDABLE: [Kind; 7] = [
     Kind::Trigger,
     Kind::Sound,
     Kind::Store,
+    Kind::Encounter,
 ];
 
 #[derive(Debug, Clone)]
@@ -575,9 +578,7 @@ impl Editor {
                 base,
             } => {
                 if !ADDABLE.contains(&kind) {
-                    return Err(format!(
-                        "a {kind:?} cannot be added: an encounter's spawn points are not made here"
-                    ));
+                    return Err(format!("a {kind:?} cannot be added"));
                 }
                 if template.is_empty() || template.len() > git::RESREF_LEN {
                     return Err(format!("{template:?} is not a template's name"));
@@ -729,6 +730,15 @@ impl Editor {
                     .map(|point| [point[0] - at[0], point[1] - at[1], point[2] - at[2]])
                     .collect();
                 git::set_outline(&mut self.project.git, kind, index, &relative);
+                Ok(Some(target))
+            }
+            Edit::SpawnPoints(target, points) => {
+                let Target::Object(Kind::Encounter, index) = target else {
+                    return Err("only an encounter has spawn points".into());
+                };
+                if !git::set_spawn_points(&mut self.project.git, index, &points) {
+                    return Err(missing(target));
+                }
                 Ok(Some(target))
             }
             Edit::Area { change, base } => {

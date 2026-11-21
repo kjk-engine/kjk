@@ -83,6 +83,8 @@ pub struct EditSetup {
     pub triggers: Vec<String>,
     pub sounds: Vec<String>,
     pub stores: Vec<String>,
+    /// The install's encounter templates (`.ute`).
+    pub encounters: Vec<String>,
     /// The install's rooms, for a new map (`LibraryRoom`).
     pub rooms: Vec<LibraryRoom>,
     /// The folder of the fitted lights' rule data (`data/lights`) that an
@@ -608,8 +610,9 @@ impl EditorState {
         let resolver = &self.setup.resolver;
         let read = |name: &str, restype: ResType| resolver.read(name, restype);
         let taken = |name: &str| {
-            resolver.find(name, ResType::UTP).is_some()
-                || resolver.find(name, ResType::UTC).is_some()
+            level_edit::template::TYPES
+                .iter()
+                .any(|(restype, _)| resolver.find(name, *restype).is_some())
         };
         if let Err(why) = self
             .editor
@@ -1650,6 +1653,7 @@ fn kind_named(word: &str) -> Option<Kind> {
         "trigger" => Some(Kind::Trigger),
         "sound" => Some(Kind::Sound),
         "store" => Some(Kind::Store),
+        "encounter" => Some(Kind::Encounter),
         _ => None,
     }
 }
@@ -1665,7 +1669,7 @@ impl EditSetup {
             Kind::Trigger => &self.triggers,
             Kind::Sound => &self.sounds,
             Kind::Store => &self.stores,
-            Kind::Encounter => &[],
+            Kind::Encounter => &self.encounters,
         }
     }
 }
@@ -2188,6 +2192,12 @@ pub(crate) fn command(
             let at: usize = at.parse().map_err(|_| format!("{at:?} is not a number"))?;
             state.change_template(target, Change::RemoveItem(at));
         }
+        [
+            "number" | "name" | "class" | "feat" | "power" | "skill" | "equip" | "spawn"
+            | "spawnpoint",
+            ..,
+        ]
+        | ["item", _, "drops" | "infinite", _] => field_command(state, words)?,
         ["collision", on @ ("on" | "off")] => {
             state.show_collision = *on == "on";
             state.quiet = SETTLE_FRAMES;
@@ -2497,6 +2507,107 @@ pub(crate) fn walk(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Re
 
 /// Saves the project (`Editor::save_with`), saying its warnings and what
 /// was written.
+/// `edit number|name|class|feat|power|skill|equip|item|spawn|spawnpoint
+/// ...`: a creature's, a store's or an encounter's fields
+/// (`level_edit::fields`), on the selected object.
+fn field_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
+    use level_edit::fields::{FieldChange, Spawn};
+    let target = selected(state)?;
+    let number = |word: &str| {
+        word.parse::<f64>()
+            .map_err(|_| format!("{word:?} is not a number"))
+    };
+    let whole = |word: &str| {
+        word.parse::<u16>()
+            .map_err(|_| format!("{word:?} is not a whole number"))
+    };
+    let place = |word: &str| {
+        word.parse::<usize>()
+            .map_err(|_| format!("{word:?} is not a place in a list"))
+    };
+    let on = |word: &str| match word {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(format!("{word:?} is not on or off")),
+    };
+    let change = match words {
+        ["number", label, value] => FieldChange::Number(label.to_string(), number(value)?),
+        ["name", label, text @ ..] => FieldChange::Name(label.to_string(), text.join(" ")),
+        ["class", at, "-"] => FieldChange::Class(place(at)?, None),
+        ["class", at, row, levels] => {
+            FieldChange::Class(place(at)?, Some((whole(row)?, whole(levels)?)))
+        }
+        ["feat", row, switch] => FieldChange::Feat(whole(row)?, on(switch)?),
+        ["power", class, row, switch] => {
+            FieldChange::Power(place(class)?, whole(row)?, on(switch)?)
+        }
+        ["skill", at, rank] => FieldChange::Skill(
+            place(at)?,
+            rank.parse::<u8>()
+                .map_err(|_| format!("{rank:?} is not a rank"))?,
+        ),
+        ["equip", slot, item] => {
+            let slot = level_edit::fields::SLOTS
+                .iter()
+                .find(|(number, name)| {
+                    number.to_string() == *slot
+                        || name.eq_ignore_ascii_case(&slot.replace('_', " "))
+                })
+                .map(|(number, _)| *number)
+                .ok_or(format!("{slot:?} is not an equipment slot"))?;
+            let item = if *item == "-" { "" } else { item };
+            FieldChange::Equip(slot, item.to_ascii_lowercase())
+        }
+        ["item", at, flag, switch] => FieldChange::ItemFlag(
+            place(at)?,
+            if *flag == "drops" {
+                "Dropable"
+            } else {
+                "Infinite"
+            },
+            on(switch)?,
+        ),
+        ["spawn", at, "-"] => FieldChange::Spawn(place(at)?, None),
+        ["spawn", at, template, cr, rest @ ..] => FieldChange::Spawn(
+            place(at)?,
+            Some(Spawn {
+                template: template.to_ascii_lowercase(),
+                cr: number(cr)? as f32,
+                single: rest.first() == Some(&"single"),
+            }),
+        ),
+        ["spawnpoint", "add", x, y, z, facing @ ..] => {
+            let Target::Object(Kind::Encounter, index) = target else {
+                return Err("only an encounter has spawn points".into());
+            };
+            let facing = facing.first().map_or(Ok(0.0), |word| number(word))? as f32;
+            let mut points = level_edit::git::spawn_points(&state.editor.project.git, index);
+            points.push((
+                [number(x)? as f32, number(y)? as f32, number(z)? as f32],
+                facing,
+            ));
+            state.apply(Edit::SpawnPoints(target, points));
+            return Ok(());
+        }
+        ["spawnpoint", "remove", at] => {
+            let Target::Object(Kind::Encounter, index) = target else {
+                return Err("only an encounter has spawn points".into());
+            };
+            let mut points = level_edit::git::spawn_points(&state.editor.project.git, index);
+            let at = place(at)?;
+            if at >= points.len() {
+                return Err(format!("there is no spawn point {at}"));
+            }
+            points.remove(at);
+            state.apply(Edit::SpawnPoints(target, points));
+            return Ok(());
+        }
+        _ => return Err("that is not a change of a template's fields".into()),
+    };
+    state.change_template(target, Change::Field(change));
+    Ok(())
+}
+
 /// A conversation's line by its words: `line N` or `reply N`.
 fn node_at(side: &str, n: &str) -> Result<(level_edit::dialog::Side, usize), String> {
     use level_edit::dialog::Side;

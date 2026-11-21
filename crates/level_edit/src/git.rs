@@ -248,6 +248,45 @@ pub fn set_outline(git: &mut Gff, kind: Kind, index: usize, points: &[[f32; 3]])
     true
 }
 
+/// An encounter's spawn points (`SpawnPointList`): where each is in the
+/// area (metres) and the way it faces (radians).
+pub fn spawn_points(git: &Gff, index: usize) -> Vec<([f32; 3], f32)> {
+    let Some(item) = item(git, Kind::Encounter, index) else {
+        return Vec::new();
+    };
+    item.list("SpawnPointList")
+        .iter()
+        .map(|point| {
+            let axis = |label: &str| point.float(label).unwrap_or(0.0);
+            ([axis("X"), axis("Y"), axis("Z")], axis("Orientation"))
+        })
+        .collect()
+}
+
+/// Sets an encounter's spawn points. False when the list has no such
+/// entry.
+pub fn set_spawn_points(git: &mut Gff, index: usize, points: &[([f32; 3], f32)]) -> bool {
+    let Some(item) = item_mut(git, Kind::Encounter, index) else {
+        return false;
+    };
+    let list = points
+        .iter()
+        .map(|(at, facing)| GffStruct {
+            id: 0,
+            fields: ["X", "Y", "Z", "Orientation"]
+                .into_iter()
+                .zip([at[0], at[1], at[2], *facing])
+                .map(|(label, value)| GffField {
+                    label: label.as_bytes().to_vec(),
+                    value: float(value),
+                })
+                .collect(),
+        })
+        .collect();
+    set(item, "SpawnPointList", GffValue::List(list));
+    true
+}
+
 /// Sets a field of the entry: its `Tag` (a string) or an event's script (a
 /// resref). False when the list has no such entry.
 pub fn set_entry_field(
@@ -332,8 +371,9 @@ const TOOLSET_FIELDS: [&str; 2] = ["Comment", "PaletteID"];
 
 /// `add`, from the template's own fields (`base`) where the kind is read
 /// whole from its entry (a waypoint: its tag, name and map note are the
-/// entry's). A new trigger gets a square outline of `NEW_TRIGGER_SIDE`
-/// round its position.
+/// entry's). A new trigger or encounter gets a square outline of
+/// `NEW_TRIGGER_SIDE` round its position; a new encounter has no spawn
+/// points, so its creatures appear where the party walks in.
 pub fn add_from(
     git: &mut Gff,
     kind: Kind,
@@ -367,14 +407,19 @@ pub fn add_from(
         template_label,
         GffValue::ResRef(template.to_ascii_lowercase().into_bytes()),
     );
-    if kind == Kind::Trigger {
+    if matches!(kind, Kind::Trigger | Kind::Encounter) {
+        let labels = if kind == Kind::Encounter {
+            ["X", "Y", "Z"]
+        } else {
+            ["PointX", "PointY", "PointZ"]
+        };
         let half = NEW_TRIGGER_SIDE * 0.5;
         let corners = [[-half, -half], [half, -half], [half, half], [-half, half]];
         let points = corners
             .iter()
             .map(|[x, y]| GffStruct {
                 id: 3,
-                fields: ["PointX", "PointY", "PointZ"]
+                fields: labels
                     .into_iter()
                     .zip([*x, *y, 0.0])
                     .map(|(label, value)| GffField {
@@ -385,6 +430,9 @@ pub fn add_from(
             })
             .collect();
         set(&mut item, "Geometry", GffValue::List(points));
+        if kind == Kind::Encounter {
+            set(&mut item, "SpawnPointList", GffValue::List(Vec::new()));
+        }
     }
     if matches!(kind, Kind::Door | Kind::Placeable) {
         for (label, value) in ["X", "Y", "Z"].into_iter().zip(position) {

@@ -539,9 +539,11 @@ fn read_templates(folder: &Path) -> Result<BTreeMap<String, Template>, String> {
             .map_or(ResType::UTP, |(restype, _)| *restype);
         let bytes = std::fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         let gff = Gff::parse(&bytes).map_err(|error| format!("{}: {error}", path.display()))?;
+        // A store's template names itself in `ResRef`.
         let from = gff
             .root
             .resref("TemplateResRef")
+            .or_else(|| gff.root.resref("ResRef"))
             .unwrap_or_else(String::new)
             .to_ascii_lowercase();
         templates.insert(resref, Template { restype, from, gff });

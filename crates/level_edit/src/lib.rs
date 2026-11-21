@@ -20,6 +20,7 @@ pub mod area;
 pub mod blocks;
 pub mod dialog;
 pub mod editor;
+pub mod fields;
 pub mod git;
 pub mod kinds;
 pub mod levels;

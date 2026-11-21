@@ -36,7 +36,7 @@ pub struct Template {
 }
 
 /// A change to an object's template.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Change {
     /// An event's script: the label (`OnOpen`, `ScriptHeartbeat`) and the
     /// script's resref, empty for none.
@@ -54,6 +54,9 @@ pub enum Change {
     Link(Link),
     /// The conversation the object speaks (`Conversation`); empty for none.
     Conversation(String),
+    /// A creature's, a store's or an encounter's numbers, name or lists
+    /// (`fields`).
+    Field(crate::fields::FieldChange),
 }
 
 /// Where a door or a trigger leads: a module (`LinkedToModule`, empty for
@@ -256,6 +259,12 @@ fn item_list(gff: &mut Gff) -> &mut Vec<GffStruct> {
     }
 }
 
+/// Whether templates of `restype` hold items (`ItemList`): a placeable's,
+/// a creature's carried items, a store's stock.
+pub fn holds_items(restype: ResType) -> bool {
+    matches!(restype, ResType::UTP | ResType::UTC | ResType::UTM)
+}
+
 /// Makes `change` in `gff`, a template of `restype`.
 pub fn apply(gff: &mut Gff, restype: ResType, change: &Change) -> Result<(), String> {
     match change {
@@ -279,8 +288,10 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &Change) -> Result<(), Str
             set(&mut gff.root, label, GffValue::Byte(u8::from(*on)));
         }
         Change::AddItem(item) => {
-            if restype != ResType::UTP {
-                return Err("only a placeable's items are changed here".into());
+            if !holds_items(restype) {
+                return Err(
+                    "only a placeable's, a creature's or a store's items are changed here".into(),
+                );
             }
             if item.is_empty() || item.len() > RESREF_LEN {
                 return Err(format!("{item:?} is not an item template's name"));
@@ -307,6 +318,7 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &Change) -> Result<(), Str
         }
         Change::Tag(tag) => set_tag(&mut gff.root, tag)?,
         Change::Conversation(name) => set_conversation(&mut gff.root, name)?,
+        Change::Field(change) => crate::fields::apply(gff, restype, change)?,
         Change::Link(_) => return Err("a link is the GIT entry's, not its template's".into()),
         Change::RemoveItem(at) => {
             let list = item_list(gff);
@@ -375,7 +387,7 @@ pub fn apply_entry(item: &mut GffStruct, change: &Change) -> Result<(), String> 
         Change::Tag(tag) => set_tag(item, tag),
         Change::Link(link) => set_link(item, link),
         Change::Conversation(name) => set_conversation(item, name),
-        _ => Err("only a placeable's template has use and items".into()),
+        _ => Err("only a template has use, items, numbers and lists".into()),
     }
 }
 

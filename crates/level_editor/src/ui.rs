@@ -55,6 +55,7 @@ enum Tab {
     Triggers,
     Sounds,
     Stores,
+    Encounters,
 }
 
 /// Boxes ready to place: a name, a size in metres and a role.
@@ -160,6 +161,15 @@ pub struct UiState {
     dialog_try: (String, String),
     /// What each condition script checks (`condition_checks`), read once.
     talk_checks: BTreeMap<String, String>,
+    /// The rows of each 2DA a picker lists (`table_rows`), read once.
+    table_rows: BTreeMap<String, std::sync::Arc<Vec<(u16, String)>>>,
+    /// What each row picker's filter holds, by the picker's name.
+    row_filters: BTreeMap<String, String>,
+    /// A number being dragged, by its field's name, with its value so far:
+    /// it is made one change when the drag ends.
+    number_drag: Option<(String, f64)>,
+    /// The encounter whose spawn points are placed by clicks on the floor.
+    spawning: Option<Target>,
     /// The agent link while it is on (`agent`), and a copy of the
     /// selection asked for.
     link: Option<crate::agent::Link>,
@@ -229,6 +239,10 @@ impl Default for UiState {
             new_dialog: String::new(),
             dialog_try: (String::new(), String::new()),
             talk_checks: BTreeMap::new(),
+            table_rows: BTreeMap::new(),
+            row_filters: BTreeMap::new(),
+            number_drag: None,
+            spawning: None,
             link: std::env::var("KJK_EDITOR_LINK")
                 .is_ok_and(|on| on == "1")
                 .then(crate::agent::Link::open)
@@ -693,6 +707,7 @@ fn panels(
             ["tab", "triggers"] => ui.tab = Tab::Triggers,
             ["tab", "sounds"] => ui.tab = Tab::Sounds,
             ["tab", "stores"] => ui.tab = Tab::Stores,
+            ["tab", "encounters"] => ui.tab = Tab::Encounters,
             ["tab", "lights"] => ui.tab = Tab::Lights,
             ["levels", on @ ("on" | "off")] => state.show_levels = *on == "on",
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
@@ -1632,6 +1647,7 @@ fn behaviour(
     ui.label(egui::RichText::new(about).small());
     let mut changes: Vec<Change> = Vec::new();
     let placeable = restype == Some(fmt_odyssey::ResType::UTP);
+    let holds_items = restype.is_some_and(template::holds_items);
     // The tag, which scripts find the object by.
     ui.horizontal(|ui| {
         ui.label("Tag");
@@ -1829,13 +1845,46 @@ fn behaviour(
             });
         }
     }
-    // A placeable's items.
-    if placeable {
+    // A creature's, a store's or an encounter's numbers and lists.
+    if let Some(restype) = restype
+        && !level_edit::fields::numbers(restype).is_empty()
+    {
+        template_fields(ui, state, ui_state, (target, restype), &gff, &mut changes);
+    }
+    // The items a placeable or a creature starts with, a store's stock.
+    if holds_items {
         let items = template::items(&gff);
-        ui.label(format!("Items it starts with: {}", items.len()));
+        let (heading, flag) = match restype {
+            Some(fmt_odyssey::ResType::UTC) => (
+                "Items it carries",
+                Some((
+                    "Dropable",
+                    "Drops",
+                    "The item drops when the creature dies.",
+                )),
+            ),
+            Some(fmt_odyssey::ResType::UTM) => (
+                "Items it sells",
+                Some((
+                    "Infinite",
+                    "Never runs out",
+                    "The store never runs out of the item.",
+                )),
+            ),
+            _ => ("Items it starts with", None),
+        };
+        ui.label(format!("{heading}: {}", items.len()));
         for (at, item) in items.iter().enumerate() {
             ui.horizontal(|ui| {
                 ui.label(item);
+                if let Some((label, shown, hint)) = flag {
+                    let mut on = level_edit::fields::item_flag(&gff, at, label);
+                    if ui.checkbox(&mut on, shown).on_hover_text(hint).changed() {
+                        changes.push(Change::Field(level_edit::fields::FieldChange::ItemFlag(
+                            at, label, on,
+                        )));
+                    }
+                }
                 if ui.small_button("Remove").clicked() {
                     changes.push(Change::RemoveItem(at));
                 }
@@ -1883,6 +1932,599 @@ fn behaviour(
         // The script fields show the template as it now is.
         ui_state.typed.retain(|label, _| label == ITEM_FIELD);
     }
+}
+
+/// The rows of the 2DA `table` as a picker lists them: each row's number
+/// and its name (its talk-table `name`, with its label where that says
+/// something else), read once. Rows with neither are left out.
+fn table_rows(
+    state: &EditorState,
+    ui_state: &mut UiState,
+    table: &str,
+) -> std::sync::Arc<Vec<(u16, String)>> {
+    if let Some(rows) = ui_state.table_rows.get(table) {
+        return rows.clone();
+    }
+    let mut rows = Vec::new();
+    if let Some(two) = state.setup.resolver.two_da(table) {
+        let talk = state.setup.talk.as_deref();
+        for row in 0..two.row_labels.len().min(usize::from(u16::MAX)) {
+            let named = two
+                .text(row, "name")
+                .and_then(|cell| cell.parse::<u32>().ok())
+                .and_then(|strref| talk?.text(strref))
+                .map(|text| String::from_utf8_lossy(text).trim().to_string())
+                .filter(|text| !text.is_empty() && !text.starts_with("Bad Strref"));
+            let label = two
+                .text(row, "label")
+                .filter(|label| !label.is_empty() && label != "****");
+            let shown = match (named, label) {
+                (Some(name), Some(label)) if !name.eq_ignore_ascii_case(&label) => {
+                    format!("{name} ({label})")
+                }
+                (Some(name), _) => name,
+                (None, Some(label)) => label,
+                (None, None) => continue,
+            };
+            rows.push((row as u16, shown));
+        }
+    }
+    let rows = std::sync::Arc::new(rows);
+    ui_state.table_rows.insert(table.to_string(), rows.clone());
+    rows
+}
+
+/// A row of a 2DA's name as `rows` has it, else its number.
+fn row_name(rows: &[(u16, String)], row: u16) -> String {
+    rows.iter()
+        .find(|(at, _)| *at == row)
+        .map_or_else(|| format!("row {row}"), |(_, name)| format!("{row} {name}"))
+}
+
+/// A picker of a 2DA's rows: a button with `current`'s name that opens a
+/// list with a filter. The row picked, if one was.
+fn row_picker(
+    ui: &mut egui::Ui,
+    ui_state: &mut UiState,
+    rows: &[(u16, String)],
+    (id, shown): (&str, &str),
+    current: Option<u16>,
+) -> Option<u16> {
+    let config = egui::containers::menu::MenuConfig::new()
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+    let mut picked = None;
+    let filter = ui_state.row_filters.entry(id.to_string()).or_default();
+    egui::containers::menu::MenuButton::new(shown)
+        .config(config)
+        .ui(ui, |ui| {
+            ui.add(
+                egui::TextEdit::singleline(filter)
+                    .hint_text("filter")
+                    .desired_width(220.0),
+            );
+            let needle = filter.to_ascii_lowercase();
+            egui::ScrollArea::vertical()
+                .max_height(280.0)
+                .show(ui, |ui| {
+                    let found = rows
+                        .iter()
+                        .filter(|(row, name)| {
+                            needle.is_empty()
+                                || name.to_ascii_lowercase().contains(&needle)
+                                || row.to_string() == needle
+                        })
+                        .take(400);
+                    for (row, name) in found {
+                        if ui
+                            .selectable_label(current == Some(*row), format!("{row}  {name}"))
+                            .clicked()
+                        {
+                            picked = Some(*row);
+                            ui.close();
+                        }
+                    }
+                });
+        });
+    picked
+}
+
+/// A number of a template's, dragged or typed: the value to change it to
+/// once the drag ends or the typing is done.
+fn number_field(
+    ui: &mut egui::Ui,
+    ui_state: &mut UiState,
+    key: &str,
+    (now, min, max, whole): (f64, f64, f64, bool),
+) -> Option<f64> {
+    let mut value = match &ui_state.number_drag {
+        Some((dragged, value)) if dragged == key => *value,
+        _ => now,
+    };
+    let mut drag = egui::DragValue::new(&mut value)
+        .range(min..=max)
+        .speed(if whole { 0.2 } else { 0.05 });
+    if whole {
+        drag = drag.max_decimals(0);
+    } else {
+        drag = drag.max_decimals(2);
+    }
+    let response = ui.add(drag);
+    if response.dragged() {
+        ui_state.number_drag = Some((key.to_string(), value));
+        return None;
+    }
+    let ended = response.drag_stopped()
+        && ui_state
+            .number_drag
+            .as_ref()
+            .is_some_and(|(dragged, _)| dragged == key);
+    if ended {
+        ui_state.number_drag = None;
+    }
+    let value = if whole { value.round() } else { value };
+    ((ended || response.changed()) && (value - now).abs() > 1e-6).then_some(value)
+}
+
+/// A creature's, a store's or an encounter's fields in its behaviour: its
+/// name, its numbers, and its lists (a creature's classes, powers, feats,
+/// skills and equipment; an encounter's creatures and spawn points).
+fn template_fields(
+    ui: &mut egui::Ui,
+    state: &mut EditorState,
+    ui_state: &mut UiState,
+    (target, restype): (Target, fmt_odyssey::ResType),
+    gff: &fmt_odyssey::gff::Gff,
+    changes: &mut Vec<Change>,
+) {
+    use level_edit::fields::{self, FieldChange};
+    let field = |change: FieldChange| Change::Field(change);
+    // The names.
+    let talk = state.setup.talk.clone();
+    let said = |strref: u32| {
+        talk.as_deref()
+            .and_then(|talk| talk.text(strref))
+            .map(|text| String::from_utf8_lossy(text).into_owned())
+    };
+    for (label, shown) in fields::names(restype) {
+        let now = fields::name_of(gff, label, &said);
+        ui.horizontal(|ui| {
+            ui.label(*shown);
+            let typed = ui_state
+                .typed
+                .entry(format!("name {label}"))
+                .or_insert_with(|| now.clone());
+            let edited = ui.add(egui::TextEdit::singleline(typed).desired_width(180.0)).on_hover_text(
+                "The name the game shows. The editor keeps it in the template itself, with no talk-table line.",
+            );
+            if edited.lost_focus() && *typed != now {
+                changes.push(field(FieldChange::Name(label.to_string(), typed.clone())));
+            }
+        });
+    }
+    // The numbers.
+    let numbers = fields::numbers(restype);
+    egui::CollapsingHeader::new(match restype {
+        fmt_odyssey::ResType::UTC => "Statistics",
+        fmt_odyssey::ResType::UTM => "Prices",
+        _ => "Spawning",
+    })
+    .id_salt("template numbers")
+    .default_open(true)
+    .show(ui, |ui| {
+        egui::Grid::new("template numbers grid")
+            .num_columns(2)
+            .show(ui, |ui| {
+                for number in numbers {
+                    let now = fields::number_of(gff, number.label);
+                    ui.label(number.shown).on_hover_text(number.hint);
+                    if number.switch {
+                        let mut on = now.unwrap_or(0.0) != 0.0;
+                        if ui
+                            .checkbox(&mut on, "")
+                            .on_hover_text(number.hint)
+                            .changed()
+                        {
+                            changes.push(field(FieldChange::Number(
+                                number.label.to_string(),
+                                f64::from(u8::from(on)),
+                            )));
+                        }
+                    } else if let Some(table) = number.table {
+                        let rows = table_rows(state, ui_state, table);
+                        let current = now.map(|row| row as u16);
+                        let shown =
+                            current.map_or_else(|| "none".to_string(), |row| row_name(&rows, row));
+                        if let Some(row) = row_picker(
+                            ui,
+                            ui_state,
+                            &rows,
+                            (&format!("{} picker", number.label), &shown),
+                            current,
+                        ) {
+                            changes.push(field(FieldChange::Number(
+                                number.label.to_string(),
+                                f64::from(row),
+                            )));
+                        }
+                    } else {
+                        let whole = number.store != fields::Store::Float;
+                        if let Some(value) = number_field(
+                            ui,
+                            ui_state,
+                            number.label,
+                            (
+                                now.unwrap_or(number.min.max(0.0)),
+                                number.min,
+                                number.max,
+                                whole,
+                            ),
+                        ) {
+                            changes
+                                .push(field(FieldChange::Number(number.label.to_string(), value)));
+                        }
+                    }
+                    ui.end_row();
+                }
+            });
+    });
+    match restype {
+        fmt_odyssey::ResType::UTC => creature_lists(ui, state, ui_state, gff, changes),
+        fmt_odyssey::ResType::UTE => encounter_lists(ui, state, ui_state, target, gff, changes),
+        _ => {}
+    }
+}
+
+/// A creature's classes with their Force powers, its feats, its skills and
+/// its equipment.
+fn creature_lists(
+    ui: &mut egui::Ui,
+    state: &mut EditorState,
+    ui_state: &mut UiState,
+    gff: &fmt_odyssey::gff::Gff,
+    changes: &mut Vec<Change>,
+) {
+    use level_edit::fields::{self, FieldChange};
+    let field = |change: FieldChange| Change::Field(change);
+    let classes = fields::classes(gff);
+    let class_rows = table_rows(state, ui_state, "classes");
+    let spell_rows = table_rows(state, ui_state, "spells");
+    egui::CollapsingHeader::new(format!("Classes and Force powers ({})", classes.len()))
+        .id_salt("template classes")
+        .show(ui, |ui| {
+            for (at, (class, levels, powers)) in classes.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    if let Some(row) = row_picker(
+                        ui,
+                        ui_state,
+                        &class_rows,
+                        (&format!("class {at}"), &row_name(&class_rows, *class)),
+                        Some(*class),
+                    ) {
+                        changes.push(field(FieldChange::Class(at, Some((row, *levels)))));
+                    }
+                    ui.label("levels");
+                    if let Some(value) = number_field(
+                        ui,
+                        ui_state,
+                        &format!("class {at} levels"),
+                        (f64::from(*levels), 1.0, 50.0, true),
+                    ) {
+                        changes.push(field(FieldChange::Class(at, Some((*class, value as u16)))));
+                    }
+                    if ui.small_button("Remove").clicked() {
+                        changes.push(field(FieldChange::Class(at, None)));
+                    }
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(16.0);
+                    for power in powers {
+                        if ui
+                            .small_button(format!("{} x", row_name(&spell_rows, *power)))
+                            .on_hover_text("Takes the power away.")
+                            .clicked()
+                        {
+                            changes.push(field(FieldChange::Power(at, *power, false)));
+                        }
+                    }
+                    if let Some(row) = row_picker(
+                        ui,
+                        ui_state,
+                        &spell_rows,
+                        (&format!("class {at} power"), "Add a power"),
+                        None,
+                    ) {
+                        changes.push(field(FieldChange::Power(at, row, true)));
+                    }
+                });
+            }
+            if classes.len() < 3 && ui.button("Add a class").clicked() {
+                changes.push(field(FieldChange::Class(classes.len(), Some((0, 1)))));
+            }
+        });
+    let feats = fields::feats(gff);
+    let feat_rows = table_rows(state, ui_state, "feat");
+    egui::CollapsingHeader::new(format!("Feats ({})", feats.len()))
+        .id_salt("template feats")
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for feat in &feats {
+                    if ui
+                        .small_button(format!("{} x", row_name(&feat_rows, *feat)))
+                        .on_hover_text("Takes the feat away.")
+                        .clicked()
+                    {
+                        changes.push(field(FieldChange::Feat(*feat, false)));
+                    }
+                }
+            });
+            if let Some(row) = row_picker(
+                ui,
+                ui_state,
+                &feat_rows,
+                ("feat to add", "Add a feat"),
+                None,
+            ) {
+                changes.push(field(FieldChange::Feat(row, true)));
+            }
+        });
+    let skills = fields::skills(gff);
+    let skill_rows = table_rows(state, ui_state, "skills");
+    egui::CollapsingHeader::new("Skills")
+        .id_salt("template skills")
+        .show(ui, |ui| {
+            egui::Grid::new("template skills grid")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    for at in 0..8usize {
+                        let name = skill_rows
+                            .iter()
+                            .find(|(row, _)| usize::from(*row) == at)
+                            .map_or_else(|| format!("Skill {at}"), |(_, name)| name.clone());
+                        ui.label(name);
+                        let rank = skills.get(at).copied().unwrap_or(0);
+                        if let Some(value) = number_field(
+                            ui,
+                            ui_state,
+                            &format!("skill {at}"),
+                            (f64::from(rank), 0.0, 100.0, true),
+                        ) {
+                            changes.push(field(FieldChange::Skill(at, value as u8)));
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    let equipped = fields::equipped(gff);
+    egui::CollapsingHeader::new(format!("Equipment ({})", equipped.len()))
+        .id_salt("template equipment")
+        .show(ui, |ui| {
+            egui::Grid::new("template equipment grid")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    for (slot, shown) in fields::SLOTS {
+                        let now = equipped
+                            .iter()
+                            .find(|(at, _)| *at == slot)
+                            .map(|(_, item)| item.clone())
+                            .unwrap_or_else(String::new);
+                        ui.label(shown);
+                        let key = format!("slot {slot}");
+                        let typed = ui_state.typed.entry(key.clone()).or_insert_with(|| now.clone());
+                        let known = typed.is_empty() || state.setup.items.binary_search(typed).is_ok();
+                        let mut edit = egui::TextEdit::singleline(typed)
+                            .desired_width(150.0)
+                            .hint_text("none");
+                        if !known {
+                            edit = edit.text_color(egui::Color32::from_rgb(230, 120, 90));
+                        }
+                        let edited = ui.add(edit).on_hover_text(
+                            "The item template the creature has here. Type an item's name, or empty it for none.",
+                        );
+                        if edited.has_focus() {
+                            ui_state.completing = Some(key.clone());
+                        }
+                        if edited.lost_focus() && known && typed.to_ascii_lowercase() != now {
+                            changes.push(field(FieldChange::Equip(slot, typed.to_ascii_lowercase())));
+                        }
+                        ui.end_row();
+                    }
+                });
+            if let Some(key) = ui_state.completing.clone()
+                && let Some(slot) = key.strip_prefix("slot ").and_then(|slot| slot.parse::<u8>().ok())
+            {
+                let typed = ui_state.typed.get(&key).cloned().unwrap_or_else(String::new);
+                ui.horizontal_wrapped(|ui| {
+                    for name in matches(&state.setup.items, &typed) {
+                        if ui.small_button(name.as_str()).clicked() {
+                            ui_state.typed.insert(key.clone(), name.clone());
+                            changes.push(field(FieldChange::Equip(slot, name.clone())));
+                            ui_state.completing = None;
+                        }
+                    }
+                });
+            }
+        });
+}
+
+/// An encounter's creatures and its spawn points.
+fn encounter_lists(
+    ui: &mut egui::Ui,
+    state: &mut EditorState,
+    ui_state: &mut UiState,
+    target: Target,
+    gff: &fmt_odyssey::gff::Gff,
+    changes: &mut Vec<Change>,
+) {
+    use level_edit::fields::{self, FieldChange, Spawn};
+    let field = |change: FieldChange| Change::Field(change);
+    let spawns = fields::spawns(gff);
+    egui::CollapsingHeader::new(format!("Creatures it spawns ({})", spawns.len()))
+        .id_salt("template spawns")
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("template spawns grid")
+                .num_columns(4)
+                .show(ui, |ui| {
+                    for (at, spawn) in spawns.iter().enumerate() {
+                        ui.label(&spawn.template);
+                        ui.label("challenge");
+                        if let Some(value) = number_field(
+                            ui,
+                            ui_state,
+                            &format!("spawn {at} cr"),
+                            (f64::from(spawn.cr), 0.0, 100.0, false),
+                        ) {
+                            changes.push(field(FieldChange::Spawn(
+                                at,
+                                Some(Spawn {
+                                    cr: value as f32,
+                                    ..spawn.clone()
+                                }),
+                            )));
+                        }
+                        ui.horizontal(|ui| {
+                            let mut single = spawn.single;
+                            if ui
+                                .checkbox(&mut single, "Once")
+                                .on_hover_text("The encounter spawns this creature once at most.")
+                                .changed()
+                            {
+                                changes.push(field(FieldChange::Spawn(
+                                    at,
+                                    Some(Spawn {
+                                        single,
+                                        ..spawn.clone()
+                                    }),
+                                )));
+                            }
+                            if ui.small_button("Remove").clicked() {
+                                changes.push(field(FieldChange::Spawn(at, None)));
+                            }
+                        });
+                        ui.end_row();
+                    }
+                });
+            ui.horizontal(|ui| {
+                let key = "spawn to add".to_string();
+                let typed = ui_state
+                    .typed
+                    .entry(key.clone())
+                    .or_insert_with(String::new);
+                let edited = ui.add(
+                    egui::TextEdit::singleline(typed)
+                        .desired_width(150.0)
+                        .hint_text("a creature template"),
+                );
+                if edited.has_focus() {
+                    ui_state.completing = Some(key.clone());
+                }
+                let name = typed.to_ascii_lowercase();
+                let ready = state.setup.creatures.binary_search(&name).is_ok();
+                if ui
+                    .add_enabled(ready, egui::Button::new("Add creature"))
+                    .clicked()
+                {
+                    // It counts for the challenge its template says.
+                    let cr = state
+                        .template_gff(&name, ResType::UTC)
+                        .and_then(|creature| creature.root.float("ChallengeRating"))
+                        .unwrap_or(1.0);
+                    changes.push(field(FieldChange::Spawn(
+                        spawns.len(),
+                        Some(Spawn {
+                            template: name,
+                            cr,
+                            single: false,
+                        }),
+                    )));
+                    ui_state.typed.remove(&key);
+                }
+            });
+            if ui_state.completing.as_deref() == Some("spawn to add") {
+                let typed = ui_state
+                    .typed
+                    .get("spawn to add")
+                    .cloned()
+                    .unwrap_or_else(String::new);
+                ui.horizontal_wrapped(|ui| {
+                    for name in matches(&state.setup.creatures, &typed) {
+                        if ui.small_button(name.as_str()).clicked() {
+                            ui_state.typed.insert("spawn to add".into(), name.clone());
+                        }
+                    }
+                });
+            }
+        });
+    // The spawn points, in the area's object list.
+    let Target::Object(_, index) = target else {
+        return;
+    };
+    let points = level_edit::git::spawn_points(&state.editor.project.git, index);
+    egui::CollapsingHeader::new(format!("Spawn points ({})", points.len()))
+        .id_salt("template spawn points")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(
+                    "The creatures appear at these points. With none, they appear where the party walks in.",
+                )
+                .small(),
+            );
+            let mut moved = points.clone();
+            let mut changed = false;
+            let mut remove = None;
+            egui::Grid::new("spawn points grid")
+                .num_columns(3)
+                .show(ui, |ui| {
+                    for (at, (point, facing)) in moved.iter_mut().enumerate() {
+                        ui.label(format!("{}", at + 1));
+                        ui.horizontal(|ui| {
+                            for value in point.iter_mut().take(2) {
+                                changed |= ui
+                                    .add(egui::DragValue::new(value).speed(0.05).max_decimals(2))
+                                    .changed();
+                            }
+                            let mut degrees = facing.to_degrees();
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut degrees)
+                                        .speed(1.0)
+                                        .max_decimals(0)
+                                        .suffix("°"),
+                                )
+                                .on_hover_text("The way the creature faces as it appears.")
+                                .changed()
+                            {
+                                *facing = degrees.to_radians();
+                                changed = true;
+                            }
+                        });
+                        if ui.small_button("Remove").clicked() {
+                            remove = Some(at);
+                        }
+                        ui.end_row();
+                    }
+                });
+            if let Some(at) = remove {
+                moved.remove(at);
+                changed = true;
+            }
+            if changed {
+                if ui.ctx().input(|input| input.pointer.any_down()) {
+                    drag_edit(state, ui_state, Edit::SpawnPoints(target, moved));
+                } else {
+                    state.apply(Edit::SpawnPoints(target, moved));
+                }
+            }
+            let placing = ui_state.spawning == Some(target);
+            if ui
+                .selectable_label(placing, "Place spawn points")
+                .on_hover_text("Each click on the floor in the view adds a spawn point. Enter or Escape ends.")
+                .clicked()
+            {
+                ui_state.spawning = (!placing).then_some(target);
+            }
+        });
 }
 
 /// The rows of a 2DA as a list shows them: each row's number and its
@@ -3966,6 +4608,7 @@ fn assets(
                     (Tab::Triggers, "Triggers"),
                     (Tab::Sounds, "Sounds"),
                     (Tab::Stores, "Stores"),
+                    (Tab::Encounters, "Encounters"),
                     (Tab::Lights, "Lights"),
                 ]) {
                     if ui.selectable_value(&mut ui_state.tab, tab, label).changed() {
@@ -4023,11 +4666,12 @@ fn assets(
                         (Asset::Template(AssetKind::Prop, path.clone()), shown)
                     })
                     .collect(),
-                Tab::Waypoints | Tab::Triggers | Tab::Sounds | Tab::Stores => {
+                Tab::Waypoints | Tab::Triggers | Tab::Sounds | Tab::Stores | Tab::Encounters => {
                     let kind = match ui_state.tab {
                         Tab::Waypoints => Kind::Waypoint,
                         Tab::Triggers => Kind::Trigger,
                         Tab::Sounds => Kind::Sound,
+                        Tab::Encounters => Kind::Encounter,
                         _ => Kind::Store,
                     };
                     state
@@ -4346,6 +4990,43 @@ fn outline_in_view(
         state::ray_at(cameras, Vec2::new(at.x, at.y)).and_then(|ray| state::ground(state, ray))
     };
     let colour = egui::Color32::from_rgb(255, 200, 60);
+    // The selected encounter's spawn points, each a ring with a tick the
+    // way it faces.
+    if let Some(Target::Object(Kind::Encounter, index)) = state.editor.selected {
+        let spawn_colour = egui::Color32::from_rgb(255, 120, 200);
+        for (at, facing) in level_edit::git::spawn_points(&state.editor.project.git, index) {
+            let ahead = [
+                at[0] + facing.cos() * 0.6,
+                at[1] + facing.sin() * 0.6,
+                at[2],
+            ];
+            if let (Some(centre), Some(tip)) = (to_screen(at), to_screen(ahead)) {
+                painter.circle_stroke(centre, 6.0, egui::Stroke::new(2.0, spawn_colour));
+                painter.line_segment([centre, tip], egui::Stroke::new(2.0, spawn_colour));
+            }
+        }
+    }
+    // Spawn points placed: each click on the floor adds one.
+    if let Some(target @ Target::Object(Kind::Encounter, index)) = ui_state.spawning {
+        if state.editor.selected != Some(target) {
+            ui_state.spawning = None;
+        } else {
+            if response.clicked()
+                && let Some(at) = response.interact_pointer_pos()
+                && let Some(point) = floor_under(state, at)
+            {
+                let mut points = level_edit::git::spawn_points(&state.editor.project.git, index);
+                points.push((point, 0.0));
+                state.apply(Edit::SpawnPoints(target, points));
+            }
+            if ui.input(|input| {
+                input.key_pressed(egui::Key::Enter) || input.key_pressed(egui::Key::Escape)
+            }) {
+                ui_state.spawning = None;
+            }
+            return true;
+        }
+    }
     // Drawing: each click adds a point, Enter ends, Escape drops it.
     if let Some((_, points)) = ui_state.drawing.as_mut() {
         if response.clicked()

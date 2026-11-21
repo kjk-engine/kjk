@@ -385,6 +385,7 @@ fn setup(
     let triggers = sorted(ResType::UTT);
     let sounds = sorted(ResType::UTS);
     let stores = sorted(ResType::UTM);
+    let encounters = sorted(ResType::UTE);
     let rooms = room_library(&resolver);
     let light_data = light_data();
     let program = kjk_program()?;
@@ -415,6 +416,7 @@ fn setup(
         triggers,
         sounds,
         stores,
+        encounters,
         rooms,
         light_data,
         bakes,

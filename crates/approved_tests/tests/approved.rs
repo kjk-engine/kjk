@@ -8186,3 +8186,323 @@ fn level_edit_conversations() {
     assert!(!folder.join("kje_box.dlg").exists());
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// `level_edit::fields`: a creature's, a store's and an encounter's
+/// template changed in the level editor beyond its scripts, read back, and
+/// the encounter read as kjk's module reader reads it
+/// (`docs/LEVEL-EDIT.md`).
+#[test]
+fn level_edit_templates() {
+    use asset_odyssey::made::{blank_module, node, resref};
+    use asset_odyssey::module::{Kind as IrKind, ModuleIr};
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::{Gff, GffValue, LocString};
+    use level_edit::fields::{self, FieldChange, Spawn};
+    use level_edit::{Change, Edit, Editor, Kind, Project, Target, git};
+
+    let made = |file_type: &[u8; 4], fields: Vec<(&str, GffValue)>| Gff {
+        file_type: *file_type,
+        root: node(fields),
+    };
+    let utc = made(
+        b"UTC ",
+        vec![
+            ("TemplateResRef", resref("n_guard")),
+            (
+                "FirstName",
+                GffValue::LocString(LocString {
+                    strref: 100,
+                    strings: Vec::new(),
+                }),
+            ),
+            ("Appearance_Type", GffValue::Word(1)),
+            ("Str", GffValue::Byte(10)),
+            ("ChallengeRating", GffValue::Float(1.0f32.to_bits())),
+            (
+                "ClassList",
+                GffValue::List(vec![node(vec![
+                    ("Class", GffValue::Int(0)),
+                    ("ClassLevel", GffValue::Short(1)),
+                ])]),
+            ),
+            ("ScriptHeartbeat", resref("")),
+        ],
+    );
+    let utm = made(
+        b"UTM ",
+        vec![
+            ("ResRef", resref("m_store")),
+            ("MarkUp", GffValue::Int(100)),
+            ("BuySellFlag", GffValue::Byte(3)),
+            ("OnOpenStore", resref("")),
+        ],
+    );
+    let ute = made(
+        b"UTE ",
+        vec![
+            ("TemplateResRef", resref("e_kath")),
+            ("Active", GffValue::Byte(1)),
+            ("MaxCreatures", GffValue::Int(4)),
+            ("OnEntered", resref("")),
+        ],
+    );
+    let install = [
+        ("n_guard", ResType::UTC, utc.write()),
+        ("m_store", ResType::UTM, utm.write()),
+        ("e_kath", ResType::UTE, ute.write()),
+    ];
+    let read = |name: &str, restype: ResType| {
+        install
+            .iter()
+            .find(|(had, of, _)| *had == name && *of == restype)
+            .map(|(_, _, bytes)| bytes.clone())
+    };
+    let taken = |name: &str| install.iter().any(|(had, _, _)| *had == name);
+
+    let folder = std::env::temp_dir().join(format!("kjk-templates-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let mut editor = Editor::new(Project::new(
+        &folder,
+        "k1",
+        "ebo_m12aa",
+        "m12aa",
+        git::empty(),
+    ));
+    for (kind, template) in [
+        (Kind::Creature, "n_guard"),
+        (Kind::Store, "m_store"),
+        (Kind::Encounter, "e_kath"),
+    ] {
+        editor
+            .apply(Edit::AddObject {
+                kind,
+                template: template.into(),
+                position: [5.0, 5.0, 0.0],
+                facing: 0.0,
+                base: None,
+            })
+            .unwrap();
+    }
+    let without = editor.project.clone();
+    let change = |editor: &mut Editor, target: Target, change: Change| {
+        editor.change_template(target, &change, (&read, &taken))
+    };
+    let field = Change::Field;
+
+    // A creature: its numbers keep the way the template stores them, its
+    // name becomes its own text, and its lists change.
+    let creature = Target::Object(Kind::Creature, 0);
+    for one in [
+        FieldChange::Number("Appearance_Type".into(), 7.0),
+        FieldChange::Number("Str".into(), 18.0),
+        FieldChange::Number("ChallengeRating".into(), 3.5),
+        FieldChange::Number("FactionID".into(), 1.0),
+        FieldChange::Name("FirstName".into(), "Gizka Tamer".into()),
+        FieldChange::Class(0, Some((2, 4))),
+        FieldChange::Class(1, Some((3, 2))),
+        FieldChange::Class(2, Some((1, 1))),
+        FieldChange::Power(1, 5, true),
+        FieldChange::Power(1, 9, true),
+        FieldChange::Power(1, 5, false),
+        FieldChange::Feat(11, true),
+        FieldChange::Feat(12, true),
+        FieldChange::Feat(11, false),
+        FieldChange::Skill(2, 6),
+        FieldChange::Equip(4, "g_w_blstrpstl001".into()),
+        FieldChange::Equip(1, "g_a_clothes01".into()),
+        FieldChange::Equip(4, "g_w_lghtsbr01".into()),
+        FieldChange::Equip(1, String::new()),
+    ] {
+        change(&mut editor, creature, field(one.clone()))
+            .unwrap_or_else(|why| panic!("{one:?}: {why}"));
+    }
+    change(
+        &mut editor,
+        creature,
+        Change::AddItem("g_i_medeqpmnt01".into()),
+    )
+    .unwrap();
+    change(
+        &mut editor,
+        creature,
+        field(FieldChange::ItemFlag(0, "Dropable", true)),
+    )
+    .unwrap();
+    for refused in [
+        FieldChange::Number("Str".into(), 0.0),
+        FieldChange::Number("Gender".into(), 1.0),
+        FieldChange::Class(5, None),
+        FieldChange::Class(3, Some((1, 1))),
+        FieldChange::Power(4, 1, true),
+        FieldChange::Skill(8, 1),
+        FieldChange::Equip(2, "g_w_lghtsbr01".into()),
+        FieldChange::ItemFlag(0, "Infinite", true),
+        FieldChange::Spawn(0, None),
+    ] {
+        assert!(
+            change(&mut editor, creature, field(refused.clone())).is_err(),
+            "{refused:?}"
+        );
+    }
+    let gff = editor
+        .project
+        .templates
+        .values()
+        .find(|made| made.from == "n_guard")
+        .expect("the creature's own template")
+        .gff
+        .clone();
+    assert_eq!(gff.root.get("Appearance_Type"), Some(&GffValue::Word(7)));
+    assert_eq!(gff.root.get("Str"), Some(&GffValue::Byte(18)));
+    assert_eq!(fields::number_of(&gff, "ChallengeRating"), Some(3.5));
+    assert_eq!(
+        gff.root.get("FactionID"),
+        Some(&GffValue::Word(1)),
+        "a number the template lacks is stored as the table says"
+    );
+    assert_eq!(fields::name_of(&gff, "FirstName", &|_| None), "Gizka Tamer");
+    assert_eq!(
+        fields::classes(&gff),
+        [(2, 4, vec![]), (3, 2, vec![9]), (1, 1, vec![])]
+    );
+    assert_eq!(fields::feats(&gff), [12]);
+    assert_eq!(fields::skills(&gff), [0, 0, 6]);
+    assert_eq!(fields::equipped(&gff), [(4, "g_w_lghtsbr01".to_string())]);
+    assert_eq!(gff.root.list("Equip_ItemList")[0].id, 1 << 4);
+    assert_eq!(level_edit::template::items(&gff), ["g_i_medeqpmnt01"]);
+    assert!(fields::item_flag(&gff, 0, "Dropable"));
+
+    // A store: its prices, its name and its stock.
+    let store = Target::Object(Kind::Store, 0);
+    for one in [
+        FieldChange::Number("MarkUp".into(), 150.0),
+        FieldChange::Number("BuySellFlag".into(), 1.0),
+        FieldChange::Name("LocName".into(), "Gizka Goods".into()),
+    ] {
+        change(&mut editor, store, field(one)).unwrap();
+    }
+    change(&mut editor, store, Change::AddItem("g_i_credits001".into())).unwrap();
+    change(
+        &mut editor,
+        store,
+        field(FieldChange::ItemFlag(0, "Infinite", true)),
+    )
+    .unwrap();
+    for refused in [
+        FieldChange::Feat(1, true),
+        FieldChange::Number("MarkUp".into(), 5000.0),
+        FieldChange::ItemFlag(0, "Dropable", true),
+    ] {
+        assert!(
+            change(&mut editor, store, field(refused.clone())).is_err(),
+            "{refused:?}"
+        );
+    }
+    let gff = editor
+        .project
+        .templates
+        .values()
+        .find(|made| made.from == "m_store")
+        .expect("the store's own template")
+        .gff
+        .clone();
+    assert_eq!(gff.root.get("MarkUp"), Some(&GffValue::Int(150)));
+    assert_eq!(gff.root.get("BuySellFlag"), Some(&GffValue::Byte(1)));
+    assert_eq!(fields::name_of(&gff, "LocName", &|_| None), "Gizka Goods");
+    assert!(fields::item_flag(&gff, 0, "Infinite"));
+
+    // An encounter: its numbers, its creatures and its spawn points.
+    let encounter = Target::Object(Kind::Encounter, 0);
+    let spawn = |template: &str, cr: f32, single: bool| Spawn {
+        template: template.into(),
+        cr,
+        single,
+    };
+    for one in [
+        FieldChange::Number("MaxCreatures".into(), 6.0),
+        FieldChange::Number("Active".into(), 0.0),
+        FieldChange::Spawn(0, Some(spawn("n_kath", 2.0, false))),
+        FieldChange::Spawn(1, Some(spawn("n_kath_alpha", 4.0, true))),
+        FieldChange::Spawn(0, Some(spawn("n_kath", 1.5, false))),
+        FieldChange::Spawn(2, Some(spawn("n_gone", 1.0, false))),
+        FieldChange::Spawn(2, None),
+    ] {
+        change(&mut editor, encounter, field(one)).unwrap();
+    }
+    for refused in [
+        FieldChange::Spawn(5, None),
+        FieldChange::Equip(4, "g_w_lghtsbr01".into()),
+    ] {
+        assert!(
+            change(&mut editor, encounter, field(refused.clone())).is_err(),
+            "{refused:?}"
+        );
+    }
+    let points = vec![
+        ([6.0, 5.0, 0.0], 0.0),
+        ([4.0, 5.0, 0.0], std::f32::consts::PI),
+    ];
+    editor
+        .apply(Edit::SpawnPoints(encounter, points.clone()))
+        .unwrap();
+    assert!(
+        editor
+            .apply(Edit::SpawnPoints(
+                Target::Object(Kind::Store, 0),
+                points.clone()
+            ))
+            .is_err(),
+        "only an encounter has spawn points"
+    );
+    assert_eq!(git::spawn_points(&editor.project.git, 0), points);
+    assert_eq!(
+        git::outline(&editor.project.git, Kind::Encounter, 0).len(),
+        4,
+        "a new encounter has a square outline"
+    );
+
+    // kjk's module reader reads the encounter as the editor wrote it.
+    let ute_name = editor.entry(Kind::Encounter, 0).unwrap().template;
+    let mut files = blank_module(Vec::new(), &["Room_A"]);
+    files
+        .0
+        .insert("area.git".into(), editor.project.git.write());
+    files.0.insert(
+        format!("{ute_name}.ute"),
+        editor.project.templates[&ute_name].gff.write(),
+    );
+    let module = ModuleIr::build("blank", &files).expect("the module builds");
+    let read_back = module.areas[0]
+        .instances
+        .iter()
+        .find(|instance| instance.kind == IrKind::Encounter)
+        .and_then(|instance| instance.encounter.clone())
+        .expect("the encounter reads");
+    assert!(!read_back.active);
+    assert_eq!(read_back.max_creatures, 6);
+    let creatures: Vec<(&str, f32, bool)> = read_back
+        .creatures
+        .iter()
+        .map(|creature| (creature.template.as_str(), creature.cr, creature.single))
+        .collect();
+    assert_eq!(
+        creatures,
+        [("n_kath", 1.5, false), ("n_kath_alpha", 4.0, true)]
+    );
+    assert_eq!(read_back.spawn_points, points);
+
+    // The project keeps the three templates, they read back as written,
+    // and undo takes every change away.
+    editor.save("approved test").unwrap();
+    assert_eq!(
+        Project::open(&folder).unwrap().templates,
+        editor.project.templates
+    );
+    for (name, made) in &editor.project.templates {
+        let file = format!("{name}.{}", level_edit::template::extension(made.restype));
+        assert!(folder.join(&file).is_file(), "{file}");
+    }
+    while editor.project != without && editor.undo() {}
+    assert_eq!(editor.project, without);
+    let _ = std::fs::remove_dir_all(&folder);
+}
