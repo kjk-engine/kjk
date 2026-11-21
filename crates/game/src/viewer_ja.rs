@@ -670,6 +670,7 @@ pub fn load(
         hook_local: None,
         clip,
         envmap: None,
+        room_glow: false,
     }];
     let mut blades = Vec::new();
     let mut notes = Vec::new();
@@ -690,6 +691,7 @@ pub fn load(
             hook_local: Some(hand.matrix),
             clip: None,
             envmap: None,
+            room_glow: false,
         });
         let model = models.len() - 1;
         blades.extend(hilt_blades.into_iter().map(|b| BladeSpec { model, ..b }));

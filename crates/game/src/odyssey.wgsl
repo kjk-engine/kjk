@@ -222,6 +222,7 @@ const PROBED: u32 = 32768u;
 // A room's lamp that the files do not set to glow: its glow shows only on
 // its texture's bright texels.
 const LAMP_TEXELS: u32 = 65536u;
+const ROOM_GLOW: u32 = 131072u;
 // Under the baked trial a door's or a placeable's dull glow is at most this
 // many times the light the probes hold where it stands.
 const GLOW_BY_ROOM: f32 = 2.0;
@@ -1868,6 +1869,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var self_lit = select(params.self_illum.rgb, moving.illum_alpha.rgb, moving.uv.z > 0.5);
     if (params.flags & LAMP_TEXELS) != 0u {
         self_lit = self_lit * smoothstep(0.8, 1.0, max3(texel.rgb));
+    }
+    // A Jedi Academy prop's glow is the room's light where it stands
+    // (`ROOM_GLOW`). Where the light probes light it, under Enhanced
+    // lighting, it glows not at all, so the room's light is not counted
+    // twice.
+    if (params.flags & ROOM_GLOW) != 0u && lights.enhanced != 0u && (params.flags & PROBED) != 0u
+        && probe_light(mesh_owner(in.instance_index), vec3<f32>(0.0)).w > 0.5 {
+        self_lit = vec3<f32>(0.0);
     }
     // Ambient occlusion (`ambient_occlusion`) darkens the room's light: the
     // area's flat ambient, the light probes' light and, at a lower share,

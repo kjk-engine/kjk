@@ -417,6 +417,31 @@ conversation or a script of its own has none of them in another module.
 Its fields then show those names in orange, and the project can be given
 its own scripts and conversations of those names.
 
+## How props are lit
+
+A KOTOR room is lit by its lightmaps, which a Jedi Academy prop does not
+have, and the area's ambient light alone leaves a prop nearly black. So a
+prop is lit by the room's light where it stands.
+
+- **Under Classic lighting**, a prop glows with the light from above that
+  the area's light probes read off the lightmap of the floor round it, in
+  the room whose floor lies under it. The probes are the ones the game
+  makes when an area loads to light characters and placeables. A prop on
+  a dark ship's deck therefore stays dim, and one in a bright courtyard is
+  lit as the courtyard is. In the Ebon Hawk a crate glows with 0.20 of
+  its texture's colour, and on the open ground of Dantooine's courtyard
+  with 0.30. Before, every prop glowed with a fixed 0.45.
+- **With the live fitted lights**, the glow is half of that, as the rooms
+  keep half of their stored light, and the fitted lights light the prop
+  too. With the lamps alone it has no glow at all.
+- **Under Enhanced lighting**, the probes light a prop as they light a
+  placeable, from each side, and the prop does not glow, so the room's
+  light is not counted twice.
+
+A prop where no probe with light is near, such as one in an area whose
+rooms have no lightmaps, keeps the old fixed glow of 0.45 of its
+texture's colour.
+
 ## Several levels in one project
 
 Every module of KOTOR holds one area, so a level is a module and its area.
@@ -1196,12 +1221,12 @@ a new perch.
   archives, which the Rooms tab does not read.
 - **Props are not in the navigation mesh.** A solid prop is solid for
   every body, but the game's characters do not path onto it or around it.
-  A walkable box or a nav blocker placed with it does that. Links for
-  jumps and drops between floors are not made yet.
-- **Props are lit wrongly.** A KOTOR room is lit by its lightmaps, which a
-  Jedi Academy prop does not have. In a dark room the area's ambient light
-  alone left a prop nearly black, so a prop gives itself some light of its
-  own (`project_props::PROP_GLOW`). It does not match the room around it.
+  A walkable box or a nav blocker placed with it does that.
+- **Props are lit by the floor under them, not by their lamps.** A KOTOR
+  room is lit by its lightmaps, which a Jedi Academy prop does not have
+  (below, "How props are lit"). A prop takes the room's light where it
+  stands as a whole, so a prop beside a lamp is not brighter on the side
+  that faces it, except from the live fitted lights.
 - **Everything but a lamp turns about Z only.** A box has a yaw but no
   pitch or roll, so a ramp is built from boxes laid as steps. A Jedi
   Academy prop has a yaw alone too.

@@ -51,6 +51,10 @@ pub struct Placed {
     /// A creature's body and head: the env map its appearance asks for
     /// (`creature::EnvMap`). None for any other model.
     pub envmap: Option<WornEnvMap>,
+    /// Its meshes' own glow stands in for the room's light, which the light
+    /// probes give it under Enhanced lighting instead: a level editor
+    /// project's Jedi Academy prop (`project_props`), lit where it stands.
+    pub room_glow: bool,
 }
 
 /// The env map a creature's body and head ask for: the cube map they are
@@ -80,6 +84,7 @@ impl Placed {
             hook_local: None,
             clip: None,
             envmap: None,
+            room_glow: false,
         }
     }
 }
@@ -1162,6 +1167,7 @@ pub fn load_model(
         hook_local: None,
         clip: None,
         envmap: None,
+        room_glow: false,
     }];
     let (textures, missing) = textures(&resolver, &models);
     Ok(LoadedScene {
@@ -1320,6 +1326,7 @@ pub fn module_scene(
                     hook_local: None,
                     clip: None,
                     envmap: None,
+                    room_glow: false,
                 });
                 Some(models.len() - 1)
             }
@@ -1425,6 +1432,7 @@ pub fn module_scene(
                     hook_local: None,
                     clip: None,
                     envmap: None,
+                    room_glow: false,
                 });
                 instances += 1;
             }

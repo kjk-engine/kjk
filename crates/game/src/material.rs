@@ -125,6 +125,10 @@ const PROBED: u32 = 32768;
 /// (`fitted_lights::switched_on`): its glow shows only on its texture's
 /// bright texels, its tubes, and its housing keeps its baked light.
 const LAMP_TEXELS: u32 = 65536;
+/// A level editor project's Jedi Academy prop: its glow is the room's light
+/// where it stands (`project_props`), which the light probes give it under
+/// Enhanced lighting instead, so there it glows not at all.
+const ROOM_GLOW: u32 = 131072;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -1150,6 +1154,14 @@ impl OdysseyMaterial {
     pub fn recoloured(mut self, colour: [f32; 3]) -> OdysseyMaterial {
         self.params.tint = Vec4::new(colour[0], colour[1], colour[2], self.params.tint.w);
         self.params.flags |= RECOLOUR;
+        self
+    }
+
+    /// A prop whose glow stands in for the room's light (`ROOM_GLOW`).
+    pub fn room_glow(mut self, stands_in: bool) -> OdysseyMaterial {
+        if stands_in {
+            self.params.flags |= ROOM_GLOW;
+        }
         self
     }
 

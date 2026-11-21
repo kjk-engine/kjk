@@ -1503,7 +1503,13 @@ impl<'t> Spawner<'t> {
                 lightmap,
                 surface,
                 envmap,
-                lighting.bits(),
+                {
+                    // A prop's glow that stands in for the room's light
+                    // (`Placed::room_glow`) takes a material of its own.
+                    let mut bits = lighting.bits();
+                    bits[10] |= u32::from(placed.room_glow) << 3;
+                    bits
+                },
                 part.uv_scroll.map(|dir| dir.map(f32::to_bits)),
                 culled,
                 whole,
@@ -1528,6 +1534,7 @@ impl<'t> Spawner<'t> {
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
                     .lamp_texels(switched > 0.0)
+                    .room_glow(placed.room_glow)
                     .culled(culled)
                 };
                 let material = match whole {

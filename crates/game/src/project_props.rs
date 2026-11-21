@@ -18,12 +18,55 @@ use level_edit::Prop;
 use crate::viewer::{LoadedScene, Placed};
 use crate::viewer_ja::Files;
 
-/// The light a prop gives itself, 0 to 1 of its texture's own colour. A
-/// KOTOR room is lit by its lightmaps, which a Jedi Academy prop has none
-/// of, and in a dark room the area's ambient light alone leaves a prop
-/// nearly black. This is a stand-in until props are lit as placeables are
-/// (`docs/LEVEL-EDIT.md`, "Limits of the prototype").
+/// The light a prop gives itself, 0 to 1 of its texture's own colour, where
+/// the room's light at it is not known (`room_glow`): an area whose rooms
+/// have no lightmaps, or a prop over no room's floor. A KOTOR room is lit
+/// by its lightmaps, which a Jedi Academy prop has none of, and the area's
+/// ambient light alone leaves a prop nearly black.
 const PROP_GLOW: f32 = 0.45;
+
+/// How far (metres) under and over a prop its room's floor is looked for.
+const FLOOR_BELOW: f32 = 3.0;
+const FLOOR_ABOVE: f32 = 0.5;
+
+/// The room's light at a prop standing at `at` (game space), as a glow:
+/// the light from above that the area's light probes read off the floor's
+/// lightmap round it (`light_probes`), in the room whose floor lies under
+/// it, times the share of a room's stored light the view keeps (all of it
+/// with the game's lighting, half with the live fitted lights, none with
+/// the lamps alone). `None` where no probe with light is near.
+fn room_glow(scene: &LoadedScene, at: [f32; 3]) -> Option<[f32; 3]> {
+    let mut under: Option<(usize, f32)> = None;
+    for (index, room) in scene.rooms.iter().enumerate() {
+        for [a, b, c] in &room.floor {
+            let Some(z) = crate::scene::height_at(*a, *b, *c, at[0], at[1]) else {
+                continue;
+            };
+            if z <= at[2] + FLOOR_ABOVE
+                && z >= at[2] - FLOOR_BELOW
+                && under.is_none_or(|(_, higher)| z > higher)
+            {
+                under = Some((index, z));
+            }
+        }
+    }
+    let sample = bevy::math::Vec3::new(at[0], at[1], at[2] + 1.0);
+    let light = scene
+        .probes
+        .light_at(&scene.rooms, under.map(|(room, _)| room), sample)
+        .ok()?;
+    use crate::fitted_lights::Mode;
+    let kept = match crate::fitted_lights::mode() {
+        Mode::Off | Mode::Baked => 1.0,
+        Mode::Live => 0.5,
+        Mode::LampsOnly => 0.0,
+    };
+    Some(
+        (light[crate::light_probes::FROM_ABOVE] * kept)
+            .min(bevy::math::Vec3::ONE)
+            .to_array(),
+    )
+}
 
 /// A prop's model read once: its meshes at scale 1 (metres) and the
 /// textures they name.
@@ -193,7 +236,16 @@ pub fn add(
                         .or_insert_with(|| texture.clone());
                 }
                 indices.push(Some(scene.models.len()));
-                scene.models.push(placed(model, prop));
+                // Its glow is the room's light where it stands; the light
+                // probes give it that light instead under Enhanced lighting
+                // (`Placed::room_glow`).
+                let glow = room_glow(scene, prop.position).unwrap_or([PROP_GLOW; 3]);
+                let mut made = placed(model, prop);
+                for mesh in &mut made.ir.meshes {
+                    mesh.self_illum = glow;
+                }
+                made.room_glow = true;
+                scene.models.push(made);
             }
             Err(why) => {
                 notes.push(format!("prop {}: {why}", prop.name));

@@ -74,7 +74,7 @@ const FLOOR_REACH: f32 = 3.0;
 /// How far a probe's side looks (metres).
 const SIGHT_REACH: f32 = 20.0;
 /// The slot of `AXES` read off the floor: the light from above.
-const FROM_ABOVE: usize = 2;
+pub(crate) const FROM_ABOVE: usize = 2;
 /// A side that sees nothing, in a probe whose other sides see nothing
 /// either, takes this share of the light from above.
 const UNSEEN_SHARE: f32 = 0.5;
