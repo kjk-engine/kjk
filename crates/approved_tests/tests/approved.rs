@@ -2123,6 +2123,80 @@ fn git_entry_keeps_template_fields() {
     );
 }
 
+/// A trigger that names a module and a tag leads there, whatever its
+/// `LinkedToFlags` say, as K1's executable takes it out. A door whose flags
+/// are 0 leads nowhere, as the Taris hideout's door does. Mission to
+/// Sleheyron's trigger back onto the Ebon Hawk has flags 0, and the player
+/// was stranded on the landing pad. The module is made here; no installs.
+#[test]
+fn trigger_leads_out_whatever_its_link_flags() {
+    use asset_odyssey::made::{blank_module, gff, node, resref};
+    use asset_odyssey::module::ModuleIr;
+    use fmt_odyssey::gff::GffValue;
+
+    let linked = |template: &str, flags: Option<u8>| {
+        let mut fields = vec![
+            ("TemplateResRef", resref(template)),
+            ("Tag", GffValue::String(template.as_bytes().to_vec())),
+            ("LinkedToModule", resref("ebo_m12aa")),
+            ("LinkedTo", GffValue::String(b"ramp".to_vec())),
+        ];
+        fields.extend(flags.map(|flags| ("LinkedToFlags", GffValue::Byte(flags))));
+        node(fields)
+    };
+    let mut files = blank_module(Vec::new(), &["Room_A"]);
+    files.0.insert(
+        "area.git".into(),
+        gff(
+            b"GIT ",
+            vec![
+                (
+                    "TriggerList",
+                    GffValue::List(vec![
+                        linked("trg_flags0", Some(0)),
+                        linked("trg_flags2", Some(2)),
+                        linked("trg_bare", None),
+                    ]),
+                ),
+                (
+                    "Door List",
+                    GffValue::List(vec![
+                        linked("door_flags0", Some(0)),
+                        linked("door_flags1", Some(1)),
+                        linked("door_bare", None),
+                    ]),
+                ),
+            ],
+        ),
+    );
+    let module = ModuleIr::build("blank", &files).expect("the module builds");
+    let mut seen: Vec<String> = module.areas[0]
+        .instances
+        .iter()
+        .map(|instance| {
+            let to = instance
+                .linked_to
+                .as_ref()
+                .map(|(module, tag)| format!("{module}:{}", String::from_utf8_lossy(tag)));
+            format!("{} {to:?}", String::from_utf8_lossy(&instance.tag))
+        })
+        .collect();
+    seen.sort();
+    let out = r#"Some("ebo_m12aa:ramp")"#;
+    assert_eq!(
+        seen,
+        [
+            format!("door_bare {out}"),
+            "door_flags0 None".to_string(),
+            format!("door_flags1 {out}"),
+            format!("trg_bare {out}"),
+            format!("trg_flags0 {out}"),
+            format!("trg_flags2 {out}"),
+        ],
+        "where each door and trigger leads"
+    );
+}
+
 /// A 2DA's stored cell-data size is not read, as in the games and reone:
 /// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
 /// any other wrong size reads as written. No installs (approved
