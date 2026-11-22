@@ -1,15 +1,19 @@
 # The level editor (`kjk-level-editor`, `level_edit`)
 
-The level editor opens a KOTOR area and lets the user change it in a window
-laid out like a scene editor's. The user can move, turn, copy and delete
-the area's creatures, placeables and waypoints, add creatures and
-placeables from the install's templates, place Jedi Academy props, and
-place boxes of invisible collision. The changes are saved into a project
-of the user's own. `kjk play --project NAME` then plays the changed area.
-Nothing is ever written into a game install.
+The level editor opens an area of KOTOR or The Sith Lords and lets the
+user change it in a window laid out like a scene editor's. The user can
+move, turn, copy and delete the area's creatures, placeables, doors,
+waypoints, triggers, sounds, stores and encounters, and add new ones from
+the install's templates. The user can also place Jedi Academy props and
+boxes of invisible collision, change what an object does, write scripts
+and conversations, and light the level. The changes are saved into a
+project of the user's own. `kjk play --project NAME` then plays the
+changed area. Nothing is ever written into a game install.
 
-This is a prototype. It changes areas that exist. It cannot build new rooms,
-because kjk cannot write models, room layouts or walkmeshes.
+This is a prototype. It changes areas that exist, and it makes new maps
+from the games' own rooms ("New maps", below). It cannot make a room of
+its own, because kjk cannot write a room's model. "Limits of the
+prototype" lists what else it does not do.
 
 ## The two halves
 
