@@ -310,7 +310,15 @@ pub fn run(options: RunOptions) -> AppExit {
         crate::crash::DeviceLostPlugin,
         crate::render_facts::RenderFactsPlugin,
     ))
-    .add_systems(Startup, (log_render_adapter, write_manifest).chain());
+    .add_systems(
+        Startup,
+        (
+            log_render_adapter,
+            write_manifest,
+            crate::crash::refuse_software_adapter,
+        )
+            .chain(),
+    );
     if menu {
         app.add_systems(Startup, crate::crash::notice);
     }

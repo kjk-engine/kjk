@@ -613,6 +613,62 @@ fn bar_view(
     (slots, label)
 }
 
+/// KOTOR 2's Form slot for `sheet` (`ui::screens::hud::FORM`): none for a
+/// character who knows no Form. Otherwise it holds the `spells.2da` icon of
+/// the Form in use (none while no Form is in use) and the next-Form key
+/// (`form_view`). The icon is dimmed while the Form does nothing, as a
+/// lightsaber Form does without a lightsaber in the right hand.
+fn form_slot(
+    ui: &mut crate::ui_view::Ui,
+    sheet: &sim::combat::Sheet,
+    key: ui::vm::KeyLabel,
+) -> Option<ui::vm::BarSlot> {
+    use sim::combat::forms;
+    crate::form_view::known(sheet).next()?;
+    let icon = (sheet.form != 0)
+        .then(|| {
+            ui.assets
+                .as_mut()?
+                .cell("spells", usize::from(sheet.form), "iconresref")
+        })
+        .flatten();
+    Some(ui::vm::BarSlot {
+        icon,
+        key,
+        dim: forms::active(sheet) == 0,
+        ..ui::vm::BarSlot::default()
+    })
+}
+
+/// The feat slot for `sheet` (`ui::screens::hud::FEAT`), drawn as the Form
+/// slot is. There is none while the weapon in hand has no choice of feat
+/// attacks (`Picks::shown`), or while a double-bladed lightsaber has one
+/// blade lit, as the next-feat key then does nothing (`feat_view`).
+/// Otherwise it holds the `feat.2da` icon of the feat attack in use (none
+/// while it uses none) and the next-feat key.
+fn feat_slot(
+    ui: &mut crate::ui_view::Ui,
+    sheet: &sim::combat::Sheet,
+    fighter: &sim::combat::Fighter,
+    key: ui::vm::KeyLabel,
+) -> Option<ui::vm::BarSlot> {
+    use sim::combat::picks::{Picks, Shown};
+    if fighter.saber.second_off {
+        return None;
+    }
+    let icon = match Picks::shown(sheet, fighter.hand)? {
+        Shown::Feat(row) => {
+            (ui.assets.as_mut()).and_then(|assets| assets.cell("feat", usize::from(row), "icon"))
+        }
+        Shown::Nothing => None,
+    };
+    Some(ui::vm::BarSlot {
+        icon,
+        key,
+        ..ui::vm::BarSlot::default()
+    })
+}
+
 /// What KOTOR's HUD shows: the bars (Force only for a Force user), the
 /// portrait of the character played (the player's persona's, or a
 /// companion's template's while it leads or is driven) and the action bar
@@ -794,7 +850,7 @@ fn colour(kind: Use) -> Vec4 {
     match kind {
         Use::Grenade => Vec4::new(1.0, 0.55, 0.1, 0.95),
         Use::Heal { .. } | Use::Antidote | Use::Squad { .. } => Vec4::new(0.3, 0.9, 0.35, 0.95),
-        Use::Shield { .. } => Vec4::new(0.3, 0.9, 1.0, 0.95),
+        Use::Shield { .. } | Use::Activated => Vec4::new(0.3, 0.9, 1.0, 0.95),
         Use::Stim(_) => Vec4::new(1.0, 0.9, 0.2, 0.95),
     }
 }
@@ -1003,7 +1059,7 @@ fn show(
     // The items: a slot by kind, a pip a use left.
     let mut carried = Vec::new();
     for (at, item) in sheet.items.iter().enumerate() {
-        let kind = item.and_then(|item| items::use_of(item.row).map(|kind| (item, kind)));
+        let kind = item.map(|item| (item, item.kind()));
         let left = kind.map_or(0, |(item, _)| {
             item.count.saturating_sub(fighter.pack.used[at])
         });
@@ -1102,8 +1158,12 @@ fn show(
                 .as_ref()
                 .and_then(|picking| picking.label(real.elapsed_secs())),
         );
+        let form = form_slot(ui, &sheet, prompts.label(Action::Form));
+        let feat = feat_slot(ui, &sheet, &fighter, prompts.label(Action::NextFeat));
         ui.vm.hud = Some(ui::vm::HudView {
             minimap,
+            form,
+            feat,
             busy: busy(snapshot, own.0),
             solo: snapshot.solo,
             duel: duel.clone(),
@@ -1128,6 +1188,7 @@ fn show(
                 "power": power, "powers": choices, "shield": shield, "items": carried,
                 "icons": hud.icons.len(),
                 "solo": snapshot.solo,
+                "form": sheet.form,
                 "duel": duel.as_ref().map(|duel| serde_json::json!({
                     "points": duel.points.share,
                 })),

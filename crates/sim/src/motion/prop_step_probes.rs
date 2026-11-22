@@ -16,7 +16,8 @@
 //! by the walls round the footprint. A body standing just short of the prop has its shape
 //! beside it (`beside_shape`), as the playthrough harness judges a walk the
 //! prop holds up. Waiting for the owner's approval before they join
-//! an approved test.
+//! an approved test. The dung heap's checks (`heap_probes`) run as their
+//! own approved test, `heap_flank_stops_a_walker`.
 
 use collision::{Contents, Level, LevelBuilder, Masked, Tag, UNIT};
 
@@ -76,6 +77,135 @@ fn bike() -> Level {
             Contents::FOOTPRINT_CLIP,
         ),
     ])
+}
+
+/// A prop shaped as a dung heap is: a low base, walkable and owned by the
+/// prop, rising from the floor at x = 1 m to 0.3 m up at x = 2 m, and the
+/// heap's non-walkable flank going on up from there, gently, to 0.9 m up at
+/// x = 4.5 m, 2 m wide.
+fn heap() -> Level {
+    let flank = Contents(Contents::SHAPE.0 | Contents::NONWALK.0);
+    ramps(&[
+        (1.0, 0.0, 2.0, 0.3, Contents::SHAPE),
+        (2.0, 0.3, 4.5, 0.9, flank),
+    ])
+}
+
+/// A heap's top, non-walkable as the whole heap above its base is: level
+/// 1 m up from x = -1 m to 1 m, then a rise as gentle as the flank's, to
+/// 1.2 m up at x = 2 m, and level again to x = 4.5 m, 2 m wide.
+fn heap_top() -> Level {
+    let top = Contents(Contents::SHAPE.0 | Contents::NONWALK.0);
+    ramps(&[
+        (-1.0, 1.0, 1.0, 1.0, top),
+        (1.0, 1.0, 2.0, 1.2, top),
+        (2.0, 1.2, 4.5, 1.2, top),
+    ])
+}
+
+/// The floor, and the prop's surfaces: each one from `x0` (`z0` up) to
+/// `x1` (`z1` up), 2 m wide, with its contents.
+fn ramps(surfaces: &[(f32, f32, f32, f32, Contents)]) -> Level {
+    let mut builder = LevelBuilder::new();
+    builder.aabb(
+        [-5.0, -5.0, -1.0],
+        [5.0, 5.0, 0.0],
+        Tag::level(Contents::SOLID, 0),
+    );
+    for &(x0, z0, x1, z1, contents) in surfaces {
+        let tag = Tag {
+            entity: Some(PROP),
+            ..Tag::level(contents, 0)
+        };
+        let corners = [[x0, -1.0, z0], [x1, -1.0, z1], [x1, 1.0, z1], [x0, 1.0, z0]];
+        builder.triangle([corners[0], corners[1], corners[2]], tag);
+        builder.triangle([corners[0], corners[2], corners[3]], tag);
+    }
+    builder.build()
+}
+
+/// A walk by keys from `from` (metres, soles) toward `to` for `steps`
+/// steps of 8 ms: where the soles stood after each step (metres).
+fn stroll(level: &Level, from: Vec3, to: Vec3, steps: u64) -> Vec<Vec3> {
+    let anims = AnimTable::stand_in();
+    let at = |p: Vec3| -> Vec3 { [p[0] / UNIT, p[1] / UNIT, p[2] / UNIT - SOLE_Z + 0.01 / UNIT] };
+    let to = at(to);
+    let mut ps = MotionState::standing(at(from), 0.0);
+    (0..steps)
+        .map(|step| {
+            let command = crate::walk::toward(&ps, to);
+            let world = walker_world(level, false, ps.origin, ps.maxs_z);
+            move_body(&mut ps, &command, 8, (step + 1) * 8, &world, &anims, None);
+            math::scale([ps.origin[0], ps.origin[1], ps.origin[2] + SOLE_Z], UNIT)
+        })
+        .collect()
+}
+
+/// The checks of a walker at a dung heap (`heap`, `heap_top`), as KOTOR's
+/// walker meets a placeable's non-walkable shape from the ground: as an
+/// upright wall, however gently it rises. A walker run straight at the
+/// flank walks onto the low base and stops at the flank's foot. One run at
+/// it slantwise slides along the foot. One standing on a top walks across
+/// a rise on it. Walking up the flank, the player in TSL's salvagers' camp
+/// on Dantooine came onto the heap's top and stuck between it and the rocks.
+pub fn heap_probes() -> Checks {
+    let how = Walk {
+        from: -2.0,
+        jump: false,
+        routed: false,
+        pushed: false,
+    };
+    let (end, on) = walk(&heap(), how);
+    let straight = (
+        "heap_flank_stops_a_walker",
+        check(
+            end[0] < 2.1 && on.is_some_and(|soles| soles <= 0.33),
+            format!(
+                "a walker run at a dung heap's flank ends at x {:.2} m with its soles {:.2} m up; its highest stand on the heap {on:?} (m)",
+                end[0], end[2]
+            ),
+        ),
+    );
+
+    // Slantwise, at about 40 degrees to the flank: the walker meets the
+    // flank's foot near y = -0.5 m and slides along it toward +y.
+    let path = stroll(&heap(), [0.0, -1.6, 0.0], [4.0, 1.6, 0.0], 150);
+    // Past the foot, beside the heap: on its flank. Stopped at the foot,
+    // the walker's middle stands at x 1.7 m.
+    let past_foot = path
+        .iter()
+        .filter(|p| p[1].abs() < 0.95)
+        .map(|p| p[0])
+        .fold(f32::MIN, f32::max);
+    let at_foot: Vec<&Vec3> = path.iter().filter(|p| p[0] > 1.55).collect();
+    let along = match (at_foot.first(), at_foot.last()) {
+        (Some(first), Some(last)) => last[1] - first[1],
+        _ => 0.0,
+    };
+    let slides = (
+        "heap_flank_slides_a_slanting_walker",
+        check(
+            past_foot < 1.8 && along >= 0.5,
+            format!(
+                "a walker run slantwise at a dung heap's flank moves {along:.2} m along its foot over {} steps there; beside the heap its middle comes at most to x {past_foot:.2} m",
+                at_foot.len()
+            ),
+        ),
+    );
+
+    let path = stroll(&heap_top(), [0.0, 0.0, 1.0], [4.0, 0.0, 1.2], 150);
+    let end = path.last().copied().unwrap_or([0.0; 3]);
+    let crosses = (
+        "heap_top_walker_crosses_a_rise",
+        check(
+            end[0] >= 3.0 && end[2] >= 1.18,
+            format!(
+                "a walker on a heap's top, walking across a 0.2 m rise on it, ends at x {:.2} m with its soles {:.2} m up",
+                end[0], end[2]
+            ),
+        ),
+    );
+    vec![straight, slides, crosses]
 }
 
 /// Where the bike's footprint starts along x (metres).

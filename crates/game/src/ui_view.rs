@@ -166,6 +166,9 @@ struct HudPlaced {
     /// How many action slots the HUD shows. The frame round the row is as
     /// wide as they are (`hud::bar_extra`).
     slots: usize,
+    /// Which of the Form slot and the feat slot the HUD shows, inside the
+    /// frame after the slots (`hud::EXTRA`).
+    extras: [bool; 2],
 }
 
 /// KOTOR's HUD as kept between frames (`draw_hud`): all of it but what
@@ -372,15 +375,15 @@ type InGame<'w> = (
 );
 
 /// A movie up (it takes the keys and the pointer), the pointer's state (a
-/// HUD click only while it is free), and where a portrait or its pazaak
-/// icon clicked goes.
+/// HUD click only while it is free), and where a click on a portrait, its
+/// pazaak icon or the solo mode button goes.
 type HudPointer<'w, 's> = (
     Option<Res<'w, crate::movie_view::Showing>>,
     Query<'w, 's, &'static CursorOptions, With<PrimaryWindow>>,
     (
         ResMut<'w, crate::leader_view::Picked>,
         ResMut<'w, crate::pazaak_view::WatchAsked>,
-        ResMut<'w, crate::weapon_set_view::SwapAsked>,
+        ResMut<'w, crate::leader_view::SoloAsked>,
     ),
 );
 
@@ -507,8 +510,8 @@ impl Plugin for UiViewPlugin {
         .init_resource::<crate::progress::SummaryHold>()
         .init_resource::<UiIntents>()
         .init_resource::<crate::leader_view::Picked>()
+        .init_resource::<crate::leader_view::SoloAsked>()
         .init_resource::<crate::pazaak_view::WatchAsked>()
-        .init_resource::<crate::weapon_set_view::SwapAsked>()
         .init_resource::<KotorHud>()
         .init_resource::<UiOpen>()
         .init_resource::<Drawn>()
@@ -914,7 +917,7 @@ fn step(
     ),
     heard: Option<ResMut<crate::ui_sounds::Heard>>,
     (presented, actions): InGame,
-    (showing, cursors, (mut picked, mut watch, mut swap)): HudPointer,
+    (showing, cursors, (mut picked, mut watch, mut solo)): HudPointer,
 ) {
     let top = ui.stack.top().map(|screen| screen.0);
     crate::crash::note(|crumbs| {
@@ -1096,8 +1099,8 @@ fn step(
         }
         // A click on a companion's portrait, the pointer free (in play the
         // mouse looks, the cursor held); on its pazaak icon, watching its
-        // player's match instead; on the weapon swap button, a swap; on
-        // the minimap, the map page. A hidden HUD takes no click.
+        // player's match instead; on the minimap, the map page; on the solo
+        // mode button, the end of solo mode. A hidden HUD takes no click.
         if let Some(point) = input
             .pointer
             .filter(|_| input.click && free && !hidden && !ui.stack.is_open())
@@ -1105,7 +1108,7 @@ fn step(
             match hud_click(ui, (size.x, size.y), point) {
                 Some(HudClick::Watch(id)) => watch.icon = Some(id),
                 Some(HudClick::Portrait(id)) => picked.0 = Some(id),
-                Some(HudClick::Swap) => swap.0 = true,
+                Some(HudClick::Solo) => solo.0 = true,
                 Some(HudClick::Map) => {
                     ui.stack.open("map", &ui.vm);
                 }
@@ -1209,6 +1212,8 @@ fn hud_gui(
         target_top: target_top(ui),
         cross: ui.vm.pad_playing,
         slots: ui.vm.hud.as_ref().map_or(0, |hud| hud.bar.len()),
+        extras: (ui.vm.hud.as_ref())
+            .map_or([false; 2], |hud| hud.extra().map(|slot| slot.is_some())),
     };
     let (layout, source, _) = ui.hud.as_ref()?.as_ref()?;
     if let Some((last, gui, stretch)) = &ui.hud_placed
@@ -1221,7 +1226,8 @@ fn hud_gui(
     if from.target_top {
         ui::screens::hud::to_top(&mut gui);
     }
-    ui::screens::hud::bar_extra(&mut gui, from.slots);
+    ui::screens::hud::bar_extra(&mut gui, from.slots, from.extras);
+    ui::screens::hud::solo_beside_portrait(&mut gui);
     if from.cross {
         ui::screens::hud::bar_cross(&mut gui);
     }
@@ -1306,10 +1312,10 @@ enum HudClick {
     Watch(u32),
     /// A companion's portrait (`hud::portrait_at`), by its body.
     Portrait(u32),
-    /// The weapon swap button (`hud::swap_at`).
-    Swap,
     /// The minimap (`hud::minimap_at`): the map page.
     Map,
+    /// The solo mode button (`hud::solo_at`): the end of solo mode.
+    Solo,
 }
 
 /// What the click at `point` (window pixels) on the HUD is on, if anything.
@@ -1323,8 +1329,8 @@ fn hud_click(ui: &mut Ui, window: (f32, f32), point: [f32; 2]) -> Option<HudClic
     hud::watch_at(&gui, vm, at)
         .map(HudClick::Watch)
         .or_else(|| hud::portrait_at(&gui, vm, at).map(HudClick::Portrait))
-        .or_else(|| hud::swap_at(&gui, vm, at).then_some(HudClick::Swap))
         .or_else(|| hud::minimap_at(&gui, vm, at).then_some(HudClick::Map))
+        .or_else(|| hud::solo_at(&gui, vm, at).then_some(HudClick::Solo))
 }
 
 /// KOTOR's HUD for a window of `window` pixels, when the game is in play

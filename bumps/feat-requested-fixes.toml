@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "a character that starts to lay a mine stops where it stands, so what is left of its run no longer carries it past the skill use's distance and breaks the lay off (`world::traps::begin_laying`, `Change::Halt`)"

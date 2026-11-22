@@ -49,6 +49,16 @@ source = "TSL's executable (its client's cooldown)"
 see = "sim::world::scripts::apply"
 applies = ["kind:weapon"]
 
+[timings.killed_placeable_ms]
+name = "Destroyed Placeables"
+type = "u32"
+value = 2000
+unit = "ms"
+range = [0, 10000]
+summary = "A placeable that a script kills with a death effect plays its death animation and is removed from the area {world.timings.killed_placeable_ms:s} later. Nothing blocks the way where it stood after that."
+source = "TSL's executable (its death effect on a placeable)"
+see = "sim::world::scripts::scripts"
+
 [factions]
 title = "Factions"
 summary = """

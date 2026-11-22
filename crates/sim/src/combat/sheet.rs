@@ -219,6 +219,7 @@ pub mod feats {
     pub const FINESSE_LIGHTSABERS: u16 = 193;
     pub const FINESSE_MELEE_WEAPONS: u16 = 194;
     pub const STEALTH_RUN: u16 = 197;
+    pub const MENTOR: u16 = 202;
     /// Unarmed Specialist I to VIII.
     pub const UNARMED_SPECIALIST: [u16; 8] = [212, 213, 214, 215, 216, 217, 218, 219];
     /// Precise Shot I to V (KOTOR 2's rows in use; its unused `XXX` rows

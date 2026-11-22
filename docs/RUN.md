@@ -22,6 +22,7 @@ KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
 KJK_RAYS=on KJK_AA=taa kjk …          # Shadows at Ultra for the run, whatever the settings say, on a card with ray queries (`game::ray_structures`)
+KJK_SOFTWARE_RENDERER=1 kjk …         # a run with a window draws on a software renderer (Windows' WARP, llvmpipe) instead of closing with a message (`game::crash::refuse_software_adapter`)
 KJK_RAYS=off kjk …                    # the render device is made without ray queries, as on a card that has none; Ultra draws as High
 KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=5 kjk …  # characters, placeables and doors show in colour where a ray from the camera meets their structures
 KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=6 kjk …  # the rooms' meshes show in colour where a ray from the camera meets their merged structures, one colour for each mesh

@@ -495,9 +495,13 @@ fn damage(sheet: &Sheet, hand: usize) -> String {
 }
 
 /// Hand `hand`'s attack modifier on `sheet` (`damage::attack_bonus`), as
-/// the equip page shows it. It is `None` when the hand shows no weapon.
+/// the equip page shows it. It is `None` when the hand shows no weapon. It
+/// counts the attack bonus of KOTOR 2's Form in use against an enemy who
+/// holds no lightsaber (`forms::to_hit`): Shii-Cho's, Shien's and Niman's,
+/// but not Makashi's, which counts only against a lightsaber.
 fn attack(sheet: &Sheet, hand: usize) -> Option<i32> {
-    shown_weapon(sheet, hand).map(|weapon| sim::combat::damage::attack_bonus(sheet, &weapon))
+    let form = sim::combat::forms::to_hit(sheet, &Sheet::commoner());
+    shown_weapon(sheet, hand).map(|weapon| sim::combat::damage::attack_bonus(sheet, &weapon) + form)
 }
 
 /// The slots the equip page previews an item in: the hands and the body.
@@ -668,6 +672,7 @@ fn view(
         owned: carried,
         worn,
         locked: wearer.map_or(0, |wearer| wearer.locked),
+        droid: sheet.race == sim::combat::sheet::races::DROID,
         credits: goods.gold,
         xp: 0,
         next_xp: None,
@@ -689,8 +694,8 @@ fn journal(
     progress: &sim::Progress,
     fill: crate::dialogue_view::Fill,
 ) -> Vec<QuestView> {
-    let line = |assets: &mut GuiAssets, strref: u32| {
-        let raw = assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+    let line = |assets: &mut GuiAssets, text: &sim::script::journal::JournalText| {
+        let raw = text.words(|strref| assets.text(Source::Campaign, strref));
         crate::dialogue_view::said(&raw, fill)
     };
     progress
@@ -710,9 +715,9 @@ fn journal(
                     planet.extend_from_slice(b":\n");
                     planet
                 });
-            description.extend(entry.map_or(Vec::new(), |entry| line(assets, entry.text)));
+            description.extend(entry.map_or(Vec::new(), |entry| line(assets, &entry.text)));
             Some(QuestView {
-                name: line(assets, quest.name),
+                name: line(assets, &quest.name),
                 description,
                 done: entry.is_some_and(|entry| entry.end),
                 planet: quest.planet,

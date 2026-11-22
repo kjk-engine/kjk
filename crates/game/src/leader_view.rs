@@ -10,8 +10,10 @@
 //! guest plays, is not picked (the key goes on to the next). The solo key
 //! (`PartyActive` in both games) turns solo mode on or off (`Action::Solo`: the
 //! companions stand where they are), the first seat's alone as the leader
-//! key is (the companions follow its leader); the HUD lights KOTOR's solo
-//! toggle while it is on (`Snapshot::solo`). The dump's `lead`: who
+//! key is (the companions follow its leader). While solo mode is on, the
+//! HUD shows KOTOR's solo toggle, lit, beside the portrait
+//! (`Snapshot::solo`), and a click on it ends solo mode
+//! (`ui::screens::hud::solo_at`). The dump's `lead`: who
 //! leads, solo mode, and the party in the HUD's order.
 
 use bevy::prelude::*;
@@ -28,11 +30,17 @@ use crate::ui_view::Ui;
 #[derive(Resource, Default)]
 pub struct Picked(pub Option<u32>);
 
+/// The HUD's solo mode button clicked this frame. It shows only while solo
+/// mode is on, so a click ends solo mode.
+#[derive(Resource, Default)]
+pub struct SoloAsked(pub bool);
+
 pub struct LeaderViewPlugin;
 
 impl Plugin for LeaderViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Picked>()
+            .init_resource::<SoloAsked>()
             .add_systems(Update, lead.after(crate::ui_view::Stepped));
     }
 }
@@ -56,11 +64,12 @@ fn lead(
     actions: Option<Res<crate::pad::Actions>>,
     taken: Busy,
     (presented, own): (Option<Res<PresentedSnapshot>>, Option<Res<OwnSeat>>),
-    mut picked: ResMut<Picked>,
+    (mut picked, mut solo_asked): (ResMut<Picked>, ResMut<SoloAsked>),
     mut outgoing: Option<ResMut<Outgoing>>,
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let clicked = picked.0.take();
+    let solo_clicked = std::mem::take(&mut solo_asked.0);
     let (Some(presented), Some(own)) = (presented, own) else {
         return;
     };
@@ -87,7 +96,8 @@ fn lead(
                 .is_some_and(|actions| actions.pressed(action))
     };
     let key = pressed(crate::settings::Action::Leader);
-    if pressed(crate::settings::Action::Solo)
+    let ends_solo = solo_clicked && !busy && snapshot.solo;
+    if (pressed(crate::settings::Action::Solo) || ends_solo)
         && let Some(outgoing) = outgoing.as_deref_mut()
     {
         info!(target: "party", "solo: {}", !snapshot.solo);

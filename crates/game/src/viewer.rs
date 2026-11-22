@@ -2160,6 +2160,13 @@ pub fn scripted_clips(
                 .then(crate::acting::rifle_gait_names)
                 .into_iter()
                 .flatten(),
+        )
+        // A retargeted body swings a stun baton with KOTOR's own swings.
+        .chain(
+            (!attacks)
+                .then(crate::acting::baton_names)
+                .into_iter()
+                .flatten(),
         );
     for (animation, name) in engine {
         if let Some(found) = clip(cache, resolver, game, body, &name)? {

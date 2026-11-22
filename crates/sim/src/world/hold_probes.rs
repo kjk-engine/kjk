@@ -464,6 +464,7 @@ fn put(own: bool, hold: Hold, ms: u64) -> Result<(u64, Fighter), String> {
         id: 1,
         at: None,
         save: None,
+        laid: false,
     });
     world.set_script_state(state);
     let (took, fighter) = after(&mut world, on, 1).ok_or("no fighter")?;
@@ -601,6 +602,7 @@ fn fourth_refused() -> Result<String, String> {
             id: 1,
             at: None,
             save: None,
+            laid: false,
         });
         world.set_script_state(state);
         let snapshot = step(&mut world);

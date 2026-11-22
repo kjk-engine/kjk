@@ -8,6 +8,10 @@
 //!   Eclipse scene brings the party back where the player stood
 //!   (`a_delredecl` makes `tr_re_zb2`, and the next module's script names it
 //!   in `StartNewModule`).
+//!
+//! A second creature's spawn script makes a store from its template
+//! (`OBJECT_TYPE_STORE`), as a mod's merchant makes the store it opens: the
+//! store is made, with the terms its template gives.
 
 use fmt_odyssey::ncs::{Const, Op};
 
@@ -23,6 +27,7 @@ pub fn probes() -> Checks {
         Ok(seen) => vec![
             ("a_script_makes_a_waypoint", made(&seen)),
             ("the_party_arrives_at_a_made_waypoint", arrived(&seen)),
+            ("a_script_makes_a_store", made_store(&seen)),
         ],
         Err(error) => vec![("made_waypoint_scenario", Err(error))],
     }
@@ -30,6 +35,14 @@ pub fn probes() -> Checks {
 
 /// The waypoint's template and tag.
 const WAYPOINT: &str = "probe_mark";
+/// The store's template and tag, and its terms.
+const STORE: &str = "probe_store";
+const STORE_TERMS: crate::inventory::Terms = crate::inventory::Terms {
+    markup: 150,
+    markdown: 40,
+    sells: true,
+    buys: true,
+};
 /// Where the waypoint is made, and where the script's creature stands (the
 /// ground's axes, metres).
 const MARK_AT: [f32; 2] = [-3.0, 3.0];
@@ -45,6 +58,7 @@ const CATALOG: &str = r#"
 int OBJECT_TYPE_CREATURE = 1;
 int OBJECT_TYPE_PLACEABLE = 64;
 int OBJECT_TYPE_WAYPOINT = 32;
+int OBJECT_TYPE_STORE = 128;
 // 0
 vector Vector(float x=0.0f, float y=0.0f, float z=0.0f);
 // 1
@@ -57,11 +71,13 @@ const VECTOR: u16 = 0;
 const LOCATION: u16 = 1;
 const CREATE_OBJECT: u16 = 2;
 
-/// What the scenario left: the snapshot before the party left, and the
-/// first seat's place (metres) once it came back by the waypoint's tag.
+/// What the scenario left: the snapshot before the party left, the first
+/// seat's place (metres) once it came back by the waypoint's tag, and the
+/// terms the store made before leaving has as the level reads it.
 struct Seen {
     before: Snapshot,
     back_at: [f32; 3],
+    store_terms: Option<crate::inventory::Terms>,
 }
 
 /// A point of the proving ground's floor on its own axes
@@ -70,8 +86,9 @@ fn floor_at([x, y]: [f32; 2]) -> [f32; 3] {
     crate::determinism::ground_point(x, y, 0.0)
 }
 
-/// The spawn script: a waypoint of `WAYPOINT` made at `at`.
-fn script(at: [f32; 3]) -> fmt_odyssey::ncs::Ncs {
+/// A spawn script: an object of `template` and `kind` (an `OBJECT_TYPE_*`)
+/// made at `at`.
+fn script(at: [f32; 3], template: &str, kind: i32) -> fmt_odyssey::ncs::Ncs {
     let mut asm = script_ncs::probes::Asm::default();
     asm.op(Op::Const(Const::Int(0)))
         .op(Op::Const(Const::Float(0.0)))
@@ -86,8 +103,8 @@ fn script(at: [f32; 3]) -> fmt_odyssey::ncs::Ncs {
             routine: LOCATION,
             args: 2,
         })
-        .op(Op::Const(Const::String(WAYPOINT.as_bytes().to_vec())))
-        .op(Op::Const(Const::Int(32)))
+        .op(Op::Const(Const::String(template.as_bytes().to_vec())))
+        .op(Op::Const(Const::Int(kind)))
         .op(Op::Action {
             routine: CREATE_OBJECT,
             args: 4,
@@ -99,18 +116,36 @@ fn script(at: [f32; 3]) -> fmt_odyssey::ncs::Ncs {
 fn scenario() -> Result<Seen, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-    data.placements.push(Placement::Own(ObjectData {
-        tag: "maker".into(),
-        scripts: vec![("ScriptSpawn".into(), "probe_make_mark".into())],
-        ..ObjectData::unknown("maker", floor_at(MAKER_AT), 0.0)
-    }));
-    let waypoint = ObjectData {
-        kind: ObjectKind::Waypoint,
-        tag: WAYPOINT.into(),
-        ..ObjectData::unknown(WAYPOINT, [0.0; 3], 0.0)
+    for (tag, spawn) in [
+        ("maker", "probe_make_mark"),
+        ("merchant", "probe_make_store"),
+    ] {
+        data.placements.push(Placement::Own(ObjectData {
+            tag: tag.into(),
+            scripts: vec![("ScriptSpawn".into(), spawn.into())],
+            ..ObjectData::unknown(tag, floor_at(MAKER_AT), 0.0)
+        }));
+    }
+    let template = |kind, tag: &str| ObjectData {
+        kind,
+        tag: tag.into(),
+        ..ObjectData::unknown(tag, [0.0; 3], 0.0)
     };
-    let library = crate::probe::library(CATALOG, [("probe_make_mark", script(floor_at(MARK_AT)))])
-        .with_waypoints([(WAYPOINT.to_string(), std::sync::Arc::new(waypoint))].into());
+    let waypoint = template(ObjectKind::Waypoint, WAYPOINT);
+    let store = ObjectData {
+        store: Some(STORE_TERMS),
+        ..template(ObjectKind::Store, STORE)
+    };
+    let mark = floor_at(MARK_AT);
+    let library = crate::probe::library(
+        CATALOG,
+        [
+            ("probe_make_mark", script(mark, WAYPOINT, 32)),
+            ("probe_make_store", script(mark, STORE, 128)),
+        ],
+    )
+    .with_waypoints([(WAYPOINT.to_string(), std::sync::Arc::new(waypoint))].into())
+    .with_stores([(STORE.to_string(), std::sync::Arc::new(store))].into());
     let level = ground.with_module(data).with_scripts(library);
     let mut world = super::SimWorld::new(
         WorldConfig {
@@ -138,6 +173,12 @@ fn scenario() -> Result<Seen, String> {
         ));
     }
     let before = before.ok_or("no steps")?;
+    let store_terms = before
+        .spawned
+        .iter()
+        .find(|made| made.kind == ObjectKind::Store)
+        .and_then(|made| world.level().template(made.kind, &made.template))
+        .and_then(|facts| facts.store);
     let away = crate::determinism::proving_ground_named("probe_away");
     world
         .install(away, None)
@@ -156,6 +197,7 @@ fn scenario() -> Result<Seen, String> {
     Ok(Seen {
         before,
         back_at: [seat[0] * UNIT, seat[1] * UNIT, seat[2] * UNIT],
+        store_terms,
     })
 }
 
@@ -175,6 +217,16 @@ fn made(seen: &Seen) -> Result<String, String> {
     check(
         made.contains(&(ObjectKind::Waypoint, WAYPOINT)),
         format!("made in play: {made:?}"),
+    )
+}
+
+fn made_store(seen: &Seen) -> Result<String, String> {
+    check(
+        seen.store_terms == Some(STORE_TERMS),
+        format!(
+            "the store made in play has the terms {:?} (its template's {STORE_TERMS:?})",
+            seen.store_terms
+        ),
     )
 }
 

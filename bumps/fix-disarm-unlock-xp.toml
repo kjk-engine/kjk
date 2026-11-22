@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "in KOTOR 2 the party gains experience when a party member disarms or recovers a mine or opens a lock with Security, as TSL's executable gives it (`sim::script::xp::SkillXp`); KOTOR 1 gives none, as before"

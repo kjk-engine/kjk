@@ -2,7 +2,8 @@
 //! `item_uses`: consumables the party carries (`consumables`), a droid's
 //! worn utility items and shield (`droids`), a lightsaber's crystals
 //! (`upgrades`) and the kinds picked for the item keys (`picked`), each
-//! scenario stepped twice to end alike.
+//! scenario stepped twice to end alike. The approved test
+//! `worn_items_activate` runs `activated` with an item it reads from a UTI.
 
 use std::collections::BTreeMap;
 
@@ -20,6 +21,7 @@ use crate::{Command, Snapshot, StepReason, TickInput, WorldConfig};
 
 use super::super::SimWorld;
 
+pub(crate) mod activated;
 mod consumables;
 mod droids;
 mod picked;

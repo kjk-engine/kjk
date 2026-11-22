@@ -42,6 +42,28 @@ summary = "KOTOR 2's experience table for defeated enemies stops at row and colu
 source = "TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`)"
 see = "sim::script::xp::Experience::tsl_kill"
 
+[experience.mentor_levels]
+name = "Mentor Tiers"
+type = "u8"
+value = [6, 12]
+labels = ["first tier's top level", "second tier's top level"]
+range = [1, 50]
+summary = "In KOTOR 2, Mentor gives its first experience bonus up to level {progression.experience.mentor_levels[0]:bare}, its second up to level {progression.experience.mentor_levels[1]:bare}, and its third above that."
+source = "TSL's executable (`CSWPartyTable::DistributeExperience`) and the feat's description"
+see = "sim::script::xp::mentor"
+applies = ["feat:MENTOR", "kind:companion"]
+
+[experience.mentor_share]
+name = "Mentor Bonus"
+type = "f32"
+value = [0.03, 0.05, 0.07]
+labels = ["to the first tier", "to the second", "above it"]
+range = [0.0, 1.0]
+summary = "A party member in the active party with Mentor adds {progression.experience.mentor_share} of each experience reward, rounded up, by the mentor's level."
+source = "TSL's executable (`CSWPartyTable::DistributeExperience`: 3%, 5%, 7% by the first active mentor's total level, rounded up) and the feat's description"
+see = "sim::script::xp::mentor"
+applies = ["feat:MENTOR", "kind:companion"]
+
 [skill_xp]
 title = "Experience for Mines and Locks"
 summary = """
