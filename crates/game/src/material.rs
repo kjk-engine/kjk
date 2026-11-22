@@ -125,10 +125,20 @@ const PROBED: u32 = 32768;
 /// (`fitted_lights::switched_on`): its glow shows only on its texture's
 /// bright texels, its tubes, and its housing keeps its baked light.
 const LAMP_TEXELS: u32 = 65536;
+/// A room's surface with no lightmap, in an area whose bake asks for its
+/// unlit rooms to be dark (`AreaLight::dark_unlit`). Under the baked trial
+/// it takes `odyssey.wgsl`'s `BAKED_UNLIT_LIGHT` and the fitted lights, not
+/// half of full light.
+const DARK_UNLIT: u32 = 131072;
+/// A room's surface with a lightmap, opaque or not. Under the baked trial
+/// its lightmap is the bake, which a blended surface needs too: the cliffs
+/// of 401dxn blend (their alpha is under 1), and they showed their bake at
+/// a quarter of its light, black beside the baked ground.
+const ROOM_LIGHTMAP: u32 = 262144;
 /// A level editor project's Jedi Academy prop: its glow is the room's light
 /// where it stands (`project_props`), which the light probes give it under
 /// Enhanced lighting instead, so there it glows not at all.
-const ROOM_GLOW: u32 = 131072;
+const ROOM_GLOW: u32 = 524288;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -427,6 +437,9 @@ pub struct AreaLight {
     /// Its models take the light probes' light in place of `ambient` under
     /// Enhanced lighting (`PROBED`). Rooms never do.
     pub probed: bool,
+    /// Its bake asks for its rooms' surfaces with no lightmap to be dark
+    /// (`DARK_UNLIT`, `unlit.txt` in the bake's folder).
+    pub dark_unlit: bool,
 }
 
 impl AreaLight {
@@ -437,6 +450,7 @@ impl AreaLight {
             fog: None,
             shadowed: false,
             probed: false,
+            dark_unlit: false,
         }
     }
 }
@@ -986,8 +1000,11 @@ pub struct OdysseyBound {
     probes: Handle<ShaderBuffer>,
     #[storage(19, read_only, visibility(vertex))]
     sway: Handle<ShaderBuffer>,
-    /// The fitted lights' grid (`fitted_lights::GRID`).
-    #[storage(20, read_only)]
+    /// The fitted lights' grid (`fitted_lights::GRID`). Only the fragment
+    /// stage reads it. Metal gives a vertex stage 31 buffer slots, and one
+    /// more buffer seen by the vertex stage left the prepass's vertex
+    /// buffers no slot, so no pipeline built on a Mac.
+    #[storage(20, read_only, visibility(fragment))]
     fitted: Handle<ShaderBuffer>,
 }
 
@@ -1243,6 +1260,12 @@ impl OdysseyMaterial {
         }
         if area.probed && !lighting.is_room {
             flags |= PROBED;
+        }
+        if area.dark_unlit && lighting.is_room && lightmap.is_none() {
+            flags |= DARK_UNLIT;
+        }
+        if lighting.is_room && lightmap.is_some() {
+            flags |= ROOM_LIGHTMAP;
         }
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
         OdysseyMaterial {

@@ -1,5 +1,5 @@
 //! The bake from the fitted lights on the graphics card (`kjk detail-bake
-//! --lights <file> --gpu`). It opens its own Vulkan device with wgpu's ray
+//! --lights <file> --gpu`). It opens its own Vulkan or Metal device with wgpu's ray
 //! queries, builds one acceleration structure from the rooms' blocking
 //! triangles, and runs its passes as compute shaders (`gpu.wgsl`). The
 //! texels and the lights are found on the CPU as the CPU bake finds them.
@@ -31,11 +31,17 @@ use vfs::resolver::Resolver;
 use wgpu::util::DeviceExt as _;
 
 use super::{
-    FAR_LIGHT, Field, Fitted, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SCALE, SHORT, Stored, Texels,
+    FAR_LIGHT, Field, Fitted, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SHORT, Stored, Texels,
     WALL_RAYS, bounds, direct, directions, field_of, points, stored_level, texels, write_sets,
 };
 use crate::light_probes::Level;
 use crate::room_lights::Reader;
+
+/// How long the bake waits for the graphics card to finish one submission
+/// before it fails. The owner's Windows card does a whole bake in about 13
+/// seconds in all, and one submission of `CHUNK` places takes well under a
+/// second, so a wait of 30 seconds means the card is stuck.
+const WAIT_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// How many shadow rays each light casts from a texel in the new bake.
 const SAMPLES: u32 = 64;
@@ -162,6 +168,23 @@ pub(crate) struct GpuOptions {
     /// seems to be some light they have baked in there from the ceiling",
     /// "We should make that one stronger and work with that".
     pub fill_stored: bool,
+    /// Each texel of `b` shows at least this share of its stored linear
+    /// light, as `floor.txt` asks of the game. A room may reach its level by
+    /// its bright lightmaps alone, and a wall far from every lamp stayed
+    /// black: the hall of stunt_18 showed a mean of 4 where the game shows
+    /// 47 (22 November 2026). The owner asked for such a wall to be lit, on
+    /// the darker side of the original. A module asks for it in
+    /// `data/lights/bake.toml` with `floor`.
+    pub floor: Option<f32>,
+    /// Every room that has a lightmapped mesh is baked, as under a sun,
+    /// not only the rooms with a walkable face. Manaan's sea floor lies in
+    /// rooms no one walks on, and the pole lamps by the walkway lit none of
+    /// it (21 November 2026).
+    pub every_room: bool,
+    /// A room with no walkable face shows its stored light in `b`, and not
+    /// twice it. Taris's buildings beside a walkway glared at twice their
+    /// light (owner, 21 November 2026).
+    pub stored_backdrop: bool,
     /// The least a room's lamps are scaled by in `b`, where it is not
     /// `B_LEAST`. A ship's dark rooms have lamps that are too bright at
     /// half their strength.
@@ -240,7 +263,7 @@ struct Gpu {
 impl Gpu {
     fn open() -> Result<Gpu, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
+            backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -248,7 +271,7 @@ impl Gpu {
             force_fallback_adapter: false,
             compatible_surface: None,
         }))
-        .map_err(|error| format!("no Vulkan graphics card: {error}"))?;
+        .map_err(|error| format!("no Vulkan or Metal graphics card: {error}"))?;
         let info = adapter.get_info();
         let features = wgpu::Features::EXPERIMENTAL_RAY_QUERY;
         if !adapter.features().contains(features) {
@@ -286,12 +309,30 @@ impl Gpu {
         })
     }
 
-    /// Waits for the graphics card and fails with the first error wgpu
-    /// reported.
-    fn wait(&self) -> Result<(), String> {
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|error| format!("waiting for the graphics card: {error}"))?;
+    /// Waits for the graphics card to finish `step` and fails with the first
+    /// error wgpu reported. After `WAIT_LIMIT` the bake prints why and ends
+    /// the process at once. wgpu panics when it drops a device whose work
+    /// never finished, and that panic would hide the message.
+    fn wait(&self, step: &str) -> Result<(), String> {
+        let started = Instant::now();
+        match self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(WAIT_LIMIT),
+        }) {
+            Ok(_) => {}
+            Err(wgpu::PollError::Timeout) => {
+                eprintln!(
+                    "detail-bake: the graphics card did not finish {step} in {} seconds. A shader that never ends, \
+                     or a command buffer that the card stopped, keeps wgpu waiting for ever on Metal.",
+                    WAIT_LIMIT.as_secs()
+                );
+                std::process::exit(1);
+            }
+            Err(error) => return Err(format!("waiting for the graphics card to finish {step}: {error}")),
+        }
+        if std::env::var_os("KJK_BAKE_LAPS").is_some() {
+            eprintln!("  the graphics card finished {step} in {:.2} s", started.elapsed().as_secs_f32());
+        }
         let errors = self
             .errors
             .lock()
@@ -340,7 +381,7 @@ impl Gpu {
         staging.map_async(wgpu::MapMode::Read, .., move |result| {
             *kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
         });
-        self.wait()?;
+        self.wait("reading the results back")?;
         match mapped
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -369,6 +410,17 @@ impl Gpu {
         };
         staging.unmap();
         Ok(values)
+    }
+}
+
+fn mode_name(mode: u32) -> &'static str {
+    match mode {
+        MODE_DIRECT_OLD => "old direct light",
+        MODE_DIRECT_SOFT => "soft direct light",
+        MODE_BOUNCE_OLD => "old bounce",
+        MODE_BOUNCE_NEW => "bounce",
+        MODE_SKY => "sun and sky",
+        _ => "unknown",
     }
 }
 
@@ -459,7 +511,11 @@ impl Passes<'_> {
                 pass.dispatch_workgroups(size.div_ceil(64) as u32, 1, 1);
             }
             self.gpu.queue.submit([encoder.finish()]);
-            self.gpu.wait()?;
+            self.gpu.wait(&format!(
+                "the {} pass over places {first} to {} of {count}",
+                mode_name(mode),
+                first + size
+            ))?;
         }
         Ok(())
     }
@@ -509,7 +565,7 @@ pub(super) fn bake_lights(
         unwalked,
         names,
         grass,
-    } = texels(reader, resolver, area, options.sun.is_some())?;
+    } = texels(reader, resolver, area, options.sun.is_some() || options.every_room)?;
     if std::env::var_os("KJK_BAKE_LAPS").is_some() {
         eprintln!("{} triangles, bounds {:?}", surfaces.len(), bounds(&surfaces));
     }
@@ -536,7 +592,7 @@ pub(super) fn bake_lights(
             at: point.at,
             normal: point.normal,
             shading: point.shading,
-            side: point.size / SCALE as f32,
+            side: point.size / maps[point.map].scale as f32,
         })
         .collect();
     places.extend(surfaces.iter().zip(&facts).map(|(surface, fact)| {
@@ -602,7 +658,7 @@ pub(super) fn bake_lights(
     let mut map_words: Vec<u32> = Vec::new();
     let mut field_size = 0usize;
     for map in &maps {
-        let (w, h) = (map.width * SCALE, map.height * SCALE);
+        let (w, h) = (map.width * map.scale, map.height * map.scale);
         map_words.extend([field_size as u32, w as u32, h as u32, u32::from(map.clamp)]);
         field_size += w * h;
     }
@@ -701,7 +757,7 @@ pub(super) fn bake_lights(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     encoder.build_acceleration_structures(&entries, [&tlas]);
     gpu.queue.submit([encoder.finish()]);
-    gpu.wait()?;
+    gpu.wait("building the acceleration structure")?;
 
     let blank_field = vec![[0.0f32; 4]; field_size];
     let results = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -823,7 +879,7 @@ pub(super) fn bake_lights(
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
-    gpu.wait()?;
+    gpu.wait("making the compute pipeline")?;
     let passes = Passes {
         gpu: &gpu,
         pipeline,
@@ -854,18 +910,27 @@ pub(super) fn bake_lights(
         .collect();
     drop(first);
     lap("direct light".into(), &mut times);
+    // What each texel is, for the pictures of `KJK_BAKE_DEBUG`, before the
+    // shadows are smoothed (`debug_pictures`).
+    let kinds: Option<Vec<[u8; 3]>> = std::env::var_os("KJK_BAKE_DEBUG").map(|_| {
+        (0..count)
+            .map(|i| texel_kind(&points[i], counts[i], open[i], shadowed[i]))
+            .collect()
+    });
     // The probe's texels as the graphics card lit them, and the lamp places
     // of the lights that reach them most.
     if let Some((at, radius)) = options.probe {
         for (i, point) in points.iter().enumerate() {
             if point.inside && point.at.distance(at) <= radius {
                 outln!(
-                    "  gpu texel {} of {} at {:.3}: without shadows {:.3}, with shadows {:.3}",
+                    "  gpu texel {} of {} at {:.3}, normal {:.2}: without shadows {:.3}, with shadows {:.3}, counts {}",
                     point.texel,
                     maps[point.map].name,
                     point.at,
+                    point.normal,
                     luma(open[i]),
-                    luma(shadowed[i])
+                    luma(shadowed[i]),
+                    counts[i]
                 );
             }
         }
@@ -1082,10 +1147,10 @@ pub(super) fn bake_lights(
     // Each texel's stored lightmap, read between texels as the GPU reads it.
     let stored_at = |point: &Point| {
         let map = &maps[point.map];
-        let w = map.width * SCALE;
+        let w = map.width * map.scale;
         let uv = bevy::math::Vec2::new(
             ((point.texel % w) as f32 + 0.5) / w as f32,
-            ((point.texel / w) as f32 + 0.5) / (map.height * SCALE) as f32,
+            ((point.texel / w) as f32 + 0.5) / (map.height * map.scale) as f32,
         );
         let [r, g, b, _] = map.sample(uv);
         Vec3::new(r, g, b)
@@ -1409,7 +1474,13 @@ pub(super) fn bake_lights(
         folder,
         &[("a", &shown_a[..], true), ("b", &written_b[..], false)],
         sunlit.as_deref(),
+        options.stored_backdrop,
     )?;
+    // A set baked earlier into the same folder may hold a `fill.txt` or a
+    // `floor.txt` that this bake does not ask for.
+    for name in ["fill.txt", "floor.txt"] {
+        let _ = std::fs::remove_file(folder.join("b").join(name));
+    }
     if !fills_b.is_empty() {
         let mut text = String::from(
             "# How much of its stored light each lightmap takes when the game loads it:\n\
@@ -1422,6 +1493,23 @@ pub(super) fn bake_lights(
         }
         let path = folder.join("b").join("fill.txt");
         std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    // The floor (`GpuOptions::floor`): one share for every lightmap of set
+    // `b`, which the game holds each texel to.
+    if let Some(floor) = options.floor.filter(|_| !options.old) {
+        let mut text = String::from(
+            "# The least share of its stored linear light each texel of a lightmap shows when the game loads it:
+             # the lightmap's name and the share.
+",
+        );
+        for map in &maps {
+            let _ = writeln!(text, "{} {floor:.3}", map.name);
+        }
+        let path = folder.join("b").join("floor.txt");
+        std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    if let Some(kinds) = &kinds {
+        debug_pictures(folder, &maps, &points, kinds, &|i| stored_at(&points[i]), &shown_b)?;
     }
     lap("pictures".into(), &mut times);
 
@@ -1443,9 +1531,10 @@ pub(super) fn bake_lights(
     );
     let _ = writeln!(
         report,
-        "  {} lightmaps, {} lightmaps of rooms with no walkable face kept at half",
+        "  {} lightmaps, {} lightmaps of rooms with no walkable face kept {}",
         maps.len(),
-        unwalked.len()
+        unwalked.len(),
+        if options.stored_backdrop { "as stored" } else { "at half" }
     );
     let _ = writeln!(report, "  {} room triangles block rays", surfaces.len());
     if !far.is_empty() {
@@ -1587,8 +1676,9 @@ fn luma(c: Vec3) -> f32 {
 }
 
 /// Smooths the share of the lights each texel sees over its neighbours on
-/// the same surface, `SMOOTH_RINGS` texels around it in its lightmap. A
-/// neighbour counts when it faces the same way and lies on the same plane.
+/// the same surface, as far as `SMOOTH_RINGS` texels around it
+/// (`Places::mean`). A neighbour counts when it faces the same way and lies
+/// on the same plane.
 /// The light without shadows is kept as it is, so a pool of light keeps its
 /// shape and only a shadow's edge is softened. `shadowed` and `open` hold
 /// the texels first; the triangles' middles after them are left alone.
@@ -1599,14 +1689,7 @@ fn smooth_shadows(
     shadowed: &mut [Vec3],
     open: &[Vec3],
 ) {
-    let mut of_map: Vec<Vec<Option<u32>>> = (maps.iter())
-        .map(|map| vec![None; map.width * map.height * SCALE * SCALE])
-        .collect();
-    for (index, point) in points.iter().enumerate() {
-        if counts[index] {
-            of_map[point.map][point.texel] = Some(index as u32);
-        }
-    }
+    let places = Places::new(points, counts);
     let share = |i: usize| -> Vec3 {
         let o = open[i];
         let s = shadowed[i];
@@ -1617,45 +1700,95 @@ fn smooth_shadows(
         )
     };
     let smoothed: Vec<Vec3> = super::parallel(points.len(), |index| {
-        let point = &points[index];
         if !counts[index] {
             return shadowed[index];
         }
-        let map = &maps[point.map];
-        let (w, h) = ((map.width * SCALE) as i64, (map.height * SCALE) as i64);
-        let (x, y) = ((point.texel as i64) % w, (point.texel as i64) / w);
-        // The plane must agree to within half a texel's side.
-        let near = (point.size / SCALE as f32 * 0.5).max(0.01);
-        let mut sum = Vec3::ZERO;
-        let mut total = 0.0f32;
-        for dy in -SMOOTH_RINGS..=SMOOTH_RINGS {
-            for dx in -SMOOTH_RINGS..=SMOOTH_RINGS {
-                let (nx, ny) = (x + dx, y + dy);
-                if nx < 0 || ny < 0 || nx >= w || ny >= h {
-                    continue;
-                }
-                let Some(other) = of_map[point.map][(ny * w + nx) as usize] else {
-                    continue;
-                };
-                let other = other as usize;
-                let them = &points[other];
-                if them.normal.dot(point.normal) < 0.9
-                    || (them.at - point.at).dot(point.normal).abs() > near
-                {
-                    continue;
-                }
-                let d2 = (dx * dx + dy * dy) as f32;
-                let weight = (-d2 / (SMOOTH_RINGS * SMOOTH_RINGS) as f32).exp();
-                sum += share(other) * weight;
-                total += weight;
-            }
+        match places.mean(maps, points, index, SMOOTH_RINGS, &share) {
+            Some(mean) => open[index] * mean,
+            None => shadowed[index],
         }
-        if total <= 0.0 {
-            return shadowed[index];
-        }
-        open[index] * (sum / total)
     });
     shadowed[..points.len()].copy_from_slice(&smoothed);
+}
+
+/// The colour that tells what a texel is in the pictures of
+/// `KJK_BAKE_DEBUG`. Red is a texel inside a wall: too many of its rays meet
+/// the back of a surface, and it does not count. Blue is a texel whose
+/// centre lies off its triangle, on the ring the bake adds round a patch.
+/// Magenta is a texel whose mesh normal faces away from its triangle.
+/// Dark cyan is a texel that no light faces. Grey is the share of its
+/// lights' light that reaches it past every shadow, white where all does.
+fn texel_kind(point: &Point, counts: bool, open: Vec3, shadowed: Vec3) -> [u8; 3] {
+    if !counts {
+        return [220, 0, 0];
+    }
+    if !point.inside {
+        return [0, 60, 230];
+    }
+    if point.shading.is_some_and(|shading| shading.dot(point.normal) < 0.0) {
+        return [220, 0, 220];
+    }
+    if luma(open) < 1e-6 {
+        return [0, 70, 70];
+    }
+    let share = (luma(shadowed) / luma(open)).clamp(0.0, 1.0);
+    let grey = (40.0 + 215.0 * share) as u8;
+    [grey, grey, grey]
+}
+
+/// Writes `debug/<lightmap>.png` into `folder` for `KJK_BAKE_DEBUG`, each
+/// three pictures wide at the bake's own texels: what each texel is
+/// (`texel_kind`, black where no triangle claims it), the stored lightmap,
+/// and the lamps' set `b` as the bake shows it. `debug/texels.txt` gives
+/// each lightmap's side of a stored texel in metres and how many texels
+/// are of each kind.
+fn debug_pictures(
+    folder: &Path,
+    maps: &[Stored],
+    points: &[Point],
+    kinds: &[[u8; 3]],
+    stored: &dyn Fn(usize) -> Vec3,
+    shown: &[Vec3],
+) -> Result<(), String> {
+    let out = folder.join("debug");
+    std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
+    let mut text = String::from(
+        "# lightmap, stored texel side in metres (median), texels counted, inside a wall, off the triangle, normal away, unlit\n",
+    );
+    for (number, map) in maps.iter().enumerate() {
+        let (w, h) = (map.width * map.scale, map.height * map.scale);
+        let mut picture = image::RgbImage::new((3 * w) as u32, h as u32);
+        let mut sizes = Vec::new();
+        let mut tally = [0usize; 5];
+        for (i, point) in points.iter().enumerate().filter(|(_, point)| point.map == number) {
+            let (x, y) = ((point.texel % w) as u32, (point.texel / w) as u32);
+            let kind = kinds[i];
+            picture.put_pixel(x, y, image::Rgb(kind));
+            let s = stored(i).to_array().map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
+            picture.put_pixel(x + w as u32, y, image::Rgb(s));
+            let b = shown[i].to_array().map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
+            picture.put_pixel(x + 2 * w as u32, y, image::Rgb(b));
+            sizes.push(point.size);
+            tally[match kind {
+                [220, 0, 0] => 1,
+                [0, 60, 230] => 2,
+                [220, 0, 220] => 3,
+                [0, 70, 70] => 4,
+                _ => 0,
+            }] += 1;
+        }
+        sizes.sort_by(f32::total_cmp);
+        let side = sizes.get(sizes.len() / 2).copied().unwrap_or(0.0);
+        let _ = writeln!(
+            text,
+            "{} {side:.3} {} {} {} {} {}",
+            map.name, tally[0], tally[1], tally[2], tally[3], tally[4]
+        );
+        let path = out.join(format!("{}.png", map.name));
+        picture.save(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    let path = out.join("texels.txt");
+    std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// `b`'s stored level of a light: `stored_level`, eased above `B_KNEE` so
@@ -1825,7 +1958,7 @@ fn probe(
         let read = fact.map.map(|map| {
             let stored = &maps[map];
             let uv = fact.uv[0] * (1.0 - u - v) + fact.uv[1] * u + fact.uv[2] * v;
-            let (w, h) = ((stored.width * SCALE) as i64, (stored.height * SCALE) as i64);
+            let (w, h) = ((stored.width * stored.scale) as i64, (stored.height * stored.scale) as i64);
             let x = ((uv.x * w as f32).floor() as i64).rem_euclid(w);
             let y = ((uv.y * h as f32).floor() as i64).rem_euclid(h);
             (map, (y * w + x) as usize)
@@ -2139,49 +2272,85 @@ fn lamps(
 }
 
 /// The values of the texels, each the mean of its neighbours on the same
-/// surface within `BOUNCE_RINGS` texels in its lightmap, weighted to fall
-/// off with distance.
+/// surface as far as `BOUNCE_RINGS` texels around it (`Places::mean`),
+/// weighted to fall off with distance.
 fn smooth_values(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3]) -> Vec<Vec3> {
-    let mut of_map: Vec<Vec<Option<u32>>> = (maps.iter())
-        .map(|map| vec![None; map.width * map.height * SCALE * SCALE])
-        .collect();
-    for (index, point) in points.iter().enumerate() {
-        if counts[index] {
-            of_map[point.map][point.texel] = Some(index as u32);
-        }
-    }
+    let places = Places::new(points, counts);
     super::parallel(points.len(), |index| {
-        let point = &points[index];
         if !counts[index] {
             return values[index];
         }
+        places
+            .mean(maps, points, index, BOUNCE_RINGS, &|other| values[other])
+            .unwrap_or(values[index])
+    })
+}
+
+/// The texels that count, by their place in the area, so a smoothing can
+/// gather a texel's neighbours on the same surface across the patches of
+/// its lightmap and across lightmaps (`Places::mean`). Smoothed by their
+/// neighbours in the lightmap, the walkway of tar_m03aa, whose floor tiles
+/// each have their own small patch, took one level of bounced light for
+/// each tile, and the tiles met at hard straight edges (22 November 2026).
+struct Places {
+    cells: HashMap<IVec3, Vec<u32>>,
+}
+
+/// The side of a cell of `Places` (metres).
+const PLACE_CELL: f32 = 0.5;
+/// The widest a smoothing reaches (metres).
+const PLACE_REACH: f32 = 1.0;
+
+impl Places {
+    fn new(points: &[Point], counts: &[bool]) -> Places {
+        let mut cells: HashMap<IVec3, Vec<u32>> = HashMap::new();
+        for (index, point) in points.iter().enumerate().filter(|(i, _)| counts[*i]) {
+            let cell = (point.at / PLACE_CELL).floor().as_ivec3();
+            cells.entry(cell).or_default().push(index as u32);
+        }
+        Places { cells }
+    }
+
+    /// The mean of `value` over the texels near texel `index` that face the
+    /// same way and lie on its plane, each weighted by its distance. The
+    /// width is `rings` texels at the bake's usual 4 to a stored texel, as
+    /// the smoothing in the lightmap had, and at most `PLACE_REACH`.
+    fn mean(
+        &self,
+        maps: &[Stored],
+        points: &[Point],
+        index: usize,
+        rings: i64,
+        value: &dyn Fn(usize) -> Vec3,
+    ) -> Option<Vec3> {
+        let point = &points[index];
         let map = &maps[point.map];
-        let (w, h) = ((map.width * SCALE) as i64, (map.height * SCALE) as i64);
-        let (x, y) = ((point.texel as i64) % w, (point.texel as i64) / w);
-        let near = (point.size / SCALE as f32 * 0.5).max(0.01);
+        let near = (point.size / map.scale as f32 * 0.5).max(0.01);
+        let reach = (rings as f32 * point.size / 4.0).clamp(1e-3, PLACE_REACH);
+        let low = ((point.at - Vec3::splat(reach)) / PLACE_CELL).floor().as_ivec3();
+        let high = ((point.at + Vec3::splat(reach)) / PLACE_CELL).floor().as_ivec3();
         let mut sum = Vec3::ZERO;
         let mut total = 0.0f32;
-        for dy in -BOUNCE_RINGS..=BOUNCE_RINGS {
-            for dx in -BOUNCE_RINGS..=BOUNCE_RINGS {
-                let (nx, ny) = (x + dx, y + dy);
-                if nx < 0 || ny < 0 || nx >= w || ny >= h {
-                    continue;
+        for x in low.x..=high.x {
+            for y in low.y..=high.y {
+                for z in low.z..=high.z {
+                    for &other in self.cells.get(&IVec3::new(x, y, z)).into_iter().flatten() {
+                        let them = &points[other as usize];
+                        let way = them.at - point.at;
+                        let d2 = way.length_squared();
+                        if d2 > reach * reach
+                            || them.normal.dot(point.normal) < 0.9
+                            || way.dot(point.normal).abs() > near
+                        {
+                            continue;
+                        }
+                        let weight = (-d2 / (reach * reach)).exp();
+                        sum += value(other as usize) * weight;
+                        total += weight;
+                    }
                 }
-                let Some(other) = of_map[point.map][(ny * w + nx) as usize] else {
-                    continue;
-                };
-                let them = &points[other as usize];
-                if them.normal.dot(point.normal) < 0.9
-                    || (them.at - point.at).dot(point.normal).abs() > near
-                {
-                    continue;
-                }
-                let d2 = (dx * dx + dy * dy) as f32;
-                let weight = (-d2 / (BOUNCE_RINGS * BOUNCE_RINGS) as f32).exp();
-                sum += values[other as usize] * weight;
-                total += weight;
             }
         }
-        if total > 0.0 { sum / total } else { values[index] }
-    })
+        (total > 0.0).then(|| sum / total)
+    }
 }

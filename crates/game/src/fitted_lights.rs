@@ -281,6 +281,13 @@ struct Kind {
     /// It shines although little of its texture is bright (a terminal's
     /// small displays).
     dark: bool,
+    /// One light for each screen, aimed out of it and this far up from
+    /// level (radians), as `LIFT_GATHER` says.
+    lift: Option<f32>,
+    /// A door of this texture takes this kind too. Other doors shed light
+    /// only as force fields. Malachor's doors hold its red lamps, and the
+    /// owner asked on 22 November 2026 that its red lights light it.
+    door: bool,
 }
 
 /// A game's kinds by texture and whether it is on a placeable. `None` is a
@@ -295,6 +302,11 @@ const FITTINGS: &str = include_str!("../../../data/lights/fittings.toml");
 
 /// How far off its surface a fitting's light stands (metres).
 const OFF: f32 = 0.25;
+
+/// A lamp lies on a piece when it is no farther from the piece's middle
+/// than half the piece's length or width and this (metres). The piece then
+/// takes the lamp's colour.
+const ON_PIECE: f32 = 0.1;
 /// A lamp longer than this from its middle shines as a strip, which ends
 /// `STRIP_SHORT` metres before the lamp does.
 const STRIP_FROM: f32 = 1.0;
@@ -306,6 +318,14 @@ const FACES: f32 = 0.25;
 /// share one light, which stands `GATHER_UP` metres above their middle.
 const GATHER: f32 = 3.0;
 const GATHER_UP: f32 = 0.6;
+
+/// The pieces of a kind with a `lift` within this of each other (metres)
+/// are one screen and share one light. It stands `OFF` out of their middle
+/// and shines the way they face, turned up by the lift. A terminal had a
+/// light on every glowing piece, about eleven, and with no cone they lit
+/// every side alike. The owner, walking KOTOR 1 on 21 November 2026: a
+/// terminal's light should come out of its monitor, diagonally up.
+const LIFT_GATHER: f32 = 1.0;
 /// A mesh larger than this is a sky or a backdrop (square metres).
 const SKY_M2: f32 = 2000.0;
 /// A texel brighter than this counts as bright, and a texture with at
@@ -436,6 +456,8 @@ fn unnamed() -> Kind {
         always: false,
         grow: false,
         dark: true,
+        lift: None,
+        door: false,
     }
 }
 
@@ -610,6 +632,8 @@ fn read_kinds(text: &str) -> Option<Kinds> {
                     always: flag("always"),
                     grow: flag("grow"),
                     dark: flag("dark"),
+                    lift: number(table.get("lift")),
+                    door: flag("door"),
                 })
             })
             .flatten();
@@ -706,6 +730,42 @@ fn strongest(texel: &[f32; 3]) -> f32 {
 /// `lights_of`). A fitting is as `parts` gives a lamp.
 fn lights_of(kind: &Kind, fittings: &[[f32; 14]], cut: &[bool], out: &mut Vec<Light>) {
     let colour = kind.colour * kind.strength;
+    if let Some(lift) = kind.lift {
+        let mut screens: Vec<(Vec3, Vec<Vec3>, Vec3)> = Vec::new();
+        for fitting in fittings {
+            let at = Vec3::new(fitting[0], fitting[1], fitting[2]);
+            let facing = Vec3::new(fitting[3], fitting[4], fitting[5]);
+            match (screens.iter_mut()).find(|screen| screen.0.distance(at) < LIFT_GATHER) {
+                Some(screen) => {
+                    screen.1.push(at);
+                    screen.2 += facing;
+                }
+                None => screens.push((at, vec![at], facing)),
+            }
+        }
+        let off = kind.off.unwrap_or(OFF);
+        out.extend(screens.iter().map(|(_, places, facing)| {
+            let level = Vec3::new(facing.x, facing.y, 0.0).normalize_or_zero();
+            let aim = if level == Vec3::ZERO {
+                Vec3::ZERO
+            } else {
+                level * lift.cos() + Vec3::Z * lift.sin()
+            };
+            // A screen's light is as strong as its pieces' lights were
+            // together, so the kind's strength still says how much light
+            // a terminal gives.
+            Light {
+                at: places.iter().sum::<Vec3>() / places.len() as f32 + aim * off,
+                colour: colour * places.len() as f32,
+                radius: kind.reach,
+                way: Vec3::ZERO,
+                half: 0.0,
+                aim,
+                cone: if aim == Vec3::ZERO { 0.0 } else { kind.cone },
+            }
+        }));
+        return;
+    }
     if kind.gather {
         let mut groups: Vec<Vec<Vec3>> = Vec::new();
         for fitting in fittings {
@@ -892,12 +952,13 @@ fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, b
         let texture = name(model, mesh_index);
         let door = doors.contains(&model);
         // A texture the data does not name is a screen or a panel
-        // (`unnamed`). A door is never a named kind. A texture the data
+        // (`unnamed`). A door is a named kind only where the kind says
+        // `door`. A texture the data
         // calls no lamp sheds nothing on a door either: the wooden gates
         // of the Sand People's huts are orange enough to pass as a force
         // field.
         let (kind, named) = match game.get(&(texture.clone(), on)) {
-            Some(Some(kind)) if !door => (kind, true),
+            Some(Some(kind)) if !door || kind.door => (kind, true),
             Some(None) => continue,
             None => (&unnamed, false),
             Some(Some(_)) => (&unnamed, false),
@@ -970,6 +1031,19 @@ fn explain(loaded: &LoadedScene, dump_to: Option<&str>) -> Vec<(Light, String, b
                 .map(|piece| {
                     let mut fitting = [0.0; 14];
                     fitting[..11].copy_from_slice(piece);
+                    // A piece takes the colour of the lamps found on it, so
+                    // a kind with `tint` sheds its texture's colour. Before,
+                    // only a `bright` kind did, and the Leviathan's red
+                    // lamps shed white (21 November 2026).
+                    let centre = Vec3::new(piece[0], piece[1], piece[2]);
+                    let on = |lamp: &&[f32; 14]| {
+                        Vec3::new(lamp[0], lamp[1], lamp[2]).distance(centre)
+                            <= piece[10].max(piece[6] / 2.0) + ON_PIECE
+                    };
+                    let colour: Vec3 = (lamps.iter().filter(on))
+                        .map(|lamp| Vec3::new(lamp[11], lamp[12], lamp[13]))
+                        .sum();
+                    fitting[11..].copy_from_slice(&light_colour(colour).to_array());
                     fitting
                 })
                 .collect()

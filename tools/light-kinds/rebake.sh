@@ -27,7 +27,7 @@ weigh=
 KJK_FITTED_DUMP=$HERE/lights-$label.txt "$BIN/bake-play.sh" "$1" "$module" on "" "wait world; wait 200f; quit" > "dump-$label.log" 2>&1
 [ -f "lights-$label.txt" ] || { echo "the game wrote no lights; see $HERE/dump-$label.log"; tail -5 "dump-$label.log"; exit 1; }
 echo "fitted lights: $(grep -c '^fitted' "lights-$label.txt")"
-"$KJK" detail-bake "$module" --game "$game" --lights "lights-$label.txt" --gpu ${KJK_BAKE_SUN:+--sun "$KJK_BAKE_SUN"} ${KJK_BAKE_SKYLIGHTS:+--skylights "$KJK_BAKE_SKYLIGHTS"} --out "bake/$label-first" > "first-$label.log" 2>&1 || { tail -5 "first-$label.log"; exit 1; }
+"$KJK" detail-bake "$module" --game "$game" --lights "lights-$label.txt" --gpu ${KJK_BAKE_SUN:+--sun "$KJK_BAKE_SUN"} ${KJK_BAKE_SKYLIGHTS:+--skylights "$KJK_BAKE_SKYLIGHTS"} $(echo "$KJK_BAKE_EVEN" | grep -o -- --every-room) --out "bake/$label-first" > "first-$label.log" 2>&1 || { tail -5 "first-$label.log"; exit 1; }
 python -I - "$module" "$5" "first-$label.log" "levels-$label.txt" "$6" "${7:-original}" <<'PY' || exit 1
 import re, sys
 module, share, log, out, of = sys.argv[1], float(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[6]

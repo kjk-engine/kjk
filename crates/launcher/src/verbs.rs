@@ -197,6 +197,18 @@ pub(crate) enum Verb {
         /// own stored light for the rest, and not an even light
         #[arg(long)]
         fill_stored: bool,
+        /// With --gpu, each texel of the lamps' set shows at least this
+        /// share of its stored linear light in the game (`floor.txt`)
+        #[arg(long)]
+        floor: Option<f32>,
+        /// With --gpu, every room with a lightmapped mesh is baked, not
+        /// only the rooms with a walkable face, as under a sun
+        #[arg(long)]
+        every_room: bool,
+        /// With --gpu, a room with no walkable face shows its stored light in
+        /// the lamps' set, and not twice it
+        #[arg(long)]
+        stored_backdrop: bool,
         /// With --gpu, the least a room's lamps are scaled by (0.5 when
         /// left out)
         #[arg(long)]
@@ -631,6 +643,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             weigh,
             no_even,
             fill_stored,
+            floor,
+            every_room,
+            stored_backdrop,
             least,
             most,
             skylights,
@@ -684,6 +699,9 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 weigh,
                 no_even,
                 fill_stored,
+                floor,
+                every_room,
+                stored_backdrop,
                 least,
                 most,
                 skylights: (skylights.iter())

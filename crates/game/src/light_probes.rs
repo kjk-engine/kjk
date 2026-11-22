@@ -38,6 +38,15 @@
 //! `KJK_PROBES=only` shows each probed model in its probe light alone, with
 //! no lamps and no texture. `KJK_ROOM_SHADOW=up` puts the room's light back
 //! straight above every model.
+//!
+//! `KJK_MODEL_LIGHT` shows one part of each probed model's light alone,
+//! with no texture, while every room surface shows its whole light with no
+//! texture (`term_mode`). The parts are those of the baked trial:
+//! `probes` (the probes' light, `above` and `sides` of it), `lamps` (the
+//! game's own lamps), `fitted` (the fitted lights), `glow` (the model's own
+//! glow) and `floor` (the least probe light, `PROBE_FLOOR` in the shader).
+//! `whole` shows the whole light, and `mask` every probed model in magenta,
+//! so that a script can find a model's pixels in a picture.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
@@ -145,6 +154,28 @@ pub fn mode() -> Mode {
         Ok("off") => Mode::Off,
         Ok("only") => Mode::Only,
         _ => Mode::On,
+    })
+}
+
+/// What `KJK_MODEL_LIGHT` asks for: every surface shows one part of its
+/// light alone, with no texture, as `probe_list.mode` (`TERM_*` in
+/// `odyssey.wgsl`). A room's surface shows its whole light, so a model's
+/// part can be measured against the floor beside it. The parts are those of
+/// the baked trial (`KJK_FITTED_LIGHTS=baked`). Unset, the game is drawn as
+/// normal.
+fn term_mode() -> u32 {
+    static TERM: OnceLock<u32> = OnceLock::new();
+    *TERM.get_or_init(|| match std::env::var("KJK_MODEL_LIGHT").as_deref() {
+        Ok("whole") => 2,
+        Ok("probes") => 3,
+        Ok("above") => 4,
+        Ok("sides") => 5,
+        Ok("lamps") => 6,
+        Ok("fitted") => 7,
+        Ok("glow") => 8,
+        Ok("floor") => 9,
+        Ok("mask") => 10,
+        _ => 0,
     })
 }
 
@@ -1256,12 +1287,23 @@ fn light_objects(
             match loaded.probes.light_at(&loaded.rooms, room, to_game(sample)) {
                 Ok(light) => {
                     entry.raw = light;
-                    entry.target = without_lamps(
-                        light,
-                        &state.lamps,
-                        (origin, sample),
-                        model_placed.is_static,
-                    );
+                    // Under the baked trial the lightmaps hold the fitted
+                    // lights, the sun and the sky, and none of the game's
+                    // lamps, so no lamp is taken out. The game's lamp with
+                    // a reach of 5000 metres in unk_m44ac emptied the light
+                    // from above of every model, so a model in the floor's
+                    // shade stayed bright. The owner said on 21 November
+                    // 2026: "plasteel cylinder in the shade is too bright".
+                    entry.target = if crate::fitted_lights::baked() {
+                        light
+                    } else {
+                        without_lamps(
+                            light,
+                            &state.lamps,
+                            (origin, sample),
+                            model_placed.is_static,
+                        )
+                    };
                     entry.room_target = match room_shadow() {
                         RoomShadow::Probes => room_light(&entry.raw),
                         RoomShadow::LampsOut => room_light(&entry.target),
@@ -1312,7 +1354,7 @@ fn light_objects(
     }
     if changed {
         let mut list = Box::new(ProbeList {
-            mode: u32::from(mode == Mode::Only),
+            mode: if mode == Mode::Only { 1 } else { term_mode() },
             ..default()
         });
         for ((slot, room), entry) in list

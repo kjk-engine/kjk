@@ -2133,7 +2133,12 @@ fn advance(
         let prepare_ms = job.started.elapsed().as_secs_f64() * 1000.0;
         let reloaded = job.reload.take();
         let was_reload = reloaded.is_some();
-        let committed = result.and_then(|prepared| {
+        let committed = result.and_then(|mut prepared| {
+            // Walk mode takes each module's scripts and fights away, as it
+            // does for the first one (`walk::stage`).
+            if crate::walk::on() {
+                prepared.plan.level = crate::walk::level(prepared.plan.level.clone());
+            }
             // A replay's install must be the recorded one, before and
             // after.
             if let Some(expect) = &job.expect {

@@ -1,5 +1,186 @@
 # Hand-over for the fitted lights and their bake
 
+## Round r2 (22 November 2026, afternoon)
+
+This section is the newest. Read it first, then round r1 below it, then the KOTOR 1 section, then "Start here".
+
+The owner looked at round r1 and gave notes. Round r2 acts on them. The owner asked to bake only the modules they commented on, so r2 holds 44 modules and not all 171. The work is committed as `514100cc` on `feat/fitted-lights`. Another session's sky fix is still uncommitted in the worktree (`material.rs`, `scene.rs`, `approved.rs` and six small files).
+
+### What changed
+
+- **Blended room surfaces show their bake.** Under the baked trial a room's surface that blends showed its bake at a quarter of its light, because only an opaque room's surface took `BAKED_GAIN`. The new flag `ROOM_LIGHTMAP` (`material.rs`, `odyssey.wgsl`) marks every room surface with a lightmap. Dxun's boulders (401dxn) and the enclave's shrubs (605dan) were black, and they show their texture now.
+- **Inside a wall.** A texel counts as inside a wall only if the backs it meets are within `WALL_NEAR` (1 m, `gpu.wgsl`). The rays from the sand of tat_m20aa met the tents' cloth overhead, and whole triangles of sand were left out.
+- **See-through layers.** A mesh with a lightmap whose texture's mean alpha is under `LAYER_ALPHA` (0.9, `detail_bake.rs`) casts no shadow. The sand and foam layers of unk_m41ac walled in the shore's bottom.
+- **A floor of stored light.** `floor` in `bake.toml` (`detail-bake --floor`) writes `floor.txt`, and the game holds each texel to that share of its stored linear light (`BAKED_FLOORS`, `viewer.rs`). Only stunt_18 has it (0.2). Its wall in view v180 went from 4 to 24, against 47 in the original game.
+- **Stale notes.** A bake removes an old `fill.txt` or `floor.txt` from its folder before it writes.
+- **Debug pictures.** `KJK_BAKE_DEBUG=1` writes `debug/<lightmap>.png` and `debug/texels.txt` into the bake's folder. Each picture is three wide: what each texel is, the stored light and the bake. Red is a texel inside a wall, blue one off its triangle, dark cyan one that no light faces, and grey the share of its light that its shadows leave. `--probe` prints whether each texel counts.
+- **Terminals.** Strength 0.6, which the owner approved. A terminal leaves about half of the blue on the floor it left before each screen became one light.
+- **Malachor.** Each level is half of round r1's, and `mal_floor3`, `mal_gtbeams` and the new door kind `mal_dor02` shed more light. The new key `door = true` lets a door take a named kind (`fitted_lights.rs`, `kinds.py`). 903mal has no fill, and the owner called it perfect. 902mal, 904mal, 905mal and 906mal keep the stored fill, because without it they went nearly black and the owner said 902 and 904 were too dark.
+- **The even light of round r1.** kas_m22ab, 304nar, 352nar, 411dxn, 506ond, 610dan and 853nih bake without the fill again. 410dxn and tar_m02ab keep it, because the owner asked for more light there. tar_m08aa has `backdrop = "stored"`.
+
+### Open
+
+- **tar_m03aa's square shadows are fixed** (after the commit, not yet committed). The cause was the bake's smoothing of bounced light and of shadow shares. It gathered a texel's neighbours in its lightmap, and the walkway's floor tiles each have their own small patch, so every tile took one level and the tiles met at hard straight edges. Finer texels and a softer fire changed nothing. The smoothing now gathers neighbours by their place in the area, across patches and lightmaps (`Places` in `gpu.rs`), within `PLACE_REACH` (1 m). The owner's "Telos tile one" is read as this module. The fires (`plc_burnjunk`, `plc_firepit2`) now reach 7 m at strength 0.15, which the owner kept. `KJK_BAKE_TEXEL` bakes coarse lightmaps finer, and nothing uses it. The enclave's 17 views moved by at most 2 in mean brightness with the new smoothing.
+- **stunt_18** is lit by its floor and is still half as bright as the original.
+- **Characters and placeables** do not follow their room's light under the bake. The owner moved it elsewhere: `handover-models.md`.
+- **tat_m20aa** is brighter than today (39 against 23 at the report's camera), as the bake the owner walked was.
+
+### Files
+
+- `target/light-kinds/batch/r2.sh` bakes round r2. It reads `walk/walked.txt`, and it shoots each module at its `r1-poses.txt`.
+- `target/light-kinds/batch/walked-shoot.sh` shot each walked bake at the same poses as `shots/walked`.
+- `python -I target/light-kinds/batch/r2-sheets.py` writes `target/light-kinds/review-r2`. Its `points.html` is written by hand.
+- A path given to `bake-shoot.sh` must be absolute or relative to the module's folder. A path relative to the root loads no bake, and the game shows the stored lightmaps at twice their light.
+
+## The KOTOR 2 notes and round r1 (22 November 2026, morning)
+
+The owner walked KOTOR 2 before the KOTOR 1 fixes, spoke notes for Telos and Nar Shaddaa, and made 20 F12 reports. The owner then said to fix all of it, bake every module again, and show a before and an after of each report and of each bake. Nothing is committed.
+
+### The KOTOR 2 fixes
+
+- **The Telos station (`202tel`)** is darker and lit by its ceiling lights. It has `share` 0.55 with `fill = "stored"`, `most` 2 and `least` 0.2.
+- **The prison (`203tel`)** has 0.6 with the stored fill, its batch sun and `even = false`, so its lamps make its light.
+- **`222tel`** has 0.75 and **`232tel`** has 0.8.
+- **`304nar`** has 0.5 with the stored fill, `most` 1.5 and `least` 0.15.
+- **The tunnels of `305nar`** have the new key `dark_unlit = true`. A room with no lightmap then shows little light (`BAKED_UNLIT_LIGHT` 0.12 in `odyssey.wgsl`), and only its bright texels keep their light. The circular strips stay bright and the walls go dark. The owner's liked part of the module did not change. `bake.sh` writes `unlit.txt` into the set, and the game reads it (`DARK_UNLIT_AREAS` in `viewer.rs`).
+- **`351nar` and `352nar`** have 0.7, and their glow panels light them. `nar_d_lit01` is a panel kind with a reach of 5 m.
+- **Lamps of the reports.** `nar_jtrm`, `nar_jtrm2` and `nar_d_wl_o` are `always`. `tel_hl3` and `dan_hlt1` are panels with `tint`. `dan_cgrn`, `dan_cblu` and `dan_cylw` are coloured points. `mal_gtbeams` and `mal_floor3` shed faint coloured light. `fx_ritual01` reaches 8 m. `tel_flwr` is no lamp. `ond_lt02` reaches 9 m.
+- **The grid lines of `604dan`, `702kor` and `710kor`** came from the older mixed fill of round b3. A fresh bake with `bake.sh` has none.
+- **Modules from the reports** have entries too. `410dxn`, `411dxn`, `506ond`, `610dan` and `853nih` take their stored fill at their full level. `401dxn` has its sun with a weaker sky (0.40). `605dan` has 0.75 of its batch sun. `510ond` and `901mal` have their batch suns without the even light. `903mal` has 0.85, and `904mal` and `905mal` have 0.75.
+
+### Round r1
+
+- `target/light-kinds/batch/r1.sh` baked every module of `walk/chosen.txt` again as `r1`. A module with a `bake.toml` entry baked with `bake.sh`. Any other module baked as the owner's walked bake was made, with its flags, its sun and its levels file, from a fresh dump of the lights. All 171 baked, none failed, in about six hours.
+- Each module was shot at its entry views and at the cameras of the owner's reports.
+- The first round wrote the rooms with no walkable face at their stored light in every module. `target/light-kinds/batch/backdrops.py` lists those lightmaps of a set. They were moved out of 33 modules' `r1` sets into `bake/r1-backdrop`, and `target/light-kinds/batch/r1-reshoot.sh` shot those modules again. Set `a` is the same either way.
+- `python -I target/light-kinds/batch/r1-sheets.py` writes `target/light-kinds/review-r1`. `index.html` shows every report beside the same camera now, and every module's entry views from the walked bake beside `r1`.
+- `walk-lists.py` puts `r1` first in each module's labels, so `play --walk` shows round r1.
+
+### Open
+
+- **The swoop track of `510ond`.** The report's camera is in the swoop race, and the shot shows the track's start. The track needs probes over it.
+- **The red lights of `410dxn`** are on `dxn_ttrm2`, a mesh over the sky. They need placed lights.
+- **The torches of `411dxn`** are emitters. Only `fx_ritual01`'s reach changed.
+- **The crates of `411dxn` and `unk_m44ac`** are too bright under the probes. This is still parked.
+- **The red door of `853nih`** still tints its frame.
+- **The grass of `401dxn`** has no lightmap and glows.
+- **The KOTOR 1 open items below** are still open.
+
+## The KOTOR 1 notes are worked through (22 November 2026, night)
+
+The owner's notes of his KOTOR 1 walk are in a file he uploaded, not in the repository. Two agents read them against his 20 F12 reports. The fixes below are in the worktree and are not committed. The owner has not asked for a commit.
+
+### General rules, all seen by the owner in before and after pictures
+
+- **Rooms with no walkable face can show their stored light at today's level.** With `backdrop = "stored"` in `bake.toml` (`detail-bake --stored-backdrop`), the bake writes their stored lightmap into set `b` (`write_sets` in `crates/launcher/src/detail_bake.rs`). Left out, the game shows them at twice their light. Taris's buildings and Kashyyyk's trees glared beside dark walkways, so `tar_m02ab` and `kas_m22ab` have the key. It was for every module at first, and round r1 showed it darkened modules the owner had walked and liked, such as Davik's estate (`tar_m08aa`) at 54 against 107.
+- **A kind with `tint` sheds its texture's colour.** Before, only a kind with `lamps = "bright"` did, and 49 kinds shed white. The Leviathan's red lamps are red now (`fitted_lights.rs`, `ON_PIECE`). `plc_starmap15` lost its `tint`, because the Star Map then shed red.
+- **`lsi_tech01` and `lts_lolit03` have `dark = true`.** The blue displays and the hanging ceiling panels shed light.
+- **A terminal sheds one light for each screen.** The new key `lift` gathers a kind's pieces within 1 m into one light, aimed out of the screen and up by the lift in radians. The terminals have `lift = 0.785`, `cone = 0.6` and strength 0.24, which is four fifths of the old light. The owner accepted that a terminal now leaves little blue on the floor. `kinds.py` knows the key.
+- **Fire and force cages shed light.** `plc_burnjunk` and `plc_firepit2` have one faint warm light each (strength 0.2). `plc_frcdist01` and `plc_frcdist02` are kinds with `tint`.
+- **A box does not shadow a light inside it** (`cone_visibility` and `fitted_visibility` in `odyssey.wgsl`). The kolto tanks of manm26ad and the Star Map of manm28ad threw a dark ring round them from their own light.
+- **Dark rooms are darker.** The modules of the owner's darken list have `share` 0.55 and `most` 2.0, and the cantinas `tar_m02ae` and `tar_m03ae` have 0.4 and 1.5. All of them have `least` 0.2, or 0.15 in the cantinas. Many rooms were held at the least scale 0.5 and could not go darker. The Endar Spire is held to its approved file times `scale = 0.65` with `most = 2.5`. `bake.sh` reads `scale` for a module with a levels file. Every Star Forge area has 0.85 of its level, and `sta_m45ab` 0.6.
+
+### Fixes of single modules
+
+- `tar_m02ab` and `kas_m22ab` take `fill = "stored"`, as `tar_m02ac` does. Their catwalks and the frames on the trees were far darker than what stands beside them.
+- The Anchorhead door texture `lta_dor02` is no lamp. Its green passed as a force field.
+- `plc_map01` reaches 2.4 m. `lts_gwall01` sheds a paler green, and `tar_m02ad` has 0.85 of its level.
+- `plc_desk1` is a kind with `always`, so the swoop manager's desk lights the floor round it. The owner accepted the swoop lobby as it is now.
+- `lma_light01` has `cone = 0.7`, `lift = -0.6`, `always = true` and a reach of 4 m. `manm28ad` has the new key `every_room = true`, which is `detail-bake --every-room`. It bakes every room that has a lightmapped mesh, as a sun does, so the pole lamps light the sea floor.
+- `tat_m20aa`'s suns have `width = 0.025`. The pictures did not change.
+
+### What is parked or open
+
+- **The plasteel crates of unk_m44ac are too bright.** Under the bake with `KJK_PROBES=off` a crate is as bright as today. With the probes it is half as bright again, even where the whole view is at today's level. Ruled out are a light of its own, the probe floor, the probes' open rays, half of the probes' sides, the glow cap, and the module's levels. The owner parked it on 22 November 2026. The next step would be a debug view of each term of a model's light.
+- **The sun of unk_m44ac** from the batch is strong (1.18). The view is 89 against 67 today.
+- **Kashyyyk m23ab** is 40% darker in its lightmap and only a little darker in the picture.
+- **Three notes need a report zip.** They are the red light by the benches in `tat_m17ae`, the droid bench in `korr_m33aa` and the three ceiling lights of the rancor room.
+- **The square shadows of lower Taris (`tar_m03aa`)** may be the edges between rooms. Each room scales its lamps by its own amount, and the fire's light there stops at a straight line. Nobody has confirmed it.
+- **Every walked module is baked again** in round r1, above.
+- **The builds.** The owner's game ran from `target/release/kjk.exe` all night, so every build was copied to `target/release/kjk-bake.exe` and run from there.
+- **The pictures** of each round are in `target/light-kinds/review-n1` to `review-n11`, `review-c` and `review-p1`.
+
+## Start here (written 21 November 2026, evening)
+
+This part is for the agent who takes this worktree over. Read it first.
+The rest of the file is the history, oldest first, and its last sections
+are the newest.
+
+### The task now
+
+The owner walked every KOTOR 1 module on 21 November 2026 with the baked
+lightmaps shown, and made notes and F12 reports. The next agent fixes
+KOTOR 1 from those notes. After that the owner walks KOTOR 2 the same way.
+
+1. Ask the owner where his notes of the walk are. He may have typed them
+   into the F12 boxes, or he may hold them elsewhere, such as voice notes
+   or a `docs/MODULE-NOTES.md` on another branch. This worktree has no
+   such file.
+2. Read the reports. They are the 20 zips named `kjk-report-20261121-*`
+   in the owner's `AppData\Roaming\kjk\reports`. Each holds `note.txt`
+   (his words), `breadcrumbs.txt` (a line `module <name>`), `camera.txt`
+   (a console `camera` line that puts the camera back) and
+   `screenshot.png`.
+3. Sort the notes into general rules and single-module faults. His rule
+   is that feedback on one area applies to all areas. Show him the sorted
+   list before changing anything.
+4. Fix, bake again, and show before and after pictures at his cameras.
+   "The working method" and "House rules" below still hold.
+
+### What is not committed
+
+The branch is `feat/fitted-lights`, draft PR 576. Its head is `951fab66`
+and matches origin. These are in the worktree and not committed. The
+owner has not asked for a commit of them.
+
+- The stepper of walk mode: `crates/game/src/walk.rs`, `play_view.rs`,
+  `sim_host.rs`, one line in `scene.rs` (`.add_systems(Update,
+  crate::walk::step)`), the list of bake folders in `viewer.rs`,
+  `tools/light-kinds/walk-lists.py` and this file.
+- Another session's sky fix, from 19 November: `approved.rs`,
+  `asset_ja/src/lib.rs`, `rig.rs`, `asset_odyssey/src/model.rs`,
+  `course.rs`, `material.rs`, `model_fx/probes.rs`, `viewer_rig.rs` and
+  the rest of `scene.rs`. Leave it alone. `scene.rs` holds both, so a
+  commit of the stepper must stage only its one line there.
+- `target/release/kjk.exe` is built from the worktree as it is, with both.
+
+### Walking KOTOR 2
+
+"Walking every module in one run" near the end of this file says how the
+walk works. Before the owner walks KOTOR 2:
+
+1. Bake the 33 filled KOTOR 2 and KOTOR 1 modules again with `bake.sh`,
+   so they are the new kind with `fill.txt`. Their bakes `b3` under
+   `target/` are the older kind with the stored light mixed in. `902mal`
+   and `107per` are done (`bake/t2`). Add the new label to `rounds` in
+   `walk-lists.py`, at the front.
+2. Apply the general fixes from the KOTOR 1 notes first, so he does not
+   report them twice.
+3. Run `python tools/light-kinds/walk-lists.py <root>` again. It writes
+   `target/light-kinds/walk/bakes.txt` and `modules-tsl.txt`.
+4. Give him these lines for a new PowerShell window, with the real full
+   path in place of `<root>`:
+   - `$env:KJK_FITTED_LIGHTS = "baked"`
+   - `$env:KJK_DETAIL_BAKES = "<root>\target\light-kinds\walk\bakes.txt"`
+   - `$env:KJK_WALK_MODULES = "<root>\target\light-kinds\walk\modules-tsl.txt"`
+   - `& "<root>\target\release\kjk.exe" play --stage 001ebo --walk`
+5. Page Down is the next module and Page Up the last one. `201tel` and
+   `505ond` have no bake and are not in the list.
+
+### What else is open
+
+- The default for a module without its own entry in
+  `data/lights/bake.toml` is still the even light. The plan was to make
+  `fill = "stored"` the default, and the owner has not said yes to it.
+  The batch's pictures of those modules were made with no fill at all.
+- A bake sometimes dies without a message (exit code 127). Try it once
+  more.
+- `tat_m17ac` looks flat. `305nar`, `manm26ad` and `903mal` stay darker
+  than today. The Sand People Enclave has bright wall bases and shadows
+  that begin in the wrong place.
+- The owner said there are no tokens left on 21 November 2026. Work
+  cheaply: scripts that run alone, one summary at the end, small pictures.
+
 Written on the evening of 18 November 2026. The enclave's part was brought up to date on 19 November 2026. It replaces the hand-over of 17 November, which is in this file's git history (commit `1dcef9fd`). Read that older text only for the history of the survey, the review page and the live lights' rules.
 
 In this file `<root>` stands for the worktree's root. The repository's commit check refuses a personal folder path in any file, so no file may hold the real one.
@@ -379,3 +560,33 @@ He said "yes" to building it.
   fifth, with the same command. `101per` failed once the same way. The
   first batch had this too, on `202tel` and `209tel`. The cause is not
   found. A bake that fails so is worth one more try.
+
+## Walking every module in one run
+
+The owner asked on 21 November 2026 for "a stepper to the walker so we can
+step through the modules without closing it down", to "just walk all
+modules and f12 everywhere".
+
+- In walk mode Page Down goes to the next module of a list and Page Up to
+  the last one (`walk::step` in `crates/game/src/walk.rs`). The list
+  wraps around. `KJK_WALK_MODULES` names the list's file, with one module
+  a line.
+- The window's title names the module and its place in the list. An F12
+  report names the module in its `breadcrumbs.txt`.
+- A module the run goes to has no scripts and no fights, as the first one
+  has, and the camera starts behind the player at its entry.
+- `KJK_DETAIL_BAKES` names a file with one folder of baked lightmaps a
+  line. The game then shows every listed module's bake. `KJK_DETAIL_BAKE`
+  still names one folder.
+- `python tools/light-kinds/walk-lists.py <worktree root>` writes the two
+  files into `target/light-kinds/walk`: `bakes.txt`, `modules-k1.txt` and
+  `modules-tsl.txt`. `chosen.txt` there says which bake each module shows.
+  A module's approved bake comes first, then the newest round.
+- One run holds one game. A KOTOR 1 run that is asked for a KOTOR 2 module
+  says so in the log and stays where it is. So there is one walk for each
+  game.
+- Tried without a window on 21 November 2026: the Endar Spire, then
+  `end_m01ab`, then `korr_m38ab` in one run, by the console's `module`
+  command, which takes the same way as the keys. Each showed its bake with
+  the camera at its entry. The keys and the window's title have not been
+  tried, because a run without a window has neither.

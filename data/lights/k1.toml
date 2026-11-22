@@ -134,7 +134,7 @@ texture = "plc_map01"
 on = "placeable"
 form = "faint"
 colour = [1.0, 1.0, 1.0]
-reach = 3.0
+reach = 2.4
 strength = 0.5
 tint = true
 
@@ -178,8 +178,7 @@ on = "placeable"
 form = "faint"
 colour = [1.0, 1.0, 1.0]
 reach = 3.0
-strength = 0.5
-tint = true
+strength = 0.4
 
 [[kind]]
 texture = "plc_swscreen"
@@ -555,9 +554,11 @@ texture = "lma_light01"
 on = "room"
 form = "panel"
 colour = [0.993, 1.0, 1.0]
-reach = 5.0
+reach = 4.0
 strength = 1.1
-cone = 0.2
+cone = 0.7
+always = true
+lift = -0.6
 
 [[kind]]
 texture = "lma_light03"
@@ -880,6 +881,7 @@ colour = [0.541, 0.702, 1.0]
 reach = 4.0
 strength = 1.1
 cone = 0.2
+dark = true
 
 [[kind]]
 texture = "lsi_trim02"
@@ -1004,7 +1006,7 @@ lamp = false
 texture = "lts_gwall01"
 on = "room"
 form = "panel"
-colour = [0.525, 1.0, 0.05]
+colour = [0.76, 1.0, 0.52]
 reach = 5.0
 strength = 1.1
 cone = 0.2
@@ -1131,6 +1133,7 @@ colour = [0.591, 1.0, 1.0]
 reach = 2.8
 strength = 1.1
 cone = 0.2
+dark = true
 
 [[kind]]
 texture = "lts_lolit04"
@@ -1489,8 +1492,10 @@ on = "placeable"
 form = "faint"
 colour = [0.36, 0.62, 1.0]
 reach = 2.5
-strength = 0.3
+strength = 0.6
+cone = 0.6
 dark = true
+lift = 0.785
 
 [[kind]]
 texture = "lda_trim03"
@@ -1501,3 +1506,63 @@ lamp = false
 texture = "lta_dor03"
 on = "placeable"
 lamp = false
+
+[[kind]]
+texture = "lta_dor02"
+on = "placeable"
+lamp = false
+
+[[kind]]
+texture = "plc_burnjunk"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 7.0
+strength = 0.15
+gather = true
+always = true
+dark = true
+
+[[kind]]
+texture = "plc_firepit2"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 7.0
+strength = 0.15
+gather = true
+always = true
+dark = true
+
+[[kind]]
+texture = "plc_frcdist01"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+
+[[kind]]
+texture = "plc_frcdist02"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+
+[[kind]]
+texture = "plc_desk1"
+on = "placeable"
+form = "faint"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 0.4
+cone = 0.2
+lamps = "bright"
+tint = true
+always = true
+dark = true

@@ -78,6 +78,14 @@ struct Params {
 // data is where its triangles start here.
 @group(0) @binding(15) var<storage, read> ids: array<u32>;
 
+// Every ray query here calls `rayQueryProceed` once, not in a loop. Every
+// triangle of the scene is opaque, so the first call walks the whole
+// structure on Vulkan and returns false, and no hit is ever left for the
+// shader to confirm. On Metal, wgpu 29's naga writes `rayQueryProceed` as a
+// flag that stays true after the walk, so a `while rayQueryProceed` loop
+// never ends there. The card then stops the command buffer, and wgpu waits
+// for it for ever (`ray_structures.rs` in the game has the same note).
+
 // The instance masks: the triangles that cast shadows, and the lamps' glass,
 // which casts none on the lights.
 const BLOCKERS: u32 = 1u;
@@ -98,6 +106,8 @@ const SUN_WIDTH: f32 = 0.04;
 const REACH: f32 = 20.0;
 const FAINTEST: f32 = 1e-4;
 const BACK_SHARE: f32 = 0.4;
+// How far the back of a surface counts for `counts` (metres).
+const WALL_NEAR: f32 = 1.0;
 const TAU: f32 = 6.2831853;
 // The share of a light a surface facing away from it still takes
 // (`COMBAT_WRAP` in `odyssey.wgsl`).
@@ -150,7 +160,7 @@ fn hit_any(origin: vec3<f32>, toward: vec3<f32>, reach: f32, mask: u32) -> bool 
     }
     var query: ray_query;
     rayQueryInitialize(&query, scene, RayDesc(RAY_FLAG_TERMINATE_ON_FIRST_HIT, mask, 0.0, reach, origin, toward));
-    while rayQueryProceed(&query) {}
+    _ = rayQueryProceed(&query);
     let hit = rayQueryGetCommittedIntersection(&query);
     return hit.kind != RAY_QUERY_INTERSECTION_NONE;
 }
@@ -231,7 +241,11 @@ fn hard(light: Light, at: vec3<f32>) -> f32 {
 }
 
 // Whether a texel is inside a wall: too many of its rays meet the back of a
-// surface.
+// surface within `WALL_NEAR`. A surface farther off is no wall the texel is
+// in. The rays from the sand of tat_m20aa met the backs of the tents' cloth
+// metres above it, and whole triangles of sand were left out and filled
+// from their neighbours, in hard triangles of light and shade (22 November
+// 2026).
 fn counts(at: vec3<f32>, normal: vec3<f32>) -> bool {
     let side = side_of(normal);
     let up = cross(normal, side);
@@ -241,8 +255,8 @@ fn counts(at: vec3<f32>, normal: vec3<f32>) -> bool {
         let d = wall_dirs[k].xyz;
         let direction = side * d.x + up * d.y + normal * d.z;
         var query: ray_query;
-        rayQueryInitialize(&query, scene, RayDesc(RAY_FLAG_NONE, 0xffu, 0.0, REACH, at, direction));
-        while rayQueryProceed(&query) {}
+        rayQueryInitialize(&query, scene, RayDesc(RAY_FLAG_NONE, 0xffu, 0.0, WALL_NEAR, at, direction));
+        _ = rayQueryProceed(&query);
         let hit = rayQueryGetCommittedIntersection(&query);
         if hit.kind != RAY_QUERY_INTERSECTION_NONE && dot(tris[tri_of(hit)].normal.xyz, direction) >= 0.0 {
             backs += 1u;
@@ -405,7 +419,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let direction = side * d.x + up * d.y + normal * d.z;
         var query: ray_query;
         rayQueryInitialize(&query, scene, RayDesc(RAY_FLAG_NONE, 0xffu, 0.0, REACH, at, direction));
-        while rayQueryProceed(&query) {}
+        _ = rayQueryProceed(&query);
         let hit = rayQueryGetCommittedIntersection(&query);
         if hit.kind == RAY_QUERY_INTERSECTION_NONE {
             continue;
