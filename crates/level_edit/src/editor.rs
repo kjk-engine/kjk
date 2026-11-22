@@ -405,6 +405,17 @@ impl Editor {
     /// Selects `target` alone, or, `adding`, toggles it in the selection:
     /// one not selected joins it (and is the one whose details show), one
     /// selected leaves it.
+    /// The selection as it is, to be put back by `set_selection`.
+    pub fn kept_selection(&self) -> (Option<Target>, (Option<Target>, Vec<Target>)) {
+        (self.selected, self.also.clone())
+    }
+
+    /// Puts back a selection `kept_selection` gave.
+    pub fn set_selection(&mut self, kept: (Option<Target>, (Option<Target>, Vec<Target>))) {
+        self.selected = kept.0;
+        self.also = kept.1;
+    }
+
     pub fn select(&mut self, target: Option<Target>, adding: bool) {
         if !adding {
             self.selected = target;

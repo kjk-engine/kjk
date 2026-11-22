@@ -17,6 +17,12 @@ editor uses a folder named `editor-link` in kjk's own folder:
 - `~/Library/Application Support/kjk/editor-link` on macOS,
 - `~/.config/kjk/editor-link` on Linux.
 
+Two editors open at once would share that folder and take each other's
+commands. An editor started with `KJK_EDITOR_LINK=NAME` uses a folder of
+its own, `editor-link-NAME`. `NAME` is any word of letters, digits, `-`
+and `_` but `1`. An editor that starts again to open another level keeps
+its folder.
+
 `KJK_HOME` moves kjk's folder, and the link's folder with it. If `live.json`
 is not in the folder, or has not changed for a while as the person works,
 the link is off. Ask the person to tick Agent link.
@@ -55,7 +61,7 @@ changed. It holds these fields:
   metres), the way it looks (`yaw` and `pitch`, in degrees), and the
   `camera` command that puts it back there.
 - `messages` are the editor's last messages, the newest last.
-- `answers` are the agent's last 20 commands, each with its answer and
+- `answers` are the agent's last 200 commands, each with its answer and
   its number `n`. The link numbers every command it answers, from 1,
   since it was turned on. `answered` is the number of the last one. Note
   `answered` before sending a batch of N lines. The batch's answers are
@@ -98,7 +104,9 @@ Write commands to `inbox.txt` in the link's folder, one a line. The editor
 takes the file within a quarter of a second, deletes it, and runs the lines
 in order. Lines written while it runs wait for its next turn. Each command
 gets an answer in `answers` in `live.json`. The answer is `ok`, or the
-reason the command failed. The person sees each answer among the editor's
+reason the command failed. A command that makes something may say what it
+made after `ok`: a conversation's `say` answers `ok: line 3`, the number
+of the line it added. The person sees each answer among the editor's
 messages too.
 
 A line is one of these.
@@ -147,6 +155,22 @@ words, it says so among `messages`.
   it copies it into the project (`docs/LEVEL-EDIT.md`, "Templates of the
   game's other levels"). The first `catalog` of a session looks through
   every level of the game and takes a few seconds.
+- `floormap [METRES]` writes `floor.json`: the walkable floor as places a
+  thing can stand on, `METRES` apart (2 when it is left out, from 0.25 to
+  20). Each place is `[X, Y, Z]`. The file also has the floor's least and
+  most corner, and for a new map each room with the corners of its
+  walkmesh's box. One `floormap` replaces the many `floor X Y` questions
+  that finding a level's floor took. Send it a few seconds after adding
+  rooms, once they are solid.
+- `details NAME` writes `details.json`: the details of one thing, without
+  selecting it. `NAME` is what `select` takes: a tag, or a kind and a
+  number such as `door 0` or `room 2`.
+- `conversation NAME show` writes `conversation.json`: the project's
+  conversation as its lines and replies, each with its number, its text,
+  its script, its journal entry and where it leads.
+- `shot view` writes `view.png` as `shot` does, but of the view alone. The
+  panels are left out for a few frames, so nothing covers the view's
+  edges.
 - `properties` writes `properties.json`: every kind of item property the
   game has. Each has its `row`, its `name`, the tables its subtype, its
   value and its parameter are rows of, and the `add_command` that adds

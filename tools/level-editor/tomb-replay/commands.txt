@@ -1,5 +1,5 @@
 # The Tomb of Vessk Tarn, as commands for the level editor's agent link.
-# replay.py sends each paragraph as one batch. A batch holds at most 20
+# replay.py sends each paragraph as one batch. A batch holds at most 200
 # lines, the number of answers the link keeps. {scripts} is the folder of
 # the tomb's scripts.
 
@@ -151,91 +151,52 @@ item 0 drops on
 
 # The carvings.
 conversation new kje_vt_c_warn
-conversation kje_vt_c_warn add
-conversation kje_vt_c_warn text line 0 "[The carving is worn, but it can be read.] Three ways lie before you. The lord sleeps to the north, behind a seal that questions the living. East and south, his scribes carved what a Sith must know. Learn it before you go north."
+conversation kje_vt_c_warn say start "[The carving is worn, but it can be read.] Three ways lie before you. The lord sleeps to the north, behind a seal that questions the living. East and south, his scribes carved what a Sith must know. Learn it before you go north."
 select kje_vt_warn
 flag useable on
 talk kje_vt_c_warn
 
 conversation new kje_vt_c_h1
-conversation kje_vt_c_h1 add
-conversation kje_vt_c_h1 text line 0 "[The first lines of the Code of the Sith are cut deep into the pillar.] Peace is a lie, there is only passion. Through passion, I gain strength. Through strength, I gain power. Through power, I gain victory."
+conversation kje_vt_c_h1 say start "[The first lines of the Code of the Sith are cut deep into the pillar.] Peace is a lie, there is only passion. Through passion, I gain strength. Through strength, I gain power. Through power, I gain victory."
 select kje_vt_hint1
 flag useable on
 talk kje_vt_c_h1
 
 conversation new kje_vt_c_h2
-conversation kje_vt_c_h2 add
-conversation kje_vt_c_h2 text line 0 "[A history of the first Dark Lords.] Ajunta Pall was a Jedi before he was a Sith. The Jedi cast him out with the other exiles, and the exiles came to rule the Sith. He was the first to be buried in this valley, and his sword was buried with him."
+conversation kje_vt_c_h2 say start "[A history of the first Dark Lords.] Ajunta Pall was a Jedi before he was a Sith. The Jedi cast him out with the other exiles, and the exiles came to rule the Sith. He was the first to be buried in this valley, and his sword was buried with him."
 select kje_vt_hint2
 flag useable on
 talk kje_vt_c_h2
 
 conversation new kje_vt_c_h3
-conversation kje_vt_c_h3 add
-conversation kje_vt_c_h3 text line 0 "[Someone scratched this below the old carving, not long ago.] Do not go looking for old Jorak Uln. The mad hermit still hides in the tomb of Tulak Hord, and he tests those who find him."
+conversation kje_vt_c_h3 say start "[Someone scratched this below the old carving, not long ago.] Do not go looking for old Jorak Uln. The mad hermit still hides in the tomb of Tulak Hord, and he tests those who find him."
 select kje_vt_hint3
 flag useable on
 talk kje_vt_c_h3
 
 conversation new kje_vt_c_note
-conversation kje_vt_c_note add
-conversation kje_vt_c_note text line 0 "[The obelisk stands before the stair.] The seal ahead asks three things: the Code, the first of the lords, and the tomb where the hermit hides. A wrong word wakes the beasts."
+conversation kje_vt_c_note say start "[The obelisk stands before the stair.] The seal ahead asks three things: the Code, the first of the lords, and the tomb where the hermit hides. A wrong word wakes the beasts."
 select kje_vt_seal_note
 flag useable on
 talk kje_vt_c_note
 
-# The terminal's quiz.
+# The terminal's quiz: three questions of four choices. `say` makes a node
+# with its text, `replies` makes a question's choices, and `lead` sends
+# every wrong choice to the one line that answers them.
 conversation new kje_vt_c_term
 conversation kje_vt_c_term screen computer
-conversation kje_vt_c_term add
-conversation kje_vt_c_term text line 0 "SEAL OF VESSK TARN. The lord receives only the learned. First: the Code. Peace is a lie, there is only passion. What follows?"
-conversation kje_vt_c_term add line 0
-conversation kje_vt_c_term add line 0
-conversation kje_vt_c_term add line 0
-conversation kje_vt_c_term add line 0
-conversation kje_vt_c_term text reply 0 "Through power, I gain victory."
-conversation kje_vt_c_term text reply 1 "Through passion, I gain strength."
-conversation kje_vt_c_term text reply 2 "Through strength, my chains are broken."
-conversation kje_vt_c_term text reply 3 "Through victory, I gain power."
-conversation kje_vt_c_term add reply 1
-conversation kje_vt_c_term text line 1 "Second: the first of the lords. Who was a Jedi before he ruled the Sith, and lies in this valley with his sword?"
-conversation kje_vt_c_term add line 1
-conversation kje_vt_c_term add line 1
-conversation kje_vt_c_term add line 1
-conversation kje_vt_c_term add line 1
-
-conversation kje_vt_c_term text reply 4 "Marka Ragnos."
-conversation kje_vt_c_term text reply 5 "Naga Sadow."
-conversation kje_vt_c_term text reply 6 "Ajunta Pall."
-conversation kje_vt_c_term text reply 7 "Tulak Hord."
-conversation kje_vt_c_term add reply 6
-conversation kje_vt_c_term text line 2 "Third: the living. In whose tomb does the hermit Jorak Uln hide?"
-conversation kje_vt_c_term add line 2
-conversation kje_vt_c_term add line 2
-conversation kje_vt_c_term add line 2
-conversation kje_vt_c_term add line 2
-conversation kje_vt_c_term text reply 8 "The tomb of Tulak Hord."
-conversation kje_vt_c_term text reply 9 "The tomb of Naga Sadow."
-conversation kje_vt_c_term text reply 10 "The tomb of Ajunta Pall."
-conversation kje_vt_c_term text reply 11 "The tomb of Marka Ragnos."
-conversation kje_vt_c_term add reply 8
-conversation kje_vt_c_term text line 3 "The lord receives you. The seal is open."
+conversation kje_vt_c_term say start "SEAL OF VESSK TARN. The lord receives only the learned. First: the Code. Peace is a lie, there is only passion. What follows?"
+conversation kje_vt_c_term replies line 0 "Through power, I gain victory." "Through passion, I gain strength." "Through strength, my chains are broken." "Through victory, I gain power."
+conversation kje_vt_c_term say reply 1 "Second: the first of the lords. Who was a Jedi before he ruled the Sith, and lies in this valley with his sword?"
+conversation kje_vt_c_term replies line 1 "Marka Ragnos." "Naga Sadow." "Ajunta Pall." "Tulak Hord."
+conversation kje_vt_c_term say reply 6 "Third: the living. In whose tomb does the hermit Jorak Uln hide?"
+conversation kje_vt_c_term replies line 2 "The tomb of Tulak Hord." "The tomb of Naga Sadow." "The tomb of Ajunta Pall." "The tomb of Marka Ragnos."
+conversation kje_vt_c_term say reply 8 "The lord receives you. The seal is open."
 conversation kje_vt_c_term script line 3 kje_vt_open
-
-conversation kje_vt_c_term add reply 0
-conversation kje_vt_c_term text line 4 "That is not what a Sith knows. The tomb answers."
+conversation kje_vt_c_term say reply 0 "That is not what a Sith knows. The tomb answers."
 conversation kje_vt_c_term script line 4 kje_vt_wrong
-conversation kje_vt_c_term link reply 2 4
-conversation kje_vt_c_term link reply 3 4
-conversation kje_vt_c_term link reply 4 4
-conversation kje_vt_c_term link reply 5 4
-conversation kje_vt_c_term link reply 7 4
-conversation kje_vt_c_term link reply 9 4
-conversation kje_vt_c_term link reply 10 4
-conversation kje_vt_c_term link reply 11 4
-conversation kje_vt_c_term add line 0
-conversation kje_vt_c_term text reply 12 "[Step away from the terminal.]"
+conversation kje_vt_c_term lead line 4 from 2 3 4 5 7 9 10 11
+conversation kje_vt_c_term say line 0 "[Step away from the terminal.]"
 select kje_vt_term
 flag useable on
 talk kje_vt_c_term

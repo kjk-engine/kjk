@@ -1,0 +1,20 @@
+# The Tomb of Vessk Tarn played from the Valley of the Dark Lords to the
+# reward, for `kjk playthrough k1 korr_m36aa tomb.route --god --mighty`.
+exit kje_vt_in          # the way in, in the valley
+use kje_vt_pad          # the dead explorer's datapad: the quest begins
+to kje_vt_warn          # through the crossing, which moves the quest on
+use kje_vt_warn         # the warning carved at the crossing
+talk
+use kje_vt_hint1        # east: the Code of the Sith
+talk
+use kje_vt_hint2        # south: the first of the lords
+talk
+use kje_vt_hint3        # the annex: where the hermit hides
+talk
+use kje_vt_term         # the terminal's three questions
+pick 2
+pick 3
+pick 1
+to kje_vt_boss          # the seal is open: the guardian
+fight 30
+use item:kje_vt_shroud  # the reward, on what is left of the guardian

@@ -290,7 +290,9 @@ impl Default for UiState {
             placing_link: None,
             boxing: None,
             link: std::env::var("KJK_EDITOR_LINK")
-                .is_ok_and(|on| on == "1")
+                // `1` turns it on. Any other name turns it on with a
+                // folder of that name (`agent::Link::folder`).
+                .is_ok_and(|on| !on.is_empty() && on != "0")
                 .then(crate::agent::Link::open)
                 .and_then(Result::ok),
             copy_asked: false,
@@ -382,6 +384,10 @@ pub(crate) fn egui_writes_gamma(mut shaders: ResMut<Assets<bevy::shader::Shader>
     *shader = bevy::shader::Shader::from_wgsl(source, path);
 }
 
+/// How many frames the panels stay out after a picture of the view alone
+/// is taken (`take_shot`).
+pub(crate) const BARE_AFTER: u8 = 2;
+
 /// The picture of the window the agent link asked for (`shot`), written to
 /// its file as a PNG once the next frame is drawn. A run without a window
 /// has none to picture.
@@ -390,8 +396,24 @@ fn take_shot(
     mut state: ResMut<EditorState>,
     headless: Res<crate::file::Headless>,
 ) {
-    if state.pending_shot.is_none() {
-        return;
+    // A picture of the view alone: the panels are left out for a few
+    // frames (`panels`), the picture is taken in the middle of them, and
+    // they come back once it is taken. The frame the picture is asked in
+    // is the one drawn next, so the panels stay out past it.
+    if let Some((path, frames)) = state.pending_bare.take() {
+        if headless.0 {
+            state.pending_shot = Some(path);
+        } else {
+            if frames == BARE_AFTER {
+                commands
+                    .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
+                    .observe(bevy::render::view::screenshot::save_to_disk(path.clone()));
+            }
+            if frames > 0 {
+                state.pending_bare = Some((path, frames - 1));
+            }
+            return;
+        }
     }
     let Some(path) = state.pending_shot.take() else {
         return;
@@ -963,6 +985,12 @@ fn panels(
     let looking = buttons
         .as_ref()
         .is_some_and(|buttons| buttons.pressed(MouseButton::Right));
+    // A picture of the view alone is being taken: no panel is drawn over
+    // it for these frames.
+    if state.pending_bare.is_some() {
+        ctx.request_repaint();
+        return;
+    }
 
     let mut root = egui::Ui::new(
         ctx.clone(),

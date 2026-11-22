@@ -1196,7 +1196,26 @@ it is cut short. **Try** saves, then plays the conversation in the level
 without a window (`kjk try-conversation`): the player talks to the object
 of the tag given and takes the replies by their place (1 the first; the
 first when the list runs out). What was said, offered and picked shows
-in the window.
+in the window. Below it the trial lists what the conversation's own
+scripts called, under "what the conversation's scripts called". A door
+that a line's script unlocks shows there as `SetLocked`, since the lines
+themselves do not say it.
+
+**A conversation in few commands.** Three commands build a conversation
+without counting nodes by hand. Each answers the numbers of what it made.
+
+- `edit conversation NAME say start TEXT` adds a line the conversation
+  starts with. `say reply N TEXT` adds the line that answers reply N.
+  `say line N TEXT` adds a reply to line N.
+- `edit conversation NAME replies line N TEXT TEXT ...` adds several
+  replies to line N at once, each text in double quotes: the choices of a
+  question.
+- `edit conversation NAME lead line TO from N N ...` leads each of those
+  replies to line TO, which is shown elsewhere: the wrong answers of a
+  quiz, which all get the same line.
+
+A quiz of three questions with four choices each takes 14 commands this
+way (`tools/level-editor/tomb-replay/commands.txt`).
 
 ## Working with an agent
 
@@ -1214,7 +1233,9 @@ level and the camera.
 is selected and change the level while you watch. It is off until it is
 ticked, or until the editor starts with `KJK_EDITOR_LINK=1`. While it is
 on, the editor uses the folder `editor-link` in kjk's own folder
-(`%APPDATA%\kjk\editor-link` on Windows):
+(`%APPDATA%\kjk\editor-link` on Windows). An editor started with
+`KJK_EDITOR_LINK=NAME` uses `editor-link-NAME`, so two editors open at
+once each have their own:
 
 - It writes `live.json` there four times a second, when anything in it
   changed. The file holds the project and the level, whether there are
@@ -1431,6 +1452,9 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit conversation new NAME`, `edit conversation copy NAME`, `edit conversation drop NAME` | makes a conversation of the project, copies the game's, or takes one out of the project |
 | `edit conversation NAME add`, `edit conversation NAME add line\|reply N` | adds a starting line, or a node under line or reply N (a reply under a line, a line under a reply) |
 | `edit conversation NAME text line\|reply N TEXT ...` | sets a node's own text (the words to the end of the command) |
+| `edit conversation NAME say start TEXT`, `say line\|reply N TEXT` | adds a starting line, or a node under line or reply N, with its text in one step |
+| `edit conversation NAME replies line N TEXT TEXT ...` | adds several replies to line N, each text in double quotes |
+| `edit conversation NAME lead line TO from N N ...` | leads each of those replies to line TO, shown elsewhere |
 | `edit conversation NAME speaker line N TAG`, `listener line N TAG` | sets a line's speaker or listener; `-` for the owner or the player |
 | `edit conversation NAME script line\|reply N SCRIPT`, `quest line\|reply N TAG ENTRY` | sets the script a node runs (`-` for none), or the journal entry it adds |
 | `edit conversation NAME condition start I SCRIPT`, `condition line\|reply N I SCRIPT` | sets the condition of the starting list's link I, or of node N's link I; `-` for none |
@@ -1764,11 +1788,16 @@ together in co-op.
   adds and moves its rooms, and saves its module.
 - `tools/level-editor/tomb-replay/replay.py` is a benchmark, not an
   approved test. It needs KOTOR 1 installed. It rebuilds a whole level, the
-  Tomb of Vessk Tarn, through the agent link from about 250 commands: 17
+  Tomb of Vessk Tarn, through the agent link from about 220 commands: 17
   rooms, a quest, two items, a sealed door, a terminal's quiz, a guardian
   and seven lights. It passes when every command is answered ok, the
   level's facts are the expected ones, a trial of the quiz opens the seal,
   and the level exports as a mod. A run takes about 35 seconds.
+- `tools/level-editor/tomb-speedrun/run.py` plays the tomb with no
+  person at the controls. `kjk playthrough` walks `tomb.route`: into the
+  tomb from the Valley of the Dark Lords, the datapad, the carvings, the
+  terminal's quiz, the guardian and the reward. It passes when every goal
+  is met, the tomb's quest is closed, and the party carries the reward.
 - `tools/level-editor/three-maps/build.py` is a benchmark too. It builds
   the Three Halls: three new maps and a level of the game in one project.
   With `--play` it installs the exported mod into a stand-in for the

@@ -39,7 +39,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", "..", ".."))
 MAP = "vessk_bench"
 BASE = "korr_m38ab"
-BATCH = 20
+BATCH = 200
 
 
 def kjk_folder():
@@ -210,6 +210,24 @@ def main():
             print("   %s: expected %s, found %s" % (key, json.dumps(expected[key])[:200], json.dumps(facts.get(key))[:200]))
         check("the level's facts are as expected", not differing, "%d of %d facts differ" % (len(differing), len(expected)))
 
+        # What the link says of the level without a person looking: the
+        # floor as places, a thing's details without selecting it, and the
+        # quiz read back.
+        answer = link.send(["floormap 2"])[0]
+        floor = link.file("floor.json") if answer.startswith("ok") else {}
+        check("the floor is listed as places, with the rooms' bounds",
+              len(floor.get("places", [])) > 500 and len(floor.get("rooms", [])) == 17,
+              (answer, len(floor.get("places", [])), len(floor.get("rooms", []))))
+        before = link.read()["selected"]
+        answer = link.send(["details kje_vt_seal"])[0]
+        seal = link.file("details.json") if answer.startswith("ok") else {}
+        check("a thing's details are read without selecting it",
+              seal.get("tag") == "kje_vt_seal" and link.read()["selected"] == before, (answer, seal.get("tag")))
+        answer = link.send(["conversation kje_vt_c_term show"])[0]
+        quiz_read = link.file("conversation.json") if answer.startswith("ok") else {}
+        shape = (len(quiz_read.get("lines", [])), len(quiz_read.get("replies", [])), quiz_read.get("screen"))
+        check("the quiz reads back: 5 lines, 13 replies, on a computer's screen", shape == (5, 13, "computer"), shape)
+
         # The quiz, tried with the right answers and with a wrong one.
         def quiz(picks):
             link.send(["conversation try kje_vt_c_term kje_vt_term " + picks], seconds=120)
@@ -226,6 +244,9 @@ def main():
         lines = " | ".join(right["lines"])
         check("the right answers open the seal", right["ok"] and "kje_vessk at 30" in lines and "seal is open" in lines,
               [line.strip()[:90] for line in right["lines"] if "journal" in line or "E3" in line])
+        # The trial lists what the scripts called: the seal is unlocked.
+        unlocked = [line.strip()[:90] for line in right["lines"] if "SetLocked" in line]
+        check("the trial shows the script unlocking the seal", bool(unlocked), unlocked[:2])
         # A new map starts without its base level's scripts, which its own
         # module does not have.
         check("the trial names no missing script", "missing script" not in lines,

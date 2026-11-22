@@ -346,6 +346,13 @@ pub struct EditorState {
     /// A picture of the window the agent link asked for, and the file it
     /// goes to (`ui::take_shot`).
     pub(crate) pending_shot: Option<PathBuf>,
+    /// A picture of the view alone that the agent link asked for
+    /// (`shot view`): its file, and how many frames are still drawn
+    /// without the panels before it is taken.
+    pub(crate) pending_bare: Option<(PathBuf, u8)>,
+    /// What the command running now answers beyond "ok", for the agent
+    /// link: the number of a node it made, or what it found.
+    pub(crate) answer: Option<String>,
     /// Why the last edit was refused (`refuse`), until the command that
     /// asked for it takes it.
     refused: Option<String>,
@@ -465,6 +472,8 @@ impl EditorState {
             refusal: None,
             shipped_lights,
             pending_shot: None,
+            pending_bare: None,
+            answer: None,
             refused: None,
             install_templates: Default::default(),
             elsewhere: Default::default(),
@@ -1695,6 +1704,135 @@ pub(crate) fn surfaces_at(state: &mut EditorState, x: f32, y: f32) -> Option<Vec
 /// of the project's boxes that are walked on (but the box `but`, which is
 /// the one being dropped). Furniture, walls and roofs are left out.
 pub(crate) fn walkable_at(state: &mut EditorState, x: f32, y: f32, but: Option<usize>) -> Vec<f32> {
+    let faces = walkable_faces(state, but);
+    let mut found: Vec<f32> = Vec::new();
+    for [a, b, c] in faces {
+        if let Some(z) = height_in(&[a, b, c], x, y) {
+            found.push(z);
+        }
+    }
+    found.sort_by(|a, b| b.total_cmp(a));
+    found.dedup_by(|a, b| (*a - *b).abs() < 0.02);
+    found
+}
+
+/// The height of the face under the point `x`, `y`, seen from above; `None`
+/// where the point is outside it.
+fn height_in([a, b, c]: &[[f32; 3]; 3], x: f32, y: f32) -> Option<f32> {
+    let d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    if d.abs() < 1e-9 {
+        return None;
+    }
+    let u = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d;
+    let v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d;
+    let w = 1.0 - u - v;
+    (u >= -1e-4 && v >= -1e-4 && w >= -1e-4).then(|| u * a[2] + v * b[2] + w * c[2])
+}
+
+/// The most places `floor_map` lists.
+const FLOOR_PLACES: usize = 60_000;
+
+/// The level's walkable floor as places `cell` metres apart, for the agent
+/// link's `floor.json`: each place's X, Y and height, the floor's bounds,
+/// and for a new map each room's bounds. A place is one the editor would
+/// drop a thing on: `walkable_at` finds its height there.
+pub(crate) fn floor_map(state: &mut EditorState, cell: f32) -> Result<serde_json::Value, String> {
+    if !(0.25..=20.0).contains(&cell) {
+        return Err("the places are 0.25 to 20 metres apart".into());
+    }
+    let faces = walkable_faces(state, None);
+    if faces.is_empty() {
+        return Err("the level has no walkable floor".into());
+    }
+    let (mut low, mut high) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for corner in faces.iter().flatten() {
+        for axis in 0..3 {
+            low[axis] = low[axis].min(corner[axis]);
+            high[axis] = high[axis].max(corner[axis]);
+        }
+    }
+    // The places stand on whole multiples of `cell`, so two maps of one
+    // level name the same places.
+    let at = |index: i32| index as f32 * cell;
+    let mut places: BTreeMap<(i32, i32), Vec<f32>> = BTreeMap::new();
+    for face in &faces {
+        let span = |axis: usize| {
+            let (least, most) = face
+                .iter()
+                .fold((f32::MAX, f32::MIN), |(least, most), corner| {
+                    (least.min(corner[axis]), most.max(corner[axis]))
+                });
+            ((least / cell).ceil() as i32, (most / cell).floor() as i32)
+        };
+        let ((x0, x1), (y0, y1)) = (span(0), span(1));
+        for i in x0..=x1 {
+            for j in y0..=y1 {
+                if let Some(z) = height_in(face, at(i), at(j)) {
+                    let heights = places.entry((i, j)).or_default();
+                    if !heights.iter().any(|had| (had - z).abs() < 0.05) {
+                        heights.push(z);
+                    }
+                }
+            }
+        }
+        if places.len() > FLOOR_PLACES {
+            return Err(format!(
+                "the floor has more than {FLOOR_PLACES} places {cell} m apart: ask for places further apart"
+            ));
+        }
+    }
+    let round = |value: f32| (f64::from(value) * 100.0).round() / 100.0;
+    let listed: Vec<[f64; 3]> = places
+        .iter()
+        .flat_map(|((i, j), heights)| {
+            heights
+                .iter()
+                .map(move |z| [round(at(*i)), round(at(*j)), round(*z)])
+        })
+        .collect();
+    // A new map's rooms, each by the bounds of its own walkable floor.
+    let mut rooms = Vec::new();
+    if let Some(map) = &state.editor.project.map {
+        let module = state.editor.project.module.clone();
+        for (index, room) in map.rooms.iter().enumerate() {
+            let walkmesh = (state.setup.resolver.read(&room.model, ResType::WOK))
+                .and_then(|bytes| fmt_odyssey::bwm::Walkmesh::parse(&bytes).ok())
+                .map(|walkmesh| room.placed(&walkmesh));
+            let bounds = walkmesh
+                .filter(|walkmesh| !walkmesh.vertices.is_empty())
+                .map(|walkmesh| {
+                    let (mut low, mut high) = ([f32::MAX; 3], [f32::MIN; 3]);
+                    for corner in &walkmesh.vertices {
+                        for axis in 0..3 {
+                            low[axis] = low[axis].min(corner[axis]);
+                            high[axis] = high[axis].max(corner[axis]);
+                        }
+                    }
+                    (low.map(round), high.map(round))
+                });
+            rooms.push(serde_json::json!({
+                "index": index,
+                "name": level_edit::map::room_name(&module, index),
+                "model": room.model,
+                "least": bounds.map(|(low, _)| low),
+                "most": bounds.map(|(_, high)| high),
+            }));
+        }
+    }
+    Ok(serde_json::json!({
+        "note": "Each place is [X, Y, Z] in metres: a point of the walkable floor, where a thing can stand. A place with two heights is listed twice, one for each floor. A room's least and most are the corners of its walkmesh's box.",
+        "metres_apart": cell,
+        "least": low.map(round),
+        "most": high.map(round),
+        "places": listed,
+        "rooms": rooms,
+    }))
+}
+
+/// The faces of the floor that can be walked on: the walkmesh's walkable
+/// faces, the doorways' floors and the tops of the project's walkable
+/// boxes, but for the box `but`.
+fn walkable_faces(state: &mut EditorState, but: Option<usize>) -> Vec<[[f32; 3]; 3]> {
     let mut faces: Vec<[[f32; 3]; 3]> = Vec::new();
     for (at, shape) in state.editor.project.kjk.boxes.iter().enumerate() {
         if Some(at) != but && matches!(shape.role, BoxRole::Walkable | BoxRole::NavFloor) {
@@ -1708,23 +1846,7 @@ pub(crate) fn walkable_at(state: &mut EditorState, x: f32, y: f32, but: Option<u
         faces.extend(built.collision.walkable.iter().map(|(corners, _)| *corners));
         faces.extend(built.collision.doorways.iter().copied());
     }
-    let mut found: Vec<f32> = Vec::new();
-    for [a, b, c] in faces {
-        // Where the point lies in the face, seen from above.
-        let d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
-        if d.abs() < 1e-9 {
-            continue;
-        }
-        let u = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / d;
-        let v = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / d;
-        let w = 1.0 - u - v;
-        if u >= -1e-4 && v >= -1e-4 && w >= -1e-4 {
-            found.push(u * a[2] + v * b[2] + w * c[2]);
-        }
-    }
-    found.sort_by(|a, b| b.total_cmp(a));
-    found.dedup_by(|a, b| (*a - *b).abs() < 0.02);
-    found
+    faces
 }
 
 /// Puts everything selected on the walkable floor under it, as one edit:
@@ -2099,7 +2221,14 @@ pub(crate) fn add_object(
         facing: 0.0,
         base,
     });
+    let imported = edits.len() > 1;
     state.apply_many(edits);
+    // The new object alone is selected, as after any add: the edits that
+    // copied its template kept what was selected before among the
+    // selection, and a `tag` after the add would have named that instead.
+    if imported && let Some(added) = state.editor.selection().last().copied() {
+        state.editor.select(Some(added), false);
+    }
     Ok(())
 }
 
@@ -3793,6 +3922,97 @@ fn conversation_command(
         );
     };
     let name = name.to_ascii_lowercase();
+    // How many lines and replies the conversation has: a new node takes
+    // the next number of its side.
+    let count = |state: &EditorState, list: &str| {
+        (state.editor.project.conversations.get(&name)).map(|gff| gff.root.list(list).len())
+    };
+    let named = |side: level_edit::dialog::Side, at: usize| match side {
+        level_edit::dialog::Side::Entry => format!("line {at}"),
+        level_edit::dialog::Side::Reply => format!("reply {at}"),
+    };
+    let list_of = |side: level_edit::dialog::Side| match side {
+        level_edit::dialog::Side::Entry => "EntryList",
+        level_edit::dialog::Side::Reply => "ReplyList",
+    };
+    match rest {
+        // A node made with its text in one step. `say start TEXT` is a
+        // line the conversation starts with. `say reply N TEXT` is the
+        // line that answers reply N. `say line N TEXT` is a reply to line
+        // N. The answer is the new node's number.
+        ["say", "start", text @ ..] | ["say", _, _, text @ ..] if !text.is_empty() => {
+            let under = match rest {
+                ["say", "start", ..] => None,
+                ["say", side, n, ..] => Some(node_at(side, n)?),
+                _ => unreachable!("matched above"),
+            };
+            let side = under.map_or(level_edit::dialog::Side::Entry, |(side, _)| side.other());
+            let at = count(state, list_of(side))
+                .ok_or(format!("the project has no conversation {name}"))?;
+            state.apply_many(vec![
+                Edit::Conversation(name.clone(), Talk::Add { under }),
+                Edit::Conversation(name.clone(), Talk::Text(side, at, text.join(" "))),
+            ]);
+            state.answer = Some(named(side, at));
+            return Ok(());
+        }
+        // Several replies to one line, each with its text, in one step:
+        // the choices of a question. The answer is their numbers.
+        ["replies", "line", n, texts @ ..] if !texts.is_empty() => {
+            let under = node_at("line", n)?;
+            let first = count(state, "ReplyList")
+                .ok_or(format!("the project has no conversation {name}"))?;
+            let mut edits = Vec::new();
+            for (place, text) in texts.iter().enumerate() {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Add { under: Some(under) },
+                ));
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Text(
+                        level_edit::dialog::Side::Reply,
+                        first + place,
+                        (*text).to_string(),
+                    ),
+                ));
+            }
+            state.apply_many(edits);
+            state.answer = Some(format!("replies {first} to {}", first + texts.len() - 1));
+            return Ok(());
+        }
+        // Several replies led to one line that is shown elsewhere: the
+        // wrong answers of a quiz, which all lead to the same line.
+        ["lead", "line", to, "from", replies @ ..] if !replies.is_empty() => {
+            let to: usize = to
+                .parse()
+                .map_err(|_| format!("{to:?} is not a line's number"))?;
+            let mut edits = Vec::new();
+            for reply in replies {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::LinkTo {
+                        from: Some(node_at("reply", reply)?),
+                        to,
+                    },
+                ));
+            }
+            state.apply_many(edits);
+            return Ok(());
+        }
+        // A plain `add` answers the new node's number too.
+        ["add"] | ["add", _, _] => {
+            let under = match rest {
+                ["add", side, n] => Some(node_at(side, n)?),
+                _ => None,
+            };
+            let side = under.map_or(level_edit::dialog::Side::Entry, |(side, _)| side.other());
+            if let Some(at) = count(state, list_of(side)) {
+                state.answer = Some(named(side, at));
+            }
+        }
+        _ => {}
+    }
     let change = match rest {
         ["add"] => Talk::Add { under: None },
         ["add", side, n] => Talk::Add {

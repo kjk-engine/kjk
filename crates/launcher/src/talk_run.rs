@@ -261,11 +261,15 @@ pub(crate) fn carried(world: &sim::SimWorld, templates: &[(String, u16)]) -> Vec
         .collect()
 }
 
+/// The most calls of scripts a conversation's trial lists.
+const MOST_CALLS: usize = 150;
+
 /// `kjk try-conversation`: the conversation `dialog` of `module`, the
 /// player talking to the object tagged `on`, its replies picked by `picks`
 /// (by their place among those offered, from 1; the first when the list
 /// runs out), stepped `seconds`. Prints the transcript: each line, each
-/// offer and each pick, and the scripts' faults.
+/// offer and each pick, then what the conversation's own scripts called,
+/// and the scripts' faults.
 pub fn try_conversation(
     discovery: &Discovery,
     game: &str,
@@ -288,6 +292,20 @@ pub fn try_conversation(
             .ok_or(format!("{dialog}.dlg is not found"))?;
         let dlg = fmt_odyssey::dlg::Dlg::parse(&bytes)
             .map_err(|error| format!("{dialog}.dlg: {error}"))?;
+        // The scripts the conversation itself runs: its nodes' actions,
+        // its links' conditions, and the ones at its end.
+        let scripts: std::collections::BTreeSet<String> = (dlg.entries.iter())
+            .chain(&dlg.replies)
+            .flat_map(|node| {
+                [&node.script.script, &node.script2.script]
+                    .into_iter()
+                    .chain(node.links.iter().map(|link| &link.active.script))
+            })
+            .chain(dlg.starts.iter().map(|link| &link.active.script))
+            .chain([&dlg.on_end, &dlg.on_abort])
+            .filter(|script| !script.is_empty())
+            .map(|script| script.to_ascii_lowercase())
+            .collect();
         let run = Run {
             seconds,
             picks,
@@ -317,6 +335,30 @@ pub fn try_conversation(
             lines.push(format!(
                 "{dialog} said nothing: no line's condition held, or {on} did not talk"
             ));
+        }
+        // What the conversation's own scripts called: a door a line's
+        // script unlocks or opens shows here, and nowhere in the lines
+        // themselves. The trace marks each script's run (`run NAME for`),
+        // and the calls that follow are that run's.
+        let mut called = Vec::new();
+        let mut own = false;
+        for line in report.trace_lines() {
+            let run = (line.trim_start().split_once("s run "))
+                .and_then(|(_, rest)| rest.split_whitespace().next().map(str::to_string));
+            if let Some(script) = run {
+                own = scripts.contains(&script.to_ascii_lowercase());
+            }
+            if own {
+                called.push(line.trim_end().to_string());
+            }
+        }
+        if !called.is_empty() {
+            lines.push("-- what the conversation's scripts called:".to_string());
+            let kept = called.len().min(MOST_CALLS);
+            lines.extend(called.iter().take(kept).cloned());
+            if called.len() > kept {
+                lines.push(format!("… {} more calls …", called.len() - kept));
+            }
         }
         for fault in &report.faults {
             lines.push(format!("fault: {fault}"));

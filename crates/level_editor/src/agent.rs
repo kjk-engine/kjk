@@ -29,7 +29,7 @@ use crate::state::{self, EditorState};
 const EVERY: Duration = Duration::from_millis(250);
 
 /// How many answers to commands `live.json` keeps.
-const ANSWERS: usize = 20;
+const ANSWERS: usize = 200;
 
 /// The guide for agents (`docs/LEVEL-EDIT-AGENT.md`), which the link
 /// writes into its folder.
@@ -185,9 +185,22 @@ fn words_of(line: &str) -> Vec<String> {
 }
 
 impl Link {
-    /// The link's folder: `editor-link` in kjk's own folder.
+    /// The link's folder: `editor-link` in kjk's own folder. An editor
+    /// started with `KJK_EDITOR_LINK=NAME` (any name but `1`, of letters,
+    /// digits, `-` and `_`) has `editor-link-NAME`, so two editors open at
+    /// once each have a folder of their own.
     pub fn folder() -> Option<PathBuf> {
-        store::kjk_folder(|var| std::env::var(var).ok()).map(|folder| folder.join("editor-link"))
+        let named = std::env::var("KJK_EDITOR_LINK").ok().filter(|name| {
+            !name.is_empty()
+                && name != "1"
+                && name.len() <= 32
+                && (name.bytes()).all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        });
+        let name = match named {
+            Some(name) => format!("editor-link-{name}"),
+            None => "editor-link".to_string(),
+        };
+        store::kjk_folder(|var| std::env::var(var).ok()).map(|folder| folder.join(name))
     }
 
     /// Turns the link on: its folder made, with the README for agents.
@@ -299,6 +312,70 @@ impl Link {
                     Ok(()) => "ok: level.json is written".to_string(),
                     Err(why) => why,
                 },
+                // The walkable floor as places a thing can stand on, and a
+                // new map's rooms by their bounds.
+                ["floormap", rest @ ..] => {
+                    let cell = match rest {
+                        [] => Ok(2.0),
+                        [cell] => state::number(cell),
+                        _ => Err("floormap takes how far apart the places are, in metres".into()),
+                    };
+                    match cell.and_then(|cell| state::floor_map(state, cell)) {
+                        Ok(map) => {
+                            let places = map["places"].as_array().map_or(0, Vec::len);
+                            let rooms = map["rooms"].as_array().map_or(0, Vec::len);
+                            match self.write_json("floor.json", &map) {
+                                Ok(()) => format!(
+                                    "ok: {places} places of the floor and {rooms} rooms listed in floor.json"
+                                ),
+                                Err(why) => why,
+                            }
+                        }
+                        Err(why) => why,
+                    }
+                }
+                // The details of a thing, named as `select` names it,
+                // without selecting it.
+                ["details", rest @ ..] if !rest.is_empty() => {
+                    let kept = state.editor.kept_selection();
+                    let mut select = vec!["select"];
+                    select.extend(rest.iter().copied());
+                    let found = state::command(state, &select, cameras)
+                        .and_then(|()| state.editor.selected.ok_or("nothing is named so".into()));
+                    let answer = match found {
+                        Ok(target) => {
+                            let facts = state::describe(state, target);
+                            match self.write_json("details.json", &facts) {
+                                Ok(()) => "ok: details.json is written".to_string(),
+                                Err(why) => why,
+                            }
+                        }
+                        Err(why) => why,
+                    };
+                    state.editor.set_selection(kept);
+                    answer
+                }
+                // A conversation of the project as its nodes, to read back
+                // what the commands built.
+                ["conversation", name, "show"] => {
+                    match (state.editor.project.conversations)
+                        .get(&name.to_ascii_lowercase())
+                        .map(conversation_json)
+                    {
+                        Some(shown) => match self.write_json("conversation.json", &shown) {
+                            Ok(()) => "ok: conversation.json is written".to_string(),
+                            Err(why) => why,
+                        },
+                        None => format!("the project has no conversation {name}"),
+                    }
+                }
+                // A picture of the view alone, with no panel over it.
+                ["shot", "view"] => {
+                    let path = self.folder.join("view.png");
+                    let _ = std::fs::remove_file(&path);
+                    state.pending_bare = Some((path, crate::ui::BARE_AFTER + 3));
+                    "ok: view.png is written, without the panels, in a few frames".to_string()
+                }
                 // A picture of the window as the person sees it.
                 ["shot"] => {
                     let path = self.folder.join("view.png");
@@ -371,15 +448,22 @@ impl Link {
                     state.pending_ui.push(words);
                     "ok".to_string()
                 }
-                words => match state::command(state, words, cameras) {
-                    Ok(()) => "ok".to_string(),
-                    Err(why) => {
-                        if self.batch.is_some() {
-                            self.stopped = Some(line.to_string());
+                words => {
+                    state.answer = None;
+                    let done = state::command(state, words, cameras);
+                    match done {
+                        Ok(()) => match state.answer.take() {
+                            Some(more) => format!("ok: {more}"),
+                            None => "ok".to_string(),
+                        },
+                        Err(why) => {
+                            if self.batch.is_some() {
+                                self.stopped = Some(line.to_string());
+                            }
+                            why
                         }
-                        why
                     }
-                },
+                }
             };
             state.say(format!("agent: {line}: {answer}"));
             self.answered += 1;
@@ -666,4 +750,75 @@ fn template_entry(
         entry.insert("level".into(), serde_json::json!(module));
     }
     serde_json::Value::Object(entry)
+}
+
+/// A conversation as the agent link shows it (`conversation.json`): its
+/// starting lines, and every line and reply by its number, with its text,
+/// its scripts, its journal entry and where it leads.
+fn conversation_json(gff: &fmt_odyssey::gff::Gff) -> serde_json::Value {
+    let dlg = fmt_odyssey::dlg::Dlg::read(&gff.root);
+    let own = |text: &fmt_odyssey::gff::LocString| {
+        (text.strings.first()).map_or_else(String::new, |(_, bytes)| {
+            bytes
+                .iter()
+                .map(|&byte| char::from(byte))
+                .collect::<String>()
+        })
+    };
+    let links = |links: &[fmt_odyssey::dlg::Link]| -> Vec<serde_json::Value> {
+        links
+            .iter()
+            .map(|link| {
+                serde_json::json!({
+                    "to": link.index,
+                    "condition": link.active.script,
+                    "shown_elsewhere": link.is_child,
+                })
+            })
+            .collect()
+    };
+    let nodes = |nodes: &[fmt_odyssey::dlg::Node], leads: &str| -> Vec<serde_json::Value> {
+        nodes
+            .iter()
+            .enumerate()
+            .map(|(at, node)| {
+                let mut shown = serde_json::Map::new();
+                shown.insert("number".into(), serde_json::json!(at));
+                shown.insert("text".into(), serde_json::json!(own(&node.text)));
+                if node.text.strref != u32::MAX {
+                    shown.insert(
+                        "talk_table_line".into(),
+                        serde_json::json!(node.text.strref),
+                    );
+                }
+                if !node.script.script.is_empty() {
+                    shown.insert("script".into(), serde_json::json!(node.script.script));
+                }
+                if !node.quest.is_empty() {
+                    shown.insert(
+                        "journal".into(),
+                        serde_json::json!({"quest": node.quest, "entry": node.quest_entry}),
+                    );
+                }
+                if !node.speaker.is_empty() {
+                    shown.insert("speaker".into(), serde_json::json!(node.speaker));
+                }
+                shown.insert(leads.into(), serde_json::json!(links(&node.links)));
+                serde_json::Value::Object(shown)
+            })
+            .collect()
+    };
+    serde_json::json!({
+        "note": "A line is what the conversation's owner says. A reply is what the player may answer. A line leads to the replies offered after it, and a reply leads to the lines tried after it, the first whose condition holds being said.",
+        "screen": match (dlg.kind, dlg.computer) {
+            (fmt_odyssey::dlg::Kind::Computer, 0) => "computer",
+            (fmt_odyssey::dlg::Kind::Computer, _) => "rakatan",
+            _ => "talk",
+        },
+        "starts_with_lines": links(&dlg.starts),
+        "lines": nodes(&dlg.entries, "replies"),
+        "replies": nodes(&dlg.replies, "lines"),
+        "script_at_end": dlg.on_end,
+        "script_when_cut_short": dlg.on_abort,
+    })
 }
