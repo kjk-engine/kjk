@@ -685,7 +685,8 @@ Running and checking:
   screen picks it), `ui leave` (Leave; watching a pazaak match, its
   Leave), and on the host's screen `ui
   accept` and `ui end` (the request card's keys; they wait as the keys
-  do), for scripted runs and `cargo xtask duo`.
+  do), for scripted runs and `cargo xtask duo`. `ui reply` also answers in
+  a headless run with no keys, such as a save loaded with `--load`.
 - `kjk gui probes` runs the checks the approved test `gui_layouts` asserts.
   `kjk gui render k1 <layout>` draws one layout; `kjk gui sweep` paints
   every layout of each install; `kjk gui sheet` makes a contact sheet.

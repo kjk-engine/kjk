@@ -4576,9 +4576,12 @@ fn guests_drive_companions() {
 
 /// Conversations in co-op (I31): `sim::coop_talk::probes`, every phase's
 /// cases and the whole scenario run twice ending alike; the sim alone.
+/// The check that a dialogue script nobody spoke to begins no conversation
+/// with `BeginConversation()`, and a click still does
+/// (`unspoken_begins_nothing`, TSL's Handmaiden sisters), awaits approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 145);
+    probed("coop talk", &sim::coop_talk::probes(), 146);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
