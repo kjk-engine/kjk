@@ -1,0 +1,4 @@
+# KOTOR 2's three final bosses stand with their own vitality and hit at
+# their own pace, and one whose script has switched its combat script off
+# acts for itself (`rules::encounters::bosses`).
+sim = "KOTOR 2's three final bosses have their own vitality and damage pace, and one whose script has switched its combat script off acts for itself"

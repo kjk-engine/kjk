@@ -2396,7 +2396,8 @@ fn come_alive(
         .iter()
         .filter_map(|(id, facts)| {
             let set = library.experience().balance(facts.multiplier_set)?;
-            Some((*id, set.scaled(facts.sheet?, pc_level)))
+            let sheet = crate::combat::balance::stood(set, facts.sheet?, pc_level, &facts.template);
+            Some((*id, sheet))
         })
         .collect()
 }

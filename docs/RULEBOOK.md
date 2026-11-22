@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `9e8d57085fa13e09`.
+Edition `72a728c2cd186141`.
 
 ## Contents
 
@@ -191,6 +191,7 @@ Edition `9e8d57085fa13e09`.
   - [Placing Creatures](#encounters-making)
   - [Exhaustion and Reset](#encounters-running)
   - [KOTOR II Enemy Scaling](#encounters-balance)
+  - [KOTOR II Final Bosses](#encounters-bosses)
 - [Co-op Party](#party)
   - [Who Controls Each Party Member](#party-seats)
   - [Leaving an Area](#party-exits)
@@ -9016,6 +9017,73 @@ A scaled enemy can appear before the game has recorded the main character's leve
 A scaled enemy whose level would fall below 0 is level 1.
 
 <sub>Source: KOTOR II's executable (the creature's level). Code: `sim::combat::balance::Balance::scaled`.</sub>
+
+### <a id="encounters-bosses"></a>KOTOR II Final Bosses
+
+KOTOR II ends with three boss fights. They are Darth Nihilus on the bridge
+of the Ravager, Darth Sion in the Trayus Academy and Darth Traya in the
+Trayus Core. Each of these three bosses is scaled like any other scaled
+enemy. Its maximum vitality is then multiplied again, by
+3 for Darth Nihilus, by
+3 for Darth Sion and by
+3 for Darth Traya. In each combat round,
+Darth Nihilus's attacks deal 3 rounds' worth
+of damage, Darth Sion's deal 2 and Darth
+Traya's deal 2. A final boss also acts for
+itself when its own script has switched the game's shared combat script off
+for it and gives it nothing else to do. It then picks the nearest enemy it
+can see as its target. If it holds a weapon, it attacks that
+target. If it holds no weapon and can use the Force, it stays where it
+stands, turns to face its target and uses its Force powers on it. A final
+boss that acts for itself waits at least 10 seconds
+after it starts one Force power before it starts the next. It does not
+start a choking power, a lightning power or a draining power twice in a row
+when it can start a different power.
+
+The three bosses are recognised by their creature templates in the modules
+of those three fights. Darth Sion on Korriban and Kreia as a companion are
+not final bosses. Darth Sion's script restores his full maximum vitality
+each time he falls, so he has the multiplied vitality in each of his four
+phases. A script switches the shared combat script off for a creature by
+setting the creature's local flag 87.
+Darth Traya's script does this when her first phase ends, and nothing
+clears the flag again. Darth Nihilus's and Darth Sion's scripts never set
+it, so those two always fight as the shared combat script tells them. In her second phase she has
+lost her lightsaber, so she is the boss that stands and uses the Force.
+The choking powers are Wound, Choke, Kill and Force Crush. The lightning
+powers are Shock, Force Lightning and Force Storm. The draining powers are
+Drain Life and Death Field. A
+final boss does not act for itself during a conversation or a scene, or
+while its script has an action waiting for it. A boss that was already in
+the world when a game was saved keeps the vitality it had in that save.
+
+<a id="encounters-bosses-vitality"></a>**Final Boss Vitality** = **×3 / ×3 / ×3** (`×3 / 3 / 3`) · `encounters.bosses.vitality`
+
+Darth Nihilus **×3** · Darth Sion **×3** · Darth Traya **×3**
+
+A final boss's scaled maximum vitality is multiplied by 3 for Darth Nihilus, by 3 for Darth Sion and by 3 for Darth Traya.
+
+<sub>Source: ours (2026-11-22), from a playtester's three saves: a level 29 Jedi Guardian and Weapon Master emptied Darth Sion's 418 vitality in about 2 landed blows a phase, and Darth Traya's 1,100 at once in her second phase. Code: `sim::combat::balance::Boss::vitality`.</sub>
+
+<a id="encounters-bosses-pace"></a>**Final Boss Damage per Round** = **×3 / ×2 / ×2** (`×3 / 2 / 2`) · `encounters.bosses.pace`
+
+Darth Nihilus **×3** · Darth Sion **×2** · Darth Traya **×2**
+
+In each combat round, a final boss's attacks deal this many rounds' worth of damage in total: 3 for Darth Nihilus, 2 for Darth Sion and 2 for Darth Traya. Every other scaled enemy's attacks deal 2.
+
+<sub>Source: ours (2026-11-22), from replays of the same three saves: against a character who never blocks, Darth Sion dealt 16 points a second, Darth Traya 8 and Darth Nihilus 6 at a pace of 2. Code: `sim::combat::balance::Boss::cadence`.</sub>
+
+<a id="encounters-bosses-script-off-flag"></a>**Combat Script Off Flag** = **87** · `encounters.bosses.script_off_flag`
+
+KOTOR II's shared combat script does nothing for a creature whose local flag 87 is set. A final boss with this flag set acts for itself.
+
+<sub>Source: KOTOR II's scripts (`k_ai_master` reads the flag, `k_kreia_userdef` sets it). Code: `sim::combat::balance::Boss::script_off`.</sub>
+
+<a id="encounters-bosses-power-wait-ms"></a>**Final Boss Power Wait** = **10 seconds** (`10000 ms`) · `encounters.bosses.power_wait_ms`
+
+A final boss that acts for itself waits at least 10 seconds after it starts one Force power before it starts the next.
+
+<sub>Source: ours (2026-11-22), from a replay of the playtester's save: without this wait Darth Traya started a power every 2.5 seconds in her second phase, and Kill alone took half of the player's maximum vitality in 18 seconds. Each Kill takes one sixth of its target's maximum vitality. Code: `sim::combat::balance::Boss::next_power`.</sub>
 
 ## <a id="party"></a>Co-op Party
 

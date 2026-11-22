@@ -663,17 +663,22 @@ pub(super) fn hurt(
             },
         ) = (attacker, &mut hit.source)
             && !who[by].1.party
-            && let Some(set) = actors[by]
-                .2
-                .and_then(|object| object.facts.as_ref())
-                .zip(level.0.scripts())
-                .and_then(|(facts, library)| library.experience().balance(facts.multiplier_set))
+            && let Some(facts) = actors[by].2.and_then(|object| object.facts.as_ref())
+            && let Some(set) = level
+                .0
+                .scripts()
+                .and_then(|library| library.experience().balance(facts.multiplier_set))
         {
             *weapon = set.weapon(*weapon, scripts.state.pc_level());
             // A beast's attack deals the beasts' own damage a round
-            // (`strikes::cadence`), scaled or not.
+            // (`strikes::cadence`), scaled or not. A final boss's deals its
+            // own (`balance::Boss`).
             if !strike {
-                *cadence_ms = crate::combat::balance::cadence(*cadence_ms);
+                use crate::combat::balance;
+                *cadence_ms = match balance::Boss::of_template(&facts.template) {
+                    Some(boss) => boss.cadence(*cadence_ms),
+                    None => balance::cadence(*cadence_ms),
+                };
             }
         }
         // A weapon's hit within its attacker's opener out of stealth
