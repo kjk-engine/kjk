@@ -317,6 +317,51 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// Where a disruptor's beam aims from (`kjk_game::shot_fx::probes`). A
+/// companion leading the party aims its beam from its crosshair line, the
+/// line the sim shoots along, and not from its eye. Needs `--features
+/// rig`; no installs (proposed 2026-11-20, awaiting approval).
+#[test]
+fn disruptor_beams() {
+    #[cfg(not(feature = "rig"))]
+    println!("disruptor_beams skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("disruptor beams", &kjk_game::shot_fx::probes(), 1);
+}
+
+/// Both blades of a double-bladed lightsaber whose blade nodes share one
+/// name (`kjk_game::weapons::blade_probes`). Lightsaber Hilt Variety names
+/// all eight blade nodes of its double-bladed hilts `plane239`, and kjk
+/// built only the upper blade for them. A made-up hilt with eight blade
+/// nodes of one name builds two blades, one up and one down. With K1
+/// installed, `w_dblsbr_001` with its blade nodes renamed in memory builds
+/// the same two blades as with its own names. Needs `--features rig`
+/// (proposed 2026-11-21, awaiting approval).
+#[test]
+fn double_blades_sharing_a_name() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "double_blades_sharing_a_name skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed("saber blades", &kjk_game::weapons::blade_probes(), 2);
+}
+
+/// A walker at a dung heap (`sim::motion::prop_step_probes::heap_probes`).
+/// From the ground, the heap's non-walkable flank is an upright wall,
+/// though it rises gently with no step. A walker run straight at it stops
+/// at its foot, one run slantwise slides along the foot, and one standing
+/// on the heap's top walks across a rise on it. No installs (proposed
+/// 2026-11-20, awaiting approval).
+#[test]
+fn heap_flank_stops_a_walker() {
+    probed(
+        "heap flank",
+        &sim::motion::prop_step_probes::heap_probes(),
+        3,
+    );
+}
+
 /// Which bolt hits leave a burn (`kjk_game::bolt_hits::probes`). A bolt
 /// leaves a burn when it is a critical hit, a Power Blast, a Sniper Shot or
 /// the killing shot, or deals at least 15% of the target's maximum
@@ -2075,6 +2120,80 @@ fn git_entry_keeps_template_fields() {
             format!("Trigger own_tag talk {enter}"),
         ],
         "kind, tag, conversation and scripts of each placed object"
+    );
+}
+
+/// A trigger that names a module and a tag leads there, whatever its
+/// `LinkedToFlags` say, as K1's executable takes it out. A door whose flags
+/// are 0 leads nowhere, as the Taris hideout's door does. Mission to
+/// Sleheyron's trigger back onto the Ebon Hawk has flags 0, and the player
+/// was stranded on the landing pad. The module is made here; no installs.
+#[test]
+fn trigger_leads_out_whatever_its_link_flags() {
+    use asset_odyssey::made::{blank_module, gff, node, resref};
+    use asset_odyssey::module::ModuleIr;
+    use fmt_odyssey::gff::GffValue;
+
+    let linked = |template: &str, flags: Option<u8>| {
+        let mut fields = vec![
+            ("TemplateResRef", resref(template)),
+            ("Tag", GffValue::String(template.as_bytes().to_vec())),
+            ("LinkedToModule", resref("ebo_m12aa")),
+            ("LinkedTo", GffValue::String(b"ramp".to_vec())),
+        ];
+        fields.extend(flags.map(|flags| ("LinkedToFlags", GffValue::Byte(flags))));
+        node(fields)
+    };
+    let mut files = blank_module(Vec::new(), &["Room_A"]);
+    files.0.insert(
+        "area.git".into(),
+        gff(
+            b"GIT ",
+            vec![
+                (
+                    "TriggerList",
+                    GffValue::List(vec![
+                        linked("trg_flags0", Some(0)),
+                        linked("trg_flags2", Some(2)),
+                        linked("trg_bare", None),
+                    ]),
+                ),
+                (
+                    "Door List",
+                    GffValue::List(vec![
+                        linked("door_flags0", Some(0)),
+                        linked("door_flags1", Some(1)),
+                        linked("door_bare", None),
+                    ]),
+                ),
+            ],
+        ),
+    );
+    let module = ModuleIr::build("blank", &files).expect("the module builds");
+    let mut seen: Vec<String> = module.areas[0]
+        .instances
+        .iter()
+        .map(|instance| {
+            let to = instance
+                .linked_to
+                .as_ref()
+                .map(|(module, tag)| format!("{module}:{}", String::from_utf8_lossy(tag)));
+            format!("{} {to:?}", String::from_utf8_lossy(&instance.tag))
+        })
+        .collect();
+    seen.sort();
+    let out = r#"Some("ebo_m12aa:ramp")"#;
+    assert_eq!(
+        seen,
+        [
+            format!("door_bare {out}"),
+            "door_flags0 None".to_string(),
+            format!("door_flags1 {out}"),
+            format!("trg_bare {out}"),
+            format!("trg_flags0 {out}"),
+            format!("trg_flags2 {out}"),
+        ],
+        "where each door and trigger leads"
     );
 }
 
@@ -4443,10 +4562,16 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 /// Guests drive companions (I31): `sim::drivers::probes`, the sim alone.
 /// The `led_own_walked_by_script` check was added and approved on
 /// 2026-11-12. A script's move of the player's own character walks it while
-/// a companion leads, as Hendar's gate in K1's Undercity needs.
+/// a companion leads, as Hendar's gate in K1's Undercity needs. The
+/// `played_bodies_agree`, `leader_bolts_break_a_crate` and
+/// `leader_blows_on_a_tank_count` checks were proposed on 2026-11-20 and
+/// are not yet approved. A companion leading the party is played by its
+/// player, in the sim and in its views: its bolts break a locked crate,
+/// and its blows on a hostile stasis tank it aims at hurt the tank. The
+/// player's own character standing meanwhile is played by its mind.
 #[test]
 fn guests_drive_companions() {
-    probed("drivers", &sim::drivers::probes(), 30);
+    probed("drivers", &sim::drivers::probes(), 41);
 }
 
 /// Conversations in co-op (I31): `sim::coop_talk::probes`, every phase's
@@ -4537,10 +4662,13 @@ fn placeable_facing_is_its_front() {
 /// A script makes a waypoint from its template, and a party that leaves the
 /// module and comes back by the waypoint's tag arrives at it, not at the
 /// module's entry: `sim::made_waypoint_probes` (TSLRCM's Red Eclipse scene
-/// on the Nar Shaddaa landing pad, issue 519).
+/// on the Nar Shaddaa landing pad, issue 519). A script also makes a store
+/// from its template, with the template's terms, as Brotherhood of Shadow's
+/// merchants make the stores they open (added 2026-11-21, awaiting
+/// approval).
 #[test]
 fn made_waypoint_is_an_arrival() {
-    probed("made_waypoint", &sim::made_waypoint_probes::probes(), 2);
+    probed("made_waypoint", &sim::made_waypoint_probes::probes(), 3);
 }
 
 /// A playthrough's character up on a raised floor its walk's goal is not
@@ -4634,6 +4762,105 @@ fn item_uses() {
     probed("item uses", &sim::item_uses::probes(), 30);
 }
 
+/// An item that the game's data says is equipped and activated works as
+/// an energy shield does (`sim::item_uses::activated_probes`). The 2021
+/// Schematic Lightsaber Mod for KOTOR 2 makes its schematics datapads that
+/// the player equips in the shield slot and activates, and kjk never
+/// offered to activate them. A UTI made here is such a datapad. Its base
+/// item is the shields' row of a made-up `baseitems.2da` (row 46, equipped
+/// on either arm, item type 20). Its Activate Item property casts a
+/// `spells.2da` row that the engine does not name, with ten charges and one
+/// spent a use. Read as the game reads templates, it is equipped on the
+/// arms and casts that row. Worn on the right arm, it is one of the
+/// character's item kinds and a carried one is not. The shield button
+/// activates it with the shield's clip, spends a charge of the worn one and
+/// casts its row on its wearer. No installs (proposed 2026-11-21, awaiting
+/// approval).
+#[test]
+fn worn_items_activate() {
+    use asset_odyssey::made::{Files, gff, node};
+    use asset_odyssey::module::Source;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::GffValue;
+    use fmt_odyssey::twoda::TwoDa;
+    use std::collections::BTreeMap;
+
+    const TEMPLATE: &str = "schematic";
+    // A row past both games' own tables, as a mod's patcher appends one.
+    const ROW: u16 = 300;
+    let table = |columns: &[&str], rows: Vec<Vec<&str>>| {
+        let bytes = |text: &&str| text.as_bytes().to_vec();
+        TwoDa {
+            columns: columns.iter().map(bytes).collect(),
+            row_labels: (0..rows.len())
+                .map(|n| n.to_string().into_bytes())
+                .collect(),
+            cells: rows
+                .iter()
+                .map(|row| row.iter().map(bytes).collect())
+                .collect(),
+            column_separator: b'\t',
+            row_separator: b'\t',
+        }
+        .write()
+    };
+    let blank = |rows: usize, width: usize| vec![vec!["****"; width]; rows];
+    let mut baseitems = blank(46, 4);
+    baseitems.push(vec!["Forearm_Bands", "0x00180", "20", "1"]);
+    let mut itempropdef = blank(10, 1);
+    itempropdef.push(vec!["CastSpell"]);
+    let activate = node(vec![
+        ("PropertyName", GffValue::Word(10)),
+        ("Subtype", GffValue::Word(ROW)),
+        ("CostValue", GffValue::Byte(6)),
+    ]);
+    let uti = gff(
+        b"UTI ",
+        vec![
+            ("BaseItem", GffValue::Int(46)),
+            ("Charges", GffValue::Byte(10)),
+            ("StackSize", GffValue::Word(1)),
+            ("PropertiesList", GffValue::List(vec![activate])),
+        ],
+    );
+    let files = Files(BTreeMap::from([
+        (
+            "baseitems.2da".into(),
+            table(
+                &["label", "equipableslots", "itemtype", "stacking"],
+                baseitems,
+            ),
+        ),
+        ("itempropdef.2da".into(), table(&["label"], itempropdef)),
+        (format!("{TEMPLATE}.uti"), uti),
+    ]));
+    // The made files, listing the one template.
+    struct Listed(Files);
+    impl Source for Listed {
+        fn read(&self, resref: &str, restype: ResType) -> Option<Vec<u8>> {
+            self.0.read(resref, restype)
+        }
+        fn exists(&self, resref: &str, restype: ResType) -> bool {
+            self.0.exists(resref, restype)
+        }
+        fn names(&self, restype: ResType) -> Vec<String> {
+            if restype == ResType::UTI {
+                vec![TEMPLATE.into()]
+            } else {
+                Vec::new()
+            }
+        }
+    }
+    let (catalog, unread) = session::item_catalog(&Listed(files));
+    let facts = catalog.get(TEMPLATE).expect("the datapad reads");
+    let arms = 1 << sim::inventory::slots::LEFT_ARM | 1 << sim::inventory::slots::RIGHT_ARM;
+    assert!(unread.is_empty(), "unread {unread:?}");
+    assert_eq!(facts.slots, arms, "equipped on either arm");
+    assert!(facts.shield, "the shields' item type");
+    assert_eq!(facts.spell.map(|spell| spell.row), Some(ROW));
+    probed("worn items", &sim::item_uses::activated_probes(facts), 4);
+}
+
 /// Item properties beyond combat (`sim::inventory::probes`): an item's
 /// best bonus of a kind with its penalties, typed extras and Keen; two
 /// items' scores, skills, saves, dodge defence, defence against a race and
@@ -4656,15 +4883,18 @@ fn item_properties() {
 /// snapshots and prediction, a standing creature taken, a guest giving way;
 /// a companion's body changed in the run that makes it (107PER's Kreia); a
 /// companion standing in a module left, not in the party, kept by the table
-/// as it stands, body and all; the creature played outliving the script
-/// that destroys it, and its creature gone when it is taken off the table
+/// as it stands, body and all; a companion made available by object
+/// played on a creature the switch makes of it, while the script destroys
+/// the standing one, and that creature gone when it is taken off the table
 /// (TSL's B-4D4; added and approved 2026-11-12; its companion number is no
 /// longer available before the script makes the droid available, as on
-/// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
+/// Telos, amended and approved 2026-11-14 for issue 396; the creature made
+/// by the switch, not the standing one, as both executables make it,
+/// amended 2026-11-21, awaiting approval); armour the player took
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
 /// 366); a companion leading the party arrives in a module facing the
-/// arrival's way (issue 412, approved 2026-11-16); the companion played
+/// arrival's way (issue 412, approved 2026-11-16); the creature played
 /// taken through two modules that lack its template, still played and with
 /// its facts in both (TSL's B-4D4 through the docks, added 2026-11-17,
 /// awaiting approval); the sim alone.
@@ -4685,10 +4915,12 @@ fn encounters_count_drivers() {
 /// A death's XP read from either game's `xptable.2da` heading, and TSL's
 /// death XP as its executable works it out (`session::journal::probes`); no
 /// install. The same probes also read a `global.jrl` with one bad quest name
-/// and check that every quest is still read.
+/// and check that every quest is still read, read a quest that keeps its own
+/// words in place of talk-table lines, and read KOTOR 2's global catalogue as
+/// its executable does (the first row of a name decides).
 #[test]
 fn kill_xp_tables() {
-    probed("kill xp tables", &session::journal::probes(), 4);
+    probed("kill xp tables", &session::journal::probes(), 6);
 }
 
 /// Minigames in co-op (`docs/MINIGAMES.md`):

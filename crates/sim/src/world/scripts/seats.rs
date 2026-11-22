@@ -171,7 +171,7 @@ pub(super) fn seat_actions(
                     continue;
                 };
                 let mut sheet = out.sheet(body, worn.worn);
-                let Some(shelf) = sheet.picks.pick_item(*row) else {
+                let Some(shelf) = sheet.picks.pick_item(*row, &sheet.items) else {
                     continue;
                 };
                 out.changes.push(Change::Sheet { who: body, sheet });

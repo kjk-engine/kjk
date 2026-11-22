@@ -1203,8 +1203,21 @@ impl OdysseyMaterial {
         if lighting.is_static {
             flags |= STATIC;
         }
-        // As reone has it, lighting is off when the diffuse is additive.
-        if matches!(
+        // An added surface that glows (its self-illumination above black) is
+        // lit as the games light it. Its texture is scaled by the
+        // self-illumination plus the light of the place, which reaches it
+        // evenly, and that sum stops at full (read off a mine's dome in
+        // KOTOR 2, `mine_dome`). In a dark place an energy shield's grey
+        // sphere keeps its self-illumination's red or blue. A blade's blue
+        // glow with a green self-illumination keeps its blue, where scaling
+        // by the green alone left a flickering green line. Other added
+        // surfaces are drawn unlit, as reone draws every added surface.
+        let lit_glow = matches!(surface, Surface::Additive | Surface::AddOne)
+            && !lighting.is_room
+            && lighting.self_illum != [0.0; 3];
+        if lit_glow {
+            flags |= EVEN_LIGHT;
+        } else if matches!(
             surface,
             Surface::Additive
                 | Surface::AddOne
@@ -1232,21 +1245,9 @@ impl OdysseyMaterial {
             flags |= PROBED;
         }
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
-        // An added surface is drawn unlit, but the games show it in its
-        // self-illumination's colour (the energy shields' spheres, red or
-        // blue on a grey texture). A mine's dome is lit instead
-        // (`mine_dome`).
-        let glow = if matches!(surface, Surface::Additive | Surface::AddOne)
-            && !lighting.is_room
-            && lighting.self_illum != [0.0; 3]
-        {
-            colour(lighting.self_illum)
-        } else {
-            Vec4::ONE
-        };
         OdysseyMaterial {
             params: OdysseyParams {
-                tint: tint * glow * Vec4::new(1.0, 1.0, 1.0, lighting.alpha),
+                tint: tint * Vec4::new(1.0, 1.0, 1.0, lighting.alpha),
                 self_illum: colour(lighting.self_illum),
                 ambient: colour(lighting.ambient),
                 diffuse: colour(lighting.diffuse),
@@ -1440,8 +1441,8 @@ impl OdysseyMaterial {
     }
 
     /// A mine's dome, drawn as the games draw it. Its texture is added to
-    /// what is behind it, as any added surface is. Unlike kjk's other added
-    /// surfaces it is lit: the texture is scaled by the mesh's
+    /// what is behind it, as any added surface is. Like every added surface
+    /// that glows (`new`), it is lit: the texture is scaled by the mesh's
     /// self-illumination plus the light of the place, and that sum stops at
     /// full. So in daylight the dome is the texture's own pale colour, and
     /// in a dark place it keeps the self-illumination's red.

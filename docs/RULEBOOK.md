@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `914c7e2d530e0fc8`.
+Edition `0be8337a678b2658`.
 
 ## Contents
 
@@ -9634,6 +9634,22 @@ KOTOR 2's experience table for defeated enemies stops at row and column 30. A hi
 
 <sub>Source: TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`). Code: `sim::script::xp::Experience::tsl_kill`.</sub>
 
+<a id="progression-experience-mentor-levels"></a>**Mentor Tiers** = **6 / 12** · `progression.experience.mentor_levels`
+
+first tier's top level **6** · second tier's top level **12**
+
+In KOTOR 2, Mentor gives its first experience bonus up to level 6, its second up to level 12, and its third above that.
+
+<sub>Source: TSL's executable (`CSWPartyTable::DistributeExperience`) and the feat's description. Code: `sim::script::xp::mentor`.</sub>
+
+<a id="progression-experience-mentor-share"></a>**Mentor Bonus** = **0.03 / 0.05 / 0.07** · `progression.experience.mentor_share`
+
+to the first tier **0.03** · to the second **0.05** · above it **0.07**
+
+A party member in the active party with Mentor adds 0.03 / 0.05 / 0.07 of each experience reward, rounded up, by the mentor's level.
+
+<sub>Source: TSL's executable (`CSWPartyTable::DistributeExperience`: 3%, 5%, 7% by the first active mentor's total level, rounded up) and the feat's description. Code: `sim::script::xp::mentor`.</sub>
+
 ### <a id="progression-skill-xp"></a>Experience for Mines and Locks
 
 In KOTOR 2, the party gains experience when a party member disarms a mine,
@@ -12003,11 +12019,11 @@ While a perfect block slows the game, the world moves at 0.3 times its normal sp
 
 <sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
-<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
+<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.3 seconds** (`300 ms`) · `duel.slow_motion.ms`
 
-A perfect block slows the game for 200 ms of real time.
+A perfect block slows the game for 300 ms of real time.
 
-<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+<sub>Source: ours; Movie Duels slows the game for 200 ms (docs/SABER-RULES.md section 3). Code: `game::sim_host::Slowed`.</sub>
 
 ### <a id="duel-hud"></a>Stamina Bars
 
@@ -12131,13 +12147,13 @@ Each time a character's Stamina comes back, they regain 1 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **100 percent / 75 percent / 0 percent** (`100 / 75 / 0 percent`) · `duel.refill.by_stance`
+<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **100 percent / 75 percent / 50 percent** (`100 / 75 / 50 percent`) · `duel.refill.by_stance`
 
-standing **100 percent** · walking **75 percent** · running **0 percent**
+standing **100 percent** · walking **75 percent** · running **50 percent**
 
-How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at 100% of that rate, a walking character at 75% and a running character at 0%. A running character regains no Stamina at all. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking.
+How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at 100% of that rate, a walking character at 75% and a running character at 50%. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking.
 
-<sub>Source: the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
+<sub>Source: the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. The owner's call of 21 November 2026 raised the running rate from 0% to 50%. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
 
 <a id="duel-refill-walking-above"></a>**Walking Speed** = **0.025 meters per second** (`1 units/s`) · `duel.refill.walking_above`
 
@@ -12293,13 +12309,27 @@ A player who keeps both the block and attack buttons held down for 3000 ms or lo
 
 <sub>Source: docs/SABER-RULES.md 2.5. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
-<a id="duel-perfect-parry-wait-ms"></a>**Perfect Parry Delay** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
+<a id="duel-perfect-parry-wait-ms"></a>**Good Parry Delay** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
 
 shortest **0.3 seconds** · longest **0.6 seconds**
 
-After a perfect parry, the blocker can swing again only after a random time between 300 ms and 600 ms.
+After a creature's good parry, the creature can swing again only after a random time between 300 ms and 600 ms.
 
 <sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-block-wait-ms"></a>**Perfect Parry Delay** = **0.15 seconds / 0.3 seconds** (`150 / 300 ms`) · `duel.perfect.block_wait_ms`
+
+shortest **0.15 seconds** · longest **0.3 seconds**
+
+After a perfect block, the blocker can swing again only after a random time between 150 ms and 300 ms. This is always shorter than the 350 ms the attacker is frozen for, so the blocker can strike back before the attacker recovers, and always inside the riposte window.
+
+<sub>Source: ours. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-miss-cost"></a>**Missed Perfect Block** = **5 points** · `duel.perfect.miss_cost`
+
+A player who presses attack while holding block, and neither makes a perfect block nor deflects a blaster bolt with that press, loses 5 points Stamina. The press is judged when its perfect block window has closed and attack is no longer held, or when the player lets go of block or presses attack again. This keeps a player from pressing attack over and over to catch every blow.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
 
 <a id="duel-perfect-parry-blend-ms"></a>**Perfect Parry Blend** = **0.1 seconds** (`100 ms`) · `duel.perfect.parry_blend_ms`
 

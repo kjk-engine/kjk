@@ -205,7 +205,8 @@ pub(crate) struct ByHand {
     pub(crate) dialog: Option<String>,
     /// A companion made from this creature template joined to the party
     /// at the start, as the party selection screen leaves it (e.g.
-    /// `p_cand`, Canderous); repeatable, two at most
+    /// `p_cand`, Canderous); repeatable, two at most. `@ROW` puts the gun
+    /// of that `baseitems.2da` row in its right hand, e.g. `p_mission@21`
     #[arg(long = "party")]
     pub(crate) party: Vec<String>,
 }

@@ -598,7 +598,7 @@ pub fn talk_music_probes() -> sim::probe::Checks {
 }
 
 #[derive(Resource, Default)]
-struct Ambience {
+pub(crate) struct Ambience {
     worker: Option<Worker>,
     /// The swap asked for, and its area once read.
     generation: Option<u32>,
@@ -896,7 +896,8 @@ fn play(
         let views = scene
             .as_ref()
             .map_or(&[][..], |scene| &scene.0.creature_views[..]);
-        scripted(ambience, (current, views), now, &mut cues);
+        let instances = Instances::in_snapshot(&swap.level, current);
+        scripted(ambience, (current, views, &instances), now, &mut cues);
         let seat = seat.map_or(sim::Seat(0), |seat| seat.0);
         // A minigame's music (the ARE's `MiniGame` `Music`) over the area's.
         let minigame_music = swap
@@ -904,7 +905,6 @@ fn play(
             .minigame()
             .map(|rules| rules.music.trim().to_string())
             .filter(|music| !music.is_empty());
-        let instances = Instances::in_snapshot(&swap.level, current);
         let (bodies, blows) = crate::battle_music::bodies_and_blows(current, &instances);
         let moment = crate::battle_music::Moment {
             tick: current.tick,
@@ -1136,7 +1136,7 @@ fn tracks(
 /// that failed.
 fn scripted(
     ambience: &mut Ambience,
-    (current, views): (&Snapshot, &[crate::viewer::CreatureView]),
+    (current, views, instances): (&Snapshot, &[crate::viewer::CreatureView], &Instances),
     now: f64,
     cues: &mut Cues,
 ) {
@@ -1186,16 +1186,41 @@ fn scripted(
             }
             continue;
         }
+        // A sound set's line is streamed in its speaker's voice group; a
+        // door's locked sound is a single positional shot; any other is a
+        // script's sound.
+        let id = sim::SimId(sound.object);
+        let speaker = current.get(id);
+        let (falloff, gain) =
+            ambience
+                .area
+                .as_ref()
+                .map_or((Falloff::Normal, 1.0), |(_, tables)| {
+                    match sound.sound_set_line() {
+                        Some(_) => {
+                            let appearance = speaker
+                                .and_then(|entity| appearance_of(entity, current, instances));
+                            placed(tables, tables.voice_group(appearance), 127, true)
+                        }
+                        None if sound.resref() == sim::notice::LOCKED_SOUND => {
+                            placed(tables, Group::PositionalShot, 127, false)
+                        }
+                        None => placed(tables, Group::Scripted, 127, false),
+                    }
+                });
         if let Some(at) = at {
-            cues.0.push(Cue::at(
-                named(&file),
-                Vec3::from_array(at) / UNIT,
-                current.time_ms as f32,
-            ));
+            cues.0.push(Cue {
+                falloff,
+                gain,
+                ..Cue::at(
+                    named(&file),
+                    Vec3::from_array(at) / UNIT,
+                    current.time_ms as f32,
+                )
+            });
             ambience.scripted += 1;
             continue;
         }
-        let id = sim::SimId(sound.object);
         let channel = match sound.sound_set_line() {
             Some(_) => audio::Channel::Voice,
             None => audio::Channel::Auto,
@@ -1205,6 +1230,8 @@ fn scripted(
                 entity: Some(id),
                 follows: true,
                 channel,
+                falloff,
+                gain,
                 ..Cue::at(
                     named(&file),
                     Vec3::from_array(entity.position) / UNIT,
@@ -1284,7 +1311,7 @@ fn objects(
     (loops, cues): (&mut Loops, &mut Cues),
 ) {
     let made = made_placeables(ambience, (instances, module), current);
-    let Some((area, _)) = &ambience.area else {
+    let Some((area, tables)) = &ambience.area else {
         return;
     };
     let rng = ambience.rng.get_or_insert(Rng(1));
@@ -1351,7 +1378,7 @@ fn objects(
                     };
                 }
                 if emit(
-                    emitter,
+                    (emitter, tables),
                     (volume, anywhere && !emitter.positional, fixed),
                     at,
                     now,
@@ -1381,8 +1408,12 @@ fn objects(
                 if let Some(file) = file
                     && ambience.clips.contains_key(file)
                 {
-                    cues.0
-                        .push(Cue::at(named(file), at / UNIT, current.time_ms as f32));
+                    let (falloff, gain) = placed(tables, Group::PositionalShot, 127, false);
+                    cues.0.push(Cue {
+                        falloff,
+                        gain,
+                        ..Cue::at(named(file), at / UNIT, current.time_ms as f32)
+                    });
                     *ambience.moves.entry(file.clone()).or_insert(0) += 1;
                 }
             }
@@ -1404,10 +1435,14 @@ fn placeable_sound(moves: &Moves, from: u8, to: u8) -> &Option<String> {
 }
 
 /// A sound object's sounds this frame: a looping one held, the others cued
-/// in turn; whether one was cued.
+/// in turn; whether one was cued. Each plays at its volume in the group the
+/// executables give it: a looping sound is streamed in the positional or
+/// the area-wide ambients' group, a single sound plays in the positional or
+/// the global single shots' group. The object's own distances replace its
+/// group's.
 #[allow(clippy::too_many_arguments)]
 fn emit(
-    emitter: &Emitter,
+    (emitter, tables): (&Emitter, &Tables),
     (volume, anywhere, fixed): (u8, bool, Option<f64>),
     at: Vec3,
     now: f64,
@@ -1429,13 +1464,20 @@ fn emit(
             placed: emitter.positional,
         }
     };
+    let group = match (emitter.looping, emitter.positional) {
+        (true, true) => Group::PositionalAmbient,
+        (true, false) => Group::AreaAmbient,
+        (false, true) => Group::PositionalShot,
+        (false, false) => Group::GlobalShot,
+    };
+    let gain = |volume: u8| placed_gain(tables, group, volume, emitter.looping);
     // One looping sound loops seamlessly; several play in turn.
     if emitter.looping && emitter.sounds.len() == 1 {
         let file = &emitter.sounds[0];
         if clips.contains_key(file) {
             loops.0.push(Hold {
                 falloff,
-                gain: f32::from(volume) / 127.0,
+                gain: gain(volume),
                 rate: fixed.unwrap_or(1.0).max(0.1),
                 ..Hold::at(named(file), at)
             });
@@ -1481,8 +1523,10 @@ fn emit(
     };
     cues.0.push(Cue {
         falloff,
-        gain: (varied(f32::from(volume), f32::from(emitter.volume_variation), rng) / 127.0)
-            .clamp(0.0, 1.0),
+        gain: gain(
+            varied(f32::from(volume), f32::from(emitter.volume_variation), rng).clamp(0.0, 127.0)
+                as u8,
+        ),
         rate: fixed
             .unwrap_or_else(|| f64::from(varied(1.0, emitter.pitch_variation, rng).max(0.1))),
         ..Cue::at(named(file), at, now as f32)
@@ -1508,16 +1552,18 @@ fn footsteps(
     let Some((area, tables)) = &ambience.area else {
         return;
     };
-    let rows: BTreeMap<u32, u8> = current
+    // Each walker's footstep row, and the group its steps play in.
+    let walkers: BTreeMap<u32, (u8, Group)> = current
         .entities
         .iter()
         .filter_map(|entity| {
-            Some((
-                entity.id.0,
-                step_row(entity, current, instances, area, tables)?,
-            ))
+            let appearance = appearance_of(entity, current, instances);
+            let row = step_row(entity, appearance, area, tables)?;
+            let player = matches!(entity.kind, Kind::Avatar(_));
+            Some((entity.id.0, (row, tables.step_group(appearance, player))))
         })
         .collect();
+    let rows: BTreeMap<u32, u8> = walkers.iter().map(|(id, (row, _))| (*id, *row)).collect();
     // A body the area's GIT does not hold (a companion, a script's
     // creature) may walk with a row it did not read.
     let files: Vec<String> = rows
@@ -1532,6 +1578,14 @@ fn footsteps(
     };
     let rng = ambience.rng.get_or_insert(Rng(1));
     let steps_of = |entity: &sim::EntityState| tables.steps(*rows.get(&entity.id.0)?);
+    // A footstep or a rolling droid's sound plays in its walker's group, at
+    // full volume (the executables give it none of its own).
+    let step_sound = |entity: &sim::EntityState| {
+        let group = walkers
+            .get(&entity.id.0)
+            .map_or(Group::SmallSteps, |(_, group)| *group);
+        placed(tables, group, 127, false)
+    };
     let moving = |player: &sim::motion::MotionState| {
         let [vx, vy, _] = player.velocity;
         (vx * vx + vy * vy).sqrt() >= STILL
@@ -1550,7 +1604,12 @@ fn footsteps(
         let origin = Vec3::from_array(entity.position) / UNIT;
         if let Some(rolling) = &steps.rolling {
             if moving && ambience.clips.contains_key(rolling) {
-                loops.0.push(Hold::at(named(rolling), origin));
+                let (falloff, gain) = step_sound(entity);
+                loops.0.push(Hold {
+                    falloff,
+                    gain,
+                    ..Hold::at(named(rolling), origin)
+                });
                 ambience.rolled.insert(rolling.clone());
             }
             continue;
@@ -1598,12 +1657,16 @@ fn footsteps(
             let [vx, vy, _] = player.velocity;
             vx * vx + vy * vy >= RUNNING * RUNNING
         });
+        let (falloff, gain) = step_sound(entity);
+        // JA's step files keep JA's mix (`STEP`) and are heard as far as
+        // KOTOR's steps are.
         if humanoid
             && let Some(name) =
                 crate::ja_footsteps::step(floor.surface.ground, running, rng.roll_between(1, 4))
         {
             cues.0.push(Cue {
                 entity: Some(entity.id),
+                falloff,
                 gain: STEP,
                 ..Cue::at(name, origin - Vec3::Z * SOLES, current.time_ms as f32)
             });
@@ -1622,7 +1685,8 @@ fn footsteps(
         let file = choices[rng.roll_between(0, choices.len() as i32 - 1) as usize];
         cues.0.push(Cue {
             entity: Some(entity.id),
-            gain: STEP,
+            falloff,
+            gain,
             rate: f64::from(1.0 + steps.pitch),
             ..Cue::at(
                 named(file),
@@ -1634,28 +1698,77 @@ fn footsteps(
     }
 }
 
+/// The `appearance.2da` row of `entity`'s body: the one a script or a
+/// disguise changed it to, else a player's dressed body's, else a
+/// creature's template's.
+fn appearance_of(
+    entity: &sim::EntityState,
+    current: &Snapshot,
+    instances: &Instances,
+) -> Option<u16> {
+    let changed = entity
+        .fighter
+        .as_ref()
+        .and_then(|fighter| fighter.look.appearance);
+    changed.or_else(|| match entity.kind {
+        Kind::Avatar(seat) => sim::persona::dressed(current, seat).map(|(row, _)| row),
+        Kind::Object(ObjectKind::Creature, _) => {
+            Some(instances.of_entity(entity)?.body?.appearance)
+        }
+        _ => None,
+    })
+}
+
+impl Ambience {
+    /// How a placed sound of `group` at full volume falls off and how loud
+    /// it is (`placed`), by the area's tables; a normal sound's before an
+    /// area's tables are read.
+    pub(crate) fn placed(&self, group: Group) -> (Falloff, f32) {
+        self.area
+            .as_ref()
+            .map_or((Falloff::Normal, 1.0), |(_, tables)| {
+                placed(tables, group, 127, false)
+            })
+    }
+}
+
+/// How a placed sound of `group` at `volume` (0 to 127) falls off and how
+/// loud it is, as the executables play it: full within the group's near
+/// distance, silent past its far one, or heard alike everywhere for a
+/// group without distances. `streamed` is a sound the executables stream
+/// (a sound object's loop, a sound set's line).
+fn placed(tables: &Tables, group: Group, volume: u8, streamed: bool) -> (Falloff, f32) {
+    let falloff = match tables.group_range(group) {
+        Some((near, far)) => Falloff::Range {
+            near: near / UNIT,
+            far: far.max(near) / UNIT,
+            placed: true,
+        },
+        None => Falloff::Everywhere,
+    };
+    (falloff, placed_gain(tables, group, volume, streamed))
+}
+
+/// How loud a placed sound of `group` at `volume` is next to it, as a share
+/// of a conversation's voice (`Tables::placed_level`). A streamed sound
+/// plays at its level. Any other placed sound plays at its level raised to
+/// the power 0.6, which makes a quiet sound louder than its volume says.
+fn placed_gain(tables: &Tables, group: Group, volume: u8, streamed: bool) -> f32 {
+    let level = tables.placed_level(group, volume);
+    let heard = if streamed { level } else { level.powf(0.6) };
+    heard / tables.voice_level().max(f32::EPSILON)
+}
+
 /// The `footstepsounds.2da` row `entity` walks with: its body's appearance's
 /// (`footsteptype`), as the executable reads it for every creature, players
 /// and companions too; else, a creature of the GIT's, its placement's, and
 /// the players' soft steps.
 fn step_row(
     entity: &sim::EntityState,
-    current: &Snapshot,
-    instances: &Instances,
+    appearance: Option<u16>,
     area: &AreaSound,
     tables: &Tables,
 ) -> Option<u8> {
-    let changed = entity
-        .fighter
-        .as_ref()
-        .and_then(|fighter| fighter.look.appearance);
-    let appearance = changed.or_else(|| match entity.kind {
-        Kind::Avatar(seat) => sim::persona::dressed(current, seat).map(|(row, _)| row),
-        Kind::Object(ObjectKind::Creature, _) => {
-            Some(instances.of_entity(entity)?.body?.appearance)
-        }
-        _ => None,
-    });
     if let Some(row) = appearance.and_then(|appearance| tables.walk(appearance)) {
         return Some(row);
     }

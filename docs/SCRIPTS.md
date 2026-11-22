@@ -336,6 +336,14 @@ the games' own compiled scripts; nothing of them is in the repo.
   K1 Restoration's swoop race then never starts, because its end script
   checks `K1R_SWOOPCHECK`, and the screen stays black, as it would in the
   original game.
+- KOTOR 2 reads `globalcat.2da` from its first row to its last, and the
+  first row of a name decides that global's kind. Its executable skips a
+  row whose name an earlier row declared, in any case. It also skips a
+  name of more than 21 letters, and a row of a kind that is full. It holds
+  900 booleans, 1000 numbers, 100 locations and 5 strings. kjk reads
+  KOTOR 2's table the same way (`session::sheets::globals`). KOTOR 1's
+  executable has not been checked for these limits, so its table is read
+  without them.
 - TSL's number globals hold a signed byte: `IncrementGlobalNumber` and
   `DecrementGlobalNumber` past −128 or 127 leave the global as it was
   (the game warns). `RemoveHeartbeat` takes an object's heartbeat away

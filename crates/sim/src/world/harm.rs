@@ -453,11 +453,18 @@ pub(super) fn hurt(
                 // (TSL's academy: Bao-Dur spawned in his cell, killed where
                 // he lies by `EffectDeath`, and raised as the cells open,
                 // `a_shutdowncells`, to speak to the Exile).
-                ScriptEffect::Resurrection => {
+                ScriptEffect::Resurrection(percent) => {
+                    let percent = *percent;
                     if let Some(at) = at {
-                        let (.., player, fighting) = &mut actors[at];
+                        let (_, _, object, sheet, player, fighting) = &mut actors[at];
                         if fighting.0.downed() || fighting.0.dead() {
-                            falls::stand(&mut player.0, &mut fighting.0, &level.0.anims, now);
+                            let max_hp = i32::from(sheet_of(*sheet, *object).max_hp);
+                            let hp = if percent > 0 {
+                                (max_hp * i32::from(percent) / 100).clamp(1, max_hp) * 100
+                            } else {
+                                falls::RISE_HP
+                            };
+                            falls::get_up(&mut player.0, &mut fighting.0, &level.0.anims, hp, now);
                         }
                     }
                 }
@@ -509,6 +516,7 @@ pub(super) fn hurt(
     // A held character's saving throw each round to break free (C11): the
     // roll told to its own seat, "Saved" floated over it, and the hold's
     // looks ended with it.
+    let lent = super::lent(&scripts.state.party);
     for (id, avatar, object, sheet, _, fighting) in actors.iter_mut() {
         let fighter = &mut fighting.0;
         if !fighter.alive() || fighter.force.due(now).is_none() {
@@ -522,8 +530,8 @@ pub(super) fn hurt(
         let Some(rolled) = fighter.force.roll_free(now, d20, |index| sheet.save(index)) else {
             continue;
         };
-        if let Some(avatar) = avatar {
-            notices.0.push((avatar.0, save_notice(rolled)));
+        if let Some(seat) = super::keyed_by(avatar.map(|avatar| avatar.0), id.0, lent) {
+            notices.0.push((seat, save_notice(rolled)));
         }
         if rolled.saved {
             end_looks(fighter, end, now);
@@ -678,7 +686,9 @@ pub(super) fn hurt(
                 spent.push(by);
                 !scripts::perceived(&scripts.state, hit.target.0, hit.attacker.0)
             });
-        let attacker_seat = attacker.and_then(|by| actors[by].1.map(|avatar| avatar.0));
+        let attacker_seat = attacker.and_then(|by| {
+            super::keyed_by(actors[by].1.map(|avatar| avatar.0), actors[by].0.0, lent)
+        });
         let (target_sheet, target_side) = who[at];
         let target_party = target_side.party;
         // A creature outside the party lands its attack on its target
@@ -757,15 +767,18 @@ pub(super) fn hurt(
             _ => 0,
         };
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
-        // Whether a player plays it: a seat's own character, the companion a
-        // seat drives, or the companion leading the party in the first
-        // seat's place (`lent`, which has no avatar of its own). A body a
-        // player plays never flinches and is never caught unaware.
-        let played = avatar.is_some() || lent == Some(hit.target);
+        // A body a seat plays (`world::played`) never flinches and is never
+        // caught unaware.
+        let played = super::played(hit.target, *avatar, lent);
+        let member = match (target_party, avatar.is_some()) {
+            (false, _) => damage::Member::Outsider,
+            (true, false) => damage::Member::Companion,
+            (true, true) => damage::Member::Player,
+        };
         // The dead take nothing more; the downed nothing but the story's
-        // death.
+        // death of a companion.
         let death = matches!(hit.source, Source::Death);
-        if !fighting.0.alive() && !(death && fighting.0.downed()) {
+        if !fighting.0.alive() && !(death && fighting.0.downed() && member.dies_of_death()) {
             continue;
         }
         let was_down = fighting.0.downed();
@@ -960,7 +973,7 @@ pub(super) fn hurt(
             &mut fighting.0,
             clock.time_ms,
             clock.tick,
-            target_party,
+            member,
         );
         // A creature with Min1HP takes a blow's damage, but its hit points
         // stop at 1. Its damaged script still runs for the part the floor

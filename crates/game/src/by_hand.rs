@@ -442,8 +442,9 @@ pub fn queue_scripts(world: &mut sim::SimWorld, scripts: &[String]) -> Result<()
 /// selection screen leave it: each available as the `NPC_*` number
 /// `npc.2da` gives its template's tag (else the first free), then picked
 /// on the screen in the step this takes (`Action::ChooseParty`), which
-/// makes each beside the player. Without templates, nothing is done and no
-/// step taken.
+/// makes each beside the player. A template followed by `@ROW` (e.g.
+/// `p_mission@21`) also arms the companion with the gun of that row
+/// (`arm`). Without templates, nothing is done and no step taken.
 pub fn party(
     world: &mut sim::SimWorld,
     templates: &[String],
@@ -463,7 +464,9 @@ pub fn party(
     let numbers = installer.map_or_else(Vec::new, crate::stage::npc_tags);
     let mut state = world.script_state().clone();
     let mut picks = [u8::MAX; 2];
-    for (template, pick) in templates.iter().zip(&mut picks) {
+    let mut guns = Vec::new();
+    for (entry, pick) in templates.iter().zip(&mut picks) {
+        let (template, row) = parse_member(entry)?;
         let template = template.to_ascii_lowercase();
         let tag = library
             .creature(&template)
@@ -488,11 +491,70 @@ pub fn party(
             },
         );
         *pick = npc;
+        if let Some(row) = row {
+            guns.push((npc, row));
+        }
     }
     state.party.selection = Some(sim::script::party::Selection::in_play());
     world.set_script_state(state);
+    step_with(world, sim::action::Action::ChooseParty(Some(picks)));
+    for (npc, row) in guns {
+        arm(world, &library, npc, row)?;
+    }
+    Ok(())
+}
+
+/// A `--party` entry: the template, and the `baseitems.2da` row after an
+/// `@` if one follows it (`p_mission@21`).
+fn parse_member(entry: &str) -> Result<(&str, Option<u16>), String> {
+    match entry.split_once('@') {
+        Some((template, row)) => row
+            .parse::<u16>()
+            .map(|row| (template, Some(row)))
+            .map_err(|_| format!("--party {entry}: @ takes a baseitems.2da row")),
+        None => Ok((entry, None)),
+    }
+}
+
+/// Puts the gun of `baseitems.2da` row `row` (`Library::gun_of_row`) in the
+/// right hand of the companion with `NPC_*` number `npc`. The party is
+/// given the gun, and the companion wears it in a step of its own
+/// (`Action::EquipOn`), as the host's equipment screen does.
+fn arm(
+    world: &mut sim::SimWorld,
+    library: &sim::script::Library,
+    npc: u8,
+    row: u16,
+) -> Result<(), String> {
+    let template = library
+        .gun_of_row(row)
+        .ok_or(format!("--party @{row}: no gun of that baseitems.2da row"))?;
+    let mut state = world.script_state().clone();
+    let who = state
+        .party
+        .available
+        .get(&npc)
+        .and_then(|npc| npc.object)
+        .ok_or("--party: the companion did not join")?;
+    let item = state
+        .make_item(library.items(), template, sim::inventory::PARTY, 1, None)
+        .ok_or(format!("{template}: no such item template"))?;
+    world.set_script_state(state);
+    step_with(
+        world,
+        sim::action::Action::EquipOn {
+            who,
+            item: item.0,
+            slot: sim::inventory::slots::RIGHT_WEAPON,
+        },
+    );
+    Ok(())
+}
+
+/// One step of `world` as its authority, with seat 0's `action`.
+fn step_with(world: &mut sim::SimWorld, action: sim::action::Action) {
     let mut input = sim::TickInput::default();
-    input.act(sim::Seat(0), sim::action::Action::ChooseParty(Some(picks)));
+    input.act(sim::Seat(0), action);
     let tick = world.snapshot().tick + 1;
     let rate = sim::TickRate::default();
     sim::step(
@@ -502,7 +564,6 @@ pub fn party(
         rate.msec(tick),
         sim::StepReason::Authority,
     );
-    Ok(())
 }
 
 /// A sheet with Jedi Defense at `level` (0 to 3) and nothing else of it.

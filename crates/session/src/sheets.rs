@@ -1023,7 +1023,21 @@ pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<O
     let shown = |label| crate::objects::shown(&localized(root.get(label)), talk.as_deref());
     let noted = root.int("HasMapNote").is_some_and(|has| has != 0);
     Some(ObjectData {
-        kind: ObjectKind::Waypoint,
+        name: shown("LocalizedName"),
+        map_note: noted.then(|| sim::module::MapNote {
+            text: shown("MapNote"),
+            enabled: root.int("MapNoteEnabled").is_some_and(|on| on != 0),
+        }),
+        ..marker(ObjectKind::Waypoint, template, root)
+    })
+}
+
+/// A waypoint's or a store's facts from its template's `root` before what
+/// is its kind's own: its tag and template, with no body, scripts, items or
+/// name.
+fn marker(kind: ObjectKind, template: &str, root: &GffStruct) -> ObjectData {
+    ObjectData {
+        kind,
         tag: root.resref("Tag").unwrap_or_else(String::new),
         cased_tag: cased(root.bytes("Tag").unwrap_or(&[])),
         template: template.to_string(),
@@ -1046,7 +1060,7 @@ pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<O
         strike: None,
         challenge: 0.0,
         multiplier_set: 0,
-        name: shown("LocalizedName"),
+        name: String::new(),
         inventory: Vec::new(),
         container: false,
         useable: false,
@@ -1058,14 +1072,27 @@ pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<O
         toughness: sim::module::Toughness::default(),
         faction: 0,
         body: None,
-        map_note: noted.then(|| sim::module::MapNote {
-            text: shown("MapNote"),
-            enabled: root.int("MapNoteEnabled").is_some_and(|on| on != 0),
-        }),
+        map_note: None,
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
         spared_locks: Vec::new(),
+    }
+}
+
+/// A store's facts from its UTM alone, as a script makes one
+/// (`CreateObject`): its tag, name, scripts, stock and terms. Its place is
+/// the script's.
+pub(crate) fn store_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
+    let utm = Gff::parse(&tables.source.read(template, ResType::UTM)?).ok()?;
+    let root = &utm.root;
+    let talk = tables.source.talk();
+    Some(ObjectData {
+        scripts: asset_odyssey::module::scripts(root),
+        name: crate::objects::shown(&localized(root.get("LocName")), talk.as_deref()),
+        inventory: crate::items::held(tables, root, true),
+        store: Some(crate::items::terms(root)),
+        ..marker(ObjectKind::Store, template, root)
     })
 }
 
@@ -1496,18 +1523,62 @@ fn encounter_tables(tables: &mut Tables) -> sim::spawner::Tables {
     }
 }
 
+/// The most letters a global's name may have in KOTOR 2's catalogue.
+const GLOBAL_NAME_LETTERS: usize = 21;
+
+/// Where a kind of global is counted in `globals`, and how many globals of
+/// that kind KOTOR 2's catalogue holds. Its executable keeps 900 booleans,
+/// 1000 numbers, 100 locations and 5 strings.
+fn global_room(kind: Global) -> (usize, usize) {
+    match kind {
+        Global::Boolean => (0, 900),
+        Global::Number => (1, 1000),
+        Global::Location => (2, 100),
+        Global::String => (3, 5),
+    }
+}
+
 /// `globalcat.2da`: each declared global's kind by its lowercase name.
-fn globals(tables: &mut Tables) -> BTreeMap<String, Global> {
+///
+/// KOTOR 2's executable reads the table from its first row to its last. It
+/// skips a row whose name has more than 21 letters, a row whose name an
+/// earlier row already declared (in any case), and a row of a kind whose
+/// room is full (`global_room`). So the first row of a name decides its
+/// kind. A mod's table that declares a name first as a number and then
+/// again as a boolean keeps the number, and scripts may set and read that
+/// number. KOTOR 1's table is read without these limits, as its executable
+/// has not been checked for them.
+pub(crate) fn globals(tables: &mut Tables) -> BTreeMap<String, Global> {
+    let tsl = tables.tsl();
     let rows = tables
         .table("globalcat")
         .map_or(0, |table| table.cells.len());
-    (0..rows)
-        .filter_map(|row| {
-            let name = tables.text("globalcat", row, "name")?;
-            let kind = Global::named(&tables.text("globalcat", row, "type")?)?;
-            Some((name.to_ascii_lowercase(), kind))
-        })
-        .collect()
+    let mut globals = BTreeMap::new();
+    let mut counts = [0usize; 4];
+    for row in 0..rows {
+        let Some(name) = tables.text("globalcat", row, "name") else {
+            continue;
+        };
+        let Some(kind) = tables
+            .text("globalcat", row, "type")
+            .and_then(|kind| Global::named(&kind))
+        else {
+            continue;
+        };
+        let name = name.to_ascii_lowercase();
+        if !tsl {
+            globals.insert(name, kind);
+            continue;
+        }
+        let (count, room) = global_room(kind);
+        if name.len() > GLOBAL_NAME_LETTERS || globals.contains_key(&name) || counts[count] >= room
+        {
+            continue;
+        }
+        counts[count] += 1;
+        globals.insert(name, kind);
+    }
+    globals
 }
 
 /// The rows of `ranges.2da` the rules read by label (`PartyCombat`,
@@ -1549,6 +1620,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
     let score = |label: &str| root.int(label).unwrap_or(10).clamp(0, 255) as u8;
     let abilities = ["Str", "Dex", "Con", "Int", "Wis", "Cha"].map(score);
     let (mut level, mut bab, mut saves, mut class_ac) = (0i64, 0i64, [0i64; 3], 0i64);
+    let mut has_force = false;
     let mut powers = sim::combat::sheet::Powers::default();
     for class in root.list("ClassList") {
         let (Some(row), Some(levels)) = (class.int("Class"), class.int("ClassLevel")) else {
@@ -1556,6 +1628,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         };
         let (row, levels) = (usize::try_from(row).ok()?, levels.max(0));
         level += levels;
+        has_force |= tables.int("classes", row, "forcedie").unwrap_or(0) > 0;
         let cell = |tables: &mut Tables, table: &str, column: &str| {
             crate::classes::level_cell(tables, table, column, levels).unwrap_or(0)
         };
@@ -1611,6 +1684,17 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             .unwrap_or(0)
             .clamp(0, i64::from(u16::MAX)) as u16
     };
+    let force_sensitive = feats.has(sim::combat::sheet::feats::FORCE_SENSITIVE);
+    let max_fp = if (has_force || force_sensitive) && race != races::DROID {
+        let sensitive = if force_sensitive {
+            rules::feats::force_sensitive::POINTS
+        } else {
+            0
+        };
+        points("ForcePoints", "CurrentForce").saturating_add(sensitive)
+    } else {
+        0
+    };
     // The sheet without its items, then what they add (`sim::inventory`).
     let naked = Sheet {
         abilities,
@@ -1618,7 +1702,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         bab: bab.clamp(0, 255) as u8,
         saves: saves.map(|save| save.clamp(-128, 127) as i8),
         max_hp: points("MaxHitPoints", "HitPoints").max(1),
-        max_fp: points("ForcePoints", "CurrentForce"),
+        max_fp,
         defence: defence.clamp(-128, 127) as i8,
         dex_cap: None,
         feats,
@@ -1668,21 +1752,33 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             worn.push((slot, facts));
         }
     }
-    // Consumables cast a spell whose row names an impact script.
-    let scripted: Vec<u16> = usable
+    // Consumables cast a spell whose row names an impact script, as
+    // `sim::script::Library::item_row` reads the row.
+    let rows: BTreeMap<u16, inventory::RowUse> = usable
         .iter()
         .filter_map(|(_, facts)| facts.combat_row())
-        .filter(|row| {
-            tables
-                .text("spells", usize::from(*row), "impactscript")
-                .is_some_and(|script| !script.is_empty())
+        .map(|row| {
+            let at = usize::from(row);
+            let data = inventory::RowUse {
+                scripted: tables
+                    .text("spells", at, "impactscript")
+                    .is_some_and(|script| !script.is_empty()),
+                on_user: tables.int("spells", at, "hostilesetting") != Some(1)
+                    || tables.int("spells", at, "itemtargeting") == Some(1),
+            };
+            (row, data)
         })
         .collect();
     Some(Sheet {
         items: inventory::usable(
             race,
             usable.iter().map(|(uses, facts)| (*uses, facts)),
-            |row| scripted.contains(&row),
+            |row| {
+                rows.get(&row).copied().unwrap_or(inventory::RowUse {
+                    scripted: false,
+                    on_user: false,
+                })
+            },
             None,
         ),
         ..inventory::dress(naked, worn.iter().map(|(slot, facts)| (*slot, facts)))

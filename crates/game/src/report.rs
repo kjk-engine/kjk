@@ -700,6 +700,21 @@ fn encoded(text: &str) -> String {
     })
 }
 
+/// The warning at the top of a new bug report. Players often submit without
+/// the zip because they think the game attached it. The same text is in
+/// `.github/ISSUE_TEMPLATE/bug.md`.
+const ZIP_WARNING: &str = "> [!WARNING]\n> **The report zip is NOT attached automatically.** \
+You must drag and drop the `kjk-report-….zip` file from the folder the game opened onto this box \
+before you press Create. Without the zip we cannot replay the bug.";
+
+/// The line where the zip goes. If the player forgets the zip, this line stays
+/// in the issue and shows that it is missing.
+const ZIP_DROP_HERE: &str = "⚠️ **NO ZIP YET.** Drag and drop the `kjk-report-….zip` file onto this box, \
+then delete this line.";
+
+/// A box the player ticks only after dropping the zip.
+const ZIP_CHECKBOX: &str = "- [ ] I dragged and dropped the report zip onto this box";
+
 /// The bug template filled in: the title the note's first line, the box
 /// (`body`) the note and the version, the note scrubbed of `me`, with
 /// comments saying what else may go in and where the zip is dropped.
@@ -714,6 +729,8 @@ pub fn issue_url(note: &str, version: &str, me: &Identity) -> String {
         .collect();
     let happened: String = note.chars().take(NOTE_KEPT).collect();
     let body = [
+        ZIP_WARNING,
+        "",
         "<!-- What happened, and what you expected instead. -->",
         &happened,
         "",
@@ -722,10 +739,10 @@ pub fn issue_url(note: &str, version: &str, me: &Identity) -> String {
         "",
         &format!("**kjk version:** {version}"),
         "",
-        "**Report:** <!-- drag the kjk-report-….zip from the folder that opened here -->",
+        "**Report:**",
+        ZIP_DROP_HERE,
         "",
-        "",
-        "- [x] Report zip attached",
+        ZIP_CHECKBOX,
     ]
     .join("\n");
     let mut url = ISSUE.to_string();

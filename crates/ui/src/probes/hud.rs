@@ -10,9 +10,9 @@ use crate::draw::{DrawList, TextureId};
 use crate::paint::{Painter, Palette, rect_of};
 use crate::screens::floaty::{OverheadArt, bars};
 use crate::screens::hud::{
-    BarArt, BusyMark, FloatHold, SWAP, action_keys, backed, bar_extra, busy, busy_marks, crosshair,
-    cycle_badges, duel_bars, effect_icons, float_at, floated, known, place, portrait_at, state,
-    swap_at, to_top, watch_at,
+    BarArt, BusyMark, FEAT, FloatHold, SOLO, SWAP, action_keys, backed, bar_extra, busy,
+    busy_marks, crosshair, cycle_badges, duel_bars, effect_icons, float_at, floated, known, place,
+    portrait_at, solo_at, solo_beside_portrait, state, to_top, watch_at,
 };
 use crate::vm::{
     Bar, BarSlot, Busy, DuelBars, EffectIcon, HudView, KeyLabel, MemberView, OverheadView,
@@ -24,29 +24,94 @@ fn at(gui: &Gui, tag: &str) -> Option<(i32, i32)> {
         .map(|control| (control.extent.left, control.extent.top))
 }
 
-/// TSL's weapon swap button on the HUD, in both games: shown, placed as
-/// KOTOR 2 places it, and a click on it is a swap (none beside it, nor
-/// without a character).
-pub(super) fn swap_button() -> Vec<Check> {
-    let mut gui = root(800, 600, vec![button(SWAP, [600, 540, 60, 30], b"")]);
-    place(&mut gui, (1280.0, 720.0), true);
-    let vm = ViewModel {
-        hud: Some(HudView::default()),
+/// The feat slot in the weapon swap button's stead. KOTOR 2's swap button
+/// is hidden. The feat slot stands one step after the Form slot, or in the
+/// Form slot's place when the character knows no Form. It shows the icon of
+/// the feat attack in use, and it is hidden while the view has none.
+pub(super) fn feat_slot() -> Vec<Check> {
+    let feat = |prefix: &str| format!("{prefix}{FEAT}");
+    let placed = |extras: [bool; 2]| {
+        let mut gui = root(
+            800,
+            600,
+            (0..6)
+                .map(|n| button(&format!("BTN_ACTION{n}"), [100 + 40 * n, 500, 36, 60], b""))
+                .collect(),
+        );
+        bar_extra(&mut gui, 6, extras);
+        at(&gui, &feat("BTN_ACTION")).map(|(left, _)| left)
+    };
+    let places = (placed([true, true]), placed([false, true]));
+    let vm = |slot: Option<BarSlot>| ViewModel {
+        hud: Some(HudView {
+            feat: slot,
+            ..HudView::default()
+        }),
         ..ViewModel::default()
     };
-    let shown = !state(&button(SWAP, [0, 0, 1, 1], b""), &vm).hidden;
-    let clicks = (
-        swap_at(&gui, &vm, [1100.0, 670.0]),
-        swap_at(&gui, &vm, [1000.0, 670.0]),
-        swap_at(&gui, &ViewModel::default(), [1100.0, 670.0]),
-    );
+    let shown = vm(Some(BarSlot {
+        icon: Some("ff_powrattck".into()),
+        ..BarSlot::default()
+    }));
+    let state_of = |tag: &str, vm: &ViewModel| state(&button(tag, [0, 0, 1, 1], b""), vm);
+    let icon = state_of(&feat("LBL_ACTION"), &shown).fill;
+    let hidden = state_of(&feat("BTN_ACTION"), &vm(None)).hidden;
+    let swap_hidden = state_of(SWAP, &shown).hidden;
     vec![check(
-        "hud_swap_button",
+        "hud_feat_slot",
         expect(
-            &format!("shown {shown}, at {:?}, clicks {clicks:?}", at(&gui, SWAP)),
-            shown && at(&gui, SWAP) == Some((1040, 648)) && clicks == (true, false, false),
+            &format!("at {places:?}, icon {icon:?}, hidden without one {hidden}, swap hidden {swap_hidden}"),
+            places == (Some(380), Some(340))
+                && icon.as_deref() == Some("ff_powrattck")
+                && hidden
+                && swap_hidden,
         )
-        .map(|()| "shown at the lower right, a click on it swaps".into()),
+        .map(|()| "the feat slot stands after the Form slot, and the swap button is gone".into()),
+    )]
+}
+
+/// The solo mode button beside the portrait. KOTOR 2's layout puts it far
+/// left of the portrait (584, 562). The HUD moves it just left of the
+/// vitality bar, at half the portrait's height, its bottom level with the
+/// portrait's. It shows, lit, only while the party is in solo mode, and
+/// only then does a click on it count.
+pub(super) fn solo_button() -> Vec<Check> {
+    let mut gui = root(
+        800,
+        600,
+        vec![
+            button("LBL_CHAR1", [707, 523, 72, 72], b""),
+            button("PB_VIT1", [677, 520, 39, 78], b""),
+            button(SOLO, [584, 562, 36, 36], b""),
+        ],
+    );
+    solo_beside_portrait(&mut gui);
+    let placed = gui.find(SOLO).map(|control| control.extent);
+    let vm = |solo: bool| ViewModel {
+        hud: Some(HudView {
+            solo,
+            ..HudView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let (on, off) = (vm(true), vm(false));
+    let shown = |vm: &ViewModel| state(&button(SOLO, [0, 0, 1, 1], b""), vm);
+    let looks = (shown(&on).selected, shown(&off).hidden);
+    let clicks = (
+        solo_at(&gui, &on, [670.0, 580.0]),
+        solo_at(&gui, &on, [600.0, 580.0]),
+        solo_at(&gui, &off, [670.0, 580.0]),
+    );
+    let at = placed.map(|rect| [rect.left, rect.top, rect.width, rect.height]);
+    vec![check(
+        "hud_solo_button",
+        expect(
+            &format!("at {at:?}, lit and hidden {looks:?}, clicks {clicks:?}"),
+            at == Some([650, 559, 36, 36])
+                && looks == (true, true)
+                && clicks == (true, false, false),
+        )
+        .map(|()| "lit beside the portrait in solo mode, hidden otherwise".into()),
     )]
 }
 
@@ -471,7 +536,7 @@ pub(super) fn action_bar() -> Vec<Check> {
         })
         .collect();
     let mut gui = root(800, 600, controls);
-    bar_extra(&mut gui, 6, false);
+    bar_extra(&mut gui, 6, [false; 2]);
     let misplaced: Vec<String> = (0..10)
         .flat_map(|n| {
             [("BTN_ACTION", 100), ("LBL_ACTION", 103)].map(|(prefix, first)| {
@@ -692,6 +757,7 @@ pub(super) fn all() -> Vec<Check> {
             stealth: false,
             solo: false,
             form: None,
+            feat: None,
             busy: None,
             poisoned: false,
             duel: None,

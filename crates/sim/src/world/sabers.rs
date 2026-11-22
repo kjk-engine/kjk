@@ -319,7 +319,7 @@ pub(super) fn sabers(
                 Man {
                     id: id.0,
                     avatar: seat.is_some(),
-                    keyed: super::movement::players_body(id.0, *avatar, lent),
+                    keyed: super::played(id.0, *avatar, lent),
                     lag_ms: seat.map_or(0, |seat| inputs.0.view_lag(seat)),
                     commanded: seat.is_some_and(|seat| inputs.0.get(seat).is_some()),
                     party: in_party(*avatar, &fighting.0),

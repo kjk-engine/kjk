@@ -180,7 +180,7 @@ pub mod shader_checks;
 pub mod shadow_tiles;
 pub mod shadows;
 mod shell;
-mod shot_fx;
+pub mod shot_fx;
 pub mod shots;
 mod sim_blades;
 pub mod sim_host;

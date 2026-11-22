@@ -691,7 +691,7 @@ pub(crate) fn named(root: &GffStruct) -> Vec<String> {
 
 /// A store's terms from its UTM: `MarkUp`, `MarkDown` (%), `BuySellFlag`
 /// (bit 0 it sells, bit 1 it buys).
-fn terms(utm: &GffStruct) -> Terms {
+pub(crate) fn terms(utm: &GffStruct) -> Terms {
     let flags = utm.int("BuySellFlag").unwrap_or(0);
     Terms {
         markup: utm.int("MarkUp").unwrap_or(100) as i32,

@@ -40,6 +40,7 @@ pub mod save {
     pub const FEAT_TARGETED_BLOCKS: crate::Since = crate::Since(crate::Stored::Save, 90);
     pub const FEAT_STUN_SAVES: crate::Since = crate::Since(crate::Stored::Save, 91);
     pub const FIX_WEAPONS_MINES_2026_11_20: crate::Since = crate::Since(crate::Stored::Save, 92);
+    pub const K2_COMPANIONS_FORCE: crate::Since = crate::Since(crate::Stored::Save, 93);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
