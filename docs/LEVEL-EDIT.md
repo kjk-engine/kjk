@@ -1375,6 +1375,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui quit` | closes the editor |
 | `edit ui confirm save`, `discard`, `cancel` | answers the question asked before leaving with changes not saved |
 | `edit add room MODEL [X Y Z]` | adds the install's room to a new map, its floor's middle at the point or where the view's centre meets the level |
+| `edit add room MODEL home` | adds the room at the place its own level gives it, so rooms of one level fit together as they do there |
 | `edit select room N`, `edit select entry` | selects a new map's room (from 0) or its entry |
 | `edit seam` | moves the selected room to meet the nearest seam |
 | `edit drop` | puts everything selected on the walkable floor under it, as one edit |
@@ -1603,5 +1604,12 @@ together in co-op.
 - `level_edit_nav_edits` checks what walkable boxes, nav blockers and nav
   floors do to the navigation mesh. `level_edit_new_map` makes a new map,
   adds and moves its rooms, and saves its module.
+- `tools/level-editor/tomb-replay/replay.py` is a benchmark, not an
+  approved test. It needs KOTOR 1 installed. It rebuilds a whole level, the
+  Tomb of Vessk Tarn, through the agent link from about 250 commands: 17
+  rooms, a quest, two items, a sealed door, a terminal's quiz, a guardian
+  and seven lights. It passes when every command is answered ok, the
+  level's facts are the expected ones, a trial of the quiz opens the seal,
+  and the level exports as a mod. A run takes about 35 seconds.
 - The demo (`LEVEL-EDIT-DEMO.md`) shows every behaviour on the Ebon Hawk,
   by hand in a window and as headless runs whose dumps say what changed.

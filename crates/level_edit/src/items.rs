@@ -102,6 +102,25 @@ pub fn new_item(base: &Gff, name: &str) -> Result<Gff, String> {
     Ok(item)
 }
 
+/// The start of the note an item's `Comment` keeps of the game's item it
+/// was copied from. The games do not read an item's comment.
+const COPIED: &str = "kjk: copied from ";
+
+/// Notes in the item that it was copied from the game's item `base`.
+pub fn note_base(item: &mut Gff, base: &str) {
+    set(
+        &mut item.root,
+        "Comment",
+        GffValue::String(format!("{COPIED}{base}").into_bytes()),
+    );
+}
+
+/// The game's item this one was copied from, as it notes it.
+pub fn base_of(item: &Gff) -> Option<String> {
+    let comment = String::from_utf8_lossy(item.root.bytes("Comment")?).into_owned();
+    comment.strip_prefix(COPIED).map(str::to_string)
+}
+
 /// Makes `change` in the item `gff`.
 pub fn apply(gff: &mut Gff, change: &ItemChange) -> Result<(), String> {
     let root = &mut gff.root;

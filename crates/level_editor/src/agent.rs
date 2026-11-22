@@ -148,6 +148,9 @@ pub struct Link {
     answered: u64,
     /// How deep the undo list was at `begin`, while a batch is open.
     batch: Option<usize>,
+    /// The command of the open batch that was refused: the commands after
+    /// it are skipped until the batch ends.
+    stopped: Option<String>,
 }
 
 /// A line's words. A part between double quotes is one word, spaces and
@@ -200,6 +203,7 @@ impl Link {
             answers: VecDeque::new(),
             answered: 0,
             batch: None,
+            stopped: None,
         })
     }
 
@@ -259,15 +263,27 @@ impl Link {
                 // The edits from `begin` to `end` are one undo step.
                 ["begin"] => {
                     self.batch = Some(state.editor.undo_depth());
+                    self.stopped = None;
                     "ok".to_string()
                 }
-                ["end"] => match self.batch.take() {
-                    Some(depth) => {
+                ["end"] => match (self.batch.take(), self.stopped.take()) {
+                    (Some(depth), stopped) => {
                         let made = state.editor.join_undo_since(depth);
-                        format!("ok: {made} edits are one undo step")
+                        match stopped {
+                            None => format!("ok: {made} edits are one undo step"),
+                            Some(line) => format!(
+                                "the batch stopped at `{line}`: the {made} edits before it are one undo step, and the commands after it did not run"
+                            ),
+                        }
                     }
-                    None => "no batch is open: begin starts one".to_string(),
+                    (None, _) => "no batch is open: begin starts one".to_string(),
                 },
+                // A refused edit stops its batch: what follows was written
+                // for a level in which that edit was made (a `tag` after an
+                // `add` that failed would tag what was selected before).
+                _ if self.batch.is_some() && self.stopped.is_some() => {
+                    "skipped: an earlier command of this batch was refused".to_string()
+                }
                 ["catalog"] => match self.write_catalog(state) {
                     Ok(count) => format!("ok: {count} names listed in catalog.json"),
                     Err(why) => why,
@@ -350,7 +366,12 @@ impl Link {
                 }
                 words => match state::command(state, words, cameras) {
                     Ok(()) => "ok".to_string(),
-                    Err(why) => why,
+                    Err(why) => {
+                        if self.batch.is_some() {
+                            self.stopped = Some(line.to_string());
+                        }
+                        why
+                    }
                 },
             };
             state.say(format!("agent: {line}: {answer}"));
@@ -365,6 +386,7 @@ impl Link {
         if let Some(depth) = self.batch.take() {
             state.editor.join_undo_since(depth);
         }
+        self.stopped = None;
     }
 
     /// Writes `value` as the file `name` of the link's folder, beside then

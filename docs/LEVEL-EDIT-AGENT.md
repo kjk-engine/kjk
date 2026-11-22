@@ -143,7 +143,12 @@ words, it says so among `messages`.
   not compile, and the project's problems.
 - `begin` and `end` make the edits between them one undo step, so one
   undo by the person takes the whole change back. A batch left open ends
-  with its file.
+  with its file. A batch stops at the first edit that is refused. The
+  commands after it are answered `skipped` and do not run, because they
+  were written for a level in which that edit was made: a `tag` after an
+  `add` that failed would tag whatever was selected before. `end` then
+  says where the batch stopped. Read the answers, fix the refused line,
+  and send the rest again.
 
 The commands act on the selection, so a change usually starts with a
 `select` line. A word is ended by a space. Put a value that has a space

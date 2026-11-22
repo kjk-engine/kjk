@@ -149,6 +149,13 @@ impl NewMap {
             GffValue::String(module.as_bytes().to_vec()),
         );
         set(&mut are.root, "Name", localized(title));
+        // The base area's own scripts are its module's, which the new map
+        // does not have: left in, the games look for them at every load.
+        for label in crate::settings::AREA_SCRIPTS {
+            if are.root.get(label).is_some() {
+                set(&mut are.root, label, GffValue::ResRef(Vec::new()));
+            }
+        }
         // The base's rooms stay in the ARE until the map is written
         // (`rooms_into_are`): its first is the pattern of the map's rooms.
         NewMap {

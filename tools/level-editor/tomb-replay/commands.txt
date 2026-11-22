@@ -1,0 +1,294 @@
+# The Tomb of Vessk Tarn, as commands for the level editor's agent link.
+# replay.py sends each paragraph as one batch. A batch holds at most 20
+# lines, the number of answers the link keeps. {scripts} is the folder of
+# the tomb's scripts.
+
+# The 17 rooms of Naga Sadow's tomb, each where its own level has it.
+add room m39aa_01 home
+add room m39aa_02 home
+add room m39aa_05 home
+add room m39aa_06 home
+add room m39aa_07 home
+add room m39aa_08 home
+add room m39aa_09 home
+add room m39aa_10 home
+add room m39aa_11 home
+add room m39aa_12 home
+add room m39aa_13 home
+add room m39aa_14 home
+add room m39aa_15 home
+add room m39aa_16 home
+add room m39aa_17 home
+add room m39aa_18 home
+add room m39aa_19 home
+
+# The entry, at the west end of the entrance passage, looking east.
+entry 3 108 21
+select entry
+turn 0
+nav on
+
+# The sealed door: locked, opened by no skill, and not to be bashed.
+add door sw_door_sith1 52 194 12
+tag kje_vt_seal
+number Locked 1
+number KeyRequired 1
+number Plot 1
+
+# The entrance passage and the crossing.
+begin
+add placeable plc_gencorpse 10 107.4 22
+drop
+tag kje_vt_explorer
+turn 40
+add placeable plc_datapad 11.2 108.8 21
+tag kje_vt_pad
+add placeable plc_runeobelisk 49.6 111.6 18
+tag kje_vt_warn
+add placeable plc_statue1 55 104.5 18
+add placeable plc_statue1 55 111.5 18
+turn 180
+end
+
+# The east route.
+begin
+add creature g_tukata01 89 107 15
+add creature g_tukata01 91 109.5 15
+turn 180
+add placeable plc_runepillar 133 108 18
+tag kje_vt_hint1
+add placeable plc_footlker 128 112.5 18
+tag kje_vt_chest1
+add placeable plc_statue2 124 104 18
+add placeable plc_hmnskel 126 110 18
+end
+
+# The south route.
+begin
+add creature g_wardroid01 58 46 15
+add creature g_wardroid01 68 42 15
+add placeable plc_runeobelisk 77 44 15
+tag kje_vt_hint2
+add placeable plc_sarcophagus 47 40 15
+tag kje_vt_urn1
+add placeable plc_runepillar 70 12 15
+tag kje_vt_hint3
+add placeable plc_footlker 66 14 15
+tag kje_vt_chest2
+end
+
+# The north route, the terminal, the guardian and the sarcophagus.
+begin
+add creature g_tukata02 51 140 15
+add creature g_tukata02 53 143 15
+add placeable plc_runeobelisk 54 152 15
+tag kje_vt_seal_note
+add placeable plc_comppanel 54.3 174 15
+tag kje_vt_term
+turn 180
+add creature g_darkjedi005 52 200.5 12
+tag kje_vt_boss
+turn 270
+add placeable plc_sithsarc 52 208.6 12
+tag kje_vt_sarc
+add placeable plc_statue3 48.5 203 12
+add placeable plc_statue3 55.5 203 12
+end
+
+# The quest.
+quest new kje_vessk "The Tomb of Vessk Tarn"
+quest entry kje_vessk 10 "A dead explorer near the entrance of an unmarked tomb carried a datapad. It speaks of Lord Vessk Tarn, a lesser Sith Lord buried in secret beside the great ones, and of a sealed burial chamber that only a student of Sith history may open."
+quest entry kje_vessk 20 "The tomb splits three ways. The sealed chamber lies to the north. The explorer wrote that the answers to its seal are carved in the halls to the east and the south."
+quest entry kje_vessk 30 "The terminal accepted the answers and the seal has opened. Something still guards the burial chamber."
+quest end kje_vessk 40 "The guardian of the tomb is dead, and the Shroud of Vessk Tarn is yours."
+
+# The items: the explorer's datapad and the reward.
+item new kje_vt_datapad g_i_datapad001
+item name kje_vt_datapad Explorer's Datapad
+item text kje_vt_datapad "Day 3. The academy does not know of this tomb. Vessk Tarn was a small lord, but he was buried with his shroud. Day 5. Three ways from the crossing. North is sealed by a machine that asks about the old lords. I copied nothing down, fool that I am. The carvings east and south hold the answers. Day 6. The beasts found me first."
+item new kje_vt_shroud g_a_mstrrobe07
+item name kje_vt_shroud Shroud of Vessk Tarn
+item text kje_vt_shroud "The burial shroud of a forgotten Sith Lord. It was woven for the living and has waited a long time for one."
+item number kje_vt_shroud Cost 9000
+
+# The scripts.
+script text kje_vt_open {scripts}/kje_vt_open.nss
+script text kje_vt_wrong {scripts}/kje_vt_wrong.nss
+script text kje_vt_bossdie {scripts}/kje_vt_bossdie.nss
+script compile
+ui view
+
+# The datapad starts the quest, a trigger at the crossing moves it on, and
+# the guardian's death ends it.
+select kje_vt_pad
+flag useable on
+blocks OnUsed add once
+blocks OnUsed add give_item kje_vt_datapad
+blocks OnUsed add journal kje_vessk 10
+blocks OnUsed add message "You take the dead explorer's datapad."
+add trigger newgeneric 46 108 18
+tag kje_vt_fork
+blocks ScriptOnEnter add once
+blocks ScriptOnEnter add journal kje_vessk 20
+select kje_vt_boss
+script ScriptDeath kje_vt_bossdie
+number FactionID 1
+name FirstName Shade of Vessk Tarn
+item add kje_vt_shroud
+item 0 drops on
+
+# The carvings.
+conversation new kje_vt_c_warn
+conversation kje_vt_c_warn add
+conversation kje_vt_c_warn text line 0 "[The carving is worn, but it can be read.] Three ways lie before you. The lord sleeps to the north, behind a seal that questions the living. East and south, his scribes carved what a Sith must know. Learn it before you go north."
+select kje_vt_warn
+flag useable on
+talk kje_vt_c_warn
+
+conversation new kje_vt_c_h1
+conversation kje_vt_c_h1 add
+conversation kje_vt_c_h1 text line 0 "[The first lines of the Code of the Sith are cut deep into the pillar.] Peace is a lie, there is only passion. Through passion, I gain strength. Through strength, I gain power. Through power, I gain victory."
+select kje_vt_hint1
+flag useable on
+talk kje_vt_c_h1
+
+conversation new kje_vt_c_h2
+conversation kje_vt_c_h2 add
+conversation kje_vt_c_h2 text line 0 "[A history of the first Dark Lords.] Ajunta Pall was a Jedi before he was a Sith. The Jedi cast him out with the other exiles, and the exiles came to rule the Sith. He was the first to be buried in this valley, and his sword was buried with him."
+select kje_vt_hint2
+flag useable on
+talk kje_vt_c_h2
+
+conversation new kje_vt_c_h3
+conversation kje_vt_c_h3 add
+conversation kje_vt_c_h3 text line 0 "[Someone scratched this below the old carving, not long ago.] Do not go looking for old Jorak Uln. The mad hermit still hides in the tomb of Tulak Hord, and he tests those who find him."
+select kje_vt_hint3
+flag useable on
+talk kje_vt_c_h3
+
+conversation new kje_vt_c_note
+conversation kje_vt_c_note add
+conversation kje_vt_c_note text line 0 "[The obelisk stands before the stair.] The seal ahead asks three things: the Code, the first of the lords, and the tomb where the hermit hides. A wrong word wakes the beasts."
+select kje_vt_seal_note
+flag useable on
+talk kje_vt_c_note
+
+# The terminal's quiz.
+conversation new kje_vt_c_term
+conversation kje_vt_c_term screen computer
+conversation kje_vt_c_term add
+conversation kje_vt_c_term text line 0 "SEAL OF VESSK TARN. The lord receives only the learned. First: the Code. Peace is a lie, there is only passion. What follows?"
+conversation kje_vt_c_term add line 0
+conversation kje_vt_c_term add line 0
+conversation kje_vt_c_term add line 0
+conversation kje_vt_c_term add line 0
+conversation kje_vt_c_term text reply 0 "Through power, I gain victory."
+conversation kje_vt_c_term text reply 1 "Through passion, I gain strength."
+conversation kje_vt_c_term text reply 2 "Through strength, my chains are broken."
+conversation kje_vt_c_term text reply 3 "Through victory, I gain power."
+conversation kje_vt_c_term add reply 1
+conversation kje_vt_c_term text line 1 "Second: the first of the lords. Who was a Jedi before he ruled the Sith, and lies in this valley with his sword?"
+conversation kje_vt_c_term add line 1
+conversation kje_vt_c_term add line 1
+conversation kje_vt_c_term add line 1
+conversation kje_vt_c_term add line 1
+
+conversation kje_vt_c_term text reply 4 "Marka Ragnos."
+conversation kje_vt_c_term text reply 5 "Naga Sadow."
+conversation kje_vt_c_term text reply 6 "Ajunta Pall."
+conversation kje_vt_c_term text reply 7 "Tulak Hord."
+conversation kje_vt_c_term add reply 6
+conversation kje_vt_c_term text line 2 "Third: the living. In whose tomb does the hermit Jorak Uln hide?"
+conversation kje_vt_c_term add line 2
+conversation kje_vt_c_term add line 2
+conversation kje_vt_c_term add line 2
+conversation kje_vt_c_term add line 2
+conversation kje_vt_c_term text reply 8 "The tomb of Tulak Hord."
+conversation kje_vt_c_term text reply 9 "The tomb of Naga Sadow."
+conversation kje_vt_c_term text reply 10 "The tomb of Ajunta Pall."
+conversation kje_vt_c_term text reply 11 "The tomb of Marka Ragnos."
+conversation kje_vt_c_term add reply 8
+conversation kje_vt_c_term text line 3 "The lord receives you. The seal is open."
+conversation kje_vt_c_term script line 3 kje_vt_open
+
+conversation kje_vt_c_term add reply 0
+conversation kje_vt_c_term text line 4 "That is not what a Sith knows. The tomb answers."
+conversation kje_vt_c_term script line 4 kje_vt_wrong
+conversation kje_vt_c_term link reply 2 4
+conversation kje_vt_c_term link reply 3 4
+conversation kje_vt_c_term link reply 4 4
+conversation kje_vt_c_term link reply 5 4
+conversation kje_vt_c_term link reply 7 4
+conversation kje_vt_c_term link reply 9 4
+conversation kje_vt_c_term link reply 10 4
+conversation kje_vt_c_term link reply 11 4
+conversation kje_vt_c_term add line 0
+conversation kje_vt_c_term text reply 12 "[Step away from the terminal.]"
+select kje_vt_term
+flag useable on
+talk kje_vt_c_term
+ui conversation
+
+# The way in from the Valley of the Dark Lords, and the way back.
+entrance add korr_m36aa newtransition 50.5 205 0.86 kje_vt_in
+add trigger newtransition 1.2 108 21
+tag kje_vt_out
+link korr_m36aa WP_kor36_sithguard_02
+
+# Loot, and an encounter with two spawn points.
+begin
+select kje_vt_chest1
+flag useable on
+flag inventory on
+item add g_i_belt005
+item add g_i_implant201
+select kje_vt_chest2
+flag useable on
+flag inventory on
+item add g_i_gauntlet03
+select kje_vt_urn1
+flag useable on
+flag inventory on
+item add g_i_mask05
+add encounter g_korriban001 62 44 15
+tag kje_vt_enc1
+spawnpoint add 64 47 15 3.1
+spawnpoint add 60 41 15 0
+end
+
+# Seven lights placed by hand.
+begin
+add light point 52 204.5 15.5
+light colour 1 0.25 0.18
+light radius 10
+light reason "burial chamber, red glow over the dais"
+add light point 52 108 21.5
+light colour 1 0.72 0.45
+light radius 12
+light reason "the crossing"
+add light point 53.6 174 16.8
+light colour 0.4 0.75 1
+light radius 5
+light reason "the terminal's screen"
+add light point 128 108 21.5
+light colour 0.85 0.8 1
+light radius 10
+light reason "the hall of whispers"
+end
+
+begin
+add light point 62 44 19
+light colour 1 0.6 0.35
+light radius 14
+light reason "the hall of trials"
+add light point 10 108 23.5
+light colour 0.9 0.85 0.7
+light radius 9
+light reason "daylight at the entrance"
+add light point 70 14 18
+light colour 0.6 1 0.7
+light radius 7
+light reason "the scribe's annex"
+end
+
+save

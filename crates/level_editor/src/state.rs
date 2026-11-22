@@ -1684,14 +1684,12 @@ pub(crate) fn walkable_at(state: &mut EditorState, x: f32, y: f32, but: Option<u
             faces.extend(shape.top());
         }
     }
+    // The walkmesh's walkable faces and the doorways' floors, as the
+    // navigation mesh takes them (`AreaCollision::nav_faces`), before
+    // furniture is cut out of them: a thing may be dropped beside a crate.
     if let Some(built) = state.collision() {
-        for triangle in &built.collision.triangles {
-            if matches!(triangle.origin, collision_odyssey::Origin::Walkmesh)
-                && built.surfaces.walkable(triangle.material)
-            {
-                faces.push(triangle.corners);
-            }
-        }
+        faces.extend(built.collision.walkable.iter().map(|(corners, _)| *corners));
+        faces.extend(built.collision.doorways.iter().copied());
     }
     let mut found: Vec<f32> = Vec::new();
     for [a, b, c] in faces {
@@ -1722,6 +1720,7 @@ fn drop_to_floor(state: &mut EditorState) -> Result<(), String> {
         return Err("nothing is selected".into());
     }
     let mut edits = Vec::new();
+    let (mut standing, mut floorless) = (0, 0);
     for target in selection {
         if matches!(target, Target::Sun | Target::Fitted(_) | Target::Room(_)) {
             continue;
@@ -1739,17 +1738,31 @@ fn drop_to_floor(state: &mut EditorState) -> Result<(), String> {
         let floors = walkable_at(state, at[0], at[1], own);
         let under = at[2] - lift + 0.5;
         let floor = (floors.iter().copied().find(|z| *z <= under)).or(floors.last().copied());
-        if let Some(floor) = floor
-            && (floor + lift - at[2]).abs() > 1e-3
-        {
-            edits.push(Edit::Move(target, [at[0], at[1], floor + lift]));
+        match floor {
+            Some(floor) if (floor + lift - at[2]).abs() > 1e-3 => {
+                edits.push(Edit::Move(target, [at[0], at[1], floor + lift]));
+            }
+            Some(_) => standing += 1,
+            None => floorless += 1,
         }
     }
+    // Nothing to move is no mistake when everything stands on its floor.
+    // It is one when a thing has no floor to go to.
     if edits.is_empty() {
-        return Err(
-            "nothing selected moved: each thing stands on its floor already, or has no walkable floor under it"
-                .into(),
-        );
+        if floorless > 0 {
+            return Err(format!(
+                "{floorless} of the things selected have no walkable floor under them, and nothing moved"
+            ));
+        }
+        state.say(format!(
+            "nothing moved: the {standing} things selected stand on their floor already"
+        ));
+        return Ok(());
+    }
+    if floorless > 0 {
+        state.say(format!(
+            "{floorless} of the things selected have no walkable floor under them and stayed"
+        ));
     }
     state.apply_many(edits);
     Ok(())
@@ -1950,6 +1963,25 @@ pub(crate) fn add_room(state: &mut EditorState, model: &str, at: [f32; 3]) -> Re
         model: found.model.clone(),
         from: found.from,
         position,
+        yaw: 0.0,
+    }));
+    Ok(())
+}
+
+/// Adds the install's room `model` to the new map at the place its own
+/// level's layout gives it.
+pub(crate) fn add_room_home(state: &mut EditorState, model: &str) -> Result<(), String> {
+    if state.editor.project.map.is_none() {
+        return Err("only a new map has rooms (docs/LEVEL-EDIT.md)".into());
+    }
+    let found = (state.setup.rooms.iter())
+        .find(|room| room.model.eq_ignore_ascii_case(model))
+        .cloned()
+        .ok_or(format!("the install has no room {model}"))?;
+    state.apply(Edit::AddRoom(level_edit::Room {
+        model: found.model.clone(),
+        from: found.from,
+        position: found.from,
         yaw: 0.0,
     }));
     Ok(())
@@ -2450,6 +2482,9 @@ fn command_words(
                 state.say(line);
             }
         }
+        // A room where its own level has it: rooms of one level then fit
+        // together as they do there.
+        ["add", "room", model, "home"] => add_room_home(state, model)?,
         ["add", "room", model, rest @ ..] => {
             let at = match rest {
                 [] => place_point(state, cameras),
@@ -2863,7 +2898,8 @@ fn command_words(
             let gff = (state.setup.resolver.read(&base, ResType::UTI))
                 .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
                 .ok_or(format!("the game has no item {base} to copy"))?;
-            let gff = level_edit::items::new_item(&gff, &name)?;
+            let mut gff = level_edit::items::new_item(&gff, &name)?;
+            level_edit::items::note_base(&mut gff, &base);
             state.apply(Edit::SetTemplate {
                 name: name.clone(),
                 template: Box::new(level_edit::Template {

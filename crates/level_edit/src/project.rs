@@ -804,6 +804,11 @@ fn read_templates(folder: &Path) -> Result<BTreeMap<String, Template>, String> {
             .or_else(|| gff.root.resref("ResRef"))
             .unwrap_or_else(String::new)
             .to_ascii_lowercase();
+        // An item names itself, and notes what it was copied from.
+        let from = match restype {
+            ResType::UTI => crate::items::base_of(&gff).unwrap_or(from),
+            _ => from,
+        };
         templates.insert(resref, Template { restype, from, gff });
     }
     Ok(templates)
