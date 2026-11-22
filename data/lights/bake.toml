@@ -146,3 +146,231 @@ share = 1.0
 of = "lit"
 even = false
 sun = { toward = [0.831, -0.418, 0.367], colour = [0.76, 0.70, 0.57], toward2 = [0.594, -0.749, 0.292], colour2 = [0.84, 0.78, 0.63], sky = [0.31, 0.28, 0.25], width = 0.01 }
+
+# The modules the owner gave notes on after the batch's second round
+# (20 November 2026), and the other dark modules of that round. He has seen
+# four views of each from its entry point, and has walked none of them.
+#
+# - `fill = "stored"`. A room whose lamps cannot reach its level takes its
+#   own stored light for the rest, scaled, and not an even light. It keeps
+#   the room's colour and the places its light came from. These rooms were
+#   lit by lamps the games never shipped. The owner said of a Korriban tomb:
+#   "it seems to be some light they have baked in there from the ceiling",
+#   "We should make that one stronger and work with that". A room whose
+#   lamps reach its level takes none of it, so lamps placed there later
+#   replace it. The baked files hold the lamps alone. `fill.txt` in the
+#   bake's folder holds one number for each lightmap of such a room, and
+#   the game adds the player's own stored lightmap times that number when
+#   it loads the baked one.
+# - `most` and `least`. The most and the least a room's lamps are scaled
+#   by. They are 6 and 0.5 when left out. The Ebon Hawk's hold counts a few
+#   bright texels that no lamp reaches, so its lamps went to 6 times their
+#   strength and lit every wall. The owner said it "should be more like an
+#   atmospheric dark environment where the lights from the monitors are
+#   carefully illuminating the area".
+#
+# The Korriban tombs are a little under today, of which he said "it's fine
+# if it's a bit darker". The Star Forge deck is at 0.7, after "it should
+# probably be 30, 20% darker". The Taris sewers are at 0.7, after "the
+# general brightness is too bright".
+
+[modules.ebo_m12aa]
+share = 0.3
+of = "lit"
+even = false
+least = 0.1
+most = 0.4
+
+[modules.stunt_07]
+share = 0.35
+of = "lit"
+even = false
+least = 0.1
+most = 0.7
+
+[modules.sta_m45ab]
+share = 0.7
+of = "lit"
+even = false
+least = 0.3
+most = 2.0
+
+[modules.tar_m05aa]
+share = 0.7
+of = "lit"
+even = false
+
+[modules.852nih]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.371nar]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.korr_m38ab]
+share = 0.9
+of = "lit"
+fill = "stored"
+
+[modules.korr_m37aa]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.211tel]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.korr_m39aa]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.korr_m38aa]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.kas_m22aa]
+share = 0.75
+of = "lit"
+fill = "stored"
+
+[modules.711kor]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.710kor]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.702kor]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.107per]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.902mal]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.903mal]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.904mal]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.905mal]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.906mal]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.unk_m42aa]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.danm14ae]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.danm15]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.002ebo]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.stunt_16]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.korr_m35aa]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.351nar]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.301nar]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.305nar]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.kas_m23ad]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.232tel]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.202tel]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.tar_m04aa]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.tar_m02ac]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.650dan]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.604dan]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.manm26mg]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.manm26ad]
+share = 1.0
+of = "lit"
+fill = "stored"

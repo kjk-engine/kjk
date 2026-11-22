@@ -11,9 +11,11 @@ have theirs under their own headings. The 1050 Ti runs and the TAA
 baselines are still owed. Step 5 was built on 2026-11-13. Step 6 was
 planned on 2026-11-13 and its parts 6a and 6c to 6e are merged. Step 7 was
 planned on 2026-11-14 and is a trial. Step 9, a linear frame, was tried on
-2026-11-15 and is not merged. Step 10, a detail bake, was tried on
-2026-11-16 and is not merged. Nothing else here is built or
-measured yet unless a line says so.
+2026-11-15 and is merged, off by default. Step 10, a detail bake, was
+tried on 2026-11-16 and is not merged. Its second part, lights fitted to
+the lamps the level art shows and a bake from them, has been built since
+2026-11-17 on `feat/fitted-lights` and is not merged either. Nothing else
+here is built or measured yet unless a line says so.
 
 ## What we want
 
@@ -3632,6 +3634,103 @@ cantina on 2026-11-16. They were placed by a search, not by eye.
 The code stays on `feat/detail-bake` as a draft pull request. It is an
 experiment and is not to be merged.
 
+#### 10b. Lights fitted to the lamps, and a bake from them
+
+Built from 2026-11-17 on `feat/fitted-lights`, draft pull request
+[#576](https://github.com/kjk-engine/kjk/pull/576). It is not merged and
+nothing in it is on by default. `tools/light-kinds/handover.md` on that
+branch holds every round, every script and the owner's words. This part
+is the summary.
+
+**Why.** The first trial ended with no bake worth shipping, because the
+lights the files list explain little of BioWare's bake. The owner then
+asked for lights at the lamps a player can see. The level art shows them:
+a glowing tube, a panel, a screen or a sign.
+
+**The fitted lights.** `KJK_FITTED_LIGHTS=on`.
+
+- A kind of fitting is one glowing texture. `data/lights/k1.toml` and
+  `data/lights/tsl.toml` hold one entry for each kind.
+  `data/lights/fittings.toml` holds the rules' numbers, the kinds that
+  differ and the lights placed by hand.
+- `crates/game/src/fitted_lights.rs` finds the lamps of each glowing mesh
+  when an area loads and puts a light on each. The rooms' hidden lamps
+  shine too.
+- The lights light the rooms, the placeables and the characters, and the
+  characters cast shadows from them.
+- The owner gave rules for the lights kind by kind, from sheets of before
+  and after pictures.
+
+**The bake.** `KJK_FITTED_LIGHTS=baked` with `KJK_DETAIL_BAKE=<folder>`.
+
+- The owner wants the rooms' lightmaps made from the lamps alone. He said:
+  "we have to do B so we can actually ship it". The bake is also the path
+  for weaker graphics cards. The live lights cost about 0.27 ms in the
+  opaque pass, and the bake costs about 0.03 ms.
+- `kjk detail-bake <module> --lights <dump> --gpu` bakes an area on the
+  graphics card, in 10 seconds to 2 minutes. Its set `b` is the lamps
+  alone, with their shadows and bounced light.
+- Each room's lamps are scaled so that the room reaches a level. The level
+  comes from the room's stored lightmaps, so a room is about as bright as
+  today.
+- An area under the open sky takes a sun and a sky from
+  `data/lights/bake.toml`, because the games' files hold neither.
+- `data/lights/bake.toml` holds each module's setting, and
+  `tools/light-kinds/bake.sh <module> <game>` bakes from it.
+
+**What the owner has approved.** He walked each of these with the bake
+shown: the Harbinger, the Endar Spire, Peragus `101per` and `103per`, the
+Dantooine enclave and Anchorhead.
+
+**Every other module.** A batch baked every module that has lightmaps, on
+19 and 20 November 2026, with settings chosen by rule.
+
+- 164 modules baked. 3 did not: `201tel` and `505ond` do not finish, and
+  `stunt_57` has no fitted light.
+- About 110 came out within 0.7 to 1.4 times today's brightness, over four
+  views from the entry point. Nobody has looked at their pictures.
+- The owner gave notes on the outliers on 20 November 2026, and 39 modules
+  have a setting of their own from those notes. He has seen four views of
+  each and walked none.
+- The Dune Sea (`tat_m18aa`) has no lightmap, so there is nothing to bake.
+
+**Rooms with no lamp to see.** Malachor, the Korriban tombs and others
+have rooms where the level art shows no lamp. BioWare lit them from lamps
+that were never shipped.
+
+- With an even light such a room is flat and grey. With no extra light it
+  is black.
+- `fill = "stored"` in `data/lights/bake.toml` gives such a room its own
+  stored light for the part its lamps cannot reach. 35 modules have it.
+- The baked files hold nothing of BioWare's lightmaps. A baked lightmap
+  holds the room's lamps alone, and `fill.txt` beside it holds one number
+  for each lightmap of a room with a fill. When the game loads the
+  lightmap it adds the stored lightmap of the player's own files, times
+  that number (`add_stored_fill` in `crates/game/src/viewer.rs`). The
+  owner asked for this on 21 November 2026: "do we need to hold bioware
+  lightmap pixels? or could we load them from the game files instead".
+- The first version mixed the stored light into the baked files. On
+  `902mal` and `107per` the pictures of the two versions differ by 1 to 2
+  of 255 on average. The rooms' surfaces are the same, and the seams
+  between a lightmap's patches differ.
+- A room whose lamps reach its level takes no fill. Lamps placed in such a
+  room later replace it.
+
+**Open.**
+
+- The Sand People Enclave (`tat_m20aa`): the owner walked it and said that
+  some shadows do not begin and end in the right place, and that some
+  walls are fully bright at their base. The cause is not found.
+- `tat_m17ac` looks flat. `305nar`, `manm26ad` and `903mal` stay darker
+  than today.
+- The batch's Tatooine modules take one sun by rule. Anchorhead and the
+  enclave have two suns measured from their own sky.
+- A swoop bike on a race track is as bright as today, and no brighter.
+  The light probes of step 5 stand over walkable floor, and a track has
+  none.
+- The baked lightmaps are loose files that an environment variable names.
+  Nothing packs them for a release, and no option turns them on.
+
 ## Settings
 
 | Setting | Shadows | Needs |
@@ -3756,7 +3855,7 @@ step 6d.
   6b is a trial and is not merged. 6c, 6d and 6e follow one another.
 - Step 7: 7a, 7c and 7d on `feat/room-lights`, and 7b on
   `feat/room-light-shadows`, each from `origin/main`.
-- Step 9: `feat/linear-frame` from `origin/main`. It is a trial and is not
-  merged.
+- Step 9: `feat/linear-frame` from `origin/main`. It is merged (#453) and
+  off by default.
 - Step 10: `feat/detail-bake` from `origin/main`. It is a trial and is not
-  merged.
+  merged. Its part 10b is on `feat/fitted-lights`, and is not merged.

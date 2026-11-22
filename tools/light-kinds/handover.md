@@ -6,10 +6,9 @@ In this file `<root>` stands for the worktree's root. The repository's commit ch
 
 ## Where the work is
 
-- The branch is `feat/fitted-lights`, draft PR 576 on `kjk-engine/kjk`. Its head is `1dcef9fd`, "Switched lamps shine at a quarter of their kind's strength".
-- The worktree is named `lighting-step6`. Everything in this file is committed there except the bakes and pictures, which lie in `target/` and are not in git.
-- The bake scripts of this file and its first text are commit `0147b85b`. The work of 18 and 19 November 2026 after it is commit `f5cb1d01`, "Sun, sky and roof openings in the lightmap bake, for the Dantooine enclave". Neither is pushed. One thing in the worktree is not committed: another session's fix of the game's drawing of the council chamber's roof opening (`crates/game/src/scene.rs`, `material.rs`, `crates/asset_odyssey/src/model.rs`, `crates/approved_tests/tests/approved.rs` and five files that only fill in a new field).
-- `docs/LIGHTING-PLAN.md` is the whole lighting plan. Its steps 7 and 10 are the background. It does not describe the fitted lights' rules. Those are in the code's comments and in this file.
+- The branch is `feat/fitted-lights`, draft PR 576 on `kjk-engine/kjk`. Everything in this file is committed and pushed there, except the bakes and pictures, which lie in `target/` and are not in git.
+- The worktree is named `lighting-step6`. One thing in it is not committed: another session's fix of the game's drawing of the council chamber's roof opening (`crates/game/src/scene.rs`, `material.rs`, `crates/asset_odyssey/src/model.rs`, `crates/approved_tests/tests/approved.rs` and five files that only fill in a new field).
+- `docs/LIGHTING-PLAN.md` is the whole lighting plan. Its steps 7 and 10 are the background, and its part 10b is the summary of this work. It does not describe the fitted lights' rules. Those are in the code's comments and in this file.
 
 ## What the fitted lights are
 
@@ -286,3 +285,97 @@ A module that opens on an intro (`end_m01aa`, `101per`) fades the screen in a no
 - **Without the even light the modules with few lamps are nearly black.** Malachor (`902mal` to `906mal`), the Korriban tombs (`korr_m37aa` to `korr_m39aa`, `702kor`, `711kor`), the Peragus fuel depot `107per`, `unk_m42aa`, the Dantooine cave and ruins, and the Kashyyyk landing `kas_m22aa` are at a fifth to a half of today. Their rooms have no lamp the level art shows, so nothing lights them.
 - **The brightest are bright by their lamps.** The Ebon Hawk `ebo_m12aa` is at 70 against 19 without a sun and without the even light, `sta_m45ab` at 49 against 24, `tar_m08aa` at 101 against 59. Their lamps are scaled up to the room's `lit` level, which is the level of the room's bright parts. Nobody has tried `of = "original"` or a ceiling for them.
 - So neither round is right for the dark modules: the even light makes them flat and grey, and no even light makes them black. The owner has not decided what such a room takes.
+
+## The batch's third round, after the owner's notes of 20 November 2026
+
+The owner looked at the second round's outliers and gave notes on each.
+This round acts on them.
+
+Three new flags of `detail-bake --gpu` carry it.
+
+- `--fill-stored`. A room whose lamps cannot reach its level takes its own
+  stored light for the rest, scaled, and not an even light. The room keeps
+  its colour and the places its light came from. A room whose lamps reach
+  its level takes none of it.
+- `--most <x>`. The most a room's lamps are scaled by. It is 6 when left
+  out.
+- `--least <x>`. The least a room's lamps are scaled by. It is 0.5 when
+  left out.
+
+The Ebon Hawk was bright because of the most scale. Its hold's level counts
+a few bright texels that no lamp reaches, so its lamps went to 6 times
+their strength and lit every wall.
+
+The table of the round is `target/light-kinds/batch/b3.txt`, with
+`b4.txt` and `b5.txt` for the bright modules. A line holds a module, the
+share of its rooms' lit level and the flags. `all3.sh <table> <label>`
+bakes and shoots it, and `sheet3.py <table> <label> <prefix>` makes the
+sheets.
+
+| Modules | Setting | Pictures, today and the round |
+| --- | --- | --- |
+| `ebo_m12aa` | share 0.3, `--no-even --least 0.1 --most 0.4` | 19 and 32 |
+| `stunt_07` | share 0.35, `--no-even --least 0.1 --most 0.7` | 20 and 23 |
+| `sta_m45ab` | share 0.7, `--no-even --least 0.3 --most 2.0` | 25 and 38 |
+| `tar_m05aa` | share 0.7, `--no-even` | 21 and 28 |
+| `tat_m17ac` | share 0.75, `--no-even --most 2.0` | 37 and 62 |
+| The Korriban tombs of both games | share 0.85 or 0.9, `--fill-stored` | within 0.75 to 0.95 of today |
+| `kas_m22aa` | share 0.75, `--fill-stored` | 29 and 22 |
+| The other 26 dark modules | share 1.0, `--fill-stored` | most within 0.85 to 1.1 of today |
+
+`summary-b3.tsv`, `summary-b4.tsv` and `summary-b5.tsv` in the batch's
+folder hold every module's numbers.
+
+Open after this round.
+
+- `tat_m17ac` did not change. The owner called it "a bit flat". Its
+  brightness comes from its large striped lamps, and neither the share nor
+  the most scale moved it.
+- `305nar` (25 against 37), `manm26ad` (42 against 61) and `903mal` (20
+  against 27) stay darker than today with the fill.
+- The swoop bike in the racing areas (`371nar`, `211tel`) is very dark
+  under the baked mode. The owner said on 20 November 2026 that it "should
+  be illuminated by some lights along the track or something". The bake
+  does not light the bike. A model takes the room's light from the light
+  probes, which stand over walkable floor, and a race track has none. The
+  baked mode then gave the bike half of the area's ambient and lamps. Now
+  a model that no probe is near keeps all of it, as it does today
+  (`odyssey.wgsl`). The bike is as bright as today on both tracks
+  (`target/light-kinds/batch/swoop.png`). It is not brighter than today,
+  and the track's baked light does not reach it. That would need probes
+  over a track's floor. The owner has not seen the result.
+
+The owner said "Yes, write them" to the settings on 20 November 2026. They
+are in `data/lights/bake.toml` as `fill`, `most` and `least`, and `bake.sh`
+passes them on. `bake.sh` gave `902mal` and `ebo_m12aa` the same lightmaps
+as the batch, to the last pixel. `tat_m17ac` has no entry.
+
+## The fill comes from the player's files
+
+The owner asked on 21 November 2026: "do we need to hold bioware lightmap
+pixels? or could we load them from the game files instead in a smart way".
+He said "yes" to building it.
+
+- `detail-bake --fill-stored` now writes a filled room's lightmaps with
+  its lamps alone. It writes `fill.txt` into set `b`, with one line for
+  each lightmap of such a room: its name and a number.
+- The game reads `fill.txt` from the `KJK_DETAIL_BAKE` folder. When it
+  loads a baked lightmap that the file names, it adds the stored
+  lightmap's linear light times the number (`add_stored_fill` in
+  `crates/game/src/viewer.rs`). It undoes the bake's easing first and
+  eases the sum again, so the result is the mixed bake's apart from
+  rounding.
+- `902mal` and `107per` were baked this way as `bake/t2` and shot. Against
+  the mixed bake `bake/b3` the pictures differ by 0.6 to 1.9 of 255 on
+  average. The rooms' surfaces are the same. Thin lines differ at the
+  seams between a lightmap's patches, where the mixed bake had black
+  beyond its filled rings and the new one has the stored light.
+- The batch's bakes `b3` of the other 33 filled modules are still the
+  mixed kind. `bake.sh` makes the new kind.
+- The six approved areas baked the same as before with this build, to the
+  last pixel (`g15`, `h8` and `a12` against `g12`, `h5` and `a8`).
+- A bake sometimes dies without a message. Anchorhead's second bake ended
+  with exit code 127 four times on 21 November 2026 and passed on the
+  fifth, with the same command. `101per` failed once the same way. The
+  first batch had this too, on `202tel` and `209tel`. The cause is not
+  found. A bake that fails so is worth one more try.

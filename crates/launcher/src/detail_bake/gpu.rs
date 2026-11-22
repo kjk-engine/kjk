@@ -166,6 +166,12 @@ pub(crate) struct GpuOptions {
     /// `B_LEAST`. A ship's dark rooms have lamps that are too bright at
     /// half their strength.
     pub least: Option<f32>,
+    /// The most a room's lamps are scaled by in `b`, where it is not
+    /// `B_MOST`. A room's level counts its bright texels most, and where
+    /// its lamps do not reach those, the most scale lights the rest of the
+    /// room far above today. The Ebon Hawk's hold came out at 70 against
+    /// today's 19 so.
+    pub most: Option<f32>,
     /// A room's level is its level where the game lights it today: each
     /// texel counts by its stored level, in the room's target and in what
     /// the lamps are scaled to. A bake that reaches a room's plain mean is
@@ -1204,7 +1210,10 @@ pub(super) fn bake_lights(
     // `b`: the lamps alone. It reads nothing of the stored lightmaps' texels.
     let lamps_alone: Vec<Vec3> = (0..count).map(|i| direct_light[i] + bounce_b[i]).collect();
     let nothing = vec![Vec3::ZERO; count];
-    let (rooms_b, shown_b) = if options.old {
+    // `written_b` is what set `b` holds on disk, and `fills_b` is how much
+    // of its stored light each room takes when the game loads it
+    // (`GpuOptions::fill_stored`).
+    let (rooms_b, shown_b, written_b, fills_b) = if options.old {
         // The CPU bake's way: one scale for the area, so that its mean is
         // `a`'s.
         let mean_a = mean(&|i| shown_a[i]);
@@ -1231,7 +1240,7 @@ pub(super) fn bake_lights(
             &stored_level,
         );
         let shown: Vec<Vec3> = lamps_scaled.iter().map(|l| stored_level(*l)).collect();
-        (rooms, shown)
+        (rooms, shown.clone(), shown, std::collections::BTreeMap::new())
     } else {
         // Each room's target is the live formula without its stored half:
         // the room's mean level of the lights alone, without shadows. One
@@ -1244,6 +1253,7 @@ pub(super) fn bake_lights(
         let factor = B_MEAN / mean(&|i| stored_level(unshadowed[i])).max(1e-6);
         let stated = read_levels(options.levels.as_deref())?;
         let room_of = |texels: &[usize]| texels.first().map(|&i| room_name(&maps[points[i].map]));
+        let b_most = options.most.unwrap_or(B_MOST);
         let rooms = room_levels(
             &maps,
             &points,
@@ -1256,7 +1266,7 @@ pub(super) fn bake_lights(
                     .and_then(|room| stated.get(&room).copied())
                     .unwrap_or_else(|| without_stored(texels) * factor)
             },
-            Some((options.least.unwrap_or(B_LEAST), B_MOST)),
+            Some((options.least.unwrap_or(B_LEAST), b_most)),
             &eased_level,
         );
         // A room whose lamps do not reach its level at the most scale takes
@@ -1274,13 +1284,15 @@ pub(super) fn bake_lights(
         // everywhere, or the room's stored light with a mean of 1 over the
         // room (`GpuOptions::fill_stored`).
         let mut pattern = vec![Vec3::ONE; count];
+        let mut pattern_mean: HashMap<String, f32> = HashMap::new();
         if options.fill_stored {
-            for texels in texels_of_room.values() {
+            for (room, texels) in &texels_of_room {
                 let stored: Vec<Vec3> = (texels.iter())
                     .map(|&i| stored_at(&points[i]).powf(GAMMA))
                     .collect();
                 let mean = stored.iter().map(|s| luma(*s)).sum::<f32>() / texels.len() as f32;
                 if mean > 1e-6 {
+                    pattern_mean.insert(room.clone(), mean);
                     for (&i, s) in texels.iter().zip(&stored) {
                         pattern[i] = *s / mean;
                     }
@@ -1290,7 +1302,7 @@ pub(super) fn bake_lights(
         let fill_most = if options.fill_stored { 4.0f32 } else { 1.0 };
         let mut even_of_room: HashMap<String, (f32, f32)> = HashMap::new();
         for room in &rooms.rooms {
-            if options.no_even || room.scale < B_MOST || room.after >= room.target {
+            if options.no_even || room.scale < b_most || room.after >= room.target {
                 continue;
             }
             let (mut low, mut high) = (0.0f32, 1.0f32);
@@ -1315,7 +1327,7 @@ pub(super) fn bake_lights(
                     .sum::<f32>()
                     / weight
             };
-            let (mut low, mut high) = (0.0f32, B_MOST);
+            let (mut low, mut high) = (0.0f32, b_most);
             for _ in 0..30 {
                 let middle = 0.5 * (low + high);
                 if mean_of(fill, middle) < room.target {
@@ -1360,7 +1372,31 @@ pub(super) fn bake_lights(
                 eased_level(sun_light[i] + lamps_alone[i] * scale + pattern[i] * fill)
             })
             .collect();
-        (rooms, shown)
+        // The files hold nothing of the stored lightmaps. A room's fill
+        // from its stored light is one number in `fill.txt`, and the game
+        // adds the stored light of the player's own files when it loads
+        // the lightmap (`detail_baked` in `crates/game/src/viewer.rs`).
+        // The owner asked on 21 November 2026: "do we need to hold bioware
+        // lightmap pixels? or could we load them from the game files
+        // instead".
+        let mut fills: std::collections::BTreeMap<String, f32> = Default::default();
+        for (room, (fill, _)) in &even_of_room {
+            if let Some(mean) = pattern_mean.get(room) {
+                fills.insert(room.clone(), fill / mean);
+            }
+        }
+        let written: Vec<Vec3> = (0..count)
+            .map(|i| {
+                let map = points[i].map;
+                if fills.contains_key(&room_name(&maps[map])) {
+                    let scale = even[map].map_or(rooms.scale[map], |(_, scale)| scale);
+                    eased_level(sun_light[i] + lamps_alone[i] * scale)
+                } else {
+                    shown[i]
+                }
+            })
+            .collect();
+        (rooms, shown, written, fills)
     };
     lap("levels".into(), &mut times);
 
@@ -1371,9 +1407,22 @@ pub(super) fn bake_lights(
         &counts,
         &unwalked,
         folder,
-        &[("a", &shown_a[..], true), ("b", &shown_b[..], false)],
+        &[("a", &shown_a[..], true), ("b", &written_b[..], false)],
         sunlit.as_deref(),
     )?;
+    if !fills_b.is_empty() {
+        let mut text = String::from(
+            "# How much of its stored light each lightmap takes when the game loads it:\n\
+             # the lightmap's name and the number its stored linear light is times.\n",
+        );
+        for map in &maps {
+            if let Some(fill) = fills_b.get(&room_name(map)) {
+                let _ = writeln!(text, "{} {fill:.6}", map.name);
+            }
+        }
+        let path = folder.join("b").join("fill.txt");
+        std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
     lap("pictures".into(), &mut times);
 
     // The report.
