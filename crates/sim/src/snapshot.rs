@@ -1585,6 +1585,23 @@ impl Snapshot {
         SnapshotHash(*blake3::hash(&self.encode_state()).as_bytes())
     }
 
+    /// The screen as a loaded game shows it: a covering fade lifts over
+    /// `LIFT_MS`, as it does when a module has loaded, and no fade in waits
+    /// for a conversation any more. The games keep neither in a save. The
+    /// fade lives in the game's screen, and when a save has loaded, the
+    /// game fades the area in unless a conversation holds the fade.
+    /// `HoldWorldFadeInForDialog`'s hold is the screen's too, so a save
+    /// made on a black screen loads showing the area (issue 645). A fade
+    /// that a script locked (`SetFadeUntilScript`) stays, and a
+    /// conversation under way keeps the fades its lines set.
+    pub fn fade_in_as_loaded(&mut self) {
+        if !self.talk.conversations.is_empty() {
+            return;
+        }
+        self.fade = self.fade.map(|fade| fade.lifted(self.time_ms));
+        self.world_fade_in = WorldFadeIn::Done;
+    }
+
     /// Fits a snapshot made with the sets `was` to the sets `now`. A
     /// fighter's set keeps its meaning where `now` has a set of the same
     /// digest, and becomes 0 elsewhere. The set of the same name and digest

@@ -2489,6 +2489,15 @@ impl Out {
             self.world_fade_in = Some(WorldFadeIn::Done);
         }
     }
+
+    /// A conversation is started, whatever it then shows: the module's
+    /// fade in held for it (`HoldWorldFadeInForDialog`) goes on, and the
+    /// covering fade lifts. Without a hold nothing changes.
+    pub(super) fn release_held_fade(&mut self, view: &View) {
+        if self.world_fade_in(view) == crate::snapshot::WorldFadeIn::AtDialog {
+            self.lift_fade(view);
+        }
+    }
 }
 
 /// An object a script made (`CreateObject`, `SpawnAvailableNPC`): its id,

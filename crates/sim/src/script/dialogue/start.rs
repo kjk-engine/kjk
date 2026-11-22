@@ -74,6 +74,13 @@ impl Step<'_> {
                     && self.holds(link, id, start.owner, start.pc)
             })
             .map(|link| link.index);
+        // The module's fade in held for a conversation goes on whether this
+        // one shows a line, speaks one over the scene or has nothing to say:
+        // the games let go of the hold as a conversation is started, not
+        // only once its first line shows. The Ebon Hawk's vision talk after
+        // the last Star Map holds it for a conversation with no line left
+        // to say (issue 645).
+        self.out.release_held_fade(self.view);
         let Some(entry) = first else {
             // Nothing to say: it ends where it starts, as a normal end the
             // whole area hears [verify: that K1's exe runs the end scripts
