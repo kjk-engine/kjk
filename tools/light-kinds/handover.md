@@ -20,7 +20,7 @@ The owner looked at round r1 and gave notes. Round r2 acts on them. The owner as
 
 ### Open
 
-- **tar_m03aa's square shadows.** The owner's "Telos tile one" is read as this module. The floor's tiles each have their own small patch in the lightmap, with texels 0.75 to 0.9 metres apart near the fire. The fire's and the lamps' light step from tile to tile. The bake has no finer lightmap to write.
+- **tar_m03aa's square shadows are fixed** (after the commit, not yet committed). The cause was the bake's smoothing of bounced light and of shadow shares. It gathered a texel's neighbours in its lightmap, and the walkway's floor tiles each have their own small patch, so every tile took one level and the tiles met at hard straight edges. Finer texels and a softer fire changed nothing. The smoothing now gathers neighbours by their place in the area, across patches and lightmaps (`Places` in `gpu.rs`), within `PLACE_REACH` (1 m). The owner's "Telos tile one" is read as this module. The fires (`plc_burnjunk`, `plc_firepit2`) now reach 7 m at strength 0.15, which the owner kept. `KJK_BAKE_TEXEL` bakes coarse lightmaps finer, and nothing uses it. The enclave's 17 views moved by at most 2 in mean brightness with the new smoothing.
 - **stunt_18** is lit by its floor and is still half as bright as the original.
 - **Characters and placeables** do not follow their room's light under the bake. The owner moved it elsewhere: `handover-models.md`.
 - **tat_m20aa** is brighter than today (39 against 23 at the report's camera), as the bake the owner walked was.

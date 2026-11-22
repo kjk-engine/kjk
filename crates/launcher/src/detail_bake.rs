@@ -56,6 +56,27 @@ pub(crate) use gpu::{GpuOptions, Sun};
 
 /// How many new texels lie along one stored texel's side.
 const SCALE: usize = 4;
+/// The most new texels to a stored texel's side, and the longest side of a
+/// lightmap the bake writes, under `KJK_BAKE_TEXEL`.
+const SCALE_MOST: usize = 32;
+const SIDE_MOST: usize = 2048;
+
+/// The new texels to a stored texel's side for a lightmap whose stored
+/// texel covers `metres` of its surfaces, under `KJK_BAKE_TEXEL`: the
+/// longest new texel it asks for, in metres. A coarse lightmap gets more,
+/// so a lamp's pool keeps its shape. The floor of tar_m03aa has a stored
+/// texel about 3 metres across, and a fire's pool showed as hard squares
+/// (22 November 2026). Without the variable every lightmap takes `SCALE`.
+fn scale_for(metres: f32, side: usize) -> usize {
+    let Some(target) = std::env::var("KJK_BAKE_TEXEL").ok().and_then(|v| v.parse::<f32>().ok()) else {
+        return SCALE;
+    };
+    let mut scale = SCALE;
+    while scale < SCALE_MOST && metres / scale as f32 > target && side * scale * 2 <= SIDE_MOST {
+        scale *= 2;
+    }
+    scale
+}
 /// How far outside its triangle (in new texels) a texel still belongs to
 /// it. The sampler reads the four texels around a point, so a point on a
 /// triangle's edge reads texels whose centres lie up to one texel outside.
@@ -234,6 +255,9 @@ struct Stored {
     clamp: bool,
     /// How many levels the stored texture has.
     levels: usize,
+    /// How many new texels the bake writes to each side of a stored texel
+    /// (`SCALE`, or more under `KJK_BAKE_TEXEL`).
+    scale: usize,
 }
 
 impl Stored {
@@ -297,6 +321,7 @@ fn read_stored(resolver: &Resolver, name: &str) -> Option<Stored> {
         texels,
         clamp: texture.facts.clamp,
         levels: texture.mips.len(),
+        scale: SCALE,
     })
 }
 
@@ -557,6 +582,10 @@ fn texels(
     let mut maps: Vec<Stored> = Vec::new();
     let mut map_of: BTreeMap<String, Option<usize>> = BTreeMap::new();
     let mut claims: Vec<Vec<Option<Claim>>> = Vec::new();
+    // Each lightmap's surface in square metres and in stored texels, and the
+    // triangles to give texels once its scale is known.
+    let mut densities: Vec<(f32, f32)> = Vec::new();
+    let mut pending: Vec<(usize, [Vec3; 3], [[f32; 2]; 3], Option<[Vec3; 3]>)> = Vec::new();
     let mut surfaces: Vec<Surface> = Vec::new();
     let mut facts: Vec<Facts> = Vec::new();
     let mut names: Vec<String> = Vec::new();
@@ -619,7 +648,8 @@ fn texels(
                 Some(name) if mesh.uv2.len() == mesh.positions.len() => {
                     *map_of.entry(name.to_ascii_lowercase()).or_insert_with(|| {
                         let stored = read_stored(resolver, name)?;
-                        claims.push(vec![None; stored.width * stored.height * SCALE * SCALE]);
+                        claims.push(Vec::new());
+                        densities.push((0.0, 0.0));
                         maps.push(stored);
                         Some(maps.len() - 1)
                     })
@@ -672,15 +702,34 @@ fn texels(
                 let corner_normals = normals
                     .as_ref()
                     .map(|normals| [a, b, c].map(|i| normals[i as usize]));
-                claim_triangle(
-                    &mut claims[map],
-                    (stored.width * SCALE, stored.height * SCALE),
-                    [pa, pb, pc],
-                    [a, b, c].map(|i| mesh.uv2[i as usize]),
-                    corner_normals,
-                );
+                let uv: [[f32; 2]; 3] = [a, b, c].map(|i| mesh.uv2[i as usize]);
+                let twice = (uv[1][0] - uv[0][0]) * (uv[2][1] - uv[0][1])
+                    - (uv[2][0] - uv[0][0]) * (uv[1][1] - uv[0][1]);
+                let density = &mut densities[map];
+                density.0 += (pb - pa).cross(pc - pa).length();
+                density.1 += twice.abs() * (stored.width * stored.height) as f32;
+                pending.push((map, [pa, pb, pc], uv, corner_normals));
             }
         }
+    }
+    // Each lightmap's scale, from how many metres its stored texel covers
+    // (`scale_for`), and then its triangles' texels.
+    for (map, stored) in maps.iter_mut().enumerate() {
+        let (world, texels) = densities.get(map).copied().unwrap_or((0.0, 0.0));
+        let metres = if texels > 0.0 { (world / texels).sqrt() } else { 0.0 };
+        stored.scale = scale_for(metres, stored.width.max(stored.height));
+        claims[map] = vec![None; stored.width * stored.height * stored.scale * stored.scale];
+    }
+    for (map, corners, uv, normals) in pending {
+        let stored = &maps[map];
+        claim_triangle(
+            &mut claims[map],
+            (stored.width * stored.scale, stored.height * stored.scale),
+            stored.scale,
+            corners,
+            uv,
+            normals,
+        );
     }
     let grass = grass_texels(resolver, area, objects, walkable, &mut maps, &mut map_of, &mut claims);
     if maps.is_empty() {
@@ -708,6 +757,7 @@ fn texels(
 fn claim_triangle(
     claims: &mut [Option<Claim>],
     (w, h): (usize, usize),
+    scale: usize,
     corners: [Vec3; 3],
     uv2: [[f32; 2]; 3],
     normals: Option<[Vec3; 3]>,
@@ -734,7 +784,7 @@ fn claim_triangle(
     let middle = (pa + pb + pc) / 3.0;
     // A stored texel's side on this triangle: the triangle's area in the
     // room over its area on the stored lightmap.
-    let size = (front.length() / (twice.abs() / (SCALE * SCALE) as f32)).sqrt();
+    let size = (front.length() / (twice.abs() / (scale * scale) as f32)).sqrt();
     let rows = (low(1) - 0.5 - FOOTPRINT).ceil() as i64..=(high(1) - 0.5 + FOOTPRINT).floor() as i64;
     for y in rows {
         let columns =
@@ -837,13 +887,13 @@ fn grass_texels(
         };
         let Some(map) = *map_of.entry(name.to_ascii_lowercase()).or_insert_with(|| {
             let stored = read_stored(resolver, name)?;
-            claims.push(vec![None; stored.width * stored.height * SCALE * SCALE]);
+            claims.push(vec![None; stored.width * stored.height * stored.scale * stored.scale]);
             maps.push(stored);
             Some(maps.len() - 1)
         }) else {
             continue;
         };
-        let size = (maps[map].width * SCALE, maps[map].height * SCALE);
+        let size = (maps[map].width * maps[map].scale, maps[map].height * maps[map].scale);
         let theirs = under.entry(map).or_insert_with(|| vec![None; size.0 * size.1]);
         for face in &faces.faces {
             let mut corners = face
@@ -857,7 +907,7 @@ fn grass_texels(
                 uv2.swap(1, 2);
             }
             let up = (corners[1] - corners[0]).cross(corners[2] - corners[0]).normalize_or_zero();
-            claim_triangle(theirs, size, corners.map(|corner| corner + up * GRASS_LIFT), uv2, None);
+            claim_triangle(theirs, size, maps[map].scale, corners.map(|corner| corner + up * GRASS_LIFT), uv2, None);
         }
     }
     let mut taken = 0;
@@ -1056,10 +1106,10 @@ fn bake_points(
     let near_lamp: Vec<f32> = if lights.is_some() {
         let stored_luma = |point: &Point| {
             let map = &maps[point.map];
-            let w = map.width * SCALE;
+            let w = map.width * map.scale;
             let uv = Vec2::new(
                 ((point.texel % w) as f32 + 0.5) / w as f32,
-                ((point.texel / w) as f32 + 0.5) / (map.height * SCALE) as f32,
+                ((point.texel / w) as f32 + 0.5) / (map.height * map.scale) as f32,
             );
             let [r, g, b, _] = map.sample(uv);
             0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -1097,13 +1147,13 @@ fn bake_points(
 
     // The new lightmaps.
     let mut of_map: Vec<Vec<Option<u32>>> = (maps.iter())
-        .map(|map| vec![None; map.width * map.height * SCALE * SCALE])
+        .map(|map| vec![None; map.width * map.height * map.scale * map.scale])
         .collect();
     for (index, point) in points.iter().enumerate() {
         of_map[point.map][point.texel] = Some(index as u32);
     }
     for (map, texels) in maps.iter().zip(&of_map) {
-        let (w, h) = (map.width * SCALE, map.height * SCALE);
+        let (w, h) = (map.width * map.scale, map.height * map.scale);
         let mut picture = image::RgbaImage::new(w as u32, h as u32);
         let mut grey = image::RgbImage::from_pixel(w as u32, h as u32, image::Rgb([48, 48, 96]));
         let mut relit = image::RgbaImage::new(w as u32, h as u32);
@@ -1565,7 +1615,7 @@ fn fill(field: &mut [Option<Vec3>], w: usize, h: usize) {
 /// and filled in around.
 fn field_of(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3]) -> Field {
     let mut field: Field = (maps.iter())
-        .map(|map| vec![None; map.width * map.height * SCALE * SCALE])
+        .map(|map| vec![None; map.width * map.height * map.scale * map.scale])
         .collect();
     for (index, point) in points.iter().enumerate() {
         if counts[index] {
@@ -1573,7 +1623,7 @@ fn field_of(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3])
         }
     }
     for (map, values) in maps.iter().zip(&mut field) {
-        fill(values, map.width * SCALE, map.height * SCALE);
+        fill(values, map.width * map.scale, map.height * map.scale);
     }
     field
 }
@@ -1584,7 +1634,7 @@ fn field_at(maps: &[Stored], field: &Field, fact: &Facts, (u, v): (f32, f32)) ->
     let map = fact.map?;
     let stored = &maps[map];
     let uv = fact.uv[0] * (1.0 - u - v) + fact.uv[1] * u + fact.uv[2] * v;
-    let (w, h) = ((stored.width * SCALE) as i64, (stored.height * SCALE) as i64);
+    let (w, h) = ((stored.width * stored.scale) as i64, (stored.height * stored.scale) as i64);
     let (x, y) = (
         (uv.x * w as f32).floor() as i64,
         (uv.y * h as f32).floor() as i64,
@@ -1718,10 +1768,10 @@ fn bake_lights(
     // Each texel's stored lightmap, read between texels as the GPU reads it.
     let stored_at = |point: &Point| {
         let map = &maps[point.map];
-        let w = map.width * SCALE;
+        let w = map.width * map.scale;
         let uv = Vec2::new(
             ((point.texel % w) as f32 + 0.5) / w as f32,
-            ((point.texel / w) as f32 + 0.5) / (map.height * SCALE) as f32,
+            ((point.texel / w) as f32 + 0.5) / (map.height * map.scale) as f32,
         );
         let [r, g, b, _] = map.sample(uv);
         Vec3::new(r, g, b)
@@ -1872,7 +1922,7 @@ fn write_sets(
         std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
         let field = field_of(maps, points, counts, shown);
         for (number, (map, values)) in maps.iter().zip(&field).enumerate() {
-            let (w, h) = (map.width * SCALE, map.height * SCALE);
+            let (w, h) = (map.width * map.scale, map.height * map.scale);
             let mut picture = image::RgbaImage::new(w as u32, h as u32);
             for y in 0..h {
                 for x in 0..w {

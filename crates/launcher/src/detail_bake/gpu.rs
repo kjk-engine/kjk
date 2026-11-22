@@ -31,7 +31,7 @@ use vfs::resolver::Resolver;
 use wgpu::util::DeviceExt as _;
 
 use super::{
-    FAR_LIGHT, Field, Fitted, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SCALE, SHORT, Stored, Texels,
+    FAR_LIGHT, Field, Fitted, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SHORT, Stored, Texels,
     WALL_RAYS, bounds, direct, directions, field_of, points, stored_level, texels, write_sets,
 };
 use crate::light_probes::Level;
@@ -552,7 +552,7 @@ pub(super) fn bake_lights(
             at: point.at,
             normal: point.normal,
             shading: point.shading,
-            side: point.size / SCALE as f32,
+            side: point.size / maps[point.map].scale as f32,
         })
         .collect();
     places.extend(surfaces.iter().zip(&facts).map(|(surface, fact)| {
@@ -618,7 +618,7 @@ pub(super) fn bake_lights(
     let mut map_words: Vec<u32> = Vec::new();
     let mut field_size = 0usize;
     for map in &maps {
-        let (w, h) = (map.width * SCALE, map.height * SCALE);
+        let (w, h) = (map.width * map.scale, map.height * map.scale);
         map_words.extend([field_size as u32, w as u32, h as u32, u32::from(map.clamp)]);
         field_size += w * h;
     }
@@ -1107,10 +1107,10 @@ pub(super) fn bake_lights(
     // Each texel's stored lightmap, read between texels as the GPU reads it.
     let stored_at = |point: &Point| {
         let map = &maps[point.map];
-        let w = map.width * SCALE;
+        let w = map.width * map.scale;
         let uv = bevy::math::Vec2::new(
             ((point.texel % w) as f32 + 0.5) / w as f32,
-            ((point.texel / w) as f32 + 0.5) / (map.height * SCALE) as f32,
+            ((point.texel / w) as f32 + 0.5) / (map.height * map.scale) as f32,
         );
         let [r, g, b, _] = map.sample(uv);
         Vec3::new(r, g, b)
@@ -1636,8 +1636,9 @@ fn luma(c: Vec3) -> f32 {
 }
 
 /// Smooths the share of the lights each texel sees over its neighbours on
-/// the same surface, `SMOOTH_RINGS` texels around it in its lightmap. A
-/// neighbour counts when it faces the same way and lies on the same plane.
+/// the same surface, as far as `SMOOTH_RINGS` texels around it
+/// (`Places::mean`). A neighbour counts when it faces the same way and lies
+/// on the same plane.
 /// The light without shadows is kept as it is, so a pool of light keeps its
 /// shape and only a shadow's edge is softened. `shadowed` and `open` hold
 /// the texels first; the triangles' middles after them are left alone.
@@ -1648,14 +1649,7 @@ fn smooth_shadows(
     shadowed: &mut [Vec3],
     open: &[Vec3],
 ) {
-    let mut of_map: Vec<Vec<Option<u32>>> = (maps.iter())
-        .map(|map| vec![None; map.width * map.height * SCALE * SCALE])
-        .collect();
-    for (index, point) in points.iter().enumerate() {
-        if counts[index] {
-            of_map[point.map][point.texel] = Some(index as u32);
-        }
-    }
+    let places = Places::new(points, counts);
     let share = |i: usize| -> Vec3 {
         let o = open[i];
         let s = shadowed[i];
@@ -1666,43 +1660,13 @@ fn smooth_shadows(
         )
     };
     let smoothed: Vec<Vec3> = super::parallel(points.len(), |index| {
-        let point = &points[index];
         if !counts[index] {
             return shadowed[index];
         }
-        let map = &maps[point.map];
-        let (w, h) = ((map.width * SCALE) as i64, (map.height * SCALE) as i64);
-        let (x, y) = ((point.texel as i64) % w, (point.texel as i64) / w);
-        // The plane must agree to within half a texel's side.
-        let near = (point.size / SCALE as f32 * 0.5).max(0.01);
-        let mut sum = Vec3::ZERO;
-        let mut total = 0.0f32;
-        for dy in -SMOOTH_RINGS..=SMOOTH_RINGS {
-            for dx in -SMOOTH_RINGS..=SMOOTH_RINGS {
-                let (nx, ny) = (x + dx, y + dy);
-                if nx < 0 || ny < 0 || nx >= w || ny >= h {
-                    continue;
-                }
-                let Some(other) = of_map[point.map][(ny * w + nx) as usize] else {
-                    continue;
-                };
-                let other = other as usize;
-                let them = &points[other];
-                if them.normal.dot(point.normal) < 0.9
-                    || (them.at - point.at).dot(point.normal).abs() > near
-                {
-                    continue;
-                }
-                let d2 = (dx * dx + dy * dy) as f32;
-                let weight = (-d2 / (SMOOTH_RINGS * SMOOTH_RINGS) as f32).exp();
-                sum += share(other) * weight;
-                total += weight;
-            }
+        match places.mean(maps, points, index, SMOOTH_RINGS, &share) {
+            Some(mean) => open[index] * mean,
+            None => shadowed[index],
         }
-        if total <= 0.0 {
-            return shadowed[index];
-        }
-        open[index] * (sum / total)
     });
     shadowed[..points.len()].copy_from_slice(&smoothed);
 }
@@ -1752,7 +1716,7 @@ fn debug_pictures(
         "# lightmap, stored texel side in metres (median), texels counted, inside a wall, off the triangle, normal away, unlit\n",
     );
     for (number, map) in maps.iter().enumerate() {
-        let (w, h) = (map.width * SCALE, map.height * SCALE);
+        let (w, h) = (map.width * map.scale, map.height * map.scale);
         let mut picture = image::RgbImage::new((3 * w) as u32, h as u32);
         let mut sizes = Vec::new();
         let mut tally = [0usize; 5];
@@ -1954,7 +1918,7 @@ fn probe(
         let read = fact.map.map(|map| {
             let stored = &maps[map];
             let uv = fact.uv[0] * (1.0 - u - v) + fact.uv[1] * u + fact.uv[2] * v;
-            let (w, h) = ((stored.width * SCALE) as i64, (stored.height * SCALE) as i64);
+            let (w, h) = ((stored.width * stored.scale) as i64, (stored.height * stored.scale) as i64);
             let x = ((uv.x * w as f32).floor() as i64).rem_euclid(w);
             let y = ((uv.y * h as f32).floor() as i64).rem_euclid(h);
             (map, (y * w + x) as usize)
@@ -2268,49 +2232,85 @@ fn lamps(
 }
 
 /// The values of the texels, each the mean of its neighbours on the same
-/// surface within `BOUNCE_RINGS` texels in its lightmap, weighted to fall
-/// off with distance.
+/// surface as far as `BOUNCE_RINGS` texels around it (`Places::mean`),
+/// weighted to fall off with distance.
 fn smooth_values(maps: &[Stored], points: &[Point], counts: &[bool], values: &[Vec3]) -> Vec<Vec3> {
-    let mut of_map: Vec<Vec<Option<u32>>> = (maps.iter())
-        .map(|map| vec![None; map.width * map.height * SCALE * SCALE])
-        .collect();
-    for (index, point) in points.iter().enumerate() {
-        if counts[index] {
-            of_map[point.map][point.texel] = Some(index as u32);
-        }
-    }
+    let places = Places::new(points, counts);
     super::parallel(points.len(), |index| {
-        let point = &points[index];
         if !counts[index] {
             return values[index];
         }
+        places
+            .mean(maps, points, index, BOUNCE_RINGS, &|other| values[other])
+            .unwrap_or(values[index])
+    })
+}
+
+/// The texels that count, by their place in the area, so a smoothing can
+/// gather a texel's neighbours on the same surface across the patches of
+/// its lightmap and across lightmaps (`Places::mean`). Smoothed by their
+/// neighbours in the lightmap, the walkway of tar_m03aa, whose floor tiles
+/// each have their own small patch, took one level of bounced light for
+/// each tile, and the tiles met at hard straight edges (22 November 2026).
+struct Places {
+    cells: HashMap<IVec3, Vec<u32>>,
+}
+
+/// The side of a cell of `Places` (metres).
+const PLACE_CELL: f32 = 0.5;
+/// The widest a smoothing reaches (metres).
+const PLACE_REACH: f32 = 1.0;
+
+impl Places {
+    fn new(points: &[Point], counts: &[bool]) -> Places {
+        let mut cells: HashMap<IVec3, Vec<u32>> = HashMap::new();
+        for (index, point) in points.iter().enumerate().filter(|(i, _)| counts[*i]) {
+            let cell = (point.at / PLACE_CELL).floor().as_ivec3();
+            cells.entry(cell).or_default().push(index as u32);
+        }
+        Places { cells }
+    }
+
+    /// The mean of `value` over the texels near texel `index` that face the
+    /// same way and lie on its plane, each weighted by its distance. The
+    /// width is `rings` texels at the bake's usual 4 to a stored texel, as
+    /// the smoothing in the lightmap had, and at most `PLACE_REACH`.
+    fn mean(
+        &self,
+        maps: &[Stored],
+        points: &[Point],
+        index: usize,
+        rings: i64,
+        value: &dyn Fn(usize) -> Vec3,
+    ) -> Option<Vec3> {
+        let point = &points[index];
         let map = &maps[point.map];
-        let (w, h) = ((map.width * SCALE) as i64, (map.height * SCALE) as i64);
-        let (x, y) = ((point.texel as i64) % w, (point.texel as i64) / w);
-        let near = (point.size / SCALE as f32 * 0.5).max(0.01);
+        let near = (point.size / map.scale as f32 * 0.5).max(0.01);
+        let reach = (rings as f32 * point.size / 4.0).clamp(1e-3, PLACE_REACH);
+        let low = ((point.at - Vec3::splat(reach)) / PLACE_CELL).floor().as_ivec3();
+        let high = ((point.at + Vec3::splat(reach)) / PLACE_CELL).floor().as_ivec3();
         let mut sum = Vec3::ZERO;
         let mut total = 0.0f32;
-        for dy in -BOUNCE_RINGS..=BOUNCE_RINGS {
-            for dx in -BOUNCE_RINGS..=BOUNCE_RINGS {
-                let (nx, ny) = (x + dx, y + dy);
-                if nx < 0 || ny < 0 || nx >= w || ny >= h {
-                    continue;
+        for x in low.x..=high.x {
+            for y in low.y..=high.y {
+                for z in low.z..=high.z {
+                    for &other in self.cells.get(&IVec3::new(x, y, z)).into_iter().flatten() {
+                        let them = &points[other as usize];
+                        let way = them.at - point.at;
+                        let d2 = way.length_squared();
+                        if d2 > reach * reach
+                            || them.normal.dot(point.normal) < 0.9
+                            || way.dot(point.normal).abs() > near
+                        {
+                            continue;
+                        }
+                        let weight = (-d2 / (reach * reach)).exp();
+                        sum += value(other as usize) * weight;
+                        total += weight;
+                    }
                 }
-                let Some(other) = of_map[point.map][(ny * w + nx) as usize] else {
-                    continue;
-                };
-                let them = &points[other as usize];
-                if them.normal.dot(point.normal) < 0.9
-                    || (them.at - point.at).dot(point.normal).abs() > near
-                {
-                    continue;
-                }
-                let d2 = (dx * dx + dy * dy) as f32;
-                let weight = (-d2 / (BOUNCE_RINGS * BOUNCE_RINGS) as f32).exp();
-                sum += values[other as usize] * weight;
-                total += weight;
             }
         }
-        if total > 0.0 { sum / total } else { values[index] }
-    })
+        (total > 0.0).then(|| sum / total)
+    }
 }
