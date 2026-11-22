@@ -40,8 +40,18 @@ pub struct Active {
     pub bakes: std::collections::BTreeMap<String, std::path::PathBuf>,
     /// What could not be read: a prop whose model Jedi Academy's archives
     /// lack, or whose model does not parse. Such a prop is neither drawn
-    /// nor solid.
+    /// nor solid. For mods, also what two of them both change.
     pub notes: Vec<String>,
+    /// The quests the mods bring (`mods::journal_file`), each mod's
+    /// journal. A project's own quests are in its copy of the game's
+    /// journal, so it has none here.
+    pub journals: Vec<fmt_odyssey::gff::Gff>,
+    /// What each mod says of itself (`mods::Manifest`).
+    pub mods: Vec<crate::mods::Manifest>,
+    /// A digest of what this changes of the world beyond the games' own
+    /// files, which two machines that play together compare: the mods'
+    /// kjk-only content and quests, or a project's digest.
+    pub world: Option<[u8; 32]>,
 }
 
 /// The run's active projects: the one `--project` names, or one for each
@@ -86,6 +96,27 @@ pub fn added(game: &str, module: &str) -> Option<&'static Added> {
         return Some(&active.added);
     }
     active.parked_added.get(&module.to_ascii_lowercase())
+}
+
+/// The game's journal `jrl` with the quests of `game`'s mods added
+/// (`journal::merge`). A game without a journal starts from an empty one.
+/// `None` when no mod brings a quest: the journal is then the game's own.
+pub fn merged_journal(
+    game: &str,
+    jrl: Option<fmt_odyssey::gff::Gff>,
+) -> Option<fmt_odyssey::gff::Gff> {
+    let active = of_game(game).filter(|active| !active.journals.is_empty())?;
+    let mut merged = jrl.unwrap_or_else(crate::journal::empty);
+    for journal in &active.journals {
+        crate::journal::merge(&mut merged, journal);
+    }
+    Some(merged)
+}
+
+/// What the active project or the mods of `game` change of the world
+/// beyond the games' own files (`Active::world`).
+pub fn world_digest(game: &str) -> Option<[u8; 32]> {
+    of_game(game)?.world
 }
 
 /// The active project's digest, for `game`'s `module`.
@@ -206,7 +237,8 @@ pub fn activate(discovery: &Discovery, folder: &Path) -> Result<&'static Active,
         })
         .collect();
     vfs::project::activate(game, folder)?;
-    let active = made(discovery, project, lighting, bakes, notes);
+    let mut active = made(discovery, project, lighting, bakes, notes);
+    active.world = Some(active.digest);
     ACTIVE
         .set(vec![active])
         .map_err(|_| "a project is already active".to_string())?;
@@ -269,13 +301,11 @@ pub fn activate_mods(discovery: &Discovery) -> &'static [Active] {
             continue;
         }
         let project = Project::of_mods(&folder, game.key(), found.levels);
-        actives.push(made(
-            discovery,
-            project,
-            found.lighting,
-            found.bakes,
-            found.notes,
-        ));
+        let mut active = made(discovery, project, found.lighting, found.bakes, found.notes);
+        active.journals = found.journals;
+        active.mods = found.mods;
+        active.world = found.world;
+        actives.push(active);
     }
     let _ = ACTIVE.set(actives);
     all()
@@ -321,6 +351,9 @@ fn made(
         lighting,
         bakes,
         notes,
+        journals: Vec::new(),
+        mods: Vec::new(),
+        world: None,
     }
 }
 
@@ -398,7 +431,7 @@ pub fn own_kinds(game: &str) -> Option<String> {
 pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]> {
     let active = of_module(module)?;
     let kjk = active.project.kjk_of(module)?;
-    (active.project.map.is_some() || kjk.own_lights).then_some(kjk.lights.as_slice())
+    (active.project.is_map(module) || kjk.own_lights).then_some(kjk.lights.as_slice())
 }
 
 /// The lamps placed by hand that the active project keeps for its level
@@ -407,5 +440,5 @@ pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]>
 pub fn map_lamps(module: &str) -> Option<&'static [crate::lamps::PlacedLamp]> {
     let active = of_module(module)?;
     let kjk = active.project.kjk_of(module)?;
-    (active.project.map.is_some() || kjk.own_lights).then_some(kjk.lamps.as_slice())
+    (active.project.is_map(module) || kjk.own_lights).then_some(kjk.lamps.as_slice())
 }

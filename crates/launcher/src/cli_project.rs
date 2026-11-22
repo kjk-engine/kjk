@@ -23,6 +23,16 @@ pub(crate) fn activate_mods() {
             active.lighting.kinds.len(),
             active.bakes.len()
         );
+        for found in &active.mods {
+            eprintln!(
+                "kjk mods in {}'s override: {} {}, {} files, {} quests",
+                active.project.game,
+                found.name,
+                found.version,
+                found.files.len(),
+                found.quests.len()
+            );
+        }
         for note in &active.notes {
             eprintln!("kjk mods in {}'s override: {note}", active.project.game);
         }

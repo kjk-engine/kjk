@@ -718,7 +718,7 @@ pub fn plan_with(
                 .with_placeables(placeables)
                 .with_waypoints(waypoints)
                 .with_stores(stores)
-                .with_quests(journal::quests(source))
+                .with_quests(journal::quests(source, &request.game))
                 .with_experience(journal::experience(source))
                 .with_classes(classes::classes(source))
                 .with_workshop(workshop::workshop(source));

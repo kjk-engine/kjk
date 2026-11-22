@@ -196,6 +196,7 @@ fn make_map(
     game: Game,
     module: &str,
     (base, title): (&str, &str),
+    into: Option<Project>,
 ) -> Result<Project, String> {
     let discovery = kjk_game::discover();
     let install = discovery
@@ -223,7 +224,14 @@ fn make_map(
             .map_err(|error| format!("{}.{restype}: {error}", area.resref))
     };
     let (are, git) = (gff(ResType::ARE)?, gff(ResType::GIT)?);
-    let project = Project::new_map(folder, game.key(), module, title, (base, are, &git))?;
+    // A project that has levels takes the map as a further one.
+    let project = match into {
+        Some(mut project) => {
+            project.add_map(module, title, (base, are, &git))?;
+            project
+        }
+        None => Project::new_map(folder, game.key(), module, title, (base, are, &git))?,
+    };
     project.save(&format!("kjk {}", kjk_game::GIT_SHA))?;
     project.save_module(&|_, _| None)?;
     Ok(project)
@@ -334,15 +342,20 @@ fn setup(
                 game.key()
             ));
         }
-        // A level the project does not edit yet is added to it, made from
-        // the install's area (a new map's project refuses it).
+        // A level the project does not edit yet is added to it: a new
+        // map when one is asked for, else made from the install's area.
         if !found.level_list().iter().any(|(level, _)| *level == module) {
-            found.switch_to(&module, || install_area(game, &module))?;
-            found.save(&format!("kjk {}", kjk_game::GIT_SHA))?;
-            eprintln!("added the level {module} to project {name}");
+            if let Some(new_map) = new_map {
+                make_map(&folder, game, &module, new_map, Some(found))?;
+                eprintln!("added the new map {module} to project {name}");
+            } else {
+                found.switch_to(&module, || install_area(game, &module))?;
+                found.save(&format!("kjk {}", kjk_game::GIT_SHA))?;
+                eprintln!("added the level {module} to project {name}");
+            }
         }
     } else if let Some(new_map) = new_map {
-        make_map(&folder, game, &module, new_map)?;
+        make_map(&folder, game, &module, new_map, None)?;
         eprintln!("made the new map {module} in {}", folder.display());
     } else {
         make(&folder, game, &module)?;
@@ -394,6 +407,15 @@ fn setup(
             names
                 .iter_mut()
                 .for_each(|name| *name = name.to_ascii_lowercase());
+            // The project's own levels, its new maps among them, are led
+            // to as the game's are.
+            names.extend(
+                active
+                    .project
+                    .level_list()
+                    .into_iter()
+                    .map(|(module, _)| module),
+            );
             names.sort();
             names.dedup();
             names

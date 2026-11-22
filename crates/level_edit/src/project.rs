@@ -10,7 +10,14 @@
 //! Every level's GIT is `<area>.git` and its changed ARE `<area>.are`,
 //! which the project's layer serves wherever that area is loaded. The
 //! editor edits one level at a time (the project's `module`, `area`,
-//! `git`, `kjk` and `are`) and parks the others in `levels`.
+//! `git`, `kjk`, `are` and `map`) and parks the others in `levels`.
+//!
+//! A level is one of the install's, or a new map the project makes
+//! (`map`). A project may hold both kinds, and several new maps: an
+//! adventure of new maps reached from a level of the game. A new map's
+//! own file is `kjk-map.toml` for the home level and
+//! `kjk-map-<area>.toml` for another, and its module is written to
+//! `modules/<module>.mod`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,6 +40,9 @@ pub const AREA_FILE: &str = "kjk-area.toml";
 pub struct Project {
     /// The folder's name.
     pub name: String,
+    /// The version an exported mod says it is (`mods`), as `project.toml`
+    /// keeps it: any short text, `1` until it is set.
+    pub version: String,
     pub folder: PathBuf,
     /// `k1` or `tsl`.
     pub game: String,
@@ -45,7 +55,8 @@ pub struct Project {
     /// The placeable and creature templates the project brings, by resref
     /// (`template`): each a file of the folder, `RESREF.utp` or `.utc`.
     pub templates: BTreeMap<String, Template>,
-    /// The map the project makes, when its module is its own (`map`).
+    /// The map the level edited now is, when its module is the project's
+    /// own (`map`). `None` for a level of the install.
     pub map: Option<NewMap>,
     /// The kinds of light fitting changed in the editor (`kinds`). The
     /// editor keeps them in the project's `kjk-lighting.toml` (`lighting`),
@@ -78,13 +89,25 @@ pub struct Project {
 
 /// A level of the install that a project edits, while another is edited
 /// (`Project::levels`): its area, its GIT, its kjk-only content and its
-/// changed ARE.
+/// changed ARE. A new map the project makes has its map here, and its ARE
+/// is its map's.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Level {
     pub area: String,
     pub git: Gff,
     pub kjk: KjkArea,
     pub are: Option<Gff>,
+    pub map: Option<NewMap>,
+}
+
+/// The file of a new map's own content: `kjk-map.toml` for the home
+/// level's area, `kjk-map-<area>.toml` for another's.
+pub fn map_file(home_area: &str, area: &str) -> String {
+    if home_area.eq_ignore_ascii_case(area) {
+        MAP_FILE.to_string()
+    } else {
+        format!("kjk-map-{}.toml", area.to_ascii_lowercase())
+    }
 }
 
 /// The file of a level's kjk-only content: `kjk-area.toml` for the home
@@ -162,6 +185,7 @@ impl Project {
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(String::new),
+            version: "1".to_string(),
             folder: folder.to_path_buf(),
             game: game.to_ascii_lowercase(),
             module: module.to_ascii_lowercase(),
@@ -206,11 +230,57 @@ impl Project {
             .map(|level| &level.kjk)
     }
 
+    /// Whether the project's level `module` is a new map it makes.
+    pub fn is_map(&self, module: &str) -> bool {
+        if self.module.eq_ignore_ascii_case(module) {
+            return self.map.is_some();
+        }
+        (self.parked.get(&module.to_ascii_lowercase())).is_some_and(|level| level.map.is_some())
+    }
+
+    /// Adds a new map to the project as the level `module` and edits it
+    /// now, parking the level edited before. The map starts as
+    /// `Project::new_map` makes one.
+    pub fn add_map(
+        &mut self,
+        module: &str,
+        title: &str,
+        (base, are, base_git): (&str, Gff, &Gff),
+    ) -> Result<(), String> {
+        let module = module.to_ascii_lowercase();
+        if let Some(problem) = crate::map::name_problem(&module) {
+            return Err(problem);
+        }
+        if self.level_list().iter().any(|(had, _)| *had == module) {
+            return Err(format!("{} has a level {module} already", self.name));
+        }
+        if self.others.contains_key(&module) || self.templates.contains_key(&module) {
+            return Err(format!("{} has a file named {module} already", self.name));
+        }
+        let made = Project::new_map(
+            &self.folder,
+            &self.game,
+            &module,
+            title,
+            (base, are, base_git),
+        )?;
+        self.parked.insert(
+            module.clone(),
+            Level {
+                area: made.area,
+                git: made.git,
+                kjk: KjkArea::default(),
+                are: None,
+                map: made.map,
+            },
+        );
+        self.switch_to(&module, || Err("the map was just added".into()))
+    }
+
     /// Edits the level `module` now, parking the one edited before. A
     /// level the project does not have yet is added, made from the
     /// install's area that `fresh` gives (its area and GIT). A project's
-    /// copy of that area's doors (`others`) becomes the new level's GIT. A
-    /// new map has one level: it adds none.
+    /// copy of that area's doors (`others`) becomes the new level's GIT.
     pub fn switch_to(
         &mut self,
         module: &str,
@@ -223,12 +293,6 @@ impl Project {
         let level = match self.parked.remove(&module) {
             Some(level) => level,
             None => {
-                if self.map.is_some() {
-                    return Err(format!(
-                        "{} makes a new map, which has one level: {module} is not added",
-                        self.name
-                    ));
-                }
                 let (area, git) = fresh()?;
                 let area = area.to_ascii_lowercase();
                 let git = match self.others.remove(&area) {
@@ -244,6 +308,7 @@ impl Project {
                     git,
                     kjk: KjkArea::default(),
                     are: None,
+                    map: None,
                 }
             }
         };
@@ -252,6 +317,7 @@ impl Project {
             git: std::mem::replace(&mut self.git, level.git),
             kjk: std::mem::replace(&mut self.kjk, level.kjk),
             are: std::mem::replace(&mut self.are, level.are),
+            map: std::mem::replace(&mut self.map, level.map),
         };
         let was = std::mem::replace(&mut self.module, module);
         self.parked.insert(was, parked);
@@ -319,6 +385,7 @@ impl Project {
                     git: empty(),
                     kjk,
                     are: None,
+                    map: None,
                 },
             );
         }
@@ -351,6 +418,9 @@ impl Project {
             KjkArea::default()
         };
         let mut project = Project::new(folder, &game, &module, &area, git);
+        if let Some(version) = document.get("version").and_then(toml_edit::Item::as_str) {
+            project.version = version.to_string();
+        }
         project.kjk = kjk;
         project.templates = read_templates(folder)?;
         let map_path = folder.join(MAP_FILE);
@@ -389,7 +459,17 @@ impl Project {
             };
             let git = read_gff(format!("{area}.git"))?
                 .ok_or(format!("the level {module}'s {area}.git is missing"))?;
-            let are = read_gff(format!("{area}.are"))?;
+            let mut are = read_gff(format!("{area}.are"))?;
+            // A further level that is a new map: its ARE is its map's.
+            let map_path = folder.join(map_file(&project.home.1, &area));
+            let map = if map_path.is_file() {
+                let are = are
+                    .take()
+                    .ok_or(format!("the map {module}'s {area}.are is missing"))?;
+                Some(NewMap::parse(&read_text(&map_path)?, are)?)
+            } else {
+                None
+            };
             let kjk_path = folder.join(kjk_file(&project.home.1, &area));
             let kjk = if kjk_path.is_file() {
                 KjkArea::parse(&read_text(&kjk_path)?)?
@@ -403,6 +483,7 @@ impl Project {
                     git,
                     kjk,
                     are,
+                    map,
                 },
             );
         }
@@ -456,9 +537,6 @@ impl Project {
                 ));
             }
         }
-        if self.map.is_some() && !self.parked.is_empty() {
-            block("a new map's project has one level".into());
-        }
         let mut names: Vec<&str> = Vec::new();
         for prop in &self.kjk.props {
             if prop.model.is_empty() {
@@ -495,6 +573,13 @@ impl Project {
                 block("a map has 999 rooms at most".into());
             }
         }
+        for (module, level) in &self.parked {
+            if level.map.is_some()
+                && let Some(problem) = crate::map::name_problem(module)
+            {
+                block(problem);
+            }
+        }
         for (name, conversation) in &self.conversations {
             for problem in crate::dialog::problems(conversation) {
                 problems.push(Problem {
@@ -524,8 +609,8 @@ impl Project {
             .map_err(|error| format!("{}: {error}", self.folder.display()))?;
         let mut project = format!(
             "# A kjk level editor project (docs/LEVEL-EDIT.md).\n\
-             game = {:?}\nmodule = {:?}\narea = {:?}\nmade_by = {:?}\n",
-            self.game, self.home.0, self.home.1, made_by
+             game = {:?}\nmodule = {:?}\narea = {:?}\nmade_by = {:?}\nversion = {:?}\n",
+            self.game, self.home.0, self.home.1, made_by, self.version
         );
         let further: Vec<(String, String)> = self
             .level_list()
@@ -574,13 +659,22 @@ impl Project {
                 self.own_kjk().write().into_bytes(),
             ),
         ];
-        for level in self.parked.values() {
+        for (module, level) in &self.parked {
             files.push((format!("{}.git", level.area), level.git.write()));
             files.push((
                 kjk_file(&self.home.1, &level.area),
-                installed_kjk(&level.kjk).write().into_bytes(),
+                level_kjk(level).write().into_bytes(),
             ));
-            if let Some(are) = &level.are {
+            if let Some(map) = &level.map {
+                files.push((
+                    map_file(&self.home.1, &level.area),
+                    map.write().into_bytes(),
+                ));
+                files.push((
+                    format!("{}.are", level.area),
+                    map_are_of(module, map).write(),
+                ));
+            } else if let Some(are) = &level.are {
                 files.push((format!("{}.are", level.area), are.write()));
             }
         }
@@ -591,7 +685,7 @@ impl Project {
             ));
         }
         if let Some(map) = &self.map {
-            files.push((MAP_FILE.to_string(), map.write().into_bytes()));
+            files.push((map_file(&self.home.1, &self.area), map.write().into_bytes()));
             files.push((format!("{}.are", self.area), self.map_are(map).write()));
         } else if let Some(are) = &self.are {
             files.push((format!("{}.are", self.area), are.write()));
@@ -678,11 +772,17 @@ impl Project {
                 module.as_bytes(),
                 level.area.as_bytes(),
                 &level.git.write(),
-                installed_kjk(&level.kjk).write().as_bytes(),
+                level_kjk(level).write().as_bytes(),
                 &are,
             ] {
                 hasher.update(&(part.len() as u64).to_le_bytes());
                 hasher.update(part);
+            }
+            if let Some(map) = &level.map {
+                for part in [map.write().into_bytes(), map_are_of(module, map).write()] {
+                    hasher.update(&(part.len() as u64).to_le_bytes());
+                    hasher.update(&part);
+                }
             }
         }
         if let Some(map) = &self.map {
@@ -707,9 +807,7 @@ impl Project {
 
     /// The map's ARE with its rooms' list made from its rooms.
     pub fn map_are(&self, map: &NewMap) -> Gff {
-        let mut map = map.clone();
-        map.rooms_into_are(&self.module);
-        map.are
+        map_are_of(&self.module, map)
     }
 
     /// Writes the project's own module, `modules/<module>.mod`
@@ -735,6 +833,23 @@ impl Project {
             .map_err(|error| format!("{}: {error}", path.display()))?;
         Ok(Some(path))
     }
+}
+
+/// The ARE of the new map `map` of the module `module`, with its rooms'
+/// list made from its rooms.
+fn map_are_of(module: &str, map: &NewMap) -> Gff {
+    let mut map = map.clone();
+    map.rooms_into_are(module);
+    map.are
+}
+
+/// What a parked level's kjk-area file holds: all of a new map's content,
+/// and an installed level's as `installed_kjk` gives it.
+fn level_kjk(level: &Level) -> KjkArea {
+    if level.map.is_some() {
+        return level.kjk.clone();
+    }
+    installed_kjk(&level.kjk)
 }
 
 /// What an installed level's kjk-area file holds of `kjk`: all of it when

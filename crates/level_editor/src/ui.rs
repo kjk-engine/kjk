@@ -5581,7 +5581,16 @@ fn viewport(
                     ..GizmoConfig::default()
                 });
                 let several = state.editor.selection().len() > 1;
-                if let Some((result, moved)) = ui_state.gizmo.interact(ui, &[transform]) {
+                // The gizmo is drawn in the view's part of the window alone:
+                // a selection behind a panel does not put its handles over
+                // the outliner or the details.
+                let interacted = ui
+                    .scope(|ui| {
+                        ui.set_clip_rect(ui.clip_rect().intersect(rect));
+                        ui_state.gizmo.interact(ui, &[transform])
+                    })
+                    .inner;
+                if let Some((result, moved)) = interacted {
                     on_gizmo = true;
                     if several && let Some(moved) = moved.first() {
                         // Everything selected moves, or turns round the

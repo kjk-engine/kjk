@@ -9601,7 +9601,7 @@ fn level_edit_levels() {
     assert!(opened.problems().iter().any(|problem| problem.blocks));
     assert!(opened.save("approved test").is_err());
 
-    // A new map has one level.
+    // A new map's project takes a level of the game beside the map.
     let mut map = Project::new_map(
         &folder.join("map"),
         "k1",
@@ -9619,7 +9619,8 @@ fn level_edit_levels() {
     .unwrap();
     assert!(
         map.switch_to("danm13", || Ok(("m13aa".into(), git::empty())))
-            .is_err()
+            .is_ok()
     );
+    assert!(map.is_map("kje_yard") && !map.is_map("danm13"));
     let _ = std::fs::remove_dir_all(&folder);
 }

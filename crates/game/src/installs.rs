@@ -301,10 +301,13 @@ impl Install {
     }
 
     /// The world data two machines compare (`Fingerprint::world`), with
-    /// what KOTOR 2 lends KOTOR 1's data in it (`WorldData::with_lent`).
+    /// what KOTOR 2 lends KOTOR 1's data in it (`WorldData::with_lent`) and
+    /// what the mods for kjk, or a level editor project, change beyond the
+    /// games' own files (`WorldData::with_kjk`).
     pub fn world(&self, print: &Fingerprint) -> vfs::fingerprint::WorldData {
         let lent = self.base().ok().and_then(Resolver::lent_digest);
-        print.world().with_lent(lent)
+        let kjk = level_edit::active::world_digest(self.game.key());
+        print.world().with_lent(lent).with_kjk(kjk)
     }
 
     /// The resolver without a module, opened once.

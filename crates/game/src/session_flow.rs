@@ -352,7 +352,9 @@ fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
                         made: character.as_ref().map(crate::persona::Made::Desc),
                         ..solo_options(stage)?
                     };
+                    let saved = save.is_some();
                     play::load(&discovery, &options)
+                        .map_err(|why| if saved { mod_gone(why) } else { why })
                 })
             }
             SessionIntent::Restore { save: id } => {
@@ -388,7 +390,7 @@ fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
                         let _ = sender.send(Progress::Lobby(Box::new(host)));
                         return;
                     }
-                    Err(why) => Err(why),
+                    Err(why) => Err(mod_gone(why)),
                 }
             }
             SessionIntent::Join { address, name } => {
@@ -708,6 +710,23 @@ fn finish(world: &mut World) {
             };
             world.resource_mut::<Flow>().asking = asking;
         }
+    }
+}
+
+/// Why a save did not load, said for the player when its level is not in
+/// the game's folder (`vfs::resolver::ResolveError::NoSuchModule`). The
+/// games' own levels are always there, so such a level was a mod's, and
+/// the mod is not installed now. Any other reason is left as it is.
+fn mod_gone(why: String) -> String {
+    let level = why
+        .split_once("no module ")
+        .and_then(|(_, rest)| rest.split_once(": no modules/"))
+        .map(|(level, _)| level.trim().to_string());
+    match level {
+        Some(level) => format!(
+            "This save was made in the level {level}, which is not one of the game's own levels.              A mod added that level, and the mod is not installed now.              Install the mod again to load this save."
+        ),
+        None => why,
     }
 }
 

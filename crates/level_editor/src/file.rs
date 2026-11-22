@@ -81,27 +81,32 @@ fn to_level(state: &mut EditorState, file: &mut FileState, module: &str) {
     let project = &state.editor.project;
     if module == project.module {
         state.say(format!("{module} is the level being edited"));
-    } else if project.map.is_some() {
-        state.say("a new map's project has one level");
-    } else if state.setup.modules.binary_search(&module).is_err() {
+    } else if !project
+        .level_list()
+        .iter()
+        .any(|(level, _)| *level == module)
+        && state.setup.modules.binary_search(&module).is_err()
+    {
         state.say(format!("the install has no module {module}"));
     } else {
         want(state, file, Leave::Start(level_args(state, &module)));
     }
 }
 
-/// The arguments that make the new map `name`, its area's light, fog and
-/// sound from the level being edited (a new map's own base, for a new map),
-/// or why not.
+/// The arguments that add the new map `name` to the project being edited
+/// and open it, its area's light, fog and sound from the level being
+/// edited (a new map's own base, for a new map), or why not.
 fn new_map_args(state: &EditorState, name: &str) -> Result<Vec<String>, String> {
     if let Some(problem) = level_edit::map::name_problem(name) {
         return Err(problem);
     }
-    let folder = level_edit::folder_of(name, |var| std::env::var(var).ok())?;
-    if level_edit::Project::exists(&folder) {
-        return Err(format!("a project named {name} exists already"));
-    }
     let project = &state.editor.project;
+    if project.level_list().iter().any(|(level, _)| level == name) {
+        return Err(format!("the project has a level named {name} already"));
+    }
+    if state.setup.modules.binary_search(&name.to_string()).is_ok() {
+        return Err(format!("the game has a module named {name} already"));
+    }
     let base = project
         .map
         .as_ref()
@@ -110,7 +115,7 @@ fn new_map_args(state: &EditorState, name: &str) -> Result<Vec<String>, String> 
         project.game.clone(),
         name.to_string(),
         "--project".into(),
-        name.to_string(),
+        project.name.clone(),
         "--new-map".into(),
         base,
     ])
@@ -196,7 +201,7 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
         });
         // The project's levels, and another level of the install added.
         let project = &state.editor.project;
-        if project.map.is_none() {
+        {
             let levels = project.level_list();
             let editing = project.module.clone();
             ui.menu_button("Levels of this project", |ui| {
@@ -247,7 +252,9 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
         }
         if ui
             .button("New map...")
-            .on_hover_text("A map of your own, its light, fog and sound this level's")
+            .on_hover_text(
+                "A map of your own, added to this project. Its light, fog and sound are this level's.",
+            )
             .clicked()
         {
             file.new_map = Some(String::new());
@@ -310,7 +317,7 @@ pub(crate) fn dialogs(ctx: &egui::Context, state: &mut EditorState, file: &mut F
     let mut make = None;
     egui::Modal::new(egui::Id::new("new map")).show(ctx, |ui| {
         ui.heading("New map");
-        ui.label("A map of your own, built from the game's rooms. Its light, fog and sound start as this level's.");
+        ui.label("A map of your own, built from the game's rooms and added to this project as a further level. Its light, fog and sound start as this level's.");
         ui.horizontal(|ui| {
             ui.label("Name");
             ui.add(

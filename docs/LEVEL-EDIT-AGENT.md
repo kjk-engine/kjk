@@ -30,8 +30,13 @@ The editor writes `live.json` four times a second, whenever anything in it
 changed. It holds these fields:
 
 - `project`, `folder`, `game`, `module` and `area` name the project and
-  the level open. `new_map` is true when the project makes a new map of
-  its own rather than changing an installed area.
+  the level open. `new_map` is true when the level open is a new map of
+  the project rather than an installed area. A project can hold several
+  levels, new maps and installed areas together. To open another one,
+  send `save` and then `ui file level MODULE`. To add a new map to the
+  project and open it, send `save` and then `ui file new NAME`. The
+  editor starts again on that level, so wait until `module` in
+  `live.json` names it before sending the next command.
 - `unsaved` is true when the project has changes that are not saved.
 - `selected` names the selection the way the editor names its targets,
   such as `Object(Placeable, 3)`, `Prop(0)`, `Box(2)`, `Room(1)` or

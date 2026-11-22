@@ -23,6 +23,7 @@ user's settings.json is copied into it, so the same installs are found.
     --editor PATH        the editor to run (default: target/release)
     --keep               keep the run's kjk folder, and say where it is
     --write-expected     write expected.json from this run, to be reviewed
+    --export-to DIR      also copy the exported mod to this folder
 """
 
 import argparse
@@ -148,6 +149,7 @@ def main():
     parser.add_argument("--editor", default=os.path.join(REPO, "target", "release", "kjk-level-editor" + suffix))
     parser.add_argument("--keep", action="store_true")
     parser.add_argument("--write-expected", action="store_true")
+    parser.add_argument("--export-to")
     args = parser.parse_args()
     if not os.path.isfile(args.editor):
         raise SystemExit("%s is not there: build the editor first" % args.editor)
@@ -239,13 +241,20 @@ def main():
         there = [
             os.path.isfile(os.path.join(mod, "modules", MAP + ".mod")),
             os.path.isfile(os.path.join(mod, "override", "kjk-area-%s.toml" % MAP)),
-            os.path.isfile(os.path.join(mod, "override", "global.jrl")),
+            # The mod's own quests, in a file of its own name, and what the
+            # mod says of itself. It brings no copy of the game's journal.
+            os.path.isfile(os.path.join(mod, "override", "kjk-journal-%s.jrl" % MAP)),
+            os.path.isfile(os.path.join(mod, "override", "kjk-mod-%s.toml" % MAP)),
+            not os.path.exists(os.path.join(mod, "override", "global.jrl")),
             os.path.isfile(os.path.join(mod, "override", "kje_vt_shroud.uti")),
             os.path.isfile(os.path.join(mod, "override", "m36aa.git")),
             # A creature copied from another level of the game.
             os.path.isfile(os.path.join(mod, "override", "k37_enc_dire.utc")),
         ]
         check("the level exports as a mod", answer.startswith("ok") and all(there), (answer, there))
+        if args.export_to:
+            shutil.rmtree(args.export_to, ignore_errors=True)
+            shutil.copytree(mod, args.export_to)
 
         live = link.read()
         check("nothing is left unsaved", live["unsaved"] is False, live["unsaved"])

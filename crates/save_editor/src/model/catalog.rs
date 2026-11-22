@@ -193,7 +193,7 @@ impl Catalog {
         });
         let classes = rows(source, "classes", None, |_, _| true);
         let skills = rows(source, "skills", Some("icon"), |_, _| true);
-        let quests = session::journal::quests(source)
+        let quests = session::journal::quests(source, game.key())
             .0
             .into_iter()
             .enumerate()

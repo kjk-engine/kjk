@@ -849,10 +849,12 @@ impl EditorState {
     pub(crate) fn change_template(&mut self, target: Target, change: Change) {
         let resolver = &self.setup.resolver;
         let read = |name: &str, restype: ResType| resolver.read(name, restype);
+        let series = own_series(&self.editor.project.name);
         let taken = |name: &str| {
-            level_edit::template::TYPES
-                .iter()
-                .any(|(restype, _)| resolver.find(name, *restype).is_some())
+            outside_series(name, level_edit::template::PREFIX, series)
+                || level_edit::template::TYPES
+                    .iter()
+                    .any(|(restype, _)| resolver.find(name, *restype).is_some())
         };
         if let Err(why) = self
             .editor
@@ -2289,6 +2291,23 @@ fn command_words(
                 exported.kjk_files
             ));
         }
+        // The version an exported mod says it is: kept in `project.toml`,
+        // so the project is saved with it.
+        ["mod", "version"] => {
+            let project = &state.editor.project;
+            state.say(format!("{} is version {}", project.name, project.version));
+        }
+        ["mod", "version", version] => {
+            let fits = version.len() <= 24
+                && (version.bytes()).all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
+            if !fits {
+                return Err(format!(
+                    "{version:?}: a version is 1 to 24 letters, digits, dots, - and _"
+                ));
+            }
+            state.editor.project.version = version.to_string();
+            command(state, &["save"], cameras)?;
+        }
         ["recover"] => crate::recover::take(state)?,
         ["recover", "discard"] => crate::recover::discard(state)?,
         // The recovery copy written now, not at its next turn.
@@ -3645,17 +3664,21 @@ pub(crate) fn paste(
     // The names a pasted template must keep clear of: the install's, of
     // each copied template's kind, among the names a new one could take.
     let resolver = &state.setup.resolver;
+    let series = own_series(&state.editor.project.name);
     let mut taken = Vec::new();
     for (name, made) in &clip.templates {
-        // `template::fresh_name`'s names, `kjeN_from` cut to a resref.
-        let names = std::iter::once(name.clone()).chain((1..64).map(|n| {
+        // `template::fresh_name`'s names, `kjeN_from` cut to a resref. A
+        // number outside the project's own series is taken too
+        // (`own_series`).
+        let names = std::iter::once((0, name.clone())).chain((1..SERIES * 9).map(|n| {
             let mut candidate = format!("{}{n}_{}", level_edit::template::PREFIX, made.from);
             candidate.truncate(level_edit::git::RESREF_LEN);
-            candidate
+            (n, candidate)
         }));
-        for candidate in names {
+        for (n, candidate) in names {
+            let outside = n != 0 && n % SERIES != series;
             if !state.editor.project.templates.contains_key(&candidate)
-                && resolver.find(&candidate, made.restype).is_some()
+                && (outside || resolver.find(&candidate, made.restype).is_some())
             {
                 taken.push(candidate);
             }
@@ -3943,8 +3966,10 @@ pub(crate) fn set_blocks(
     let name = if !script.is_empty() && held.is_some() {
         script.clone()
     } else {
+        let series = own_series(&state.editor.project.name);
         let taken = |name: &str| {
-            state.project_scripts.contains(name)
+            outside_series(name, "kjb_", series)
+                || state.project_scripts.contains(name)
                 || state.drafts.contains_key(name)
                 || state.setup.scripts.binary_search(&name.to_string()).is_ok()
         };
@@ -4099,8 +4124,15 @@ pub(crate) fn module_area(
             state.editor.project.git.clone(),
         ));
     }
+    // Another level of the project, a new map among them, as the project
+    // has it.
+    if let Some(level) = state.editor.project.parked.get(&module) {
+        return Ok((level.area.clone(), level.git.clone()));
+    }
     if !state.setup.modules.contains(&module) {
-        return Err(format!("the install has no module {module}"));
+        return Err(format!(
+            "neither the game nor the project has a level {module}"
+        ));
     }
     let game = state.setup.game;
     state
@@ -4222,6 +4254,38 @@ fn own_item(state: &EditorState, name: &str) -> Result<level_edit::Template, Str
         .ok_or(format!(
             "the project has no item {name}: item new NAME BASE makes one from one of the game's"
         ))
+}
+
+/// How many series of numbers the names of copies are dealt into
+/// (`own_series`).
+const SERIES: u32 = 251;
+
+/// The series of numbers the project's copies are named with, from 1 to
+/// 250, made from the project's name. The editor names a copy of a
+/// template `kjeN_NAME` and a script of logic blocks `kjb_N`. Every project
+/// counting N from 1 would give two mods files of one name, and the games
+/// read one file of a name. So a project takes only the numbers that leave
+/// its series when divided by 251: for the series 117, the numbers 117,
+/// 368, 619 and on. Two projects get the same series once in 250 times,
+/// and kjk says at its start when two mods bring a file of one name
+/// (`level_edit::mods`).
+fn own_series(project: &str) -> u32 {
+    let digest = blake3::hash(project.to_ascii_lowercase().as_bytes());
+    let bytes = digest.as_bytes();
+    let number = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    1 + number % (SERIES - 1)
+}
+
+/// Whether `name` is `PREFIX` and a number of another project's series: a
+/// name this project leaves alone.
+fn outside_series(name: &str, prefix: &str, series: u32) -> bool {
+    let Some(rest) = name.strip_prefix(prefix) else {
+        return false;
+    };
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits
+        .parse::<u32>()
+        .is_ok_and(|number| number % SERIES != series)
 }
 
 /// A row of a table a command names: a whole number from 0.

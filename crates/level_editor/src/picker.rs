@@ -235,11 +235,10 @@ fn open(
             return;
         }
     };
-    // A project of another game cannot take the level. A new map's project
-    // has one level. Any other project takes a level of its game beside
-    // the ones it has (`main::setup`).
+    // A project of another game cannot take the level. Any other project
+    // takes a level of its game beside the ones it has (`main::setup`).
     if let Ok(found) = level_edit::Project::open(&folder)
-        && (found.game != game.key() || (found.map.is_some() && found.module != module))
+        && found.game != game.key()
     {
         picker.message = Some(format!(
             "The project {project} edits {} {}. Give this one another name.",

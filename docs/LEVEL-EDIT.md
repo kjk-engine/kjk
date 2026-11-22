@@ -82,6 +82,12 @@ shows; the module's name is used when it is left out. The name has
 lowercase letters, digits and underscores, 12 at most, and no module of
 the install may have it.
 
+A new map can also be a further level of a project that exists. **File >
+New map...** adds one to the project being edited, and
+`kjk-level-editor GAME NAME --project PROJECT --new-map BASE` does the
+same. A project can hold several new maps beside levels of the game
+("Several levels in one project").
+
 A new map starts with no rooms, no objects and the entry at the origin.
 Its area's light, fog and sound are the base level's (its `.are` file),
 and so are its music and ambient sound (its GIT's area properties).
@@ -584,7 +590,27 @@ triggers the project had already changed (`others`, in "Doors and the
 ways between levels") keeps those changes when it becomes a level.
 `kjk-level-editor GAME MODULE --project NAME` does the same: it opens the
 project on that level, and adds the level first when the project does not
-have it. A new map's project has one level, the map.
+have it.
+
+**An adventure of several maps.** A project can hold several new maps and
+levels of the game together. This is how an adventure is built: a few new
+maps that lead to each other, and a level of the game with the way in.
+
+- **File > New map...** adds a new map to the project and opens it. The
+  home level's map file is `kjk-map.toml`. A further map's is
+  `kjk-map-<area>.toml`. Each map's module is written to
+  `modules/<module>.mod` in the project's folder.
+- **Add a level** adds a level of the game to a project of new maps, as it
+  does to any project. The way in is then placed in that level itself,
+  with the level in view: a door or a trigger whose link names the new
+  map.
+- **A link names any level of the project.** `edit link MODULE [TAG]` on a
+  door or a trigger takes a new map of the project as it takes a level of
+  the game. The map must be in the project first, so the ways between
+  maps are made once every map exists.
+
+The benchmark `tools/level-editor/three-maps/build.py` builds such an
+adventure: a hub and two wings as new maps, and Dreshdae with the way in.
 
 ## Where projects live
 
@@ -698,7 +724,14 @@ A door's and a waypoint's tag and scripts, and a trigger's tag, are
 changed in the area's object list itself. Any other change to an object made
 from a template copies the template into the project first, under a new
 name: `kje`, a number, and the template's name, cut to 16 characters
-(`kje1_metalbox001`). The object is pointed at the copy, and the copy is
+(`kje88_metalbox00`). The numbers are the project's own. The editor makes
+a series from 1 to 250 out of the project's name, and gives the project's
+copies only the numbers that leave that series when divided by 251: 88,
+339, 590 and on for the series 88. Two mods then bring no file of the
+same name, which matters because the games read one file of a name. The
+scripts of logic blocks (`kjb_N`) are numbered the same way. A project
+made before this keeps the names it has. The object is pointed at the
+copy, and the copy is
 changed. Later changes change the same copy. Duplicates of an object share
 its copy. A change to one object whose copy other objects share gives it a
 copy of its own first. A copy no object uses any more (an edit undone)
@@ -1060,10 +1093,14 @@ added.
 - `edit quest drop TAG` takes a quest out.
 
 A conversation's line, a logic block or a script then adds an entry by
-the quest's tag and the entry's number. The journal is one file for the
-whole game, so two mods that each bring one take each other's place.
+the quest's tag and the entry's number.
 
-Items and quests have commands only. The window does not list them yet.
+The journal is one file for the whole game. Two mods that each brought a
+copy of it would take each other's place. So an exported mod does not
+bring `global.jrl`. It brings only the project's own quests, in
+`kjk-journal-<project>.jrl`, and kjk adds the quests of every mod to the
+game's journal when it loads. The original game does not read that file,
+so it does not show a mod's quests ("Sharing a level").
 
 ## Trigger outlines
 
@@ -1455,7 +1492,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui view tab source`, `summary`, `listing`, `try`, `debug` | picks the viewer's tab |
 | `edit ui file open [PROJECT]` | opens the picker, or the project, in a new editor (a headless run names it instead) |
 | `edit ui file level MODULE` | opens the project on its level MODULE in a new editor, adding the level first when the project does not have it |
-| `edit ui file new NAME` | makes the new map NAME from this level in a new editor |
+| `edit ui file new NAME` | adds the new map NAME to the project, its light, fog and sound from this level, and opens it in a new editor |
+| `edit mod version [TEXT]` | says the version an exported mod has, or sets it and saves the project |
 | `edit ui quit` | closes the editor |
 | `edit ui confirm save`, `discard`, `cancel` | answers the question asked before leaving with changes not saved |
 | `edit add room MODEL [X Y Z]` | adds the install's room to a new map, its floor's middle at the point or where the view's centre meets the level |
@@ -1567,9 +1605,41 @@ folder that holds other files is refused. The export has two parts.
   - `kjk-lighting-<project>.toml`: the kinds of fitting and room levels
     the project changed.
   - `kjk-bake/<module>/`: the bake the project keeps of a level.
+  - `kjk-journal-<project>.jrl`: the project's own quests. kjk adds them
+    to the game's journal when it loads.
+  - `kjk-mod-<project>.toml`: the mod's name, its version, its levels, its
+    quests, and every file it brings with its size and its digest.
 
 `kjk-mod-readme.txt` beside the two folders says how to install the mod,
 and how many of its files the original game reads.
+
+**A mod's version.** `edit mod version TEXT` sets the version the mod says
+it is, and saves the project. It is 1 until it is set. `edit mod version`
+says it. The version is kept in `project.toml`.
+
+**Removing a mod.** A mod is removed by deleting the files that its
+`kjk-mod-<project>.toml` lists, and then that file.
+
+**Two mods together.** kjk reads the list of every mod at its start, and
+says:
+
+- which mods it found, each with its version and how many files and
+  quests it brings;
+- when two mods list a file of the same name. The game reads the copy
+  that was installed last, so one of the two mods is not whole;
+- when a file of a mod is missing, or is not the one the mod brought;
+- when two mods bring a quest of the same tag. The first one read is
+  kept.
+
+**Co-op.** Two machines that play together compare their game data. The
+comparison now covers what the mods change beyond the game's own files:
+every `kjk-area-*.toml` and every `kjk-journal-*.jrl`. A guest whose mods
+differ from the host's there is refused, and the refusal names the group
+`kjk mods`.
+
+**Saves.** A save made in a level that a mod added does not load once the
+mod is removed. kjk then says that the save's level is not one of the
+game's own, and that the mod must be installed again.
 
 **kjk reads a mod's own files from `override/` when it runs without
 `--project`.** It takes every `kjk-area-*.toml` and `kjk-lighting-*.toml`
@@ -1584,7 +1654,11 @@ What to know:
   game do: the object lists, the templates and conversations the project
   changed, a new map's rooms, and a kept bake.
 - **Two mods that change the same area take each other's place.** Their
-  `<area>.git` files have the same name, and so do their kjk files.
+  `<area>.git` files have the same name, and so do their kjk files. Two
+  adventures whose ways in are in the same level of the game are such a
+  pair. kjk says so at its start.
+- **A mod's quests show in kjk only.** The original game reads its own
+  journal and nothing else.
 - **In the original game, a level's object list from `override/` shows
   on a first visit.** Once a save holds the area, the game takes the
   list from the save.
@@ -1633,7 +1707,7 @@ What to know:
   lose objects. kjk does not warn about this yet.
 - **One level at a time.** A project's levels are edited one by one, and
   the editor starts again to move between them. A level cannot be taken
-  out of a project yet. A new map's project has one level.
+  out of a project yet.
 - **An exported new map is for kjk.** Export writes a new map's `.mod`
   beside the files for `override/`, but the module lacks what the
   original game needs to play it, as the limit on new maps above says.
@@ -1695,5 +1769,15 @@ together in co-op.
   and seven lights. It passes when every command is answered ok, the
   level's facts are the expected ones, a trial of the quiz opens the seal,
   and the level exports as a mod. A run takes about 35 seconds.
+- `tools/level-editor/three-maps/build.py` is a benchmark too. It builds
+  the Three Halls: three new maps and a level of the game in one project.
+  With `--play` it installs the exported mod into a stand-in for the
+  game's folder, and `kjk playthrough` walks from Dreshdae into the hub,
+  to each wing and back, and out again.
+- `tools/level-editor/two-mods/check.py` installs the tomb and the Three
+  Halls side by side in a stand-in for the game's folder. It passes when
+  the journal has both mods' quests, both mods play, kjk names a replaced
+  file, and the Three Halls still plays after the tomb is removed by its
+  own list of files. A run takes about two minutes.
 - The demo (`LEVEL-EDIT-DEMO.md`) shows every behaviour on the Ebon Hawk,
   by hand in a window and as headless runs whose dumps say what changed.

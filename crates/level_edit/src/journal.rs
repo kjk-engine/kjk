@@ -9,9 +9,13 @@
 //!
 //! A project that adds a quest holds a copy of the whole file among its
 //! templates (`Project::templates`, as `global`), written to its folder as
-//! `global.jrl`. The games' own quests stay in it as they are. Because the
-//! file is one for the whole game, two mods that each bring a journal take
-//! each other's place.
+//! `global.jrl`. The games' own quests stay in it as they are.
+//!
+//! The file is one for the whole game, so two mods that each brought one
+//! would take each other's place. An exported mod therefore brings only
+//! the project's own quests (`own_quests`), in a file of its own name
+//! (`mods`), and kjk adds every mod's quests to the game's journal when it
+//! loads (`merge`). The original games do not read that file.
 
 use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue, LocString};
 
@@ -90,6 +94,48 @@ fn tag_of(category: &GffStruct) -> String {
                 .map(|tag| String::from_utf8_lossy(tag).into_owned())
         })
         .unwrap_or_else(String::new)
+}
+
+/// Whether a quest is a project's own: it names itself. The games' own
+/// quests take their names from the talk table.
+fn own(category: &GffStruct) -> bool {
+    (category.locstring("Name"))
+        .is_some_and(|name| name.strref == u32::MAX && !name.strings.is_empty())
+}
+
+/// A journal of the project's own quests alone, out of `jrl`. `None` when
+/// it has none.
+pub fn own_quests(jrl: &Gff) -> Option<Gff> {
+    let quests: Vec<GffStruct> = (jrl.root.list("Categories").iter())
+        .filter(|category| own(category))
+        .cloned()
+        .collect();
+    if quests.is_empty() {
+        return None;
+    }
+    let mut made = empty();
+    *list(&mut made.root, "Categories") = quests;
+    Some(made)
+}
+
+/// Adds the quests of `more` to `jrl`. A quest whose tag `jrl` has already
+/// is left out, and its tag is returned.
+pub fn merge(jrl: &mut Gff, more: &Gff) -> Vec<String> {
+    let mut had: Vec<String> = tags(jrl)
+        .into_iter()
+        .map(|tag| tag.to_ascii_lowercase())
+        .collect();
+    let mut twice = Vec::new();
+    for category in more.root.list("Categories") {
+        let tag = tag_of(category).to_ascii_lowercase();
+        if had.contains(&tag) {
+            twice.push(tag);
+            continue;
+        }
+        had.push(tag);
+        list(&mut jrl.root, "Categories").push(category.clone());
+    }
+    twice
 }
 
 /// Why `tag` cannot be a quest's tag, if it cannot.

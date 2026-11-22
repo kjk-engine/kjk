@@ -4102,6 +4102,7 @@ dependencies = [
  "asset_odyssey",
  "bevy",
  "bevy_egui",
+ "blake3",
  "clap",
  "collision",
  "collision_odyssey",

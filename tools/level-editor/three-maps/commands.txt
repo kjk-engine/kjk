@@ -1,0 +1,105 @@
+# The Three Halls: an adventure of three new maps in one project, reached
+# from Dreshdae on Korriban. build.py sends each paragraph as one batch.
+# A line that starts with @ is for build.py itself:
+#   @new MODULE     adds a new map to the project and opens it
+#   @level MODULE   opens the project on a level, adding the game's level
+#                   to the project when it does not have it yet
+#   @settle         waits until the rooms just added are solid
+
+# The hub is the level the editor starts on: the entrance passage and the
+# crossing of Naga Sadow's tomb.
+add room m39aa_18 home
+add room m39aa_17 home
+add room m39aa_16 home
+
+@settle
+
+entry 8 108 21
+select entry
+turn 0
+nav on
+
+# Where the party arrives in the hub, from each way.
+begin
+add waypoint sw_post001 8 108 21
+tag kje_hub_from_out
+add waypoint sw_post001 44 106 18
+tag kje_hub_from_a
+add waypoint sw_post001 44 110 18
+tag kje_hub_from_b
+end
+
+# The adventure's quest and its item.
+quest new kje_trio "The Three Halls"
+quest entry kje_trio 10 "Three halls lie under Dreshdae. The east hall holds a seal."
+quest end kje_trio 20 "The seal of the east hall is yours."
+item new kje_trio_seal g_i_datapad001
+item name kje_trio_seal Seal of the East Hall
+item text kje_trio_seal "A stone seal, cut with the mark of a hall that has no name."
+mod version 0.3
+
+@new kje_wing_a
+
+# The east wing: the hall of whispers.
+add room m39aa_02 home
+add room m39aa_01 home
+
+@settle
+
+entry 104 108 15
+nav on
+begin
+add waypoint sw_post001 112 108 17
+drop
+tag kje_a_in
+add trigger newtransition 131 108 18
+tag kje_a_back
+link kje_hub kje_hub_from_a
+add placeable plc_footlker 124 104 18
+tag kje_trio_chest
+flag useable on
+flag inventory on
+item add kje_trio_seal
+end
+
+@new kje_wing_b
+
+# The south wing: the hall of trials and the scribe's annex.
+add room m39aa_07 home
+add room m39aa_06 home
+
+@settle
+
+entry 60 44 15
+nav on
+begin
+add waypoint sw_post001 62 44 15
+tag kje_b_in
+add trigger newtransition 68 13 15
+tag kje_b_back
+link kje_hub kje_hub_from_b
+end
+
+@level korr_m33aa
+
+# The way in, at Dreshdae's landing pad. {entry} is where the level puts
+# the party, moved 3 metres along X.
+add trigger newtransition {entry}
+tag kje_in
+link kje_hub kje_hub_from_out
+
+@level kje_hub
+
+# The ways out of the hub: to each wing, and back to Dreshdae. They are
+# made last, when the levels they lead to are in the project.
+begin
+add trigger newtransition 54 104.5 18
+tag kje_to_a
+link kje_wing_a kje_a_in
+add trigger newtransition 54 111.5 18
+tag kje_to_b
+link kje_wing_b kje_b_in
+add trigger newtransition 2 108 21
+tag kje_hub_out
+link korr_m33aa
+end
