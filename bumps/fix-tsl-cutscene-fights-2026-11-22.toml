@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "a round a CutsceneAttack began ends with no end-of-round script, and a death effect raises no damaged event, so TSLRCM's Handmaiden no longer fights Atton on her own and Sion's last talk no longer starts again after he dies"
