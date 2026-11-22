@@ -232,9 +232,21 @@ cost outside the bake, which the game paid under the bake too before step
 
 ## Running it
 
-- The bakes and shots are in `target/light-kinds/game` of the worktree
-  `lighting-step6` on the Windows PC. Set `KJK_ROOT` to that worktree and
-  `KJK_EXE` to the build to test.
+The work is on this same Windows PC, in two worktrees of the main checkout.
+
+- The worktree `.claude/worktrees/model-light` is on the branch
+  `feat/model-light`, which holds the same commits as pull request 576.
+  This hand-over and the scripts are in it, and its game is built in its
+  `target/release`. Work on the probes here. The local branch
+  `feat/baked-probes` is in the same repository, so `git switch` reaches
+  it from this worktree.
+- The worktree `.claude/worktrees/lighting-step6` is on `feat/fitted-lights`.
+  Its `target/light-kinds/game` holds every module's bakes, poses and shots.
+  Another session's uncommitted sky fix is in it. Do not commit, reset or
+  switch branches there.
+
+- Set `KJK_ROOT` to the worktree `lighting-step6`, for its bakes, and
+  `KJK_EXE` to the game built in `model-light`.
 - Every launch is headless and muted with the scratch settings, as the
   scripts do. Run one game or one bake at a time.
 - unk_m44ac's round r2 bake is
