@@ -8,8 +8,9 @@
 //! written to the project's folder as `<name>.uti`. A placeable, a creature
 //! or a store then takes it by that name, as it takes any item.
 //!
-//! What an item does (its properties) is its base item's. The editor
-//! changes its name, its text, its tag and a few numbers.
+//! What an item does (its properties) starts as its base item's. The
+//! editor changes its name, its text, its tag, a few numbers and its
+//! properties (`item_props`).
 
 use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue, LocString};
 

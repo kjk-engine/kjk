@@ -131,6 +131,14 @@ pub enum Edit {
     },
     /// Such a template taken out of the project.
     DropTemplate(String),
+    /// A template an object is made from, copied whole from another level
+    /// of the game, which the edited level does not read. It is made with
+    /// the object that uses it, and a project that has one of the name
+    /// keeps its own.
+    ImportTemplate {
+        name: String,
+        template: Box<crate::template::Template>,
+    },
     /// A conversation of the project made: `base` is a copy of the game's
     /// of that name, else it starts empty (`dialog::empty`).
     NewConversation {
@@ -1277,6 +1285,17 @@ impl Editor {
                     return Err("an object's template is changed through its object".into());
                 }
                 self.project.templates.insert(name, *template);
+                Ok(self.selected)
+            }
+            Edit::ImportTemplate { name, template } => {
+                let name = name.to_ascii_lowercase();
+                if name.is_empty() || name.len() > git::RESREF_LEN {
+                    return Err(format!("{name:?} is not a template's name"));
+                }
+                if !crate::template::of_objects(template.restype) {
+                    return Err("an item or the journal is not an object's template".into());
+                }
+                self.project.templates.entry(name).or_insert(*template);
                 Ok(self.selected)
             }
             Edit::DropTemplate(name) => {

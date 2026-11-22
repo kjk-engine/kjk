@@ -23,6 +23,7 @@ pub mod dialog;
 pub mod editor;
 pub mod fields;
 pub mod git;
+pub mod item_props;
 pub mod items;
 pub mod journal;
 pub mod kinds;

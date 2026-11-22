@@ -931,6 +931,50 @@ An encounter's fields:
 New encounters are placed from the asset picker's Encounters tab. A new
 encounter gets a square outline 2 metres wide and no spawn points.
 
+## Templates of the game's other levels
+
+A level reads the game's shared templates and the templates in its own
+files. Many creatures, sounds and stores are in one level's files only.
+The creatures of Korriban's tombs are an example. A new map has no files
+of its own, so it reads only the shared templates.
+
+The editor looks through every level of the game the first time it is
+asked for such a template. This takes a few seconds. After that,
+`edit add KIND NAME` takes a template that only another level has, and
+copies it into the project. The copy brings what the template names and
+the edited level does not have:
+
+- the items the creature, the placeable or the store carries,
+- its conversation,
+- the creatures of an encounter,
+- the compiled scripts of all of these.
+
+The template, the items and the conversation become the project's own,
+and one undo takes them out again with the object. The compiled scripts
+are written to the project's folder as the game has them, and an undo
+leaves them there. The editor says what it copied and from which level.
+
+In the window, the asset picker's **Other levels** check box adds these
+templates to the list, each with its level after its name. Over the
+agent link, `catalog.json` lists them with the name the game shows and
+the level they are in.
+
+A door and a waypoint are read whole into the level, so no template is
+copied for them. Models and textures that only another level's files
+hold are not copied.
+
+`edit item new NAME BASE` also takes a base item that only another level
+has.
+
+**A creature made tougher.** `edit fights like TEMPLATE` makes the
+selected creature fight as the creature of that template does. It takes
+that creature's classes with their levels and Force powers, its feats,
+skills and special abilities, its six attributes, its hit points and
+Force points, its saves, its natural armour and its challenge rating.
+It keeps its own name, look, faction, scripts and equipment. `TEMPLATE`
+may be a creature of any level of the game. The message says the level
+and the hit points the creature now has.
+
 ## A door's lock
 
 A selected door shows its lock and its toughness in the details panel,
@@ -966,8 +1010,44 @@ name `NAME`. The copy keeps that item's kind, look and properties.
 
 A placeable, a creature or a store takes the item by its name, as it
 takes any item (`edit item add NAME`). The item is saved in the project's
-folder as `NAME.uti`. What an item does is still its base item's: the
-editor does not change an item's properties yet.
+folder as `NAME.uti`.
+
+**What an item does.** An item's properties say what it does when it is
+worn, wielded or used. A new item starts with its base item's properties.
+Each property is a row of the game's table `itempropdef.2da`, such as an
+attribute bonus or a limit to one alignment. Most properties have a
+subtype, which says which attribute or which alignment. Most have a
+value, which says how much. A few take a parameter as well.
+
+- `edit item properties NAME` lists the item's properties among the
+  messages, each after its place in the list, from 0.
+- `edit item property NAME add ROW SUBTYPE VALUE [PARAM]` adds a
+  property. `ROW` is the property's row of `itempropdef.2da`. `SUBTYPE`,
+  `VALUE` and `PARAM` are rows of the tables that property names. A
+  property without subtypes or without values takes 0 there. An item
+  holds a property of one row and subtype once, so adding it again
+  changes its value.
+- `edit item property NAME remove N` takes out the property at place `N`.
+- `edit item property NAME clear` takes out every property.
+
+The editor checks each row against the game's tables and refuses one the
+game does not have. Over the agent link, `properties` writes every
+property with the rows of its tables (`docs/LEVEL-EDIT-AGENT.md`).
+
+For example, a robe that only a dark side character wears, and that adds
+3 to Wisdom:
+
+    edit item new kje_shroud g_a_mstrrobe07
+    edit item property kje_shroud clear
+    edit item property kje_shroud add 43 3 0
+    edit item property kje_shroud add 0 4 3
+
+**The window.** The **Items and quests** button of the top bar opens a
+window that lists the project's own items and its own quests. An item's
+name, description, worth and properties are changed there, and a
+property is added with pickers that list the game's tables by name. A
+quest's entries are changed and added there too. Every change in the
+window is one of the commands of this section.
 
 **Quests.** The games keep every quest in one journal file. A project
 that adds a quest keeps a copy of that file, `global.jrl`, with its quest
@@ -1291,6 +1371,10 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit entrance drop AREA` | gives that area's object list back to the install |
 | `edit entrance add MODULE TEMPLATE X Y Z [TAG [ARRIVAL]]` | adds a new trigger to the module's entry area, made from the install's trigger template, at that point of that area. It leads here, to the door or waypoint tagged `ARRIVAL`, or to this level's entry |
 | `edit item new NAME BASE`, `edit item name\|text NAME TEXT`, `edit item tag NAME TAG`, `edit item number NAME LABEL VALUE`, `edit item drop NAME` | makes an item of the project as a copy of the game's item `BASE`; sets its name, its description, its tag or a number; takes it out |
+| `edit item properties NAME`, `edit item property NAME add ROW SUBTYPE VALUE [PARAM]`, `edit item property NAME remove N`, `edit item property NAME clear` | lists the properties of one of the project's items; adds one by its rows of the game's tables; takes out the one at place `N`; takes out all of them |
+| `edit fights like TEMPLATE` | makes the selected creature fight as the creature of that template does, with its classes, feats, attributes and hit points |
+| `edit ui adventure`, `edit ui adventure off` | opens or closes the window of the project's items and quests |
+| `edit ui elsewhere on`, `edit ui elsewhere off` | whether the asset picker also lists the templates only other levels have |
 | `edit quest new TAG NAME`, `edit quest entry\|end TAG N TEXT`, `edit quest show TAG`, `edit quest drop TAG` | adds a quest to the project's journal; sets one of its entries, or one that closes it; lists it; takes it out |
 | `edit conversation NAME screen talk\|computer\|rakatan` | shows the conversation as speech between characters, on a computer's screen, or on a Rakatan computer's |
 | `edit outline X1 Y1 X2 Y2 X3 Y3 ...` | sets the selected trigger's or encounter's outline: three corners or more, in metres, at its height |

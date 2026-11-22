@@ -353,6 +353,9 @@ pub struct EditorState {
     /// type; `None` for one that does not read. The install does not change
     /// while the editor is open, so each is read and parsed once.
     install_templates: std::sync::Mutex<BTreeMap<(String, ResType), Option<fmt_odyssey::gff::Gff>>>,
+    /// What the game's other levels have that this one does not, looked
+    /// for when it is first asked for.
+    elsewhere: std::sync::OnceLock<crate::elsewhere::Elsewhere>,
     /// An audit running (`edit audit`): when it started, and where its
     /// output arrives.
     pub(crate) audit_job: Option<(std::time::Instant, AuditResult)>,
@@ -464,6 +467,7 @@ impl EditorState {
             pending_shot: None,
             refused: None,
             install_templates: Default::default(),
+            elsewhere: Default::default(),
             audit_job: None,
             redraws: 0,
         };
@@ -781,6 +785,17 @@ impl EditorState {
             name: "editor".into(),
             rank: Rank::Directory,
             resources,
+        })
+    }
+
+    /// What the game's other levels have that this one does not.
+    pub(crate) fn elsewhere(&self) -> &crate::elsewhere::Elsewhere {
+        self.elsewhere.get_or_init(|| {
+            crate::elsewhere::Elsewhere::of(
+                self.setup.game,
+                &self.setup.modules,
+                &self.setup.resolver,
+            )
         })
     }
 
@@ -2045,33 +2060,44 @@ pub(crate) fn add_object(
     if !ADDABLE.contains(&kind) {
         return Err(format!("a {} cannot be added", kind_name(kind)));
     }
-    if state
-        .setup
-        .templates_of(kind)
-        .binary_search(&template)
-        .is_err()
-    {
-        return Err(format!(
-            "the install has no {} template {template}",
-            kind_name(kind)
+    let (_, restype) = kind.list_and_type();
+    let whole = level_edit::template::whole(kind);
+    let here = (state.setup.templates_of(kind).binary_search(&template)).is_ok()
+        || (state.editor.project.templates.get(&template))
+            .is_some_and(|made| made.restype == restype);
+    // A template only another level of the game has is copied into the
+    // project with what it names (`elsewhere`).
+    let mut edits = Vec::new();
+    let mut read = None;
+    if !here {
+        let import = crate::elsewhere::import(state, &template, restype, !whole).ok_or(
+            format!("the game has no {} template {template}", kind_name(kind)),
+        )??;
+        let scripts = crate::elsewhere::write_scripts(state, &import)?;
+        let (items, conversations, creatures) = import.with;
+        state.say(format!(
+            "{template} is copied from the level {}, with {items} items, {conversations} conversations, {creatures} creatures and {scripts} scripts it names",
+            import.module
         ));
+        edits = import.edits;
+        read = Some(import.gff);
     }
-    let base = if level_edit::template::whole(kind) {
-        let (_, restype) = kind.list_and_type();
-        let gff = state
-            .template_gff(&template, restype)
+    let base = if whole {
+        let gff = read
+            .or_else(|| state.template_gff(&template, restype))
             .ok_or(format!("the template {template} does not read"))?;
         Some(gff.root)
     } else {
         None
     };
-    state.apply(Edit::AddObject {
+    edits.push(Edit::AddObject {
         kind,
         template,
         position,
         facing: 0.0,
         base,
     });
+    state.apply_many(edits);
     Ok(())
 }
 
@@ -2895,9 +2921,17 @@ fn command_words(
             {
                 return Err(format!("there is an item named {name} already"));
             }
-            let gff = (state.setup.resolver.read(&base, ResType::UTI))
+            let gff = match (state.setup.resolver.read(&base, ResType::UTI))
                 .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
-                .ok_or(format!("the game has no item {base} to copy"))?;
+            {
+                Some(gff) => gff,
+                // An item only another level of the game has.
+                None => {
+                    crate::elsewhere::import(state, &base, ResType::UTI, false)
+                        .ok_or(format!("the game has no item {base} to copy"))??
+                        .gff
+                }
+            };
             let mut gff = level_edit::items::new_item(&gff, &name)?;
             level_edit::items::note_base(&mut gff, &base);
             state.apply(Edit::SetTemplate {
@@ -2938,6 +2972,63 @@ fn command_words(
             own_item(state, name)?;
             state.apply(Edit::DropTemplate(name.to_ascii_lowercase()));
         }
+        // What one of the project's items does (`level_edit::item_props`).
+        [
+            "item",
+            "property",
+            name,
+            "add",
+            row,
+            subtype,
+            value,
+            rest @ ..,
+        ] => {
+            let param = match rest {
+                [] => 0,
+                [param] => row_number(param)?,
+                _ => return Err("item property NAME add ROW SUBTYPE VALUE [PARAM]".into()),
+            };
+            let property = property_of(
+                state,
+                row_number(row)?,
+                row_number(subtype)?,
+                row_number(value)?,
+                param,
+            )?;
+            let mut item = own_item(state, name)?;
+            level_edit::item_props::add(&mut item.gff, property);
+            let shown = property_shown(state, &property);
+            state.apply(Edit::SetTemplate {
+                name: name.to_ascii_lowercase(),
+                template: Box::new(item),
+            });
+            state.say(format!("{name} has {shown}"));
+        }
+        ["item", "property", name, "remove", at] => {
+            let mut item = own_item(state, name)?;
+            level_edit::item_props::remove(&mut item.gff, usize::from(row_number(at)?))?;
+            state.apply(Edit::SetTemplate {
+                name: name.to_ascii_lowercase(),
+                template: Box::new(item),
+            });
+        }
+        ["item", "property", name, "clear"] => {
+            let mut item = own_item(state, name)?;
+            level_edit::item_props::clear(&mut item.gff);
+            state.apply(Edit::SetTemplate {
+                name: name.to_ascii_lowercase(),
+                template: Box::new(item),
+            });
+        }
+        ["item", "properties", name] => {
+            let item = own_item(state, name)?;
+            let shown = properties_shown(state, &item.gff);
+            state.say(if shown.is_empty() {
+                format!("{name} has no properties")
+            } else {
+                format!("{name} has {}", shown.join("; "))
+            });
+        }
         // The project's own quests (`level_edit::journal`): the game's
         // journal with quests added.
         ["quest", "new", tag, name @ ..] => {
@@ -2975,6 +3066,33 @@ fn command_words(
             let target = selected(state)?;
             let at: usize = at.parse().map_err(|_| format!("{at:?} is not a number"))?;
             state.change_template(target, Change::RemoveItem(at));
+        }
+        // The selected creature made as tough as another: it takes that
+        // creature's classes, feats, attributes and hit points
+        // (`level_edit::fields::FIGHT`) and keeps its own name, look,
+        // faction, scripts and equipment.
+        ["fights", "like", template] => {
+            let target = selected(state)?;
+            let name = template.to_ascii_lowercase();
+            let other = match state.template_gff(&name, ResType::UTC) {
+                Some(gff) => gff,
+                None => {
+                    crate::elsewhere::import(state, &name, ResType::UTC, false)
+                        .ok_or(format!("the game has no creature template {name}"))??
+                        .gff
+                }
+            };
+            let level: u32 = (level_edit::fields::classes(&other).iter())
+                .map(|(_, levels, _)| u32::from(*levels))
+                .sum();
+            let hit_points = other.root.int("MaxHitPoints").unwrap_or(0);
+            state.change_template(
+                target,
+                Change::Field(level_edit::fields::FieldChange::Like(Box::new(other.root))),
+            );
+            state.say(format!(
+                "the selected creature fights like {name}: level {level}, {hit_points} hit points"
+            ));
         }
         [
             "number" | "name" | "class" | "feat" | "power" | "skill" | "equip" | "spawn"
@@ -4106,6 +4224,271 @@ fn own_item(state: &EditorState, name: &str) -> Result<level_edit::Template, Str
         ))
 }
 
+/// A row of a table a command names: a whole number from 0.
+fn row_number(word: &str) -> Result<u16, String> {
+    word.parse::<u16>()
+        .map_err(|_| format!("{word} is not a row: a whole number from 0"))
+}
+
+/// The rows of the 2DA `table` as a picker lists them: each row's number
+/// and its name (its talk-table `name`, with its label where that says
+/// something else). Rows with neither are left out.
+pub(crate) fn table_names(state: &EditorState, table: &str) -> Vec<(u16, String)> {
+    let mut rows = Vec::new();
+    let Some(two) = state.setup.resolver.two_da(table) else {
+        return rows;
+    };
+    let talk = state.setup.talk.as_deref();
+    for row in 0..two.row_labels.len().min(usize::from(u16::MAX)) {
+        let named = two
+            .text(row, "name")
+            .and_then(|cell| cell.parse::<u32>().ok())
+            .and_then(|strref| talk?.text(strref))
+            .map(|text| String::from_utf8_lossy(text).trim().to_string())
+            .filter(|text| !text.is_empty() && !text.starts_with("Bad Strref"));
+        let label = two
+            .text(row, "label")
+            .filter(|label| !label.is_empty() && label != "****");
+        let shown = match (named, label) {
+            (Some(name), Some(label)) if !name.eq_ignore_ascii_case(&label) => {
+                format!("{name} ({label})")
+            }
+            (Some(name), _) => name,
+            (None, Some(label)) => label,
+            (None, None) => continue,
+        };
+        rows.push((row as u16, shown));
+    }
+    rows
+}
+
+/// What the game's `itempropdef.2da` says of one kind of item property.
+pub(crate) struct PropertyKind {
+    /// Its name, as the editor shows it.
+    pub name: String,
+    /// The table its subtype is a row of, when it has subtypes.
+    pub subtypes: Option<String>,
+    /// Its row of `iprp_costtable.2da` and the table that row names, which
+    /// its value is a row of.
+    pub values: Option<(u8, String)>,
+    /// Its row of `iprp_paramtable.2da` and the table that row names, when
+    /// the property itself takes a parameter.
+    pub params: Option<(u8, String)>,
+}
+
+/// The table row `at` of `index` names under `column`, with `at`.
+fn indexed_table(
+    state: &EditorState,
+    index: &str,
+    at: Option<i64>,
+    column: &str,
+) -> Option<(u8, String)> {
+    let at = u8::try_from(at?).ok().filter(|at| *at != 255)?;
+    let table = (state.setup.resolver.two_da(index))?.resref(usize::from(at), column)?;
+    Some((at, table))
+}
+
+/// The kind of item property row `row` of `itempropdef.2da` is, when the
+/// game has one there.
+pub(crate) fn property_kind(state: &EditorState, row: u16) -> Option<PropertyKind> {
+    let def = state.setup.resolver.two_da("itempropdef")?;
+    let at = usize::from(row);
+    if at >= def.row_labels.len() {
+        return None;
+    }
+    let name = (table_names(state, "itempropdef").into_iter())
+        .find(|(found, _)| *found == row)?
+        .1;
+    Some(PropertyKind {
+        name,
+        subtypes: def.resref(at, "subtyperesref"),
+        values: indexed_table(
+            state,
+            "iprp_costtable",
+            def.int(at, "costtableresref"),
+            "name",
+        ),
+        params: indexed_table(
+            state,
+            "iprp_paramtable",
+            def.int(at, "param1resref"),
+            "tableresref",
+        ),
+    })
+}
+
+/// How many rows the 2DA `table` has.
+pub(crate) fn table_len(state: &EditorState, table: &str) -> usize {
+    (state.setup.resolver.two_da(table)).map_or(0, |two| two.row_labels.len())
+}
+
+/// The parameter table of a property: its own, else the one its subtype's
+/// row names (a property that acts on a hit names its duration there).
+pub(crate) fn param_table(
+    state: &EditorState,
+    kind: &PropertyKind,
+    subtype: u16,
+) -> Option<(u8, String)> {
+    kind.params.clone().or_else(|| {
+        let table = kind.subtypes.as_deref()?;
+        let at = (state.setup.resolver.two_da(table))?.int(usize::from(subtype), "param1resref");
+        indexed_table(state, "iprp_paramtable", at, "tableresref")
+    })
+}
+
+/// The property a command names, checked against the game's tables.
+fn property_of(
+    state: &EditorState,
+    row: u16,
+    subtype: u16,
+    value: u16,
+    param: u16,
+) -> Result<level_edit::item_props::Property, String> {
+    let kind = property_kind(state, row).ok_or(format!(
+        "the game has no item property {row}: the link's `properties` lists them"
+    ))?;
+    match &kind.subtypes {
+        Some(table) if usize::from(subtype) >= table_len(state, table) => {
+            return Err(format!(
+                "{} has no subtype {subtype}: its subtypes are the {} rows of {table}",
+                kind.name,
+                table_len(state, table)
+            ));
+        }
+        None if subtype != 0 => {
+            return Err(format!("{} has no subtypes: give 0", kind.name));
+        }
+        _ => {}
+    }
+    let cost_table = match &kind.values {
+        Some((at, table)) => {
+            // A cost table the game names but has no file for (`base1`,
+            // of properties that are on or off) takes any value.
+            let rows = table_len(state, table);
+            if rows > 0 && usize::from(value) >= rows {
+                return Err(format!(
+                    "{} has no value {value}: its values are the {} rows of {table}",
+                    kind.name,
+                    table_len(state, table)
+                ));
+            }
+            *at
+        }
+        None if value != 0 => {
+            return Err(format!("{} has no values: give 0", kind.name));
+        }
+        None => 0,
+    };
+    let (param_table, param) = match param_table(state, &kind, subtype) {
+        Some((at, table)) => {
+            if usize::from(param) >= table_len(state, &table) {
+                return Err(format!(
+                    "{} has no parameter {param}: its parameters are the {} rows of {table}",
+                    kind.name,
+                    table_len(state, &table)
+                ));
+            }
+            (at, param as u8)
+        }
+        None if param != 0 => {
+            return Err(format!("{} takes no parameter", kind.name));
+        }
+        None => (255, 0),
+    };
+    Ok(level_edit::item_props::Property {
+        name: row,
+        subtype,
+        cost_table,
+        value,
+        param_table,
+        param,
+    })
+}
+
+/// The name of row `row` of `table`, else the row's number.
+fn row_shown(state: &EditorState, table: &str, row: u16) -> String {
+    (table_names(state, table).into_iter())
+        .find(|(at, _)| *at == row)
+        .map_or_else(|| format!("row {row}"), |(_, name)| name)
+}
+
+/// One property as the editor says it: its kind, its subtype and its value
+/// by their names in the game's tables.
+pub(crate) fn property_shown(
+    state: &EditorState,
+    property: &level_edit::item_props::Property,
+) -> String {
+    let Some(kind) = property_kind(state, property.name) else {
+        return format!("property {}", property.name);
+    };
+    let mut shown = kind.name.clone();
+    if let Some(table) = &kind.subtypes {
+        shown.push_str(&format!(", {}", row_shown(state, table, property.subtype)));
+    }
+    // A property that is on or off has a value that says nothing.
+    if let Some((_, table)) = &kind.values
+        && table_len(state, table) > 0
+    {
+        shown.push_str(&format!(", {}", row_shown(state, table, property.value)));
+    }
+    if let Some((_, table)) = param_table(state, &kind, property.subtype) {
+        shown.push_str(&format!(
+            ", {}",
+            row_shown(state, &table, u16::from(property.param))
+        ));
+    }
+    shown
+}
+
+/// An item's properties as the editor says them, each after its place in
+/// the item's list.
+pub(crate) fn properties_shown(state: &EditorState, item: &fmt_odyssey::gff::Gff) -> Vec<String> {
+    (level_edit::item_props::properties(item).iter().enumerate())
+        .map(|(at, property)| format!("{at}: {}", property_shown(state, property)))
+        .collect()
+}
+
+/// Every kind of item property the game has, for the agent link's
+/// `properties.json`: each kind with the tables its subtype, value and
+/// parameter are rows of, and those tables' rows by name.
+pub(crate) fn property_catalog(state: &EditorState) -> serde_json::Value {
+    let mut kinds = Vec::new();
+    let mut tables = std::collections::BTreeMap::new();
+    for (row, _) in table_names(state, "itempropdef") {
+        let Some(kind) = property_kind(state, row) else {
+            continue;
+        };
+        let values = kind.values.as_ref().map(|(_, table)| table.clone());
+        let params = kind.params.as_ref().map(|(_, table)| table.clone());
+        for table in [&kind.subtypes, &values, &params].into_iter().flatten() {
+            if !tables.contains_key(table) {
+                let rows: Vec<serde_json::Value> = (table_names(state, table).into_iter())
+                    .map(|(row, name)| serde_json::json!({"row": row, "name": name}))
+                    .collect();
+                tables.insert(table.clone(), rows);
+            }
+        }
+        kinds.push(serde_json::json!({
+            "row": row,
+            "name": kind.name,
+            "subtype_table": kind.subtypes,
+            "value_table": values,
+            "parameter_table": params,
+            "add_command": format!(
+                "edit item property NAME add {row} {} {}{}",
+                if kind.subtypes.is_some() { "SUBTYPE" } else { "0" },
+                if values.is_some() { "VALUE" } else { "0" },
+                if params.is_some() { " PARAM" } else { "" },
+            ),
+        }));
+    }
+    serde_json::json!({
+        "note": "SUBTYPE, VALUE and PARAM are rows of the tables named, listed under tables.",
+        "properties": kinds,
+        "tables": tables,
+    })
+}
+
 /// Makes `change` in the project's item `name`.
 fn change_item(
     state: &mut EditorState,
@@ -4800,7 +5183,13 @@ pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
                 .filter(|(_, made)| made.restype == ResType::UTI)
                 .map(|(name, made)| {
                     let (shown, text) = level_edit::items::shown(&made.gff);
-                    serde_json::json!({"name": name, "copied_from": made.from, "shown": shown, "text": text})
+                    serde_json::json!({
+                        "name": name,
+                        "copied_from": made.from,
+                        "shown": shown,
+                        "text": text,
+                        "properties": properties_shown(state, &made.gff),
+                    })
                 })
                 .collect::<Vec<_>>(),
             "project_journal": project.templates.contains_key(level_edit::journal::NAME),

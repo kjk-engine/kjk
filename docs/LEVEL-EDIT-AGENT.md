@@ -132,10 +132,20 @@ is `ok` as soon as it is handed over. If the window does not know the
 words, it says so among `messages`.
 
 - `catalog` writes `catalog.json`: every name a command can add or set.
-  It lists the install's placeable, creature, door, waypoint, trigger,
+  It lists the game's placeable, creature, door, waypoint, trigger,
   sound, store and encounter templates, its items, scripts and modules,
   the rooms a new map can place, Jedi Academy's models for props, and
-  the lamps found so far.
+  the lamps found so far. Each template and each item is an object with
+  `name`, which a command takes, and `shown`, the name the game shows
+  for it. A creature also has `creature_level`, the sum of its class
+  levels. A template with `level` is in that level's files only. Adding
+  it copies it into the project (`docs/LEVEL-EDIT.md`, "Templates of the
+  game's other levels"). The first `catalog` of a session looks through
+  every level of the game and takes a few seconds.
+- `properties` writes `properties.json`: every kind of item property the
+  game has. Each has its `row`, its `name`, the tables its subtype, its
+  value and its parameter are rows of, and the `add_command` that adds
+  it. `tables` lists each of those tables' rows by number and name.
 - `level` writes `level.json`: what a dump says of the editor. It holds
   every object with its template, tag, position and facing, the props
   and boxes, the lights, lamps and sun, the navigation mesh's facts and

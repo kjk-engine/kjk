@@ -128,7 +128,8 @@ def facts_of(level):
         "entry_off_the_mesh": nav.get("entry_off"),
         "conversations": sorted(level.get("conversations", [])),
         "project_items": sorted(
-            (item["name"], item["copied_from"], item["shown"]) for item in level.get("project_items", [])
+            (item["name"], item["copied_from"], item["shown"], item["properties"])
+            for item in level.get("project_items", [])
         ),
         "project_journal": level.get("project_journal"),
         "project_scripts": sorted(level.get("project_scripts", [])),
@@ -241,6 +242,8 @@ def main():
             os.path.isfile(os.path.join(mod, "override", "global.jrl")),
             os.path.isfile(os.path.join(mod, "override", "kje_vt_shroud.uti")),
             os.path.isfile(os.path.join(mod, "override", "m36aa.git")),
+            # A creature copied from another level of the game.
+            os.path.isfile(os.path.join(mod, "override", "k37_enc_dire.utc")),
         ]
         check("the level exports as a mod", answer.startswith("ok") and all(there), (answer, there))
 

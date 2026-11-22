@@ -48,12 +48,15 @@ tag kje_vt_warn
 add placeable plc_statue1 55 104.5 18
 add placeable plc_statue1 55 111.5 18
 turn 180
+add sound areaspookanimals 52 108 20
+tag kje_vt_amb
 end
 
-# The east route.
+# The east route. Its creatures are of Korriban's own levels: the editor
+# copies them into the project.
 begin
-add creature g_tukata01 89 107 15
-add creature g_tukata01 91 109.5 15
+add creature k38b_enc_shywyrm 89 107 15
+add creature k38b_enc_shywyrm 91 109.5 15
 turn 180
 add placeable plc_runepillar 133 108 18
 tag kje_vt_hint1
@@ -79,8 +82,8 @@ end
 
 # The north route, the terminal, the guardian and the sarcophagus.
 begin
-add creature g_tukata02 51 140 15
-add creature g_tukata02 53 143 15
+add creature k37_enc_dire 51 140 15
+add creature k37_enc_dire 53 143 15
 add placeable plc_runeobelisk 54 152 15
 tag kje_vt_seal_note
 add placeable plc_comppanel 54.3 174 15
@@ -102,7 +105,9 @@ quest entry kje_vessk 20 "The tomb splits three ways. The sealed chamber lies to
 quest entry kje_vessk 30 "The terminal accepted the answers and the seal has opened. Something still guards the burial chamber."
 quest end kje_vessk 40 "The guardian of the tomb is dead, and the Shroud of Vessk Tarn is yours."
 
-# The items: the explorer's datapad and the reward.
+# The items: the explorer's datapad and the reward. The reward's
+# properties are its own: only the dark side wears it, and it adds 3 to
+# Wisdom, 2 to Force point regeneration, 4 to defense and 2 to every save.
 item new kje_vt_datapad g_i_datapad001
 item name kje_vt_datapad Explorer's Datapad
 item text kje_vt_datapad "Day 3. The academy does not know of this tomb. Vessk Tarn was a small lord, but he was buried with his shroud. Day 5. Three ways from the crossing. North is sealed by a machine that asks about the old lords. I copied nothing down, fool that I am. The carvings east and south hold the answers. Day 6. The beasts found me first."
@@ -110,6 +115,12 @@ item new kje_vt_shroud g_a_mstrrobe07
 item name kje_vt_shroud Shroud of Vessk Tarn
 item text kje_vt_shroud "The burial shroud of a forgotten Sith Lord. It was woven for the living and has waited a long time for one."
 item number kje_vt_shroud Cost 9000
+item property kje_vt_shroud clear
+item property kje_vt_shroud add 43 3 0
+item property kje_vt_shroud add 0 4 3
+item property kje_vt_shroud add 54 0 2
+item property kje_vt_shroud add 1 0 4
+item property kje_vt_shroud add 27 0 2
 
 # The scripts.
 script text kje_vt_open {scripts}/kje_vt_open.nss
@@ -134,6 +145,7 @@ select kje_vt_boss
 script ScriptDeath kje_vt_bossdie
 number FactionID 1
 name FirstName Shade of Vessk Tarn
+fights like kor37_freedon
 item add kje_vt_shroud
 item 0 drops on
 

@@ -14,11 +14,12 @@
 //! are there. Only programs that can write to the user's
 //! own folder can reach it; nothing listens on the network.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
+use fmt_odyssey::ResType;
 use kjk_game::scene::{FlyCamera, game_to_bevy};
 use level_edit::Target;
 
@@ -288,6 +289,12 @@ impl Link {
                     Ok(count) => format!("ok: {count} names listed in catalog.json"),
                     Err(why) => why,
                 },
+                ["properties"] => {
+                    match self.write_json("properties.json", &state::property_catalog(state)) {
+                        Ok(()) => "ok: properties.json is written".to_string(),
+                        Err(why) => why,
+                    }
+                }
                 ["level"] => match self.write_json("level.json", &state::facts_of(state)) {
                     Ok(()) => "ok: level.json is written".to_string(),
                     Err(why) => why,
@@ -402,6 +409,7 @@ impl Link {
 
     /// Writes `catalog.json`: every name a command can add or set, by what
     /// it is. How many names it lists.
+    #[allow(clippy::too_many_lines)]
     fn write_catalog(&self, state: &EditorState) -> Result<usize, String> {
         let setup = &state.setup;
         let rooms: Vec<serde_json::Value> = (setup.rooms.iter())
@@ -420,26 +428,64 @@ impl Link {
                 })
             })
             .collect();
-        let lists: [(&str, &Vec<String>); 12] = [
-            ("placeables", &setup.placeables),
-            ("creatures", &setup.creatures),
-            ("doors", &setup.doors),
-            ("waypoints", &setup.waypoints),
-            ("triggers", &setup.triggers),
-            ("sounds", &setup.sounds),
-            ("stores", &setup.stores),
-            ("encounters", &setup.encounters),
-            ("items", &setup.items),
+        // Templates, each with the name the game shows for it. One only
+        // another level has says which level: adding it copies it into the
+        // project.
+        let templates: [(&str, &Vec<String>, ResType); 9] = [
+            ("placeables", &setup.placeables, ResType::UTP),
+            ("creatures", &setup.creatures, ResType::UTC),
+            ("doors", &setup.doors, ResType::UTD),
+            ("waypoints", &setup.waypoints, ResType::UTW),
+            ("triggers", &setup.triggers, ResType::UTT),
+            ("sounds", &setup.sounds, ResType::UTS),
+            ("stores", &setup.stores, ResType::UTM),
+            ("encounters", &setup.encounters, ResType::UTE),
+            ("items", &setup.items, ResType::UTI),
+        ];
+        let lists: [(&str, &Vec<String>); 3] = [
             ("scripts", &setup.scripts),
             ("modules", &setup.modules),
             ("props", &setup.models),
         ];
-        let count =
+        let mut count =
             lists.iter().map(|(_, names)| names.len()).sum::<usize>() + rooms.len() + lamps.len();
         let mut catalog = serde_json::Map::new();
+        let elsewhere = state.elsewhere();
+        let discovery = kjk_game::discover();
+        let mut opened: BTreeMap<String, Option<vfs::resolver::Resolver>> = BTreeMap::new();
+        for (list, names, restype) in templates {
+            let mut entries = Vec::with_capacity(names.len());
+            for name in names {
+                let gff = state.template_gff(name, restype);
+                entries.push(template_entry(state, name, restype, gff.as_ref(), None));
+            }
+            for (name, module) in elsewhere.names(restype) {
+                let source = opened.entry(module.to_string()).or_insert_with(|| {
+                    kjk_game::viewer::resolver(&discovery, setup.game, Some(module)).ok()
+                });
+                let gff = (source.as_ref())
+                    .and_then(|source| source.read(name, restype))
+                    .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok());
+                entries.push(template_entry(
+                    state,
+                    name,
+                    restype,
+                    gff.as_ref(),
+                    Some(module),
+                ));
+            }
+            count += entries.len();
+            catalog.insert(list.to_string(), serde_json::json!(entries));
+        }
         for (name, names) in lists {
             catalog.insert(name.to_string(), serde_json::json!(names));
         }
+        catalog.insert(
+            "templates_note".into(),
+            serde_json::json!(
+                "Each template has its name, which a command takes, and `shown`, the name the game shows for it. One with `level` is in that level's files only: adding it copies it into the project with the items, the conversation and the scripts it names."
+            ),
+        );
         catalog.insert("rooms".into(), serde_json::json!(rooms));
         catalog.insert("lamps".into(), serde_json::json!(lamps));
         catalog.insert(
@@ -583,4 +629,41 @@ impl Link {
             self.written = text;
         }
     }
+}
+
+/// One template in `catalog.json`: its name, the name the game shows for
+/// it, a creature's level, and the level whose files alone hold it.
+fn template_entry(
+    state: &EditorState,
+    name: &str,
+    restype: ResType,
+    gff: Option<&fmt_odyssey::gff::Gff>,
+    module: Option<&str>,
+) -> serde_json::Value {
+    let talk = state.setup.talk.as_deref();
+    let line = |strref: u32| {
+        talk?
+            .text(strref)
+            .map(|text| String::from_utf8_lossy(text).trim().to_string())
+    };
+    let mut entry = serde_json::Map::new();
+    entry.insert("name".into(), serde_json::json!(name));
+    if let Some(gff) = gff {
+        let shown = ["FirstName", "LocName", "LocalizedName"]
+            .iter()
+            .map(|label| level_edit::fields::name_of(gff, label, &line))
+            .find(|shown| !shown.is_empty())
+            .unwrap_or_else(String::new);
+        entry.insert("shown".into(), serde_json::json!(shown));
+        if restype == ResType::UTC {
+            let level: u32 = (level_edit::fields::classes(gff).iter())
+                .map(|(_, levels, _)| u32::from(*levels))
+                .sum();
+            entry.insert("creature_level".into(), serde_json::json!(level));
+        }
+    }
+    if let Some(module) = module {
+        entry.insert("level".into(), serde_json::json!(module));
+    }
+    serde_json::Value::Object(entry)
 }

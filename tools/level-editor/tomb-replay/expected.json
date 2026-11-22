@@ -13,6 +13,7 @@
     "door": 1,
     "encounter": 1,
     "placeable": 18,
+    "sound": 1,
     "trigger": 2
   },
   "entry_off_the_mesh": false,
@@ -21,6 +22,7 @@
   "nav_faces_apart": 0,
   "nav_islands": 1,
   "object_tags": [
+    "kje_vt_amb",
     "kje_vt_boss",
     "kje_vt_chest1",
     "kje_vt_chest2",
@@ -47,16 +49,26 @@
     [
       "kje_vt_datapad",
       "g_i_datapad001",
-      "Explorer's Datapad"
+      "Explorer's Datapad",
+      []
     ],
     [
       "kje_vt_shroud",
       "g_a_mstrrobe07",
-      "Shroud of Vessk Tarn"
+      "Shroud of Vessk Tarn",
+      [
+        "0: Alignment Limitation (UseLimitationAlignmentGroup), Dark Side (Dark_Side)",
+        "1: Attribute Bonus (Ability), Wisdom, +3 (3)",
+        "2: Regeneration Force Points (Regeneration_Force_Points), 2",
+        "3: Defense Bonus (Armor), 4",
+        "4: Improved Saving Throws: Specific (ImprovedSavingThrowsSpecific), All, 2"
+      ]
     ]
   ],
   "project_journal": true,
   "project_scripts": [
+    "k_pkor_spn_dyana",
+    "k_pkor_spn_dynam",
     "kjb_1",
     "kjb_2",
     "kje_vt_bossdie",

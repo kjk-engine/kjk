@@ -7,6 +7,7 @@
 
 mod agent;
 mod bake;
+mod elsewhere;
 mod file;
 mod lamps;
 mod markers;

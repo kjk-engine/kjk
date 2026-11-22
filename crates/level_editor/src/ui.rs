@@ -127,6 +127,9 @@ pub struct UiState {
     asset_items: Option<((Tab, String, usize), AssetItems)>,
     tab: Tab,
     asset_search: String,
+    /// Whether the asset picker also lists the templates only the game's
+    /// other levels have (`elsewhere`).
+    assets_elsewhere: bool,
     /// The asset picked in the picker: what a double-click or Enter places.
     picked: Option<Asset>,
     gizmo: Gizmo,
@@ -185,6 +188,14 @@ pub struct UiState {
     table_rows: BTreeMap<String, std::sync::Arc<Vec<(u16, String)>>>,
     /// What each row picker's filter holds, by the picker's name.
     row_filters: BTreeMap<String, String>,
+    /// Whether the window of the project's items and quests is open.
+    adventure_open: bool,
+    /// What the fields of that window hold while they are typed in, by
+    /// each field's name.
+    texts: BTreeMap<String, String>,
+    /// The property being chosen for each item of that window: its kind,
+    /// its subtype, its value and its parameter.
+    new_property: BTreeMap<String, (Option<u16>, u16, u16, u16)>,
     /// A number being dragged, by its field's name, with its value so far:
     /// it is made one change when the drag ends.
     number_drag: Option<(String, f64)>,
@@ -240,6 +251,7 @@ impl Default for UiState {
             asset_items: None,
             tab: Tab::Placeables,
             asset_search: String::new(),
+            assets_elsewhere: false,
             picked: None,
             gizmo: Gizmo::default(),
             gizmo_modes: None,
@@ -270,6 +282,9 @@ impl Default for UiState {
             talk_checks: BTreeMap::new(),
             table_rows: BTreeMap::new(),
             row_filters: BTreeMap::new(),
+            adventure_open: false,
+            texts: BTreeMap::new(),
+            new_property: BTreeMap::new(),
             number_drag: None,
             spawning: None,
             placing_link: None,
@@ -864,6 +879,7 @@ fn panels(
             ["tab", "lamps"] => ui.tab = Tab::Lamps,
             ["levels", on @ ("on" | "off")] => state.show_levels = *on == "on",
             ["search", rest @ ..] => ui.asset_search = rest.join(" "),
+            ["elsewhere", on @ ("on" | "off")] => ui.assets_elsewhere = *on == "on",
             ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
             ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
             ["blocks", event] => {
@@ -873,6 +889,8 @@ fn panels(
                     .map(|target| (target, event.to_string()));
             }
             ["blocks"] => ui.blocks_event = None,
+            ["adventure"] => ui.adventure_open = true,
+            ["adventure", "off"] => ui.adventure_open = false,
             ["conversation"] => ui.dialog_open = None,
             ["conversation", name] => {
                 ui.dialog_open = Some(name.to_ascii_lowercase());
@@ -961,6 +979,7 @@ fn panels(
     crate::file::dialogs(&ctx, state, &mut ui.file);
     recovery_window(&ctx, state);
     conversation_window(&ctx, state, ui);
+    adventure_window(&ctx, state, ui);
     room_levels(&ctx, state);
     // The buttons' commands, run as their keys run them.
     if let Some(command) = state.pending_command.take() {
@@ -1229,6 +1248,13 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
             markers_menu(ui, state);
             scripts_menu(ui, state, ui_state);
             conversations_menu(ui, state, ui_state);
+            if ui
+                .selectable_label(ui_state.adventure_open, "Items and quests")
+                .on_hover_text("The project's own items and its own quests.")
+                .clicked()
+            {
+                ui_state.adventure_open = !ui_state.adventure_open;
+            }
             ui.separator();
             if ui
                 .button("Copy")
@@ -2258,30 +2284,7 @@ fn table_rows(
     if let Some(rows) = ui_state.table_rows.get(table) {
         return rows.clone();
     }
-    let mut rows = Vec::new();
-    if let Some(two) = state.setup.resolver.two_da(table) {
-        let talk = state.setup.talk.as_deref();
-        for row in 0..two.row_labels.len().min(usize::from(u16::MAX)) {
-            let named = two
-                .text(row, "name")
-                .and_then(|cell| cell.parse::<u32>().ok())
-                .and_then(|strref| talk?.text(strref))
-                .map(|text| String::from_utf8_lossy(text).trim().to_string())
-                .filter(|text| !text.is_empty() && !text.starts_with("Bad Strref"));
-            let label = two
-                .text(row, "label")
-                .filter(|label| !label.is_empty() && label != "****");
-            let shown = match (named, label) {
-                (Some(name), Some(label)) if !name.eq_ignore_ascii_case(&label) => {
-                    format!("{name} ({label})")
-                }
-                (Some(name), _) => name,
-                (None, Some(label)) => label,
-                (None, None) => continue,
-            };
-            rows.push((row as u16, shown));
-        }
-    }
+    let rows = crate::state::table_names(state, table);
     let rows = std::sync::Arc::new(rows);
     ui_state.table_rows.insert(table.to_string(), rows.clone());
     rows
@@ -5151,6 +5154,10 @@ fn assets(
                         .hint_text("Search assets")
                         .desired_width(220.0),
                 );
+                ui.checkbox(&mut ui_state.assets_elsewhere, "Other levels")
+                    .on_hover_text(
+                        "Also lists the templates only the game's other levels have, each with its                          level. Placing one copies it into the project with the items, the                          conversation and the scripts it names.",
+                    );
                 ui.label("Drag into the view, or double-click to place at the view's centre.");
                 if ui_state.tab == Tab::Lamps
                     && let Some((looked, of)) = state.lamp_library.progress()
@@ -5172,7 +5179,11 @@ fn assets(
             }
             // The items are made again only for another tab, another search
             // or more lamps found.
-            let key = (ui_state.tab, search.clone(), state.lamp_library.found.len());
+            let key = (
+                ui_state.tab,
+                search.clone(),
+                state.lamp_library.found.len() * 2 + usize::from(ui_state.assets_elsewhere),
+            );
             let kept = match &ui_state.asset_items {
                 Some((had, items)) if *had == key => Some(items.clone()),
                 _ => None,
@@ -5274,6 +5285,28 @@ fn assets(
                             })
                             .collect(),
                     };
+                    // The templates of the game's other levels, each with
+                    // its level.
+                    let mut items = items;
+                    let others = match ui_state.tab {
+                        Tab::Placeables => Some((Kind::Placeable, ResType::UTP)),
+                        Tab::Creatures => Some((Kind::Creature, ResType::UTC)),
+                        Tab::Doors => Some((Kind::Door, ResType::UTD)),
+                        Tab::Waypoints => Some((Kind::Waypoint, ResType::UTW)),
+                        Tab::Triggers => Some((Kind::Trigger, ResType::UTT)),
+                        Tab::Sounds => Some((Kind::Sound, ResType::UTS)),
+                        Tab::Stores => Some((Kind::Store, ResType::UTM)),
+                        Tab::Encounters => Some((Kind::Encounter, ResType::UTE)),
+                        _ => None,
+                    };
+                    if let (true, Some((kind, restype))) = (ui_state.assets_elsewhere, others) {
+                        items.extend(state.elsewhere().names(restype).map(|(name, level)| {
+                            (
+                                Asset::Object(kind, name.to_string()),
+                                format!("{name} ({level})"),
+                            )
+                        }));
+                    }
                     let items: Vec<(Asset, String)> = items
                         .into_iter()
                         .filter(|(_, label)| {
@@ -6318,6 +6351,297 @@ fn markers_menu(ui: &mut egui::Ui, state: &mut EditorState) {
         }
         if ui.button("Hide all").clicked() {
             state.hidden = Kind::ALL.to_vec();
+        }
+    });
+}
+
+/// A text field that keeps what is typed until the typing is done. The
+/// text to change `now` to, once the field is left with another text.
+fn kept_text(
+    ui: &mut egui::Ui,
+    ui_state: &mut UiState,
+    key: &str,
+    now: &str,
+    (width, rows): (f32, usize),
+) -> Option<String> {
+    let text = (ui_state.texts.entry(key.to_string())).or_insert_with(|| now.to_string());
+    let edit = if rows > 1 {
+        egui::TextEdit::multiline(text).desired_rows(rows)
+    } else {
+        egui::TextEdit::singleline(text)
+    };
+    let response = ui.add(edit.desired_width(width));
+    if response.lost_focus() {
+        let typed = ui_state.texts.remove(key)?;
+        let typed = typed.split_whitespace().collect::<Vec<_>>().join(" ");
+        return (typed != now).then_some(typed);
+    }
+    if !response.has_focus() {
+        ui_state.texts.remove(key);
+    }
+    None
+}
+
+/// A field of the window that stays as typed until its button is pressed.
+fn new_text(
+    ui: &mut egui::Ui,
+    ui_state: &mut UiState,
+    key: &str,
+    hint: &str,
+    width: f32,
+) -> String {
+    let text = ui_state.texts.entry(key.to_string()).or_default();
+    ui.add(
+        egui::TextEdit::singleline(text)
+            .hint_text(hint)
+            .desired_width(width),
+    );
+    text.trim().to_string()
+}
+
+/// The window of the project's own items and quests (`level_edit::items`,
+/// `level_edit::item_props`, `level_edit::journal`). Each change is one of
+/// the `edit item` and `edit quest` commands.
+fn adventure_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &mut UiState) {
+    if !ui_state.adventure_open {
+        return;
+    }
+    let mut open = true;
+    let mut command = None;
+    egui::Window::new("Items and quests")
+        .open(&mut open)
+        .default_width(460.0)
+        .default_height(520.0)
+        .show(ctx, |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.heading("Items");
+                adventure_items(ui, state, ui_state, &mut command);
+                ui.separator();
+                ui.heading("Quests");
+                adventure_quests(ui, state, ui_state, &mut command);
+            });
+        });
+    ui_state.adventure_open = open;
+    if let Some(command) = command {
+        state.pending_command = Some(command);
+    }
+}
+
+/// The items of the project in its window, and a new one.
+fn adventure_items(
+    ui: &mut egui::Ui,
+    state: &EditorState,
+    ui_state: &mut UiState,
+    command: &mut Option<String>,
+) {
+    let items: Vec<(String, level_edit::Template)> = (state.editor.project.templates.iter())
+        .filter(|(_, made)| made.restype == ResType::UTI)
+        .map(|(name, made)| (name.clone(), made.clone()))
+        .collect();
+    if items.is_empty() {
+        ui.label("The project has no items of its own yet.");
+    }
+    for (name, made) in items {
+        let (shown, text) = level_edit::items::shown(&made.gff);
+        let title = if shown.is_empty() {
+            name.clone()
+        } else {
+            format!("{shown} ({name})")
+        };
+        egui::CollapsingHeader::new(title)
+            .id_salt(("item", &name))
+            .show(ui, |ui| {
+                ui.label(format!("A copy of the game's item {}.", made.from));
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    let key = format!("item name {name}");
+                    if let Some(typed) = kept_text(ui, ui_state, &key, &shown, (260.0, 1))
+                        && !typed.is_empty()
+                    {
+                        *command = Some(format!("item name {name} {typed}"));
+                    }
+                });
+                ui.label("Description");
+                let key = format!("item text {name}");
+                if let Some(typed) = kept_text(ui, ui_state, &key, &text, (400.0, 3)) {
+                    *command = Some(format!("item text {name} {typed}"));
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Worth in credits");
+                    let cost = made.gff.root.int("Cost").unwrap_or(0).to_string();
+                    let key = format!("item cost {name}");
+                    if let Some(typed) = kept_text(ui, ui_state, &key, &cost, (80.0, 1)) {
+                        *command = Some(format!("item number {name} Cost {typed}"));
+                    }
+                });
+                ui.label("Properties");
+                let properties = state::properties_shown(state, &made.gff);
+                if properties.is_empty() {
+                    ui.label(egui::RichText::new("It has none.").small());
+                }
+                for (at, property) in properties.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        if ui.small_button("Remove").clicked() {
+                            *command = Some(format!("item property {name} remove {at}"));
+                        }
+                        ui.label(property);
+                    });
+                }
+                new_property(ui, state, ui_state, &name, command);
+                if ui
+                    .button("Take the item out")
+                    .on_hover_text("Takes it out of the project. What carries it keeps its name.")
+                    .clicked()
+                {
+                    *command = Some(format!("item drop {name}"));
+                }
+            });
+    }
+    ui.add_space(4.0);
+    ui.label("A new item is a copy of one of the game's, by that item's file name.");
+    ui.horizontal(|ui| {
+        let name =
+            new_text(ui, ui_state, "new item name", "kje_reward", 130.0).to_ascii_lowercase();
+        let base =
+            new_text(ui, ui_state, "new item base", "g_a_mstrrobe07", 130.0).to_ascii_lowercase();
+        let good = level_edit::items::name_problem(&name).is_none() && !base.is_empty();
+        if ui
+            .add_enabled(good, egui::Button::new("New item"))
+            .clicked()
+        {
+            *command = Some(format!("item new {name} {base}"));
+            ui_state.texts.remove("new item name");
+            ui_state.texts.remove("new item base");
+        }
+    });
+}
+
+/// The pickers that choose a property for the item `name`, and the button
+/// that adds it.
+fn new_property(
+    ui: &mut egui::Ui,
+    state: &EditorState,
+    ui_state: &mut UiState,
+    name: &str,
+    command: &mut Option<String>,
+) {
+    let (kind, mut subtype, mut value, mut param) =
+        (ui_state.new_property.get(name).copied()).unwrap_or((None, 0, 0, 0));
+    let mut chosen = kind;
+    ui.horizontal_wrapped(|ui| {
+        let kinds = table_rows(state, ui_state, "itempropdef");
+        let shown = kind.map_or_else(|| "Add a property".to_string(), |row| row_name(&kinds, row));
+        let id = format!("property kind {name}");
+        if let Some(row) = row_picker(ui, ui_state, &kinds, (&id, &shown), kind) {
+            (chosen, subtype, value, param) = (Some(row), 0, 0, 0);
+        }
+        let Some(row) = chosen else {
+            return;
+        };
+        let Some(of) = state::property_kind(state, row) else {
+            return;
+        };
+        let mut pick = |ui: &mut egui::Ui, table: &str, what: &str, now: &mut u16| {
+            let rows = table_rows(state, ui_state, table);
+            if rows.is_empty() {
+                return;
+            }
+            let id = format!("property {what} {name}");
+            if let Some(row) = row_picker(
+                ui,
+                ui_state,
+                &rows,
+                (&id, &row_name(&rows, *now)),
+                Some(*now),
+            ) {
+                *now = row;
+            }
+        };
+        if let Some(table) = &of.subtypes {
+            pick(ui, table, "subtype", &mut subtype);
+        }
+        if let Some((_, table)) = &of.values {
+            pick(ui, table, "value", &mut value);
+        }
+        if let Some((_, table)) = state::param_table(state, &of, subtype) {
+            pick(ui, &table, "parameter", &mut param);
+        }
+        if ui.button("Add").clicked() {
+            *command = Some(format!(
+                "item property {name} add {row} {subtype} {value} {param}"
+            ));
+        }
+    });
+    ui_state
+        .new_property
+        .insert(name.to_string(), (chosen, subtype, value, param));
+}
+
+/// The project's own quests in its window, and a new one. A quest of the
+/// project names itself; the game's quests take their names from the talk
+/// table and are left out.
+fn adventure_quests(
+    ui: &mut egui::Ui,
+    state: &EditorState,
+    ui_state: &mut UiState,
+    command: &mut Option<String>,
+) {
+    let journal = state::journal(state);
+    let quests: Vec<level_edit::journal::Shown> = (level_edit::journal::tags(&journal).iter())
+        .filter_map(|tag| level_edit::journal::quest(&journal, tag))
+        .filter(|(_, name, _)| !name.is_empty())
+        .collect();
+    if quests.is_empty() {
+        ui.label("The project has no quests of its own yet.");
+    }
+    for (tag, name, entries) in quests {
+        egui::CollapsingHeader::new(format!("{name} ({tag})"))
+            .id_salt(("quest", &tag))
+            .show(ui, |ui| {
+                for (id, text, end) in &entries {
+                    ui.horizontal(|ui| {
+                        let closes = if *end { ", closes the quest" } else { "" };
+                        ui.label(format!("{id}{closes}"));
+                        let key = format!("quest entry {tag} {id}");
+                        if let Some(typed) = kept_text(ui, ui_state, &key, text, (340.0, 2))
+                            && !typed.is_empty()
+                        {
+                            let verb = if *end { "end" } else { "entry" };
+                            *command = Some(format!("quest {verb} {tag} {id} {typed}"));
+                        }
+                    });
+                }
+                ui.label("A new entry: its number, its text, and whether it closes the quest.");
+                ui.horizontal(|ui| {
+                    let id = new_text(ui, ui_state, &format!("new entry id {tag}"), "10", 40.0);
+                    let text = new_text(ui, ui_state, &format!("new entry text {tag}"), "", 260.0);
+                    let good = id.parse::<u32>().is_ok() && !text.is_empty();
+                    for (button, verb) in [("Add", "entry"), ("Add as the last", "end")] {
+                        if ui.add_enabled(good, egui::Button::new(button)).clicked() {
+                            *command = Some(format!("quest {verb} {tag} {id} {text}"));
+                            ui_state.texts.remove(&format!("new entry id {tag}"));
+                            ui_state.texts.remove(&format!("new entry text {tag}"));
+                        }
+                    }
+                });
+                if ui.button("Take the quest out").clicked() {
+                    *command = Some(format!("quest drop {tag}"));
+                }
+            });
+    }
+    ui.add_space(4.0);
+    ui.label("A new quest: the tag scripts know it by, and the name the journal shows.");
+    ui.horizontal(|ui| {
+        let tag = new_text(ui, ui_state, "new quest tag", "kje_quest", 110.0);
+        let name = new_text(ui, ui_state, "new quest name", "The Lost Tomb", 220.0);
+        let good = level_edit::journal::tag_problem(&tag).is_none() && !name.is_empty();
+        if ui
+            .add_enabled(good, egui::Button::new("New quest"))
+            .clicked()
+        {
+            *command = Some(format!("quest new {tag} {name}"));
+            ui_state.texts.remove("new quest tag");
+            ui_state.texts.remove("new quest name");
         }
     });
 }

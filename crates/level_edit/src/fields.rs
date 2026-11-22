@@ -477,7 +477,38 @@ pub enum FieldChange {
     /// An encounter's creature at this place in `CreatureList`; at the
     /// list's end adds one, `None` removes it.
     Spawn(usize, Option<Spawn>),
+    /// A creature made to fight as another does: `FIGHT`'s fields are
+    /// taken from that creature's template, whose root this is.
+    Like(Box<GffStruct>),
 }
+
+/// What of a creature says how it fights: its classes with their levels
+/// and Force powers, its feats, skills and special abilities, its six
+/// attributes, its hit points and Force points, its saves, its natural
+/// armour and its challenge rating. Its name, its look, its faction, its
+/// scripts and what it carries are not among them.
+pub const FIGHT: [&str; 20] = [
+    "ClassList",
+    "FeatList",
+    "SkillList",
+    "SpecAbilityList",
+    "Str",
+    "Dex",
+    "Con",
+    "Int",
+    "Wis",
+    "Cha",
+    "HitPoints",
+    "CurrentHitPoints",
+    "MaxHitPoints",
+    "ForcePoints",
+    "CurrentForce",
+    "fortbonus",
+    "refbonus",
+    "willbonus",
+    "NaturalAC",
+    "ChallengeRating",
+];
 
 /// A creature an encounter can spawn.
 #[derive(Debug, Clone, PartialEq)]
@@ -828,6 +859,14 @@ pub fn apply(gff: &mut Gff, restype: ResType, change: &FieldChange) -> Result<()
                 .get_mut(*at)
                 .ok_or_else(|| format!("there is no item {at}"))?;
             set(item, label, GffValue::Byte(u8::from(*on)));
+        }
+        FieldChange::Like(other) => {
+            only_creature()?;
+            for label in FIGHT {
+                if let Some(value) = other.get(label) {
+                    set(root, label, value.clone());
+                }
+            }
         }
         FieldChange::Spawn(at, spawn) => {
             if restype != ResType::UTE {
