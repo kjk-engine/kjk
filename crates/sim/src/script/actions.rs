@@ -315,6 +315,23 @@ pub struct Queued {
     pub started_ms: Option<u64>,
 }
 
+/// Whether the script move first in `queue` waits at a door that will not
+/// open for its walk (`walk::ThroughShut`): a move to an object, not a
+/// forced one. TSL's `ActionMoveToObject` keeps its move going until the
+/// mover is in range, and a forced move jumps at its timeout instead.
+pub fn waits_at_doors(queue: Option<&Vec<Queued>>) -> bool {
+    queue.and_then(|queue| queue.first()).is_some_and(|queued| {
+        matches!(
+            queued.action,
+            Action::Move {
+                to: Target::Object(_),
+                force_ms: None,
+                ..
+            }
+        )
+    })
+}
+
 /// Where a moving object's mind should route it this step (units).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Goal {

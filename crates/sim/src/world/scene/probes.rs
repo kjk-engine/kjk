@@ -212,6 +212,10 @@ const PROBES: &[Probe] = &[
         walks_into_doorway_short_of_door,
     ),
     ("party_waits_for_door", party_waits_for_door),
+    (
+        "object_walk_waits_for_locked_door",
+        object_walk_waits_for_locked_door,
+    ),
     ("assigned_before_next_line", assigned_before_next_line),
     ("assigned_after_last_reply", assigned_after_last_reply),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
@@ -342,6 +346,8 @@ void MusicBattleChange(object oArea, int nTrack);
 object GetItemInSlot(int nInventorySlot, object oCreature=OBJECT_SELF);
 // 36
 void ActionEquipItem(object oItem, int nInventorySlot, int bInstant=FALSE);
+// 37
+void SetLocked(object oTarget, int bLocked);
 "#;
 
 /// The `ambientmusic.2da` row `probe_battle_music` makes the battle track.
@@ -403,6 +409,8 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   with the first PC;
 /// - `probe_attack_buddy`, `probe_attack_dummy` and `probe_attack_pc`
 ///   attack the companion, the dummy and the first PC (`ActionAttack`);
+/// - `probe_lock_gate` locks the gate (`SetLocked`), and
+///   `probe_unlock_open` unlocks it and opens it;
 /// - `probe_open` opens the gate (`ActionOpenDoor`); `probe_assign_open`
 ///   assigns the talker that (`AssignCommand`), `probe_assign_converse`
 ///   assigns it a conversation with the first PC, and `probe_wait_4s`
@@ -453,6 +461,13 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     };
     let mut open = tagged("gate").to_vec();
     open.push(call(5, 1));
+    // `SetLocked(GetObjectByTag("gate"), locked)`.
+    let set_locked = |locked: bool| {
+        let mut ops = vec![Op::Const(Const::Int(i32::from(locked)))];
+        ops.extend(tagged("gate"));
+        ops.push(call(37, 2));
+        ops
+    };
     let cutscene_at = |target: &str, animation: u16, damage: i32| {
         let mut ops = vec![
             Op::Const(Const::Int(damage)),
@@ -632,6 +647,11 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
                 ]),
             ),
             ("probe_open", program(&open)),
+            ("probe_lock_gate", program(&set_locked(true))),
+            (
+                "probe_unlock_open",
+                program(&[set_locked(false), open.clone()].concat()),
+            ),
             ("probe_assign_open", assign_talker(&open)),
             (
                 "probe_assign_converse",
@@ -6612,7 +6632,12 @@ const HALF_BODY_M: f32 = crate::motion::HALF_WIDTH * UNIT;
 /// gate's panel its front came while the gate was shut (m, negative short
 /// of it), and whether the gate opened.
 fn through_gate(ground: &mut Ground, who: SimId, ms: u64) -> (Track, f32, bool) {
-    ground.queue(who, move_to(PAST_GATE, false, None));
+    toward_gate(ground, who, move_to(PAST_GATE, false, None), ms)
+}
+
+/// `through_gate` with `action` for the walk.
+fn toward_gate(ground: &mut Ground, who: SimId, action: Queue, ms: u64) -> (Track, f32, bool) {
+    ground.queue(who, action);
     let (mut track, mut past_shut, mut opened) = (Track::default(), f32::MIN, false);
     for _ in 0..steps(ms) {
         ground.step();
@@ -6901,6 +6926,80 @@ fn party_waits_for_door() -> Found {
         ),
     )
 }
+
+/// A creature's walk to a creature past the locked gate
+/// (`ActionMoveToObject`), with a conversation holding the world and in free
+/// play, walks up to the gate and waits there, and never crosses its panel
+/// while the gate stays locked. Once a script unlocks and opens the gate,
+/// the walk goes through and arrives. TSL's `ActionMoveToObject` keeps its
+/// move going until the mover is in range. TSLRCM sends Atris into her
+/// meditation chamber this way, 15 s before its locked door opens. A walk
+/// to a place past the locked gate (`ActionMoveToLocation`) ends instead,
+/// short of the panel.
+fn object_walk_waits_for_locked_door() -> Found {
+    // The ground, the conversation ended unless `held`, the walker before
+    // the gate, and the gate locked.
+    let locked = |held: bool| -> Result<(Ground, SimId), String> {
+        let mut ground = through_ground()?;
+        if !held {
+            ground.goodbye()?;
+        }
+        let walker = ground.place(WALKER, BEFORE_GATE)?;
+        ground.run_script("probe_lock_gate", GATE)?;
+        Ok((ground, walker))
+    };
+    let mut found = Vec::new();
+    for held in [true, false] {
+        let (mut ground, walker) = locked(held)?;
+        let goal = ground.place(BUDDY, BEYOND_GATE)?;
+        let to_object = Queue::Move {
+            to: Target::Object(ObjectId(goal.0)),
+            run: false,
+            range: OBJECT_RANGE,
+            force_ms: None,
+        };
+        let (_, past, opened) = toward_gate(&mut ground, walker, to_object, LOCKED_MS);
+        let waiting = ground.queued(walker) > 0;
+        ground.run_script("probe_unlock_open", GATE)?;
+        let arrived = (0..steps(8000)).position(|_| {
+            ground.step();
+            ground.queued(walker) == 0
+        });
+        let off = between(ground.at(walker), ground.at(goal));
+        let (mut place, walker) = locked(held)?;
+        let (track, place_past, _) = through_gate(&mut place, walker, LOCKED_MS);
+        found.push((
+            held,
+            (waiting, past, opened, arrived, off),
+            (track.ended(), place_past),
+        ));
+    }
+    check(
+        found.iter().all(
+            |&(_, (waiting, past, opened, arrived, off), (ended, place_past))| {
+                waiting
+                    && (-AT_GATE_M..=0.0).contains(&past)
+                    && !opened
+                    && arrived.is_some()
+                    && off <= OBJECT_RANGE + 0.1
+                    && ended.is_some()
+                    && place_past <= 0.0
+            },
+        ),
+        format!(
+            "(held, (the walk to the creature still queued at {LOCKED_MS} ms, its front past the locked panel m at most, the gate opened while locked, arrived at step after it opened, m off the creature), (the walk to the place ended at step, its front past the panel m)) {found:?}"
+        ),
+    )
+}
+
+/// Where the locked gate probe's goal stands (m, the gate's panel 2 m on
+/// from `BEFORE_GATE`), the walk's range to it (m, `ActionMoveToObject`'s
+/// default), how long the gate stays locked (ms), and how near the panel
+/// (m) the waiting walker's front comes.
+const BEYOND_GATE: [f32; 2] = [3.0, 0.0];
+const OBJECT_RANGE: f32 = 1.0;
+const LOCKED_MS: u64 = 3000;
+const AT_GATE_M: f32 = 0.5;
 
 /// The talker's conversation begun, its "Again." running `again` and the
 /// line it leads back to running `line`, "Goodbye." running `goodbye`.

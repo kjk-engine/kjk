@@ -155,7 +155,14 @@ character opens or uses a door or an object from within
 """
 detail = """
 If a script orders a move to a place that cannot be reached, the move fails
-after {scripts.moves.grace_ms:s}. If a character's movement stalls
+after {scripts.moves.grace_ms:s}. A move to an object never fails this way.
+When the only way to the object leads through a door that will not open for
+the character, such as a locked door, the character walks up to that door
+and waits in front of it. It never passes the door while the door stays
+shut, and walks on once the door opens. When no way leads to the object at
+all, the character stands still and looks for a way again every
+{walking.walker.pathfind_wait_ms:s} or a little more. If a
+character's movement stalls
 {scripts.moves.stuck_stalls:bare} times in a row, its scripted move ends
 where the character stands.
 """
@@ -186,8 +193,8 @@ type = "u64"
 value = 500
 unit = "ms"
 range = [0, 5000]
-summary = "A scripted move to a place that cannot be reached fails after {scripts.moves.grace_ms:s}."
-source = "ours"
+summary = "A scripted move to a place that cannot be reached fails after {scripts.moves.grace_ms:s}. A scripted move to an object does not fail this way. The character waits, in front of a locked door when one is in the way, until a way to the object opens."
+source = "ours (TSL's executable keeps a move to an object going: `ActionMoveToObject` queues a check that queues the move again until the mover is in range)"
 see = "sim::script::MOVE_GRACE_MS"
 
 [moves.check_ms]

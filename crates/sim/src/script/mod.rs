@@ -3493,14 +3493,23 @@ impl Step<'_> {
                             self.goal(id, at, self.arrival(thing, to, *range), *run);
                             false
                         }
-                        // No way leads there: the move fails, and what was
-                        // queued after it goes on; `MOVE_GRACE_MS` on, so a
-                        // door a script opens in the same step (a gate the
-                        // scene opens for the party) is open by then.
+                        // No way leads to a place: the move fails, and what
+                        // was queued after it goes on; `MOVE_GRACE_MS` on, so
+                        // a door a script opens in the same step (a gate the
+                        // scene opens for the party) is open by then. A move
+                        // to an object never fails so, as TSL's
+                        // `ActionMoveToObject` queues a check behind its move
+                        // that queues the move again until the mover is in
+                        // range: its walker waits at a door that will not open
+                        // for it (`walk::ThroughShut`), or looks again after
+                        // each pathfinding wait. Atris walks into her
+                        // meditation chamber once its locked door opens
+                        // (TSLRCM's `a_262walkatris3`).
                         Some((at, _))
                             if now >= started + MOVE_GRACE_MS
                                 && now < started + MOVE_GRACE_MS + MOVE_CHECK_MS
                                 && force_ms.is_none()
+                                && matches!(to, Target::Point(..))
                                 && !(self.view.leads)(thing.position, at) =>
                         {
                             self.moved(thing, started, Ended::NoWay, at);

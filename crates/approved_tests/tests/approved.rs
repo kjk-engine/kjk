@@ -4602,9 +4602,13 @@ fn dialogue_coop() {
 /// awaits approval. The check that a forced move to a point of a shut
 /// door's doorway, short of the panel, arrives there and leaves the door
 /// shut (`walks_into_doorway_short_of_door`, issue 501) awaits approval.
+/// The check that a walk to an object past a locked door waits for the
+/// door and goes through once it opens, while a walk to a place there ends
+/// (`object_walk_waits_for_locked_door`, Atris at the Telos academy)
+/// awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 77);
+    probed("scene", &sim::scene_probes::all(), 78);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,

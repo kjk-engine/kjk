@@ -135,7 +135,21 @@ route stands and looks again after KOTOR's pathfinding wait, 2 s and
 puts `AddPathfindingWaitActionToFront` before the move when `PlotPath`
 fails; its `HandlePathfindError` only logs, so it never gives the move
 up): a scene that opens a door a moment after sending a walker through
-it (`a_903kreia`, d_entrance 4 s on) has it walk through once it opens. A
+it (`a_903kreia`, d_entrance 4 s on) has it walk through once it opens.
+The script's move that started the walk decides whether it waits. A move
+to a place with no way there fails after `scripts.moves.grace_ms`, as
+TSL's `ActionMoveToLocation` queues the move alone, and the move is dropped
+when no path is found. A move to an object does not fail. TSL's
+`ActionMoveToObject` queues a check behind the move, and the check queues
+the move again after each pathfinding wait until the mover is in range. A
+walk to an object with no way past the doors as they stand plans through
+the doors that will not open for it (`walk::ThroughShut`): it walks up to
+the first such door, stands before its panel with its stalls not counted,
+never passes it, and walks through once a script opens it. With no way
+even through those doors, it stands and looks again after each pathfinding
+wait. TSLRCM sends
+Atris into her meditation chamber at the Telos academy this way, 15 s
+before the scene unlocks its door (`a_262walkatris3`). A
 new walk (no corner yet) is not stalled: planned as one, it passed over a
 goal within a skip of it, and a scripted step of a metre or so was given
 up at once (`Walker::command_round`). A body whose box its step would enter (not one at the walk's
