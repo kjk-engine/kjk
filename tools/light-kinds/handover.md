@@ -1,8 +1,38 @@
 # Hand-over for the fitted lights and their bake
 
-## The KOTOR 2 notes and round r1 (22 November 2026, morning)
+## Round r2 (22 November 2026, afternoon)
 
-This section is the newest. Read it first, then the KOTOR 1 section below it, then "Start here".
+This section is the newest. Read it first, then round r1 below it, then the KOTOR 1 section, then "Start here".
+
+The owner looked at round r1 and gave notes. Round r2 acts on them. The owner asked to bake only the modules they commented on, so r2 holds 44 modules and not all 171. The work is committed as `514100cc` on `feat/fitted-lights`. Another session's sky fix is still uncommitted in the worktree (`material.rs`, `scene.rs`, `approved.rs` and six small files).
+
+### What changed
+
+- **Blended room surfaces show their bake.** Under the baked trial a room's surface that blends showed its bake at a quarter of its light, because only an opaque room's surface took `BAKED_GAIN`. The new flag `ROOM_LIGHTMAP` (`material.rs`, `odyssey.wgsl`) marks every room surface with a lightmap. Dxun's boulders (401dxn) and the enclave's shrubs (605dan) were black, and they show their texture now.
+- **Inside a wall.** A texel counts as inside a wall only if the backs it meets are within `WALL_NEAR` (1 m, `gpu.wgsl`). The rays from the sand of tat_m20aa met the tents' cloth overhead, and whole triangles of sand were left out.
+- **See-through layers.** A mesh with a lightmap whose texture's mean alpha is under `LAYER_ALPHA` (0.9, `detail_bake.rs`) casts no shadow. The sand and foam layers of unk_m41ac walled in the shore's bottom.
+- **A floor of stored light.** `floor` in `bake.toml` (`detail-bake --floor`) writes `floor.txt`, and the game holds each texel to that share of its stored linear light (`BAKED_FLOORS`, `viewer.rs`). Only stunt_18 has it (0.2). Its wall in view v180 went from 4 to 24, against 47 in the original game.
+- **Stale notes.** A bake removes an old `fill.txt` or `floor.txt` from its folder before it writes.
+- **Debug pictures.** `KJK_BAKE_DEBUG=1` writes `debug/<lightmap>.png` and `debug/texels.txt` into the bake's folder. Each picture is three wide: what each texel is, the stored light and the bake. Red is a texel inside a wall, blue one off its triangle, dark cyan one that no light faces, and grey the share of its light that its shadows leave. `--probe` prints whether each texel counts.
+- **Terminals.** Strength 0.6, which the owner approved. A terminal leaves about half of the blue on the floor it left before each screen became one light.
+- **Malachor.** Each level is half of round r1's, and `mal_floor3`, `mal_gtbeams` and the new door kind `mal_dor02` shed more light. The new key `door = true` lets a door take a named kind (`fitted_lights.rs`, `kinds.py`). 903mal has no fill, and the owner called it perfect. 902mal, 904mal, 905mal and 906mal keep the stored fill, because without it they went nearly black and the owner said 902 and 904 were too dark.
+- **The even light of round r1.** kas_m22ab, 304nar, 352nar, 411dxn, 506ond, 610dan and 853nih bake without the fill again. 410dxn and tar_m02ab keep it, because the owner asked for more light there. tar_m08aa has `backdrop = "stored"`.
+
+### Open
+
+- **tar_m03aa's square shadows are fixed** (after the commit, not yet committed). The cause was the bake's smoothing of bounced light and of shadow shares. It gathered a texel's neighbours in its lightmap, and the walkway's floor tiles each have their own small patch, so every tile took one level and the tiles met at hard straight edges. Finer texels and a softer fire changed nothing. The smoothing now gathers neighbours by their place in the area, across patches and lightmaps (`Places` in `gpu.rs`), within `PLACE_REACH` (1 m). The owner's "Telos tile one" is read as this module. The fires (`plc_burnjunk`, `plc_firepit2`) now reach 7 m at strength 0.15, which the owner kept. `KJK_BAKE_TEXEL` bakes coarse lightmaps finer, and nothing uses it. The enclave's 17 views moved by at most 2 in mean brightness with the new smoothing.
+- **stunt_18** is lit by its floor and is still half as bright as the original.
+- **Characters and placeables** do not follow their room's light under the bake. The owner moved it elsewhere: `handover-models.md`.
+- **tat_m20aa** is brighter than today (39 against 23 at the report's camera), as the bake the owner walked was.
+
+### Files
+
+- `target/light-kinds/batch/r2.sh` bakes round r2. It reads `walk/walked.txt`, and it shoots each module at its `r1-poses.txt`.
+- `target/light-kinds/batch/walked-shoot.sh` shot each walked bake at the same poses as `shots/walked`.
+- `python -I target/light-kinds/batch/r2-sheets.py` writes `target/light-kinds/review-r2`. Its `points.html` is written by hand.
+- A path given to `bake-shoot.sh` must be absolute or relative to the module's folder. A path relative to the root loads no bake, and the game shows the stored lightmaps at twice their light.
+
+## The KOTOR 2 notes and round r1 (22 November 2026, morning)
 
 The owner walked KOTOR 2 before the KOTOR 1 fixes, spoke notes for Telos and Nar Shaddaa, and made 20 F12 reports. The owner then said to fix all of it, bake every module again, and show a before and an after of each report and of each bake. Nothing is committed.
 

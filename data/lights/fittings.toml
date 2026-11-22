@@ -1069,13 +1069,13 @@ texture = "plc_burnjunk"
 on = "placeable"
 form = "faint"
 colour = [1.0, 0.55, 0.2]
-reach = 3.5
-strength = 0.2
+reach = 7.0
+strength = 0.15
 gather = true
 always = true
 dark = true
-says = "A burning pile or a fire pit gives one faint warm light about 3.5 m wide, just above it."
-reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\""
+says = "A burning pile or a fire pit gives one faint warm light about 7 m wide, just above it, that fades out slowly."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\". The owner saw the fire of lower Taris (tar_m03aa) with a reach of 3.5 m at strength 0.2. Its pool dropped to nothing within one floor tile and showed as a hard square. A longer reach at a lower strength gives the same light beside the fire and spreads past the tile (22 November 2026)."
 
 [[fitting]]
 game = "k1"
@@ -1083,13 +1083,13 @@ texture = "plc_firepit2"
 on = "placeable"
 form = "faint"
 colour = [1.0, 0.55, 0.2]
-reach = 3.5
-strength = 0.2
+reach = 7.0
+strength = 0.15
 gather = true
 always = true
 dark = true
-says = "A burning pile or a fire pit gives one faint warm light about 3.5 m wide, just above it."
-reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\""
+says = "A burning pile or a fire pit gives one faint warm light about 7 m wide, just above it, that fades out slowly."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\". The owner saw the fire of lower Taris (tar_m03aa) with a reach of 3.5 m at strength 0.2. Its pool dropped to nothing within one floor tile and showed as a hard square. A longer reach at a lower strength gives the same light beside the fire and spreads past the tile (22 November 2026)."
 
 [[fitting]]
 game = "k1"
@@ -1123,13 +1123,13 @@ texture = "plc_burnjunk"
 on = "placeable"
 form = "faint"
 colour = [1.0, 0.55, 0.2]
-reach = 3.5
-strength = 0.2
+reach = 7.0
+strength = 0.15
 gather = true
 always = true
 dark = true
-says = "A burning pile or a fire pit gives one faint warm light about 3.5 m wide, just above it."
-reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\""
+says = "A burning pile or a fire pit gives one faint warm light about 7 m wide, just above it, that fades out slowly."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\". The owner saw the fire of lower Taris (tar_m03aa) with a reach of 3.5 m at strength 0.2. Its pool dropped to nothing within one floor tile and showed as a hard square. A longer reach at a lower strength gives the same light beside the fire and spreads past the tile (22 November 2026)."
 
 [[fitting]]
 game = "tsl"
@@ -1137,13 +1137,13 @@ texture = "plc_firepit2"
 on = "placeable"
 form = "faint"
 colour = [1.0, 0.55, 0.2]
-reach = 3.5
-strength = 0.2
+reach = 7.0
+strength = 0.15
 gather = true
 always = true
 dark = true
-says = "A burning pile or a fire pit gives one faint warm light about 3.5 m wide, just above it."
-reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\""
+says = "A burning pile or a fire pit gives one faint warm light about 7 m wide, just above it, that fades out slowly."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\". The owner saw the fire of lower Taris (tar_m03aa) with a reach of 3.5 m at strength 0.2. Its pool dropped to nothing within one floor tile and showed as a hard square. A longer reach at a lower strength gives the same light beside the fire and spreads past the tile (22 November 2026)."
 
 [[fitting]]
 game = "tsl"
