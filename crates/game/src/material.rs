@@ -983,8 +983,11 @@ pub struct OdysseyBound {
     shadow_tiles: Option<Handle<Image>>,
     #[storage(16, read_only)]
     probes: Handle<ShaderBuffer>,
-    /// The fitted lights' grid (`fitted_lights::GRID`).
-    #[storage(19, read_only)]
+    /// The fitted lights' grid (`fitted_lights::GRID`). Only the fragment
+    /// stage reads it. Metal gives a vertex stage 31 buffer slots, and one
+    /// more buffer seen by the vertex stage left the prepass's vertex
+    /// buffers no slot, so no pipeline built on a Mac.
+    #[storage(19, read_only, visibility(fragment))]
     fitted: Handle<ShaderBuffer>,
 }
 
