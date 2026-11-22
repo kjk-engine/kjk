@@ -166,7 +166,12 @@ fn placed() -> Result<String, String> {
     let view = CreatureLoad::default()
         .place_appearance(
             (&resolver, game),
-            (K1_PLAYER, Some(CLOTHES), None, None),
+            (
+                K1_PLAYER,
+                (Some(CLOTHES), creature::Dressing::Changed),
+                None,
+                None,
+            ),
             None,
             dark,
             ([0.0; 3], 0.0),
