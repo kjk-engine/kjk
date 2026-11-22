@@ -4608,10 +4608,12 @@ fn dialogue_coop() {
 /// The check that a door a script closes waits for a body walking through
 /// its doorway but shuts on one standing still there
 /// (`door_shuts_on_one_standing`, the apartment door on Citadel Station)
-/// awaits approval.
+/// awaits approval. The check that a looping animation played until stopped
+/// outlives a `ClearAllActions` on its body (`loop_outlives_a_clear`, the
+/// broken droid 3CFD on Peragus) awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 78);
+    probed("scene", &sim::scene_probes::all(), 79);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -4936,10 +4938,12 @@ fn kill_xp_tables() {
 /// 20 s at most), the turret's gunner per seat with its own aim and bolts,
 /// fighters scaled per gunner, a gunner's own compass through its lens, a
 /// course with runs and gunners encoded and stepped twice alike; no
-/// install.
+/// install. The check that the turret's gun fires once a press of the key,
+/// not a stream while it is held (`turret_fires_once_a_press`), awaits
+/// approval.
 #[test]
 fn minigame_coop() {
-    probed("minigame", &sim::minigame::probes::probes(), 13);
+    probed("minigame", &sim::minigame::probes::probes(), 16);
 }
 
 /// A swoop's sideways motion and hits as both executables have them

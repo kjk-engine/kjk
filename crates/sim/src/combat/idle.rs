@@ -98,6 +98,19 @@ impl Acting {
         now < self.since.saturating_add(u64::from(self.ms))
     }
 
+    /// Whether it plays on when its body's actions are cleared
+    /// (`ClearAllActions`, a conversation's end, the module left behind): a
+    /// body dying in place keeps its dying clip, and a loop played until
+    /// stopped (`u32::MAX`) loops on. TSL's executable empties the queue
+    /// but leaves the body in the animation it plays, until something else
+    /// plays (a walk, a fight, another animation). The broken droid 3CFD on
+    /// Peragus lies slumped so (`k_def_repairsp`) through every
+    /// conversation's end (`k_def_endconv` clears its actions) and after T3
+    /// leaves the hangar and comes back.
+    pub fn outlives_a_clear(self) -> bool {
+        self.animation == crate::combat::death::DIE || self.ms == u32::MAX
+    }
+
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u16(self.animation);
         out.u64(self.since);

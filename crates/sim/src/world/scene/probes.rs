@@ -142,6 +142,7 @@ const PROBES: &[Probe] = &[
     ("long_animation_once", long_animation_once),
     ("loop_ends_on_walk", loop_ends_on_walk),
     ("looping_row_plays_on", looping_row_plays_on),
+    ("loop_outlives_a_clear", loop_outlives_a_clear),
     ("wait_for_gestures", wait_for_gestures),
     ("walks_at_kotor_speed", walks_at_kotor_speed),
     (
@@ -4777,6 +4778,39 @@ fn looping_row_plays_on() -> Found {
             played.walk,
             played.ended
         ),
+    )
+}
+
+/// S7: a looping animation played on at once outlives a `ClearAllActions`
+/// on its body, as TSL's executable leaves the body in the animation while
+/// it empties the queue. The talker talks on from 1 s, its queue is cleared
+/// at 1.5 s, and it still talks on at 2.5 s. 3CFD, Peragus's broken droid,
+/// lies slumped so (`k_def_repairsp`) after every conversation's end clears
+/// its actions.
+fn loop_outlives_a_clear() -> Found {
+    let stage = Stage {
+        clips: [((0, TALK), TALK_MS)].into(),
+        ..Stage::default()
+    };
+    let mut ground = Ground::staged(1, stage)?;
+    ground.run_script("probe_talk_on", TALKER)?;
+    let talker = ground.object(TALKER)?;
+    let acting = |ground: &Ground| ground.entity(talker).and_then(|e| e.fighter?.acting);
+    for _ in 0..steps(1500) {
+        ground.step();
+    }
+    let before = acting(&ground);
+    ground.run_script("probe_clear", TALKER)?;
+    for _ in 0..steps(1000) {
+        ground.step();
+    }
+    let after = acting(&ground);
+    let looping = |acting: Option<Acting>| {
+        acting.is_some_and(|acting| acting.animation == TALK && acting.ms == u32::MAX)
+    };
+    check(
+        looping(before) && looping(after),
+        format!("before the clear {before:?}, 1 s after it {after:?}"),
     )
 }
 
