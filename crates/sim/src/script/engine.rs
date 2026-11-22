@@ -4606,6 +4606,15 @@ impl Engine<'_> {
                     }),
                     (_, None) => None,
                 };
+                // TSL's executable puts the companion it spawns in the
+                // player's faction, whether or not it joins the party. Its
+                // template's own faction would make it an enemy of Friendly
+                // 2: Onderon's Tobin, revived by a Kreia `a_end_game` made,
+                // fought her through `506kreia` [verify in K1's exe].
+                if let Some(who) = spawned {
+                    let faction = crate::combat::sheet::factions::PLAYER;
+                    self.out.changes.push(Change::Faction { who, faction });
+                }
                 Value::Object(spawned.unwrap_or(ObjectId::INVALID))
             }
             // The party table keeps the companion as it stands now.
