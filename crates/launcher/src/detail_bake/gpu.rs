@@ -1,5 +1,5 @@
 //! The bake from the fitted lights on the graphics card (`kjk detail-bake
-//! --lights <file> --gpu`). It opens its own Vulkan device with wgpu's ray
+//! --lights <file> --gpu`). It opens its own Vulkan or Metal device with wgpu's ray
 //! queries, builds one acceleration structure from the rooms' blocking
 //! triangles, and runs its passes as compute shaders (`gpu.wgsl`). The
 //! texels and the lights are found on the CPU as the CPU bake finds them.
@@ -36,6 +36,12 @@ use super::{
 };
 use crate::light_probes::Level;
 use crate::room_lights::Reader;
+
+/// How long the bake waits for the graphics card to finish one submission
+/// before it fails. The owner's Windows card does a whole bake in about 13
+/// seconds in all, and one submission of `CHUNK` places takes well under a
+/// second, so a wait of 30 seconds means the card is stuck.
+const WAIT_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// How many shadow rays each light casts from a texel in the new bake.
 const SAMPLES: u32 = 64;
@@ -257,7 +263,7 @@ struct Gpu {
 impl Gpu {
     fn open() -> Result<Gpu, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
+            backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -265,7 +271,7 @@ impl Gpu {
             force_fallback_adapter: false,
             compatible_surface: None,
         }))
-        .map_err(|error| format!("no Vulkan graphics card: {error}"))?;
+        .map_err(|error| format!("no Vulkan or Metal graphics card: {error}"))?;
         let info = adapter.get_info();
         let features = wgpu::Features::EXPERIMENTAL_RAY_QUERY;
         if !adapter.features().contains(features) {
@@ -303,12 +309,30 @@ impl Gpu {
         })
     }
 
-    /// Waits for the graphics card and fails with the first error wgpu
-    /// reported.
-    fn wait(&self) -> Result<(), String> {
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|error| format!("waiting for the graphics card: {error}"))?;
+    /// Waits for the graphics card to finish `step` and fails with the first
+    /// error wgpu reported. After `WAIT_LIMIT` the bake prints why and ends
+    /// the process at once. wgpu panics when it drops a device whose work
+    /// never finished, and that panic would hide the message.
+    fn wait(&self, step: &str) -> Result<(), String> {
+        let started = Instant::now();
+        match self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(WAIT_LIMIT),
+        }) {
+            Ok(_) => {}
+            Err(wgpu::PollError::Timeout) => {
+                eprintln!(
+                    "detail-bake: the graphics card did not finish {step} in {} seconds. A shader that never ends, \
+                     or a command buffer that the card stopped, keeps wgpu waiting for ever on Metal.",
+                    WAIT_LIMIT.as_secs()
+                );
+                std::process::exit(1);
+            }
+            Err(error) => return Err(format!("waiting for the graphics card to finish {step}: {error}")),
+        }
+        if std::env::var_os("KJK_BAKE_LAPS").is_some() {
+            eprintln!("  the graphics card finished {step} in {:.2} s", started.elapsed().as_secs_f32());
+        }
         let errors = self
             .errors
             .lock()
@@ -357,7 +381,7 @@ impl Gpu {
         staging.map_async(wgpu::MapMode::Read, .., move |result| {
             *kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
         });
-        self.wait()?;
+        self.wait("reading the results back")?;
         match mapped
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -386,6 +410,17 @@ impl Gpu {
         };
         staging.unmap();
         Ok(values)
+    }
+}
+
+fn mode_name(mode: u32) -> &'static str {
+    match mode {
+        MODE_DIRECT_OLD => "old direct light",
+        MODE_DIRECT_SOFT => "soft direct light",
+        MODE_BOUNCE_OLD => "old bounce",
+        MODE_BOUNCE_NEW => "bounce",
+        MODE_SKY => "sun and sky",
+        _ => "unknown",
     }
 }
 
@@ -475,7 +510,11 @@ impl Passes<'_> {
                 pass.dispatch_workgroups(size.div_ceil(64) as u32, 1, 1);
             }
             self.gpu.queue.submit([encoder.finish()]);
-            self.gpu.wait()?;
+            self.gpu.wait(&format!(
+                "the {} pass over places {first} to {} of {count}",
+                mode_name(mode),
+                first + size
+            ))?;
         }
         Ok(())
     }
@@ -717,7 +756,7 @@ pub(super) fn bake_lights(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     encoder.build_acceleration_structures(&entries, [&tlas]);
     gpu.queue.submit([encoder.finish()]);
-    gpu.wait()?;
+    gpu.wait("building the acceleration structure")?;
 
     let blank_field = vec![[0.0f32; 4]; field_size];
     let results = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -839,7 +878,7 @@ pub(super) fn bake_lights(
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
-    gpu.wait()?;
+    gpu.wait("making the compute pipeline")?;
     let passes = Passes {
         gpu: &gpu,
         pipeline,
