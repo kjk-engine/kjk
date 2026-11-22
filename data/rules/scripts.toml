@@ -509,7 +509,7 @@ type = "f32"
 value = 10.0
 unit = "m"
 range = [0.0, 100.0]
-summary = "Companions arriving in an area stand within {scripts.jumps.party_m:bare} meters of the arrival point. Their place does not need a straight walk back to that point."
+summary = "Companions arriving in an area stand within {scripts.jumps.party_m:bare} meters of the arrival point. Their place does not need a straight walk back to that point. Each companion's place has room for its whole body, so a companion never arrives half inside a wall or a closed door."
 source = "ours [verify in K1's executable]"
 see = "sim::install::stand_among"
 

@@ -120,6 +120,7 @@ probes!(
     specials_verbs,
     stealth_verbs,
     sweep_verbs,
+    talk_walk_probes,
     tour,
     trace_verbs,
     traps_verbs,

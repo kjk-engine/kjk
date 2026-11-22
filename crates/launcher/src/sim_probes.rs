@@ -158,6 +158,7 @@ const GROUPS: &[Group] = &[
         "ute encounters in the games",
         crate::ute_encounter_probes::probes,
     ),
+    ("talk walks in the games", crate::talk_walk_probes::probes),
     ("influence", sim::script::influence::probes),
     ("presentation", sim::presentation_probes::probes),
     ("sheath", sim::strikes::sheath_probes),
