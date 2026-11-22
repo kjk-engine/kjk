@@ -28,6 +28,10 @@ use crate::kinds::KindEdit;
 /// The file in a project's folder.
 pub const FILE: &str = "kjk-lighting.toml";
 
+/// The file of a bake's folder that says how much of its stored light each
+/// baked lightmap takes when the game loads it (`game::viewer`).
+pub const FILL: &str = "fill.txt";
+
 /// The folder in a project's folder that holds its kept bakes, one
 /// folder a module.
 pub const BAKES: &str = "kjk-bake";
@@ -79,6 +83,12 @@ pub fn keep_bake(folder: &Path, module: &str, from: &Path) -> Result<usize, Stri
     for picture in &found {
         let name = picture.file_name().ok_or("a lightmap has no name")?;
         std::fs::copy(picture, fresh.join(name.to_ascii_lowercase())).map_err(failed)?;
+    }
+    // How much of its stored light each lightmap takes when the game loads
+    // it (`kjk detail-bake --fill-stored`), where the bake has it.
+    let fill = from.join(FILL);
+    if fill.is_file() {
+        std::fs::copy(&fill, fresh.join(FILL)).map_err(failed)?;
     }
     if bake.exists() {
         std::fs::remove_dir_all(&bake).map_err(failed)?;

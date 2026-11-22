@@ -173,6 +173,16 @@ fn detail_bake(
         if weigh {
             bake.arg("--weigh");
         }
+        // The module's other flags, as `bake.sh` passes them.
+        if plan.entry.fill_stored {
+            bake.arg("--fill-stored");
+        }
+        if let Some(least) = plan.entry.least {
+            bake.arg("--least").arg(least.to_string());
+        }
+        if let Some(most) = plan.entry.most {
+            bake.arg("--most").arg(most.to_string());
+        }
     }
     if let Some(levels) = levels {
         bake.arg("--levels").arg(levels);

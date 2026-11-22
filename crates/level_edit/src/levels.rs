@@ -77,6 +77,14 @@ pub struct BakeEntry {
     pub levels: Option<String>,
     /// Whether the even light fills what the lamps cannot.
     pub even: bool,
+    /// Whether a room its lamps cannot light takes its own stored light for
+    /// the rest (`fill = "stored"`, `kjk detail-bake --fill-stored`). The
+    /// bake then writes `fill.txt` beside its lightmaps.
+    pub fill_stored: bool,
+    /// The least and the most a room's lamps are scaled by (`--least`,
+    /// `--most`), where the entry sets them.
+    pub least: Option<f32>,
+    pub most: Option<f32>,
     pub sun: bool,
     /// The sun and sky as `kjk detail-bake --sun` takes them: the numbers
     /// of `toward`, `colour`, `sky`, `toward2` and `colour2`, then `width`,
@@ -113,6 +121,9 @@ pub fn bake_entry(text: &str, module: &str) -> BakeEntry {
             .and_then(|table| table.get("even"))
             .and_then(Item::as_bool)
             .unwrap_or(true),
+        fill_stored: text("fill").as_deref() == Some("stored"),
+        least: number("least"),
+        most: number("most"),
         sun: table.is_some_and(|table| table.get("sun").is_some()),
         sun_args: table.and_then(|table| sun_args(table.get("sun")?)),
         skylights: table
