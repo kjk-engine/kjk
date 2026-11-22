@@ -564,6 +564,29 @@ impl Link {
         for (name, names) in lists {
             catalog.insert(name.to_string(), serde_json::json!(names));
         }
+        // The kinds of logic block, each with the values it takes in order.
+        let blocks: Vec<serde_json::Value> = (level_edit::blocks::KINDS.iter())
+            .map(|kind| {
+                let values: Vec<&str> = kind.params.iter().map(|(name, _)| *name).collect();
+                serde_json::json!({
+                    "kind": kind.key,
+                    "does": kind.title,
+                    "values": values,
+                    "command": format!(
+                        "edit blocks EVENT add {}{}",
+                        kind.key,
+                        values.iter().map(|_| " VALUE").collect::<String>()
+                    ),
+                })
+            })
+            .collect();
+        catalog.insert("blocks".into(), serde_json::json!(blocks));
+        catalog.insert(
+            "blocks_note".into(),
+            serde_json::json!(
+                "EVENT is one of the selected object's events: `details` lists them under behaviour.events. The blocks of an event run in order from the first, and a block that begins with `if` or is `once` stops the rest when it does not hold."
+            ),
+        );
         catalog.insert(
             "templates_note".into(),
             serde_json::json!(

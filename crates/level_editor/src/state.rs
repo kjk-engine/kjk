@@ -2709,19 +2709,23 @@ fn command_words(
                 words => PathBuf::from(words.join(" ")),
             };
             let exported = level_edit::mods::export(project, &to)?;
-            state.say(format!(
+            let said = format!(
                 "exported {} as a mod to {}: {} files the games read and {} that only kjk reads",
                 project.name,
                 to.display(),
                 exported.game_files,
                 exported.kjk_files
-            ));
+            );
+            state.say(said.clone());
+            state.answer = Some(said);
         }
         // The version an exported mod says it is: kept in `project.toml`,
         // so the project is saved with it.
         ["mod", "version"] => {
             let project = &state.editor.project;
-            state.say(format!("{} is version {}", project.name, project.version));
+            let said = format!("{} is version {}", project.name, project.version);
+            state.say(said.clone());
+            state.answer = Some(said);
         }
         ["mod", "version", version] => {
             let fits = version.len() <= 24
@@ -3295,8 +3299,15 @@ fn command_words(
         }
         ["blocks", event, "add", key, values @ ..] => {
             let target = selected(state)?;
-            let kind =
-                level_edit::blocks::kind(key).ok_or(format!("{key:?} is not a kind of block"))?;
+            let kind = level_edit::blocks::kind(key).ok_or_else(|| {
+                let kinds: Vec<&str> = (level_edit::blocks::KINDS.iter())
+                    .map(|kind| kind.key)
+                    .collect();
+                format!(
+                    "{key:?} is not a kind of block: the kinds are {}",
+                    kinds.join(", ")
+                )
+            })?;
             let mut block = level_edit::blocks::Block::new(kind);
             for (slot, value) in block.values.iter_mut().zip(values.iter()) {
                 *slot = value.to_string();
@@ -3489,11 +3500,13 @@ fn command_words(
         ["item", "properties", name] => {
             let item = own_item(state, name)?;
             let shown = properties_shown(state, &item.gff);
-            state.say(if shown.is_empty() {
+            let said = if shown.is_empty() {
                 format!("{name} has no properties")
             } else {
                 format!("{name} has {}", shown.join("; "))
-            });
+            };
+            state.say(said.clone());
+            state.answer = Some(said);
         }
         // The project's own quests (`level_edit::journal`): the game's
         // journal with quests added.
@@ -3519,10 +3532,13 @@ fn command_words(
             let (tag, name, entries) = level_edit::journal::quest(&journal(state), tag)
                 .ok_or(format!("the journal has no quest {tag}"))?;
             state.say(format!("quest {tag}: {name}, {} entries", entries.len()));
+            let mut listed = Vec::new();
             for (id, text, end) in entries {
                 let closes = if end { ", closes the quest" } else { "" };
                 state.say(format!("  {id}{closes}: {text}"));
+                listed.push(format!("{id}{closes}: {text}"));
             }
+            state.answer = Some(format!("quest {tag}: {name}; {}", listed.join("; ")));
         }
         ["item", "add", item] => {
             let target = selected(state)?;
@@ -5595,10 +5611,32 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
                     .into_iter()
                     .filter(|(_, script)| !script.is_empty())
                     .collect();
+                // Every event it has, set or not, and the numbers the
+                // editor changes of it (a door's lock, a creature's
+                // faction and attributes), each by its field.
+                let events: Vec<String> = level_edit::template::scripts(&gff)
+                    .into_iter()
+                    .map(|(event, _)| event)
+                    .collect();
+                let restype = level_edit::template::restype(kind).unwrap_or(match kind {
+                    Kind::Door => ResType::UTD,
+                    _ => ResType::UTW,
+                });
+                let numbers: BTreeMap<&str, f64> = level_edit::fields::numbers(restype)
+                    .iter()
+                    .filter_map(|number| {
+                        Some((
+                            number.label,
+                            level_edit::fields::number_of(&gff, number.label)?,
+                        ))
+                    })
+                    .collect();
                 Some(serde_json::json!({
                     "project_template": own.is_some(),
                     "copied_from": own.map(|made| made.from.clone()),
                     "scripts": scripts,
+                    "events": events,
+                    "numbers": numbers,
                     "useable": level_edit::template::flag(&gff, "Useable"),
                     "holds_items": level_edit::template::flag(&gff, "HasInventory"),
                     "items": level_edit::template::items(&gff),
@@ -5761,6 +5799,28 @@ pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
             })
         })
         .collect();
+    // The project's own quests, each with its entries.
+    let project_quests: Vec<serde_json::Value> = {
+        let jrl = journal(state);
+        level_edit::journal::own_quests(&jrl).map_or_else(Vec::new, |own| {
+            level_edit::journal::tags(&own)
+                .iter()
+                .filter_map(|tag| level_edit::journal::quest(&own, tag))
+                .map(|(tag, name, entries)| {
+                    let entries: Vec<serde_json::Value> = (entries.iter())
+                        .map(|(number, text, closes)| {
+                            serde_json::json!({
+                                "number": number,
+                                "text": text,
+                                "closes_the_quest": closes,
+                            })
+                        })
+                        .collect();
+                    serde_json::json!({"tag": tag, "name": name, "entries": entries})
+                })
+                .collect()
+        })
+    };
     serde_json::json!({
             "project": project.name,
             "folder": project.folder,
@@ -5837,6 +5897,7 @@ pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
                 })
                 .collect::<Vec<_>>(),
             "project_journal": project.templates.contains_key(level_edit::journal::NAME),
+            "project_quests": project_quests,
             "project_scripts": state.project_scripts,
             "script_errors": state.script_errors,
             "nav_links": project.kjk.links.iter().map(|link| serde_json::json!({

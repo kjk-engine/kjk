@@ -71,6 +71,17 @@ pub const KINDS: &[Kind] = &[
         },
     },
     Kind {
+        key: "if_has_item",
+        title: "Only if the party carries an item",
+        params: &[("item's tag", Param::Tag)],
+        code: |v| {
+            format!(
+                "if (!GetIsObjectValid(GetItemPossessedBy(GetFirstPC(), \"{}\"))) return;",
+                v[0]
+            )
+        },
+    },
+    Kind {
         key: "open_door",
         title: "Open a door",
         params: &[("door", Param::Tag)],

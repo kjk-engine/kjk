@@ -881,7 +881,11 @@ conversation, tell the player something, set a global number or boolean,
 give the player an item, credits or experience, add a journal entry,
 turn a creature hostile, remove an object, take the party to a module,
 and guards that stop the rest: only the first time, only if a global
-number or boolean is a value. A global is picked from `globalcat.2da`'s:
+number or boolean is a value, only if the party carries an item of a
+tag. A door that a key opens is made with the last one: the door is
+locked and takes a key (`Locked` and `KeyRequired` set to 1), and its
+`OnFailToOpen` event has three blocks: `if_has_item` with the key's tag,
+`unlock` with the door's tag, and `open_door` with the door's tag. A global is picked from `globalcat.2da`'s:
 a global the table does not declare is not kept by the games or by kjk.
 
 The blocks are written as a script of the project (`kjb_N.nss`) whose

@@ -54,9 +54,12 @@ changed. It holds these fields:
   such as `edit select MetalBox`. An object whose tag has a space in it,
   or whose tag another object has first, is named by its kind and its
   place in that kind's list, such as `edit select placeable 3`.
-- `details` is everything the editor's details panel knows of the
-  selection: its kind, template, tag, position, facing, scripts, and for a
-  placeable whether it can be used and the items it holds.
+- `details` is what the editor knows of the selection: its kind,
+  template, tag, position and facing. For an object, `behaviour` holds
+  the scripts it runs, every event it has (`events`, set or not), the
+  numbers the editor changes of it (`numbers`: a door's lock, a
+  creature's faction and attributes), and for a placeable whether it can
+  be used and the items it holds.
 - `camera` is where the view stands in the game's space (`at`, in
   metres), the way it looks (`yaw` and `pitch`, in degrees), and the
   `camera` command that puts it back there.
@@ -203,7 +206,110 @@ in it between double quotes, as in `tag "Metal Box"`. An object is always
 selected by the command `objects.json` gives for it.
 
 Write the whole batch into the file at once, and read `answers` after it
-was taken. If a line failed, the lines after it still ran.
+was taken. Outside `begin` and `end`, the lines after a line that failed
+still ran. Between `begin` and `end` they did not, as said above.
+
+A command that lists something gives the listing in its answer, after
+`ok:`. `quest show`, `item properties`, `mod version` and `export` do.
+The same text is among `messages`, which keeps only the last few lines.
+
+## Building a level from an empty map
+
+A new map starts with no rooms and no objects. This is the order that
+works, with what the commands do not say by themselves.
+
+**Rooms.** `catalog.json` lists every room by its model and the area it
+is from. Rooms of one area fit together where that area joins them, so
+take rooms of the same area and add each with `add room MODEL home`. Wait
+a few seconds, then send `floormap`. Two rooms are joined when
+`floor.json` lists a doorway between them and the floor's places run
+from one into the other. A doorway at the map's edge that leads to no
+room needs nothing: the floor ends there, and the player cannot walk off
+it.
+
+**The start.** `entry X Y Z` puts the place the player starts at. Use a
+place from `floor.json`.
+
+**Names.** A template's name, an item's name and a conversation's name
+have 1 to 16 lowercase letters, digits and `_`. A tag has up to 32
+characters. Start your own names with a short mark of your own, such as
+`kje_`, so they are not names of the game's.
+
+**A container.** A placeable is a container once it can be used and
+holds items: `flag useable on` and `flag inventory on` on the selected
+placeable. Some templates are that already and some are not, so send
+`details` after adding one and read `useable` and `holds_items`. A
+template that holds items brings them along: take out what you do not
+want with `item remove N`.
+
+**An item of the project.** `item new NAME BASE` makes an item as a copy
+of the game's item `BASE`. Any item serves as a key or a quest item,
+because scripts and blocks know it by its tag alone. `item add NAME` puts
+it into the selected container or creature, as it puts any item of the
+game.
+
+**Text in a command.** A name or a text that ends its command runs to
+the end of the line, spaces and all, with or without double quotes:
+`item name`, `item text`, `quest new`, `quest entry` and `quest end` take
+their text this way. Double quotes are needed only where several texts
+stand in one command, as in a conversation's `replies`.
+
+**Events and blocks.** An object runs a script on each of its events.
+`details NAME` lists an object's events under `behaviour.events`, set or
+not. A placeable has `OnUsed`, `OnInvDisturbed` (an item was put in or
+taken out) and `OnDeath`. A door has `OnOpen`, `OnFailToOpen` (it was
+tried while locked) and `OnClick`. A creature has `ScriptDeath`,
+`ScriptSpawn` and `ScriptHeartbeat`. A trigger has `ScriptOnEnter`.
+`blocks EVENT add KIND VALUE ...` gives an event a logic block, so most
+behaviour needs no script. `catalog.json` lists every kind of block
+under `blocks`, with the values it takes in order. A refused kind is
+answered with the list of kinds.
+
+**A door a key opens.** kjk does not read a door's key from the door.
+Make the door locked, and open it by blocks for whoever carries the key:
+
+    select kje_door
+    number Locked 1
+    number KeyRequired 1
+    blocks OnFailToOpen add if_has_item kje_key
+    blocks OnFailToOpen add unlock kje_door
+    blocks OnFailToOpen add open_door kje_door
+
+`if_has_item` takes the item's tag, which is the item's name unless
+`item tag` changed it. The player uses the door once, and it opens.
+`Lockable` says whether the door can be locked again by hand, and may
+stay 0. A door added at a doorway's place from `floor.json` stands in it
+already, so `snap door` is not needed after it. A doorway's facing is the
+way the door's panel is hung, as the game's own doors are, not the way
+one walks through it.
+
+**A quest.** `quest new`, `quest entry` and `quest end` make the quest
+and its entries. An entry is added in play by the block
+`journal QUEST NUMBER` on some event, or by a conversation's line (`quest
+line N QUEST NUMBER`). To start a quest when an item is taken from a
+container, put on the container's `OnInvDisturbed`: `if_has_item ITEM`,
+`once`, `journal QUEST NUMBER`. To close it when a creature dies, put
+`journal QUEST NUMBER` on the creature's `ScriptDeath`. An entry's
+number is a whole number. A quest moves on only to a higher
+number, so number the entries in the order they happen, such as 10, 20
+and 30. `level.json` lists the project's own quests with their entries
+under `project_quests`, and its items under `project_items`.
+
+Blocks on an event take the place of the script that event ran. An event
+that ran one of the game's scripts loses it. `details` shows what each
+event runs before you change it.
+
+**A hostile creature.** A creature fights the player when its faction is
+hostile: `number FactionID 1`. `details` shows the creature's numbers
+under `behaviour.numbers`.
+
+**Checking without a window.** `script try SCRIPT TAG` and
+`conversation try NAME TAG PICKS` answer `ok` at once and run for a few
+seconds. Wait until `trying` in `live.json` is null again, then read
+`last_try`. An event's blocks are a script the editor names itself, such
+as `kjb_339`: `details` gives the name under `behaviour.scripts`, and
+`script try` takes it. A trial's player carries nothing, so a block that
+begins with `if_has_item` shows only what happens without the item.
 
 ## What to be careful with
 

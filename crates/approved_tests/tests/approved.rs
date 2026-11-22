@@ -8930,7 +8930,9 @@ fn level_edit_logic_blocks() {
          // 17\nvoid DestroyObject(object oDestroy, float fDelay = 0.0f);\n\
          // 18\nvoid StartNewModule(string sModuleName, string sWayPoint = \"\");\n\
          // 19\nint GetLocalBoolean(object oObject, int nIndex);\n\
-         // 20\nvoid SetLocalBoolean(object oObject, int nIndex, int nValue);\n",
+         // 20\nvoid SetLocalBoolean(object oObject, int nIndex, int nValue);\n\
+         // 21\nint GetIsObjectValid(object oObject);\n\
+         // 22\nobject GetItemPossessedBy(object oCreature, string sItemTag);\n",
     )
     .expect("the test's catalog reads");
     let every: Vec<Block> = KINDS
