@@ -86,6 +86,7 @@ const GROUPS: &[Group] = &[
     ("shader bounds", kjk_game::shader_checks::probes),
     ("render facts", kjk_game::render_facts::probes),
     ("autosave", kjk_game::sim_host::autosave_probes),
+    ("solo reload", kjk_game::solo_reload_probes),
     ("perfect-block slow motion", kjk_game::sim_host::slow_motion_probes),
     ("look", kjk_game::sim_host::look_probes),
     ("loading hold", kjk_game::sim_host::loading_hold_probes),

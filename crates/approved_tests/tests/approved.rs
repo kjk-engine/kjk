@@ -559,6 +559,20 @@ fn loading_hold() {
     );
 }
 
+/// A save loaded in place while a menu or the lost box holds the world
+/// (`kjk_game::solo_reload_probes`, also `kjk sim probes --only "solo
+/// reload"`). The install's message reaches the host's own client after
+/// the host committed it. The client still gets the level, loads, and the
+/// world goes on. Needs `--features rig`; no installs (proposed
+/// 2026-11-22, issue 643, not yet approved).
+#[test]
+fn reload_while_held() {
+    #[cfg(not(feature = "rig"))]
+    println!("reload_while_held skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("solo reload", &kjk_game::solo_reload_probes(), 1);
+}
+
 /// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
 /// that sets `UnequipHItem` hides each line's speaker's and listener's head
 /// item until the conversation ends, as KOTOR 2's executable does; one
