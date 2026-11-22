@@ -212,6 +212,7 @@ const PROBES: &[Probe] = &[
         walks_into_doorway_short_of_door,
     ),
     ("party_waits_for_door", party_waits_for_door),
+    ("door_shuts_on_one_standing", door_shuts_on_one_standing),
     ("assigned_before_next_line", assigned_before_next_line),
     ("assigned_after_last_reply", assigned_after_last_reply),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
@@ -440,8 +441,10 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   `probe_death_dummy` kills the dummy (`EffectDeath`, applied at once).
 fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::script::Library {
     let call = |routine, args| Op::Action { routine, args };
+    // `BeginConversation(dialog, GetFirstPC())`: run by no dialogue event,
+    // it names the PC, as a scene's script must.
     let begin = program(&[
-        Op::Const(Const::Object(1)),
+        call(3, 0),
         Op::Const(Const::String(dialog.as_bytes().to_vec())),
         call(0, 2),
     ]);
@@ -6898,6 +6901,83 @@ fn party_waits_for_door() -> Found {
         }),
         format!(
             "(companion, host): (still walking at 3 s, front past the shut panel m, opened by it, arrived at step after the gate opened, m off the end) {found:?}"
+        ),
+    )
+}
+
+/// A door a script closes waits for a body walking through its doorway,
+/// and shuts on one standing still there with nothing left to do, as
+/// KOTOR's executable shuts it. The gate opened by itself, a creature
+/// walking through it keeps it open until it is past, and a creature then
+/// standing in the doorway does not. Grenn's officer stops a metre short
+/// of his mark outside the Exile's apartment on Citadel Station, in the
+/// doorway, and the apartment's door stayed open for good, so the Exile
+/// could walk out while under arrest (Discord, 2026-11-21).
+fn door_shuts_on_one_standing() -> Found {
+    use crate::script::actions::{Action, Queued};
+    let mut ground = through_ground()?;
+    let gate = ground.object(GATE)?;
+    ground.run_script("probe_open", GATE)?;
+    let opened = (0..steps(2000)).any(|_| {
+        ground.step();
+        !ground.gate_shut()
+    });
+    let close = |ground: &mut Ground| {
+        let mut state = ground.world.script_state().clone();
+        state.actions.entry(gate.0).or_default().push(Queued {
+            action: Action::Door {
+                door: ObjectId(gate.0),
+                open: false,
+            },
+            started_ms: None,
+        });
+        ground.world.set_script_state(state);
+    };
+    // A walker on its way through: the gate waits until it is past.
+    let walker = ground.place(WALKER, BEFORE_GATE)?;
+    ground.step();
+    ground.queue(walker, move_to(PAST_GATE, false, None));
+    // How far on of the gate's panel the walker's middle is (m).
+    let on = |ground: &Ground| along(BEFORE_GATE, PAST_GATE, ground.at(walker)) - 2.0;
+    let reached = (0..steps(3000)).any(|_| {
+        ground.step();
+        on(&ground) >= -HALF_BODY_M
+    });
+    close(&mut ground);
+    let mut shut_on_walker = false;
+    for _ in 0..steps(4000) {
+        ground.step();
+        if ground.gate_shut() {
+            shut_on_walker = on(&ground).abs() < HALF_BODY_M;
+            break;
+        }
+    }
+    let shut_after_walker = ground.gate_shut();
+    // One standing still on the doorway's floor: the gate shuts on it.
+    ground.run_script("probe_open", GATE)?;
+    let reopened = (0..steps(2000)).any(|_| {
+        ground.step();
+        !ground.gate_shut()
+    });
+    ground.run_script("probe_clear", WALKER)?;
+    ground.put(walker, [-HALF_BODY_M, 0.0]);
+    ground.step();
+    let standing = ground.queued(walker) == 0;
+    close(&mut ground);
+    let shut_on_standing = (0..steps(1000)).any(|_| {
+        ground.step();
+        ground.gate_shut()
+    });
+    check(
+        opened
+            && reached
+            && !shut_on_walker
+            && shut_after_walker
+            && reopened
+            && standing
+            && shut_on_standing,
+        format!(
+            "opened {opened}; the walker reached the doorway {reached}, the gate shut on it {shut_on_walker}, shut once it was past {shut_after_walker}; opened again {reopened}, one standing idle {standing}, the gate shut on it {shut_on_standing}"
         ),
     )
 }

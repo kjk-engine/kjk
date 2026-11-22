@@ -905,6 +905,9 @@ fn upload(texture: &TextureIr) -> Image {
         mag_filter: ImageFilterMode::Linear,
         min_filter: ImageFilterMode::Linear,
         mipmap_filter: ImageFilterMode::Linear,
+        // 16x anisotropic filtering keeps floors and walls sharp when the
+        // camera sees them at a shallow angle.
+        anisotropy_clamp: 16,
         ..default()
     });
     image
