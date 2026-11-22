@@ -9,9 +9,11 @@
 //! multiplied as each lands (`damage_times`, `world::harm`), whatever it
 //! hits with: a held weapon, a beast's strike or its fists. The same hits
 //! count at the scaled creatures' own pace (`cadence`). A party member is
-//! never scaled.
+//! never scaled. The three final bosses have their own vitality and pace on
+//! top of this (`Boss`, `rules::encounters::bosses`).
 
 use rules::encounters::balance;
+use rules::encounters::bosses;
 
 use super::{Sheet, Weapon};
 
@@ -98,6 +100,64 @@ impl Balance {
 /// rounds' worth of damage where every other attacker's deals
 /// `damage::PACE` (`damage::pace` reads the cadence).
 pub fn cadence(cadence_ms: u32) -> u32 {
-    let paced = u64::from(cadence_ms) * balance::PACE as u64 / super::damage::PACE as u64;
+    paced(cadence_ms, balance::PACE)
+}
+
+/// `cadence_ms` as an attacker's whose round of attacks deals `pace` rounds'
+/// worth of damage.
+fn paced(cadence_ms: u32, pace: i64) -> u32 {
+    let paced = u64::from(cadence_ms) * pace as u64 / super::damage::PACE as u64;
     u32::try_from(paced).unwrap_or(u32::MAX)
+}
+
+/// One of KOTOR II's three final bosses (`rules::encounters::bosses`, which
+/// says the whole rule), in the order of the rule's entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Boss {
+    Nihilus,
+    Sion,
+    Traya,
+}
+
+impl Boss {
+    /// The final boss a creature of `template` is, if it is one: the
+    /// templates of the three final fights, on the Ravager's bridge, in the
+    /// Trayus Academy and in the Trayus Core.
+    pub fn of_template(template: &str) -> Option<Boss> {
+        match template.to_ascii_lowercase().as_str() {
+            "n_darthnihilu001" => Some(Boss::Nihilus),
+            "n_darthsion002" => Some(Boss::Sion),
+            "n_darthtraya001" => Some(Boss::Traya),
+            _ => None,
+        }
+    }
+
+    /// `sheet`, already scaled (`Balance::scaled`), with this boss's
+    /// vitality.
+    pub fn vitality(self, mut sheet: Sheet) -> Sheet {
+        let times = bosses::VITALITY[self as usize];
+        let most = i32::from(sheet.max_hp).saturating_mul(times);
+        sheet.max_hp = most.clamp(1, i32::from(u16::MAX)) as u16;
+        sheet
+    }
+
+    /// The cadence this boss's weapon hit counts at (ms), as `cadence` for
+    /// every other scaled creature.
+    pub fn cadence(self, cadence_ms: u32) -> u32 {
+        paced(cadence_ms, bosses::PACE[self as usize])
+    }
+
+    /// When a final boss that acts for itself may start its next Force power
+    /// (sim ms), after one it started at `now`.
+    pub fn next_power(now: u64) -> u64 {
+        now + bosses::POWER_WAIT_MS
+    }
+}
+
+/// `sheet` as a scaled creature of `template` first stands in the world: by
+/// its set (`Balance::scaled`), and a final boss's vitality on top
+/// (`Boss::vitality`).
+pub fn stood(set: &Balance, sheet: Sheet, pc_level: i32, template: &str) -> Sheet {
+    let sheet = set.scaled(sheet, pc_level);
+    Boss::of_template(template).map_or(sheet, |boss| boss.vitality(sheet))
 }

@@ -188,6 +188,77 @@ summary = "In each combat round, a scaled enemy's attacks deal {encounters.balan
 source = "the owner's choice (2026-11-12), from the balance bench: with a party built to fight, measured losses are about 56% of KOTOR's forecast at 2 and about 99% at the full combat pace, which is too hard at levels 7 to 14"
 see = "sim::combat::balance::cadence"
 
+[bosses]
+title = "KOTOR II Final Bosses"
+summary = """
+KOTOR II ends with three boss fights. They are Darth Nihilus on the bridge
+of the Ravager, Darth Sion in the Trayus Academy and Darth Traya in the
+Trayus Core. Each of these three bosses is scaled like any other scaled
+enemy. Its maximum vitality is then multiplied again, by
+{encounters.bosses.vitality[0]:bare} for Darth Nihilus, by
+{encounters.bosses.vitality[1]:bare} for Darth Sion and by
+{encounters.bosses.vitality[2]:bare} for Darth Traya. In each combat round,
+Darth Nihilus's attacks deal {encounters.bosses.pace[0]:bare} rounds' worth
+of damage, Darth Sion's deal {encounters.bosses.pace[1]:bare} and Darth
+Traya's deal {encounters.bosses.pace[2]:bare}. A final boss also acts for
+itself when its own scripts give it nothing to do. It then picks the nearest
+enemy it can see as its target. If it holds a weapon, it attacks that
+target. If it holds no weapon and can use the Force, it stays where it
+stands, turns to face its target and uses its Force powers on it. A final
+boss that acts for itself waits at least {encounters.bosses.power_wait_ms:s}
+after it starts one Force power before it starts the next. It does not
+start a choking power, a lightning power or a draining power twice in a row
+when it can start a different power.
+"""
+detail = """
+The three bosses are recognised by their creature templates in the modules
+of those three fights. Darth Sion on Korriban and Kreia as a companion are
+not final bosses. Darth Sion's script restores his full maximum vitality
+each time he falls, so he has the multiplied vitality in each of his four
+phases. Darth Traya's script switches her combat script off when her first
+phase ends, and nothing switches it on again. In her second phase she has
+lost her lightsaber, so she is the boss that stands and uses the Force.
+The choking powers are Wound, Choke, Kill and Force Crush. The lightning
+powers are Shock, Force Lightning and Force Storm. The draining powers are
+Drain Life and Death Field. A
+final boss does not act for itself during a conversation or a scene, or
+while its script has an action waiting for it. A boss that was already in
+the world when a game was saved keeps the vitality it had in that save.
+"""
+applies = ["kind:creature"]
+
+[bosses.vitality]
+name = "Final Boss Vitality"
+type = "i32"
+value = [3, 3, 3]
+labels = ["Darth Nihilus", "Darth Sion", "Darth Traya"]
+unit = "×"
+range = [1, 20]
+summary = "A final boss's scaled maximum vitality is multiplied by {encounters.bosses.vitality[0]:bare} for Darth Nihilus, by {encounters.bosses.vitality[1]:bare} for Darth Sion and by {encounters.bosses.vitality[2]:bare} for Darth Traya."
+source = "ours (2026-11-22), from a playtester's three saves: a level 29 Jedi Guardian and Weapon Master emptied Darth Sion's 418 vitality in about 2 landed blows a phase, and Darth Traya's 1,100 at once in her second phase"
+see = "sim::combat::balance::Boss::vitality"
+
+[bosses.pace]
+name = "Final Boss Damage per Round"
+type = "i64"
+value = [3, 2, 2]
+labels = ["Darth Nihilus", "Darth Sion", "Darth Traya"]
+unit = "×"
+range = [1, 20]
+summary = "In each combat round, a final boss's attacks deal this many rounds' worth of damage in total: {encounters.bosses.pace[0]:bare} for Darth Nihilus, {encounters.bosses.pace[1]:bare} for Darth Sion and {encounters.bosses.pace[2]:bare} for Darth Traya. Every other scaled enemy's attacks deal {encounters.balance.pace:bare}."
+source = "ours (2026-11-22), from replays of the same three saves: against a character who never blocks, Darth Sion dealt 16 points a second, Darth Traya 8 and Darth Nihilus 6 at a pace of 2"
+see = "sim::combat::balance::Boss::cadence"
+
+[bosses.power_wait_ms]
+name = "Final Boss Power Wait"
+type = "u64"
+value = 10000
+unit = "ms"
+range = [0, 60000]
+summary = "A final boss that acts for itself waits at least {encounters.bosses.power_wait_ms:s} after it starts one Force power before it starts the next."
+source = "ours (2026-11-22), from a replay of the playtester's save: without this wait Darth Traya started a power every 2.5 seconds in her second phase, and Kill alone took half of the player's maximum vitality in 18 seconds. Each Kill takes one sixth of its target's maximum vitality"
+see = "sim::combat::balance::Boss::next_power"
+
 [balance.level_less]
 name = "Level Scaling Offset"
 type = "i32"

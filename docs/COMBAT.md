@@ -575,12 +575,44 @@ resolved (`world::harm`), so the rule covers a held weapon, a beast's
 strike and fists alike. A party member is never scaled.
 
 The same hits count at the scaled creatures' own pace
-(`encounters.balance.pace`, 1): `balance::cadence` shortens the hit's
+(`encounters.balance.pace`): `balance::cadence` shortens the hit's
 cadence before the damage reads it, so a scaled creature's round of
-attacks deals one round's worth of damage where every other attacker's
-deals four (`combat.damage.pace`). The owner chose this on 2026-11-11.
+attacks deals that many rounds' worth of damage where every other
+attacker's deals `combat.damage.pace`. The owner chose this on 2026-11-12.
 With scaled dice at the full pace, a test character lost 46 times his
 vitality in Dantooine's crystal cave.
+
+### The three final bosses (`balance::Boss`)
+Darth Nihilus on the Ravager's bridge, Darth Sion in the Trayus Academy
+and Darth Traya in the Trayus Core have a rule of their own
+(`rules::encounters::bosses`, which says all of it and has its numbers).
+They are recognised by their templates in those three modules
+(`Boss::of_template`). Darth Sion on Korriban and Kreia as a companion are
+other templates.
+
+- **Vitality.** `balance::stood` scales the sheet by its set and then
+  multiplies a final boss's maximum vitality. Both places that scale a
+  creature call it (`come_alive`, `scripts::apply`). A boss a save already
+  holds keeps the sheet it was saved with.
+- **Pace.** `world::harm` shortens a final boss's cadence by its own pace
+  (`Boss::cadence`) where every other scaled creature's is shortened by
+  `encounters.balance.pace`.
+- **Acting for itself.** Where the games' scripts run, a mind fights only
+  whom its script names. A final boss is the exception (`world::minds`,
+  `alone`): when its script has given it no attack, no move and no queued
+  action, and no conversation or scene holds it, it picks the nearest
+  hostile character it sees and chooses its own powers
+  (`ai::choose_power`), as a mind does on a stage without scripts. With
+  empty hands and the Force it stays where it stands and faces its target.
+  It waits `encounters.bosses.power_wait_ms` between powers
+  (`Boss::next_power`). This is what makes Darth Traya fight in her second
+  phase: `k_kreia_userdef` sets her local flag 87 as her first phase ends,
+  the shared combat script `k_ai_master` returns at once for her from then
+  on, and the original game leaves her standing while her three
+  lightsabers fight.
+
+Probes: `kjk sim probes --only "enemy scaling"` (`boss_vitality`,
+`boss_pace`, `boss_power_wait`).
 
 Two things differ from TSL's executable. It keeps the level the creature
 appeared at (`PCLevelAtSpawn`) and reads it for the damage multiplier; kjk

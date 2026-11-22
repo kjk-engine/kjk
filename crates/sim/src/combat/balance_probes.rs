@@ -2,7 +2,7 @@
 //! sets' arithmetic as TSL's executable works it, and a creature a module
 //! places scaled as it comes to stand on the proving ground.
 
-use super::balance::Balance;
+use super::balance::{Balance, Boss};
 use super::{Sheet, Weapon};
 use crate::module::{ObjectData, ObjectKind, Placement};
 use crate::probe::{Checks, check};
@@ -111,6 +111,9 @@ pub fn probes() -> Checks {
     list.push(("balance_damage_times", damage_times()));
     list.push(("balance_pace", pace()));
     list.push(("balance_no_set", no_set()));
+    list.push(("boss_vitality", boss_vitality()));
+    list.push(("boss_pace", boss_pace()));
+    list.push(("boss_power_wait", boss_power_wait()));
     list.extend(
         FOOTING
             .iter()
@@ -144,6 +147,60 @@ fn pace() -> Result<String, String> {
         seen == wanted && plain == [4000, 800],
         format!("scaled {seen:?}, wanted {wanted:?}; unscaled {plain:?}, wanted [4000, 800]"),
     )
+}
+
+/// The three final bosses' templates, in the order of the rule's entries,
+/// one of them in other letter case.
+const BOSS_TEMPLATES: [&str; 3] = ["n_darthnihilu001", "N_DarthSion002", "n_darthtraya001"];
+
+/// A final boss stands with its scaled vitality multiplied by its entry of
+/// the rule, and nothing else moved. Darth Sion on Korriban, Kreia as a
+/// companion and a floating lightsaber are scaled as any other creature.
+fn boss_vitality() -> Result<String, String> {
+    use super::balance::stood;
+    let plain = SET_5.scaled(template(), 30);
+    let seen = BOSS_TEMPLATES.map(|name| stood(&SET_5, template(), 30, name));
+    let wanted = rules::encounters::bosses::VITALITY.map(|times| {
+        let most = i32::from(plain.max_hp) * times;
+        Sheet {
+            max_hp: u16::try_from(most).unwrap_or(u16::MAX),
+            ..plain
+        }
+    });
+    let others = ["n_darthsion001", "p_kreia", "c_lightsaber001", ""];
+    let unmoved = others
+        .iter()
+        .all(|name| stood(&SET_5, template(), 30, name) == plain);
+    check(
+        seen == wanted && unmoved,
+        format!(
+            "vitality {:?}, wanted {:?}; others as scaled: {unmoved}",
+            seen.map(|sheet| sheet.max_hp),
+            wanted.map(|sheet| sheet.max_hp)
+        ),
+    )
+}
+
+/// A final boss's hit counts at its own pace: a strike every 3 s deals its
+/// entry of the rule in rounds' worth of damage.
+fn boss_pace() -> Result<String, String> {
+    use super::damage::pace;
+    let bosses = [Boss::Nihilus, Boss::Sion, Boss::Traya];
+    let found = BOSS_TEMPLATES.map(Boss::of_template);
+    let seen = bosses.map(|boss| pace(boss.cadence(3000)));
+    let wanted = rules::encounters::bosses::PACE.map(|rounds| rounds * 1000);
+    check(
+        found == bosses.map(Some) && seen == wanted,
+        format!("templates {found:?}; pace {seen:?}, wanted {wanted:?}"),
+    )
+}
+
+/// A final boss that acts for itself starts its next Force power no sooner
+/// than the rule's wait after the last.
+fn boss_power_wait() -> Result<String, String> {
+    let seen = Boss::next_power(10_000);
+    let wanted = 10_000 + rules::encounters::bosses::POWER_WAIT_MS;
+    check(seen == wanted, format!("{seen} ms, wanted {wanted}"))
 }
 
 /// The dice of a weapon hit: 1 + (level - 1) x the set's damage multiplier,

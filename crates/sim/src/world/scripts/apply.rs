@@ -179,7 +179,10 @@ pub(in crate::world) fn apply(
             .scripts()
             .filter(|_| made.kept.is_none() && !joining.contains(&made.id))
             .and_then(|library| library.experience().balance(made.facts.multiplier_set));
-        let sheet = balance.map_or(sheet, |set| set.scaled(sheet, scripts.state.pc_level()));
+        let sheet = balance.map_or(sheet, |set| {
+            let pc_level = scripts.state.pc_level();
+            crate::combat::balance::stood(set, sheet, pc_level, &made.facts.template)
+        });
         // Where the safe-location search stands it, as a jump's
         // (`install::jump_place`), clear of the living bodies and of those
         // made before it; none found, where it was put. An arena's foe

@@ -39,6 +39,7 @@ use super::{
 };
 use crate::combat::ai::FeatUse;
 use crate::combat::ai::{self, Cast, Mind, Task};
+use crate::combat::balance::Boss;
 use crate::combat::bar::FeatLine;
 use crate::combat::choose;
 use crate::combat::items;
@@ -595,6 +596,17 @@ pub(super) fn think(
         // himself as the exam's fight began, fought himself). Else the one
         // it had while it stays hostile, within the fight's reach.
         let intent = scripts.state.intents.get(&id.0.0);
+        // A final boss its scripts give nothing to do acts for itself
+        // (`rules::encounters::bosses`): it picks its own foe as a mind on
+        // a stage without scripts does, and its own powers. Darth Traya's
+        // script switches her combat script off as her first phase ends.
+        let alone = facts.is_some_and(|facts| Boss::of_template(&facts.template).is_some())
+            && !party
+            && intent.is_none()
+            && !fighter.mind.queued
+            && !world_held
+            && !in_scene(id.0);
+        let own_choice = own_choice || alone;
         // A party member nobody plays, out of a scene and not moved by a
         // script, joins a fight the party is in when its script names no
         // foe: KOTOR's AI scripts answer only the moments they are told of,
@@ -1016,6 +1028,15 @@ pub(super) fn think(
                             (&level.0, opening),
                             (&visible, &others),
                         )
+                    }
+                    // A final boss acting for itself with empty hands and
+                    // the Force stays where it stands and faces its target:
+                    // its powers follow below.
+                    _ if alone && unarmed && own.has_force => {
+                        mind.walker = None;
+                        let face = mind::aim(eye, entry.chest());
+                        let (pitch, yaw) = mind::turned(ps, face, pace::TURN_RATE, clock.msec);
+                        mind::looking(ps, pitch, yaw)
                     }
                     _ if paced => {
                         let command = fight(
@@ -1532,10 +1553,18 @@ pub(super) fn think(
             };
             // The most preferred choice it can carry out now. When the best
             // must wait, the next one in the chooser's order is tried.
-            let used = choose::ranked(&plain, &scene, tie)
+            let doable: Vec<_> = choose::ranked(&plain, &scene, tie)
                 .into_iter()
                 .filter_map(|choice| options.iter().find(|(option, _)| option.choice == choice))
-                .find(|(option, _)| doable(option));
+                .filter(|(option, _)| doable(option))
+                .collect();
+            // A final boss acting for itself does not start the held power
+            // it started last again while it can start another.
+            let last = fighter_now.mind.hold;
+            let repeats =
+                |cast: &Cast| alone && matches!(cast, Cast::Hold(button, _) if *button == last);
+            let fresh = doable.iter().find(|(_, cast)| !repeats(cast));
+            let used = fresh.or(doable.first()).copied();
             let tag = facts.map_or("", |facts| facts.tag.as_str());
             if let Some((option, cast)) = used {
                 match option.choice {
@@ -1577,6 +1606,17 @@ pub(super) fn think(
                         own.tier
                     };
                     fighter.mind.cast_after = now + held_ms + choose::wait_ms(tier, dice);
+                    // A final boss acting for itself waits its own while
+                    // between Force powers.
+                    if alone && matches!(option.choice, choose::Choice::Power(_)) {
+                        let mind = &mut fighter.mind;
+                        mind.cast_after = mind.cast_after.max(Boss::next_power(now));
+                        // A pressed power is the last one now. The held one
+                        // before it may start again.
+                        if matches!(cast, Cast::Press(_)) {
+                            mind.hold = 0;
+                        }
+                    }
                     choices::log(tag, option, &scene);
                 }
                 // On a stage without scripts, a gunner's feat special when
