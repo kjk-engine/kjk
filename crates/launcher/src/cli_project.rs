@@ -6,6 +6,29 @@ use level_edit::Project;
 
 use crate::discover;
 
+/// Takes what the mods in the games' `override/` hold for kjk as this
+/// run's (`level_edit::active::activate_mods`), when no project was named:
+/// a mod the level editor exported plays without `--project`.
+pub(crate) fn activate_mods() {
+    for active in level_edit::active::activate_mods(&discover()) {
+        let levels: Vec<String> = (active.project.level_list().into_iter())
+            .map(|(module, _)| module)
+            .filter(|module| !module.is_empty())
+            .collect();
+        eprintln!(
+            "kjk mods in {}'s override: {} levels ({}), {} kinds of fitting, {} bakes",
+            active.project.game,
+            levels.len(),
+            levels.join(", "),
+            active.lighting.kinds.len(),
+            active.bakes.len()
+        );
+        for note in &active.notes {
+            eprintln!("kjk mods in {}'s override: {note}", active.project.game);
+        }
+    }
+}
+
 /// Makes the project `name` this run's (`level_edit::active`), before any
 /// install is read. The project must exist: the level editor makes one.
 pub(crate) fn activate(name: &str) -> Result<(), String> {

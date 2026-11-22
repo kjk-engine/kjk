@@ -48,10 +48,7 @@ pub fn of_area(game: vfs::Game, module: &str) -> Option<SunLight> {
     {
         return *set;
     }
-    level_edit::active::get()
-        .filter(|active| active.project.game.eq_ignore_ascii_case(game.key()))
-        .and_then(|active| active.project.kjk_of(module))
-        .and_then(|kjk| kjk.sun)
+    level_edit::active::kjk_of(game.key(), module).and_then(|kjk| kjk.sun)
 }
 
 /// The game's sun among `models` (game space): the first light of a model

@@ -2210,6 +2210,27 @@ fn command_words(
             publish_rules(state)?;
             command(state, &["save"], cameras)?;
         }
+        // The project as a mod of the game, in a folder to copy into the
+        // game's own (`level_edit::mods`): saved first.
+        ["export", folder @ ..] => {
+            command(state, &["save"], cameras)?;
+            let project = &state.editor.project;
+            let to = match folder {
+                [] => store::kjk_folder(|var| std::env::var(var).ok())
+                    .ok_or("kjk's folder is not known: name a folder to export to")?
+                    .join("exports")
+                    .join(&project.name),
+                words => PathBuf::from(words.join(" ")),
+            };
+            let exported = level_edit::mods::export(project, &to)?;
+            state.say(format!(
+                "exported {} as a mod to {}: {} files the games read and {} that only kjk reads",
+                project.name,
+                to.display(),
+                exported.game_files,
+                exported.kjk_files
+            ));
+        }
         ["recover"] => crate::recover::take(state)?,
         ["recover", "discard"] => crate::recover::discard(state)?,
         // The recovery copy written now, not at its next turn.

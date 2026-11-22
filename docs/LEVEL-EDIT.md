@@ -1318,6 +1318,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit drop` | puts everything selected on the walkable floor under it, as one edit |
 | `edit markers KIND on`, `edit markers KIND off`, `edit markers all on` | shows or hides the markers and labels of a kind of object (`creature`, `placeable`, `door`, `waypoint`, `trigger`, `sound`, `store`, `encounter`), or of every kind |
 | `edit publish` | writes the project's own lights, lamps, kinds of fitting and room levels to kjk's light data, then saves the project without them |
+| `edit export [FOLDER]` | saves, then writes the project as a mod of the game to the folder, or to `exports/<project>` in kjk's own folder |
 | `edit recover`, `edit recover discard` | takes the work an editor that did not close left, as one edit, or removes it |
 | `edit recover write` | writes the recovery copy now, not at its next turn |
 | `edit entry [X Y Z]` | moves a new map's entry to the point or where the view's centre meets the level |
@@ -1394,6 +1395,58 @@ says how far apart they are.
 An edit or a command that does nothing says why in a red notice at the
 top of the view for five seconds, as well as among the messages.
 
+## Sharing a level
+
+A project is shared as a mod of the game. **Export as a mod** (in the File
+menu, `edit export`) saves the project and writes it to a folder, as
+files to copy into the game's own folder. A player needs the game to use
+it, as for any mod of KOTOR.
+
+The folder is `exports/<project>` in kjk's own folder, or the one `edit
+export FOLDER` names. An export replaces the one made there before. A
+folder that holds other files is refused. The export has two parts.
+
+- **Files the games read.** `override/` holds each level's object list
+  (`<area>.git`), the templates, conversations and scripts the project
+  brings, and an area file the project changed. A new map's module is in
+  `modules/`. The original game and kjk both read these, as they read any
+  mod.
+- **Files only kjk reads.** The original game ignores them. They are
+  named so that two mods in one `override/` do not take each other's
+  place.
+  - `kjk-area-<area>.toml` for each level: its collision boxes, Jedi
+    Academy props, lights and lamps placed by hand, links between floors
+    and sun, with the level's module and area named at its top.
+  - `kjk-lighting-<project>.toml`: the kinds of fitting and room levels
+    the project changed.
+  - `kjk-bake/<module>/`: the bake the project keeps of a level.
+
+`kjk-mod-readme.txt` beside the two folders says how to install the mod,
+and how many of its files the original game reads.
+
+**kjk reads a mod's own files from `override/` when it runs without
+`--project`.** It takes every `kjk-area-*.toml` and `kjk-lighting-*.toml`
+at the top of each game's `override/`, and every bake under `kjk-bake/`.
+The levels they name then get their boxes, props, lights, lamps and bake,
+as a project's levels do. kjk says at its start which levels it found.
+With `--project`, kjk plays that project and reads no mod's own files.
+
+What to know:
+
+- **A mod holds changed copies of the game's files**, as mods of this
+  game do: the object lists, the templates and conversations the project
+  changed, a new map's rooms, and a kept bake.
+- **Two mods that change the same area take each other's place.** Their
+  `<area>.git` files have the same name, and so do their kjk files.
+- **In the original game, a level's object list from `override/` shows
+  on a first visit.** Once a save holds the area, the game takes the
+  list from the save.
+- **What only kjk reads does not exist in the original game.** A level
+  that needs its collision boxes or props to be passable is a level for
+  kjk.
+- **The project's folder is not the mod.** It also holds the project's
+  own notes, which the export leaves out.
+
 ## Limits of the prototype
 
 - **A new map's rooms are the games' own.** There is no new geometry
@@ -1434,9 +1487,9 @@ top of the view for five seconds, as well as among the messages.
 - **One level at a time.** A project's levels are edited one by one, and
   the editor starts again to move between them. A level cannot be taken
   out of a project yet. A new map's project has one level.
-- **No export.** A new map's `.mod` and a project's `.git` file are KOTOR
-  files, but there is no step yet that makes them ready for the original
-  game.
+- **An exported new map is for kjk.** Export writes a new map's `.mod`
+  beside the files for `override/`, but the module lacks what the
+  original game needs to play it, as the limit on new maps above says.
 - **The view is drawn under the panels.** The scene's camera fills the
   window, and the panels cover its edges.
 

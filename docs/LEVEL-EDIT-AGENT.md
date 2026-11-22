@@ -164,6 +164,9 @@ was taken. If a line failed, the lines after it still ran.
   files on its next save.
 - `ui quit` closes the editor, and `ui link off` ends the link. Do not
   send either unless the person asks.
+- `export` saves, then writes the project as a mod of the game to a
+  folder. It replaces the export made there before. Send it when the
+  person asks for the mod.
 - `play`, `walk`, `audit` and `bake` save first, then start another
   program. `script try` and `script debug` save first too.
 - To give a script text of your own, write the text to a file anywhere,

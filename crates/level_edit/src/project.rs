@@ -292,6 +292,39 @@ impl Project {
             .join(format!("{}.mod", self.module))
     }
 
+    /// What the mods in `folder` (an install's `override/`) hold for kjk
+    /// (`mods::read`), as a project of `game` to play: each of `levels`
+    /// (its module, its area and its kjk-only content) is one of its
+    /// levels. It holds no object list of its own: the games read the mods'
+    /// `<area>.git` files from `override/` as they read any mod's.
+    pub fn of_mods(folder: &Path, game: &str, levels: Vec<(String, String, KjkArea)>) -> Project {
+        let empty = || Gff {
+            file_type: *b"GIT ",
+            root: fmt_odyssey::gff::GffStruct {
+                id: 0,
+                fields: Vec::new(),
+            },
+        };
+        let mut levels = levels.into_iter();
+        let (module, area, kjk) =
+            (levels.next()).unwrap_or_else(|| (String::new(), String::new(), KjkArea::default()));
+        let mut project = Project::new(folder, game, &module, &area, empty());
+        project.name = "mods".to_string();
+        project.kjk = kjk;
+        for (module, area, kjk) in levels {
+            project.parked.insert(
+                module.to_ascii_lowercase(),
+                Level {
+                    area: area.to_ascii_lowercase(),
+                    git: empty(),
+                    kjk,
+                    are: None,
+                },
+            );
+        }
+        project
+    }
+
     /// Whether `folder` holds a project.
     pub fn exists(folder: &Path) -> bool {
         folder.join(PROJECT_FILE).is_file()

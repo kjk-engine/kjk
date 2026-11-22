@@ -8,6 +8,10 @@
 //! join the collision of its module's area (`added`), which every plan of
 //! that module builds (`session`, the collision verbs). A project of
 //! several levels (`Project::parked`) does this for each of them.
+//!
+//! A run without `--project` takes what the mods in each game's
+//! `override/` hold for kjk in the same way (`activate_mods`, `mods`): the
+//! levels they change are one project a game, read from that folder.
 
 use std::path::Path;
 use std::sync::OnceLock;
@@ -40,20 +44,44 @@ pub struct Active {
     pub notes: Vec<String>,
 }
 
-static ACTIVE: OnceLock<Active> = OnceLock::new();
+/// The run's active projects: the one `--project` names, or one for each
+/// game whose `override/` holds mods for kjk.
+static ACTIVE: OnceLock<Vec<Active>> = OnceLock::new();
 
-/// The active project, if one was activated.
+fn all() -> &'static [Active] {
+    ACTIVE.get().map_or(&[], Vec::as_slice)
+}
+
+/// The active project, if one was activated: the one `--project` names,
+/// else the first game's mods.
 pub fn get() -> Option<&'static Active> {
-    ACTIVE.get()
+    all().first()
+}
+
+/// The active project of `game` (`k1` or `tsl`).
+fn of_game(game: &str) -> Option<&'static Active> {
+    all()
+        .iter()
+        .find(|active| active.project.game.eq_ignore_ascii_case(game))
+}
+
+/// The active project that has the level `module`.
+fn of_module(module: &str) -> Option<&'static Active> {
+    all()
+        .iter()
+        .find(|active| active.project.kjk_of(module).is_some())
+}
+
+/// The kjk-only content the active project of `game` holds for its level
+/// `module`.
+pub fn kjk_of(game: &str, module: &str) -> Option<&'static crate::area::KjkArea> {
+    of_game(game)?.project.kjk_of(module)
 }
 
 /// What the active project adds to the collision of `game`'s `module`;
 /// `None` when no project is active or it edits another module.
 pub fn added(game: &str, module: &str) -> Option<&'static Added> {
-    let active = get()?;
-    if !active.project.game.eq_ignore_ascii_case(game) {
-        return None;
-    }
+    let active = of_game(game)?;
     if active.project.module.eq_ignore_ascii_case(module) {
         return Some(&active.added);
     }
@@ -62,13 +90,15 @@ pub fn added(game: &str, module: &str) -> Option<&'static Added> {
 
 /// The active project's digest, for `game`'s `module`.
 pub fn digest(game: &str, module: &str) -> Option<[u8; 32]> {
-    added(game, module).and(get()).map(|active| active.digest)
+    added(game, module)
+        .and(of_game(game))
+        .map(|active| active.digest)
 }
 
 /// The props the active project places in `game`'s `module`.
 pub fn props(game: &str, module: &str) -> &'static [Prop] {
     added(game, module)
-        .and(get())
+        .and(of_game(game))
         .and_then(|active| active.project.kjk_of(module))
         .map_or(&[], |kjk| kjk.props.as_slice())
 }
@@ -161,29 +191,7 @@ pub fn activate(discovery: &Discovery, folder: &Path) -> Result<&'static Active,
             "{}: the game {:?} is not k1 or tsl",
             project.name, project.game
         ))?;
-    let stack = if project.kjk.props.is_empty()
-        && project
-            .parked
-            .values()
-            .all(|level| level.kjk.props.is_empty())
-    {
-        None
-    } else {
-        ja_stack(discovery)
-    };
-    let (added, mut notes) = collision_of(&project, stack.as_ref());
-    let mut parked_added = std::collections::BTreeMap::new();
-    for (module, level) in &project.parked {
-        let (added, level_notes) = kjk_collision(&level.kjk, stack.as_ref());
-        notes.extend(
-            level_notes
-                .into_iter()
-                .map(|note| format!("{module}: {note}")),
-        );
-        parked_added.insert(module.clone(), added);
-    }
-    vfs::project::activate(game, folder)?;
-    let digest = project.digest();
+    let mut notes = Vec::new();
     let lighting = match crate::lighting::OwnLighting::read(folder) {
         Ok(lighting) => lighting,
         Err(why) => {
@@ -197,7 +205,115 @@ pub fn activate(discovery: &Discovery, folder: &Path) -> Result<&'static Active,
             Some((module, bake))
         })
         .collect();
-    let active = Active {
+    vfs::project::activate(game, folder)?;
+    let active = made(discovery, project, lighting, bakes, notes);
+    ACTIVE
+        .set(vec![active])
+        .map_err(|_| "a project is already active".to_string())?;
+    Ok(get().expect("set above"))
+}
+
+/// Takes what the mods in each KOTOR game's `override/` hold for kjk
+/// (`mods::read`) as this run's, one project a game, when no project was
+/// activated: the levels they change, their own lighting rules and their
+/// bakes. The games' own files of the mods are read from `override/` as
+/// any mod's are. A game with no such mod has no project.
+pub fn activate_mods(discovery: &Discovery) -> &'static [Active] {
+    if ACTIVE.get().is_some() {
+        return all();
+    }
+    let mut actives = Vec::new();
+    for game in [Game::Kotor1, Game::Kotor2] {
+        let Some(install) = discovery.get(game) else {
+            continue;
+        };
+        // The game's `override/`, in whatever case it is named, and every
+        // file under it by its lowercase path inside it. The folder alone
+        // is listed, not the install, so a start stays quick.
+        let Some(folder) = std::fs::read_dir(&install.data_root)
+            .ok()
+            .and_then(|entries| {
+                entries.flatten().map(|entry| entry.path()).find(|path| {
+                    path.is_dir()
+                        && (path.file_name().and_then(|name| name.to_str()))
+                            .is_some_and(|name| name.eq_ignore_ascii_case("override"))
+                })
+            })
+        else {
+            continue;
+        };
+        let mut files: Vec<(String, std::path::PathBuf)> = Vec::new();
+        let mut folders = vec![(String::new(), folder.clone())];
+        while let Some((inside, at)) = folders.pop() {
+            for entry in std::fs::read_dir(&at).into_iter().flatten().flatten() {
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                let inside = if inside.is_empty() {
+                    name
+                } else {
+                    format!("{inside}/{name}")
+                };
+                let path = entry.path();
+                if path.is_dir() {
+                    // A bake lies two folders down (`kjk-bake/<module>/`).
+                    if inside.matches('/').count() < 2 {
+                        folders.push((inside, path));
+                    }
+                } else {
+                    files.push((inside, path));
+                }
+            }
+        }
+        files.sort();
+        let found = crate::mods::read(&files);
+        if found.is_empty() && found.notes.is_empty() {
+            continue;
+        }
+        let project = Project::of_mods(&folder, game.key(), found.levels);
+        actives.push(made(
+            discovery,
+            project,
+            found.lighting,
+            found.bakes,
+            found.notes,
+        ));
+    }
+    let _ = ACTIVE.set(actives);
+    all()
+}
+
+/// The active project `project` makes: what its solid props and boxes add
+/// to the collision of each of its levels, with its lighting and bakes.
+fn made(
+    discovery: &Discovery,
+    project: Project,
+    lighting: crate::lighting::OwnLighting,
+    bakes: std::collections::BTreeMap<String, std::path::PathBuf>,
+    mut notes: Vec<String>,
+) -> Active {
+    let stack = if project.kjk.props.is_empty()
+        && project
+            .parked
+            .values()
+            .all(|level| level.kjk.props.is_empty())
+    {
+        None
+    } else {
+        ja_stack(discovery)
+    };
+    let (added, own_notes) = collision_of(&project, stack.as_ref());
+    notes.extend(own_notes);
+    let mut parked_added = std::collections::BTreeMap::new();
+    for (module, level) in &project.parked {
+        let (added, level_notes) = kjk_collision(&level.kjk, stack.as_ref());
+        notes.extend(
+            level_notes
+                .into_iter()
+                .map(|note| format!("{module}: {note}")),
+        );
+        parked_added.insert(module.clone(), added);
+    }
+    let digest = project.digest();
+    Active {
         project,
         added,
         parked_added,
@@ -205,11 +321,7 @@ pub fn activate(discovery: &Discovery, folder: &Path) -> Result<&'static Active,
         lighting,
         bakes,
         notes,
-    };
-    ACTIVE
-        .set(active)
-        .map_err(|_| "a project is already active".to_string())?;
-    Ok(get().expect("set above"))
+    }
 }
 
 /// `clip` (the module's built-in clip file, if it has one) with what the
@@ -227,7 +339,7 @@ pub fn clip_for(game: &str, module: &str, clip: Option<ClipFile>) -> Option<Clip
 /// project is active or it edits another module.
 pub fn nav_faces(game: &str, module: &str, floor: Vec<[[f32; 3]; 3]>) -> Vec<[[f32; 3]; 3]> {
     match added(game, module)
-        .and(get())
+        .and(of_game(game))
         .and_then(|active| active.project.kjk_of(module))
     {
         Some(kjk) => crate::nav::edited(floor, &kjk.boxes),
@@ -240,7 +352,7 @@ pub fn nav_faces(game: &str, module: &str, floor: Vec<[[f32; 3]; 3]>) -> Vec<[[f
 /// its kind, where it leaves and where it lands.
 pub fn nav_links(game: &str, module: &str) -> Vec<(collision::nav::LinkKind, [f32; 3], [f32; 3])> {
     added(game, module)
-        .and(get())
+        .and(of_game(game))
         .and_then(|active| active.project.kjk_of(module))
         .map_or_else(Vec::new, |kjk| {
             kjk.links
@@ -254,18 +366,19 @@ pub fn nav_links(game: &str, module: &str) -> Vec<(collision::nav::LinkKind, [f3
 /// when it keeps one: the game draws the level's rooms with it
 /// (`game::fitted_lights::for_module`, `game::viewer`).
 pub fn bake_of(module: &str) -> Option<&'static Path> {
-    (get()?.bakes.get(&module.to_ascii_lowercase())).map(std::path::PathBuf::as_path)
+    all()
+        .iter()
+        .find_map(|active| active.bakes.get(&module.to_ascii_lowercase()))
+        .map(std::path::PathBuf::as_path)
 }
 
 /// The folder of every bake the active project keeps.
 pub fn bake_folders() -> Vec<&'static Path> {
-    get().map_or_else(Vec::new, |active| {
-        active
-            .bakes
-            .values()
-            .map(std::path::PathBuf::as_path)
-            .collect()
-    })
+    all()
+        .iter()
+        .flat_map(|active| active.bakes.values())
+        .map(std::path::PathBuf::as_path)
+        .collect()
 }
 
 /// The kinds of light fitting the active project changed, as `[[kind]]`
@@ -273,9 +386,8 @@ pub fn bake_folders() -> Vec<&'static Path> {
 /// the game reads them in place of the light data's
 /// (`game::fitted_lights`).
 pub fn own_kinds(game: &str) -> Option<String> {
-    let active = get()?;
-    (active.project.game == game && !active.lighting.kinds.is_empty())
-        .then(|| active.lighting.kinds_text())
+    let active = of_game(game)?;
+    (!active.lighting.kinds.is_empty()).then(|| active.lighting.kinds_text())
 }
 
 /// The lights placed by hand that the active project keeps for its level
@@ -284,7 +396,7 @@ pub fn own_kinds(game: &str) -> Option<String> {
 /// `fittings.toml`'s (`game::fitted_lights`). `None` for a level whose
 /// lights are the light data's.
 pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]> {
-    let active = get()?;
+    let active = of_module(module)?;
     let kjk = active.project.kjk_of(module)?;
     (active.project.map.is_some() || kjk.own_lights).then_some(kjk.lights.as_slice())
 }
@@ -293,7 +405,7 @@ pub fn map_lights(module: &str) -> Option<&'static [crate::lights::PlacedLight]>
 /// `module`, as `map_lights` gives its lights: the game draws them in
 /// place of `fittings.toml`'s (`game::lamps`).
 pub fn map_lamps(module: &str) -> Option<&'static [crate::lamps::PlacedLamp]> {
-    let active = get()?;
+    let active = of_module(module)?;
     let kjk = active.project.kjk_of(module)?;
     (active.project.map.is_some() || kjk.own_lights).then_some(kjk.lamps.as_slice())
 }

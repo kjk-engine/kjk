@@ -258,6 +258,16 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
             state.pending_command = Some("save".into());
             ui.close();
         }
+        if ui
+            .button("Export as a mod")
+            .on_hover_text(
+                "Saves, then writes the project as a mod of the game to the exports folder in kjk's own folder: files to copy into the game's override folder, which KOTOR and kjk both read.",
+            )
+            .clicked()
+        {
+            state.pending_command = Some("export".into());
+            ui.close();
+        }
         ui.separator();
         if ui.button("Quit").clicked() {
             want(state, file, Leave::Quit);

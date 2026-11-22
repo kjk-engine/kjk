@@ -29,6 +29,7 @@ pub mod levels;
 pub mod lighting;
 pub mod lights;
 pub mod map;
+pub mod mods;
 pub mod nav;
 pub mod project;
 pub mod scripts;

@@ -695,6 +695,10 @@ pub fn run() -> ExitCode {
         eprintln!("--project {name}: {error}");
         return ExitCode::from(2);
     }
+    // Without one, the mods in the games' override folders give theirs.
+    if cli.project.is_none() {
+        cli_project::activate_mods();
+    }
     // The runs that play (a module, the menu, a session) read the installs:
     // opened on threads now, they are read while the rest starts.
     if matches!(
