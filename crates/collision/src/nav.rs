@@ -514,7 +514,9 @@ impl NavMesh {
             mins: [-SLIVER / 2.0, -SLIVER / 2.0, 0.5],
             maxs: [SLIVER / 2.0, SLIVER / 2.0, 1.6],
         };
-        let entities: Vec<u32> = level.entities().collect();
+        // How far from a point any of the boxes looked with reaches.
+        let across = self.radius.max(0.05);
+        let (below, above) = (0.1, 1.6);
         for face in &mut self.faces {
             let points = [
                 face.centre,
@@ -522,6 +524,21 @@ impl NavMesh {
                 lerp(face.centre, face.corners[1], 1.0 / 3.0),
                 lerp(face.centre, face.corners[2], 1.0 / 3.0),
             ];
+            // Only the entities with a brush near the face's points can
+            // overlap a box at one of them. Asking each entity of the
+            // level in turn made a level of 1,000 placeables take minutes
+            // to load. The entities are asked lowest first, as before.
+            let (mut low, mut high) = ([f32::MAX; 3], [f32::MIN; 3]);
+            for point in &points {
+                for axis in 0..3 {
+                    low[axis] = low[axis].min(point[axis]);
+                    high[axis] = high[axis].max(point[axis]);
+                }
+            }
+            let entities = level.entities_near(
+                [low[0] - across, low[1] - across, low[2] - below],
+                [high[0] + across, high[1] + across, high[2] + above],
+            );
             face.entity = entities.iter().copied().find(|&entity| {
                 points.iter().any(|&at| {
                     level.entity_overlaps_but(
