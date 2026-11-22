@@ -440,8 +440,10 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   `probe_death_dummy` kills the dummy (`EffectDeath`, applied at once).
 fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::script::Library {
     let call = |routine, args| Op::Action { routine, args };
+    // `BeginConversation(dialog, GetFirstPC())`: run by no dialogue event,
+    // it names the PC, as a scene's script must.
     let begin = program(&[
-        Op::Const(Const::Object(1)),
+        call(3, 0),
         Op::Const(Const::String(dialog.as_bytes().to_vec())),
         call(0, 2),
     ]);
