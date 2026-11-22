@@ -3638,13 +3638,16 @@ impl Step<'_> {
                     // door stayed shut; then struck only within a door's
                     // reach of the console's invisible twin, so a player who
                     // had talked from farther stood there and nothing broke.)
-                    &Action::Attack { target, .. }
+                    &Action::Attack { target, passive }
                         if self.view.thing(target).is_some_and(Thing::struck_as_object) =>
                     {
                         let breakable = self.view.thing(target).is_some_and(Thing::breakable);
                         if breakable {
                             if starting {
                                 self.attacking(id, None);
+                                if !passive {
+                                    self.own_round(id);
+                                }
                             }
                             let near = match self.view.place(Target::Object(target)) {
                                 Some((at, _)) if player => {
@@ -3685,6 +3688,7 @@ impl Step<'_> {
                         };
                         if starting && !*passive {
                             self.attacking(id, None);
+                            self.own_round(id);
                         }
                         if alive && !over {
                             let intent = Intent {
@@ -3724,6 +3728,7 @@ impl Step<'_> {
                         // change.
                         if starting {
                             self.attacking(id, Some(*talent));
+                            self.own_round(id);
                             if *target == who {
                                 self.out.changes.push(Change::InCombat { who });
                             }
@@ -4053,6 +4058,12 @@ impl Step<'_> {
         if let Some(script) = self.library.impact(cast.row) {
             self.run_as(script, cast.caster, Event::default(), None, Some(cast));
         }
+    }
+
+    /// `id`'s own attack or talent begins: its rounds are no scene's any
+    /// more (`last::SCENE_ROUND`), and their ends run its AI again.
+    fn own_round(&mut self, id: u32) {
+        self.state.last.remove(&(id, last::SCENE_ROUND));
     }
 
     /// Notes `id`'s attack as it begins, for `GetLastAttackAction` and its

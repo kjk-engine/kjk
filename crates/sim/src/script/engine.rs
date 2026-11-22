@@ -364,6 +364,11 @@ pub mod last {
     pub const DAMAGE_DEALT: u8 = 36;
     /// Its last cast's metamagic (`GetMetaMagicFeat`).
     pub const METAMAGIC: u8 = 37;
+    /// Set (1) while its rounds are a scene's: its last attack was a
+    /// script's `CutsceneAttack`, and no attack or talent of its own has
+    /// begun since. Such a round ends with no `OnEndCombatRound`
+    /// (`world::scripts::rounds`).
+    pub const SCENE_ROUND: u8 = 38;
 }
 
 /// The listen pattern number `who`'s last dialogue event matched, kept on
@@ -3085,6 +3090,7 @@ impl Engine<'_> {
                         .map(|strike| strike.due_ms)
                         .max();
                     let begins = swung_back.filter(|_| animation != 0).unwrap_or(now);
+                    self.state.last.insert((caller.0, last::SCENE_ROUND), 1);
                     self.queue(
                         caller,
                         Action::Attack {

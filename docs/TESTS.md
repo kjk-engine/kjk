@@ -248,6 +248,10 @@ They are not approved tests, and they run only through `kjk sim probes`.
 `tga_layouts_read` changed 2026-11-17 for issue 559, awaiting approval (a
 TGA's corner bits are now ignored, as TSL's executable ignores them);
 `original_warp_list_found` proposed 2026-11-16;
+`scene_round_unheard` and `death_effect_not_damage` (group "tsl effects")
+proposed 2026-11-22, awaiting approval (a round a `CutsceneAttack` began
+ends with no end-of-round script, and a death effect raises no damaged
+event, as both read in TSL's executable);
 `checkpoint_saves_without_test_aids` proposed 2026-11-18, awaiting
 approval;
 `prepass_readers_declared` proposed 2026-11-18, awaiting approval;
