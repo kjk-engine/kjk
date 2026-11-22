@@ -18,7 +18,10 @@
 //!   no model for that letter, the `a` columns are used (both references
 //!   draw nothing; Q-0137).
 //! - A model cell of `&` and a row number (KOTOR 2's party rows: the
-//!   Handmaiden's) draws that row instead, wearing the same armour.
+//!   Handmaiden's) draws that row instead, wearing the same armour. The
+//!   game reads such a cell only when an item goes into the body slot or
+//!   comes out of it (`Dressing`), so a creature made with nothing on its
+//!   body keeps its own row.
 //! - Other types: body `race`, texture `racetex`.
 //! - Head, for `B` (and `P`, in xoreos): `heads.2da` `head` of `normalhead`;
 //!   xoreos falls back to `backuphead`, reone does not.
@@ -273,7 +276,13 @@ pub fn resolve_with(
         .int("Appearance_Type")
         .and_then(|value| u32::try_from(value).ok())
         .ok_or(CreatureRefusal::NoAppearanceType)?;
-    let mut look = resolve_appearance(source, appearance, template_armour(&utc), tables)?;
+    let mut look = resolve_dressed(
+        source,
+        appearance,
+        template_armour(&utc),
+        Dressing::AsMade,
+        tables,
+    )?;
     look.good_evil = utc
         .root
         .int("GoodEvil")
@@ -942,16 +951,50 @@ fn body_letter(cell: &str) -> char {
     }
 }
 
+/// How a creature came to wear what its body slot holds. KOTOR 2's
+/// `appearance.2da` has cells that read `&` and a row number (the
+/// Handmaiden's rows). The game reads them only when an item goes into the
+/// body slot or comes out of it. Putting an item on reads the cell of the
+/// item's letter, and taking one off reads the `a` cell. A cell with a row
+/// number changes the creature's appearance to that row for good. A
+/// creature made from its template puts its template's body item on as it
+/// is made, but a creature made with nothing on its body takes nothing off.
+/// It keeps its own row, and a row of model type `F` draws its `race`
+/// model. The Handmaiden's sisters (`p_handmaiden001`, made with nothing on
+/// at the Telos academy) are drawn in her own robes for this reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Dressing {
+    /// As its template made it: an item on its body was put on, and an
+    /// empty body slot was never filled.
+    AsMade,
+    /// Its body item was put on or taken off after it was made, so an
+    /// empty body slot is one an item was taken out of.
+    Changed,
+}
+
 /// The look of `appearance.2da` row `appearance` wearing `armour` (a UTI's
-/// resref) in its body slot, holding nothing: a template's (`resolve_with`),
-/// or one made without a template (character creation's choices).
+/// resref) in its body slot, holding nothing, its body item changed since
+/// it was made (`Dressing::Changed`): one made without a template
+/// (character creation's choices), or dressed again.
 pub fn resolve_appearance(
     source: &dyn Source,
     appearance: u32,
     armour: Option<String>,
     tables: &mut Tables,
 ) -> Result<CreatureLook, CreatureRefusal> {
-    resolve_row(source, appearance, armour, tables, 0)
+    resolve_dressed(source, appearance, armour, Dressing::Changed, tables)
+}
+
+/// `resolve_appearance`, the creature dressed as `dressing` says: a
+/// template's (`resolve_with`) is `Dressing::AsMade`.
+pub fn resolve_dressed(
+    source: &dyn Source,
+    appearance: u32,
+    armour: Option<String>,
+    dressing: Dressing,
+    tables: &mut Tables,
+) -> Result<CreatureLook, CreatureRefusal> {
+    resolve_row(source, appearance, (armour, dressing), tables, 0)
 }
 
 /// The most `&` cells one look follows, so two rows that send each other
@@ -962,7 +1005,7 @@ const MAX_REDIRECTS: u8 = 4;
 fn resolve_row(
     source: &dyn Source,
     appearance: u32,
-    armour: Option<String>,
+    (armour, dressing): (Option<String>, Dressing),
     tables: &mut Tables,
     redirects: u8,
 ) -> Result<CreatureLook, CreatureRefusal> {
@@ -1010,13 +1053,17 @@ fn resolve_row(
     // KOTOR 2's table can send a letter to another row: a cell `&638` draws
     // row 638 wearing the same armour. The Handmaiden's row draws her own
     // clothes, and sends every other letter (none, robes, armour) to her
-    // row with a head, whose clothes letter sends back.
+    // row with a head, whose clothes letter sends back. The game reads the
+    // cell when the body slot changes (`Dressing`), so an empty body slot
+    // sends the creature on only when an item was taken out of it.
+    let changed = item.is_some() || dressing == Dressing::Changed;
     if let Some(target) = appearances
         .text(row, &format!("model{letter}"))
+        .filter(|_| changed)
         .and_then(|cell| cell.strip_prefix('&')?.parse::<u32>().ok())
         .filter(|&target| target != appearance && redirects < MAX_REDIRECTS)
     {
-        return resolve_row(source, target, armour, tables, redirects + 1);
+        return resolve_row(source, target, (armour, dressing), tables, redirects + 1);
     }
     let (body, body_texture) = if model_type == "B" {
         let body = appearances.resref(row, &format!("model{letter}"));

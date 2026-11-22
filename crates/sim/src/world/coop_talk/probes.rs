@@ -216,6 +216,7 @@ pub fn probes() -> Vec<Case> {
             .unwrap_or_else(|why| vec![("trigger_call_gathers_there", Err(why))]),
     );
     cases.push(("click_pattern_kept", click_pattern_kept()));
+    cases.push(("unspoken_begins_nothing", unspoken_begins_nothing()));
     cases.push((
         "first_seat_away_in_talk_answers_once",
         first_seat_away_in_talk(),
@@ -626,10 +627,10 @@ impl Run {
     }
 
     /// A script of the one whose dialogue hook begins its conversation
-    /// begins it: a party conversation, with the host's character as its
-    /// PC.
+    /// begins it, naming the first PC (`probe_scene`): a party
+    /// conversation, with the host's character as its PC.
     fn cutscene(&mut self) -> Result<(), String> {
-        self.run_script("probe_begin")
+        self.run_script("probe_scene")
     }
 
     /// The one whose dialogue hook begins its conversation runs `script`,
@@ -1189,7 +1190,8 @@ fn program(ops: &[Op]) -> Ncs {
 /// - `probe_aborted` sets `ABORT_TOKEN` to 1;
 /// - `probe_console` queues `probe_talk` with the first PC
 ///   (`ActionStartConversation`), `probe_lever` begins it with whoever
-///   used it (`BeginConversation`);
+///   used it (`BeginConversation`), `probe_scene` begins `probe_talk`
+///   with the first PC (`BeginConversation` naming it);
 /// - `probe_global` sets a global (the story's);
 /// - `probe_busy` sets `BUSY_TOKEN` to `GetIsInConversation(GetFirstPC())`;
 /// - `probe_pause` pauses the PC speaker's conversation
@@ -1317,6 +1319,13 @@ int GetSkillRank(int nSkill, object oTarget=OBJECT_SELF);
     // `BeginConversation("probe_talk")`, as the games' dialogue hooks do.
     let begin = program(&[
         Op::Const(Const::Object(1)),
+        Op::Const(Const::String(b"probe_talk".to_vec())),
+        call(6, 2),
+    ]);
+    // `BeginConversation("probe_talk", GetFirstPC())`: a scene's script,
+    // run by no dialogue event, names the PC.
+    let scene = program(&[
+        call(9, 0),
         Op::Const(Const::String(b"probe_talk".to_vec())),
         call(6, 2),
     ]);
@@ -1565,6 +1574,7 @@ int GetSkillRank(int nSkill, object oTarget=OBJECT_SELF);
             ("probe_who", who),
             ("probe_store", store),
             ("probe_begin", begin),
+            ("probe_scene", scene),
             ("probe_dark", dark),
             ("probe_deal", deal),
             ("probe_aborted", aborted),
@@ -4892,6 +4902,25 @@ fn click_pattern_kept() -> Result<String, String> {
     check(
         read.as_deref() == Some("-1"),
         format!("GetListenPatternNumber() in the click's OnUserDefined {read:?}"),
+    )
+}
+
+/// `BeginConversation` naming no one talks to its caller's last speaker.
+/// The dialogue hook run by no click and no line heard (an end-of-
+/// conversation script that is a dialogue script, as two of TSL's restored
+/// Handmaiden sisters have) has no one to talk to and begins nothing. The
+/// same hook run by a click begins the conversation with the one who
+/// clicked.
+fn unspoken_begins_nothing() -> Result<String, String> {
+    let mut run = Run::on_ground(1, None, |_| {})?;
+    run.run_script("probe_begin")?;
+    let unspoken = run.last.talk.conversations.len();
+    run.click(0, HOOK_FROM, 0.0)?;
+    let host = run.body(0)?;
+    let clicked = run.talk().map(|c| c.listener.0);
+    check(
+        unspoken == 0 && clicked == Some(host.0),
+        format!("conversations begun unspoken {unspoken}, clicked with {clicked:?}"),
     )
 }
 

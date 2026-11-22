@@ -2429,7 +2429,9 @@ fn advance(
         authority.look.turn(degrees, held);
     }
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
-    let scripted = matches!(authority.driver, Driver::Player(Some(_)));
+    // A scripted player, and a headless run without keys (`ui reply` in a
+    // run's commands), answer here: no key reading below takes the pick.
+    let scripted = matches!(authority.driver, Driver::Player(Some(_))) || actions.is_none();
     if let Some(pick) = picked.filter(|_| scripted)
         && authority.last.talk_for(own_seat).is_some()
     {
@@ -2602,7 +2604,11 @@ fn advance(
                     || InHand::of(last, level, own_seat),
                 ))
             }
-            (Source::Live { .. }, Driver::Player(None), None) => None,
+            // Headless with no keys: no command, but for an answer the
+            // console gave (`ui reply`), carried by an idle one.
+            (Source::Live { .. }, Driver::Player(None), None) => {
+                (authority.controls.reply != authority.controls.sent).then(sim::Command::default)
+            }
         };
         // A walk to a target steers in the player's place (`target_view`),
         // with no keys too (headless: the console's `ui act`).

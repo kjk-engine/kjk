@@ -295,6 +295,18 @@ where they part, the choice is ours and named.
   Spire's reinforcements, made hostile in the conversation, attack as it
   ends (`k_def_endconv` → `k_ai_master`); the Leviathan's brig computer
   takes back the spikes it lent (`k_plev_resspikes`).
+- **`BeginConversation` naming no one** talks to the caller's last
+  speaker (`GetLastSpeaker`): the one whose click or heard line ran its
+  dialogue script. With none, it talks to whoever set the script off (a
+  pazaak player, through the match's end script). A caller nobody has
+  spoken to and no one set off has no one to talk to, and nothing begins
+  (the transcript notes it). TSL's restored Handmaiden
+  fight (TSLRCM) gives two of the sisters `k_def_dialogue01` as their
+  end-of-conversation script. As the sisters' conversation ends, its
+  `k_ai_master` dialogue branch calls `BeginConversation()`. When the
+  first PC stood in for the missing speaker, the sisters' own
+  conversation began again after every ending, and the player could not
+  leave it.
 - **Routines bound:** `ActionStartConversation`, `BeginConversation`,
   `SpeakOneLinerConversation`, `BarkString`, `GetIsInConversation` (its
   owner, a body standing in it, its speaker; the host's character also

@@ -688,7 +688,12 @@ fn placed_body(
     crate::viewer::CreatureLoad::default()
         .place_appearance(
             (resolver, game),
-            (u32::from(appearance), body, None, None),
+            (
+                u32::from(appearance),
+                (body, asset_odyssey::creature::Dressing::Changed),
+                None,
+                None,
+            ),
             None,
             crate::viewer::aligned_of(game, good_evil),
             at,
