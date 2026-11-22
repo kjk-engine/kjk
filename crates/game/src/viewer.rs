@@ -1629,7 +1629,7 @@ pub fn module_scene(
         }
     }
     laps.lap("textures");
-    let probes = crate::light_probes::bake(&models, &rooms, &textures, dark_unlit(module));
+    let probes = crate::light_probes::bake(&models, &rooms, &textures);
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {

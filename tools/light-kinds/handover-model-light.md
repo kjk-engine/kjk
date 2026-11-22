@@ -1,5 +1,46 @@
 # Hand-over for the light on characters and placeables under the bake
 
+## State on 22 November 2026, on the Windows PC
+
+- The Metal change to the baker gives the same bake on Vulkan: unk_m44ac
+  baked with both builds, 11 of 11 lightmaps the same to the last pixel.
+- Step 1 is done and is the normal behaviour under the bake. A model that
+  the probes light takes no fitted light and none of the game's
+  ambient-only lamps. No lamp is taken out of its probes. Its least light is
+  0.35 of the flat ambient after the doubling. The directed lamps stay at
+  half. This is the trial set `nofitted`, `keepabove`, `ambout` and
+  `lowfloor`.
+- `floor` and `sides` changed the ratios by 0.1 at most with step 1 in
+  place, so their code was taken out. `KJK_MODEL_FIX` is gone.
+  `KJK_MODEL_LIGHT` stays.
+- With the bake off, pictures before and after differ only as much as two
+  launches of the same build do.
+
+Object over floor, today, under the r2 bake before, and after:
+
+| Module | Pose | Today | Before | After |
+|---|---|---|---|---|
+| unk_m44ac | Rakatan chair in the sun | 0.69 | 0.72 | 0.50 |
+| unk_m44ac | cylinders by the corner lamps (200253) | 7.28 | 13.25 | 8.26 |
+| unk_m44ac | cylinder in the shade (200333) | 1.90 | 2.58 | 1.39 |
+| 411dxn | foot locker | 2.44 | 5.57 | 2.11 |
+| 411dxn | glowing table | 1.98 | 2.05 | 1.59 |
+| danm13 | Yoda | 0.70 | 0.77 | 0.85 |
+| danm13 | terminal | 0.36 | 0.85 | 0.40 |
+| danm13 | glowing table | 0.93 | 1.40 | 1.21 |
+| 203tel | Czerka officer | 1.79 | 1.58 | 1.09 |
+| 203tel | Rodian | 0.89 | 1.67 | 1.15 |
+| 203tel | weapon rack | 2.31 | 3.21 | 2.20 |
+
+The r2 bake leaves the room of 411dxn's Mandalorian and of report 222059
+nearly black, so their ratios are not meaningful. Under the bake before,
+the Mandalorian was lit as if the room were bright. After, he is dark with
+it.
+
+What is left: models in the open and characters of 203tel are darker
+against their floor than today. That is step 3, probes written by the
+baker. The owner has not seen pictures of step 1 yet.
+
 Written on 22 November 2026 on the Mac, for a session on the Windows PC.
 It follows `handover-models.md`, which states the problem and the owner's
 three reports. Read that file first, then this one, then

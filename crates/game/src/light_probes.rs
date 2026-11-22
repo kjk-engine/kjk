@@ -46,10 +46,7 @@
 //! game's own lamps), `fitted` (the fitted lights), `glow` (the model's own
 //! glow) and `floor` (the least probe light, `PROBE_FLOOR` in the shader).
 //! `whole` shows the whole light, and `mask` every probed model in magenta,
-//! so that a script can find a model's pixels in a picture. A dump's
-//! `light_probes.nearest` gives the probes' six colours of the three models
-//! nearest the camera and, under the baked trial, the floor light under each
-//! one's origin (`floor_under`).
+//! so that a script can find a model's pixels in a picture.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
@@ -104,16 +101,6 @@ const MIP_SIDE: usize = 128;
 /// floor), and how far above or below it.
 const BLEND_REACH: f32 = 1.6;
 const BLEND_STOREY: f32 = 1.5;
-/// How far apart the floor light is read under the baked trial
-/// (`FloorLight`, metres).
-const FLOOR_SPACING: f32 = 0.25;
-/// How far across from a model's origin the floor light under it is read
-/// (metres): about the half width of a character or a crate.
-const FOOTPRINT: f32 = 0.5;
-/// How far above the walkable floor a floor light's ray starts, and how far
-/// down it looks for the drawn floor (metres).
-const FLOOR_RAY_START: f32 = 0.5;
-const FLOOR_RAY_REACH: f32 = 1.5;
 /// Where a model's light is read: this high above its origin (metres).
 /// A character's origin is at its feet.
 const SAMPLE_HEIGHT: f32 = 1.0;
@@ -168,15 +155,6 @@ pub fn mode() -> Mode {
         Ok("only") => Mode::Only,
         _ => Mode::On,
     })
-}
-
-/// TRIAL: whether `KJK_MODEL_FIX` names `fix`.
-pub fn trial_fix(fix: &str) -> bool {
-    static FIXES: OnceLock<String> = OnceLock::new();
-    FIXES
-        .get_or_init(|| std::env::var("KJK_MODEL_FIX").unwrap_or_default())
-        .split(',')
-        .any(|name| name == fix)
 }
 
 /// What `KJK_MODEL_LIGHT` asks for: every surface shows one part of its
@@ -393,51 +371,6 @@ impl RoomProbes {
     }
 }
 
-/// One room's floor light under the baked trial: the light arriving from
-/// above on the drawn floor, read off its lightmap at points
-/// `FLOOR_SPACING` apart over the room's walkable floor. A probe stands on
-/// a 1 m grid and a model takes the blend of probes up to `BLEND_REACH`
-/// away, which is far coarser than the bake's shadows. The floor light
-/// gives a model the light of the floor right under it.
-#[derive(Default)]
-pub struct FloorLight {
-    /// The points by their place on the grid: each one's height and light.
-    cells: HashMap<(i32, i32), Vec<(f32, Vec3)>>,
-}
-
-fn floor_key(at: Vec3) -> (i32, i32) {
-    (
-        (at.x / FLOOR_SPACING).round() as i32,
-        (at.y / FLOOR_SPACING).round() as i32,
-    )
-}
-
-impl FloorLight {
-    /// The mean light of the floor points within `FOOTPRINT` across of
-    /// `at` (game space, at the floor's height) and `BLEND_STOREY` up or
-    /// down. `None` when there is no such point.
-    pub fn under(&self, at: Vec3) -> Option<Vec3> {
-        let (x, y) = floor_key(at);
-        let span = (FOOTPRINT / FLOOR_SPACING).ceil() as i32;
-        let mut sum = Vec3::ZERO;
-        let mut count = 0;
-        for dx in -span..=span {
-            for dy in -span..=span {
-                if (dx * dx + dy * dy) as f32 * FLOOR_SPACING * FLOOR_SPACING > FOOTPRINT * FOOTPRINT {
-                    continue;
-                }
-                for (z, light) in self.cells.get(&(x + dx, y + dy)).into_iter().flatten() {
-                    if (z - at.z).abs() < BLEND_STOREY {
-                        sum += *light;
-                        count += 1;
-                    }
-                }
-            }
-        }
-        (count > 0).then(|| sum / count as f32)
-    }
-}
-
 /// Why a model keeps the area's flat ambient.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fallback {
@@ -455,8 +388,6 @@ pub struct AreaProbes {
     /// One entry per room, as `LoadedScene::rooms`. Empty for an area with
     /// no probes.
     pub rooms: Vec<RoomProbes>,
-    /// One entry per room under the baked trial, else empty.
-    pub floors: Vec<FloorLight>,
     /// How long the bake took (ms).
     pub bake_ms: f64,
     /// The room triangles the rays can meet: lightmapped ones, and the
@@ -491,19 +422,6 @@ impl AreaProbes {
             .filter(|&other| other != room && crate::fight_rooms::linked(rooms, room, other))
             .find_map(|other| self.rooms[other].blend(at))
             .ok_or(Fallback::NoneNear)
-    }
-
-    /// The floor light under `at` (game space, at the floor) in room
-    /// `room`, or in a room linked with it when the room has none there.
-    /// `None` outside the baked trial.
-    pub fn floor_under(&self, rooms: &[RoomView], room: Option<usize>, at: Vec3) -> Option<Vec3> {
-        let room = room?;
-        if let Some(light) = self.floors.get(room).and_then(|floor| floor.under(at)) {
-            return Some(light);
-        }
-        (0..rooms.len().min(self.floors.len()))
-            .filter(|&other| other != room && crate::fight_rooms::linked(rooms, room, other))
-            .find_map(|other| self.floors[other].under(at))
     }
 }
 
@@ -864,27 +782,6 @@ fn light_probe(level: &Level, maps: &[Pixels], at: Vec3) -> Probe {
 /// small enough to hold no grid point gets one probe over the middle of
 /// its largest triangle.
 fn probe_places(floor: &[[[f32; 3]; 3]]) -> Vec<Vec3> {
-    let mut places: Vec<Vec3> = grid_points(floor, SPACING)
-        .into_iter()
-        .map(|at| at + Vec3::Z * PROBE_HEIGHT)
-        .collect();
-    if places.is_empty() {
-        let area = |[a, b, c]: &[[f32; 3]; 3]| {
-            let [a, b, c] = [a, b, c].map(|p| Vec3::from_array(*p));
-            (b - a).cross(c - a).length()
-        };
-        if let Some(largest) = floor.iter().max_by(|a, b| area(a).total_cmp(&area(b))) {
-            let middle = largest.iter().map(|p| Vec3::from_array(*p)).sum::<Vec3>() / 3.0;
-            places.push(middle + Vec3::Z * PROBE_HEIGHT);
-        }
-    }
-    places
-}
-
-/// The points of a grid `spacing` apart on the walkable floor `floor`
-/// (game space, at the floor's height). A floor with storeys `BLEND_STOREY`
-/// or more apart has a point on each.
-fn grid_points(floor: &[[[f32; 3]; 3]], spacing: f32) -> Vec<Vec3> {
     let corners = floor
         .iter()
         .flatten()
@@ -896,31 +793,40 @@ fn grid_points(floor: &[[[f32; 3]; 3]], spacing: f32) -> Vec<Vec3> {
     }) else {
         return Vec::new();
     };
-    // Each triangle gives its height to the grid points over its box, so
-    // a fine grid does not try every triangle at every point.
-    let (x0, x1) = ((low.x / spacing).ceil() as i32, (high.x / spacing).floor() as i32);
-    let (y0, y1) = ((low.y / spacing).ceil() as i32, (high.y / spacing).floor() as i32);
-    let mut heights: BTreeMap<(i32, i32), Vec<f32>> = BTreeMap::new();
-    for [a, b, c] in floor {
-        let least = Vec3::from_array(*a).min(Vec3::from_array(*b)).min(Vec3::from_array(*c));
-        let most = Vec3::from_array(*a).max(Vec3::from_array(*b)).max(Vec3::from_array(*c));
-        let gx = ((least.x / spacing).floor() as i32).max(x0)..=((most.x / spacing).ceil() as i32).min(x1);
-        for gx in gx {
-            let gy = ((least.y / spacing).floor() as i32).max(y0)..=((most.y / spacing).ceil() as i32).min(y1);
-            for gy in gy {
-                let (x, y) = (gx as f32 * spacing, gy as f32 * spacing);
-                if let Some(z) = crate::scene::height_at(*a, *b, *c, x, y) {
-                    heights.entry((gx, gy)).or_default().push(z);
-                }
-            }
+    let mut places = Vec::new();
+    let (x0, x1) = (
+        (low.x / SPACING).ceil() as i32,
+        (high.x / SPACING).floor() as i32,
+    );
+    let (y0, y1) = (
+        (low.y / SPACING).ceil() as i32,
+        (high.y / SPACING).floor() as i32,
+    );
+    for gx in x0..=x1 {
+        for gy in y0..=y1 {
+            let (x, y) = (gx as f32 * SPACING, gy as f32 * SPACING);
+            let mut heights: Vec<f32> = floor
+                .iter()
+                .filter_map(|[a, b, c]| crate::scene::height_at(*a, *b, *c, x, y))
+                .collect();
+            heights.sort_by(f32::total_cmp);
+            heights.dedup_by(|a, b| (*a - *b).abs() < BLEND_STOREY);
+            places.extend(
+                heights
+                    .into_iter()
+                    .map(|z| Vec3::new(x, y, z + PROBE_HEIGHT)),
+            );
         }
     }
-    let mut places = Vec::new();
-    for ((gx, gy), mut at) in heights {
-        at.sort_by(f32::total_cmp);
-        at.dedup_by(|a, b| (*a - *b).abs() < BLEND_STOREY);
-        let (x, y) = (gx as f32 * spacing, gy as f32 * spacing);
-        places.extend(at.into_iter().map(|z| Vec3::new(x, y, z)));
+    if places.is_empty() {
+        let area = |[a, b, c]: &[[f32; 3]; 3]| {
+            let [a, b, c] = [a, b, c].map(|p| Vec3::from_array(*p));
+            (b - a).cross(c - a).length()
+        };
+        if let Some(largest) = floor.iter().max_by(|a, b| area(a).total_cmp(&area(b))) {
+            let middle = largest.iter().map(|p| Vec3::from_array(*p)).sum::<Vec3>() / 3.0;
+            places.push(middle + Vec3::Z * PROBE_HEIGHT);
+        }
     }
     places
 }
@@ -948,35 +854,25 @@ pub fn bake_rooms(
     };
     let margin = Vec3::splat(SIGHT_REACH.max(FLOOR_REACH) + CELL);
     let level = Level::new(surfaces, (reached.0 - margin, reached.1 + margin));
-    let mut lit = in_parallel(&places, |&(room, at)| Some((room, light_probe(&level, maps, at))));
-    lit.sort_by_key(|a| a.0);
-    let mut rooms: Vec<Vec<Probe>> = vec![Vec::new(); floors.len()];
-    for (room, probe) in lit {
-        rooms[room].push(probe);
-    }
-    rooms.into_iter().map(RoomProbes::new).collect()
-}
-
-/// `work` done on each of `items` among the machine's threads. The results
-/// come back in no fixed order, without the items that gave `None`.
-fn in_parallel<I: Sync, O: Send>(items: &[I], work: impl Fn(&I) -> Option<O> + Sync) -> Vec<O> {
     const CHUNK: usize = 64;
     let threads = std::thread::available_parallelism()
         .map_or(1, |n| n.get())
-        .min(items.len().div_ceil(CHUNK))
+        .min(places.len().div_ceil(CHUNK))
         .max(1);
     let taken = AtomicUsize::new(0);
-    std::thread::scope(|scope| {
+    let mut lit: Vec<(usize, Probe)> = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..threads)
             .map(|_| {
                 scope.spawn(|| {
                     let mut out = Vec::new();
                     loop {
                         let first = taken.fetch_add(CHUNK, Ordering::Relaxed);
-                        if first >= items.len() {
+                        if first >= places.len() {
                             return out;
                         }
-                        out.extend(items[first..(first + CHUNK).min(items.len())].iter().filter_map(&work));
+                        for &(room, at) in &places[first..(first + CHUNK).min(places.len())] {
+                            out.push((room, light_probe(&level, maps, at)));
+                        }
                     }
                 })
             })
@@ -985,49 +881,13 @@ fn in_parallel<I: Sync, O: Send>(items: &[I], work: impl Fn(&I) -> Option<O> + S
             .into_iter()
             .flat_map(|worker| worker.join().expect("a probe's thread does not panic"))
             .collect()
-    })
-}
-
-/// The floor light of rooms whose walkable floors are `floors`
-/// (`FloorLight`): at each point `FLOOR_SPACING` apart over a walkable
-/// floor, one ray cast down meets the drawn floor, and its lightmap is the
-/// light arriving there from above.
-pub fn floor_rooms(
-    floors: &[&[[[f32; 3]; 3]]],
-    surfaces: &[Surface],
-    maps: &[Pixels],
-) -> Vec<FloorLight> {
-    let places: Vec<(usize, Vec3)> = floors
-        .iter()
-        .enumerate()
-        .flat_map(|(room, floor)| grid_points(floor, FLOOR_SPACING).into_iter().map(move |at| (room, at)))
-        .collect();
-    let mut rooms: Vec<FloorLight> = floors.iter().map(|_| FloorLight::default()).collect();
-    let Some(reached) = places
-        .iter()
-        .fold(None, |span: Option<(Vec3, Vec3)>, (_, at)| {
-            Some(span.map_or((*at, *at), |(low, high)| (low.min(*at), high.max(*at))))
-        })
-    else {
-        return rooms;
-    };
-    let margin = Vec3::splat(FLOOR_RAY_START + FLOOR_RAY_REACH + CELL);
-    let level = Level::new(surfaces, (reached.0 - margin, reached.1 + margin));
-    let lit = in_parallel(&places, |&(room, at)| {
-        let hit = level.cast(at + Vec3::Z * FLOOR_RAY_START, Vec3::NEG_Z, FLOOR_RAY_REACH)?;
-        let surface = &level.surfaces[hit.surface as usize];
-        let map = surface.lightmap?;
-        if level.facing[hit.surface as usize].z < FACING_LEAST {
-            return None;
-        }
-        let [a, b, c] = surface.uv;
-        let uv = a * (1.0 - hit.u - hit.v) + b * hit.u + c * hit.v;
-        Some((room, at, maps[map].sample(uv)))
     });
-    for (room, at, light) in lit {
-        rooms[room].cells.entry(floor_key(at)).or_default().push((at.z, light));
+    lit.sort_by_key(|a| a.0);
+    let mut rooms: Vec<Vec<Probe>> = vec![Vec::new(); floors.len()];
+    for (room, probe) in lit {
+        rooms[room].push(probe);
     }
-    rooms
+    rooms.into_iter().map(RoomProbes::new).collect()
 }
 
 /// An area's probes, from its rooms' models among `models`, their floors,
@@ -1041,7 +901,6 @@ pub fn bake(
     models: &[Placed],
     rooms: &[RoomView],
     textures: &BTreeMap<String, TextureIr>,
-    dark_unlit: bool,
 ) -> AreaProbes {
     let started = Instant::now();
     let mut maps: Vec<Pixels> = Vec::new();
@@ -1109,47 +968,17 @@ pub fn bake(
     }
     let lightmapped = surfaces.iter().filter(|s| s.lightmap.is_some()).count();
     let unlit = surfaces.len() - lightmapped;
-    if crate::fitted_lights::baked() && trial_fix("sides") {
-        shown_as_baked(&mut surfaces, &mut maps, dark_unlit);
-    }
-    let (rooms, floors) = if lightmapped == 0 {
-        (Vec::new(), Vec::new())
+    let rooms = if lightmapped == 0 {
+        Vec::new()
     } else {
         let floors: Vec<&[[[f32; 3]; 3]]> = rooms.iter().map(|room| &room.floor[..]).collect();
-        let floor_light = if crate::fitted_lights::baked() {
-            floor_rooms(&floors, &surfaces, &maps)
-        } else {
-            Vec::new()
-        };
-        (bake_rooms(&floors, &surfaces, &maps), floor_light)
+        bake_rooms(&floors, &surfaces, &maps)
     };
     AreaProbes {
         rooms,
-        floors,
         bake_ms: started.elapsed().as_secs_f64() * 1000.0,
         lightmapped,
         unlit,
-    }
-}
-
-/// Under the baked trial, makes the probes see each room surface at the
-/// light the screen shows it with, at 1 / `BAKED_GAIN` as the baked
-/// lightmaps are stored, since the shader doubles the probes' light
-/// (`BAKED_GAIN_PROBES` in `odyssey.wgsl`). A surface with no lightmap
-/// shows half of full light, or `BAKED_UNLIT_LIGHT` in an area whose bake
-/// asks for its unlit rooms to be dark (`dark_unlit`). It takes a flat
-/// lightmap of a quarter, or of 0.06. Its own glow counts at half, as the
-/// screen shows a surface's glow beside a lightmap stored at half.
-fn shown_as_baked(surfaces: &mut [Surface], maps: &mut Vec<Pixels>, dark_unlit: bool) {
-    const BAKED_GAIN: f32 = 2.0;
-    const UNLIT_LIGHT: f32 = 0.5;
-    const BAKED_UNLIT_LIGHT: f32 = 0.12;
-    let kept = if dark_unlit { BAKED_UNLIT_LIGHT } else { UNLIT_LIGHT };
-    maps.push(Pixels::flat(Vec3::splat(kept / BAKED_GAIN)));
-    let flat = maps.len() - 1;
-    for surface in surfaces {
-        surface.glow /= BAKED_GAIN;
-        surface.lightmap.get_or_insert(flat);
     }
 }
 
@@ -1233,7 +1062,6 @@ pub struct GpuProbe {
 #[derive(Clone, Debug, PartialEq, ShaderType)]
 pub struct ProbeList {
     pub mode: u32,
-    pub fixes: u32,
     pub entries: [GpuProbe; PROBE_SLOTS],
     pub room_lights: [Vec4; PROBE_SLOTS],
 }
@@ -1242,7 +1070,6 @@ impl Default for ProbeList {
     fn default() -> ProbeList {
         ProbeList {
             mode: 0,
-            fixes: 0,
             entries: [GpuProbe::default(); PROBE_SLOTS],
             room_lights: [Vec4::ZERO; PROBE_SLOTS],
         }
@@ -1256,9 +1083,6 @@ struct Entry {
     at: Vec3,
     /// The probes' light before the lamps are taken out, for the dump.
     raw: [Vec3; 6],
-    /// The floor light under its origin (`FloorLight`), under the baked
-    /// trial.
-    floor: Option<Vec3>,
     target: [Vec3; 6],
     now: [Vec3; 6],
     /// The source of the room's light its shadow takes (`room_light`): the
@@ -1460,19 +1284,18 @@ fn light_objects(
             entry.at = origin;
             let sample = origin + Vec3::Y * SAMPLE_HEIGHT;
             let room = culling.fight.room_of(&loaded.rooms, to_game(origin));
-            entry.floor = loaded.probes.floor_under(&loaded.rooms, room, to_game(origin));
             match loaded.probes.light_at(&loaded.rooms, room, to_game(sample)) {
-                Ok(mut light) => {
-                    if trial_fix("floor") && let Some(floor) = entry.floor {
-                        light[FROM_ABOVE] = floor;
-                    }
+                Ok(light) => {
                     entry.raw = light;
-                    entry.target = if crate::fitted_lights::baked() && trial_fix("nolamps") {
+                    // Under the baked trial the lightmaps hold the fitted
+                    // lights, the sun and the sky, and none of the game's
+                    // lamps, so no lamp is taken out. The game's lamp with
+                    // a reach of 5000 metres in unk_m44ac emptied the light
+                    // from above of every model, so a model in the floor's
+                    // shade stayed bright. The owner said on 21 November
+                    // 2026: "plasteel cylinder in the shade is too bright".
+                    entry.target = if crate::fitted_lights::baked() {
                         light
-                    } else if crate::fitted_lights::baked() && trial_fix("ambout") {
-                        let directed: Vec<GpuLight> =
-                            state.lamps.iter().filter(|lamp| lamp.kind.x == 0).cloned().collect();
-                        without_lamps(light, &directed, (origin, sample), model_placed.is_static)
                     } else {
                         without_lamps(light, &state.lamps, (origin, sample), model_placed.is_static)
                     };
@@ -1527,10 +1350,6 @@ fn light_objects(
     if changed {
         let mut list = Box::new(ProbeList {
             mode: if mode == Mode::Only { 1 } else { term_mode() },
-            fixes: u32::from(trial_fix("nofitted"))
-                | u32::from(trial_fix("nolamps")) << 1
-                | u32::from(trial_fix("lowfloor")) << 2
-                | u32::from(trial_fix("ambout")) << 3,
             ..default()
         });
         for ((slot, room), entry) in list
@@ -1677,7 +1496,6 @@ fn nearest_facts(
                     serde_json::json!({ "off": round(off), "radius": lamp.position_radius.w, "kind": lamp.kind.to_array() })
                 }).collect::<Vec<_>>(),
                 "probes": steps(&entry.raw),
-                "floor_under": entry.floor.map(|floor| (floor * 255.0).round().to_array()),
                 "without_lamps": steps(&entry.target),
                 "room_light": room_light_facts(entry.room_now),
             })

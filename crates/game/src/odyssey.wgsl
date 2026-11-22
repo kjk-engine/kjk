@@ -176,8 +176,6 @@ struct GpuProbe {
 struct ProbeList {
     // 1 under `KJK_PROBES=only`: a probed model shows its probe light alone.
     mode: u32,
-    // TRIAL: the fixes `KJK_MODEL_FIX` names, one bit each.
-    fixes: u32,
     entries: array<GpuProbe, 1024>,
     // The source of the room's light each model's shadow takes
     // (`light_probes.rs`'s `room_light`). The xyz part is the direction
@@ -2026,9 +2024,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             if enhanced && (params.flags & PROBED) != 0u {
                 let probed = probe_light(mesh_owner(in.instance_index), select(vec3<f32>(0.0), normal, has_normal));
                 if probed.w > 0.5 {
-                    // TRIAL: bit 4 keeps the least light from being doubled under the bake.
-                    let least = select(PROBE_FLOOR, PROBE_FLOOR / BAKED_GAIN_PROBES,
-                        shadows.debug == 8u && (probe_list.fixes & 4u) != 0u);
+                    // Under the baked trial the probes' light is doubled
+                    // (below), and the least light is meant after it.
+                    let least = select(PROBE_FLOOR, PROBE_FLOOR / BAKED_GAIN_PROBES, shadows.debug == 8u);
                     area_ambient = max(probed.rgb, params.world_ambient.rgb * least);
                     from_probes = true;
                     if probe_list.mode == 1u {
@@ -2046,10 +2044,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // The fight's lights are summed apart and added the way a room adds
         // them (below).
         var fight = vec3<f32>(0.0);
-        // TRIAL: bit 2 leaves the area's lamps out of a probed model under the bake.
-        let lamps_out = shadows.debug == 8u && from_probes && (probe_list.fixes & 2u) != 0u;
-        // The ambient-only lamps' part of the ambient sum, for `KJK_MODEL_LIGHT`.
-        var lamp_ambient = vec3<f32>(0.0);
+        // Under the baked trial a model that the probes light takes the
+        // bake's light from them: the fitted lights, the sun and the sky.
+        // The game's ambient-only lamps stand for that light, so they are
+        // left out, and so are the fitted lights. In unk_m44ac a lamp with a
+        // reach of 5000 metres lit every model alike, in sun and in shade,
+        // and the fitted lights lit the corner's cylinders a second time.
+        // The owner said on 21 November 2026: "plasteel cylinders a bit too
+        // evenly illuminated by corner light".
+        let probed_bake = shadows.debug == 8u && from_probes;
         // Whether a light reaches a mesh is judged once for the whole mesh,
         // from its origin, so a creature is lit or not as one piece. The
         // light then fades out over the last tenth of its radius. (The
@@ -2082,11 +2085,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 continue;
             }
-            if lamps_out {
-                continue;
-            }
-            // TRIAL: bit 8 leaves the ambient-only lamps out of a probed model under the bake.
-            if shadows.debug == 8u && from_probes && (probe_list.fixes & 8u) != 0u && light.kind.x != 0u {
+            if probed_bake && light.kind.x != 0u {
                 continue;
             }
             let at = light.position_radius.xyz;
@@ -2106,7 +2105,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             if light.kind.x != 0u {
                 // A light that only brightens the ambient: no direction.
                 ambient_sum = ambient_sum + strength * ambient_colour;
-                lamp_ambient = lamp_ambient + strength * ambient_colour;
             } else {
                 // Another character's shadow keeps this light off the side
                 // that faces it.
@@ -2118,9 +2116,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
         // The area's light fittings light it as they light the rooms.
-        // TRIAL: bit 1 leaves out the fitted lights of a probed model under the bake.
-        let skip_fitted = shadows.debug == 8u && from_probes && (probe_list.fixes & 1u) != 0u;
-        if !skip_fitted {
+        if !probed_bake {
             fight = fight + fitted_lights(position, fight_normal, has_normal, VIS_ROOMS, no_casters(), 1.0).whole * params.diffuse.rgb;
         }
         // The diffuse sum never goes below black; the total stops at full.
@@ -2157,11 +2153,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                     term_glow = kept;
                     term_above = above * scale;
                     term_sides = (probed - above) * scale;
-                    // The ambient-only lamps sit in the ambient sum, so
-                    // the bake's gain doubles them.
-                    term_lamps = max(vec3<f32>(0.0), diffuse_sum - own) * dimmed + lamp_ambient * BAKED_GAIN_PROBES;
-                    let least = select(PROBE_FLOOR, PROBE_FLOOR / BAKED_GAIN_PROBES, (probe_list.fixes & 4u) != 0u);
-                    term_floor = params.world_ambient.rgb * least * scale;
+                    term_lamps = max(vec3<f32>(0.0), diffuse_sum - own) * dimmed;
+                    term_floor = params.world_ambient.rgb * (PROBE_FLOOR / BAKED_GAIN_PROBES) * scale;
                 }
             } else if shadows.debug == 8u && (params.flags & PROBED) != 0u {
                 // A model that no probe is near keeps all of the area's
