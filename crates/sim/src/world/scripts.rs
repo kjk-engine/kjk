@@ -152,11 +152,11 @@ pub(crate) struct Ordered(pub Vec<SimId>);
 #[derive(Resource, Default)]
 pub(crate) struct ItemTalents(pub Vec<(crate::snapshot::SimId, u16, crate::snapshot::SimId)>);
 
-/// The feat lines minds' talents chose this step (`combat::picks`), by
-/// user, hand and `feat.2da` row: each kept in the scripts' step. Authority
-/// only.
+/// The feat lines minds chose this step (`combat::picks`), by user, hand,
+/// `feat.2da` row, and whether the engine's chooser chose it rather than a
+/// script's talent: each kept in the scripts' step. Authority only.
 #[derive(Resource, Default)]
-pub(crate) struct FeatTalents(pub Vec<(crate::snapshot::SimId, u8, u16)>);
+pub(crate) struct FeatTalents(pub Vec<(crate::snapshot::SimId, u8, u16, bool)>);
 
 /// The fighters whose minds switched their weapon sets this step (a
 /// creature whose target stands out of its reach switches to its ranged
@@ -1066,12 +1066,19 @@ pub(super) fn scripts(
         };
         super::arena::orders(library, &view, state, &inputs.0, body, &mut out);
     }
-    // The feat lines the minds' talents chose.
-    for &(user, hand, row) in &feat_talents.0 {
+    // The feat lines the minds chose, by a script's talent or by the
+    // engine's chooser.
+    for &(user, hand, row, engine) in &feat_talents.0 {
+        use crate::combat::picks::Picks;
         let who = ObjectId(user.0);
         if let Some(character) = view.thing(who).and_then(|thing| thing.character) {
             let mut sheet = out.sheet(who, character.worn);
-            if crate::combat::picks::Picks::choose(&mut sheet, hand, row) {
+            let chosen = if engine {
+                Picks::steer(&mut sheet, hand, row)
+            } else {
+                Picks::choose(&mut sheet, hand, row)
+            };
+            if chosen {
                 out.changes.push(Change::Sheet { who, sheet });
             }
         }

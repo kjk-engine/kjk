@@ -680,6 +680,45 @@ impl Level {
         self.fits_lifted(at, &[0.0, give, crate::walk::floor_rise(self, at) + give])
     }
 
+    /// Whether a placeable, as the level is built, leaves a standing body
+    /// put down at `at` (an origin, units) no room. The body's middle is
+    /// over the placeable's footprint, or its box starts inside the
+    /// placeable. The box is also tried a little higher
+    /// (`rules::walking::walker::FLOOR_GIVE`), as `fits_put_down` tries it.
+    /// A door in the way does not count.
+    pub fn in_placeable(&self, at: math::Vec3) -> bool {
+        let extents = standing_box();
+        let at = scale(at, UNIT);
+        let below = [
+            at[0],
+            at[1],
+            at[2] + (crate::motion::SOLE_Z - crate::motion::STEP_HEIGHT) * UNIT,
+        ];
+        let placeable = |entity: Option<u32>| {
+            entity.is_some_and(|index| {
+                self.placed()
+                    .get(index as usize)
+                    .is_some_and(|object| object.kind == ObjectKind::Placeable)
+            })
+        };
+        self.with(None, |world| {
+            let under = world.trace(at, below, &Extents::POINT, Contents::NONWALK);
+            let inside = [0.0, rules::walking::walker::FLOOR_GIVE]
+                .iter()
+                .all(|lift| {
+                    let up = [at[0], at[1], at[2] + lift * UNIT];
+                    let met = world.sweep(
+                        up,
+                        up,
+                        &collision::Shape::Upright(extents),
+                        Contents::PLAYER_SOLID,
+                    );
+                    met.start_solid && placeable(met.entity)
+                });
+            (under.fraction < 1.0 && placeable(under.entity)) || inside
+        })
+    }
+
     /// Whether a standing body fits at `at` (units) among the level's own
     /// solids, doors and placeables aside, lifted a step (a sloped floor
     /// under it is no obstacle): where a route may turn.

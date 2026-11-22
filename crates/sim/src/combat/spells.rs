@@ -15,6 +15,8 @@
 //! have a named row at another row. The resolver then serves the table in
 //! canonical order (`vfs::rows`), so the row is found here all the same.
 
+use rules::ai::choices::kinds;
+
 /// K1's Force powers (`usertype` 1 that a sheet can know), by row: every
 /// row `combat::force::of_row` maps, and the saber throws.
 pub const K1_FORCE_POWERS: [u16; 44] = [
@@ -34,6 +36,50 @@ pub const RAISES_THE_FALLEN: [u16; 3] = [
     FORCE_POWER_IMPROVED_REVITALIZE,
     FORCE_POWER_MASTER_REVITALIZE,
 ];
+
+/// What a Force power, grenade or item does in a fight, as the combat AI
+/// chooses it (`ai.choices.kinds`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// It stuns, holds, knocks down, slows or weakens its target.
+    Disable,
+    /// It hurts one target.
+    Damage,
+    /// It hurts every enemy in an area.
+    AreaDamage,
+    /// It restores hit points.
+    Heal,
+    /// It strengthens the user or the user's allies.
+    Buff,
+}
+
+/// The rulebook's rows of each kind (`ai.choices.kinds`).
+pub const ROWS_BY_KIND: [(Kind, &[u16]); 5] = [
+    (Kind::Disable, &kinds::DISABLE),
+    (Kind::Damage, &kinds::DAMAGE),
+    (Kind::AreaDamage, &kinds::AREA_DAMAGE),
+    (Kind::Heal, &kinds::HEAL),
+    (Kind::Buff, &kinds::BUFF),
+];
+
+/// The kind of `row`, and whether the row works only on droids. It is
+/// `None` for a row the rulebook does not list.
+pub fn kind_of_row(row: u16) -> Option<(Kind, bool)> {
+    let (kind, _) = ROWS_BY_KIND.iter().find(|(_, rows)| rows.contains(&row))?;
+    Some((*kind, kinds::DROIDS_ONLY.contains(&row)))
+}
+
+/// Whether `row` is one of a droid's own weapons, such as a stun ray, a
+/// flame thrower or an ion blast. A droid weapon's label starts with
+/// `DROID_ITEM_` (`NAMED`). A droid's shield has such a label too, but it is
+/// a shield (`items::use_of`) and not a weapon.
+pub fn droid_weapon(row: u16) -> bool {
+    use crate::combat::items::{Use, use_of};
+    let droid_item = NAMED
+        .iter()
+        .any(|&(label, named)| named == row && label.starts_with("DROID_ITEM_"));
+    droid_item && !matches!(use_of(row), Some(Use::Shield { .. }))
+}
 
 // Each row as a constant named by its label, and `NAMED`, every one by
 // label. They are kept with the rows-by-label map (`rules::rows`), which

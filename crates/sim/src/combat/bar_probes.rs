@@ -171,7 +171,7 @@ fn old_snapshot_has_empty_bar() -> Result<String, String> {
     };
     let mut old = Writer::default();
     sheet.encode_as(&mut old, versions);
-    sheet.picks.encode(&mut old);
+    sheet.picks.encode_as(&mut old, false);
     let mut input = Reader::new("probe", &old.0).with_versions(versions);
     let read_old = crate::snapshot::decode_sheet(&mut input).map(|sheet| sheet.bar);
     let old_whole = input.finish();
@@ -930,7 +930,9 @@ fn edit_refused() -> Result<String, String> {
             snapshot
                 .body(Seat(0))
                 .and_then(|body| body.sheet)
-                .map(|sheet| (sheet.bar, sheet.picks))
+                // The mark of a line the player picked changes nothing the
+                // character fights with.
+                .map(|sheet| (sheet.bar, sheet.picks.without_marks()))
         };
         let before = state(&world.snapshot());
         let after = state(&edit_step(&mut world, Some((seat, action(bodies)))));

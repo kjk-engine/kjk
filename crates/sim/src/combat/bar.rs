@@ -82,6 +82,13 @@ impl FeatLine {
         }
     }
 
+    /// The line feat `row` is a rank of, if it is one of these lines.
+    pub fn of(row: u16) -> Option<FeatLine> {
+        FeatLine::ALL
+            .into_iter()
+            .find(|line| line.rows().contains(&row))
+    }
+
     /// Whether blades and empty hands use the line. A gun uses the others.
     fn melee(self) -> bool {
         matches!(

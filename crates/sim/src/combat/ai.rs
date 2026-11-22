@@ -9,9 +9,10 @@
 //!   gunners stand and fire, moving to another spot only when their target
 //!   goes out of sight (`combat::troop`); saber and
 //!   melee fighters route to it and swing within reach, a blade wielder
-//!   paced as JA's Jedi (`combat::pace`); Force users cast what their
-//!   scripts choose (`k_ai_master`'s talents), or on a stage without
-//!   scripts what fits (`choose_power`).
+//!   paced as JA's Jedi (`combat::pace`). An enemy casts what its script
+//!   chooses (`k_ai_master`'s talents). A companion chooses its own powers
+//!   and grenades (`combat::choose`). On a stage without scripts, every
+//!   creature chooses its own powers, items and grenades.
 //! - **Chase** to where it last saw its target, for `CHASE_MS`.
 //! - **Follow** its leader (a companion of a seat) when nothing else calls,
 //!   and come back to it before straying `LEASH` away.
@@ -24,12 +25,12 @@
 
 use crate::combat::Fighter;
 use crate::combat::force::{self, Power};
+use crate::combat::grenades;
 use crate::combat::pace::Pace;
 use crate::combat::saber::Style;
 use crate::combat::sheet::{Sheet, feats};
 use crate::combat::specials::{self, Special};
 use crate::combat::troop::Troop;
-use crate::combat::{grenades, items};
 use crate::input::{Seat, buttons};
 use crate::math::Vec3;
 use crate::script::{Menu, Talent};
@@ -120,6 +121,17 @@ pub struct Mind {
     pub pace: Pace,
     /// A gunner's (`combat::troop`).
     pub troop: Troop,
+    /// The fight is intense for it until this time (sim ms,
+    /// `combat::choose::intense`). A look that finds the fight intense moves
+    /// it to `combat::choose::held_until`.
+    pub intense_until: u64,
+    /// When it last used each kind of use that its side waits for (sim ms,
+    /// indexed by `combat::choose::SideKind as usize`). Zero means never.
+    /// Its allies read it (`combat::choose::side_allows`).
+    pub used_at: [u64; 5],
+    /// When it last changed its feat line or saber style of its own choice
+    /// (sim ms, `combat::choose::feat_kept`). Zero means never.
+    pub feat_at: u64,
 }
 
 impl Mind {
@@ -170,6 +182,11 @@ impl Mind {
         out.u64(self.aware_at);
         self.pace.encode(out);
         self.troop.encode(out);
+        out.u64(self.intense_until);
+        for at in self.used_at {
+            out.u64(at);
+        }
+        out.u64(self.feat_at);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Mind, DecodeError> {
@@ -188,6 +205,7 @@ impl Mind {
             return Err(input.invalid("mind flags", at));
         }
         let (steered, queued, moving) = (flags & 1 != 0, flags & 2 != 0, flags & 4 != 0);
+        let choices = input.since(crate::since::snapshot::AI_CHOICES_COMPANIONS);
         Ok(Mind {
             task,
             leader,
@@ -209,8 +227,87 @@ impl Mind {
             aware_at: input.u64()?,
             pace: Pace::decode(input)?,
             troop: Troop::decode(input)?,
+            // A snapshot from before the fields reads a calm fight, in
+            // which nobody has used anything yet.
+            intense_until: if choices { input.u64()? } else { 0 },
+            used_at: if choices {
+                [
+                    input.u64()?,
+                    input.u64()?,
+                    input.u64()?,
+                    input.u64()?,
+                    input.u64()?,
+                ]
+            } else {
+                [0; 5]
+            },
+            // A snapshot from before the field reads a mind that never
+            // changed its feat line.
+            feat_at: if input.since(crate::since::snapshot::AI_CHOICES_FEATS) {
+                input.u64()?
+            } else {
+                0
+            },
         })
     }
+}
+
+/// The mind's encoding (`sim::combat::ai`), checked by the approved tests.
+#[cfg(feature = "probes")]
+pub fn probes() -> crate::probe::Checks {
+    vec![("intense_until_kept", intense_until_kept())]
+}
+
+/// A mind written now reads back with `intense_until`, `used_at` and
+/// `feat_at` kept. A mind written before `feat_at` came in reads
+/// `feat_at == 0`. A mind written before `intense_until` and `used_at` came
+/// in reads them as zero too, as a default mind has.
+#[cfg(feature = "probes")]
+fn intense_until_kept() -> Result<String, String> {
+    use crate::wire::Versions;
+    let mind = Mind {
+        cast_after: 3_000,
+        intense_until: 12_000,
+        used_at: [1_000, 0, 2_000, 0, 3_000],
+        feat_at: 4_000,
+        ..Mind::default()
+    };
+    let mut out = Writer::default();
+    mind.encode(&mut out);
+    let bytes = out.0;
+    let again = Mind::decode(&mut Reader::new("mind", &bytes)).map_err(|e| e.to_string())?;
+    let mut wrong = Vec::new();
+    if again != mind {
+        wrong.push(format!("read back {again:?}"));
+    }
+    // Each version gate, with the times of eight bytes each that came in
+    // with it and after it. The bytes before them are the old layout.
+    let older = |since: crate::wire::Since, times: usize| -> Result<Mind, String> {
+        let versions = Versions {
+            snapshot: since.1 - 1,
+            ..Versions::THIS_BUILD
+        };
+        let old = &bytes[..bytes.len() - times * 8];
+        let mut input = Reader::new("mind", old).with_versions(versions);
+        let read = Mind::decode(&mut input).map_err(|e| e.to_string())?;
+        input.finish().map_err(|e| e.to_string())?;
+        Ok(read)
+    };
+    let before_feats = older(crate::since::snapshot::AI_CHOICES_FEATS, 1)?;
+    if before_feats != (Mind { feat_at: 0, ..mind }) {
+        wrong.push(format!("before feat_at {before_feats:?}"));
+    }
+    let before_choices = older(crate::since::snapshot::AI_CHOICES_COMPANIONS, 7)?;
+    let calm = Mind {
+        intense_until: 0,
+        used_at: [0; 5],
+        feat_at: 0,
+        ..mind
+    };
+    if before_choices != calm {
+        wrong.push(format!("before intense_until {before_choices:?}"));
+    }
+    crate::probe::check(wrong.is_empty(), format!("wrong: {wrong:?}"))
 }
 
 /// How long a creature that has just spotted a foe takes to act (ms), less
@@ -249,11 +346,14 @@ pub fn no_scripted(_: u16) -> Option<Talent> {
     None
 }
 
-/// How near its target a mind casts `row` (units): as `choose_power`
-/// does; a push or pull where its shove still tells (its strength × level
-/// over the shove's fall-off a unit); one cast on itself or its side
-/// anywhere; a scripted one from a foe's menu within its row's range
-/// (`force::scripted_reach`).
+/// How near its target a mind casts `row` (units). A mind casts grip
+/// within grip's reach. It casts lightning and drain within drain's area,
+/// and the level-3 lightning within its cone. It casts the crowd-control
+/// rows within their aimed reach. It casts a push or a pull where the
+/// shove still moves the target, which is the power's strength times its
+/// level over the shove's fall-off per unit. It casts a power on itself or
+/// its side at any distance. It casts a scripted power from a foe's menu
+/// within the row's range (`force::scripted_reach`).
 pub fn power_reach(row: u16, scripted: Scripted) -> f32 {
     if let Some(talent) = scripted(row) {
         return match talent.menu {
@@ -273,10 +373,9 @@ pub fn power_reach(row: u16, scripted: Scripted) -> f32 {
     }
 }
 
-/// How long a mind holds grip, and lightning or drain (ms); a grip its
-/// script chose, for as long as K1's choke ticks (the grip lets go itself
-/// once the ticks are done, `powers::Cast::squeeze`).
-const GRIP_HOLD_MS: u64 = powers::GRIP_HOLD_MS;
+/// How long a mind holds grip, and how long it holds lightning or drain
+/// (ms). It holds grip for as long as KOTOR 1's choke ticks. The grip lets
+/// go by itself once the ticks are done (`powers::Cast::squeeze`).
 const SCRIPTED_GRIP_HOLD_MS: u64 = powers::SCRIPTED_GRIP_HOLD_MS;
 const CHANNEL_HOLD_MS: u64 = powers::CHANNEL_HOLD_MS;
 
@@ -286,9 +385,12 @@ fn press(row: u16) -> Option<Cast> {
     Some(row).filter(|row| *row != force::PULL).map(Cast::Press)
 }
 
-/// A power its script chose (C14, `ActionUseTalentOnObject`), if it knows
-/// it and can pay `cost` of its row: grip, lightning and drain held as
-/// `choose_power` holds them, the rest pressed, a scripted one too.
+/// How a mind casts a power that its script picked (C14,
+/// `ActionUseTalentOnObject`) or that it chose itself (`combat::choose`).
+/// It casts the power only when it knows the power and has at least
+/// `cost` of the row in Force points. It holds the button for grip,
+/// lightning and drain. It presses the button once for every other power,
+/// a scripted power too.
 pub fn power_cast(
     row: u16,
     sheet: &Sheet,
@@ -381,46 +483,6 @@ pub fn choose_special(special: Option<Special>, bar: specials::Bar) -> Option<Ca
     Some(Cast::Hold(buttons::ALT_ATTACK, ms))
 }
 
-/// A consumable a fighter in a fight uses now (`combat::items`), if it
-/// carries it: a heal when hurt (`minds.items.heal_below`), a cure while
-/// poisoned or weakened,
-/// else a stim it has none of running. Never a shield: KOTOR's AI
-/// (`k_ai_master`) raises one once a fight through its item's talent (a
-/// droid's worn one, anyone else's carried), and never a party member's.
-pub fn choose_item(sheet: &Sheet, fighter: &Fighter, now: u64) -> Option<Cast> {
-    use items::Use;
-    let pack = &fighter.pack;
-    // Below its share (hundredths of an HP against the maximum's).
-    let hurt = fighter.hp * 100 < i32::from(sheet.max_hp) * 100 * rules::minds::items::HEAL_BELOW;
-    let afflicted = pack.afflicted(now);
-    let droid = sheet.race == crate::combat::sheet::races::DROID;
-    let wanted = |u: Use| match u {
-        Use::Heal { droid: kit, .. } => hurt && kit == droid && pack.using.is_none(),
-        Use::Squad { .. } => hurt && pack.using.is_none(),
-        Use::Antidote => afflicted,
-        Use::Stim(_) => pack.stim.is_none(),
-        Use::Shield { .. } | Use::Grenade | Use::Activated => false,
-    };
-    let (_, carried) = pack.next(&sheet.items, wanted)?;
-    Some(Cast::Hold(carried.kind().button(), 1))
-}
-
-/// A grenade thrown at a target `distance` units away, now and then
-/// (`pick` in 0..1 below `minds.items.grenade_chance`): within its throwing
-/// band, if it carries one, the button held for a charge that grows with
-/// the distance.
-pub fn choose_grenade(sheet: &Sheet, fighter: &Fighter, distance: f32, pick: f32) -> Option<Cast> {
-    let near = rules::minds::items::GRENADE_NEAREST_M / collision::UNIT;
-    let far = rules::minds::items::GRENADE_FARTHEST_M / collision::UNIT;
-    fighter
-        .pack
-        .next(&sheet.items, |u| u == items::Use::Grenade)?;
-    if pick >= rules::minds::items::GRENADE_CHANCE || !(near..=far).contains(&distance) {
-        return None;
-    }
-    Some(throw(distance))
-}
-
 /// How far off its view a target may stand for a mind to begin a throw at
 /// it (degrees) [verify: the engine's own; KOTOR's thrower turns to face].
 pub const THROW_FACING: f32 = powers::THROW_FACING;
@@ -444,132 +506,4 @@ pub fn scripted_throw(distance: f32) -> Cast {
         buttons::GRENADE,
         (charge as u64).clamp(1, grenades::CHARGE_MS),
     )
-}
-
-/// What a mind knows of the foe it fights, for its powers.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Foe {
-    /// How far (units).
-    pub distance: f32,
-    pub stunned: bool,
-    /// A Force Scream cannot make it cover its ears now.
-    pub deaf: bool,
-    pub droid: bool,
-    /// Slow's chain on it.
-    pub slowed: bool,
-    /// The lowest level of the powers it could be dispelled of (speed,
-    /// protect, absorb, valor, energy resistance), if any run.
-    pub buff: Option<u8>,
-}
-
-/// What a Force user in a fight casts now, if anything, with `pick` (a
-/// number in 0..1 from its hash) to vary it (`minds.powers`): healing
-/// itself when hurt; a grip held within its reach; a lightning held within
-/// its reach (a line's here; level 3's cone) or a drain within drain's; a
-/// push when crowded; a crowd-control row on a foe not already
-/// stunned (within the aimed reach; droid stun on droids, the rest on the
-/// living; Force Scream only on one it can make cover its ears);
-/// now and then Slow's chain on a living foe not slowed, Supress or Breach
-/// on one with a power it can end, and a buff it lacks (speed, protect, absorb, valor,
-/// energy resistance, or rage above half health). Only what it knows, can
-/// pay (`cost` of the row) and whose wait is over, and only rows a command
-/// can select.
-pub fn choose_power(
-    sheet: &Sheet,
-    fighter: &Fighter,
-    foe: Foe,
-    cost: &dyn Fn(u16) -> Option<i32>,
-    pick: f32,
-    now: u64,
-) -> Option<Cast> {
-    let Foe {
-        distance,
-        stunned: target_stunned,
-        droid: target_droid,
-        ..
-    } = foe;
-    let force = &fighter.force;
-    let affords = |row: u16| cost(row).is_some_and(|cost| fighter.fp >= cost);
-    let known = |power: Power| force::best(&sheet.powers, power).filter(|(row, _)| affords(*row));
-    let hurt = fighter.hp * 100 < i32::from(sheet.max_hp) * 100 * powers::HEAL_BELOW;
-    if hurt && let Some(cast) = known(Power::Heal).and_then(|(row, _)| press(row)) {
-        return Some(cast);
-    }
-    if !target_droid
-        && distance <= GRIP_REACH
-        && force.grip_ready <= now
-        && known(Power::Grip).is_some()
-    {
-        return Some(Cast::Hold(buttons::FORCE_GRIP, GRIP_HOLD_MS));
-    }
-    let lightning = known(Power::Lightning).is_some_and(|(_, level)| {
-        distance
-            <= if level == 3 {
-                STORM_REACH
-            } else {
-                CHANNEL_REACH
-            }
-    });
-    if lightning && force.lightning_ready <= now && pick < powers::LIGHTNING_CHANCE {
-        return Some(Cast::Hold(buttons::FORCE_LIGHTNING, CHANNEL_HOLD_MS));
-    }
-    if distance <= CHANNEL_REACH && force.drain_ready <= now && known(Power::Drain).is_some() {
-        return Some(Cast::Hold(buttons::FORCE_DRAIN, CHANNEL_HOLD_MS));
-    }
-    if distance <= powers::PUSH_WITHIN
-        && force.push_pull_ready <= now
-        && let Some(cast) = known(Power::Push).and_then(|(row, _)| press(row))
-    {
-        return Some(cast);
-    }
-    if !target_stunned && distance <= AIMED_REACH {
-        let stun = (0..crate::combat::sheet::Powers::ROWS)
-            .filter(|row| sheet.powers.has(*row) && affords(*row))
-            .filter(|row| force::crowd::droids(*row) == target_droid)
-            .filter(|row| !(foe.deaf && force::crowd::scream(*row)))
-            .find(|row| force::of_row(*row).is_some_and(|(power, _)| power == Power::Stun));
-        if let Some(cast) = stun.and_then(press) {
-            return Some(cast);
-        }
-    }
-    let aimable = distance <= AIMED_REACH;
-    for (power, wanted) in [
-        (
-            Power::Slow,
-            aimable && !foe.slowed && !target_droid && pick < powers::SLOW_CHANCE,
-        ),
-        // Supress ends the first two tiers, Breach all of them.
-        (
-            Power::Dispel,
-            aimable
-                && pick < powers::DISPEL_CHANCE
-                && known(Power::Dispel)
-                    .is_some_and(|(_, level)| foe.buff.is_some_and(|buff| level >= 2 || buff <= 2)),
-        ),
-    ] {
-        if wanted && let Some(cast) = known(power).and_then(|(row, _)| press(row)) {
-            return Some(cast);
-        }
-    }
-    let effects = &fighter.effects;
-    let healthy = fighter.hp * 100 >= i32::from(sheet.max_hp) * 100 * powers::RAGE_ABOVE;
-    let buffs = [
-        (Power::Speed, force.speed_until <= now),
-        (Power::Protect, force.protect_until <= now),
-        (Power::Absorb, force.absorb_until <= now),
-        (Power::Valor, effects.valor(now) == 0),
-        (Power::Resist, effects.resisting(now) == 0),
-        (
-            Power::Rage,
-            force.rage_until <= now && force.recover_until <= now && healthy,
-        ),
-    ];
-    if pick < powers::BUFF_CHANCE {
-        for (power, lacking) in buffs {
-            if lacking && let Some(cast) = known(power).and_then(|(row, _)| press(row)) {
-                return Some(cast);
-            }
-        }
-    }
-    None
 }

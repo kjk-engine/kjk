@@ -4093,7 +4093,8 @@ fn dual_pistols() {
 /// attack] ends a steadying, a waiting shot or a Power Blast's charge, and
 /// nothing fires from it or is paid twice. Without the stamina,
 /// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
-/// Shots without aiming, and a feat attack chosen from the action bar is
+/// Shots without aiming. That creature carries no items (changed
+/// 2026-11-19, awaiting approval). A feat attack chosen from the action bar is
 /// the one [Feat attack] fires. [Feat attack] counts as an attack
 /// everywhere an attack matters: a companion holding it fires nothing while
 /// a conversation holds the world, and it ends stealth mode, breaks off a
@@ -4287,6 +4288,644 @@ fn crowd_holds() {
 #[test]
 fn power_rows() {
     probed("power rows", &sim::power_rows_probes::probes(), 8);
+}
+
+/// The talents a companion's combat script queues (`kjk sim probes --only
+/// "companion talents"`). A companion's own AI drops every Force power it
+/// queues as a talent, whether the script named the power or found it. A
+/// power the script casts with `ActionCastSpellAtObject` is still cast. A
+/// companion keeps a medpac and a droid's own weapon. A feat becomes an
+/// attack on the feat's target, because the engine chooses the companion's
+/// feat line (changed 2026-11-20, awaiting approval). It keeps a talent
+/// that another script queues for it. A droid drops its shield. An enemy
+/// keeps every talent.
+#[test]
+fn companion_talents() {
+    probed(
+        "companion talents",
+        &sim::companion_talent_probes::probes(),
+        10,
+    );
+}
+
+/// The talents an enemy's combat scripts queue (`kjk sim probes --only
+/// "enemy talents"`). A Force power and a medpac that an enemy's generic
+/// combat script queues are dropped, because the engine chooses them. A
+/// feat from the same script becomes an attack on the feat's target,
+/// because the engine chooses the enemy's feat line (changed 2026-11-20).
+/// A feat the same script uses at a location becomes an attack on the
+/// enemy's own target. A creature its scripts set to attack with its weapon
+/// only keeps the feat. A gunner fires no feat special while a power talent
+/// of its script holds, and fires one when none does (added 2026-11-21).
+/// A droid's own weapon from the same script is kept. A power or a feat
+/// from a script outside the list of generic combat scripts is kept, and
+/// so is a power from a script that is not the enemy's AI hook. A power
+/// from each boss script that the survey of 19 November 2026 found is
+/// kept. (proposed 2026-11-19, awaiting approval)
+#[test]
+fn enemy_talents() {
+    probed(
+        "enemy talents",
+        &sim::companion_talent_probes::enemy_probes(),
+        12,
+    );
+}
+
+/// The Force powers and grenades a companion chooses itself (`kjk sim
+/// probes --only "companion choices"`). A companion heals a hurt ally. It
+/// throws a grenade only at a group of enemies, and never one of the
+/// party's last two grenades. It waits between uses. It leaves medpacs to
+/// its own script and uses no stim. Two companions together never spend
+/// the party's last two grenades. A companion chooses nothing while a
+/// conversation holds the world, or while the player leads it. A feat
+/// that its script picks every round does not stop it from healing. It
+/// casts Revitalize only when a member of the party has fallen. It fires
+/// no rocket without a wrist launcher. It casts Energy Resistance against a
+/// blaster, only the highest rank it knows, and no buff against a
+/// vibroblade. It casts Force Barrier against
+/// a vibroblade. It does not cast a buff whose effect already runs on it.
+#[test]
+fn companion_choices() {
+    probed("companion choices", &sim::choice_probes::probes(), 22);
+}
+
+/// The Force powers, items and grenades an enemy chooses itself (`kjk sim
+/// probes --only "enemy choices"`). An enemy casts a disabling power on a
+/// target that is not disabled. It throws a grenade from its own pack at
+/// two members of the party standing together, and the party keeps all of
+/// its own grenades. It throws its last grenade. It raises its own energy
+/// shield against a player with a blaster. Below half health it uses the
+/// weakest medpac that restores all its missing hit points, or a stronger
+/// one when the weakest would not. A neutral creature beside the fight uses
+/// nothing. An enemy uses no medpac when a script ends its fight on the
+/// step on which it chose one. An enemy its scripts set to attack with its
+/// weapon only casts nothing. (proposed 2026-11-19, awaiting approval)
+#[test]
+fn enemy_choices() {
+    probed("enemy choices", &sim::enemy_choice_probes::probes(), 9);
+}
+
+/// The waits that the characters of one side keep for each other
+/// (`sim::combat::choose::side_allows`, `ai.choices.side_wait_ms`). A
+/// character may use a grenade, an area power, a disable, a heal or a buff
+/// only when no ally it can see used the same kind within that kind's
+/// wait. Each kind is refused 1 ms before its wait ends, and allowed when
+/// it ends and when no ally used it. Four enemies with grenades facing two
+/// members of the party standing together throw at least twice in 30
+/// seconds, and never twice within the grenade's wait. Two companions who
+/// know Heal, beside a badly hurt player, heal at least twice in 30
+/// seconds, and never twice within the heal's wait. (proposed 2026-11-19,
+/// awaiting approval)
+#[test]
+fn choice_side_waits() {
+    use sim::combat::choose::{SideKind, side_allows, side_wait_ms};
+    let used = 1_000;
+    for &kind in SideKind::ALL {
+        let ends = used + side_wait_ms(kind);
+        for (now, last, expected) in [
+            (ends - 1, Some(used), false),
+            (ends, Some(used), true),
+            (used, None, true),
+        ] {
+            assert_eq!(
+                side_allows(kind, now, last),
+                expected,
+                "{kind:?} at {now} ms after an ally's use at {last:?}"
+            );
+        }
+    }
+    probed(
+        "enemy side waits",
+        &sim::enemy_choice_probes::side_wait_probes(),
+        1,
+    );
+    probed(
+        "companion side waits",
+        &sim::choice_probes::side_wait_probes(),
+        1,
+    );
+}
+
+/// Powers the combat AI leaves out because they would do nothing
+/// (`sim::combat::choose::does_something`). Each row is one case. Force
+/// Scream does nothing to a target that cannot be made to cover its ears.
+/// Force Suppression does nothing to a target whose weakest running power
+/// is too strong for it. Neither dispel does anything to a target with no
+/// power running. Beast Trick and Beast Confusion do nothing to a target
+/// that is not a beast. The AI also leaves out Rage below half health
+/// (`wise_for`), and a lower rank of a line whose higher rank the
+/// character knows (`outranked`).
+#[test]
+fn choice_effects() {
+    use sim::combat::choose::{Mark, does_something};
+    use sim::combat::spells::{
+        FORCE_POWER_BEAST_CONFUSION, FORCE_POWER_BEAST_TRICK, FORCE_POWER_FORCE_BREACH,
+        FORCE_POWER_FORCE_SCREAM, FORCE_POWER_STUN, FORCE_POWER_SUPRESS_FORCE,
+    };
+    let deaf = Mark {
+        deaf: true,
+        ..Mark::default()
+    };
+    let buffed = |level: u8| Mark {
+        buff: Some(level),
+        ..Mark::default()
+    };
+    let beast = Mark {
+        beast: true,
+        ..Mark::default()
+    };
+    let rows = [
+        (
+            "scream on a hearing target",
+            FORCE_POWER_FORCE_SCREAM,
+            Mark::default(),
+            true,
+        ),
+        (
+            "scream on a deaf target",
+            FORCE_POWER_FORCE_SCREAM,
+            deaf,
+            false,
+        ),
+        ("stun on a deaf target", FORCE_POWER_STUN, deaf, true),
+        (
+            "suppression on a level 2 power",
+            FORCE_POWER_SUPRESS_FORCE,
+            buffed(2),
+            true,
+        ),
+        (
+            "suppression on a level 3 power",
+            FORCE_POWER_SUPRESS_FORCE,
+            buffed(3),
+            false,
+        ),
+        (
+            "suppression on no power",
+            FORCE_POWER_SUPRESS_FORCE,
+            Mark::default(),
+            false,
+        ),
+        (
+            "breach on a level 3 power",
+            FORCE_POWER_FORCE_BREACH,
+            buffed(3),
+            true,
+        ),
+        (
+            "breach on no power",
+            FORCE_POWER_FORCE_BREACH,
+            Mark::default(),
+            false,
+        ),
+        (
+            "beast trick on a beast",
+            FORCE_POWER_BEAST_TRICK,
+            beast,
+            true,
+        ),
+        (
+            "beast trick on a person",
+            FORCE_POWER_BEAST_TRICK,
+            Mark::default(),
+            false,
+        ),
+        (
+            "beast confusion on a person",
+            FORCE_POWER_BEAST_CONFUSION,
+            Mark::default(),
+            false,
+        ),
+        ("stun on a beast", FORCE_POWER_STUN, beast, true),
+    ];
+    for (what, row, mark, wanted) in rows {
+        assert_eq!(does_something(row, mark), wanted, "{what}");
+    }
+    // Rage is wise only at `ai.choices.rage_above` of the maximum hit
+    // points or more. Other powers are wise at any health.
+    use sim::combat::choose::wise_for;
+    use sim::combat::spells::{FORCE_POWER_FURY, FORCE_POWER_HEAL};
+    let limit = rules::ai::choices::RAGE_ABOVE;
+    let wise = [
+        ("rage at the limit", FORCE_POWER_FURY, limit, true),
+        (
+            "rage below the limit",
+            FORCE_POWER_FURY,
+            limit - 0.01,
+            false,
+        ),
+        ("heal below the limit", FORCE_POWER_HEAL, limit - 0.01, true),
+    ];
+    for (what, row, health, wanted) in wise {
+        assert_eq!(wise_for(row, health), wanted, "{what}");
+    }
+    // A rank is outranked when the character knows a rank that lists it
+    // as a prerequisite in `spells.2da`. Force Barrier (135) is needed by
+    // Improved Force Barrier (136), which Master Force Barrier (137) needs.
+    use sim::combat::choose::outranked;
+    use sim::combat::spells::{
+        FORCE_POWER_FORCE_BARRIER, FORCE_POWER_IMPROVED_FORCE_BARRIER,
+        FORCE_POWER_MASTER_FORCE_BARRIER,
+    };
+    let (barrier, improved, master) = (
+        FORCE_POWER_FORCE_BARRIER,
+        FORCE_POWER_IMPROVED_FORCE_BARRIER,
+        FORCE_POWER_MASTER_FORCE_BARRIER,
+    );
+    // Master Energy Resistance (133) needs Resist Energy 2 (40) and Resist
+    // Energy 1 (42). `force::of_row` orders only Resist Energy 1 and 2.
+    // Mass Stasis (44) needs Stun (46) and Stasis (29), and `force::of_row`
+    // puts all three on one line of the same level.
+    use sim::combat::spells::{
+        FORCE_POWER_MASS_STASIS, FORCE_POWER_MASTER_ENERGY_RESISTANCE, FORCE_POWER_RESIST_ENERGY_1,
+        FORCE_POWER_RESIST_ENERGY_2, FORCE_POWER_STASIS,
+    };
+    let (energy_1, energy_2, energy_master) = (
+        FORCE_POWER_RESIST_ENERGY_1,
+        FORCE_POWER_RESIST_ENERGY_2,
+        FORCE_POWER_MASTER_ENERGY_RESISTANCE,
+    );
+    let (stasis, mass_stasis) = (FORCE_POWER_STASIS, FORCE_POWER_MASS_STASIS);
+    let needs = std::collections::BTreeMap::from([
+        (improved, [Some(barrier), None]),
+        (master, [Some(improved), None]),
+        (energy_2, [Some(energy_1), None]),
+        (energy_master, [Some(energy_2), Some(energy_1)]),
+        (stasis, [Some(FORCE_POWER_STUN), None]),
+        (mass_stasis, [Some(FORCE_POWER_STUN), Some(stasis)]),
+    ]);
+    let all_energy = [energy_1, energy_2, energy_master];
+    let ranks = [
+        (
+            "the first rank, the second known",
+            barrier,
+            &[barrier, improved][..],
+            true,
+        ),
+        (
+            "the second rank, the third not known",
+            improved,
+            &[barrier, improved][..],
+            false,
+        ),
+        (
+            "the second rank, the third known",
+            improved,
+            &[barrier, improved, master][..],
+            true,
+        ),
+        (
+            "the highest rank",
+            master,
+            &[barrier, improved, master][..],
+            false,
+        ),
+        ("the only rank known", barrier, &[barrier][..], false),
+        (
+            "resist energy 2, master energy resistance known",
+            energy_2,
+            &all_energy[..],
+            true,
+        ),
+        (
+            "resist energy 1, master energy resistance known",
+            energy_1,
+            &all_energy[..],
+            true,
+        ),
+        (
+            "master energy resistance",
+            energy_master,
+            &all_energy[..],
+            false,
+        ),
+        (
+            "stasis, mass stasis known on the same line",
+            stasis,
+            &[FORCE_POWER_STUN, stasis, mass_stasis][..],
+            false,
+        ),
+    ];
+    for (what, row, known, wanted) in ranks {
+        assert_eq!(
+            outranked(row, |r| known.contains(&r), &needs),
+            wanted,
+            "{what}"
+        );
+    }
+    // The chooser offers only the highest rank a character knows of each
+    // line (`highest_known`). A character who knows all three energy
+    // resistance powers is offered only Master Energy Resistance. Stun,
+    // Stasis and Mass Stasis are one level of one mapped line, so all three
+    // are offered, as before.
+    use sim::combat::choose::highest_known;
+    let knowing = |rows: &[u16]| {
+        rows.iter()
+            .fold(sim::combat::sheet::Powers::default(), |powers, row| {
+                powers.with(*row)
+            })
+    };
+    let stuns = [FORCE_POWER_STUN, stasis, mass_stasis];
+    let highest = [
+        ("resist energy 1 of three", energy_1, &all_energy[..], false),
+        ("resist energy 2 of three", energy_2, &all_energy[..], false),
+        (
+            "master energy resistance",
+            energy_master,
+            &all_energy[..],
+            true,
+        ),
+        (
+            "resist energy 2 without the master rank",
+            energy_2,
+            &[energy_1, energy_2][..],
+            true,
+        ),
+        (
+            "resist energy 1 under resist energy 2",
+            energy_1,
+            &[energy_1, energy_2][..],
+            false,
+        ),
+        ("stasis among the stun line", stasis, &stuns[..], true),
+        (
+            "barrier under improved barrier",
+            barrier,
+            &[barrier, improved][..],
+            false,
+        ),
+    ];
+    for (what, row, known, wanted) in highest {
+        assert_eq!(
+            highest_known(row, &knowing(known), Some(&needs)),
+            wanted,
+            "{what}"
+        );
+    }
+    // An effect of power `spell` shows that power `row` runs when `spell`
+    // is `row` or a higher rank of its line. Inspire Followers IV (170)
+    // needs III (169), which needs I (167). Without prerequisites, only the
+    // same row counts.
+    use sim::combat::choose::covers;
+    let inspire = std::collections::BTreeMap::from([
+        (168, [Some(167), None]),
+        (169, [Some(167), Some(168)]),
+        (170, [Some(169), None]),
+    ]);
+    let lines = [
+        ("the same rank", barrier, barrier, Some(&needs), true),
+        ("a higher rank", master, barrier, Some(&needs), true),
+        ("a lower rank", barrier, master, Some(&needs), false),
+        ("another line", energy_master, barrier, Some(&needs), false),
+        ("two ranks up the line", 170, 167, Some(&inspire), true),
+        (
+            "no prerequisites, a higher rank",
+            master,
+            barrier,
+            None,
+            false,
+        ),
+        (
+            "no prerequisites, the same rank",
+            barrier,
+            barrier,
+            None,
+            true,
+        ),
+    ];
+    for (what, spell, row, prerequisites, wanted) in lines {
+        assert_eq!(covers(spell, row, prerequisites), wanted, "{what}");
+    }
+}
+
+/// The reasons a buff fits the fight (`ai.choices.reasons`,
+/// `sim::combat::choose::fits`). No row has two reasons, every listed row
+/// is a buff, and every buff that no reason lists is always fit. Each row
+/// of the second table is one reason, true and false.
+#[test]
+fn choice_reasons() {
+    use sim::combat::choose::{Choice, Foes, ROWS_BY_REASON, Reason, Scene, fits, reason_of};
+    let buffs = rules::ai::choices::kinds::BUFF;
+    let mut seen = std::collections::BTreeMap::new();
+    for (reason, rows) in ROWS_BY_REASON {
+        for &row in rows {
+            assert!(
+                buffs.contains(&row),
+                "{reason:?} lists row {row}, which is not a buff"
+            );
+            if let Some(other) = seen.insert(row, reason) {
+                panic!("row {row} is both {other:?} and {reason:?}");
+            }
+            assert_eq!(reason_of(Choice::Power(row)), reason);
+        }
+    }
+    for row in buffs.iter().filter(|row| !seen.contains_key(row)) {
+        assert_eq!(reason_of(Choice::Power(*row)), Reason::Always, "row {row}");
+    }
+    let calm = Scene {
+        now: 1000,
+        fight_ms: 1000,
+        intense: false,
+        companion: true,
+        own_health: 1.0,
+        lowest_ally_health: 1.0,
+        own_droid: false,
+        own_blade: false,
+        foes: Foes::default(),
+        intense_buff: false,
+        target: None,
+    };
+    let facing = |foes: Foes| Scene { foes, ..calm };
+    let energy = Foes {
+        energy: true,
+        ..Foes::default()
+    };
+    let physical = Foes {
+        physical: true,
+        ..Foes::default()
+    };
+    let force = Foes {
+        force: true,
+        ..Foes::default()
+    };
+    let rows = [
+        (Reason::Energy, facing(energy), true),
+        (Reason::Energy, facing(physical), false),
+        (Reason::Physical, facing(physical), true),
+        (Reason::Physical, facing(force), false),
+        (Reason::ForceUsers, facing(force), true),
+        (Reason::ForceUsers, facing(energy), false),
+        (
+            Reason::Intense,
+            Scene {
+                intense: true,
+                ..calm
+            },
+            true,
+        ),
+        (Reason::Intense, calm, false),
+        (
+            Reason::Blade,
+            Scene {
+                own_blade: true,
+                ..calm
+            },
+            true,
+        ),
+        (Reason::Blade, calm, false),
+        (Reason::Always, calm, true),
+    ];
+    for (reason, scene, wanted) in rows {
+        assert_eq!(fits(reason, &scene), wanted, "{reason:?} in {scene:?}");
+    }
+}
+
+/// The grenades a character has used or is about to throw that the party's
+/// inventory still counts (`sim::combat::items::Pack::not_yet_taken`). A
+/// companion subtracts its own and every other member's from what the
+/// inventory shows. The companion keeps the party's last grenades only
+/// when this count is right. Each row is one state of the pack. The rows
+/// are nothing pending, a throw queued, a throw charging, a use not yet
+/// taken, and a use of another row.
+#[test]
+fn grenades_not_yet_taken() {
+    use sim::combat::Sheet;
+    use sim::combat::items::Pack;
+    const FRAG: u16 = 87;
+    const THERMAL: u16 = 89;
+    let sheet = Sheet::dev_soldier();
+    let at = |row: u16| {
+        sheet
+            .items
+            .iter()
+            .position(|carried| carried.is_some_and(|carried| carried.row == row))
+            .expect("the dev soldier carries the row")
+    };
+    let used = |row: u16| {
+        let mut pack = Pack::default();
+        pack.used[at(row)] = 1;
+        pack
+    };
+    let rows = [
+        ("nothing pending", Pack::default(), 0),
+        (
+            "a frag queued",
+            Pack {
+                queued: Some(FRAG),
+                ..Pack::default()
+            },
+            1,
+        ),
+        (
+            "a frag charging",
+            Pack {
+                charging_from: Some(1000),
+                ..Pack::default()
+            },
+            1,
+        ),
+        ("a frag used, not yet taken", used(FRAG), 1),
+        ("a thermal used", used(THERMAL), 0),
+    ];
+    for (what, pack, wanted) in rows {
+        assert_eq!(pack.not_yet_taken(&sheet, FRAG, 2000), wanted, "{what}");
+    }
+}
+
+/// A queued grenade row that cannot be thrown is forgotten
+/// (`sim::combat::grenades::pull`), so that it never counts as a coming
+/// throw forever. Each row is one pack. A rocket queued by a character
+/// without a wrist launcher is forgotten. A frag queued by a character with
+/// no frag left is forgotten. A frag queued by a character who carries one
+/// stays queued, and so does a rocket queued by a character wearing a
+/// launcher.
+#[test]
+fn unthrowable_grenades_forgotten() {
+    use sim::combat::grenades::{pull, usable};
+    use sim::combat::items::{Carried, Pack};
+    const FRAG: u16 = 87;
+    const ROCKET: u16 = 185;
+    let carried = |row: u16| Carried { row, count: 1 };
+    let items = [Some(carried(FRAG)), Some(carried(ROCKET)), None, None];
+    let only_rockets = [Some(carried(ROCKET)), None, None, None];
+    let rows = [
+        ("a rocket, no launcher", ROCKET, items, false, None),
+        ("a frag, none carried", FRAG, only_rockets, true, None),
+        ("a frag, one carried", FRAG, items, false, Some(FRAG)),
+        (
+            "a rocket, a launcher worn",
+            ROCKET,
+            items,
+            true,
+            Some(ROCKET),
+        ),
+    ];
+    for (what, row, items, launcher, wanted) in rows {
+        let mut pack = Pack {
+            queued: Some(row),
+            ..Pack::default()
+        };
+        let throwable = usable(&items, launcher);
+        let thrown = pull(&mut pack, (&throwable, None), 0, false, 1000);
+        assert!(
+            thrown.is_none(),
+            "{what}: nothing is thrown without a press"
+        );
+        assert_eq!(pack.queued, wanted, "{what}");
+    }
+}
+
+/// The chooser's order of preference (`sim::combat::choose::ranked`). Its
+/// first entry is what `choose` picks. A passing heal comes first, and the
+/// rest go from the highest score down. An option that does not pass is
+/// never in the list.
+#[test]
+fn choice_ranks() {
+    use sim::combat::choose::{Choice, Kind, Option_, Scene, Target, choose, ranked};
+    let option = |choice, kind| Option_ {
+        choice,
+        kind,
+        droids_only: false,
+        running: false,
+    };
+    let target = Target {
+        in_reach: false,
+        disabled: true,
+        staggered: false,
+        droid: false,
+        hostiles_near: 3,
+        allies_near: 0,
+    };
+    let scene = Scene {
+        now: 60_000,
+        fight_ms: 60_000,
+        intense: true,
+        companion: true,
+        own_health: 1.0,
+        lowest_ally_health: 0.2,
+        own_droid: false,
+        own_blade: false,
+        foes: sim::combat::choose::Foes::default(),
+        intense_buff: false,
+        target: Some(target),
+    };
+    let options = [
+        option(Choice::Power(35), Kind::Damage),
+        option(Choice::Grenade(87), Kind::AreaDamage),
+        option(Choice::Power(46), Kind::Disable),
+        option(Choice::Power(28), Kind::Heal),
+    ];
+    for pick in [0.0, 0.5, 0.99] {
+        let order = ranked(&options, &scene, pick);
+        assert_eq!(order.first().copied(), choose(&options, &scene, pick));
+        assert_eq!(order[0], Choice::Power(28), "the heal comes first");
+        assert_eq!(
+            order.len(),
+            3,
+            "the disable on a disabled target is left out"
+        );
+        assert!(order.contains(&Choice::Power(35)) && order.contains(&Choice::Grenade(87)));
+    }
 }
 
 /// KOTOR 2's Force powers in KOTOR 1 (`kjk::probes::kotor2_powers`, `kjk
@@ -4607,7 +5246,7 @@ fn dialogue_coop() {
 /// shut (`walks_into_doorway_short_of_door`, issue 501) awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 77);
+    probed("scene", &sim::scene_probes::all(), 78);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -4731,7 +5370,8 @@ fn kick_balance() {
 }
 
 /// The party members nobody plays follow and fight beside the body played:
-/// `sim::party_fights_probes`, owner's request.
+/// `sim::party_fights_probes`, owner's request. The foe carries no items
+/// (changed 2026-11-19, awaiting approval).
 #[test]
 fn unmanned_party_fights() {
     probed("party fights", &sim::party_fights_probes::probes(), 7);
@@ -4763,6 +5403,1033 @@ fn coop_items_and_levels() {
 #[test]
 fn item_uses() {
     probed("item uses", &sim::item_uses::probes(), 30);
+}
+
+/// The rulebook's kinds of `spells.2da` rows (`ai.choices.kinds`). Every
+/// listed row is a row the engine names, and no row is in two kinds. Every
+/// row that works only on droids also has a kind. A row that is never
+/// chosen has no kind and no reason.
+#[test]
+fn choice_kinds() {
+    use sim::combat::spells::{NAMED, ROWS_BY_KIND, kind_of_row};
+    let mut seen = std::collections::BTreeMap::new();
+    for (kind, rows) in ROWS_BY_KIND {
+        for &row in rows {
+            assert!(
+                NAMED.iter().any(|&(_, named)| named == row),
+                "{kind:?} lists row {row}, which no label names"
+            );
+            if let Some(other) = seen.insert(row, kind) {
+                panic!("row {row} is both {other:?} and {kind:?}");
+            }
+            assert_eq!(kind_of_row(row).map(|(found, _)| found), Some(kind));
+        }
+    }
+    // A row that is never chosen has no kind and no reason.
+    for row in rules::ai::choices::kinds::NEVER {
+        assert!(
+            !seen.contains_key(&row),
+            "row {row} is never chosen but has a kind"
+        );
+        let reasons = sim::combat::choose::ROWS_BY_REASON;
+        assert!(
+            reasons.iter().all(|(_, rows)| !rows.contains(&row)),
+            "row {row} is never chosen but has a reason"
+        );
+    }
+    for row in rules::ai::choices::kinds::DROIDS_ONLY {
+        assert_eq!(
+            kind_of_row(row).map(|(_, droids)| droids),
+            Some(true),
+            "droids-only row {row} has no kind"
+        );
+    }
+}
+
+/// How the combat AI scores what a character can use
+/// (`sim::combat::choose`). Each row names one rule of the chooser. A row
+/// expects a score of exactly 0, or a score that passes the threshold.
+#[test]
+fn choice_scores() {
+    use sim::combat::choose::{Choice, Foes, Kind, Option_, Scene, Target, choose, kind_of, score};
+    const STUN: u16 = 46;
+    const DROID_STUN: u16 = 47;
+    const LIGHTNING: u16 = 35;
+    const STORM: u16 = 25;
+    const HEAL: u16 = 28;
+    const VALOR: u16 = 22;
+    const AURA: u16 = 18;
+    const RESIST_ENERGY: u16 = 42;
+    const BARRIER: u16 = 135;
+    const RESIST_FORCE: u16 = 41;
+    const SPEED: u16 = 8;
+    const BATTLE_MEDITATION: u16 = 138;
+    const CAMOUFLAGE: u16 = 156;
+    const BATTLE_PRECOGNITION: u16 = 179;
+    const BREATH_CONTROL: u16 = 270;
+    const MEDPAC: u16 = 64;
+    const STIM: u16 = 69;
+    const FRAG: u16 = 87;
+    const ION_BLAST: u16 = 274;
+    const DROID_DESTROY: u16 = 13;
+    const REPAIR_KIT: u16 = 84;
+    const REVITALIZE: u16 = 173;
+    const UNLISTED: u16 = 9999;
+    const AFFECT_MIND: u16 = sim::combat::spells::FORCE_POWER_AFFECT_MIND;
+    #[derive(Debug, PartialEq)]
+    enum Expect {
+        Scores,
+        Zero,
+    }
+    use Expect::{Scores, Zero};
+    let offer = |choice: Choice| {
+        let (Choice::Power(row) | Choice::Item(row) | Choice::Grenade(row)) = choice;
+        let (kind, droids_only) = kind_of(row, None).expect("a listed row");
+        Option_ {
+            choice,
+            kind,
+            droids_only,
+            running: false,
+        }
+    };
+    let running = |choice: Choice| Option_ {
+        running: true,
+        ..offer(choice)
+    };
+    let unlisted_buff = Option_ {
+        choice: Choice::Power(UNLISTED),
+        kind: Kind::Buff,
+        droids_only: false,
+        running: false,
+    };
+    let foe = Target {
+        in_reach: false,
+        disabled: false,
+        staggered: false,
+        droid: false,
+        hostiles_near: 0,
+        allies_near: 0,
+    };
+    let pair = Target {
+        hostiles_near: 1,
+        ..foe
+    };
+    let enemy = Scene {
+        now: 60_000,
+        fight_ms: 20_000,
+        intense: false,
+        companion: false,
+        own_health: 1.0,
+        lowest_ally_health: 1.0,
+        own_droid: false,
+        own_blade: false,
+        foes: Foes::default(),
+        intense_buff: false,
+        target: Some(foe),
+    };
+    // A scene in the opening of a fight, `fight_ms` after it began.
+    let opening = |fight_ms: u64| Scene { fight_ms, ..enemy };
+    let facing = |foes: Foes| Scene {
+        foes,
+        ..opening(1000)
+    };
+    let companion = Scene {
+        companion: true,
+        ..enemy
+    };
+    let at = |target: Target| Scene {
+        target: Some(target),
+        ..enemy
+    };
+    let hurt = |health: f32| Scene {
+        lowest_ally_health: health,
+        ..enemy
+    };
+    let hurt_self = |health: f32, own_droid: bool| Scene {
+        own_health: health,
+        lowest_ally_health: health,
+        own_droid,
+        ..enemy
+    };
+    let rows: Vec<(&str, Option_, Scene, Expect)> = vec![
+        (
+            "grenade, one target",
+            offer(Choice::Grenade(FRAG)),
+            enemy,
+            Zero,
+        ),
+        (
+            "grenade, two targets, ally near",
+            offer(Choice::Grenade(FRAG)),
+            at(Target {
+                allies_near: 1,
+                ..pair
+            }),
+            Zero,
+        ),
+        (
+            "grenade, two targets, calm, companion",
+            offer(Choice::Grenade(FRAG)),
+            Scene {
+                target: Some(pair),
+                ..companion
+            },
+            Zero,
+        ),
+        (
+            "grenade, two targets, intense, companion",
+            offer(Choice::Grenade(FRAG)),
+            Scene {
+                target: Some(pair),
+                intense: true,
+                ..companion
+            },
+            Scores,
+        ),
+        (
+            "grenade, two targets, calm, enemy",
+            offer(Choice::Grenade(FRAG)),
+            at(pair),
+            Scores,
+        ),
+        (
+            "storm, one target",
+            offer(Choice::Power(STORM)),
+            enemy,
+            Zero,
+        ),
+        (
+            "storm, two targets",
+            offer(Choice::Power(STORM)),
+            at(pair),
+            Scores,
+        ),
+        (
+            "stun on a stunned target",
+            offer(Choice::Power(STUN)),
+            at(Target {
+                disabled: true,
+                ..foe
+            }),
+            Zero,
+        ),
+        (
+            "stun on a standing target",
+            offer(Choice::Power(STUN)),
+            enemy,
+            Scores,
+        ),
+        (
+            "stun on a droid",
+            offer(Choice::Power(STUN)),
+            at(Target { droid: true, ..foe }),
+            Zero,
+        ),
+        (
+            "droid stun on a living target",
+            offer(Choice::Power(DROID_STUN)),
+            enemy,
+            Zero,
+        ),
+        (
+            "droid stun on a droid",
+            offer(Choice::Power(DROID_STUN)),
+            at(Target { droid: true, ..foe }),
+            Scores,
+        ),
+        (
+            "Droid Destroy style damage, droids only, living target",
+            offer(Choice::Power(ION_BLAST)),
+            enemy,
+            Zero,
+        ),
+        (
+            "Droid Destroy style damage, droids only, droid target, out of reach",
+            offer(Choice::Power(ION_BLAST)),
+            at(Target { droid: true, ..foe }),
+            Scores,
+        ),
+        (
+            "area damage, droids only, living cluster",
+            offer(Choice::Power(DROID_DESTROY)),
+            at(pair),
+            Zero,
+        ),
+        (
+            "lightning, target in reach",
+            offer(Choice::Power(LIGHTNING)),
+            at(Target {
+                in_reach: true,
+                ..foe
+            }),
+            Zero,
+        ),
+        (
+            "lightning, target out of reach",
+            offer(Choice::Power(LIGHTNING)),
+            enemy,
+            Scores,
+        ),
+        (
+            "lightning, staggered target in reach",
+            offer(Choice::Power(LIGHTNING)),
+            at(Target {
+                in_reach: true,
+                staggered: true,
+                ..foe
+            }),
+            Scores,
+        ),
+        (
+            "lightning, no target",
+            offer(Choice::Power(LIGHTNING)),
+            Scene {
+                target: None,
+                ..enemy
+            },
+            Zero,
+        ),
+        (
+            "heal, ally at 0.6",
+            offer(Choice::Power(HEAL)),
+            hurt(0.6),
+            Zero,
+        ),
+        (
+            "heal, ally at 0.45",
+            offer(Choice::Power(HEAL)),
+            hurt(0.45),
+            Scores,
+        ),
+        (
+            "heal, ally at 0.2",
+            offer(Choice::Power(HEAL)),
+            hurt(0.2),
+            Scores,
+        ),
+        (
+            "heal power, own health 0.9, ally at 0.2",
+            offer(Choice::Power(HEAL)),
+            Scene {
+                own_health: 0.9,
+                ..hurt(0.2)
+            },
+            Scores,
+        ),
+        (
+            "medpac, enemy, own health 0.9, ally at 0.2",
+            offer(Choice::Item(MEDPAC)),
+            Scene {
+                own_health: 0.9,
+                ..hurt(0.2)
+            },
+            Zero,
+        ),
+        (
+            "repair kit on a living character",
+            offer(Choice::Item(REPAIR_KIT)),
+            hurt_self(0.2, false),
+            Zero,
+        ),
+        (
+            "repair kit on a hurt droid",
+            offer(Choice::Item(REPAIR_KIT)),
+            hurt_self(0.2, true),
+            Scores,
+        ),
+        (
+            "medpac on a hurt droid",
+            offer(Choice::Item(MEDPAC)),
+            hurt_self(0.2, true),
+            Zero,
+        ),
+        // Revitalize is offered only when a member of the party has fallen,
+        // so it scores as a heal for a character with no hit points.
+        (
+            "revitalize, everyone at full health",
+            offer(Choice::Power(REVITALIZE)),
+            enemy,
+            Scores,
+        ),
+        (
+            "heal, ally at 0.2, no target",
+            offer(Choice::Power(HEAL)),
+            Scene {
+                target: None,
+                ..hurt(0.2)
+            },
+            Scores,
+        ),
+        // Force Aura's reason is always true. It keeps the opening's rule.
+        (
+            "buff at 6000 ms",
+            offer(Choice::Power(AURA)),
+            opening(6000),
+            Zero,
+        ),
+        (
+            "buff already running",
+            running(Choice::Power(AURA)),
+            opening(1000),
+            Zero,
+        ),
+        (
+            "buff at 1000 ms, no target",
+            offer(Choice::Power(AURA)),
+            Scene {
+                target: None,
+                ..opening(1000)
+            },
+            Scores,
+        ),
+        // A row from a mod that the reasons do not list behaves as Force
+        // Aura does.
+        (
+            "unlisted buff at 1000 ms",
+            unlisted_buff,
+            opening(1000),
+            Scores,
+        ),
+        (
+            "unlisted buff at 6000 ms",
+            unlisted_buff,
+            opening(6000),
+            Zero,
+        ),
+        // Each reason, true and false, in the opening.
+        (
+            "energy resistance, an enemy with energy damage",
+            offer(Choice::Power(RESIST_ENERGY)),
+            facing(Foes {
+                energy: true,
+                ..Foes::default()
+            }),
+            Scores,
+        ),
+        (
+            "energy resistance, no enemy with energy damage",
+            offer(Choice::Power(RESIST_ENERGY)),
+            facing(Foes {
+                physical: true,
+                force: true,
+                ..Foes::default()
+            }),
+            Zero,
+        ),
+        (
+            "energy resistance, an enemy with energy damage, at 6000 ms",
+            offer(Choice::Power(RESIST_ENERGY)),
+            Scene {
+                foes: Foes {
+                    energy: true,
+                    ..Foes::default()
+                },
+                ..opening(6000)
+            },
+            Zero,
+        ),
+        (
+            "barrier, an enemy with physical damage",
+            offer(Choice::Power(BARRIER)),
+            facing(Foes {
+                physical: true,
+                ..Foes::default()
+            }),
+            Scores,
+        ),
+        (
+            "barrier, no enemy with physical damage",
+            offer(Choice::Power(BARRIER)),
+            facing(Foes {
+                energy: true,
+                force: true,
+                ..Foes::default()
+            }),
+            Zero,
+        ),
+        (
+            "resist force, an enemy with Force powers",
+            offer(Choice::Power(RESIST_FORCE)),
+            facing(Foes {
+                force: true,
+                ..Foes::default()
+            }),
+            Scores,
+        ),
+        (
+            "resist force, no enemy with Force powers",
+            offer(Choice::Power(RESIST_FORCE)),
+            facing(Foes {
+                energy: true,
+                physical: true,
+                ..Foes::default()
+            }),
+            Zero,
+        ),
+        (
+            "speed, holding a blade",
+            offer(Choice::Power(SPEED)),
+            Scene {
+                own_blade: true,
+                ..opening(1000)
+            },
+            Scores,
+        ),
+        (
+            "speed, holding a blaster",
+            offer(Choice::Power(SPEED)),
+            opening(1000),
+            Zero,
+        ),
+        // Valor's reason is an intense fight. It may be cast at any time
+        // while the fight is intense.
+        (
+            "valor, intense, opening",
+            offer(Choice::Power(VALOR)),
+            Scene {
+                intense: true,
+                ..opening(1000)
+            },
+            Scores,
+        ),
+        (
+            "valor, calm, opening",
+            offer(Choice::Power(VALOR)),
+            opening(1000),
+            Zero,
+        ),
+        (
+            "valor, intense, after the opening",
+            offer(Choice::Power(VALOR)),
+            Scene {
+                intense: true,
+                ..enemy
+            },
+            Scores,
+        ),
+        (
+            "valor, calm, after the opening",
+            offer(Choice::Power(VALOR)),
+            enemy,
+            Zero,
+        ),
+        // After the opening, an intense buff is offered only while no
+        // intense buff runs on the character, such as Valor.
+        (
+            "battle meditation, intense, after the opening, valor running",
+            offer(Choice::Power(BATTLE_MEDITATION)),
+            Scene {
+                intense: true,
+                intense_buff: true,
+                ..enemy
+            },
+            Zero,
+        ),
+        (
+            "battle meditation, intense, after the opening, no intense buff running",
+            offer(Choice::Power(BATTLE_MEDITATION)),
+            Scene {
+                intense: true,
+                ..enemy
+            },
+            Scores,
+        ),
+        (
+            "battle meditation, intense, opening, valor running",
+            offer(Choice::Power(BATTLE_MEDITATION)),
+            Scene {
+                intense: true,
+                intense_buff: true,
+                ..opening(1000)
+            },
+            Scores,
+        ),
+        (
+            "valor, intense, already running",
+            running(Choice::Power(VALOR)),
+            Scene {
+                intense: true,
+                ..enemy
+            },
+            Zero,
+        ),
+        (
+            "medpac, companion, ally at 0.1",
+            offer(Choice::Item(MEDPAC)),
+            Scene {
+                own_health: 0.1,
+                lowest_ally_health: 0.1,
+                ..companion
+            },
+            Zero,
+        ),
+        (
+            "stim, companion, intense, opening",
+            offer(Choice::Item(STIM)),
+            Scene {
+                fight_ms: 1000,
+                intense: true,
+                ..companion
+            },
+            Zero,
+        ),
+        (
+            "medpac, enemy, own health 0.2",
+            offer(Choice::Item(MEDPAC)),
+            Scene {
+                own_health: 0.2,
+                lowest_ally_health: 0.2,
+                ..enemy
+            },
+            Scores,
+        ),
+    ];
+    let threshold = rules::ai::choices::THRESHOLD;
+    for (name, option, scene, expect) in &rows {
+        let found = score(option, scene);
+        let passes = match expect {
+            Scores => found >= threshold,
+            Zero => found == 0.0,
+        };
+        assert!(passes, "{name}: expected {expect:?}, scored {found}");
+    }
+    let heal = offer(Choice::Power(HEAL));
+    assert!(
+        score(&heal, &hurt(0.2)) > score(&heal, &hurt(0.45)),
+        "a heal scores higher the lower the ally's health is"
+    );
+    assert_eq!(choose(&[], &enemy, 0.0), None, "no options");
+    let tie = [offer(Choice::Power(LIGHTNING)), offer(Choice::Power(STUN))];
+    let stun_or_heal = [offer(Choice::Power(STUN)), heal];
+    let picks = [
+        (
+            "a tie, pick 0.0",
+            &tie[..],
+            enemy,
+            0.0,
+            Choice::Power(LIGHTNING),
+        ),
+        (
+            "a tie, pick 0.999",
+            &tie[..],
+            enemy,
+            0.999,
+            Choice::Power(STUN),
+        ),
+        (
+            "a heal before a stun, pick 0.0",
+            &stun_or_heal[..],
+            hurt(0.4),
+            0.0,
+            Choice::Power(HEAL),
+        ),
+        (
+            "a heal before a stun, pick 0.999",
+            &stun_or_heal[..],
+            hurt(0.4),
+            0.999,
+            Choice::Power(HEAL),
+        ),
+    ];
+    for (name, options, scene, pick, expected) in picks {
+        assert_eq!(choose(options, &scene, pick), Some(expected), "{name}");
+    }
+    let kinds = [
+        (
+            "a listed row wins over the flag",
+            STUN,
+            Some(true),
+            Some((Kind::Disable, false)),
+        ),
+        (
+            "a listed droids-only row",
+            DROID_STUN,
+            Some(false),
+            Some((Kind::Disable, true)),
+        ),
+        (
+            "an unlisted hostile row",
+            UNLISTED,
+            Some(true),
+            Some((Kind::Damage, false)),
+        ),
+        (
+            "an unlisted friendly row",
+            UNLISTED,
+            Some(false),
+            Some((Kind::Buff, false)),
+        ),
+        ("an unlisted row without facts", UNLISTED, None, None),
+        // A row of the games' own that no kind lists is never a choice,
+        // whatever its talent facts say.
+        (
+            "affect mind, a named row in no kind list, friendly",
+            AFFECT_MIND,
+            Some(false),
+            None,
+        ),
+        (
+            "affect mind, a named row in no kind list, hostile",
+            AFFECT_MIND,
+            Some(true),
+            None,
+        ),
+        // The games' own rows that the engine does not name and the
+        // rulebook never lets a character choose (`ai.choices.kinds.never`).
+        ("force camouflage, friendly", CAMOUFLAGE, Some(false), None),
+        (
+            "battle precognition, friendly",
+            BATTLE_PRECOGNITION,
+            Some(false),
+            None,
+        ),
+        (
+            "breath control, friendly",
+            BREATH_CONTROL,
+            Some(false),
+            None,
+        ),
+    ];
+    for (name, row, hostile, expected) in kinds {
+        assert_eq!(kind_of(row, hostile), expected, "{name}");
+    }
+}
+
+/// The wait after a choice stays inside its tier's least and most for the
+/// lowest and the highest `pick`.
+#[test]
+fn choice_waits() {
+    use rules::ai::choices::wait_ms::{BOSS, ORDINARY, SKILLED};
+    use sim::combat::pace::Tier;
+    for (tier, [least, most]) in [
+        (Tier::Ordinary, ORDINARY),
+        (Tier::Skilled, SKILLED),
+        (Tier::Boss, BOSS),
+    ] {
+        for pick in [0.0, 0.999] {
+            let wait = sim::combat::choose::wait_ms(tier, pick);
+            assert!(
+                (least..=most).contains(&wait),
+                "{tier:?} at pick {pick} waits {wait} ms, outside {least} to {most}"
+            );
+        }
+    }
+}
+
+/// The feat line the combat AI takes against its target
+/// (`sim::combat::choose::feat_line`, `ai.choices.feats`). Each row is one
+/// case. A fighter takes Flurry against a staggered or tired target, Power
+/// Attack against a target that blocks, and Critical Strike otherwise. A
+/// fighter that does not know the preferred line takes the next line whose
+/// reason holds. A gunner takes Rapid Shot against a close or charging
+/// target, Sniper Shot against a far target that stands still, and Power
+/// Blast against a target that does not block. A gunner with no line whose
+/// reason holds falls back on Power Blast, or else on the first other line
+/// it knows (changed 2026-11-21). A gunner fires the special of its line in
+/// use when that line's reason holds or when it is the line it falls back
+/// on. A changed line is kept for exactly the hold. (proposed 2026-11-20,
+/// awaiting approval)
+#[test]
+fn choice_feats() {
+    use rules::ai::choices::feats::{CLOSE_M, FAR_M, HOLD_MS};
+    use sim::combat::bar::FeatLine::{self, *};
+    use sim::combat::choose::{FeatSight, FeatWhy, feat_kept, feat_line, fire_reason};
+    let mid = (CLOSE_M + FAR_M) / 2.0;
+    let plain = FeatSight {
+        distance_m: mid,
+        ..FeatSight::default()
+    };
+    let all: &[FeatLine] = &FeatLine::ALL;
+    let no_flurry: &[FeatLine] = &[PowerAttack, CriticalStrike];
+    let blast_only: &[FeatLine] = &[PowerBlast];
+    let blast_and_rapid: &[FeatLine] = &[PowerBlast, RapidShot];
+    let blocking = FeatSight {
+        blocks: true,
+        ..plain
+    };
+    // A case's name, what the character sees, whether it holds a gun, the
+    // lines it knows, and the line and reason it takes.
+    type Case<'a> = (
+        &'a str,
+        FeatSight,
+        bool,
+        &'a [FeatLine],
+        Option<(FeatLine, FeatWhy)>,
+    );
+    let cases: [Case; 14] = [
+        (
+            "plain melee",
+            plain,
+            false,
+            all,
+            Some((CriticalStrike, FeatWhy::Plain)),
+        ),
+        (
+            "staggered",
+            FeatSight {
+                staggered: true,
+                blocks: true,
+                ..plain
+            },
+            false,
+            all,
+            Some((Flurry, FeatWhy::Staggered)),
+        ),
+        (
+            "tired",
+            FeatSight {
+                tired: true,
+                ..plain
+            },
+            false,
+            all,
+            Some((Flurry, FeatWhy::Tired)),
+        ),
+        (
+            "blocks",
+            FeatSight {
+                blocks: true,
+                ..plain
+            },
+            false,
+            all,
+            Some((PowerAttack, FeatWhy::Blocks)),
+        ),
+        (
+            "staggered blocker without Flurry",
+            FeatSight {
+                staggered: true,
+                blocks: true,
+                ..plain
+            },
+            false,
+            no_flurry,
+            Some((PowerAttack, FeatWhy::Blocks)),
+        ),
+        ("no melee line", plain, false, &[], None),
+        (
+            "close",
+            FeatSight {
+                distance_m: CLOSE_M,
+                ..plain
+            },
+            true,
+            all,
+            Some((RapidShot, FeatWhy::Close)),
+        ),
+        (
+            "charging",
+            FeatSight {
+                charging: true,
+                distance_m: FAR_M,
+                still: true,
+                ..plain
+            },
+            true,
+            all,
+            Some((RapidShot, FeatWhy::Charging)),
+        ),
+        (
+            "far and still",
+            FeatSight {
+                distance_m: FAR_M,
+                still: true,
+                ..plain
+            },
+            true,
+            all,
+            Some((SniperShot, FeatWhy::FarAndStill)),
+        ),
+        (
+            "not blocking",
+            plain,
+            true,
+            all,
+            Some((PowerBlast, FeatWhy::NotBlocking)),
+        ),
+        (
+            "blocking at middle distance",
+            blocking,
+            true,
+            blast_only,
+            Some((PowerBlast, FeatWhy::Plain)),
+        ),
+        (
+            "blocking, Rapid Shot known but not close",
+            blocking,
+            true,
+            blast_and_rapid,
+            Some((PowerBlast, FeatWhy::Plain)),
+        ),
+        (
+            "far but moving",
+            FeatSight {
+                distance_m: FAR_M,
+                ..plain
+            },
+            true,
+            &[SniperShot],
+            Some((SniperShot, FeatWhy::Plain)),
+        ),
+        ("no gun line", plain, true, &[], None),
+    ];
+    for (name, sight, gun, known, expected) in cases {
+        let got = feat_line(&sight, gun, |line| known.contains(&line));
+        assert_eq!(got, expected, "{name}");
+    }
+    let close_blocker = FeatSight {
+        distance_m: CLOSE_M,
+        ..blocking
+    };
+    // A case's name, the line in use, what the gunner sees, the lines it
+    // knows, and why it fires.
+    type Fire<'a> = (
+        &'a str,
+        FeatLine,
+        FeatSight,
+        &'a [FeatLine],
+        Option<FeatWhy>,
+    );
+    let fires: [Fire; 4] = [
+        (
+            "its own reason",
+            PowerBlast,
+            plain,
+            blast_and_rapid,
+            Some(FeatWhy::NotBlocking),
+        ),
+        (
+            "the fallback",
+            PowerBlast,
+            blocking,
+            blast_and_rapid,
+            Some(FeatWhy::Plain),
+        ),
+        (
+            "a better line has a reason",
+            PowerBlast,
+            close_blocker,
+            blast_and_rapid,
+            None,
+        ),
+        (
+            "not the fallback",
+            RapidShot,
+            blocking,
+            blast_and_rapid,
+            None,
+        ),
+    ];
+    for (name, line, sight, known, expected) in fires {
+        let got = fire_reason(line, &sight, |line| known.contains(&line));
+        assert_eq!(got, expected, "fires: {name}");
+    }
+    let changed = 1_000;
+    for (now, changed_at, expected) in [
+        (changed + HOLD_MS - 1, changed, true),
+        (changed + HOLD_MS, changed, false),
+        (changed, 0, false),
+    ] {
+        assert_eq!(
+            feat_kept(now, changed_at),
+            expected,
+            "at {now} ms after a change at {changed_at}"
+        );
+    }
+}
+
+/// The feat line the combat AI sets on a weapon (`kjk sim probes --only
+/// "feat steering"`, `sim::combat::picks::Picks::steer`). The AI sets the line
+/// of two blades, a staff and a pistol. It does not set a line the
+/// character does not know, a pistol's line already in use, or a line on a
+/// single blade, whose style is its line. It never changes a line the
+/// player picked with the next-feat key or the action bar, also when the
+/// player clicked the line already in use (added 2026-11-21). Its own
+/// choice leaves no mark, so
+/// it may change the line again. The player's mark comes back from its
+/// bytes, and old bytes read no mark. (proposed 2026-11-20, awaiting
+/// approval)
+#[test]
+fn choice_feat_picks() {
+    probed("feat steering", &sim::picks_probes::steer_probes(), 1);
+}
+
+/// The feat line a fighter chooses itself in a fight (`kjk sim probes
+/// --only "feat choices"`). An enemy with a single lightsaber fights in the
+/// strong style against a lit lightsaber, in the fast style against a tired
+/// target, and in the medium style otherwise. It keeps the fast style for 6
+/// seconds after its target stops being tired. A style it chooses while it
+/// chains its swings applies as a new swing begins, within 2.5 seconds, and
+/// never in the middle of a swing. A companion with two lightsabers takes
+/// Flurry against a tired enemy, and keeps a line the player picked. An
+/// enemy with two lightsabers and an enemy with a pistol change no line
+/// for 6 seconds after a change. An enemy with a pistol takes Rapid Shot
+/// against a close target and fires it. An enemy that knows only Power
+/// Blast fires it at a creature with a lit lightsaber. (proposed
+/// 2026-11-20, awaiting approval)
+#[test]
+fn feat_choices() {
+    probed("feat choices", &sim::feat_choice_probes::probes(), 11);
+}
+
+/// Whether a fight is intense for the party (`sim::combat::choose`), how
+/// long it stays intense, and how many items of a kind a companion keeps.
+/// An enemy finds an intense fight with the sides swapped, and casts an
+/// intense-fight buff only then (staged cases added 2026-11-19, awaiting
+/// approval).
+#[test]
+fn intense_fights() {
+    use rules::ai::choices::{INTENSE_HOLD_MS, KEEP_ITEMS};
+    use sim::combat::choose::{Member, held_until, intense, intense_now, may_spend};
+    let at = |level: u8, health: f32, boss: bool| Member {
+        level,
+        health,
+        boss,
+    };
+    let many = |count: usize, level: u8| vec![at(level, 1.0, false); count];
+    let boss = |level: u8| vec![at(level, 1.0, true)];
+    let hurt_party = |health: f32| vec![at(10, 1.0, false), at(10, health, false)];
+    let cases: [(&str, Vec<Member>, Vec<Member>, bool); 7] = [
+        ("weaker hostiles", many(3, 10), many(2, 5), false),
+        ("equal strength", many(3, 10), many(3, 10), true),
+        ("a boss counts double", many(3, 10), boss(15), true),
+        ("four hostiles", many(3, 10), many(4, 1), true),
+        ("a member below 40%", hurt_party(0.39), many(1, 1), true),
+        ("a member at 40%", hurt_party(0.40), many(1, 1), false),
+        ("no hostiles", hurt_party(0.1), Vec::new(), false),
+    ];
+    for (name, party, hostiles, expected) in &cases {
+        assert_eq!(intense_now(party, hostiles), *expected, "{name}");
+    }
+
+    // A fight that goes calm and intense again within the hold stays
+    // intense the whole time. It is calm exactly the hold after the last
+    // intense look.
+    let looks: [(u64, bool); 4] = [(0, true), (4_000, false), (8_000, true), (12_000, false)];
+    let mut until = 0;
+    for (now, intense_look) in looks {
+        if intense_look {
+            until = held_until(now);
+        }
+        assert!(intense(now, until), "calm at {now} ms");
+    }
+    let last = 8_000;
+    assert!(intense(last + INTENSE_HOLD_MS - 1, until));
+    assert!(!intense(last + INTENSE_HOLD_MS, until));
+    assert!(!intense(0, 0), "a fresh mind is calm");
+
+    for (left, expected) in [(KEEP_ITEMS, false), (KEEP_ITEMS + 1, true), (0, false)] {
+        assert_eq!(may_spend(left), expected, "{left} left");
+    }
+    probed("mind snapshot", &sim::combat::ai::probes(), 1);
+    // An enemy finds an intense fight with the sides swapped. A Dark Jedi
+    // who knows Force Valor casts it alone against the player and two
+    // companions, and not with three allies against the player alone.
+    probed(
+        "enemy intense fights",
+        &sim::enemy_choice_probes::intense_probes(),
+        2,
+    );
 }
 
 /// An item that the game's data says is equipped and activated works as
