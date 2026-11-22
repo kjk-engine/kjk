@@ -82,6 +82,7 @@ const PROBES: &[Probe] = &[
     ("talk_end_clears_video", talk_end_clears_video),
     ("load_clears_video", load_clears_video),
     ("load_plays_music_as_placed", load_plays_music_as_placed),
+    ("load_fades_in", load_fades_in),
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
@@ -124,6 +125,7 @@ const PROBES: &[Probe] = &[
     ("wait_voice_holds", wait_voice_holds),
     ("wait_fade_holds", wait_fade_holds),
     ("next_node_clears_fade", next_node_clears_fade),
+    ("empty_talk_lifts_held_fade", empty_talk_lifts_held_fade),
     ("wait_camera_clip_holds", wait_camera_clip_holds),
     ("cut_clip_outlasts_voice", cut_clip_outlasts_voice),
     ("carried_camera_clip_holds", carried_camera_clip_holds),
@@ -3227,6 +3229,29 @@ fn load_plays_music_as_placed() -> Found {
     )
 }
 
+/// A loaded game's area fades in (`Save::world`). A save made on a black
+/// screen, the module's fade in held for a conversation that never came,
+/// loads showing the area within `LIFT_MS` (issue 645).
+fn load_fades_in() -> Found {
+    use crate::snapshot::{Fade, LIFT_MS, WorldFadeIn};
+    let mut ground = Ground::new(1)?;
+    {
+        let mut module = ground.world.world.resource_mut::<super::super::Module>();
+        module.fade = Some(Fade::level_load(ground.last.time_ms));
+        module.world_fade_in = WorldFadeIn::AtDialog;
+    }
+    ground.idle(u64::from(LIFT_MS));
+    let covered = |last: &Snapshot| last.fade.map_or(0.0, |fade| fade.alpha(last.time_ms));
+    let before = covered(&ground.last);
+    let mut loaded = ground.reloaded()?;
+    loaded.idle(u64::from(LIFT_MS));
+    let after = (covered(&loaded.last), loaded.last.world_fade_in);
+    check(
+        before == 1.0 && after == (0.0, WorldFadeIn::Done),
+        format!("covered {before} before the load, {after:?} after it"),
+    )
+}
+
 /// A loaded game shows no video effect (`Save::world`): one a script enabled
 /// outside any conversation stays on while the run goes on, as Peragus's
 /// security cameras have it, and is gone once a save of that moment loads.
@@ -4366,6 +4391,45 @@ fn next_node_clears_fade() -> Found {
     };
     let got = [covered(0)?, covered(NodeFade::IN)?];
     check(got == [0.0, 1.0], format!("covered {got:?}"))
+}
+
+/// S5: a conversation with no entry to start from still lets go of the
+/// module's fade in held for a conversation (`HoldWorldFadeInForDialog`),
+/// and the area fades in, as both games do. The Ebon Hawk's vision talk
+/// after the last Star Map is such a conversation (issue 645). Without the
+/// hold, the covering fade stays.
+fn empty_talk_lifts_held_fade() -> Found {
+    use crate::snapshot::{Fade, LIFT_MS, WorldFadeIn};
+    let covered_after = |held: bool| {
+        let mut talk = crate::script::dialogue_probes::talking(2, "");
+        talk.starts.clear();
+        let mut ground = Ground::staged(
+            1,
+            Stage {
+                talk,
+                ..Stage::default()
+            },
+        )?;
+        {
+            let mut module = ground.world.world.resource_mut::<super::super::Module>();
+            module.fade = Some(Fade::level_load(ground.last.time_ms));
+            module.world_fade_in = if held {
+                WorldFadeIn::AtDialog
+            } else {
+                WorldFadeIn::Done
+            };
+        }
+        ground.run_script("probe_begin", TALKER)?;
+        ground.idle(u64::from(LIFT_MS));
+        let last = &ground.last;
+        let fade = last.fade.ok_or("no fade")?;
+        Ok::<_, String>((fade.alpha(last.time_ms), last.world_fade_in))
+    };
+    let got = [covered_after(true)?, covered_after(false)?];
+    check(
+        got == [(0.0, WorldFadeIn::Done), (1.0, WorldFadeIn::Done)],
+        format!("covered after the conversation {got:?}"),
+    )
 }
 
 /// S5: wait flag 1 holds a line for its camera model's clip, its own timer

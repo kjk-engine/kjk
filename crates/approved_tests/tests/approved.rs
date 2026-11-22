@@ -4608,10 +4608,13 @@ fn dialogue_coop() {
 /// The check that a door a script closes waits for a body walking through
 /// its doorway but shuts on one standing still there
 /// (`door_shuts_on_one_standing`, the apartment door on Citadel Station)
-/// awaits approval.
+/// awaits approval. The checks that a conversation with no entry to start
+/// from lets go of the module's fade in held for one
+/// (`empty_talk_lifts_held_fade`), and that a loaded game's area fades in
+/// (`load_fades_in`), both issue 645, await approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 78);
+    probed("scene", &sim::scene_probes::all(), 80);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,

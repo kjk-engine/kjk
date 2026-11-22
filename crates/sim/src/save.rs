@@ -383,7 +383,8 @@ impl Save {
     /// fell, I30 P13). The menu's load and the reload both make it here.
     /// No container is held open in it (`containers::let_go`), no video
     /// effect shows, and the area's music plays as placed
-    /// (`AreaSound::play_as_placed`). The save's set numbers are fitted to
+    /// (`AreaSound::play_as_placed`), and its area fades in
+    /// (`Snapshot::fade_in_as_loaded`). The save's set numbers are fitted to
     /// the stance sets `level` has (`fit`), and the world names the sets
     /// that are gone (`SimWorld::stances_gone`).
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
@@ -428,6 +429,7 @@ impl Save {
         // music and the ambience play again and the battle music is off,
         // even when a script had started it (issue 322).
         snapshot.area_sound.play_as_placed();
+        snapshot.fade_in_as_loaded();
         crate::containers::let_go(&mut snapshot, &level);
         if let Some(tick) = tick {
             snapshot.tick = tick;
