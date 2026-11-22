@@ -15,6 +15,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use sim::SimId;
 
@@ -41,6 +42,8 @@ pub struct ShellMaterial {
     #[texture(1)]
     #[sampler(2)]
     pub texture: Option<Handle<Image>>,
+    #[storage(3, read_only, visibility(vertex))]
+    pub sway: Handle<ShaderBuffer>,
 }
 
 impl Material for ShellMaterial {
@@ -67,9 +70,12 @@ impl Material for ShellMaterial {
     fn specialize(
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
+        layout: &MeshVertexBufferLayoutRef,
         _key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        if crate::dangly::slot_attribute(descriptor, layout)? {
+            descriptor.vertex.shader_defs.push("DANGLY".into());
+        }
         // As the Odyssey material: both sides, no depth writes over the
         // model it covers.
         descriptor.primitive.cull_mode = None;

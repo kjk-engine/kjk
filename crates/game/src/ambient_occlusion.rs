@@ -57,7 +57,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::camera::MainPassResolutionOverride;
-use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 use bevy::core_pipeline::{Core3d, Core3dSystems};
 use bevy::pbr::{
     ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel, SsaoBindGroups,
@@ -81,6 +80,7 @@ use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 use bevy::shader::ShaderDefVal;
 
 use crate::lifecycle_view::SceneCamera;
+use crate::prepasses::{DeclarePrepassNeeds, DerivedPrepasses, Need, PrepassNeeds};
 use crate::rolloff::LightingMode;
 use crate::temporal::Temporal;
 
@@ -216,7 +216,12 @@ impl Plugin for AmbientOcclusionPlugin {
         app.init_resource::<AmbientOcclusion>()
             .init_resource::<Supported>()
             .insert_resource(ran.clone())
-            .add_systems(Last, (mark, facts).chain().after(crate::temporal::Applied));
+            .add_systems(
+                Last,
+                (mark.in_set(DeclarePrepassNeeds), facts)
+                    .chain()
+                    .after(crate::temporal::Applied),
+            );
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
@@ -272,46 +277,39 @@ fn why_not(
     }
 }
 
-/// The scene camera carries Bevy's `ScreenSpaceAmbientOcclusion`, and with
-/// it the normal prepass, while the pass is wanted, and neither otherwise.
-/// Only a camera drawing the world (one with the depth prepass `temporal`
-/// gives it) and without multisampling takes it. The camera is changed
-/// only when this changes.
 #[allow(clippy::type_complexity)]
 fn mark(
     setting: Res<AmbientOcclusion>,
     lighting: Option<Res<LightingMode>>,
     temporal: Res<Temporal>,
     supported: Res<Supported>,
+    mut needs: ResMut<PrepassNeeds>,
     cameras: Query<
-        (
-            Entity,
-            &Msaa,
-            Has<DepthPrepass>,
-            Has<ScreenSpaceAmbientOcclusion>,
-        ),
-        SceneCamera,
+        (Entity, &Msaa, Has<ScreenSpaceAmbientOcclusion>),
+        (SceneCamera, With<DerivedPrepasses>),
     >,
     mut commands: Commands,
 ) {
     let lighting = lighting.map_or_else(LightingMode::default, |lighting| *lighting);
     let wanted = why_not(*setting, lighting, &temporal, supported.0).is_none();
-    for (camera, msaa, depth, has) in &cameras {
-        let on = wanted && depth && *msaa == Msaa::Off;
+    for (camera, msaa, has) in &cameras {
+        let on = wanted && *msaa == Msaa::Off;
+        if on {
+            needs.declare("ambient occlusion", Need::AMBIENT_OCCLUSION);
+        }
         // A camera may be gone by the time this is applied.
         if on && !has {
-            commands.entity(camera).try_insert((
-                ScreenSpaceAmbientOcclusion {
+            commands
+                .entity(camera)
+                .try_insert(ScreenSpaceAmbientOcclusion {
                     quality_level: QUALITY,
                     constant_object_thickness: THICKNESS,
-                },
-                NormalPrepass,
-            ));
+                });
         }
         if !on && has {
             commands
                 .entity(camera)
-                .try_remove::<(ScreenSpaceAmbientOcclusion, NormalPrepass)>();
+                .try_remove::<ScreenSpaceAmbientOcclusion>();
         }
     }
 }

@@ -5,6 +5,7 @@
 //! Not a KOTOR save: original save games are out of scope (`ROADMAP.md`).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::install::{InstallError, Restamp};
 use crate::reconcile::{Held, Party, reconcile};
@@ -214,7 +215,17 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// and each saber's late swing. Old saves: a save's own sections are unchanged,
 /// and the snapshot it holds is read by the snapshot's own version, so an old
 /// save loads.
-pub const VERSION: u32 = 90 + crate::pending::SAVE;
+/// 91: a script's applied effect keeps the save its target failed against its
+/// creator (`Applied::save`). Old saves: old saves read no failed save, so a
+/// hold applied in the step before the save rolls against its creator's power
+/// DC.
+/// 92: a script's applied effect keeps whether a mine that a character laid
+/// applied it (`Applied::laid`). Old saves: old saves read no laid mine, so an
+/// effect applied in the step before the save keeps its old meaning.
+/// 93: Effect::Resurrection carries its nHPPercent (tag 19 when non-zero; tag
+/// 12 stays 0). Old saves: old saves carry tag 12 for Effect::Resurrection(0);
+/// tag 19 adds the health percentage..
+pub const VERSION: u32 = 93 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -395,7 +406,7 @@ impl Save {
             };
             let held = Held {
                 entities: &mut snapshot.entities,
-                spawned: &mut snapshot.spawned,
+                spawned: Arc::make_mut(&mut snapshot.spawned),
                 roster: &mut snapshot.roster,
                 next_id: &mut snapshot.next_id,
                 snap: restamp.is_some(),

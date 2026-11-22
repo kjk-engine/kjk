@@ -391,6 +391,7 @@ fn leave(
         at: bag.at,
         yaw: bag.yaw,
         kept: None,
+        reach: crate::install::JUMP,
     });
 }
 

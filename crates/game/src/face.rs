@@ -13,6 +13,7 @@ use asset_odyssey::anim::AnimationIr;
 use bevy::prelude::*;
 
 use crate::scene::Animator;
+use crate::transforms::Transforms;
 use crate::viewer::Placed;
 
 /// The model hung on body `body` (scene index) with a place of its own:
@@ -86,9 +87,9 @@ impl Face {
 
     /// The face as it is under no clip of the body's: its standing clip
     /// (`alive`) or its dead one looped on the clock (`ms`), else its rest.
-    pub(crate) fn stand(&self, (ms, alive): (f64, bool), transforms: &mut Query<&mut Transform>) {
+    pub(crate) fn stand(&self, (ms, alive): (f64, bool), transforms: &mut impl Transforms) {
         for &(entity, translation, rotation) in &self.rest {
-            if let Ok(mut t) = transforms.get_mut(entity) {
+            if let Some(t) = transforms.write(entity) {
                 t.translation = translation;
                 t.rotation = rotation;
             }
@@ -106,7 +107,7 @@ impl Face {
         &self,
         shown: &Animator,
         (seconds, weight): (f32, f32),
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut impl Transforms,
     ) {
         if let Some(clip) = self
             .clips

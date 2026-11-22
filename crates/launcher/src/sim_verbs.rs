@@ -221,19 +221,47 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
     // A recording made in a module replays in it, and in each module it
     // went to, planned here from its announcement.
     let mut installers = Installers::default();
-    let level = match installers.level_named(
-        discovery,
-        &recording.level,
-        recording.start.place.as_ref(),
-        recording.start.seats(),
-    ) {
-        Ok(level) => level,
-        Err(error) => {
-            eprintln!("{}: refused: {error}", file.display());
+    let staged = std::env::var("KJK_REPLAY_STAGE").ok().map(|name| {
+        let hostile: Vec<String> = std::env::var("KJK_REPLAY_HOSTILE")
+            .map(|h| h.split(',').filter(|s| !s.is_empty()).map(String::from).collect())
+            .unwrap_or(Vec::new());
+        let anims = std::sync::Arc::new(kjk_game::stage::anims(discovery).0);
+        let players = recording.start.place.as_ref().map_or(1, |place| place.players);
+        kjk_game::stage::Stage::named(
+            discovery,
+            &name,
+            None,
+            anims,
+            true,
+            recording.start.seats(),
+            players,
+        )
+        .map(|stage| stage.with_factions(&hostile, &[]).level)
+    });
+    let level = match staged {
+        Some(Ok(level)) => level,
+        Some(Err(error)) => {
+            eprintln!("stage: {error}");
             return ExitCode::FAILURE;
         }
+        None => match installers.level_named(
+            discovery,
+            &recording.level,
+            recording.start.place.as_ref(),
+            recording.start.seats(),
+        ) {
+            Ok(level) => level,
+            Err(error) => {
+                eprintln!("{}: refused: {error}", file.display());
+                return ExitCode::FAILURE;
+            }
+        },
     };
     let mut seats = BTreeMap::new();
+    let mut times: Option<(String, Vec<(u64, u128)>)> = std::env::var("KJK_REPLAY_TIMES")
+        .ok()
+        .map(|path| (path, Vec::with_capacity(recording.ticks.len())));
+    let mut stepped = Instant::now();
     let result = recording.play_watched(
         &level,
         &mut |announcement| {
@@ -241,8 +269,23 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
                 .get(discovery, &announcement.game)?
                 .level_for(announcement)
         },
-        &mut |snapshot| watch_seats(&mut seats, snapshot),
+        &mut |snapshot| {
+            if let Some((_, times)) = &mut times {
+                times.push((snapshot.tick, stepped.elapsed().as_micros()));
+            }
+            watch_seats(&mut seats, snapshot);
+            stepped = Instant::now();
+        },
     );
+    if let Some((path, times)) = &times {
+        let lines: String = times
+            .iter()
+            .map(|(tick, us)| format!("{tick} {us}\n"))
+            .collect();
+        if let Err(error) = std::fs::write(path, lines) {
+            eprintln!("{path}: {error}");
+        }
+    }
     let seconds = started.elapsed().as_secs_f64();
     let ticks = recording.ticks.len();
     let commands: usize = recording.ticks.iter().map(|tick| tick.input.len()).sum();
@@ -372,7 +415,8 @@ fn watch_seats(seats: &mut BTreeMap<u8, Seen>, snapshot: &sim::Snapshot) {
             (force.jumping, "force jump"),
             (shooting.charging_from.is_some(), "Power Blast charge"),
             (shooting.burst > 0, "Rapid Shot burst"),
-            (shooting.aiming, "Sniper Shot aim"),
+            (shooting.aiming, "Aim"),
+            (shooting.steadying, "Sniper Shot steady"),
             (fighter.saber.in_special(), "saber special"),
         ];
         seen.seen.extend(

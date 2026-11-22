@@ -33,7 +33,7 @@
 
 use std::fmt;
 
-use collision::{CollisionWorld, Contents, Extents, UNIT};
+use collision::{CollisionWorld, Contents, Extents, Shape, UNIT};
 
 use crate::combat::{Fighter, Sheet};
 use crate::input::Seat;
@@ -279,9 +279,9 @@ pub(crate) fn members(party: &crate::script::party::Party) -> Vec<(u32, String)>
 
 /// The templates of the party table's companions that `next`'s library
 /// lacks and the table has not kept yet, read from their creatures in the
-/// module being left (`before`, made in `old`), by `NPC_*` number. A
-/// companion made available by object (`AddAvailableNPCByObject`) has no
-/// template kept. TSL's executable keeps the whole creature in its party
+/// module being left (`before`, made in `old`), by `NPC_*` number. A save
+/// from before companions made available by object kept their creature
+/// has no template kept for them. TSL's executable keeps the whole creature in its party
 /// table at a module change, so such a companion is made in a module that
 /// does not ship its template. TSL's Telos needs it. The player plays the
 /// droid B-4D4, whose template only the Ithorian compound and the Czerka
@@ -461,7 +461,7 @@ pub(crate) fn assemble(
         stash.push(Stashed {
             place: current.clone(),
             entities: objects,
-            spawned: before.spawned.clone(),
+            spawned: before.spawned.to_vec(),
             roster: before.roster.clone(),
         });
     }
@@ -829,6 +829,7 @@ pub(crate) fn assemble(
         // The session's rules hold in every module.
         saber_rules: before.saber_rules,
         targeted_blocks: before.targeted_blocks,
+        damage_taken: before.damage_taken,
         // An arrival is never lost.
         lost: None,
         // A new area: no fight, no break, no proposal (`world::party`).
@@ -842,7 +843,7 @@ pub(crate) fn assemble(
         leading: None,
         // As the scripts' party table has it, once the world stands.
         solo: before.solo,
-        spawned: instances.made().to_vec(),
+        spawned: instances.made_shared().clone(),
         roster,
         shared: before.shared,
         authority: before.authority,
@@ -1035,18 +1036,7 @@ pub(crate) fn spots(
     seen_from: Option<[f32; 3]>,
     rings: usize,
 ) -> Option<Vec<[f32; 3]>> {
-    let box_extents = Extents {
-        mins: [
-            -motion::HALF_WIDTH * UNIT,
-            -motion::HALF_WIDTH * UNIT,
-            motion::SOLE_Z * UNIT,
-        ],
-        maxs: [
-            motion::HALF_WIDTH * UNIT,
-            motion::HALF_WIDTH * UNIT,
-            motion::STAND_HEIGHT * UNIT,
-        ],
-    };
+    let box_extents = motion::body_box(motion::STAND_HEIGHT);
     let mut found: Vec<[f32; 3]> = Vec::new();
     let mut candidates = vec![spot.position];
     for ring in 1..=rings {
@@ -1120,10 +1110,11 @@ fn at_spot(spot: &Spot, count: usize) -> Vec<[f32; 3]> {
 /// How far a safe-location search looks around its mark (`jump_place`):
 /// its rings' reach (metres), and whether a ring's place needs a straight
 /// walk on the walkmesh back to the mark.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Reach {
     metres: f32,
     walks_back: bool,
+    whole_body: bool,
 }
 
 /// A script's jump, a GIT creature's or a script-made one's place, with
@@ -1131,12 +1122,20 @@ pub(crate) struct Reach {
 pub(crate) const JUMP: Reach = Reach {
     metres: rules::scripts::jumps::SEARCH_M,
     walks_back: true,
+    whole_body: false,
+};
+/// The walker's column alone can fit where half of the box is inside a wall,
+/// and a body placed there stays stuck.
+pub(crate) const ARENA: Reach = Reach {
+    whole_body: true,
+    ..JUMP
 };
 /// The party's members around their leader as they arrive, with no walk
 /// back.
 pub(crate) const PARTY: Reach = Reach {
     metres: rules::scripts::jumps::PARTY_M,
     walks_back: false,
+    whole_body: false,
 };
 /// The half width (metres) of a search's first ring.
 const JUMP_FIRST_RING_M: f32 = rules::scripts::jumps::RING_M;
@@ -1208,7 +1207,9 @@ pub(crate) fn on_walkmesh(level: &Level, to: [f32; 3]) -> bool {
 /// bodies `taken` (box origins and clearances, units); where the mark itself
 /// is on the walkmesh and `reach` walks back, a ring's place must also have
 /// a straight walk on the walkmesh to it, so no jump lands beyond a wall.
-/// No free place, no jump: the jumper stays.
+/// A `reach` of the whole body (`ARENA`) also needs room in the level for
+/// the body's standing box there. When no place is free, there is no jump,
+/// and the jumper stays where it is.
 pub(crate) fn jump_place(
     level: &Level,
     world: &dyn CollisionWorld,
@@ -1231,6 +1232,8 @@ pub(crate) fn jump_place(
         mins: [-half_width, -half_width, motion::SOLE_Z * UNIT],
         maxs: [half_width, half_width, motion::SOLE_Z * UNIT],
     };
+    let body_extents = motion::body_box(motion::STAND_HEIGHT);
+    let whole_body = reach.whole_body;
     let nav = level.nav();
     let height = |[x, y, z]: [f32; 3]| match nav {
         Some(nav) => nav.height([x, y, z], JUMP_COLUMN_M, JUMP_COLUMN_M),
@@ -1262,7 +1265,15 @@ pub(crate) fn jump_place(
             let (dx, dy) = (other[0] - stand[0], other[1] - stand[1]);
             dx * dx + dy * dy >= apart * apart
         });
-        (stands && clear).then_some(stand)
+        let whole = || {
+            !whole_body
+                || world.fits(
+                    trace.end,
+                    &Shape::Upright(body_extents),
+                    Contents::PLAYER_SOLID,
+                )
+        };
+        (stands && clear && whole()).then_some(stand)
     };
     let mark = height(to).map(|z| [to[0], to[1], z]);
     if let Some(stand) = mark.and_then(floored) {

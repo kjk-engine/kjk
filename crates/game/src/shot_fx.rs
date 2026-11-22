@@ -28,7 +28,7 @@ use collision::{Contents, Extents};
 use sim::combat::sheet::Blaster;
 use sim::combat::{Delivery, Missile, Outcome, grenades, mind, weapons};
 use sim::motion::Anim;
-use sim::{EntityState, Instances, Kind, Level, SimId, Snapshot};
+use sim::{EntityState, Instances, Level, SimId, Snapshot};
 
 use crate::blaster_view::{BlasterShots, Tracer};
 use crate::cast;
@@ -169,6 +169,9 @@ fn shoot(
     if let Some((_, seen @ None)) = &mut shots.own_wall {
         *seen = camera;
     }
+    if !facts.wanted() {
+        return;
+    }
     let aim = shots
         .own_wall
         .and_then(|(wall, camera)| Some(off_middle(&camera?, wall)));
@@ -269,7 +272,7 @@ fn ended(
         maxs: [half; 3],
     };
     let states = level.states_in(snapshot);
-    let trace = level.with(states.as_deref(), |world| {
+    let trace = level.with_unremembered(states.as_deref(), |world| {
         world.trace(
             (from * UNIT).to_array(),
             (to * UNIT).to_array(),
@@ -289,6 +292,17 @@ fn ended(
     let at = Vec3::from_array(trace.end) / UNIT;
     let met = (at, normal, trace.surface.material);
     out.wall(missile.weapon.base_item, met, now as f32);
+}
+
+/// Where the line a disruptor's shot aims along starts (units). A body a
+/// seat plays aims from its crosshair line, which the sim shoots along. A
+/// creature aims from its eye.
+fn aim_from(snapshot: &Snapshot, entity: &EntityState, p: &sim::motion::MotionState) -> Vec3 {
+    Vec3::from_array(if snapshot.played(entity) {
+        mind::crosshair(p)
+    } else {
+        mind::eye(p)
+    })
 }
 
 /// A disruptor's shot in `snapshot`, if `entity` fired one: its tracer,
@@ -317,12 +331,7 @@ fn disruptor(
     }
     shots.beams += 1;
     let ms = snapshot.time_ms as f32;
-    // The line it aims along: a player's crosshair line (the sim shoots at
-    // what it meets), a creature's view from its eye.
-    let eye = Vec3::from_array(match entity.kind {
-        Kind::Avatar(_) => mind::crosshair(&p),
-        _ => mind::eye(&p),
-    });
+    let eye = aim_from(snapshot, entity, &p);
     let forward = Vec3::from_array(sim::math::angle_vectors(p.view).0);
     let muzzle = gun.unwrap_or_else(|| {
         Vec3::from_array(sim::muzzle(&p, weapons::primary(Blaster::Rifle).muzzle))
@@ -345,7 +354,7 @@ fn disruptor(
         None => {
             let far = eye + forward * weapons::HITSCAN_RANGE;
             let states = level.states_in(snapshot);
-            let trace = level.with(states.as_deref(), |world| {
+            let trace = level.with_unremembered(states.as_deref(), |world| {
                 world.trace(
                     (eye * UNIT).to_array(),
                     (far * UNIT).to_array(),
@@ -380,4 +389,24 @@ fn disruptor(
             ms: f64::from(ms),
         });
     }
+}
+
+/// The probes (`kjk sim probes --only "disruptor beams"`): a companion
+/// leading the party aims its beam from its crosshair line, as the sim
+/// shoots it, and not from its eye.
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    let led = sim::drivers::led_party().and_then(|(snapshot, lent)| {
+        let entity = snapshot
+            .get(lent)
+            .ok_or("the companion leading is not in the snapshot")?;
+        let p = entity.player.ok_or("the companion leading has no motion")?;
+        let from = aim_from(&snapshot, entity, &p);
+        let line = Vec3::from_array(mind::crosshair(&p));
+        sim::probe::check(
+            from == line,
+            format!("the beam aims from {from:?}, the crosshair line starts at {line:?}"),
+        )
+    });
+    vec![("leader_aims_from_its_crosshair_line", led)]
 }

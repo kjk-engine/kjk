@@ -115,6 +115,8 @@ mod lines {
     pub const DISARM_MINE: u32 = sim::locks::lines::DISARM_MINE;
     pub const RECOVER_MINE: u32 = sim::locks::lines::RECOVER_MINE;
     pub const SET_MINE: u32 = sim::locks::lines::SET_MINE;
+    /// "Lock": TSL's menu names a kit set on a lock "<kit> (Lock)".
+    pub const LOCK: u32 = 48_180;
 }
 
 /// A choice's icon, by the kind of its object (an item's its own).
@@ -128,8 +130,32 @@ fn icon(choice: Choice, kind: ObjectKind) -> &'static str {
         (Choice::Revive | Choice::Item { .. }, _) => "isk_treatinj",
         (Choice::Disarm, _) => "i_disablemine",
         (Choice::Recover, _) => "i_recovermine",
-        (Choice::Mine, _) => "isk_demolitions",
+        (Choice::Mine { .. }, _) => "isk_demolitions",
     }
+}
+
+/// A kit's entry in TSL's menu for a mine on a lock: the kit's name, then
+/// "(Lock)", then the count where the party carries more than one, as
+/// TSL's menu writes it ("Frag Mine (Lock) (3)").
+fn kit_label(
+    kits: &[(u32, String, u16)],
+    kit: u32,
+    look: Option<&(u32, String, u32)>,
+    item_name: &dyn Fn(u32) -> Vec<u8>,
+    lock: &[u8],
+) -> Vec<u8> {
+    let mut label = item_name(look.map_or(u32::MAX, |(.., name)| *name));
+    label.extend_from_slice(b" (");
+    label.extend_from_slice(lock);
+    label.push(b')');
+    let stack = kits
+        .iter()
+        .find(|(id, ..)| *id == kit)
+        .map_or(1, |(.., stack)| *stack);
+    if stack > 1 {
+        label.extend_from_slice(format!(" ({stack})").as_bytes());
+    }
+    label
 }
 
 /// A body's sheet without its effects: its own, else its module's.
@@ -637,7 +663,12 @@ fn target(
     ),
     time: Res<Time<Real>>,
     mut targeted: ResMut<Targeted>,
-    (mut facts, dump_due, pinned): (ResMut<DumpFacts>, Res<DumpDue>, Res<Pinned>),
+    (mut facts, dump_due, pinned, doors): (
+        ResMut<DumpFacts>,
+        Res<DumpDue>,
+        Res<Pinned>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
     (mut made, mut spread): (Local<sim::walk::MadeWalls>, Local<Option<f32>>),
 ) {
     // The pad's D-pad left and right turn it as the mouse wheel does.
@@ -727,7 +758,7 @@ fn target(
         feet,
         facing: [yaw.cos(), yaw.sin()],
     };
-    let states = level.states_in(snapshot);
+    let states = doors.of(&presented.0, swap);
     let picked = match pinned.0.as_deref() {
         Some(tag) => {
             let instances = sim::Instances::in_snapshot(level, snapshot);
@@ -786,19 +817,28 @@ fn target(
             .max_by_key(|(tools, ..)| *tools)
             .map(|(_, id, item)| (id, item.template.clone()))
     });
-    // TSL's mine on a lock, where the party carries a kit.
-    let mine = level.module().is_some_and(|module| module.game == "tsl")
-        && catalog.is_some_and(|catalog| {
+    // TSL's mine on a lock, where the party carries a kit: each kit item
+    // the party carries (its id, template and stack), as TSL's menu lists
+    // them.
+    let tsl = level.module().is_some_and(|module| module.game == "tsl");
+    let kits: Vec<(u32, String, u16)> = catalog
+        .filter(|_| tsl)
+        .map(|catalog| {
             snapshot
                 .goods
                 .carried(sim::inventory::PARTY)
-                .any(|(_, item)| {
+                .filter(|(_, item)| {
                     snapshot
                         .goods
                         .facts(catalog, &item.template)
                         .is_some_and(|facts| facts.trap.is_some())
                 })
-        });
+                .map(|(id, item)| (id, item.template.clone(), item.stack))
+                .collect()
+        })
+        .unwrap_or_else(Vec::new);
+    let kit_ids: Vec<u32> = kits.iter().map(|(id, ..)| *id).collect();
+    let mine = !kits.is_empty();
     // Security and Demolitions, for a body with ranks in them.
     let ranks =
         |skill: usize| sheet_of(snapshot, level, me).is_some_and(|sheet| sheet.skills[skill] > 0);
@@ -861,6 +901,7 @@ fn target(
                 lock_mine: mine,
             }),
         );
+        let choices = sim::target::kits(choices, &kit_ids);
         let name = match &row {
             Some(row) if row.name != u32::MAX => ui
                 .assets
@@ -1029,8 +1070,17 @@ fn target(
             Some((*item, icon, snapshot.goods.facts(catalog?, template)?.name))
         })
         .collect();
+    // The kits' icons and names, by id, as the worn items'.
+    let kit_looks: Vec<(u32, String, u32)> = kits
+        .iter()
+        .filter_map(|(id, template, _)| {
+            let icon = ui.assets.as_mut()?.item_ref(template)?.icon.clone();
+            Some((*id, icon, snapshot.goods.facts(catalog?, template)?.name))
+        })
+        .collect();
     let look = |choice: Choice| match choice {
         Choice::Item { item, .. } => looks.iter().find(|(id, ..)| *id == item),
+        Choice::Mine { kit: Some(kit) } => kit_looks.iter().find(|(id, ..)| *id == kit),
         _ => None,
     };
     let assets = ui.assets.as_ref();
@@ -1063,7 +1113,10 @@ fn target(
                 Choice::Revive => say(lines::TREAT_INJURY),
                 Choice::Disarm => say(lines::DISARM_MINE),
                 Choice::Recover => say(lines::RECOVER_MINE),
-                Choice::Mine => say(lines::SET_MINE),
+                Choice::Mine { kit: None } => say(lines::SET_MINE),
+                Choice::Mine { kit: Some(kit) } => {
+                    kit_label(&kits, kit, look(choice), &item_name, &say(lines::LOCK))
+                }
                 Choice::Item { .. } => item_name(look(choice).map_or(u32::MAX, |(.., name)| *name)),
             };
             if let (Choice::Unlock { spike: Some(_) }, Some(spike)) = (choice, &spike_name) {
@@ -1142,7 +1195,11 @@ fn transition(
     presented: Option<Res<PresentedSnapshot>>,
     (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
     mut ui: ResMut<Ui>,
-    (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
+    (mut facts, dump_due, doors): (
+        ResMut<DumpFacts>,
+        Res<DumpDue>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
 ) {
     let faced = (|| {
         aim.0.filter(|_| !ui.stack.is_open())?;
@@ -1163,7 +1220,7 @@ fn transition(
             facing: [yaw.cos(), yaw.sin()],
         };
         let level = &swap.level;
-        let states = level.states_in(snapshot);
+        let states = doors.of(&presented.0, swap);
         sim::transition::faced(level, states.as_deref(), snapshot, &looker)
     })();
     let name = faced.as_ref().and_then(|faced| {

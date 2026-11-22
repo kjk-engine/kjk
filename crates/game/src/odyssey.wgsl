@@ -297,7 +297,7 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(15) var tile_sampler: sampler_comparison;
 @group(#{MATERIAL_BIND_GROUP}) @binding(16) var<storage, read> probe_list: ProbeList;
 // The fitted lights' grid (`fitted_lights::grid`, `GRID_WORDS` / 4 long).
-@group(#{MATERIAL_BIND_GROUP}) @binding(19) var<storage, read> fitted: array<vec4<u32>, 524288>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(20) var<storage, read> fitted: array<vec4<u32>, 524288>;
 #ifdef RAY_QUERIES
 // The scene's acceleration structure: the casting characters, placeables
 // and doors with the mask 1, and the rooms with the mask 2

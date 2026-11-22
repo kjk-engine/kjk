@@ -372,7 +372,39 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// Old saves: old saves read `cast_loop = None`, as no character in them is
 /// casting a scripted power; their sheets read 256 feat rows and 320 power
 /// rows, and the rows past those are empty.
-pub const VERSION: u32 = 109 + crate::pending::SNAPSHOT;
+/// 110: a sheet's action bar has ten slots (`bar::SLOTS`). Old saves: old saves
+/// read six slots, and slots 7 to 10 are empty.
+/// 111: a fighter's event keeps whether a bolt only met a blade that was not
+/// blocking (`Event::wild`). Old saves: old saves read `wild = false`: a bolt
+/// turned wildly in the 2 seconds before the save counts as a deflection after
+/// loading.
+/// 112: the world keeps the share of the normal damage the party and the
+/// enemies take, in percent (`Snapshot::damage_taken`). Old saves: old saves
+/// read 100% for both sides; a loaded game then takes the options' values.
+/// 113: a fighter carries how far its gun is raised to aim and whether it
+/// steadies a Sniper Shot (`Shooting::aim`, `Shooting::steadying`). Old saves:
+/// Old saves read the gun lowered and no Sniper Shot steadying. The old Sniper
+/// Shot aim flag is dropped. A player who holds [Aim] after loading raises the
+/// gun again..
+/// 114: a fighter keeps the grab it is in, holding or held
+/// (`Fighter::grapple`). Old saves: old saves read `grapple = None`: no
+/// character in a save is in a grab.
+/// 115: a fighter keeps when its last punch with bare hands began
+/// (`Fighter::punched_at`). Old saves: old saves read `punched_at = 0`: a punch
+/// under way when the game was saved cannot be followed by a spin kick after
+/// loading.
+/// 116: a fighter keeps its attack button as its punches read it
+/// (`Fighter::fists`) and the finisher its keys picked as its grab began
+/// (`Fighter::grab_pick`). Old saves: old saves read no attack held or kept and
+/// no picked finisher: a punch or a grab under way when the game was saved goes
+/// on as though no key was held.
+/// 117: a fighter's hold keeps its save, its next roll and its recent holds
+/// (`ForceState::save`). Old saves: old saves read no save and no recent holds,
+/// so a running hold keeps its end and rolls nothing.
+/// 118: a fighter keeps when its last stun baton swing began
+/// (`Fighter::swung_at`). Old saves: old saves read `swung_at = 0`: a baton
+/// swing under way when the game was saved deals no blow after loading.
+pub const VERSION: u32 = 118 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -1429,8 +1461,7 @@ pub struct Snapshot {
     pub talk: Told,
     /// The party's gold and items, the trades under way and their stock.
     pub goods: Goods,
-    /// The objects made in play in this module.
-    pub spawned: Vec<Spawned>,
+    pub spawned: Arc<Vec<Spawned>>,
     /// The module's placements as first installed, which a changed module
     /// is matched against (`crate::reconcile`); none for a module whose
     /// save did not keep them.
@@ -1504,6 +1535,9 @@ pub struct Snapshot {
     /// party (`Party::waiting_creatures`). The in-game pages show them
     /// after the party (`cast::pages_of`). Elsewhere it is empty.
     pub waiting: Vec<SimId>,
+    /// The share of the normal damage the party and the enemies take, the
+    /// session's (`combat::damage::Taken`).
+    pub damage_taken: crate::combat::damage::Taken,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1686,6 +1720,32 @@ impl Snapshot {
             .or_else(|| self.own(seat))
     }
 
+    /// The seat whose commands act through `entity`, if any. It is worked
+    /// out by the sim's own rule (`world::keyed_by`) from the seat the body
+    /// carries (`carried`) and the companion leading the party (`leading`).
+    /// A creature its mind plays has none. The leader's own character has
+    /// none while a companion leads or while it is benched.
+    pub fn seat_of(&self, entity: &EntityState) -> Option<Seat> {
+        crate::world::keyed_by(self.carried(entity), entity.id, self.leading)
+    }
+
+    /// The seat `entity` carries, as the sim's `Avatar` component has it. A
+    /// companion carries the seat that drives it, a guest's or the first
+    /// seat's after a switch. A seat's own character carries its seat
+    /// unless that seat drives another body, which leaves it benched.
+    fn carried(&self, entity: &EntityState) -> Option<Seat> {
+        let driver = entity.fighter.and_then(|fighter| fighter.mind.driver);
+        driver.or(match entity.kind {
+            Kind::Avatar(seat) if self.driven(seat).is_none() => Some(seat),
+            _ => None,
+        })
+    }
+
+    /// Whether a seat plays `entity` (`seat_of`).
+    pub fn played(&self, entity: &EntityState) -> bool {
+        self.seat_of(entity).is_some()
+    }
+
     /// Whether a conversation holds the world (S1, `Told::holds_world` of
     /// `seat_bodies`), as the sim's step had it.
     pub fn holds_world(&self) -> bool {
@@ -1723,6 +1783,46 @@ impl Snapshot {
     /// companion leads is.
     pub fn in_party(&self, entity: &EntityState) -> bool {
         crate::world::party_member(entity) && !self.benched(entity)
+    }
+
+    /// Whether a shot that `shooter` fires may stop on `target`'s body, as
+    /// the sim decides it for its shots (`world::firing`): its crosshair's
+    /// line passes through every other body. With friendly fire off, a
+    /// party member's shot passes through the party (`Targets::met_by`).
+    /// A shot stops on a character only if the shooter's mind attacks it,
+    /// both are in the party, or the two are hostile by faction
+    /// (`Sides::met`). So it passes through a neutral, such as a bantha,
+    /// and through an ally that is not in the party. A body with no side
+    /// (no fight or no sheet) stops it. `instances` is
+    /// `Instances::in_snapshot` of this snapshot in `level`.
+    pub fn shot_stops_on(
+        &self,
+        (level, instances): (&crate::Level, &crate::Instances),
+        shooter: &EntityState,
+        target: &EntityState,
+    ) -> bool {
+        use crate::combat::{FriendlyFire, Relation};
+        let party = [shooter, target].map(|entity| self.in_party(entity));
+        if level.friendly_fire() == FriendlyFire::Off && party == [true, true] {
+            return false;
+        }
+        let side = |entity: &EntityState, party: bool| {
+            let fighter = entity.fighter.as_ref()?;
+            let sheet = (entity.sheet)
+                .or_else(|| instances.of_entity(entity).and_then(|facts| facts.sheet))?;
+            Some(crate::module::Side {
+                id: entity.id.0,
+                faction: fighter.faction.unwrap_or(sheet.faction),
+                party,
+            })
+        };
+        let (Some(from), Some(to)) = (side(shooter, party[0]), side(target, party[1])) else {
+            return true;
+        };
+        let standing = level.module().map(|module| self.standings(module));
+        shooter.fighter.as_ref().and_then(|fighter| fighter.target) == Some(target.id)
+            || (from.party && to.party)
+            || crate::module::relation(standing, from, to) == Relation::Hostile
     }
 
     /// Why the map page's return to the Ebon Hawk is refused now, as K1's
@@ -1984,6 +2084,22 @@ impl Snapshot {
         self.seats_held
     }
 
+    /// Takes the test aids off every player's sheet, a benched one's too.
+    /// The aids are god mode (`sheet::flags::IMMORTAL`) and ten times the
+    /// damage (`sheet::flags::MIGHTY`), which `--god` and `--mighty` set.
+    /// A playthrough's checkpoint keeps them, and a save made for a player
+    /// from one has them taken off here.
+    pub fn without_test_aids(&mut self) {
+        use crate::combat::sheet::flags;
+        let players = self
+            .entities
+            .iter_mut()
+            .filter(|entity| matches!(entity.kind, Kind::Avatar(_)));
+        for sheet in players.filter_map(|entity| entity.sheet.as_mut()) {
+            sheet.flags &= !(flags::IMMORTAL | flags::MIGHTY);
+        }
+    }
+
     /// The players driving a body (I30 P21): the host, always one, and
     /// each other seat held (`seats_held`) whose `body` is not dead, or
     /// whose companion is kept for it while it is away (`kept`). A watching
@@ -2181,6 +2297,8 @@ impl Snapshot {
         for waiting in &self.waiting {
             out.u32(waiting.0);
         }
+        out.u16(self.damage_taken.party());
+        out.u16(self.damage_taken.enemies());
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2240,7 +2358,7 @@ impl Snapshot {
         let digest_at = input.at();
         let digest: [u8; 32] = input.array()?;
         let talk = Told::decode(&mut input)?;
-        let spawned = decode_spawned(&mut input)?;
+        let spawned = Arc::new(decode_spawned(&mut input)?);
         let goods = Goods::decode(&mut input)?;
         let progress = Progress::decode(&mut input)?;
         let personas = crate::persona::decode(&mut input)?;
@@ -2364,6 +2482,12 @@ impl Snapshot {
                 waiting.push(SimId(input.u32()?));
             }
         }
+        // Older snapshots carried none: both sides take the normal damage.
+        let damage_taken = if input.since(crate::since::snapshot::FEAT_DAMAGE_MULTIPLIERS) {
+            crate::combat::damage::Taken::new(input.u16()?, input.u16()?)
+        } else {
+            Default::default()
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2413,6 +2537,7 @@ impl Snapshot {
             saber_rules,
             targeted_blocks,
             waiting,
+            damage_taken,
             shared,
             authority,
             next_id,

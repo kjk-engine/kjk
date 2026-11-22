@@ -701,6 +701,16 @@ pub enum Notice {
         dc: u8,
         success: bool,
     },
+    /// A saving throw to break free of a hold (the game's line 1408): the
+    /// save's name (a talk-table strref), the d20 rolled, the save's total
+    /// with its bonuses, the DC, and whether it broke free.
+    Save {
+        save: u32,
+        roll: u8,
+        total: i16,
+        dc: i16,
+        success: bool,
+    },
     /// The party detected a trap: its `traps.2da` name (a strref).
     TrapSeen {
         name: u32,

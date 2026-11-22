@@ -390,7 +390,7 @@ on the authority; a save carries it.
     an empty set 2 leaves the hands empty and keeps set 1 in set 2. Each
     piece met its set's rules on the way in and the sets' rules are one,
     so none is refused crossing over. The sheet is dressed anew that step.
-  - A player swaps with the swap key (B) or the HUD's swap button
+  - A player swaps with the swap key (B)
     (`Action::SwitchWeapons`, wire 51: the seat's acting body), or the
     equip screen's (`SwitchWeaponsOn { who }`, wire 52: by the wearing
     rule above). Not while the creature takes part in a conversation
@@ -1034,7 +1034,11 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   module: its template made available as the number `npc.2da` gives its
   tag, then picked on the party selection screen in one step
   (`Action::ChooseParty`), which makes it beside the player
-  (`by_hand::party`); `--party p_cand` brings Canderous.
+  (`by_hand::party`); `--party p_cand` brings Canderous. A template
+  followed by `@ROW` also puts the gun of that `baseitems.2da` row in the
+  companion's right hand, in a step of its own (`Action::EquipOn`).
+  `--party p_mission@21` brings Mission with a disruptor rifle. The
+  console's `ui portrait 2` then makes her lead the party.
 
 ## The journal (`sim::script::journal`)
 

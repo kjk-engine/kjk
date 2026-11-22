@@ -136,6 +136,12 @@ fn line(source: &dyn Source, strref: u32) -> String {
         .unwrap_or_else(String::new)
 }
 
+/// A journal text as the game shows it: its own words, else its talk-table
+/// line (`JournalText::words`).
+fn journal_words(source: &dyn Source, journal: &sim::script::journal::JournalText) -> String {
+    text(&journal.words(|strref| source.talk()?.text(strref).map(<[u8]>::to_vec)))
+}
+
 fn table(source: &dyn Source, name: &str) -> Option<TwoDa> {
     TwoDa::parse(&source.read(name, ResType::TWO_DA)?).ok()
 }
@@ -192,13 +198,13 @@ impl Catalog {
             .into_iter()
             .enumerate()
             .map(|(index, (tag, quest))| Quest {
-                entry: Entry::new(index as u32, &tag, &line(source, quest.name)),
+                entry: Entry::new(index as u32, &tag, &journal_words(source, &quest.name)),
                 stages: quest
                     .entries
                     .iter()
                     .map(|entry| Stage {
                         id: entry.id,
-                        text: line(source, entry.text),
+                        text: journal_words(source, &entry.text),
                         end: entry.end,
                     })
                     .collect(),
@@ -259,6 +265,27 @@ impl Catalog {
         Gff::parse(bytes).map_or(Creature::default(), |utc| {
             creature_of(&self.data.source, &utc)
         })
+    }
+
+    /// The texture of player portrait `row` (`portraits.2da`), if the
+    /// install has that player portrait.
+    pub fn portrait_texture(&self, row: u16) -> Option<&str> {
+        let portrait = self.data.portraits.as_ref()?.at(row)?;
+        Some(&portrait.texture)
+    }
+
+    /// Player portrait `row` in words, such as "female portrait 3". The
+    /// game gives portraits no names, so the number is its place among the
+    /// player portraits of its gender, in the order character creation
+    /// shows them.
+    pub fn portrait_label(&self, row: u16) -> Option<String> {
+        let portraits = self.data.portraits.as_ref()?;
+        let female = portraits.at(row)?.female;
+        let place = portraits
+            .of_gender(female)
+            .position(|portrait| portrait.row == row)?;
+        let gender = if female { "female" } else { "male" };
+        Some(format!("{gender} portrait {}", place + 1))
     }
 
     /// The item whose template is `resref`.

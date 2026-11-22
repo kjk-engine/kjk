@@ -2176,7 +2176,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         if !set
                                             && now >= pressed_at + sim::traps::LAY_MS + 4 * PRESS_MS
                                         {
-                                            input.act(Seat(0), Action::Mine(index));
+                                            input.act(Seat(0), Action::Mine { object: index, kit: None });
                                             pressed_at = now.max(1);
                                         }
                                         let state = object_of(&here, index);
@@ -3511,7 +3511,7 @@ fn click(goal: &Goal, data: &ObjectData, state: sim::ObjectState) -> Option<sim:
         // A lock struck is walked up to as one picked: within a blade's
         // reach of it.
         (Goal::Unlock(..) | Goal::Bash(_), _) => Some(Choice::Unlock { spike: None }),
-        (Goal::Mine(_), _) => Some(Choice::Mine),
+        (Goal::Mine(_), _) => Some(Choice::Mine { kit: None }),
         (Goal::Put(..), _) => Some(Choice::Open),
         (_, ObjectKind::Creature) => Some(Choice::Talk),
         (_, ObjectKind::Door | ObjectKind::Placeable) => {

@@ -259,7 +259,7 @@ const RESTING_CEILING: u32 = 60;
 
 /// Whether the safety ceilings are switched off (`KJK_UNCAPPED=1`). The
 /// benchmark sets it, because it measures how fast the game can draw.
-fn uncapped() -> bool {
+pub(crate) fn uncapped() -> bool {
     std::env::var("KJK_UNCAPPED").is_ok_and(|value| value == "1")
 }
 
@@ -282,8 +282,9 @@ fn paced_rate(display: &Display, resting: bool, ceilings: bool) -> Option<u32> {
 
 /// Holds each frame until its time while a frame rate is due (`paced_rate`),
 /// so the GPU and CPU rest between frames. It runs in every frame the app
-/// runs, a menu's too. The ceilings apply only to a game with a window, so
-/// headless runs keep their own pace. The sim keeps its own clock
+/// runs, a menu's too. The ceilings apply only to a game with a window.
+/// A headless run keeps its own pace of 60 frames a second, or no limit at
+/// all with `KJK_UNCAPPED=1` (`runtime`). The sim keeps its own clock
 /// (`sim_host`), so a limit changes how many ticks a frame steps, never what
 /// a tick does.
 fn pace(

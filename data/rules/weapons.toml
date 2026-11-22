@@ -429,6 +429,83 @@ summary = "An unarmed critical hit multiplies the damage roll by {weapons.unarme
 source = "KOTOR's unarmed strike"
 see = "sim::combat::sheet::Weapon::UNARMED"
 
+[baton]
+title = "Baton Swings"
+summary = """
+A character with a stun baton or a plasma torch swings it with KOTOR's two
+baton swings, first one and then the other, for as long as Attack is held.
+Each swing flows into the next. Each hit deals a part of a round's damage
+that matches how long its swing takes, so the damage over a round stays the
+same as one hit a round.
+"""
+applies = ["kind:baton"]
+
+[baton.g1a1_hit_ms]
+name = "First Baton Swing Hit"
+type = "u16"
+value = 533
+unit = "ms"
+range = [0, 5000]
+summary = "The first baton swing hits {weapons.baton.g1a1_hit_ms:s} after it starts."
+source = "the Hit event of g1a1 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms)"
+see = "sim::world::strikes::baton_swing"
+applies = ["kind:baton"]
+
+[baton.g1a2_hit_ms]
+name = "Second Baton Swing Hit"
+type = "u16"
+value = 533
+unit = "ms"
+range = [0, 5000]
+summary = "The second baton swing hits {weapons.baton.g1a2_hit_ms:s} after it starts."
+source = "the Hit event of g1a2 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms)"
+see = "sim::world::strikes::baton_swing"
+applies = ["kind:baton"]
+
+[baton.next_after_hit_ms]
+name = "Next Baton Swing"
+type = "u16"
+value = 250
+unit = "ms"
+range = [0, 2000]
+summary = "While Attack is held, the next baton swing starts {weapons.baton.next_after_hit_ms:s} after the last swing hits."
+source = "ours, tuned by watching"
+see = "sim::world::strikes::baton_swing"
+applies = ["kind:baton"]
+
+[baton.blend_ms]
+name = "Baton Swing Blend"
+type = "u16"
+value = 150
+unit = "ms"
+range = [0, 1000]
+summary = "One baton swing fades into the next over {weapons.baton.blend_ms:s}."
+source = "ours, tuned by watching"
+see = "kjk_game::acting::BatonSwings"
+applies = ["kind:baton"]
+
+[baton.aim_turn_deg]
+name = "Baton Swing Aim"
+type = "u16"
+value = 30
+unit = "deg"
+range = [0, 90]
+summary = "A character's torso turns {weapons.baton.aim_turn_deg} to the left during a baton swing, so the swing strikes straight ahead. KOTOR's own swings strike about 30 degrees to the right of where the character faces."
+source = "ours, measured from above in the arena"
+see = "kjk_game::acting::swing_tracks"
+applies = ["kind:baton"]
+
+[baton.follow_through_pct]
+name = "Baton Follow-Through"
+type = "u16"
+value = 35
+unit = "%"
+range = [0, 100]
+summary = "After a baton swing hits, the arm and torso move on only {weapons.baton.follow_through_pct} as far as in KOTOR's own swing. KOTOR's second swing carries the baton on around the head to the left shoulder."
+source = "ours, tuned by watching"
+see = "kjk_game::acting::swing_tracks"
+applies = ["kind:baton"]
+
 [bloom]
 title = "Bloom and Kick"
 summary = """
@@ -439,17 +516,18 @@ settles back. The gap in the crosshair shows how far the next shot may
 stray.
 """
 detail = """
-The first shot after a pause flies straight at the aim, unless the weapon
-always spreads its shots. Characters that no player controls use their
+A shot fired without aiming always spreads a little, even the first shot
+after a pause. The first shot after a pause while aiming flies straight at
+the aim, unless the weapon always spreads its shots. Characters that no player controls use their
 own accuracy rules instead (see AI, Shot Spread).
 """
 
 [bloom.stance]
 name = "Bloom by Stance"
-value = [2.5, 0.25, 0.6]
+value = [2.5, 0.5, 0.6]
 labels = ["in the air", "aiming", "crouched"]
 unit = "×"
-summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} while the character is in the air. It is multiplied by {weapons.bloom.stance[1]:bare} while the character aims a Sniper Shot, and by {weapons.bloom.stance[2]:bare} while the character is crouched."
+summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} while the character is in the air. It is multiplied by {weapons.bloom.stance[1]:bare} while the character aims, and by {weapons.bloom.stance[2]:bare} while the character is crouched."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::cone"
 
@@ -463,6 +541,15 @@ summary = "A walking character's shots spread {weapons.bloom.pace_spread[0]:bare
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::cone"
 
+[bloom.hip_spread]
+name = "Spread from the Hip"
+value = 1.0
+unit = "°"
+range = [0.0, 10.0]
+summary = "A shot fired without aiming spreads {weapons.bloom.hip_spread:bare} degrees more. This applies even to the first shot after a pause. A shot fired while the character is fully aimed does not get this extra spread."
+source = "the owner's call, 2026-11-19"
+see = "sim::combat::bloom::cone"
+
 [bloom.kick_limit]
 name = "Kick Limit"
 value = [4.0, 12.0, 80.0]
@@ -471,6 +558,44 @@ unit = "°"
 summary = "Kick raises the aim by at most {weapons.bloom.kick_limit[0]:bare} degrees. Once {weapons.bloom.kick_limit[2]:bare} ms pass without a shot, the aim settles back by {weapons.bloom.kick_limit[1]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::on_shot"
+
+[aim]
+title = "Aiming"
+summary = """
+A player holds [Aim] to raise a blaster to the eye. While the gun is
+raised, the character moves at walking speed. The character cannot run,
+roll or jump while aiming. Once the gun is fully raised, the spread of its
+shots is multiplied by {weapons.bloom.stance[1]:bare}. Every blaster can
+aim. Only players aim. Enemies and companions keep their own accuracy and
+speed.
+"""
+detail = """
+The gun is fully raised {weapons.aim.in_ms:s} after the player presses
+[Aim]. It is fully lowered {weapons.aim.out_ms:s} after the player lets
+go. A shot fired before the gun is fully raised uses the normal spread.
+"""
+
+[aim.in_ms]
+name = "Time to Aim"
+type = "u32"
+value = 200
+unit = "ms"
+range = [1, 2000]
+summary = "A character is fully aimed {weapons.aim.in_ms:s} after the player presses [Aim]."
+source = "the owner's design, 2026-11-17"
+see = "sim::combat::specials::Shooting::aim_step"
+applies = ["kind:blaster"]
+
+[aim.out_ms]
+name = "Time to Lower"
+type = "u32"
+value = 150
+unit = "ms"
+range = [1, 2000]
+summary = "A character stops aiming {weapons.aim.out_ms:s} after the player lets go of [Aim]."
+source = "the owner's design, 2026-11-17"
+see = "sim::combat::specials::Shooting::aim_step"
+applies = ["kind:blaster"]
 
 [pistol.bloom]
 name = "Bloom"

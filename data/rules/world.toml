@@ -49,6 +49,16 @@ source = "TSL's executable (its client's cooldown)"
 see = "sim::world::scripts::apply"
 applies = ["kind:weapon"]
 
+[timings.killed_placeable_ms]
+name = "Destroyed Placeables"
+type = "u32"
+value = 2000
+unit = "ms"
+range = [0, 10000]
+summary = "A placeable that a script kills with a death effect plays its death animation and is removed from the area {world.timings.killed_placeable_ms:s} later. Nothing blocks the way where it stood after that."
+source = "TSL's executable (its death effect on a placeable)"
+see = "sim::world::scripts::scripts"
+
 [factions]
 title = "Factions"
 summary = """
@@ -222,7 +232,9 @@ title = "Combat Arena"
 summary = """
 In the combat arena, the player can call in creatures to fight. A called
 creature appears {world.arena.spawn_ahead_m:bare} meters in front of the
-player, facing the player. The creature is always hostile. A creature that
+player, facing the player. If that spot is taken or too narrow for the
+creature's whole body, the creature appears at the nearest free place where
+its whole body fits. The creature is always hostile. A creature that
 falls into the pit dies. A defeated party member gets back up at the
 respawn point with full hit points. The player cannot lose in the arena.
 """

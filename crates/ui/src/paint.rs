@@ -169,9 +169,48 @@ pub struct Row {
     pub dimmed: bool,
     /// Drawn in red, chosen or not: an item the member may not wear.
     pub refused: bool,
+    /// KOTOR 2's minus and plus arrows at the row's two ends, as its stepped
+    /// options have them: an options row that steps a value down and up
+    /// (`arrow_at`).
+    pub arrows: bool,
     /// A chain's feats, left to right (KOTOR's feat flow), in place of the
     /// rest.
     pub cells: Vec<Cell>,
+}
+
+/// KOTOR 2's minus and plus arrows, the images its stepped options draw.
+const ARROW_IMAGES: [&str; 2] = ["uibit_arrowneg_p", "uibit_arrowpos_p"];
+/// The parts of a row with arrows that a pointer can be on
+/// (`arrow_at`): its minus arrow and its plus arrow. Anywhere else on the
+/// row is part 0.
+pub const ROW_MINUS: usize = 1;
+pub const ROW_PLUS: usize = 2;
+
+/// An arrow's side as a share of its row's height: KOTOR 2's 28 pixel
+/// arrows beside its 36 pixel stepped options.
+const ARROW: f32 = 28.0 / 36.0;
+
+/// Where a row's minus and plus arrows are drawn: squares at its left and
+/// right ends, centred on its height.
+fn arrow_rects(row: &Control) -> [[f32; 4]; 2] {
+    let [l, t, w, h] = rect_of(row);
+    let side = h * ARROW;
+    let top = t + (h - side) / 2.0;
+    [[l, top, side, side], [l + w - side, top, side, side]]
+}
+
+/// The part of a row with arrows under `x` (layout pixels): `ROW_MINUS`,
+/// `ROW_PLUS`, or 0 for the rest of the row.
+pub fn arrow_at(proto: &Control, x: f32) -> usize {
+    let [minus, plus] = arrow_rects(proto);
+    let inside = |rect: [f32; 4]| x >= rect[0] && x <= rect[0] + rect[2];
+    if inside(minus) {
+        ROW_MINUS
+    } else if inside(plus) {
+        ROW_PLUS
+    } else {
+        0
+    }
 }
 
 /// A feat in a chain row: its icon and where the character stands with it.
@@ -1059,6 +1098,17 @@ impl<'a> Painter<'a> {
             let start = out.quads.len();
             if row.cells.is_empty() {
                 self.row(&placed, row, &row_state, out);
+                if row.arrows {
+                    // KOTOR 2's own arrow colour, lit and greyed as the row.
+                    let tint = if row_state.focused || row.greyed {
+                        self.text_color(&placed, &row_state, None)
+                    } else {
+                        rgba(self.color(Some(crate::skin::TSL_LAYOUT.base)), 1.0)
+                    };
+                    for (name, rect) in ARROW_IMAGES.into_iter().zip(arrow_rects(&placed)) {
+                        self.image(self.source, name, rect, tint, out);
+                    }
+                }
             } else {
                 let chosen = (view.selected == Some(index)).then_some(view.cell);
                 let hover = view

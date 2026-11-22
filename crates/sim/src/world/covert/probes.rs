@@ -150,6 +150,18 @@ pub(crate) fn stealth_mode() -> Vec<(&'static str, Result<String, String>)> {
             format!("opener {opener:?} at {}", last.time_ms),
         ))
     });
+    // The right mouse button holds both [Aim] and [Alt attack]. With the
+    // soldier's blaster in hand, holding it for a second keeps stealth on.
+    run("aim_keeps_stealth", &|| {
+        let mut world = world(sneak(2, true))?;
+        steps(&mut world, 1, 3, press(buttons::STEALTH), 0);
+        let aim = Command {
+            holds: crate::input::holds::AIM,
+            ..Command::default()
+        };
+        let (told, last) = steps(&mut world, 4, 125, aim, buttons::ALT_ATTACK);
+        Ok((on(&last), format!("{told:?}")))
+    });
     run("unit_off_ends_stealth", &|| {
         let mut world = world(sneak(2, true))?;
         steps(&mut world, 1, 3, press(buttons::STEALTH), 0);

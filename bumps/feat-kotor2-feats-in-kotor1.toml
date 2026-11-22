@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "KOTOR 2's feats are lent to KOTOR 1's feat.2da, and the classes list them with their catch-up grants (`levels::Classes::lent_feats`); Targeting, Finesse, Precise Shot, Close Combat, Dual Strike, Unarmed Specialist and Evasion change attacks and damage in both games, Stealth Run lets a stealthed character run, and KOTOR 1's regeneration reads the two regeneration feats. A KOTOR 1 level's tables hold the lent feats, so its digest moves and saves are re-stamped as they load"

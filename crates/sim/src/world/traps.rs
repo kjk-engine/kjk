@@ -515,6 +515,10 @@ fn begin_laying(
                 until: view.now_ms + crate::traps::LAY_MS,
             },
         );
+        // A character that was running stops at once, so what is left of
+        // its run does not carry it further than `STAY_M` and break the lay
+        // off.
+        out.changes.push(Change::Halt { who: user.id });
         act(
             out,
             user,
@@ -610,6 +614,7 @@ fn make_mine(
         at: feet,
         yaw: 0.0,
         kept: None,
+        reach: crate::install::JUMP,
     });
     let party = view
         .things
@@ -636,7 +641,8 @@ fn make_mine(
 }
 
 /// TSL's mine set on lock `index` asked by a seat (`Action::Mine`): the
-/// kit a player would pick (`traps::lock_kit`), set by `user` within reach
+/// kit item the player chose from the menu, else the kit a player would
+/// pick (`traps::lock_kit`), set by `user` within reach
 /// with Demolitions over `traps::LAY_MS`; refused outside TSL, while the
 /// player is restricted (`SetPlayerRestrictMode`: TSL's menu lists no mine
 /// then), on a lock that takes none (`traps::blastable`) or already mined,
@@ -650,7 +656,7 @@ fn begin_lock_mine(
     seat: Seat,
     user: &Thing,
     tell: ObjectId,
-    index: u32,
+    (index, chosen): (u32, Option<u32>),
 ) {
     let target = super::locks::lock_of(view, index)
         .filter(|(target, facts)| crate::traps::blastable(facts, target.locked == Some(true)));
@@ -661,8 +667,11 @@ fn begin_lock_mine(
     };
     let dc = state.lock_dc(facts);
     let door = facts.kind == crate::module::ObjectKind::Door;
-    let kit = crate::traps::lock_kit(demolitions, dc, door, kits.iter().map(|(_, row)| *row))
-        .and_then(|best| kits.iter().find(|(_, row)| *row == best));
+    let kit = match chosen {
+        Some(chosen) => kits.iter().find(|(item, _)| *item == chosen),
+        None => crate::traps::lock_kit(demolitions, dc, door, kits.iter().map(|(_, row)| *row))
+            .and_then(|best| kits.iter().find(|(_, row)| *row == best)),
+    };
     let Some(&(item, _)) = kit.filter(|_| {
         view.module.game == "tsl"
             && !state.party.restrict
@@ -891,8 +900,9 @@ pub(crate) fn skill_uses(
         let (kind, index) = match *action {
             Action::Disarm(index) => (UseKind::Disarm, index),
             Action::Recover(index) => (UseKind::Recover, index),
-            Action::Mine(index) => {
-                begin_lock_mine(view, library, state, out, *seat, user, tell, index);
+            Action::Mine { object, kit } => {
+                let asked = (object, kit);
+                begin_lock_mine(view, library, state, out, *seat, user, tell, asked);
                 continue;
             }
             Action::Unlock { object, spike } => {

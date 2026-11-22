@@ -95,6 +95,8 @@ struct Seen {
     size: u8,
     /// Where its model is drawn, if JA does not pose it (`world::body`).
     bulk: Option<crate::module::Bulk>,
+    /// Its personal space (metres, `movement::personal_space`).
+    space: f32,
     /// Its sheet as what runs on it changes it (a round's roll and damage
     /// are against it).
     sheet: crate::combat::Sheet,
@@ -114,6 +116,10 @@ struct Seen {
     charging_at: Option<SimId>,
     /// When it last fired a shot (sim ms; 0: it has not).
     shot_at: u64,
+    /// Below `grab::HURT_BELOW_PCT` of its health, and free to be grabbed
+    /// (standing on the ground, not down, held or in a saber lock): a mind
+    /// with bare hands under the Advanced rules grabs it (`grapples`).
+    hurt: bool,
 }
 
 impl Seen {
@@ -302,6 +308,7 @@ pub(super) fn think(
                     .and_then(|object| object.facts.as_ref())
                     .is_some_and(|facts| facts.strike.is_some()),
                 bulk: super::object_bulk(object).copied(),
+                space: super::movement::personal_space(object),
                 seat: avatar.map(|a| a.0),
                 party: super::in_party(avatar, &fighting.0),
                 target: fighting.0.target,
@@ -332,6 +339,12 @@ pub(super) fn think(
                 tired: fighting.0.saber.duel.tired(),
                 charging_at: fighting.0.mind.pace.charging_at(),
                 shot_at: fighting.0.shooting.fired_at,
+                hurt: i64::from(fighting.0.hp) * 100
+                    < i64::from(sheet.max_hp) * 100 * i64::from(rules::duel::grab::HURT_BELOW_PCT)
+                    && player.0.ground.is_some()
+                    && !fighting.0.saber.floored()
+                    && fighting.0.grapple.is_none()
+                    && fighting.0.saber.lock.is_none(),
                 still: crate::stealth::pace(player.0.velocity).0,
                 size: object
                     .and_then(|object| object.facts.as_ref())
@@ -429,9 +442,12 @@ pub(super) fn think(
         if fighter.force.confused_until > now {
             fighter.target = None;
         }
+        // In a grapple finisher, holding or held, it starts nothing new
+        // either: no shot, no talent and no change of weapons.
         if fighter.pain_until > now
             || fighter.force.stunned(now)
             || fighter.force.confused_until > now
+            || fighter.grapple.is_some()
         {
             mark_charge(fighter, id.0, now, None);
             fighter.last_command = idle;
@@ -467,14 +483,27 @@ pub(super) fn think(
             awareness,
             me_now.gear.has(crate::combat::gear::traits::TRUE_SEEING),
         );
-        // Bare hands punch, closer in, and a beast strikes within its own
-        // reach (`strikes`): each walks up and stands there attacking, as
-        // KOTOR's creatures do, not stepping about as a swing's keys would.
+        // Bare hands punch and a stun baton swings, closer in, and a beast
+        // strikes within its own reach (`strikes`): each walks up and stands
+        // there attacking, as KOTOR's creatures do, not stepping about as a
+        // swing's keys would.
         let facts = object.and_then(|object| object.facts.as_ref());
         let space = facts.map_or(0.0, |facts| facts.personal_space);
+        // Its personal space as bodies keep it (`scene_stop`).
+        let kept_space = super::movement::personal_space(object);
         let unarmed = held(&me, fighter).delivery == Delivery::Unarmed;
+        // A stun baton closes in to punching distance as bare hands do.
+        // Only bare hands can start a grab.
+        let closes_in = matches!(
+            held(&me, fighter).delivery,
+            Delivery::Unarmed | Delivery::Baton
+        );
+        // It can start a grab now: Stamina enough, its weapon timer out.
+        let grab_ready =
+            crate::combat::saber::duel::meter::can_grab(i32::from(fighter.saber.duel.points))
+                && fighter.weapon_wait_ms <= 0;
         let close = match facts.and_then(|facts| facts.strike) {
-            _ if !unarmed => mind::Attack::Swing,
+            _ if !closes_in => mind::Attack::Swing,
             Some(strike) => mind::Attack::Blow(super::strikes::strike_reach(&strike, space)),
             None => mind::Attack::Blow(super::strikes::punch_reach(space)),
         };
@@ -894,15 +923,19 @@ pub(super) fn think(
                         &level.0,
                         opening,
                     ),
-                    _ => engage(
-                        mind,
-                        id.0,
-                        ps,
-                        (&entry, aloft.stand_at()),
-                        (close, scene_stop(close, beast)),
-                        (now, kotor, world_held),
-                        &level.0,
-                        opening,
+                    _ => grab_if_hurt(
+                        engage(
+                            mind,
+                            id.0,
+                            ps,
+                            (&entry, aloft.stand_at()),
+                            (close, scene_stop(close, beast, kept_space + entry.space)),
+                            (now, kotor, world_held),
+                            &level.0,
+                            opening,
+                        ),
+                        &entry,
+                        rules.0.duel() && unarmed && !beast && !kotor && grab_ready,
                     ),
                 };
                 // A passive attack (a scene's, `CutsceneAttack`) faces its
@@ -1038,7 +1071,7 @@ pub(super) fn think(
                         let mut command = mind
                             .walk_to(goal, moved)
                             .command(&level.0, ps, now, opening);
-                        self::walking(&mut command);
+                        command.walk();
                         command
                     }
                     Some(goal) => mind
@@ -1255,7 +1288,12 @@ pub(super) fn think(
             }
         }
         if fighter.mind.hold_until > now {
+            // The alternate attack is the weapon's other mode, which is a
+            // blaster's feat attack.
             command.buttons |= fighter.mind.hold;
+            if fighter.mind.hold & buttons::ALT_ATTACK != 0 {
+                command.other_mode();
+            }
         }
         // A held scene's lob looks up as its charge runs, to the step that
         // lets it go (its row queued, `Pack::queued`, until then).
@@ -1285,9 +1323,11 @@ pub(super) fn think(
             };
         }
         // While the world is held a party member rolls no attack of its own
-        // (S4); a scene's attack fires the shots its script decided.
+        // (S4), not even a blaster's feat attack or aim. A scene's attack
+        // fires the shots its script decided.
         if world_held && in_party && !decided {
             command.buttons &= !super::scene::ROLLS;
+            command.drop_attacks();
         }
         if saber_rules.duel() && Kit::of(&me).blade(fighter.hand).is_some() {
             let saber_foe = seen
@@ -1436,24 +1476,13 @@ fn scripted_walk(
     } else {
         walker.command(level, ps, now, state)
     };
+    // A script's move without its run flag walks, as in KOTOR
+    // (`ActionMoveToObject(.., FALSE)`, `ActionRandomWalk`).
     if !goal.run {
-        walking(&mut command);
+        command.walk();
     }
     command
 }
-
-/// `command` walked rather than run, as a script's move without its run
-/// flag is in KOTOR (`ActionMoveToObject(.., FALSE)`, `ActionRandomWalk`):
-/// the walking button with the axes JA's client sends with it, `WALK_AXIS`
-/// at most (JA's movement lets the button go with fuller ones).
-fn walking(command: &mut Command) {
-    command.buttons |= buttons::WALKING;
-    command.forward = command.forward.clamp(-WALK_AXIS, WALK_AXIS);
-    command.right = command.right.clamp(-WALK_AXIS, WALK_AXIS);
-}
-
-/// The most a walking command's axes are (JA's client's walk).
-const WALK_AXIS: i8 = tasks::WALK_AXIS;
 
 /// Whether `leader` walks (moving, slower than `FOLLOW_WALK_SHARE` of the
 /// `PLAYER` row's run: K1 plays the walk below it) and whether it runs, for
@@ -1666,6 +1695,19 @@ fn scene_attack(
     command
 }
 
+/// A mind with bare hands under the Advanced rules (`grabs`) grabs a
+/// humanoid target below `grab::HURT_BELOW_PCT` of its health where it
+/// would punch it: alt attack in place of attack (`grapples`). It never
+/// grabs a healthy one. A mind that cannot grab now (`grabs` false: too
+/// little Stamina, its weapon timer running) punches instead.
+fn grab_if_hurt(mut command: Command, target: &Seen, grabs: bool) -> Command {
+    let punches = command.buttons & buttons::ATTACK != 0;
+    if grabs && punches && target.hurt && !target.beast && !target.droid {
+        command.buttons = (command.buttons & !buttons::ATTACK) | buttons::ALT_ATTACK;
+    }
+    command
+}
+
 /// An engaging melee mind's command (a gunner's is `shoot`'s, a paced blade
 /// wielder's `fight`'s): a saber or melee fighter, or one with its fists
 /// (`close`), routes to its target when it is farther than
@@ -1739,12 +1781,16 @@ fn engage(
 /// and never a round's (`strikes`), nearer where they reach less (its
 /// personal space and `hitdist`), as KOTOR's creature closes until it can
 /// attack. Stopped short of its blow, it stood before its foe and never
-/// struck: the Upper Sewers' Gamorreans and rakghouls, 1.4 m apart.
-fn scene_stop(close: mind::Attack, beast: bool) -> f32 {
-    match close {
+/// struck: the Upper Sewers' Gamorreans and rakghouls, 1.4 m apart. It
+/// never comes nearer than its own personal space and its foe's (`spaces`,
+/// metres), as KOTOR's creatures keep apart: a katarn (`perspace` 1.3 m)
+/// brought to 1.4 m stood with its head through Jolee on Kashyyyk.
+fn scene_stop(close: mind::Attack, beast: bool, spaces: f32) -> f32 {
+    let stop = match close {
         mind::Attack::Blow(reach) if beast => mind::SCENE_REACH.min(mind::blow_from(reach)),
         _ => mind::SCENE_REACH,
-    }
+    };
+    stop.max(spaces / UNIT)
 }
 
 /// How far ahead of a body (units) its step is checked for floor: past its
@@ -2182,7 +2228,7 @@ fn fight(
         ..mind::looking(ps, pitch, yaw)
     };
     if keys.walk {
-        walking(&mut command);
+        command.walk();
     }
     // Jump counts as pressed from `movement.keys.jump_axis`, a crouch at any
     // value below 0.
@@ -2194,7 +2240,7 @@ fn fight(
         command.buttons |= buttons::ATTACK;
     }
     if keys.alt {
-        command.buttons |= buttons::ALT_ATTACK;
+        command.other_mode();
     }
     if keys.kick {
         command.holds |= crate::input::holds::KICK;

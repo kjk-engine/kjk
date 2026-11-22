@@ -397,6 +397,7 @@ const NAMES: &[(&str, &str)] = &[
     ("NumpadEnter", "Num Enter"),
     ("NumLock", "Num Lock"),
     ("ScrollLock", "Scroll Lock"),
+    ("PrintScreen", "Print Screen"),
     ("ContextMenu", "Menu key"),
 ];
 
@@ -456,8 +457,8 @@ pub struct KeyEntry {
     action: String,
     label: String,
     current: String,
-    /// The binding asked for that another action has, and whose it is.
-    clash: Option<(String, KeyRow)>,
+    /// The binding asked for that other actions have, and whose it is.
+    clash: Option<(String, Vec<KeyRow>)>,
     /// The modifier keys held down since the entry opened, in the order
     /// they were pressed.
     held: Vec<String>,
@@ -532,8 +533,11 @@ impl KeyEntry {
         )
     }
 
-    /// The action other than this one on `binding` it may not share with.
-    fn other(&self, binding: &str, vm: &ViewModel) -> Option<KeyRow> {
+    /// The actions other than this one on `binding` that it may not share
+    /// with. Several actions may share one binding (Block, the alternate
+    /// attack and Aim share the right mouse button), so a swap moves them
+    /// all.
+    fn others(&self, binding: &str, vm: &ViewModel) -> Vec<KeyRow> {
         let mine = self
             .device
             .rows(vm)
@@ -542,13 +546,71 @@ impl KeyEntry {
         self.device
             .rows(vm)
             .iter()
-            .find(|row| {
+            .filter(|row| {
                 row.key == binding
                     && row.action != self.action
                     && !row.shares.contains(&self.action)
                     && !mine.is_some_and(|mine| mine.shares.contains(&row.action))
             })
             .cloned()
+            .collect()
+    }
+
+    /// Whether an action that stays on the binding this one leaves
+    /// (`current`) may not share it with `moved`. Such a moved action is
+    /// left unbound instead. For example, Aim bound onto E would move Use to
+    /// the right mouse button, where Block and the alternate attack stay.
+    fn refused_at_current(&self, moved: &KeyRow, vm: &ViewModel) -> bool {
+        !self.current.is_empty()
+            && self.device.rows(vm).iter().any(|row| {
+                row.key == self.current
+                    && row.action != self.action
+                    && row.action != moved.action
+                    && !row.shares.contains(&moved.action)
+                    && !moved.shares.contains(&row.action)
+            })
+    }
+
+    /// What the entry says when `binding` is `others`'. When every one of
+    /// them can take the old key, the next press swaps them. When some
+    /// cannot (`refused_at_current`), it says which actions move to the old
+    /// key and which are left without a key.
+    fn clash_message(&self, binding: &str, others: &[KeyRow], vm: &ViewModel) -> String {
+        let shown = self.device.shown(binding, vm);
+        let (left, moved): (Vec<&KeyRow>, Vec<&KeyRow>) = others
+            .iter()
+            .partition(|other| self.refused_at_current(other, vm));
+        let all: Vec<&KeyRow> = others.iter().collect();
+        let named = format!("{shown} is {}.", owners(&all));
+        if left.is_empty() {
+            return format!("{named} Press {shown} again to swap them.");
+        }
+        let mut message = format!("{named} Press {shown} again to bind {} to it.", self.label);
+        if !moved.is_empty() {
+            let old = self.device.shown(&self.current, vm);
+            message += &format!(" {} will move to {old}.", names(&moved));
+        }
+        message + &format!(" {} will be left without a key.", names(&left))
+    }
+}
+
+/// The actions whose binding is asked for, as the clash message names
+/// them: "Use's", or "Block's, Alt attack's and Aim's".
+fn owners(rows: &[&KeyRow]) -> String {
+    listed(rows.iter().map(|row| format!("{}'s", row.label)).collect())
+}
+
+/// The actions of `rows` by name, as the clash message lists them: "Use",
+/// or "Block, Alt attack and Aim".
+fn names(rows: &[&KeyRow]) -> String {
+    listed(rows.iter().map(|row| row.label.clone()).collect())
+}
+
+/// `names` joined as a sentence lists them: "a", "a and b", "a, b and c".
+fn listed(names: Vec<String>) -> String {
+    match names.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => names.concat(),
     }
 }
 
@@ -576,13 +638,7 @@ impl Screen for KeyEntry {
                     strings::PRESS_KEY.to_string()
                 };
                 let now = match &self.clash {
-                    Some((binding, other)) => {
-                        let shown = self.device.shown(binding, vm);
-                        format!(
-                            "{shown} is {}'s. Press {shown} again to swap them.",
-                            other.label
-                        )
-                    }
+                    Some((binding, others)) => self.clash_message(binding, others, vm),
                     None => format!(
                         "{} {}",
                         strings::NOW_ON,
@@ -656,16 +712,19 @@ impl Screen for KeyEntry {
             out.push(Intent::Close);
             return true;
         }
-        match self.other(binding, vm) {
-            Some(other) if self.clash.as_ref().map(|(b, _)| b.as_str()) != Some(binding) => {
-                self.clash = Some((binding.to_string(), other));
-                return true;
-            }
-            Some(other) => {
-                let (key, value) = setting(self.device, &other.action, &self.current);
-                out.push(Intent::Setting(key, value));
-            }
-            None => {}
+        let others = self.others(binding, vm);
+        if !others.is_empty() && self.clash.as_ref().map(|(b, _)| b.as_str()) != Some(binding) {
+            self.clash = Some((binding.to_string(), others));
+            return true;
+        }
+        for other in &others {
+            let to = if self.refused_at_current(other, vm) {
+                ""
+            } else {
+                self.current.as_str()
+            };
+            let (key, value) = setting(self.device, &other.action, to);
+            out.push(Intent::Setting(key, value));
         }
         out.push(Intent::Setting(
             format!("{prefix}.{}", self.action),

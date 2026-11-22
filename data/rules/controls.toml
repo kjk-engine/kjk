@@ -22,9 +22,10 @@ jumps. [Crouch] crouches, or rolls while the character is running. [Walk]
 makes the character walk.
 
 [Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
-second mode. For a blaster this is a feat attack. For a lightsaber it is a
-throw or a kick. [Use] uses the object in front of the character. Holding
-[Use] over an unconscious party member revives them.
+second mode. For a lightsaber it is a throw or a kick. With a blaster in
+hand, [Alt attack] does nothing. [Aim] raises the blaster instead, and
+[Saber throw/kata/ranged feat] fires a feat attack. [Use] uses the object in front of the
+character. Holding [Use] over an unconscious party member revives them.
 
 Some objects offer more than one action. A mine offers Disarm Mine and
 Recover Mine. A locked door offers Open and Security. The mouse wheel chooses
@@ -223,10 +224,13 @@ applies = ["baseitem:Double_Bladed_Lightsaber"]
 title = "Blocks and Kicks Under the Advanced Rules"
 summary = """
 The Advanced combat rules are kjk's own. The player picks them on the
-Saber Options page. Under the Advanced rules, the blade blocks only while 
+Combat Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
-with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
+with any weapon in hand. A kick to the left or to the right becomes a split
+kick when another character stands on each side of the kicking character,
+within {saber_moves.specials.mirror_reach:m}. The split kick kicks both of
+them at once, whether they are enemies or companions. Under Jedi Academy's rules, [Block (Advanced rules)]
 does nothing, and [Kick] kicks only with a double-bladed lightsaber, as
 [Alt attack] does there.
 
@@ -236,6 +240,8 @@ button. Under the Advanced rules, that button blocks instead of using
 a sword, a vibroblade or a staff. Holding the button takes out a weapon that
 is put away and turns on a lightsaber that is off. The button works as
 [Alt attack] with any other weapon, or under Jedi Academy's rules.
+[Aim] is on the same button by default. It raises a blaster and does
+nothing with any other weapon.
 A player who binds [Block (Advanced rules)] to a separate key has both actions on
 their own keys.
 
@@ -244,12 +250,16 @@ the player controls a companion, that companion blocks only while the player
 holds [Block (Advanced rules)]. It does not block by itself as other characters
 do.
 
-[Saber throw and kata] is the alternate attack on a key of its own. It works
-even while the shared button blocks. Under the Advanced rules it never kicks.
-Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
-included. With any other weapon it does nothing. Pressed together with
-[Attack], it starts the kata of the saber style and throws nothing. Under Jedi
-Academy's rules it does what [Alt attack] does.
+[Saber throw/kata/ranged feat] is the alternate attack on a key of its own. It
+works even while the shared button blocks. Under the Advanced rules it never
+kicks. Pressed alone, it throws a lightsaber of any kind, a double-bladed
+lightsaber included. With a melee weapon or with empty hands it does nothing.
+Pressed together with [Attack], it starts the kata of the saber style and
+throws nothing. Under Jedi Academy's rules it does what [Alt attack] does.
+With a blaster in hand it fires a feat attack instead, as the Blasters entry
+describes. On a controller, its default chord is LB held with the right
+trigger. With anything other than a blaster in hand, that chord only attacks
+while blocking, and it throws nothing.
 """
 applies = ["kind:lightsaber"]
 
@@ -270,19 +280,45 @@ applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER
 [guns]
 title = "Blasters"
 summary = """
-[Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up {feats.specials.cost_percent} of the character's
-stamina and never uses Force points. Under Jedi Academy's rules only a
-character who does not use the Force has stamina, so a Force user's feat
-attacks cost nothing there.
-With Power Blast, hold [Alt attack] to charge the shot and release it to
-fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
-With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
-critical threat range is wider, it moves more slowly, and it cannot jump.
+[Attack] fires. [Alt attack] does nothing with a blaster in hand.
+
+Hold [Aim] to raise the gun to the eye. The gun is fully raised
+{weapons.aim.in_ms:s} after the player presses [Aim]. Once it is fully
+raised, the spread of its shots is multiplied by
+{weapons.bloom.stance[1]:bare}. While the gun is raised, the character moves
+at walking speed and cannot run, roll or jump.
+
+[Saber throw/kata/ranged feat] makes a feat attack that the character knows. The feat attack
+uses up {feats.specials.cost_percent} of the character's stamina and never
+uses Force points. Under Jedi Academy's rules only a character who does not
+use the Force has stamina, so a Force user's feat attacks cost nothing
+there. While [Saber throw/kata/ranged feat] is held, [Attack] does nothing.
+With Power Blast, hold [Saber throw/kata/ranged feat] to charge the shot and
+release it to fire. With Rapid Shot or Multi Shot,
+[Saber throw/kata/ranged feat] fires a burst of shots. With Sniper Shot, hold
+[Saber throw/kata/ranged feat] to steady the gun and release it to
+fire one shot. The gun is steady after
+{feats.specials.sniper_shot.steady_ms[0]:s}, or after
+{feats.specials.sniper_shot.steady_ms[1]:s} while the character aims. The
+character can start to steady the gun while it is still cooling down after
+the last shot. If the gun is steady but not yet ready to fire again, the
+shot leaves as soon as the gun is ready. While the character steadies the
+gun, it moves at walking speed and cannot jump.
+A Sniper Shot has no spread. It gets
++{feats.specials.sniper_shot.attack_bonus[0]:bare} to hit with Sniper Shot,
++{feats.specials.sniper_shot.attack_bonus[1]:bare} with Improved Sniper Shot
+and +{feats.specials.sniper_shot.attack_bonus[2]:bare} with Master Sniper
+Shot. Its critical threat range is multiplied by
+{feats.specials.sniper_shot.threat_times[0]:bare} with Sniper Shot,
+{feats.specials.sniper_shot.threat_times[1]:bare} with Improved Sniper Shot
+and {feats.specials.sniper_shot.threat_times[2]:bare} with Master Sniper
+Shot. For the round after the shot, the character suffers a
+{feats.specials.sniper_shot.defence_penalty:bare} penalty to Defense.
 
 [Next feat attack] chooses among the feat attacks the character knows. Each
 type of gun remembers its own choice. If the character knows none of these
-feats, or its second bar is too low, [Alt attack] fires like [Attack].
+feats, or its second bar is too low, [Saber throw/kata/ranged feat] fires
+like [Attack].
 """
 applies = ["kind:blaster", "feat:POWER_BLAST", "feat:RAPID_SHOT", "feat:MULTI_SHOT", "feat:SNIPER_SHOT"]
 
@@ -419,15 +455,83 @@ applies = ["kind:grenade", "kind:medpac", "kind:stim", "kind:shield"]
 title = "Fists"
 summary = """
 With no weapon in hand, hold [Attack] to punch. The character punches with
-the left fist, then the right, one punch each round. Fists have no swing
-directions and no special attacks.
+the left fist, then the right. Fists have no swing directions. Under Jedi
+Academy's rules the character throws one punch each round, and fists have
+no special attacks.
+
+Under the Advanced rules the character punches again as soon as the last
+punch ends. Each press of [Attack] throws a punch, and holding [Attack]
+keeps punching. A press made during a punch is remembered, and the next
+punch follows as soon as the current one ends. Each punch deals a smaller
+share of damage, so the punches of one round deal as much damage together
+as the single punch of Jedi Academy's rules. Weapon effects that trigger on
+a hit trigger by the same share, so they do not trigger more often in a
+round.
+
+With a stun baton or a plasma torch in hand, hold [Attack] to swing it. The
+character swings first one way and then the other, and each swing flows into
+the next. The character can walk while swinging. A baton swings about four
+times a round, and each hit deals about a quarter of a round's damage.
 
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
 feat the character knows, and then to no feat. Every punch uses the chosen
-feat.
+feat. Flurry makes every punch come sooner, under both rule sets.
+
+Under the Advanced rules, a character with no weapon can also kick. Press
+[Kick] right after a punch to follow it with a spinning kick. The player can
+press [Kick] from the moment the fist is fully out until
+{duel.kicks.spin_window_ms:s} after the punch ends. This works whether or not
+the punch hit anyone. The spinning kick hits
+every enemy around the character. The next punch waits until the spinning
+kick is over. A spinning kick after a punch never adds a second blow of
+that punch.
+
+Press [Kick] with [Strafe left] or [Strafe right] while another character
+stands on each side of the kicking character, within
+{saber_moves.specials.mirror_reach:m}. The kicking character then does a split
+kick, which kicks both of them at once, whether they are enemies or
+companions. The split
+kick plays at {duel.kicks.split_speed_pct:bare}% of its normal speed. Every
+kick, the spinning kick and the split kick included, uses up
+{duel.kicks.uses:bare} Stamina. A kick with no weapon in hand also deals
+the character's Strength modifier and Unarmed Specialist dice as extra
+damage. Under Jedi Academy's rules, a character with
+no weapon cannot kick.
 """
-applies = ["kind:unarmed", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
+applies = ["kind:unarmed", "kind:baton", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
+
+[grab]
+title = "Grabs (Advanced rules)"
+summary = """
+Under the Advanced rules, a character with no weapon in hand grabs the enemy
+in front with [Alt attack]. The enemy must stand within a punch's reach. A
+grab uses {duel.grab.uses:bare} Stamina, and a character with less cannot
+grab. Beasts and droids cannot be grabbed.
+
+A grab is rolled like an attack. It holds far more often on an enemy that
+has less than {duel.grab.hurt_below_pct:bare}% of its health left. Such an
+enemy counts its Defense {duel.grab.hurt_defence:bare} lower. Any other enemy
+counts its Defense {duel.grab.healthy_defence:bare} higher. A grab that misses
+leaves the character stumbling for a moment, unable to act.
+
+A grab that holds plays a finisher on both characters. A movement key picks
+the finisher. The key held when the grab reaches the enemy picks it. When
+no key is held then, the key held when [Alt attack] was pressed picks it.
+When no key is held at either moment, the first finisher plays. No key or
+[Forward] punches the enemy and knocks it down. [Strafe left] or
+[Strafe right] catches its kick by the foot, swings it over and slams it to
+the ground. The slam always kills it. [Backward] chokes it and throws it to
+the ground. Each blow of a finisher deals the damage of
+a whole round of punches, and it always hits. An enemy that a blow would
+kill dies when the finisher lets it go. After [Backward], such an enemy
+dies as it is thrown and flies limp. While a finisher plays, neither
+character can attack, change weapons or use anything. Knocking the grabber down breaks the grab. Pushing
+the two apart breaks it too, once they stand about 40% farther apart than
+the finisher placed them. Enemies with bare hands grab too, but only a character
+below {duel.grab.hurt_below_pct:bare}% of its health.
+"""
+applies = ["kind:unarmed"]
 
 [moving]
 title = "Rolls, Getting Up and Stealth"

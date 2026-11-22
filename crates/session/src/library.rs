@@ -67,7 +67,9 @@ impl Seeds<'_> {
 /// name (the module's, the area's, its objects') and those `hooked` (the
 /// creature templates' hooks), its traps' rows' scripts, the DLGs its objects speak and those of the
 /// creature templates (`spoken`: template, DLG) that are companions or that
-/// a script names, every script a DLG names, and every script or DLG a
+/// a script names, those of the templates the module carries in its own
+/// archives (`carried`: a script may make one by a name it builds), every
+/// script a DLG names, and every script or DLG a
 /// script names in a string constant (`ExecuteScript`'s,
 /// `ActionStartConversation`'s), with the game's routines; and every
 /// resref-like string the scripts hold. Its gathering taken from `bakes` when gathered
@@ -77,7 +79,7 @@ pub(crate) fn script_library(
     source: &dyn Source,
     data: &sim::module::ModuleData,
     hooked: Vec<String>,
-    spoken: &BTreeMap<String, String>,
+    (spoken, carried): (&BTreeMap<String, String>, &[String]),
     voiced: Option<&BTreeMap<String, u32>>,
     bakes: Option<(&Bakes, &Request)>,
 ) -> Option<Library> {
@@ -128,6 +130,7 @@ pub(crate) fn script_library(
                 .filter(|(template, _)| template.starts_with("p_"))
                 .map(|(_, dialog)| dialog.clone()),
         )
+        .chain(carried.iter().cloned())
         .filter(|name| !name.is_empty())
         .collect();
     let seeds = Seeds {

@@ -223,7 +223,7 @@ pub(crate) struct Scripts {
     /// The step's list of things (`View::things`) as the last step left
     /// it. Each step writes every thing in it again before anything reads
     /// it, so it is no state: it is kept for its memory.
-    things: Vec<Thing>,
+    pub(super) things: Vec<Thing>,
 }
 
 /// All that the players' goods (`State::goods`) and the characters' usable
@@ -253,6 +253,8 @@ struct Life {
     alive: bool,
     dead: bool,
     in_combat: bool,
+    /// In a grapple finisher, holding or held (`world::grapples`).
+    grappled: bool,
     /// The last to hit it, and when.
     attacker: Option<(u32, u64)>,
 }
@@ -342,9 +344,11 @@ pub(super) fn moment(now_ms: u64, msec: u32, period: u64, phase: u64) -> bool {
 }
 
 /// What `dead`'s death gives the party: its challenge rating's worth at
-/// the first PC's level (`script::xp`; the character the first seat is
-/// switched to, while it is), if it was no party member and the first
-/// PC's enemy [verify: whoever killed it].
+/// the level the party's XP reaches (`script::xp`), if it was no party
+/// member and the first PC's enemy [verify: whoever killed it]. Both
+/// executables read the row of `xptable.2da` by the level that the
+/// player's XP is enough for, not by the level taken, so a level-up put
+/// off gains nothing.
 fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: ObjectId) -> i32 {
     let worth = || {
         let thing = view.thing(dead)?;
@@ -361,18 +365,17 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
         }
         let facts = view.facts(dead)?;
         let experience = library.experience();
+        let xp = state.xp(crate::inventory::PARTY);
+        let potential = library.classes().potential_level(player.level, xp);
         if crate::combat::passive::Game::named(&view.module.game)
             != crate::combat::passive::Game::Tsl
         {
-            return Some(experience.kill(player.level, facts.challenge));
+            return Some(experience.kill(potential, facts.challenge));
         }
-        // TSL's: by the level the PC's XP reaches; an autobalanced
-        // creature rated by its `MultiplierSet`'s `CRMod` past the PC's
-        // level, which the executable keeps as it spawned
-        // (`PCLevelAtSpawn`: `G_PC_LEVEL`) and kjk reads as it dies
+        // TSL's: an autobalanced creature rated by its `MultiplierSet`'s
+        // `CRMod` past the PC's level, which the executable keeps as it
+        // spawned (`PCLevelAtSpawn`: `G_PC_LEVEL`) and kjk reads as it dies
         // [verify: a level taken in between].
-        let xp = state.xp(crate::inventory::PARTY);
-        let potential = library.classes().potential_level(player.level, xp);
         let autobalanced = (facts.multiplier_set != 0).then(|| {
             let pc_level = script::global(&state.numbers, script::xp::PC_LEVEL)
                 .and_then(|level| u8::try_from(*level).ok())
@@ -380,7 +383,8 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
             (facts.multiplier_set, pc_level)
         });
         let members = state.party.members.len() + 1;
-        Some(experience.tsl_kill(potential, facts.challenge, autobalanced, members))
+        let kill = experience.tsl_kill(potential, facts.challenge, autobalanced, members);
+        Some(script::xp::mentor(view, state, kill))
     };
     worth().unwrap_or(0)
 }
@@ -608,6 +612,7 @@ pub(super) fn scripts(
             struck: fighter.last_attacker.map(|(by, at)| (ObjectId(by.0), at)),
             downed: fighter.downed(),
             debilitated: fighter.force.stunned(now) || fighter.force.confused_until > now,
+            grappled: fighter.grapple.is_some(),
             fp: fighter.fp,
             feats: sheet.feats,
             // Ended effects are gone, as the executable drops them: their
@@ -637,9 +642,7 @@ pub(super) fn scripts(
             powers: sheet.powers,
             still: player.is_none_or(|player| crate::stealth::pace(player.0.velocity).0),
             running: player.is_some_and(|player| crate::stealth::pace(player.0.velocity).1),
-            attacking: fighter.last_command.buttons
-                & (crate::input::buttons::ATTACK | crate::input::buttons::ALT_ATTACK)
-                != 0,
+            attacking: fighter.last_command.attacks(),
             stealth: fighter.covert.stealth,
             look: fighter.look,
             item_used_ms: fighter.pack.last.1,
@@ -654,6 +657,7 @@ pub(super) fn scripts(
                 alive: fighter.alive(),
                 dead: fighter.dead(),
                 in_combat: fighter.combat_until > now,
+                grappled: fighter.grapple.is_some(),
                 attacker: fighter.last_attacker.map(|(by, at)| (by.0, at)),
             });
         }
@@ -1220,6 +1224,7 @@ pub(super) fn scripts(
         lost,
         broke,
         opened,
+        removed,
     } in &battered.0
     {
         if attacked {
@@ -1243,6 +1248,13 @@ pub(super) fn scripts(
         if broke && !opened {
             state.last.insert((object.0, script::last::KILLER), by.0);
             raise(&view, state, ObjectId(object.0), Hook::Death, None);
+        }
+        if removed {
+            out.changes.push(Change::Destroy {
+                who: ObjectId(object.0),
+                ms: rules::world::timings::KILLED_PLACEABLE_MS,
+                going: None,
+            });
         }
     }
     // The 107per turret's bolts that met the area's things: each one's
@@ -1316,6 +1328,16 @@ pub(super) fn scripts(
         } else {
             talk_to(&view, state, object, player);
         }
+    }
+    // A character out of combat has no last hostile actor. TSL's executable
+    // clears it whenever a creature's combat state ends, and `CancelCombat`
+    // and a surrender end it (K1's [verify]). K1's `k_ai_master` will not
+    // talk while the
+    // speaker's last hostile actor is alive and in sight: a stun duel's
+    // beaten opponent, still standing in Taris's cantina, kept every
+    // duelist from talking after it.
+    for life in lives.iter().filter(|life| !life.in_combat) {
+        state.last.remove(&(life.id.0, script::last::HOSTILE));
     }
     // Powers that reached someone (C15): at most every `DAMAGED_EVERY_MS`
     // per target and caster, a channel's ticks so one event.
@@ -1441,13 +1463,20 @@ pub(super) fn scripts(
                 .insert((script::MODULE.0, script::last::PLAYER_DIED), id.0);
             raise(&view, state, script::MODULE, Hook::PlayerDeath, None);
         }
-        // A death, not a fall: a downed party member (I30 P11) raises
-        // nothing until it dies.
-        if !was.dead && dead {
-            if let Some(by) = by {
-                state.last.insert((id.0, script::last::KILLER), by);
-            }
+        // A fall runs the creature's `OnDeath` as both executables'
+        // `OnApplyDeath` does when a party member's hit points reach 0
+        // (Atton's `a_attonspirit`); only a death records a killer or gives
+        // XP.
+        if !was.dead
+            && dead
+            && let Some(by) = by
+        {
+            state.last.insert((id.0, script::last::KILLER), by);
+        }
+        if (was.alive && !alive) || (!was.dead && dead) {
             raise(&view, state, id, Hook::Death, None);
+        }
+        if !was.dead && dead {
             let xp = kill_xp(&view, library, state, id);
             state.reward(xp, &mut scripts.notices);
             script::xp::tell_pc_level(library, &view, state);
@@ -1682,8 +1711,15 @@ pub(super) fn scripts(
             || scripts.open != open
             || scripts.gathered.as_ref() != Some(&from)
         {
+            // The companions waiting at a base are on the pages and the
+            // upgrade bench too, so all they wear is shown, not only what
+            // is drawn on them (a weapon in their second set).
+            let mut shown = members.clone();
+            if crate::script::party::at_base(&module.name) {
+                shown.extend(scripts.state.party.waiting_creatures());
+            }
             let goods = scripts.state.goods(
-                &members,
+                &shown,
                 from.here.iter().copied(),
                 &open,
                 &from.containers,
@@ -1880,7 +1916,9 @@ fn rounds(view: &View, state: &mut State, life: &Life) {
     if now >= *next {
         *next = now + ROUND_MS;
         let talking = state.talk.with(id, view.host(&state.party)).is_some();
-        if !talking {
+        // A character in a grapple finisher decides nothing until it is let
+        // go: its AI would change its weapon or use a talent in the hold.
+        if !talking && !life.grappled {
             raise(view, state, id, Hook::EndRound, None);
         }
     }

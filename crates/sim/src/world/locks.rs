@@ -118,6 +118,13 @@ pub mod lines {
     pub const STEALTH_OFF: u32 = 1465;
     /// "Sneak Attack!": told to whoever lands one.
     pub const SNEAK_ATTACK: u32 = 1459;
+    /// A saving throw's line: "<CUSTOM0> <CUSTOM1> <CUSTOM2>: <CUSTOM3>
+    /// (roll <CUSTOM4> <CUSTOM5> <CUSTOM6> <CUSTOM7>) vs. DC <CUSTOM8>",
+    /// with the save's name: "Fortitude Save", "Reflex Save", "Will Save".
+    pub const SAVE: u32 = 1408;
+    pub const FORTITUDE_SAVE: u32 = 1375;
+    pub const REFLEX_SAVE: u32 = 1374;
+    pub const WILL_SAVE: u32 = 1376;
 }
 
 /// The words K1's client floats over the user of Security, Disable Mine or

@@ -33,6 +33,9 @@ pub fn all() -> Vec<Probe> {
             "class_and_influence_tsl",
             sheets::class_and_influence(vfs::Game::Kotor2),
         ),
+        ("head_preset", head::head_preset()),
+        ("class_body_k1", head::class_body(vfs::Game::Kotor1)),
+        ("class_body_tsl", head::class_body(vfs::Game::Kotor2)),
         ("party_queued", party::party_queued()),
         ("party_joins_k1", party::party_joins_k1()),
         ("checked_k1", party::checked_k1()),
@@ -46,6 +49,7 @@ pub fn all() -> Vec<Probe> {
 }
 
 mod companions;
+mod head;
 mod party;
 mod sheets;
 

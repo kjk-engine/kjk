@@ -85,7 +85,7 @@ pub(super) fn seat_actions(
             Action::Break | Action::Resume | Action::Ready | Action::Force => continue,
             // A revive is `world::falls`'.
             // Traps' (`world::traps`).
-            Action::Revive(_) | Action::Disarm(_) | Action::Recover(_) | Action::Mine(_) => {
+            Action::Revive(_) | Action::Disarm(_) | Action::Recover(_) | Action::Mine { .. } => {
                 continue;
             }
             // The holster key is the moves' (`world::move_actors`), a race's
@@ -171,7 +171,7 @@ pub(super) fn seat_actions(
                     continue;
                 };
                 let mut sheet = out.sheet(body, worn.worn);
-                let Some(shelf) = sheet.picks.pick_item(*row) else {
+                let Some(shelf) = sheet.picks.pick_item(*row, &sheet.items) else {
                     continue;
                 };
                 out.changes.push(Change::Sheet { who: body, sheet });

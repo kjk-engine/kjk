@@ -220,6 +220,7 @@ impl Man {
             weapon: Some(weapon),
             at: Some(Event::units(at)),
             visual: None,
+            wild: false,
         });
     }
 }
@@ -318,7 +319,7 @@ pub(super) fn sabers(
                 Man {
                     id: id.0,
                     avatar: seat.is_some(),
-                    keyed: super::movement::players_body(id.0, *avatar, lent),
+                    keyed: super::played(id.0, *avatar, lent),
                     lag_ms: seat.map_or(0, |seat| inputs.0.view_lag(seat)),
                     commanded: seat.is_some_and(|seat| inputs.0.get(seat).is_some()),
                     party: in_party(*avatar, &fighting.0),
@@ -664,6 +665,7 @@ impl Step<'_> {
                 share: blow.share,
                 area: false,
                 second,
+                sure: false,
             },
             point: Some(blow.point),
             direction: Some(blow.direction),
@@ -1594,6 +1596,26 @@ impl Step<'_> {
             point: Some(point),
             direction: Some(kick.direction),
         });
+        // Under the Advanced rules a kick with bare hands also deals what
+        // the kicker's Strength and Unarmed Specialist add to a punch.
+        if self.pair_rules(a, d).duel()
+            && let Some(weapon) = kick_bonus(&self.men[a])
+        {
+            self.hits.push(Hit {
+                attacker: self.men[a].id,
+                target: victim,
+                source: Source::Weapon {
+                    weapon,
+                    cadence_ms: damage::WHOLE_CADENCE_MS,
+                    share: 1000,
+                    area: false,
+                    second: None,
+                    sure: true,
+                },
+                point: Some(point),
+                direction: Some(kick.direction),
+            });
+        }
         if !self.foes(a, d) || self.men[d].ps.flags & motion::motion_flags::KNOCKBACK_HOLD != 0 {
             return;
         }
@@ -1809,6 +1831,7 @@ impl Step<'_> {
                 share: 1000,
                 area: false,
                 second: None,
+                sure: false,
             },
             point: Some(t.at),
             direction: Some(direction),
@@ -1817,13 +1840,17 @@ impl Step<'_> {
     }
 
     /// Step 6: The saber boxes bolts clip against: lit lightsabers of those who
-    /// block with them (rulebook 5.6).
+    /// block with them, each blade a row of small boxes (`blades::bolt_boxes`).
     fn boxes(&self) -> Vec<(SimId, Vec3, Vec3)> {
         (0..self.men.len())
             .filter(|&at| self.solid(at) && self.men[at].blade().is_some_and(|b| b.saber))
-            .filter_map(|at| {
-                let (min, max) = blades::bounds(self.placed[at].iter().flatten().map(|s| s.now))?;
-                Some((self.men[at].id, min, max))
+            .flat_map(|at| {
+                let id = self.men[at].id;
+                self.placed[at]
+                    .iter()
+                    .flatten()
+                    .flat_map(move |slot| blades::bolt_boxes(&slot.now))
+                    .map(move |(min, max)| (id, min, max))
             })
             .collect()
     }
@@ -1900,6 +1927,34 @@ pub(super) fn could_turn(
     }
 }
 
+/// Whether a bolt gets past `fighter`, an NPC with `sheet`, at tick `tick`
+/// (each `msec` long) because of the bolts it turned lately
+/// (`defence::overwhelm_percent`). The roll is made only when the chance is
+/// above 0.
+pub(super) fn overwhelmed(
+    fighter: &Fighter,
+    sheet: &Sheet,
+    (tick, msec): (u64, u32),
+    rng: &mut SimRng,
+) -> bool {
+    let turned = defence::bolts_turned_lately(fighter, tick, msec);
+    let percent = defence::overwhelm_percent(Kit::of(sheet).jedi_defense, turned);
+    percent > 0 && rng.below(100) < percent
+}
+
+/// A bolt's `fate` after an NPC with `sheet` turned it: a turned bolt
+/// strays by the NPC's spread (`defence::creature_stray`).
+pub(super) fn creature_fate(fate: BoltFate, sheet: &Sheet, rng: &mut SimRng) -> BoltFate {
+    match fate {
+        BoltFate::Turned(way) => BoltFate::Turned(defence::creature_stray(
+            way,
+            Kit::of(sheet).jedi_defense,
+            rng,
+        )),
+        BoltFate::Absorbed => BoltFate::Absorbed,
+    }
+}
+
 /// A lit lightsaber in `fighter`'s hand, not thrown.
 fn saber_out(fighter: &Fighter, sheet: &Sheet) -> bool {
     Kit::of(sheet)
@@ -1958,6 +2013,7 @@ fn bare_block(
         weapon: Some(bolt.weapon.delivery),
         at: Some(Event::units(at)),
         visual: None,
+        wild: false,
     });
     Some(fate)
 }
@@ -2053,8 +2109,93 @@ pub(super) fn bolt_block(
         weapon: Some(bolt.weapon.delivery),
         at: Some(Event::units(at)),
         visual: None,
+        wild: false,
     });
     Some(fate)
+}
+
+/// A beast's attack as the blade it meets reads it (`strike_block`).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct StrikeBlow {
+    /// Where the beast stands.
+    pub from: Vec3,
+    /// Where its blow meets the body.
+    pub at: Vec3,
+    /// The beast's Strength modifier less the blocker's.
+    pub stronger: i32,
+    /// KOTOR's attack roll made it a critical hit.
+    pub critical: bool,
+    /// KOTOR's chance that it hits, in thousandths (`damage::chance`).
+    pub chance: i64,
+}
+
+/// What blocking `blow` takes from a player's bar under the Advanced rules:
+/// `beasts::BLOCK`, `beasts::BLOCK_STRENGTH` more for each point the beast's
+/// Strength modifier is over the blocker's, and `block::CRITICAL_TIMES`
+/// times that for a critical hit.
+fn strike_cost(blow: &StrikeBlow) -> i32 {
+    use rules::creatures::beasts;
+    use rules::duel::block;
+    let cost = beasts::BLOCK + beasts::BLOCK_STRENGTH * blow.stronger.max(0);
+    if blow.critical {
+        cost * block::CRITICAL_TIMES
+    } else {
+        cost
+    }
+}
+
+/// Whether `fighter` (its sheet; its body `ps`) turns a beast's attack
+/// with the blade in its hand, and what that takes (`rules::creatures::beasts`).
+/// It must be able to defend, hold a lightsaber (lit, not thrown), a sword
+/// or a staff, and face the beast (`duel::in_front`). A player under the
+/// Advanced rules must hold block, not be swinging, and have the Stamina
+/// the block takes (`strike_cost`), which it then loses. Under JA's rules,
+/// and for a creature under either, the blade must be free to block
+/// (`defence::ready`) and KOTOR's attack roll must miss; the roll is drawn
+/// here from `rng`. The blade shows the parry that meets the blow.
+pub(super) fn strike_block(
+    (rules, player): (SaberRules, bool),
+    fighter: &mut Fighter,
+    ps: &MotionState,
+    sheet: &Sheet,
+    blow: StrikeBlow,
+    now: u64,
+    rng: &mut SimRng,
+) -> bool {
+    let Some(blade) = Kit::of(sheet).blade(fighter.hand) else {
+        return false;
+    };
+    let in_hand = !blade.saber || (fighter.saber.on && fighter.saber.thrown.is_none());
+    let ahead = crate::combat::saber::duel::in_front(ps.origin, ps.view[1], blow.from);
+    if !in_hand || !ahead || !fighter.can_defend(now) {
+        return false;
+    }
+    use crate::combat::saber::duel::{meter, standing};
+    let current = fighter.saber.current_move;
+    if rules.duel() && player {
+        let cost = strike_cost(&blow);
+        let steady = !(current.broken() || current.kick() || current.attack());
+        if !(fighter.saber.duel.block_held && steady && meter::meter(fighter) >= cost) {
+            return false;
+        }
+        meter::spend(fighter, cost, standing::cap(sheet.level));
+    } else {
+        let guard = Guard {
+            saber: &fighter.saber,
+            ps,
+            weapon_wait_ms: fighter.weapon_wait_ms,
+            level: 0,
+            attack_held: fighter.last_command.buttons & buttons::ATTACK != 0,
+            hand_out: fighter.force.hand_out(now),
+        };
+        if !defence::ready(&guard, now) || i64::from(rng.below(1000)) < blow.chance {
+            return false;
+        }
+    }
+    if fighter.weapon_wait_ms <= 0 {
+        fighter.saber.blocked = defence::parry_for(ps, blow.at, false);
+    }
+    true
 }
 
 /// What a fighter's stance shows at `now` (`skeleton::Wield`). A perfect
@@ -2275,4 +2416,20 @@ fn midpoint(a: &crate::skeleton::Blade, b: &crate::skeleton::Blade) -> Vec3 {
     let on_a = math::mad(p, s, u);
     let on_b = math::mad(q, t, v);
     math::scale(math::add(on_a, on_b), 0.5)
+}
+
+/// What a kick of `man` with bare hands deals beside a kick's own damage
+/// (`kicks::POINTS`): a blow of no dice of its own, to which the damage roll
+/// adds the kicker's Strength and its Unarmed Specialist dice
+/// (`damage::weapon_roll`). None with a weapon in hand, or with neither a
+/// Strength bonus nor the feat.
+fn kick_bonus(man: &Man) -> Option<crate::combat::sheet::Weapon> {
+    use crate::combat::sheet::Weapon;
+    let fists = Weapon {
+        dice: 0,
+        ..Weapon::UNARMED
+    };
+    let adds = man.sheet.modifier(Ability::Strength) > 0
+        || passive::unarmed_dice(&man.sheet.feats, &fists) > 0;
+    (man.delivery() == Delivery::Unarmed && adds).then_some(fists)
 }

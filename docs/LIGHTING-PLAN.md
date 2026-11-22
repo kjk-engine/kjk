@@ -100,6 +100,10 @@ at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
   (`odyssey_prepass.wgsl`, `temporal.rs`). The depth pass is drawn under
   every anti-aliasing choice, so the line above about the MSAA path is
   no longer true. The motion pass is drawn under TAA and DLSS only.
+  Since 2026-11-18 the prepasses are derived each frame from what reads
+  them. Under multisampling the depth pass draws every mesh while the GPU
+  is close to holding the frame rate back, or while the GPU cannot be
+  timed. Otherwise it draws no mesh (`PREPASSES.md`).
 - TAA, DLAA and DLSS as anti-aliasing choices, with jitter, mip bias and cut
   resets.
 - A float frame under DLSS (Bevy's `Dlss` requires `Hdr`), still with

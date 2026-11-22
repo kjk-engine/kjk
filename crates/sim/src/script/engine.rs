@@ -307,7 +307,7 @@ pub mod last {
     pub const CLOSED: u8 = 11;
     pub const DISTURBED: u8 = 12;
     /// The last to attack it or cast a harmful power at it
-    /// (`GetLastHostileActor`).
+    /// (`GetLastHostileActor`), cleared once it is out of combat.
     pub const HOSTILE: u8 = 13;
     /// Whom a healer means to heal (`SetHealTarget`, `GetHealTarget`).
     pub const HEAL_TARGET: u8 = 14;
@@ -496,14 +496,13 @@ const SAVES: [(&str, u8); 3] = [
     ("SAVING_THROW_WILL", 2),
 ];
 
-/// Whether `cast` is an item its user used on itself: no Force power (it
-/// costs no Force points), no grenade, cast on its own caster, catching no
+/// Whether `cast` is a self-targeted cast with no delivery of JA's (an item
+/// its user used on itself, or a power cast from the action bar or by a
+/// script on `OBJECT_SELF`): no grenade, cast on its own caster, catching no
 /// one by JA's delivery. Its impact's shapes are the world's.
-fn own_item_use(view: &View, cast: &super::Cast) -> bool {
-    let power = (view.module.force_costs.get(usize::from(cast.row))).is_some_and(|cost| *cost > 0);
+fn own_item_use(_view: &View, cast: &super::Cast) -> bool {
     cast.caught.is_empty()
         && cast.target == cast.caster
-        && !power
         && !crate::combat::grenades::is_grenade(cast.row)
 }
 
@@ -759,13 +758,13 @@ fn effect_type(modifies: Modifies, amount: i16) -> &'static str {
 
 /// How one character regards another (`repute.2da`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Regard {
+pub(super) enum Regard {
     Friend,
     Enemy,
     Neutral,
 }
 
-const REGARDS: [(&str, Regard); 3] = [
+pub(super) const REGARDS: [(&str, Regard); 3] = [
     ("REPUTATION_TYPE_FRIEND", Regard::Friend),
     ("REPUTATION_TYPE_ENEMY", Regard::Enemy),
     ("REPUTATION_TYPE_NEUTRAL", Regard::Neutral),
@@ -807,6 +806,9 @@ pub(super) struct Engine<'a> {
     /// This run showed the upgrade bench: the code it defers from then on
     /// waits for the bench to close (`Delayed::bench`).
     pub(super) benched: bool,
+    /// The saves this run's targets failed, each with whom it was against
+    /// (`oSaveVersus`): a hold it applies after rolls that save each round.
+    pub(super) failed: Vec<(ObjectId, ObjectId, crate::combat::force::HoldSave)>,
 }
 
 /// An argument by place, of a type the VM checked.
@@ -1208,8 +1210,9 @@ impl Engine<'_> {
             Criterion::Reputation => {
                 let wanted = REGARDS
                     .iter()
-                    .find(|(name, _)| self.library.constant(name) == Some(value))
-                    .map(|(_, regard)| *regard);
+                    .zip(self.library.regards)
+                    .find(|(_, constant)| *constant == Some(value))
+                    .map(|((_, regard), _)| *regard);
                 wanted.is_some() && wanted == self.regard(target, thing.id)
             }
             Criterion::Alive => (value != 0) == thing.hp.is_some_and(|(hp, _)| hp > 0),
@@ -1349,7 +1352,7 @@ impl Engine<'_> {
                     | Effect::Death
                     | Effect::HealForcePoints(_)
                     | Effect::DamageForcePoints(_)
-                    | Effect::Resurrection
+                    | Effect::Resurrection(_)
                     | Effect::Poison { .. }
                     | Effect::Pushed { .. }
                     | Effect::Knockdown
@@ -1443,12 +1446,32 @@ impl Engine<'_> {
             }
             _ => (target, at),
         };
+        // A mine that a character laid applies its effects as that
+        // character, as a grenade's effects are its thrower's. Its damage is
+        // then the character's own: the options' damage multipliers scale it
+        // like any other attack, and the player who laid it sees the damage
+        // number. A mine the area placed has no creator and stays its own.
+        let layer = self.state.traps.get(&by.0).and_then(|trap| trap.creator);
+        let by = layer.map_or(by, ObjectId);
         let effect = match carried.len() {
             1 => carried.remove(0),
             _ => Effect::Linked(carried),
         };
         let id = self.state.next_effect;
         self.state.next_effect = self.state.next_effect.wrapping_add(1);
+        let holds = effect
+            .leaves()
+            .iter()
+            .any(|leaf| matches!(leaf, Effect::Hold(_)));
+        let save = holds
+            .then(|| {
+                self.failed
+                    .iter()
+                    .rev()
+                    .find(|(on, versus, _)| *on == target && *versus == by)
+                    .map(|(.., save)| *save)
+            })
+            .flatten();
         self.state.applied.push(Applied {
             target,
             by,
@@ -1457,6 +1480,8 @@ impl Engine<'_> {
             spell: self.spell.map_or(u16::MAX, |cast| cast.row),
             id,
             at,
+            save,
+            laid: layer.is_some(),
         });
     }
 
@@ -2428,6 +2453,7 @@ impl Engine<'_> {
                 });
                 truth(
                     attacking
+                        || self.view.embattled.contains(&who)
                         || self
                             .character(who)
                             .is_some_and(|c| c.in_combat && !(only_real && c.fake_combat)),
@@ -2557,7 +2583,7 @@ impl Engine<'_> {
                 let Some(faction) = self.character(object(args, 0)).map(|c| c.faction) else {
                     return maybe(None);
                 };
-                let mut members = view
+                let members = view
                     .things
                     .iter()
                     .filter(|thing| thing.character.is_some_and(|c| c.faction == faction));
@@ -2574,9 +2600,21 @@ impl Engine<'_> {
                         })
                         .1
                 } else {
+                    // While a companion leads, `controlled_pcs` puts it first.
+                    let controlled = self.controlled_pcs().first().copied();
+                    let members: Vec<_> = members
+                        .map(|thing| {
+                            (
+                                thing.id,
+                                thing.character.is_some_and(|c| c.driver.is_some()),
+                            )
+                        })
+                        .collect();
                     members
-                        .find(|thing| thing.character.is_some_and(|c| c.driver.is_some()))
-                        .map(|thing| thing.id)
+                        .iter()
+                        .find(|(id, _)| Some(*id) == controlled)
+                        .or_else(|| members.iter().find(|(_, driven)| *driven))
+                        .map(|(id, _)| *id)
                 };
                 maybe(leader)
             }
@@ -3600,7 +3638,10 @@ impl Engine<'_> {
                     None => self.effect_value(Effect::Other("EffectForceShield".into())),
                 }
             }
-            EffectResurrection => self.effect_value(Effect::Resurrection),
+            EffectResurrection => {
+                let percent = int(args, 0).clamp(0, 100) as u8;
+                self.effect_value(Effect::Resurrection(percent))
+            }
             EffectACIncrease | EffectACDecrease => {
                 let sign = if bound == EffectACIncrease { 1 } else { -1 };
                 self.modifier(Modifies::Defence, sign * int(args, 0), 0)
@@ -4124,6 +4165,13 @@ impl Engine<'_> {
                 }
                 let d20 = self.rng.below(20) as i32 + 1;
                 let saved = d20 + them.sheet.save(index) >= int(args, 1);
+                if !saved {
+                    let save = crate::combat::force::HoldSave {
+                        index: index as u8,
+                        dc: int(args, 1),
+                    };
+                    self.failed.push((object(args, 0), object(args, 3), save));
+                }
                 // A failed save against Force Scream covers the ears for
                 // the rulebook's time (`Hold::Ears`). TSL's impact script
                 // asks no droid, and a droid never covers them.
@@ -4571,37 +4619,43 @@ impl Engine<'_> {
             // Creatures, placeables and waypoints; other kinds are not
             // made in play yet.
             CreateObject => {
-                // A creature, a placeable or a waypoint, of the templates
-                // the module's plan gathered (`Library::creature`,
-                // `placeable`, `waypoint`).
+                // A creature, a placeable, a waypoint or a store, of the
+                // templates the module's plan gathered (`Library::creature`,
+                // `placeable`, `waypoint`, `store`).
                 let kind = [
                     ObjectKind::Creature,
                     ObjectKind::Placeable,
                     ObjectKind::Waypoint,
+                    ObjectKind::Store,
                 ]
                 .into_iter()
                 .find(|kind| self.library.object_types.get(kind).copied() == Some(int(args, 0)));
                 let template = resref(text(args, 1));
+                let placed = match kind {
+                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template),
+                    Some(ObjectKind::Store) => self.library.store(&template),
+                    _ => None,
+                };
                 let known = match kind {
                     Some(ObjectKind::Creature) => self.library.creature(&template).is_some(),
-                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template).is_some(),
+                    Some(ObjectKind::Waypoint | ObjectKind::Store) => placed.is_some(),
                     Some(_) => self.library.placeable(&template).is_some(),
                     None => false,
                 };
                 let made = known
                     .then(|| self.place(args, 2))
                     .flatten()
-                    .and_then(|(at, yaw)| match kind {
-                        Some(ObjectKind::Waypoint) => super::make_waypoint(
+                    .and_then(|(at, yaw)| match placed {
+                        Some(facts) => Some(super::make_placed(
                             self.library,
                             self.view,
                             self.state,
                             self.out,
-                            &template,
+                            facts,
                             at,
                             yaw,
-                        ),
-                        _ => self.make(&template, at, yaw),
+                        )),
+                        None => self.make(&template, at, yaw),
                     });
                 if made.is_none() {
                     self.trace(&format!(
@@ -4805,7 +4859,10 @@ impl Engine<'_> {
                 };
                 // One of a stack, as `ActionEquipItem` (Juhani's two
                 // lightsabers on Dantooine are one stack).
-                if let Some(best) = self.most_damaging(caller, ranged, slot) {
+                let best = (!super::grappled(view, caller))
+                    .then(|| self.most_damaging(caller, ranged, slot))
+                    .flatten();
+                if let Some(best) = best {
                     let best = self.state.one_of(best);
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, best, caller.0, slot, back);
@@ -5567,6 +5624,7 @@ impl Engine<'_> {
             },
             depth: self.depth + 1,
             benched: self.benched,
+            failed: Vec::new(),
         };
         let outcome = vm::run(program, library.routines(), caller, &mut nested);
         finish(self.report, script, outcome);
@@ -5858,11 +5916,7 @@ impl Engine<'_> {
                     // Bek base (`k_ptar_racecs0`) destroys party members 1
                     // and 2, the player among them while a companion leads.
                     // Nor is the character the first seat is switched to,
-                    // the player's character meanwhile: TSL's Telos makes
-                    // the Czerka droid B-4D4 a companion
-                    // (`AddAvailableNPCByObject`), switches the player to
-                    // him and destroys the droid it named in the same run
-                    // (`a_b4d4control`, `swapit`).
+                    // the player's character meanwhile.
                     let ms = seconds_ms(float(args, 1));
                     self.keep_lent(item);
                     if ms == 0 {
@@ -5881,7 +5935,10 @@ impl Engine<'_> {
             // like weapons: Calo Nord's two heavy blasters are one stack his
             // scene equips twice, right hand then left).
             ActionEquipItem => {
-                if let Ok(slot) = u8::try_from(int(args, 1)) {
+                let slot = u8::try_from(int(args, 1))
+                    .ok()
+                    .filter(|&slot| !(in_hand(slot) && super::grappled(view, caller)));
+                if let Some(slot) = slot {
                     let item = self.state.one_of(item);
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, item, caller.0, slot, back);
@@ -5918,8 +5975,13 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             ActionUnequipItem => {
-                let to = items::holder(view, caller);
-                self.state.carry(self.out, item, to);
+                let worn_in_hand = (self.state.items.get(&item.0))
+                    .and_then(|held| held.slot)
+                    .is_some_and(in_hand);
+                if !(worn_in_hand && super::grappled(view, caller)) {
+                    let to = items::holder(view, caller);
+                    self.state.carry(self.out, item, to);
+                }
                 Value::Int(0)
             }
             // Taken from a player's character: items lost.
@@ -6761,7 +6823,14 @@ impl Engine<'_> {
                         .instance(object(args, 1))
                         .map(|data| data.template.clone()),
                 };
-                let object = (bound == AddAvailableNPCByObject).then(|| object(args, 1).0);
+                // By object, the executables save the creature into the
+                // table and do not make it the companion's creature: the
+                // table names no creature until one is spawned for it or
+                // it joins the party. A switch to it then makes a new one
+                // at the player's place. TSL's Telos destroys the B-4D4 it
+                // adds and switches to (`a_b4d4control`), and a scene may
+                // jump the creature it adds out of sight first.
+                let object = (bound == AddAvailableNPCByObject).then(|| object(args, 1));
                 // TSL: the companion takes its influence's alignment, its
                 // influence started (by a creature of the template, whose
                 // tag names it, when made available by template).
@@ -6769,11 +6838,13 @@ impl Engine<'_> {
                     .as_deref()
                     .and_then(|template| self.library.creature(template));
                 let tag = facts.map(|facts| facts.tag.to_ascii_lowercase());
-                // By template, the template kept with it (KOTOR's table
-                // keeps the creature): a module that lacks it makes it too.
-                let template_data = facts
-                    .filter(|_| bound == AddAvailableNPCByTemplate)
-                    .map(|facts| crate::pack::creature_bytes(facts).into());
+                // The creature kept with it (KOTOR's table keeps the
+                // creature): a module that lacks its template makes it too.
+                let template_data = match object {
+                    Some(who) => self.instance(who),
+                    None => facts.map(|facts| &**facts),
+                }
+                .map(|facts| crate::pack::creature_bytes(facts).into());
                 let party = &mut self.state.party;
                 // A companion already available is refused and its slot
                 // kept, as TSL's executable refuses it (reone too). A slot
@@ -6786,15 +6857,20 @@ impl Engine<'_> {
                         npc,
                         party::Npc {
                             template,
-                            object,
+                            object: None,
                             kept: None,
                             template_data,
                         },
                     );
                 });
                 use super::influence::{KREIA, NPC_TAGS};
-                match object.filter(|_| added.is_some()) {
-                    Some(who) => self.follow_influence(ObjectId(who)),
+                match npc.zip(object).filter(|_| added.is_some()) {
+                    Some((npc, who)) => {
+                        // Its items, sheet and points as it stands, for the
+                        // creature made of it next.
+                        super::keep_creature(self.view, self.state, self.out, npc, who);
+                        self.follow_influence(who)
+                    }
                     None if added.is_some() && self.library.influences() => {
                         if let Some(tag) = tag.filter(|tag| tag != KREIA)
                             && let Some(npc) = NPC_TAGS.iter().position(|of| *of == tag)
@@ -7133,6 +7209,12 @@ fn deferring_run(event: &Event, caller: ObjectId) -> Option<u8> {
 }
 
 /// Whether `id` is a character in the party (a player or a companion).
+/// Whether `slot` holds a weapon in a hand (`inventory::slots`).
+fn in_hand(slot: u8) -> bool {
+    use crate::inventory::slots;
+    matches!(slot, slots::RIGHT_WEAPON | slots::LEFT_WEAPON)
+}
+
 fn view_in_party(view: &View, id: ObjectId) -> bool {
     (view.thing(id).and_then(|thing| thing.character.as_ref())).is_some_and(|c| c.party)
 }

@@ -295,6 +295,18 @@ where they part, the choice is ours and named.
   Spire's reinforcements, made hostile in the conversation, attack as it
   ends (`k_def_endconv` → `k_ai_master`); the Leviathan's brig computer
   takes back the spikes it lent (`k_plev_resspikes`).
+- **`BeginConversation` naming no one** talks to the caller's last
+  speaker (`GetLastSpeaker`): the one whose click or heard line ran its
+  dialogue script. With none, it talks to whoever set the script off (a
+  pazaak player, through the match's end script). A caller nobody has
+  spoken to and no one set off has no one to talk to, and nothing begins
+  (the transcript notes it). TSL's restored Handmaiden
+  fight (TSLRCM) gives two of the sisters `k_def_dialogue01` as their
+  end-of-conversation script. As the sisters' conversation ends, its
+  `k_ai_master` dialogue branch calls `BeginConversation()`. When the
+  first PC stood in for the missing speaker, the sisters' own
+  conversation began again after every ending, and the player could not
+  leave it.
 - **Routines bound:** `ActionStartConversation`, `BeginConversation`,
   `SpeakOneLinerConversation`, `BarkString`, `GetIsInConversation` (its
   owner, a body standing in it, its speaker; the host's character also
@@ -1005,7 +1017,12 @@ conversation).
   timer (its voice or text, `Delay` and other waits) raised to what is
   left of the clip (the library's `camera_clips`, read from the models'
   clip lengths), as the K1 and TSL executables end a line once its timer
-  and every flagged wait are done (reone takes the clip alone). The camera
+  and every flagged wait are done (reone takes the clip alone). A voiced
+  line that waits on its clip has no timer of its own: the clip times it,
+  and its voice plays on under the voiceless lines after it, in an
+  animated cut or not (Manaan's sea floor survivor, `m28ab_c01`: one voice
+  over three shots, the next two lines repeating its words as text with a
+  `Delay` of 0). The camera
   keeps the hook's roll. A line with no clip (no `CameraAnimation`, or one
   its model lacks) has an ordinary shot, as KOTOR's does (reone keeps the
   camera where the last clip left it), the placed camera or the dialog

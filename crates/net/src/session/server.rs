@@ -1273,6 +1273,12 @@ impl Server {
         tick.is_multiple_of(u64::from(self.config.every.clamp(1, MAX_EVERY)))
     }
 
+    /// Whether the peers in this process get a frame of `tick`
+    /// (`set_in_process_every`).
+    pub fn sends_own_on(&self, tick: u64) -> bool {
+        tick.is_multiple_of(u64::from(self.in_process_every))
+    }
+
     fn keep_stepped(&mut self, now: NetTime, input: &TickInput, stepped: Stepped) {
         let tick = stepped.tick;
         while self.applied.back().is_some_and(|(last, _)| *last >= tick) {

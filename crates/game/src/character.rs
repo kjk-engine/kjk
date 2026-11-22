@@ -36,8 +36,8 @@ use ui::screens::tab::Page;
 use ui::skin::Source;
 use ui::vm::{
     AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, ItemText,
-    MemberView, NameTables, Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem,
-    UpgradePart, UpgradeSlot,
+    MemberView, NameTables, Owned, PicksView, PortraitView, Preview, QuestView, UpgradeChoice,
+    UpgradeItem, UpgradePart, UpgradeSlot,
 };
 
 use crate::rulebook_text;
@@ -151,11 +151,10 @@ fn class(assets: &mut GuiAssets, classes: &sim::levels::Classes, row: usize) -> 
     };
     // Its first level's picks, from the scores it recommends (no feat asks
     // for a score).
-    let unmade = sim::creation::unmade(view.abilities, 0);
-    if let Some(picks) = u8::try_from(row)
-        .ok()
-        .and_then(|row| classes.picks(&unmade, &Vec::new(), row))
-    {
+    if let Some(picks) = u8::try_from(row).ok().and_then(|row| {
+        let unmade = sim::creation::unmade_of(classes, row, view.abilities, 0);
+        classes.picks(&unmade, &Vec::new(), row)
+    }) {
         view.picks = picks_view(assets, &picks);
     }
     view
@@ -496,9 +495,13 @@ fn damage(sheet: &Sheet, hand: usize) -> String {
 }
 
 /// Hand `hand`'s attack modifier on `sheet` (`damage::attack_bonus`), as
-/// the equip page shows it. It is `None` when the hand shows no weapon.
+/// the equip page shows it. It is `None` when the hand shows no weapon. It
+/// counts the attack bonus of KOTOR 2's Form in use against an enemy who
+/// holds no lightsaber (`forms::to_hit`): Shii-Cho's, Shien's and Niman's,
+/// but not Makashi's, which counts only against a lightsaber.
 fn attack(sheet: &Sheet, hand: usize) -> Option<i32> {
-    shown_weapon(sheet, hand).map(|weapon| sim::combat::damage::attack_bonus(sheet, &weapon))
+    let form = sim::combat::forms::to_hit(sheet, &Sheet::commoner());
+    shown_weapon(sheet, hand).map(|weapon| sim::combat::damage::attack_bonus(sheet, &weapon) + form)
 }
 
 /// The slots the equip page previews an item in: the hands and the body.
@@ -669,6 +672,7 @@ fn view(
         owned: carried,
         worn,
         locked: wearer.map_or(0, |wearer| wearer.locked),
+        droid: sheet.race == sim::combat::sheet::races::DROID,
         credits: goods.gold,
         xp: 0,
         next_xp: None,
@@ -685,13 +689,13 @@ fn view(
 /// filled in as a name is shown (`dialogue_view::said`), so KOTOR 2's
 /// "Rescue <FullName>" shows the player's name.
 fn journal(
-    assets: &GuiAssets,
+    assets: &mut GuiAssets,
     library: &sim::script::Library,
     progress: &sim::Progress,
     fill: crate::dialogue_view::Fill,
-) -> Vec<Entry> {
-    let line = |strref: u32| {
-        let raw = assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+) -> Vec<QuestView> {
+    let line = |assets: &mut GuiAssets, text: &sim::script::journal::JournalText| {
+        let raw = text.words(|strref| assets.text(Source::Campaign, strref));
         crate::dialogue_view::said(&raw, fill)
     };
     progress
@@ -701,16 +705,29 @@ fn journal(
         .filter_map(|(tag, reached)| {
             let quest = library.quests().get(tag)?;
             let entry = u32::try_from(*reached).ok().and_then(|id| quest.entry(id));
-            Some(Entry {
-                name: line(quest.name),
-                icon: None,
-                count: entry.filter(|entry| entry.end).map(|_| 1),
-                description: entry.map_or(Vec::new(), |entry| line(entry.text)),
-                kind: None,
+            // KOTOR 2 writes the quest's planet over its entry: "Peragus:".
+            let mut description = usize::try_from(quest.planet)
+                .ok()
+                .and_then(|row| assets.cell_text(PLANETARY, row, "name"))
+                .map(|planet| crate::dialogue_view::said(&planet, fill))
+                .filter(|planet| !planet.is_empty())
+                .map_or(Vec::new(), |mut planet| {
+                    planet.extend_from_slice(b":\n");
+                    planet
+                });
+            description.extend(entry.map_or(Vec::new(), |entry| line(assets, &entry.text)));
+            Some(QuestView {
+                name: line(assets, &quest.name),
+                description,
+                done: entry.is_some_and(|entry| entry.end),
+                planet: quest.planet,
             })
         })
         .collect()
 }
+
+/// The planets' table, whose names the journal writes.
+const PLANETARY: &str = "planetary";
 
 /// A party member in the presented snapshot: its object id, sheet and
 /// fighter, its class row when its template gives one (a companion's), and

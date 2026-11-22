@@ -34,16 +34,18 @@
 //! recording starts again from the reloaded world (the one before goes to
 //! `inputs-<tick>.kjkr`): a reload does not replay.
 
+use std::borrow::Cow;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use asset_odyssey::texture::TextureIr;
+use bevy::ecs::change_detection::Tick;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use console::{AnimationTime, DumpDue, DumpFacts, ModuleRequest, RunFolder, States};
+use console::{AnimationTime, DumpFacts, HeldTick, ModuleRequest, RunFolder, States, WorldTick};
 use session::Request;
 use sim::{
     Accumulator, Announcement, Command, Level, Presented, Recorder, Recording, Save, Seat,
@@ -186,6 +188,63 @@ pub(crate) struct PlayerCursor;
 /// `Presented`'s are: a snapshot is too large to copy for each view.
 #[derive(Resource)]
 pub struct PresentedSnapshot(pub Presented, pub Vec<Arc<Snapshot>>);
+
+#[derive(Resource, Default)]
+pub struct PresentedDoors {
+    snapshot: Option<Arc<Snapshot>>,
+    swapped: Tick,
+    states: Option<Vec<u8>>,
+}
+
+impl PresentedDoors {
+    pub fn of<'a>(&'a self, presented: &Presented, swap: &Res<SceneSwap>) -> Option<Cow<'a, [u8]>> {
+        if self.made_for(presented.current_shared(), swap) {
+            self.states.as_deref().map(Cow::Borrowed)
+        } else {
+            swap.level.states_in(presented.current()).map(Cow::Owned)
+        }
+    }
+
+    /// Any write to the swap, even one that keeps its generation, makes them
+    /// stale.
+    fn made_for(&self, snapshot: &Arc<Snapshot>, swap: &Res<SceneSwap>) -> bool {
+        self.swapped == swap.last_changed() && is_snapshot(self.snapshot.as_ref(), snapshot)
+    }
+}
+
+/// Whether `kept` is `snapshot` itself, not merely an equal one.
+pub fn is_snapshot(kept: Option<&Arc<Snapshot>>, snapshot: &Arc<Snapshot>) -> bool {
+    kept.is_some_and(|kept| Arc::ptr_eq(kept, snapshot))
+}
+
+fn note_doors(
+    presented: Option<Res<PresentedSnapshot>>,
+    swap: Option<Res<SceneSwap>>,
+    mut doors: ResMut<PresentedDoors>,
+) {
+    let (Some(presented), Some(swap)) = (presented, swap) else {
+        if doors.snapshot.is_some() {
+            *doors = PresentedDoors::default();
+        }
+        return;
+    };
+    let current = presented.0.current_shared();
+    if doors.made_for(current, &swap) {
+        return;
+    }
+    let doors = &mut *doors;
+    doors.states = swap.level.states_in(current);
+    doors.snapshot = Some(current.clone());
+    doors.swapped = swap.last_changed();
+}
+
+/// With no world, `tick` has no tick to wait for. The tick of a world that
+/// is gone must not answer for the next one.
+fn forget_world_tick(authority: Option<Res<Authority>>, mut world_tick: ResMut<WorldTick>) {
+    if authority.is_none() && world_tick.0.is_some() {
+        world_tick.0 = None;
+    }
+}
 
 /// The moment the views show (ms): between the last two snapshots, by the
 /// blend.
@@ -614,6 +673,10 @@ struct Authority {
     /// world a save makes in play is set to them again, so they stay the same
     /// for the whole session.
     rules: Option<(SaberRules, bool)>,
+    /// The damage multipliers of a live session played here, as the
+    /// settings have them now (`duel`). A world a save makes in play is set
+    /// to them, so a changed option counts from the next load.
+    damage_taken: Option<sim::combat::damage::Taken>,
     slowed: Slowed,
 }
 
@@ -676,17 +739,22 @@ impl Authority {
 /// for a session. The world takes them from the settings when it is made
 /// or loaded, and a module change keeps them. A change of the setting
 /// waits for the next session, so this only notes the world's rules the
-/// first time, for a save loaded later. It also runs a perfect block's slow
-/// motion.
+/// first time, for a save loaded later. It also notes the damage
+/// multipliers as the settings have them now, for the next save loaded, and
+/// runs a perfect block's slow motion.
 fn duel(
     options: Option<Res<crate::settings::DuelOptions>>,
     (here, own): (Option<Res<WorldHere>>, Option<Res<OwnSeat>>),
+    settings: Option<Res<crate::settings::Settings>>,
     time: Res<Time<Real>>,
     mut authority: ResMut<Authority>,
 ) {
     let (Some(options), Source::Live { .. }) = (options, &authority.source) else {
         return;
     };
+    if let Some(settings) = settings.filter(|settings| settings.is_changed()) {
+        authority.damage_taken = Some(settings.damage_taken());
+    }
     if authority.rules.is_none() {
         authority.rules = Some((authority.last.saber_rules, authority.last.targeted_blocks));
     }
@@ -720,8 +788,10 @@ impl Plugin for SimHostPlugin {
             .init_resource::<ReloadRequest>()
             .init_resource::<crate::save_view::SaveRequest>()
             .init_resource::<crate::save_view::SaveOutcome>()
+            .init_resource::<crate::save_view::Autosaved>()
             .init_resource::<Frozen>()
             .init_resource::<crate::swallow::Swallowed>()
+            .init_resource::<PresentedDoors>()
             .add_systems(
                 PreUpdate,
                 (
@@ -738,6 +808,8 @@ impl Plugin for SimHostPlugin {
                         .after(crate::pick_view::Picked)
                         .after(crate::bar_view::Used)
                         .after(crate::wheel_view::Released),
+                    note_doors,
+                    forget_world_tick,
                 )
                     .chain(),
             )
@@ -818,6 +890,16 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             world.set_targeted_blocks(targeted);
         } else if recording.is_none() {
             world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
+        }
+        // A live world takes the damage multipliers the settings choose, a
+        // save's too; a replay keeps its recording's. A headless live world
+        // has no settings and keeps what it has.
+        let damage_taken = app
+            .get_resource::<crate::settings::Settings>()
+            .filter(|_| recording.is_none())
+            .map(crate::settings::Settings::damage_taken);
+        if let Some(taken) = damage_taken {
+            world.set_damage_taken(taken);
         }
         let last = world.snapshot();
         let source = match recording {
@@ -912,6 +994,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             autosave_asked: false,
             music_asked: None,
             rules,
+            damage_taken,
             slowed: Slowed::default(),
         });
     }
@@ -1007,9 +1090,12 @@ impl PlayerInput<'_, '_> {
         // pointer (`wheel_view`).
         let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
         let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
+        // A headless run's commands turn the view (`ui look`) through the
+        // stick's turn.
+        let scripted = headless && pad != Vec2::ZERO;
         Read {
             // The mouse while it holds the cursor, the stick while it turns.
-            turn: (turning && (grabbed || pad != Vec2::ZERO)).then_some(mouse + pad),
+            turn: (turning && (grabbed || pad != Vec2::ZERO) || scripted).then_some(mouse + pad),
             actions,
         }
     }
@@ -1068,7 +1154,7 @@ pub(crate) fn grab_cursor(
 /// Seat 0's command in `kjk sim view`: the movement keys (or the stick),
 /// jump and crouch, looking along +Y.
 pub(crate) fn keyboard(actions: &Actions) -> Command {
-    let (forward, right) = crate::pad::step(actions, false);
+    let (forward, right) = crate::pad::step(actions, false, || false);
     let axis =
         |plus, minus| 127 * i8::from(actions.held(plus)) - 127 * i8::from(actions.held(minus));
     Command {
@@ -1147,22 +1233,34 @@ pub struct CameraAim(pub [i8; 3]);
 /// jumps, C or Ctrl crouches, Shift walks (JA's client sends 64 for a
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
-/// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a
-/// throw or kata with a saber); G kicks; ] and [ pick the hand, L cycles the saber
-/// style, X turns stealth mode on or off (H holsters: `holster_view`).
+/// one (each rebinds as a key does) is the weapon's other mode (a throw or
+/// kata with a saber) and also aims a blaster (`Action::Aim`); G kicks; ]
+/// and [ pick the hand, L cycles the saber style, X turns stealth mode on
+/// or off (H holsters: `holster_view`).
 /// The action bar's slot in use (`bar`) adds its buttons and picks the
 /// power the force button casts.
 /// The right mouse button also blocks by default (`share_button`), by what
-/// the player's character holds (`hand`). R is the alternate attack too,
-/// whatever the right button does (`Action::DuelAltAttack`).
+/// the player's character holds (`hand`). R (`Action::DuelAltAttack`) is a
+/// blaster's feat attack with a blaster in hand. With anything else in hand
+/// it is the alternate attack, whatever the right button does. A pad's
+/// chord that is also the attack under the block
+/// (`Actions::feat_under_block`) makes only a blaster's feat attack. What is
+/// in hand is read at most once, and only when the shared button, the stick
+/// or R needs it.
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
     (controls, bar): (&Controls, &crate::bar_view::BarUse),
     hand: impl FnOnce() -> InHand,
 ) -> Command {
+    let hand = std::cell::LazyCell::new(hand);
     let held = |action| actions.held(action);
-    let (forward, right) = crate::pad::step(actions, held(Action::Walk));
+    // A mine being laid keeps the character still (`BarUse::still`).
+    let (forward, right) = if bar.still {
+        (0, 0)
+    } else {
+        crate::pad::step(actions, held(Action::Walk), || hand.blaster)
+    };
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
     let crouch = held(Action::Crouch);
     let pressed = [
@@ -1195,14 +1293,18 @@ pub(crate) fn player_command(
         holds: [
             (held(Action::Block), sim::holds::BLOCK),
             (held(Action::Kick), sim::holds::KICK),
+            (held(Action::Aim), sim::holds::AIM),
         ]
         .iter()
         .filter(|(on, _)| *on)
         .fold(0, |bits, (_, bit)| bits | bit),
     };
-    let mut command = share_button(command, actions.block_shared, hand);
-    // The alternate attack's own key is never the shared button's press.
-    if held(Action::DuelAltAttack) {
+    let mut command = share_button(command, actions.block_shared, || *hand);
+    let own_key = held(Action::DuelAltAttack);
+    if (own_key || actions.feat_under_block) && hand.blaster {
+        command.holds |= sim::holds::FEAT;
+    } else if own_key {
+        // The alternate attack's own key is never the shared button's press.
         command.buttons |= buttons::ALT_ATTACK;
     }
     command
@@ -1218,6 +1320,9 @@ pub(crate) struct InHand {
     /// away (the block lights it), or a melee blade such as a sword, a
     /// vibroblade or a staff.
     pub blade: bool,
+    /// What it holds is a blaster, which aims with the alternate attack's
+    /// button (`pad::step`).
+    pub blaster: bool,
 }
 
 impl InHand {
@@ -1230,15 +1335,17 @@ impl InHand {
     /// character, or the companion it drives or leads with). A seat with no
     /// living body holds nothing.
     pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
-        let blade = last
+        use sim::combat::Delivery;
+        let delivery = last
             .body(seat)
             .filter(|entity| entity.fighter.is_some_and(|f| f.alive()))
-            .is_some_and(|entity| {
-                crate::duel_view::blade_user(entity, &sim::Instances::in_snapshot(level, last))
+            .map(|entity| {
+                crate::cast::weapon(entity, &sim::Instances::in_snapshot(level, last)).delivery
             });
         InHand {
             rules: last.saber_rules,
-            blade,
+            blade: matches!(delivery, Some(Delivery::Saber(_) | Delivery::Melee)),
+            blaster: matches!(delivery, Some(Delivery::Blaster(_))),
         }
     }
 }
@@ -1309,7 +1416,7 @@ struct Landed {
     input: TickInput,
     snapshot: Arc<Snapshot>,
     notices: Vec<(Seat, sim::notice::Notice)>,
-    hashed: Option<crate::sim_worker::Hashed>,
+    for_net: Option<crate::sim_worker::ForNet>,
 }
 
 impl Authority {
@@ -1343,6 +1450,11 @@ impl Authority {
         }
     }
 
+    fn script_runs(&mut self) -> std::collections::BTreeMap<String, usize> {
+        self.settle();
+        self.world.script_report().runs.clone()
+    }
+
     /// The world home, if it was being stepped: each of its ticks
     /// recorded, in order, and the newest made the last. The rest is kept
     /// for `advance` (`landed`). The actions of the ticks the step thread
@@ -1362,13 +1474,13 @@ impl Authority {
             if let Some(flight) = &mut self.flight {
                 flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
             }
-            let snapshot = Arc::new(stepped.snapshot);
+            let snapshot = stepped.snapshot;
             self.last = snapshot.clone();
             self.landed.push(Landed {
                 input: stepped.input,
                 snapshot,
                 notices: stepped.notices,
-                hashed: stepped.hashed,
+                for_net: stepped.for_net,
             });
         }
         if !away.unstepped.is_empty() {
@@ -1737,7 +1849,7 @@ fn autosave(
         Option<Res<crate::movie_view::Showing>>,
         Option<Res<SceneSwap>>,
     ),
-    own: Option<Res<OwnSeat>>,
+    (own, mut autosaved): (Option<Res<OwnSeat>>, ResMut<crate::save_view::Autosaved>),
     (made, from_story, mut commands): (
         Option<Res<crate::character::Made>>,
         Option<Res<FromStory>>,
@@ -1796,7 +1908,10 @@ fn autosave(
         movie,
         seat,
     ) {
-        Ok(_) => due.owed = false,
+        Ok(_) => {
+            due.owed = false;
+            autosaved.0 = true;
+        }
         // KOTOR's refusals pass: the autosave waits for them.
         Err(why) if why.starts_with("You cannot save") => {
             debug!(target: "saves", "autosave waits: {why}")
@@ -1868,12 +1983,11 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
 }
 
 /// Whether a frame may hand all its ticks to the step thread
-/// (`sim_worker`). Only with `KJK_STEP_BATCH=on`: it puts the view a frame
-/// behind, and how that feels in play is not judged yet. Without it every
-/// frame steps all but its last tick itself.
+/// (`sim_worker`). The view then shows the world a frame later (docs/SIM.md,
+/// "The step thread").
 fn batches() -> bool {
     static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() == Ok("on"))
+    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() != Ok("off"))
 }
 
 /// The screens that keep the world going while they are open: pazaak, whose
@@ -1898,12 +2012,11 @@ fn holds_world(stack: &ui::screen::Stack) -> bool {
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn advance(
     time: Res<Time<Real>>,
-    held: Res<AnimationTime>,
+    (held, held_tick, mut world_tick): (Res<AnimationTime>, Res<HeldTick>, ResMut<WorldTick>),
     input: PlayerInput,
     mut authority: ResMut<Authority>,
     mut presented: ResMut<PresentedSnapshot>,
     mut facts: ResMut<DumpFacts>,
-    dump_due: Res<DumpDue>,
     (mut loading, mut states, mut request, mut swap, mut commands, mut selected, mut replies): (
         ResMut<Loading>,
         ResMut<States>,
@@ -1942,6 +2055,8 @@ fn advance(
     // The ticks stepped beside the last frame: the session hears of them,
     // in order, before this frame's commands, as it would have that frame.
     authority.settle();
+    // A host publishes no tick, so `tick` holds only a game without co-op.
+    world_tick.0 = (!authority.solo.hosting()).then_some(authority.last.tick);
     // This machine's seat as the session has it: a lobby's guest may play
     // the main character, and the host's player takes the first seat when
     // that guest is gone. What the screens and the controls read follows.
@@ -1971,12 +2086,12 @@ fn advance(
                 }
             }
         }
-        match landed.hashed.as_ref() {
-            Some(hashed) => authority.solo.stepped_hashed(
+        match landed.for_net.as_ref() {
+            Some(for_net) => authority.solo.stepped_hashed(
                 &landed.input,
                 &landed.snapshot,
-                hashed.hash,
-                hashed.split.clone(),
+                for_net.hash,
+                for_net.split.clone(),
             ),
             None => authority.solo.stepped(&landed.input, &landed.snapshot),
         }
@@ -2045,12 +2160,22 @@ fn advance(
                     if authority.rules.is_none() && live {
                         world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
                     }
+                    // A live session's save takes the damage multipliers the
+                    // settings have now.
+                    let taken = authority
+                        .damage_taken
+                        .filter(|taken| live && *taken != world.damage_taken());
+                    if let Some(taken) = taken {
+                        world.set_damage_taken(taken);
+                    }
                     if let Some((rules, targeted)) = authority.rules {
                         world.set_saber_rules(rules);
                         world.set_targeted_blocks(targeted);
-                        // The rules may change the fighters' stance sets, so
-                        // the module is announced as the world stands after
-                        // them.
+                    }
+                    // The rules may change the fighters' stance sets, so the
+                    // module is announced as the world stands after them and
+                    // after the damage multipliers.
+                    if taken.is_some() || authority.rules.is_some() {
                         first =
                             sim::Announcement::new(&prepared.plan.level, None, &world.snapshot())
                                 .ok_or("the save was not made in a module")?;
@@ -2301,13 +2426,25 @@ fn advance(
             }
         }
     };
+    // Only a game without co-op is held (`tick`). A host that stopped its
+    // ticks would stop the world for every guest.
+    let held_at = held_tick.0.filter(|_| !authority.solo.hosting());
+    let due = match held_at {
+        Some(at) if due.last().is_some_and(|(tick, _)| *tick > at) => {
+            authority.clock = Accumulator::new(rate, at.max(authority.last.tick));
+            due.into_iter().filter(|(tick, _)| *tick <= at).collect()
+        }
+        _ => due,
+    };
     let Read { actions, turn } = input.read();
     if let (Some(degrees), Driver::Player(_)) = (turn, &authority.driver) {
         let held = held_pitch(&authority.last, own_seat);
         authority.look.turn(degrees, held);
     }
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
-    let scripted = matches!(authority.driver, Driver::Player(Some(_)));
+    // A scripted player, and a headless run without keys (`ui reply` in a
+    // run's commands), answer here: no key reading below takes the pick.
+    let scripted = matches!(authority.driver, Driver::Player(Some(_))) || actions.is_none();
     if let Some(pick) = picked.filter(|_| scripted)
         && authority.last.talk_for(own_seat).is_some()
     {
@@ -2384,7 +2521,7 @@ fn advance(
     // The frame hands all its ticks to the step thread when it can make
     // their commands before any of them is stepped, with nothing changed
     // by that. It cannot in these cases, and then steps all but its last
-    // tick itself, as every frame did before:
+    // tick itself, as every frame does with `KJK_STEP_BATCH=off`:
     // - A pilot or a minigame's bot drives. Their commands are kept as
     //   they were, each made from the tick before it.
     // - A break holds, and this frame's first tick may end it. The ticks
@@ -2480,7 +2617,11 @@ fn advance(
                     || InHand::of(last, level, own_seat),
                 ))
             }
-            (Source::Live { .. }, Driver::Player(None), None) => None,
+            // Headless with no keys: no command, but for an answer the
+            // console gave (`ui reply`), carried by an idle one.
+            (Source::Live { .. }, Driver::Player(None), None) => {
+                (authority.controls.reply != authority.controls.sent).then(sim::Command::default)
+            }
         };
         // A walk to a target steers in the player's place (`target_view`),
         // with no keys too (headless: the console's `ui act`).
@@ -2527,11 +2668,14 @@ fn advance(
                 }
                 if beside && (batched || last_due == Some(tick)) {
                     // A host's tick is hashed on the step thread, and
-                    // split there when a frame can be made of it.
+                    // split there when a frame can be made of it. A solo
+                    // host's tick that its own client checks is split on a
+                    // thread of its own.
                     let hosting = authority.solo.hosting();
                     let prepare = Prepare {
                         hash: hosting,
                         split: hosting && authority.solo.sends_on(tick),
+                        check: !hosting && authority.solo.checks_on(tick),
                     };
                     orders.push(Order {
                         tick,
@@ -2722,6 +2866,11 @@ fn advance(
     authority.frames += 1;
     authority.idle_frames += u64::from(stepped == 0);
     authority.most = authority.most.max(stepped);
+    authority.solo.sample();
+    if !facts.wanted() {
+        authority.solo.note_players();
+        return;
+    }
     let (source, replay) = match &authority.source {
         Source::Live { .. } => ("live", None),
         Source::Replay { matched, .. } => ("replay", *matched),
@@ -2735,16 +2884,11 @@ fn advance(
             "hz": authority.setup.rate.hz(),
             "tick": last.tick,
             "time_ms": last.time_ms,
-            // Hashing encodes the whole state: only for a dump.
-            "hash": dump_due.0.then(|| last.hash().to_string()),
+            "hash": last.hash().to_string(),
             "entities": last.entities.len(),
             "module": last.place.as_ref().map(|place| place.module.clone()),
             "census": { "live": census.live, "left_behind": census.stashed },
-            // The games' scripts run so far, by script (for a dump).
-            "script_runs": dump_due.0.then(|| {
-                authority.settle();
-                authority.world.script_report().runs.clone()
-            }),
+            "script_runs": authority.script_runs(),
             "frames": authority.frames,
             "frames_without_tick": authority.idle_frames,
             "most_ticks_in_a_frame": authority.most,
@@ -2756,7 +2900,6 @@ fn advance(
             "replay_matched": replay,
         }),
     );
-    authority.solo.sample();
     facts.0.insert("net".into(), authority.solo.facts());
 
     let first = authority

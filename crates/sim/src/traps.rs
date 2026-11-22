@@ -14,7 +14,7 @@ use rules::traps::recover;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use crate::world::traps::probes::walk_probes;
+pub use crate::world::traps::probes::{lay_while_running, walk_probes};
 #[cfg(feature = "probes")]
 pub use probes::probes;
 
@@ -60,6 +60,37 @@ pub fn party_kits(goods: &crate::inventory::Goods, catalog: &crate::inventory::C
         })
         .map(|(_, item)| u32::from(item.stack))
         .sum()
+}
+
+/// The kit a lay sets (`world::traps`): its template, its `traps.2da` row
+/// and how many kits of that row the party carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaidKit {
+    pub template: String,
+    pub row: u8,
+    pub left: u32,
+}
+
+/// The kit the party's next lay sets, as every seat sees the party's items:
+/// the best of the kits it carries (`best_kit`), the first in id order of
+/// that row, as the lay picks it. `catalog` is the module's.
+pub fn laid_kit(
+    goods: &crate::inventory::Goods,
+    catalog: &crate::inventory::Catalog,
+) -> Option<LaidKit> {
+    let kits: Vec<(&crate::inventory::Item, u8)> = goods
+        .carried(crate::inventory::PARTY)
+        .filter_map(|(_, item)| Some((item, goods.facts(catalog, &item.template)?.trap?)))
+        .collect();
+    let row = best_kit(kits.iter().map(|(_, row)| *row))?;
+    let of_row = || kits.iter().filter(move |(_, at)| *at == row);
+    let template = of_row().next()?.0.template.clone();
+    let left = of_row().map(|(item, _)| u32::from(item.stack)).sum();
+    Some(LaidKit {
+        template,
+        row,
+        left,
+    })
 }
 
 /// A `traps.2da` row.

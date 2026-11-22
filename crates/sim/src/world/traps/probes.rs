@@ -65,6 +65,10 @@ int GetIsFriend(object oTarget, object oSource);
 int GetIsNeutral(object oTarget, object oSource);
 // 24
 void DetonateMine(object oMine);
+// 25
+effect EffectDamage(int nDamageAmount, int nDamageType, int nDamagePower);
+// 26
+object GetEnteringObject();
 "#;
 
 /// Scripts that tell the player one word.
@@ -172,6 +176,29 @@ fn library() -> crate::script::Library {
         })
         .op(Op::Retn);
     scripts.push(("probe_detonate".into(), detonate.build()));
+    // Deals the creature that sprang the mine 1 point of universal damage
+    // (`DAMAGE_TYPE_UNIVERSAL`, 8), at once.
+    let mut blast = Asm::default();
+    blast
+        .op(Op::Const(Const::Float(0.0)))
+        .op(Op::Action {
+            routine: 26,
+            args: 0,
+        })
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::Int(8)))
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Action {
+            routine: 25,
+            args: 3,
+        })
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Action {
+            routine: 5,
+            args: 4,
+        })
+        .op(Op::Retn);
+    scripts.push(("probe_blast".into(), blast.build()));
     let talents = crate::script::Talents {
         poisons: courses(),
         ..Default::default()
@@ -378,6 +405,15 @@ fn world_shaped(
     set_dc: u8,
     shape: impl FnOnce(&mut crate::module::ModuleData),
 ) -> Result<crate::world::SimWorld, String> {
+    world_on(trap_level(script, set_dc, shape)?, sheet, seats)
+}
+
+/// The level of `world_shaped`.
+fn trap_level(
+    script: &str,
+    set_dc: u8,
+    shape: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<super::super::Level, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
@@ -440,7 +476,15 @@ fn world_shaped(
             .collect(),
     };
     shape(&mut data);
-    let level = ground.with_module(data).with_scripts(library());
+    Ok(ground.with_module(data).with_scripts(library()))
+}
+
+/// A world on `level` with `seats` players playing `sheet`.
+fn world_on(
+    level: super::super::Level,
+    sheet: Sheet,
+    seats: u8,
+) -> Result<crate::world::SimWorld, String> {
     crate::world::SimWorld::new(
         crate::WorldConfig {
             seed: 1,
@@ -632,6 +676,79 @@ fn spring_with(script: &str) -> Result<(Vec<String>, crate::combat::Fighter), St
     Ok((said, fighter))
 }
 
+/// A mine of the player's faction, its row's script dealing 1 point to the
+/// creature that springs it, sprung by the hostile creature with the
+/// enemies' damage multiplier at 200%. `laid`: the player laid the mine.
+/// What the creature lost (hundredths of an HP), and who its newest event
+/// names as the attacker, against the player's id.
+fn mine_blast(laid: bool) -> Result<(i32, bool), String> {
+    use crate::combat::damage::Taken;
+    let mut world = world("probe_blast")?;
+    world.set_damage_taken(Taken::new(100, 200));
+    let first = world.snapshot();
+    let id_of = |found: &dyn Fn(&crate::Kind) -> bool| {
+        first
+            .entities
+            .iter()
+            .find(|entity| found(&entity.kind))
+            .map(|entity| entity.id)
+    };
+    let player = id_of(&|kind| matches!(kind, crate::Kind::Avatar(_))).ok_or("no player")?;
+    let mine = id_of(&|kind| matches!(kind, crate::Kind::Object(_, MINE))).ok_or("no mine")?;
+    let ally = id_of(&|kind| matches!(kind, crate::Kind::Object(_, ALLY))).ok_or("no creature")?;
+    let hp = |snapshot: &crate::Snapshot| {
+        snapshot
+            .get(ally)
+            .and_then(|entity| entity.fighter)
+            .map(|fighter| {
+                (
+                    fighter.hp,
+                    fighter.newest().next().and_then(|event| event.by),
+                )
+            })
+    };
+    let (before, _) = hp(&first).ok_or("the creature has no fighter")?;
+    let mut state = world.script_state().clone();
+    state.traps.insert(
+        mine.0,
+        crate::script::TrapState {
+            creator: laid.then_some(player.0),
+            faction: Some(PLAYER),
+            ..Default::default()
+        },
+    );
+    world.set_script_state(state);
+    let mut last = first.clone();
+    for tick in 1..=10 {
+        place(&mut world, AWAY, MINE_AT);
+        last = crate::step(
+            &mut world,
+            tick,
+            &TickInput::default(),
+            8,
+            StepReason::Authority,
+        );
+    }
+    let (after, by) = hp(&last).ok_or("the creature is gone")?;
+    Ok((before - after, by == Some(player)))
+}
+
+/// A mine the player laid deals its damage as the player's attack: the
+/// enemies' damage multiplier doubles it, and the creature it struck names
+/// the player as its attacker (the player then sees the damage number). A
+/// mine the area placed keeps its damage as written and names no player.
+fn laid_mine_damage() -> Result<String, String> {
+    let laid = mine_blast(true)?;
+    let placed = mine_blast(false)?;
+    check(
+        laid == (200, true) && placed == (100, false),
+        format!(
+            "laid by the player: lost {}, by the player {}; placed: lost {}, by the player {}",
+            laid.0, laid.1, placed.0, placed.1
+        ),
+    )
+}
+
 /// What `k_trp_generic` asks of the engine beyond springing:
 /// `GetReflexAdjustedDamage` (a Reflex save against the DC halves it) and
 /// `EffectPoison` (a Fortitude save against the row's `dc_save` keeps it
@@ -658,6 +775,7 @@ pub(crate) fn trap_routines() -> Vec<(&'static str, Result<String, String>)> {
                 format!("{poisoned:?}"),
             ),
         ),
+        ("laid_mine_damage", laid_mine_damage()),
     ]
 }
 
@@ -1105,6 +1223,74 @@ fn lay_stretch(
     }
 }
 
+/// A run before a mine is laid: its name, where the player starts (clear
+/// of the probe's traps), how many steps it runs forward (+y, the way it
+/// faces), and whether the forward key stays down after the lay key's
+/// press.
+type Run = (&'static str, [f32; 2], u64, bool);
+
+const RUNS: [Run; 3] = [
+    ("open floor, forward kept down", [5.0, -5.0], 100, true),
+    ("open floor, forward let go", [5.0, -5.0], 100, false),
+    // The player runs into the walkmesh's edge and slides along it. With
+    // the forward key let go at the press, what is left of the run carried
+    // it more than `STAY_M` and broke the lay off.
+    (
+        "into the floor's edge, forward let go",
+        [-7.0, 4.5],
+        150,
+        false,
+    ),
+];
+
+/// The player makes `run` and then presses the lay key, as the action bar
+/// or the power wheel sends it. Returns what the `steps` steps after the
+/// press saw, how far the player ran before the press, and how far it went
+/// from where it pressed the key (metres).
+fn run_and_lay(
+    world: &mut crate::world::SimWorld,
+    steps: u64,
+    (_, start, run_steps, keep_running): Run,
+) -> (Stretch, f32, f32) {
+    place(world, start, ALLY_AT);
+    let from = floor_at(start);
+    let me = |snapshot: &crate::Snapshot| {
+        snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.kind == crate::Kind::Avatar(Seat(0)))
+            .map_or([0.0; 3], |entity| entity.position)
+    };
+    let mut pressed_at = None;
+    let mut notices = Vec::new();
+    let mut last = world.snapshot();
+    for tick in 1..=run_steps + steps {
+        let mut input = TickInput::default();
+        let running = tick <= run_steps || keep_running;
+        let command = crate::Command {
+            forward: if running { 127 } else { 0 },
+            buttons: if tick == run_steps + 1 {
+                crate::buttons::LAY_MINE
+            } else {
+                0
+            },
+            ..crate::Command::default()
+        };
+        input.insert(Seat(0), command);
+        if tick == run_steps + 1 {
+            pressed_at = Some(me(&last));
+        }
+        last = crate::step(world, tick, &input, 8, StepReason::Authority);
+        notices.extend(world.take_notices());
+    }
+    let distance = |at: Option<[f32; 3]>, to: [f32; 3]| {
+        at.map_or(0.0, |at| crate::math::flat_distance(at, to))
+    };
+    let ran = distance(pressed_at, from);
+    let moved = distance(pressed_at, me(&last));
+    (Stretch { notices, last }, ran, moved)
+}
+
 /// The laid mines in `snapshot`: their numbers.
 fn laid(world: &crate::world::SimWorld, snapshot: &crate::Snapshot) -> Vec<u32> {
     let instances = crate::Instances::in_snapshot(world.level(), snapshot);
@@ -1235,7 +1421,35 @@ pub(crate) fn laying() -> Vec<(&'static str, Result<String, String>)> {
             format!("{:?}", done.notices),
         ))
     });
+    checks.push(("lay_while_running", lay_while_running()));
     checks
+}
+
+/// A mine laid at a run (`RUNS`). The character stops where the lay key is
+/// pressed, whether the forward key stays down or goes up, and the mine is
+/// laid. The power wheel's probes run this too.
+pub fn lay_while_running() -> Result<String, String> {
+    let mut wrong = Vec::new();
+    for run in RUNS {
+        // The player runs only on a floor the level's walkmesh covers.
+        let floor = crate::world::uses::probes::floor_nav(&[[-7.5, 7.5]]);
+        let level = trap_level("probe_sprung", 15, |_| {})?.with_nav(floor);
+        let mut world = world_on(level, skilled(0, 3), 1)?;
+        give_kits(&mut world, 1);
+        let steps = crate::traps::LAY_MS / 8 + 5;
+        let (done, ran, moved) = run_and_lay(&mut world, steps, run);
+        let mines = laid(&world, &done.last).len();
+        if ran < 0.5 || mines != 1 || moved > super::STAY_M {
+            wrong.push(format!(
+                "{}: ran {ran:.2} m, then {moved:.2} m, {mines} mines",
+                run.0
+            ));
+        }
+    }
+    check(
+        wrong.is_empty(),
+        format!("{} runs, wrong {wrong:?}", RUNS.len()),
+    )
 }
 
 /// The companion's template in the led probes.
@@ -1739,17 +1953,38 @@ struct Blasted {
     open: bool,
 }
 
-fn blasted(index: u32) -> Result<Blasted, String> {
+/// Which kit a mine on a lock is set with: the one the sim picks, the kit
+/// item the party carries chosen from the menu, or an item that is not
+/// one of the party's kits.
+#[derive(Clone, Copy)]
+enum Pick {
+    Sim,
+    Carried,
+    NotCarried,
+}
+
+fn blasted(index: u32, pick: Pick) -> Result<Blasted, String> {
     use crate::world::locks::lines;
     let steps =
         (crate::traps::LAY_MS + crate::traps::BLAST_MS + crate::traps::OPEN_AFTER_MS) / 8 + 10;
     let mut world = lock_world()?;
+    let carried = world
+        .script_state()
+        .items
+        .iter()
+        .find(|(_, item)| item.template == "g_i_trapkit004")
+        .map(|(id, _)| *id);
+    let kit = match pick {
+        Pick::Sim => None,
+        Pick::Carried => Some(carried.ok_or("no kit carried")?),
+        Pick::NotCarried => Some(0),
+    };
     let done = stretch(
         &mut world,
         1,
         steps,
         BY_GATE,
-        &[(Seat(0), Action::Mine(index))],
+        &[(Seat(0), Action::Mine { object: index, kit })],
     );
     let told = done.notices.iter().find_map(|(_, notice)| match notice {
         Notice::Blast { success: true, .. } => Some("blast succeeded"),
@@ -1801,38 +2036,56 @@ pub(crate) fn lock_mines() -> Vec<(&'static str, Result<String, String>)> {
         (
             "lock_mine_door",
             GATE,
+            Pick::Sim,
             outcome(true, "blast succeeded", true, false, true),
+        ),
+        (
+            "lock_mine_door_kit_chosen",
+            GATE,
+            Pick::Carried,
+            outcome(true, "blast succeeded", true, false, true),
+        ),
+        (
+            "lock_mine_door_kit_not_carried",
+            GATE,
+            Pick::NotCarried,
+            outcome(false, "refused", false, true, false),
         ),
         (
             "lock_mine_container",
             first_chest,
+            Pick::Sim,
             outcome(true, "triggered", true, false, false),
         ),
         (
             "lock_mine_container_holds",
             first_chest + 1,
+            Pick::Sim,
             outcome(true, "triggered", false, true, false),
         ),
         (
             "lock_mine_not_blastable",
             first_chest + 2,
+            Pick::Sim,
             outcome(false, "refused", false, true, false),
         ),
         (
             "lock_mine_unlocked",
             first_chest + 3,
+            Pick::Sim,
             outcome(false, "refused", false, false, false),
         ),
         (
             "lock_mine_rated_container",
             first_chest + 4,
+            Pick::Sim,
             outcome(true, "triggered", true, false, false),
         ),
     ];
     cases
         .into_iter()
-        .map(|(name, index, want)| {
-            let got = blasted(index).map(|got| check(got == want, format!("{got:?}")));
+        .map(|(name, index, pick, want)| {
+            let got = blasted(index, pick).map(|got| check(got == want, format!("{got:?}")));
             (name, got.and_then(|checked| checked))
         })
         .collect()
@@ -1885,7 +2138,13 @@ pub(crate) fn exploding() -> Vec<(&'static str, Result<String, String>)> {
     let on_lock = |index: u32| {
         lock_world().map(|mut world| {
             let at = stands_at(&world.snapshot(), index);
-            let mine = [(Seat(0), Action::Mine(index))];
+            let mine = [(
+                Seat(0),
+                Action::Mine {
+                    object: index,
+                    kit: None,
+                },
+            )];
             let ran = stretch(&mut world, 1, steps, BY_GATE, &mine);
             (explosions(&ran.notices), at)
         })

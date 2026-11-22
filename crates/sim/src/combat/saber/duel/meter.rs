@@ -94,6 +94,18 @@ pub fn can_kick(points: i32) -> bool {
     points >= kicks::USES
 }
 
+/// Whether a character with `points` Stamina may grab
+/// (`rules::duel::grab::USES`).
+pub fn can_grab(points: i32) -> bool {
+    points >= rules::duel::grab::USES
+}
+
+/// A grab begun with bare hands (`motion::Move::duel_grab`): the grabber
+/// loses `grab::USES` Stamina, whether or not the grab holds.
+pub fn grabbed(f: &mut Fighter, cap: u8) {
+    spend(f, rules::duel::grab::USES, cap);
+}
+
 /// A kick begun under the Advanced rules (`docs/SABER-RULES.md` 9.2). The
 /// kicker loses `kicks::USES` block points, whether or not the kick hits.
 /// The bar does not go below 0.
@@ -174,6 +186,8 @@ pub struct Rest {
     pub shaken: bool,
     /// In a rage's recovery.
     pub recovering: bool,
+    /// An NPC that turned a bolt lately (`defence::bolts_turned_lately`).
+    pub under_fire: bool,
 }
 
 /// One step of a fighter's bar at `now` (`docs/SABER-RULES.md` 1.3, 9.1):
@@ -227,16 +241,20 @@ pub fn scene(f: &mut Fighter, player: bool, cap: u8) {
 
 /// The block points' refill (`docs/SABER-RULES.md` 1.3), the same for a
 /// player and a creature: `refill::GAIN` points every `refill::TICK_MS`
-/// scaled by how the fighter moves (`Stance::percent`: less walking, none
-/// running), unless it is spending them: swinging, shaken, down, off the
-/// ground or, for a player, holding block. A thrown saber, or a rage's
+/// scaled by how the fighter moves (`Stance::percent`: less walking, still
+/// less running) and slowed for an NPC under fire (`refill::UNDER_FIRE`),
+/// unless it is spending them: swinging, shaken, down, off the ground or,
+/// for a player, holding block. A thrown saber, or a rage's
 /// recovery, makes each wait longer.
 /// Every wait is shortened or lengthened by the fighter's Constitution
 /// modifier (`wait_of`). The next point is due one wait after the last was
 /// due, so that a wait shorter than a step is kept on average.
 fn points(f: &mut Fighter, rest: Rest, now: u64) {
     let duel = &mut f.saber.duel;
-    let percent = rest.stance.percent();
+    let mut percent = rest.stance.percent();
+    if rest.under_fire {
+        percent = percent * u64::from(refill::UNDER_FIRE) / 100;
+    }
     let spending = rest.busy
         || rest.shaken
         || rest.floored

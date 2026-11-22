@@ -26,9 +26,8 @@ use super::{
 use crate::combat::damage::{Relation, Source};
 use crate::combat::effects::Modifies;
 use crate::combat::force::{self, Channel, Gesture, Power, crowd, ja};
-use crate::combat::saber::Getup;
 use crate::combat::sheet::{flags, type_rows};
-use crate::combat::{Fighter, Sheet, effects, items, mind, specials};
+use crate::combat::{Fighter, Sheet, effects, items, mind};
 use crate::input::{Seat, buttons};
 use crate::math::{self, Vec3, scale};
 use crate::motion::{self, Anim, MotionState};
@@ -708,18 +707,9 @@ impl Cast<'_, '_> {
         }
     }
 
-    /// Whether `at` may put a hand out now: no hand out, no weapon timer,
-    /// no item in use (`Pack::busy`), not knocked down (JA's knockdown
-    /// takes the hand; a push or pull may still come while getting up,
-    /// `throwing`).
+    /// Whether `at` may put a hand out now (`Fighter::hand_free`).
     fn free_hand(&self, at: usize, throwing: bool) -> bool {
-        let fighter = &self.fighters[at];
-        let saber = &fighter.saber;
-        let down = saber.floored() && !(throwing && saber.getup != Getup::Down);
-        !down
-            && !fighter.force.hand_out(self.now)
-            && fighter.weapon_wait_ms <= 0
-            && !fighter.pack.busy()
+        self.fighters[at].hand_free(self.now, throwing)
     }
 
     /// Starts a held power if it can: known, its wait over, a free hand,
@@ -1564,7 +1554,7 @@ impl Cast<'_, '_> {
                 theirs.cover_ears(self.now);
                 continue;
             }
-            theirs.hold(self.now, ja::STUN_MS);
+            theirs.hold(self.now, ja::STUN_MS, force::HoldKind::Own);
             theirs.hold = if crowd::fear(row) {
                 Hold::Fear
             } else {
@@ -1844,7 +1834,8 @@ impl Cast<'_, '_> {
         if self.resists(at, them) || self.saves(them, 1, dc) {
             return;
         }
-        if self.fighters[them].force.hold(self.now, ja::STUN_MS) {
+        let kind = force::HoldKind::Combat(Some(force::HoldSave { index: 1, dc }));
+        if self.fighters[them].force.hold(self.now, ja::STUN_MS, kind) {
             self.fighters[them].force.hold = Hold::Whirlwind;
         }
         let damage = (u16::from(self.person(at).sheet.level) / ja::WHIRLWIND_DIVISOR)
@@ -2049,15 +2040,10 @@ impl Cast<'_, '_> {
             fighter.pack.vitality = fighter.pack.vitality.min(vitality);
         }
         let force = fighter.force;
-        let aiming = fighter.shooting.aiming;
+        let two_hands = two_handed_lightning(&sheet) || fighter.weapon_away(now);
         let slowed = fighter.effects.slowed_down(now);
         let speeding = force.speed_until > now;
         let mut speed = if speeding { ja::SPEED_SCALE } else { 1.0 };
-        // Aiming a Sniper Shot halves movement (JA's disruptor zoom), as
-        // Affliction and Plague do.
-        if aiming {
-            speed *= specials::AIM_SPEED;
-        }
         if slowed {
             speed *= effects::SLOWED_SPEED;
         }
@@ -2111,8 +2097,15 @@ impl Cast<'_, '_> {
             (Some((Gesture::Pull, _)), _) => Some((Anim::BOTH_FORCEPULL, false)),
             // The row's own clips show it (`Fighter::acting`).
             (Some((Gesture::Cast, _)), _) => None,
+            // A character with no weapon in its hands casts lightning with
+            // both hands.
             (None, Some(channel)) if channel.power == Power::Lightning => {
-                Some((Anim::BOTH_FORCELIGHTNING_HOLD, false))
+                let anim = if two_hands {
+                    Anim::BOTH_FORCE_2HANDEDLIGHTNING_HOLD
+                } else {
+                    Anim::BOTH_FORCELIGHTNING_HOLD
+                };
+                Some((anim, false))
             }
             (None, Some(_)) => Some((Anim::BOTH_FORCEGRIP_HOLD, false)),
             (None, None) => None,
@@ -2121,4 +2114,13 @@ impl Cast<'_, '_> {
             motion::hold(body, anims, anim, whole, self.msec);
         }
     }
+}
+
+/// Whether a character has no weapon equipped in either hand. A creature's
+/// own unarmed weapon counts as no weapon. A character with no weapon, or
+/// with its weapon put away, casts lightning with both hands.
+pub(crate) fn two_handed_lightning(sheet: &Sheet) -> bool {
+    use crate::combat::sheet::Delivery;
+    let [right, left] = &sheet.weapons;
+    right.is_none_or(|weapon| weapon.delivery == Delivery::Unarmed) && left.is_none()
 }

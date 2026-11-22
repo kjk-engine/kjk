@@ -3,12 +3,14 @@
 //! items, shields and grenades (`docs/COMBAT.md`, "Sounds"). Each is read
 //! off what changed in a character between two snapshots:
 //!
-//! - Push and pull: a throw's wait starting with its hand out: JA's `push`
-//!   or `pull` in the body slot.
+//! - Push and pull: a throw's wait starting with its hand out: KOTOR's
+//!   Force Push sounds for both (KOTOR has no pull), its cast `v_useforce`
+//!   and its push `v_imp_frcpush` in the body slot.
 //! - Toggles (speed, protect, absorb, rage, sight, the mind trick) starting:
 //!   JA's `speed`, `protect`, `absorb`, `rage`, `see`, `distract`; while one
 //!   runs its loop is held at the character (`speedloop`, `protectloop`,
 //!   `absorbloop`, `rageloop`, `seeloop`; the mind trick has none).
+//!   Force Speed makes neither sound while a conversation is under way.
 //! - Channels starting: lightning's `lightning`, drain's `drain` (body
 //!   slot). Each hit lightning lands sounds one of `lightninghit1–3` one
 //!   time in three on the struck; each drain, `drained` there. A gripped
@@ -68,6 +70,10 @@ const WARNING: &str = "sound/weapons/thermal/warning.wav";
 /// (`sound::Bank::stand_in`).
 pub const SELECT: &str = "sound/weapons/thermal/select.wav";
 pub const CHANGE: &str = "sound/weapons/change.wav";
+/// KOTOR's Force Push: the cast (`spells.2da` `castsound`) and the push
+/// (`VFX_IMP_FORCE_PUSH`'s `SoundImpact`).
+const PUSH_CAST: &str = "v_useforce";
+const PUSH: &str = "v_imp_frcpush";
 /// How often a gripped character sounds the grip (ms).
 const GRIP_EVERY_MS: u64 = 1000;
 
@@ -82,8 +88,6 @@ fn kotor(resref: &str) -> String {
 /// JA's Force sounds this plays.
 pub fn sounds() -> Vec<String> {
     let mut names: Vec<String> = [
-        "push.wav",
-        "pull.wav",
         "speed.wav",
         "protect.mp3",
         "absorb.mp3",
@@ -113,7 +117,8 @@ pub fn sounds() -> Vec<String> {
 /// KOTOR's sounds this plays (resrefs).
 pub fn kotor_sounds() -> Vec<&'static str> {
     let mut resrefs = vec![
-        "v_useforce",
+        PUSH_CAST,
+        PUSH,
         "gui_inject",
         "gui_upgrade",
         "gen_shieldbluon",
@@ -239,6 +244,7 @@ fn sound(
     }
     // Borrowed, not copied: a fighter is large, and every entity is looked
     // at each frame.
+    let talking = !current.talk.conversations.is_empty();
     for entity in &current.entities {
         let Some(f) = entity.fighter.as_ref().filter(|f| f.alive()) else {
             continue;
@@ -254,7 +260,7 @@ fn sound(
             (force.sight_until, "seeloop.wav"),
         ];
         for (until, name) in running {
-            if until > now {
+            if until > now && !(talking && name == "speedloop.wav") {
                 loops.0.push(Hold::at(ja(name), at));
             }
         }
@@ -338,10 +344,11 @@ fn changes(
     let mut rng = crate::view_rng::ja_seed(entity.id.0, snapshot.tick as u32);
     let mut cast = false;
 
-    // Push and pull.
-    if let Some(pull) = thrown(&was, &force) {
-        let name = if pull { "pull.wav" } else { "push.wav" };
-        cues.push(on(entity, ja(name), Channel::Body, ms));
+    // Push and pull: KOTOR's Force Push cast and its push, for both (KOTOR
+    // has no pull).
+    if thrown(&was, &force).is_some() {
+        cues.push(on(entity, kotor(PUSH_CAST), Channel::Auto, ms));
+        cues.push(on(entity, kotor(PUSH), Channel::Body, ms));
         cast = true;
     }
     // Toggles.
@@ -361,8 +368,10 @@ fn changes(
         ),
         (force.rage_until, was.rage_until, "rage.wav", Channel::Auto),
     ];
+    // Force Speed makes no sound in a conversation.
+    let talking = !snapshot.talk.conversations.is_empty();
     for (until, before_until, name, channel) in toggles {
-        if started(until, before_until, now) {
+        if started(until, before_until, now) && !(talking && name == "speed.wav") {
             cues.push(on(entity, ja(name), channel, ms));
             cast = true;
         }
@@ -405,7 +414,7 @@ fn changes(
     let hand_new = force.hand.map(|(_, until)| until) != was.hand.map(|(_, until)| until)
         && force.hand.is_some_and(|(_, until)| until > now);
     if hand_new && !cast && f.fp < before.fp {
-        cues.push(on(entity, kotor("v_useforce"), Channel::Auto, ms));
+        cues.push(on(entity, kotor(PUSH_CAST), Channel::Auto, ms));
         cast = true;
     }
     // A heal: the power button pressed with a heal selected, paid. The
@@ -508,7 +517,7 @@ fn grenades(
         let base = Vec3::from_array(missile.base);
         let way = Vec3::from_array(was.velocity_at(missile.from_ms)).normalize_or(Vec3::NEG_Z);
         let states = level.states_in(snapshot);
-        let met = level.with(states.as_deref(), |world| {
+        let met = level.with_unremembered(states.as_deref(), |world| {
             world.trace(
                 ((base - way * 2.0) * UNIT).to_array(),
                 ((base + way * 2.0 * grenades::HALF_SIZE) * UNIT).to_array(),

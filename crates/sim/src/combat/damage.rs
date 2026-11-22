@@ -101,13 +101,16 @@ pub enum Source {
     /// move time, ms), the share of the attack this hit carries in
     /// thousandths (a flechette shard a fifth) and whether it hit an area
     /// (splash, cones). A blow of two blades out (the dual and staff
-    /// styles) carries the `second` blade's own attack too (`Second`).
+    /// styles) carries the `second` blade's own attack too (`Second`). A
+    /// `sure` blow (a grapple finisher's, `world::grapples`) is sized as a
+    /// hit at a chance of 100%, not by KOTOR's chance to hit.
     Weapon {
         weapon: Weapon,
         cadence_ms: u32,
         share: u16,
         area: bool,
         second: Option<Second>,
+        sure: bool,
     },
     /// A power's JA points (a point is 1% of the target's maximum) and up
     /// to `extra` more by the roll (lightning's 1 or 2), whether it hit an
@@ -142,8 +145,9 @@ pub enum Source {
     /// A grenade's blast (`combat::grenades`, by its `spells.2da` row):
     /// KOTOR's whole points of its type, halved by a Reflex save; an area.
     Blast { row: u16 },
-    /// A script's `EffectDeath`: its target dies, a party member too,
-    /// downed or not: the story's death (I30 P13); never filtered.
+    /// A script's `EffectDeath`: its target dies, a companion too, downed
+    /// or not: the story's death (I30 P13); never filtered. The player's
+    /// own character goes down instead (`Member::Player`).
     Death,
 }
 
@@ -197,6 +201,61 @@ pub struct Resolved {
     pub attacked: bool,
 }
 
+/// The share of the normal damage each side takes, in percent: the options'
+/// Damage taken by party and Damage taken by enemies, the session's
+/// (`SimWorld::set_damage_taken`). Each value lies between
+/// `damage::TAKEN_LEAST` and `damage::TAKEN_MOST`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Taken {
+    party: u16,
+    enemies: u16,
+}
+
+impl Default for Taken {
+    fn default() -> Taken {
+        Taken {
+            party: 100,
+            enemies: 100,
+        }
+    }
+}
+
+impl Taken {
+    /// The party's and the enemies' percentages, each brought within the
+    /// rulebook's range.
+    pub fn new(party: u16, enemies: u16) -> Taken {
+        let within = |percent: u16| {
+            let least = rules::combat::damage::TAKEN_LEAST as u16;
+            let most = rules::combat::damage::TAKEN_MOST as u16;
+            percent.clamp(least, most)
+        };
+        Taken {
+            party: within(party),
+            enemies: within(enemies),
+        }
+    }
+
+    pub fn party(self) -> u16 {
+        self.party
+    }
+
+    pub fn enemies(self) -> u16 {
+        self.enemies
+    }
+
+    /// `damage` (hundredths of an HP) as a target in the `party` or outside
+    /// it takes it. A hit that harms keeps at least the least damage
+    /// (`damage::LEAST`).
+    pub fn scaled(self, damage: i32, party: bool) -> i32 {
+        let percent = if party { self.party } else { self.enemies };
+        if damage <= 0 || percent == 100 {
+            return damage;
+        }
+        let scaled = i64::from(damage) * i64::from(percent) / 100;
+        i32::try_from(scaled.max(rules::combat::damage::LEAST)).unwrap_or(i32::MAX)
+    }
+}
+
 /// The attacker's attack bonus with `weapon` (whole points): BAB, what runs
 /// on it (`Sheet::attack`) and the item's bonus (with the hands' feats as
 /// the weapon was taken in hand, `passive::hand_attack`) within the caps
@@ -232,16 +291,16 @@ pub fn attack_bonus(sheet: &Sheet, weapon: &Weapon) -> i32 {
     bonus
 }
 
-/// What STR adds to `weapon`'s damage for `sheet`: its modifier in melee;
-/// ranged, its penalty, or with Mighty its bonus up to Mighty's most.
+/// What STR adds to `weapon`'s damage for `sheet`: its modifier in melee,
+/// nothing with a gun. TSL's damage roll adds no STR to a ranged attack, not
+/// even a penalty. Only its character sheet's damage range takes off a
+/// penalty, or adds a Mighty weapon's bonus, and the damage dealt ignores both.
 fn strength(sheet: &Sheet, weapon: &Weapon) -> i64 {
-    let modifier = sheet.modifier(Ability::Strength);
-    let add = if !weapon.delivery.ranged() || modifier < 0 {
-        modifier
+    if weapon.delivery.ranged() {
+        0
     } else {
-        modifier.min(weapon.mighty.map_or(0, i32::from))
-    };
-    i64::from(add)
+        i64::from(sheet.modifier(Ability::Strength))
+    }
 }
 
 /// A die of `sides` (1 to `sides`), whole points: what the damage rolls
@@ -482,14 +541,15 @@ struct Attack {
 /// `weapon`'s attack on `target` under the margin model (C1): the hit
 /// landed (its blade or bolt met the body), its size the chance KOTOR's
 /// roll would have hit, `aim` added to the attacker's side of it
-/// (`Blow::aim`); a mighty attacker's roll `MIGHTY_TIMES` over.
+/// (`Blow::aim`), or whole when it is `sure`; a mighty attacker's roll
+/// `MIGHTY_TIMES` over.
 #[allow(clippy::too_many_arguments)]
 fn weapon_attack(
     weapon: &Weapon,
     attacker: Option<&Sheet>,
     target: &Sheet,
     mighty: bool,
-    (sneak, aim): (u8, i32),
+    (sneak, aim, sure): (u8, i32, bool),
     game: Game,
     rng: &mut SimRng,
 ) -> Attack {
@@ -497,7 +557,10 @@ fn weapon_attack(
         let (attack, defence) = odds(sheet, weapon, target);
         (attack + aim, defence)
     });
-    let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
+    let p = match odds {
+        Some((attack, defence)) if !sure => margin(attack, defence),
+        _ => 1000,
+    };
     // In KOTOR II a mighty player's blows are sized as the surest
     // hit: against its scaled enemies a weak build's chance sits at
     // its least, which left the ten-fold blow at half a plain one.
@@ -672,6 +735,7 @@ pub fn assess(
             cadence_ms,
             share: part,
             second,
+            sure,
             ..
         } => {
             let attack = |weapon: &Weapon, rng: &mut SimRng| {
@@ -680,7 +744,7 @@ pub fn assess(
                     attacker,
                     target,
                     mighty,
-                    (blow.sneak, blow.aim),
+                    (blow.sneak, blow.aim, sure),
                     game,
                     rng,
                 )
@@ -747,11 +811,39 @@ pub fn assess(
     }
 }
 
-/// Lands an assessed hit on `state` (the target's, with its sheet; `party`
-/// whether it is in the party): Min1HP holds it at 1 HP, the hit points
-/// fall, a fall or a death is marked, the attacker remembered and the event
-/// recorded. At 0 HP a party member is downed (I30 P11) and anyone else
-/// dies; a `Source::Death` kills a party member too, downed or standing.
+/// Who a blow lands on, as `apply` decides whether it downs or kills.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Member {
+    /// A character outside the party. It dies at 0 HP.
+    Outsider,
+    /// A companion, driven by a seat or not. It goes down at 0 HP, and a
+    /// script's `EffectDeath` kills it, standing or down. That death is the
+    /// story's (I30 P13): Trask dies so in his scene on the Endar Spire.
+    Companion,
+    /// A seat's own character, the player's. It goes down at 0 HP, and a
+    /// script's `EffectDeath` downs it too. The player's character then gets
+    /// up after the fight like any party member, and the whole party down is
+    /// the loss. Killed for good while its companions stood, it lay dead
+    /// with the game going on and nothing to end it: the pillars that guard
+    /// the Rakata's settlement on South Beach kill whoever is near them, and
+    /// left the player's character so (`blow1`…`blowd6`).
+    Player,
+}
+
+impl Member {
+    /// Whether a script's `EffectDeath` kills this character rather than
+    /// downing it.
+    pub fn dies_of_death(self) -> bool {
+        self != Member::Player
+    }
+}
+
+/// Lands an assessed hit on `state` (the target's, with its sheet, `member`
+/// who it is): Min1HP holds it at 1 HP, the hit points fall, a fall or a
+/// death is marked, the attacker remembered and the event recorded. At 0 HP
+/// a party member is downed (I30 P11) and anyone else dies; a
+/// `Source::Death` kills a companion too, downed or standing, and downs the
+/// player's character (`Member`).
 pub fn apply(
     blow: &Blow,
     assessed: Assessed,
@@ -759,16 +851,28 @@ pub fn apply(
     state: &mut Fighter,
     now: u64,
     tick: u64,
-    party: bool,
+    member: Member,
 ) -> Resolved {
     let mut damage = assessed.damage;
     if target.flags & (flags::MIN_ONE_HP | flags::IMMORTAL) != 0 {
         damage = damage.min(state.hp.saturating_sub(100).max(0));
     }
-    state.hp = state.hp.saturating_sub(damage);
     let death = matches!(blow.source, Source::Death);
-    let falls = state.hp <= 0 && (state.alive() || (death && state.downed()));
-    let downed = falls && party && !death;
+    let kills = death && member.dies_of_death();
+    // A victim held in a grapple finisher falls only when the finisher lets
+    // it go (`world::grapples`): a blow that would take its last hit point
+    // leaves it at 1 and marks it to die then.
+    if let Some(held) = state
+        .grapple
+        .as_mut()
+        .filter(|held| !held.grabber && !death)
+    {
+        held.dead |= damage > 0 && damage >= state.hp;
+        damage = damage.min(state.hp.saturating_sub(100).max(0));
+    }
+    state.hp = state.hp.saturating_sub(damage);
+    let falls = state.hp <= 0 && (state.alive() || (kills && state.downed()));
+    let downed = falls && member != Member::Outsider && !kills;
     let died = falls && !downed;
     if downed {
         state.fall(now);
@@ -800,6 +904,7 @@ pub fn apply(
         },
         at: None,
         visual: None,
+        wild: false,
     });
     Resolved {
         outcome: assessed.outcome,

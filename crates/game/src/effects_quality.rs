@@ -230,7 +230,9 @@ fn level_particle_facts(
         for (place, material) in &sprays {
             let Some(list) = materials
                 .get(&material.0)
-                .filter(|made| made.particles.id() != crate::material::NO_PARTICLES.id())
+                .filter(|made| {
+                    made.particles.id() != crate::material::NO_PARTICLES.id() && !made.listed_quads
+                })
                 .and_then(|made| buffers.get(&made.particles))
                 .and_then(|buffer| buffer.data.as_deref())
             else {

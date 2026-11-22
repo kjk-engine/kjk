@@ -160,6 +160,27 @@ pub fn key(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
+/// `digest` with the templates of one `kind` a library gains folded in;
+/// unchanged when there are none.
+fn templates_digest(
+    digest: [u8; 32],
+    kind: &str,
+    templates: &BTreeMap<String, Arc<ObjectData>>,
+) -> [u8; 32] {
+    if templates.is_empty() {
+        return digest;
+    }
+    let mut out = crate::wire::Writer::default();
+    out.bytes(&digest);
+    out.string(kind);
+    out.u32(templates.len() as u32);
+    for (name, facts) in templates {
+        out.string(name);
+        facts.digest_into(&mut out);
+    }
+    *blake3::hash(&out.0).as_bytes()
+}
+
 /// The characters a resref holds.
 const RESREF_LEN: usize = 16;
 
@@ -652,6 +673,7 @@ pub struct Library {
     /// `CREATURE_TYPE_*` and `PERCEPTION_*` by value, from the catalog.
     criteria: BTreeMap<i32, Criterion>,
     perceptions: BTreeMap<i32, (Option<bool>, Option<bool>)>,
+    regards: [Option<i32>; 3],
     talents: Talents,
     /// The level's conversations, by lowercase resref.
     dialogues: BTreeMap<String, Dlg>,
@@ -729,6 +751,9 @@ pub struct Library {
     /// The waypoint templates scripts may make (`CreateObject`), by
     /// lowercase resref.
     waypoints: Arc<BTreeMap<String, Arc<ObjectData>>>,
+    /// The store templates scripts may make (`CreateObject`), by lowercase
+    /// resref.
+    stores: Arc<BTreeMap<String, Arc<ObjectData>>>,
     /// The journal's quests (`global.jrl`, I19).
     quests: Arc<journal::Quests>,
     /// The XP tables (`plot.2da`, `xptable.2da`, I19).
@@ -869,6 +894,7 @@ impl Library {
             .filter_map(|(name, seen, heard)| Some((int_constant(&catalog, name)?, (seen, heard))))
             .collect();
         let item_type = int_constant(&catalog, "OBJECT_TYPE_ITEM").unwrap_or(2);
+        let regards = engine::REGARDS.map(|(name, _)| int_constant(&catalog, name));
         Library {
             routines: Routines::new(Arc::new(catalog)),
             programs: scripts
@@ -880,6 +906,7 @@ impl Library {
             object_types,
             criteria,
             perceptions,
+            regards,
             talents,
             dialogues: BTreeMap::new(),
             voices: BTreeMap::new(),
@@ -905,6 +932,7 @@ impl Library {
             creatures: Arc::default(),
             placeables: Arc::default(),
             waypoints: Arc::default(),
+            stores: Arc::default(),
             quests: Arc::default(),
             experience: Arc::default(),
             classes: Arc::default(),
@@ -1603,6 +1631,19 @@ impl Library {
         &self.items
     }
 
+    /// The gun template a sheet's `@ROW` puts in hand, for `baseitems.2da`
+    /// row `row`. It is a ranged weapon of that row that is no plot item.
+    /// The game's own templates (named `g_w_…`) come first, then the rest
+    /// in the order of their names.
+    pub fn gun_of_row(&self, row: u16) -> Option<&str> {
+        self.items
+            .iter()
+            .filter(|item| !item.plot && item.base_item == row)
+            .filter(|item| item.weapon.is_some_and(|w| w.delivery.ranged()))
+            .min_by_key(|item| (!item.template.starts_with("g_w_"), &item.template))
+            .map(|item| item.template.as_str())
+    }
+
     /// This library with the creature templates the party and scripts may
     /// make.
     pub fn with_placeables(self, placeables: BTreeMap<String, Arc<ObjectData>>) -> Library {
@@ -1623,20 +1664,21 @@ impl Library {
     /// This library with the waypoint templates scripts may make, in the
     /// digest when it has any (a library without keeps its digest).
     pub fn with_waypoints(self, waypoints: BTreeMap<String, Arc<ObjectData>>) -> Library {
-        if waypoints.is_empty() {
-            return self;
-        }
-        let mut out = crate::wire::Writer::default();
-        out.bytes(&self.digest);
-        out.string("waypoints");
-        out.u32(waypoints.len() as u32);
-        for (name, facts) in &waypoints {
-            out.string(name);
-            facts.digest_into(&mut out);
-        }
+        let digest = templates_digest(self.digest, "waypoints", &waypoints);
         Library {
             waypoints: Arc::new(waypoints),
-            digest: *blake3::hash(&out.0).as_bytes(),
+            digest,
+            ..self
+        }
+    }
+
+    /// This library with the store templates scripts may make, in the
+    /// digest when it has any (a library without keeps its digest).
+    pub fn with_stores(self, stores: BTreeMap<String, Arc<ObjectData>>) -> Library {
+        let digest = templates_digest(self.digest, "stores", &stores);
+        Library {
+            stores: Arc::new(stores),
+            digest,
             ..self
         }
     }
@@ -1769,6 +1811,11 @@ impl Library {
         self.waypoints.get(&key(template))
     }
 
+    /// A store template's facts, if the library has it.
+    pub fn store(&self, template: &str) -> Option<&Arc<ObjectData>> {
+        self.stores.get(&key(template))
+    }
+
     /// How many creature templates it has.
     pub fn creature_count(&self) -> usize {
         self.creatures.len()
@@ -1837,6 +1884,18 @@ impl Library {
             && spells
                 .get(usize::from(row))
                 .is_none_or(|talent| !talent.shown)
+    }
+
+    /// What `spells.2da` row `row` says to the item buttons
+    /// (`inventory::kinds`): whether its impact script is here, and whether
+    /// an item casting it uses it on its own user (`Talent::on_user`, or a
+    /// row not used on a foe).
+    pub fn item_row(&self, row: u16) -> crate::inventory::RowUse {
+        let talent = self.spell(row);
+        crate::inventory::RowUse {
+            scripted: self.impact(row).is_some(),
+            on_user: !talent.hostile || talent.on_user,
+        }
     }
 
     pub fn impact(&self, row: u16) -> Option<&str> {
@@ -2085,6 +2144,9 @@ pub struct Character {
     pub downed: bool,
     /// Stunned, held or confused (`GetIsDebilitated`).
     pub debilitated: bool,
+    /// In a grapple finisher, holding or held (`world::grapples`). Its
+    /// weapons stay in its hands until the finisher lets it go.
+    pub grappled: bool,
     /// Hundredths of its FP (the talents it can pay for).
     pub fp: i32,
     /// `feat.2da` rows known.
@@ -2439,6 +2501,7 @@ pub struct Made {
     pub yaw: f32,
     /// A companion the party table kept (`make_npc`): made as it was.
     pub kept: Option<party::Kept>,
+    pub(crate) reach: crate::install::Reach,
 }
 
 /// What the latest of `changes` that `pick` answers for gives.
@@ -2518,6 +2581,9 @@ pub enum Change {
     Trap { object: ObjectId, bits: u8 },
     /// Turn `who` to `yaw` (degrees).
     Face { who: ObjectId, yaw: f32 },
+    /// Stop `who` where it stands: what was left of its run is gone, so it
+    /// does not slide on (a mine being set, `world::traps`).
+    Halt { who: ObjectId },
     /// `who` takes the first seat's view as it was (`view`, degrees) and
     /// its commands from `angles` on: the body a new party leader leads
     /// with, so the camera keeps its way (`world::scripts`).
@@ -3204,6 +3270,7 @@ impl Step<'_> {
             event,
             depth: 0,
             benched: false,
+            failed: Vec::new(),
         };
         engine.trace(&format!("{what} {script} for {}", name(caller)));
         let outcome = match code {
@@ -3943,7 +4010,7 @@ impl Step<'_> {
                 Target::Point(at, _) => (ObjectId::INVALID, at),
             };
             let caught = Some(object)
-                .filter(|id| *id != ObjectId::INVALID)
+                .filter(|id| *id != ObjectId::INVALID && *id != who)
                 .into_iter()
                 .collect();
             self.impact(&Cast {
@@ -4628,22 +4695,24 @@ pub(crate) fn make(
     Some(make_of(library, view, state, out, facts, at, yaw))
 }
 
-/// A waypoint of `template` made at `at` facing `yaw`. KOTOR's
-/// `CreateObject` makes one from its UTW and adds it to the area, so a
-/// later `StartNewModule` can arrive at it (TSLRCM's Red Eclipse scene
-/// marks where the player stood before it leaves the module).
-pub(crate) fn make_waypoint(
+/// A waypoint or a store of `facts` (its template's) made at `at` facing
+/// `yaw`. KOTOR's `CreateObject` makes one from its UTW or UTM and adds it
+/// to the area. A later `StartNewModule` can arrive at the waypoint
+/// (TSLRCM's Red Eclipse scene marks where the player stood before it
+/// leaves the module), and `OpenStore` can open the store (a mod's merchant
+/// makes its store at the player and opens it).
+pub(crate) fn make_placed(
     library: &Library,
     view: &View,
     state: &mut State,
     out: &mut Out,
-    template: &str,
+    facts: &ObjectData,
     at: [f32; 3],
     yaw: f32,
-) -> Option<ObjectId> {
-    let mut facts = (**library.waypoint(template)?).clone();
+) -> ObjectId {
+    let mut facts = facts.clone();
     (facts.position, facts.yaw) = (at, yaw);
-    Some(make_of(library, view, state, out, Arc::new(facts), at, yaw))
+    make_of(library, view, state, out, Arc::new(facts), at, yaw)
 }
 
 /// An object of `facts` made at `at` facing `yaw` (`make`).
@@ -4665,6 +4734,7 @@ fn make_of(
         at,
         yaw,
         kept: None,
+        reach: crate::install::JUMP,
     });
     id
 }
@@ -4846,9 +4916,22 @@ pub(crate) fn switch_weapons(
     out: &mut Out,
     who: ObjectId,
 ) {
+    if grappled(view, who) {
+        return;
+    }
     for moved in state.switch_weapons(out, who.0) {
         forfeit_equip(library, view, state, who, moved);
     }
+}
+
+/// Whether `who` is in a grapple finisher, holding or held
+/// (`Character::grappled`). Nothing changes the weapons in its hands then:
+/// a weapon set switched, a weapon equipped or one taken off. The view would
+/// play the new weapon's draw over the finisher's clip.
+pub(crate) fn grappled(view: &View, who: ObjectId) -> bool {
+    view.thing(who)
+        .and_then(|thing| thing.character.as_ref())
+        .is_some_and(|character| character.grappled)
 }
 
 /// TSL's forfeit conditions a party member `who` equipping `item` into

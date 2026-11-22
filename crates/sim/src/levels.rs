@@ -432,23 +432,40 @@ impl Classes {
     /// The most ranks a skill may have at `level`: `levels::RANK_CAP_OVER`
     /// more than the level for a class skill, that over
     /// `levels::CROSS_CLASS_CAP_DIVISOR` for another.
-    fn most(class: &Class, feats: &[u16], skill: usize, level: u8) -> u8 {
+    fn most(class_skill: bool, level: u8) -> u8 {
         let most = level.saturating_add(levels::RANK_CAP_OVER);
-        if class_skill(class, feats, skill) {
+        if class_skill {
             most
         } else {
             most / levels::CROSS_CLASS_CAP_DIVISOR
         }
     }
 
-    /// What a rank of `skill` costs `class` knowing `feats` in skill points.
-    fn rank_cost(class: &Class, feats: &[u16], skill: usize) -> u8 {
+    /// What a rank of a skill costs in skill points, by whether it is a
+    /// class skill.
+    fn rank_cost(class_skill: bool) -> u8 {
         let [own, other] = levels::SKILL_COST;
-        if class_skill(class, feats, skill) {
-            own
-        } else {
-            other
-        }
+        if class_skill { own } else { other }
+    }
+
+    /// The class skills of a character with `career` taking a level of
+    /// `class` and knowing `feats`. A skill is a class skill when it is one
+    /// to `class` or to any class already in the career (or a Class Skill
+    /// feat makes it one). Both games' level-ups price a rank and cap the
+    /// ranks this way: they ask each of the character's classes in turn,
+    /// so a Scoundrel who becomes a Jedi keeps Stealth as a class skill.
+    pub fn career_skills(&self, career: &Career, class: &Class, feats: &[u16]) -> [bool; SKILLS] {
+        let held = career
+            .iter()
+            .filter_map(|&(had, _)| self.classes.get(usize::from(had)));
+        std::iter::once(class)
+            .chain(held)
+            .fold([false; SKILLS], |mut skills, of| {
+                for (own, class_skill) in skills.iter_mut().zip(class_skills(of, feats)) {
+                    *own |= class_skill;
+                }
+                skills
+            })
     }
 
     /// Whether `feat` may be picked by `grown` (the sheet the level makes,
@@ -586,7 +603,7 @@ impl Classes {
             chart,
             known,
             power_chart,
-            class_skills: class_skills(of, &feats),
+            class_skills: self.career_skills(career, of, &feats),
             known_powers: powers,
             feat_needs,
             power_needs,
@@ -702,10 +719,11 @@ impl Classes {
             &of.skill_order[..]
         };
         let mut feats = known_feats(sheet, of, offer.class_level, &self.lent_feats);
+        let class_skills = self.career_skills(career, of, &feats);
         for &skill in plan.skills.iter().chain(class_order) {
             let skill = usize::from(skill);
-            let cost = Self::rank_cost(of, &feats, skill);
-            let most = Self::most(of, &feats, skill, offer.level);
+            let cost = Self::rank_cost(class_skills[skill]);
+            let most = Self::most(class_skills[skill], offer.level);
             while points >= cost && sheet.skills[skill] + skills[skill] < most {
                 skills[skill] += 1;
                 points -= cost;
@@ -740,8 +758,8 @@ impl Classes {
     }
 
     /// `choices` with the feats and powers it leaves unpicked, and the
-    /// ability point it leaves unspent, taken from the game's picks (the
-    /// level-up screen offers no feats or powers yet).
+    /// ability point it leaves unspent, taken from the game's picks (for a
+    /// level asked without the screen: the harness, Auto Level Up).
     pub fn complete(&self, sheet: &Sheet, career: &Career, choices: &Choices) -> Choices {
         let Some(auto) = self.auto(sheet, career, choices.class, 0) else {
             return choices.clone();
@@ -941,14 +959,15 @@ impl Classes {
             return Err(Refusal::Powers(offer.powers));
         }
         let mut feats = known_feats(sheet, of, offer.class_level, &self.lent_feats);
+        let class_skills = self.career_skills(career, of, &feats);
         let mut spent = 0u32;
         for (skill, &ranks) in choices.skills.iter().enumerate() {
-            let cost = u32::from(Self::rank_cost(of, &feats, skill));
+            let cost = u32::from(Self::rank_cost(class_skills[skill]));
             spent += u32::from(ranks) * cost;
             // Only ranks added are held to the cap: a skill already past it
             // (a playtest's `skill` goal, standing in for a build) refuses
             // no level.
-            let most = Self::most(of, &feats, skill, offer.level);
+            let most = Self::most(class_skills[skill], offer.level);
             if ranks > 0 && sheet.skills[skill].saturating_add(ranks) > most {
                 let skill = skill as u8;
                 return Err(Refusal::Ranks { skill, most });
@@ -1155,7 +1174,9 @@ fn learn_picks(
 }
 
 /// A chart's row from `first`: after it the last of `rows` needing only it,
-/// then the first needing it and another, each `open`.
+/// then the first needing it and another, each `open`. The third power may
+/// list `first` as either of its two needs: Plague lists Affliction before
+/// Slow, and Master Energy Resistance lists Improved Energy Resistance first.
 fn chain(
     first: u16,
     rows: &[u16],
@@ -1163,13 +1184,15 @@ fn chain(
     open: impl Fn(u16) -> bool,
 ) -> [Option<u16>; 3] {
     let (needs, open) = (&needs, &open);
-    let after = |two: bool| {
-        rows.iter().copied().filter(move |&row| {
-            let [one, other] = needs(row);
-            one == Some(first) && other.is_some() == two && open(row)
-        })
-    };
-    [Some(first), after(false).next_back(), after(true).next()]
+    let open_rows = rows.iter().copied().filter(move |&row| open(row));
+    let second = open_rows
+        .clone()
+        .rfind(|&row| needs(row) == [Some(first), None]);
+    let third = open_rows.clone().find(|&row| {
+        let need = needs(row);
+        need[1].is_some() && need.contains(&Some(first))
+    });
+    [Some(first), second, third]
 }
 
 /// TSL's "Class Skill" feats by the skill (`skills.2da` row) each makes a

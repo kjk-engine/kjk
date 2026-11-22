@@ -291,6 +291,17 @@ impl Engine<'_> {
                 }
                 truth(false)
             }
+            // With no object named, the conversation is with the caller's
+            // last speaker (`GetLastSpeaker`): whoever clicked it or spoke
+            // the line its dialogue script heard; else with whoever set off
+            // the script (a pazaak player, by the match's end script). One
+            // that nobody has spoken to has no one to talk to, and nothing
+            // begins. TSL's restored Handmaiden fight (TSLRCM) gives two of
+            // the sisters `k_def_dialogue01` as their end-of-conversation
+            // script. Its `k_ai_master` dialogue branch calls
+            // `BeginConversation()` as the sisters' conversation ends. When
+            // the first PC stood in for the missing speaker, the sisters'
+            // own conversation began again after every ending, for ever.
             BeginConversation => {
                 let dialog = view.dialog_or_own(text(args, 0), caller);
                 let Some(dialog) = dialog else {
@@ -301,10 +312,18 @@ impl Engine<'_> {
                     .last
                     .get(&(caller.0, last::SPEAKER))
                     .map(|id| ObjectId(*id));
-                let named = Some(object(args, 1))
+                let Some(named) = Some(object(args, 1))
                     .filter(|id| *id != ObjectId::INVALID)
                     .or(speaker)
-                    .unwrap_or_else(|| view.first_pc(&self.state.party));
+                    .or(self.event.asker)
+                else {
+                    self.report.talk.push(Line::Refused {
+                        ms: view.now_ms,
+                        dialog,
+                        why: "no one spoke to its owner",
+                    });
+                    return truth(false);
+                };
                 let (pc, asker) = view.speakers(&self.state.party, named, self.event.asker);
                 self.state.talk.asked.push(Start {
                     owner: caller,

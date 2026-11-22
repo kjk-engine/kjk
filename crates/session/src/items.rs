@@ -16,6 +16,7 @@ use sim::combat::sheet::{DAMAGE_TYPES, Delivery, Weapon};
 use sim::inventory::properties::{ALL_SAVES, OWN_TYPE};
 use sim::inventory::{
     Armour, COLOUR_SLOT, Catalog, Held, ItemFacts, ItemSpell, Limit, Property, Terms, Upgrade,
+    pairs, slots,
 };
 use sim::module::{ModuleData, ObjectKind, Placement};
 
@@ -609,8 +610,14 @@ fn on_hit(tables: &mut Tables, kind: u8, cost: usize, param: u8) -> OnHit {
 /// no mark and stays with him; a lieutenant's pass card is marked). A
 /// placeable's or store's carried item without the field drops when
 /// `carried_drop`.
+///
+/// An off hand item that the equip screen would refuse is carried, not
+/// held: one whose base item cannot be equipped in the off hand, or that
+/// does not pair with the main hand's weapon (`sim::inventory::pairs`). A
+/// Mandalorian on Dantooine's template lists a blaster rifle in each hand.
 pub(crate) fn held(tables: &mut Tables, root: &GffStruct, carried_drop: bool) -> Vec<Held> {
     let mut held = Vec::new();
+    let mut worn: Vec<(u8, ItemFacts)> = Vec::new();
     for item in root.list("Equip_ItemList") {
         let Some(template) = item.resref("EquippedRes") else {
             continue;
@@ -618,13 +625,35 @@ pub(crate) fn held(tables: &mut Tables, root: &GffStruct, carried_drop: bool) ->
         let Some(facts) = facts(tables, &template) else {
             continue;
         };
+        let slot = item.id.trailing_zeros().min(u32::from(u8::MAX)) as u8;
         held.push(Held {
             template,
             stack: facts.stack,
-            slot: Some(item.id.trailing_zeros().min(u32::from(u8::MAX)) as u8),
+            slot: Some(slot),
             droppable: item.int("Dropable").unwrap_or(0) != 0,
             infinite: false,
         });
+        worn.push((slot, facts));
+    }
+    let facts_in = |slot: u8| {
+        worn.iter()
+            .find(|(at, _)| *at == slot)
+            .map(|(_, facts)| facts)
+    };
+    for [right, left] in slots::SETS {
+        let Some(off) = facts_in(left) else {
+            continue;
+        };
+        let fits = off.slots & 1 << slots::rules(left) != 0;
+        let paired = facts_in(right)
+            .and_then(|main| main.weapon)
+            .zip(off.weapon)
+            .is_none_or(|(main, off)| pairs(&main, &off));
+        if !(fits && paired) {
+            for item in held.iter_mut().filter(|item| item.slot == Some(left)) {
+                item.slot = None;
+            }
+        }
     }
     for item in root.list("ItemList") {
         let Some(template) = item.resref("InventoryRes") else {
@@ -662,7 +691,7 @@ pub(crate) fn named(root: &GffStruct) -> Vec<String> {
 
 /// A store's terms from its UTM: `MarkUp`, `MarkDown` (%), `BuySellFlag`
 /// (bit 0 it sells, bit 1 it buys).
-fn terms(utm: &GffStruct) -> Terms {
+pub(crate) fn terms(utm: &GffStruct) -> Terms {
     let flags = utm.int("BuySellFlag").unwrap_or(0);
     Terms {
         markup: utm.int("MarkUp").unwrap_or(100) as i32,

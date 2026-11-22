@@ -107,11 +107,13 @@ pub fn screen(
         let assets = GuiAssets::with(game, install.index.clone(), install.base()?.clone());
         let mut assets = crate::runtime::skinned(assets, discovery)?;
         // The settings as play shows them (`KJK_SETTINGS` names another).
+        let movie_duels = discovery
+            .get(Game::JediAcademy)
+            .map_or(vfs::MovieDuels::Absent, vfs::Install::movie_duels_found);
         let mut vm = ui::vm::ViewModel {
             settings: kjk_game::settings::Settings::load().values_shown(),
-            movie_duels: discovery
-                .get(Game::JediAcademy)
-                .is_some_and(vfs::Install::movie_duels),
+            movie_duels: movie_duels == vfs::MovieDuels::Installed,
+            movie_duels_incomplete: matches!(movie_duels, vfs::MovieDuels::Incomplete { .. }),
             ..ui::vm::ViewModel::default()
         };
         vm.session.error = error;
@@ -341,7 +343,7 @@ fn checkpoint_save(game: Game, path: &str) -> Result<String, String> {
     let key = if game == Game::Kotor2 { "tsl" } else { "k1" };
     let id = saves::checkpoint_id(key, 99);
     let root = crate::save_view::folder().ok_or("no folder for saves here")?;
-    crate::chain::write_checkpoint(&root, &id, &bytes, (&name, &name), saves::now())?;
+    saves::write_checkpoint(&root, &id, &bytes, (&name, &name), saves::now())?;
     Ok(id)
 }
 

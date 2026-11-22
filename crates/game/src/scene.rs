@@ -39,10 +39,13 @@ use crate::material::{
     self, AreaLight, GpuLight, LightList, Lighting, MAX_LIGHTS, OdysseyMaterial,
     OdysseyMaterialPlugin, Surface,
 };
+use crate::quad_list::{QuadList, Quads};
+use crate::transforms::Transforms;
 use crate::viewer::{LoadedScene, Placed, RoomView};
 
 /// How far from 1 a skinned vertex's weights may add up and still count as
-/// whole (`DynamicSkinnedMeshBounds` encloses only such vertices).
+/// whole. A vertex whose weights do not add up is drawn pulled towards the
+/// world's origin, outside any box its model's size can give it.
 const WHOLE_WEIGHT: f32 = 0.01;
 
 /// The frame size of a headless run unless `--size` says otherwise.
@@ -194,42 +197,33 @@ fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
     bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
 }
 
+pub(crate) fn span(points: impl IntoIterator<Item = Vec3>) -> Option<(Vec3, Vec3)> {
+    points.into_iter().fold(None, |span, at| match span {
+        None => Some((at, at)),
+        Some((low, high)) => Some((low.min(at), high.max(at))),
+    })
+}
+
 /// The corners of a placed model's meshes, lowest and highest (game space).
 fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
     let frame = placement(placed);
-    placed
-        .ir
-        .meshes
-        .iter()
-        .flat_map(|mesh| {
-            let node = frame * to_mat4(&placed.ir.nodes[mesh.node].world);
-            mesh.positions
-                .iter()
-                .map(move |p| node.transform_point3(Vec3::from_array(*p)))
-        })
-        .fold(None, |bounds, p| match bounds {
-            None => Some((p, p)),
-            Some((low, high)) => Some((p.min(low), p.max(high))),
-        })
+    span(placed.ir.meshes.iter().flat_map(|mesh| {
+        let node = frame * to_mat4(&placed.ir.nodes[mesh.node].world);
+        mesh.positions
+            .iter()
+            .map(move |p| node.transform_point3(Vec3::from_array(*p)))
+    }))
 }
 
 /// The model's corners in its own frame, before it is placed: the lowest
 /// and the highest of its meshes' vertices at rest.
 pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
-    placed
-        .ir
-        .meshes
-        .iter()
-        .flat_map(|mesh| {
-            let node = to_mat4(&placed.ir.nodes[mesh.node].world);
-            mesh.positions
-                .iter()
-                .map(move |p| node.transform_point3(Vec3::from_array(*p)))
-        })
-        .fold(None, |bounds, p| match bounds {
-            None => Some((p, p)),
-            Some((low, high)) => Some((p.min(low), p.max(high))),
-        })
+    span(placed.ir.meshes.iter().flat_map(|mesh| {
+        let node = to_mat4(&placed.ir.nodes[mesh.node].world);
+        mesh.positions
+            .iter()
+            .map(move |p| node.transform_point3(Vec3::from_array(*p)))
+    }))
 }
 
 /// The triangles of a model's meshes in its own frame, before it is
@@ -332,7 +326,9 @@ impl Plugin for ScenePlugin {
             crate::ray_structures::RayStructuresPlugin,
             crate::effects_quality::EffectsQualityPlugin,
             crate::ambient_occlusion::AmbientOcclusionPlugin,
+            crate::prepasses::PrepassesPlugin,
             crate::linear_frame::LinearFramePlugin,
+            crate::fixed_bounds::FixedBoundsPlugin,
         ))
         .add_systems(Startup, spawn_camera)
         .add_systems(Update, crate::walk::step)
@@ -366,9 +362,11 @@ impl Plugin for ScenePlugin {
             (
                 apply_camera_request,
                 fly,
-                cull_rooms.in_set(RoomsCulled),
+                cull_rooms.in_set(RoomsCulled).before(console::ConsoleQueue),
                 find_player,
-                pick_lights.in_set(LightsPicked),
+                pick_lights
+                    .in_set(LightsPicked)
+                    .before(console::ConsoleQueue),
                 scroll_uvs,
                 cycle_flipbooks,
                 animate,
@@ -453,6 +451,21 @@ pub(crate) fn placement(placed: &Placed) -> Mat4 {
     match &placed.attach {
         Some(attach) => frame * to_mat4(attach),
         None => frame,
+    }
+}
+
+/// Where a mesh of `placed` is kept. A skinned mesh stays in main memory
+/// too: a cut reads it (`severing`), and so do a body's marks
+/// (`body_marks`), a head's too. Every other mesh is kept only where it is
+/// drawn.
+pub(crate) fn mesh_usage(
+    placed: &Placed,
+    part: &asset_odyssey::model::MeshIr,
+) -> RenderAssetUsages {
+    if part.skin.is_some() || placed.attach.is_some() {
+        RenderAssetUsages::default()
+    } else {
+        RenderAssetUsages::RENDER_WORLD
     }
 }
 
@@ -871,6 +884,9 @@ fn upload(texture: &TextureIr) -> Image {
         mag_filter: ImageFilterMode::Linear,
         min_filter: ImageFilterMode::Linear,
         mipmap_filter: ImageFilterMode::Linear,
+        // 16x anisotropic filtering keeps floors and walls sharp when the
+        // camera sees them at a shallow angle.
+        anisotropy_clamp: 16,
         ..default()
     });
     image
@@ -1007,6 +1023,7 @@ pub(crate) struct Stores<'a> {
     pub bindposes: &'a mut Assets<SkinnedMeshInverseBindposes>,
     /// Emitters' particle lists (`model_fx::Spray`).
     pub buffers: &'a mut Assets<ShaderBuffer>,
+    pub sway: &'a mut crate::dangly::SwaySlots,
 }
 
 /// The asset stores as a system takes them.
@@ -1017,6 +1034,7 @@ pub(crate) struct ModelAssets<'w> {
     images: ResMut<'w, Assets<Image>>,
     bindposes: ResMut<'w, Assets<SkinnedMeshInverseBindposes>>,
     buffers: ResMut<'w, Assets<ShaderBuffer>>,
+    sway: ResMut<'w, crate::dangly::SwaySlots>,
 }
 
 impl ModelAssets<'_> {
@@ -1030,6 +1048,7 @@ impl ModelAssets<'_> {
                 materials: &mut self.materials,
                 bindposes: &mut self.bindposes,
                 buffers: &mut self.buffers,
+                sway: &mut self.sway,
             },
         )
     }
@@ -1092,6 +1111,38 @@ pub(crate) struct Spawner<'t> {
     /// scene's models. Their meshes are marked `light_probes::Unowned`, and
     /// take the number of the body they hang on once they are hung.
     pub unowned: bool,
+    rest_box: Option<(Vec3, Vec3)>,
+}
+
+/// The images an area's textures were uploaded as, by texture name. Every
+/// creature, placeable, weapon, change of clothes, visual effect and
+/// blaster bolt spawned in the area takes an image that is still loaded
+/// from here, so the GPU holds one copy of each texture however many of
+/// them use it. Without it, each of them uploaded its own copy of every
+/// texture it uses: eight mining droids held eight copies of the droid's
+/// textures, and a card with 4 GB of memory ran out of it in a fight on
+/// Peragus. It names images by
+/// their ids alone, so an image no mesh uses any more is still let go; the
+/// next character that needs it uploads it again. A new area starts with an
+/// empty one, since another module may ship a texture of the same name.
+#[derive(Default)]
+pub struct SharedImages(std::sync::Mutex<BTreeMap<String, AssetId<Image>>>);
+
+impl SharedImages {
+    /// The image of the texture `name`: the one uploaded before when it is
+    /// still loaded, else `texture` uploaded now.
+    fn image(&self, name: &str, texture: &TextureIr, images: &mut Assets<Image>) -> Handle<Image> {
+        let mut known = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(handle) = known.get(name).and_then(|id| images.get_strong_handle(*id)) {
+            return handle;
+        }
+        let handle = images.add(material_image(texture));
+        known.insert(name.to_string(), handle.id());
+        handle
+    }
 }
 
 impl<'t> Spawner<'t> {
@@ -1105,6 +1156,30 @@ impl<'t> Spawner<'t> {
             .iter()
             .map(|(name, texture)| (name.as_str(), images.add(material_image(texture))))
             .collect();
+        Self::with_images(textures, handles, area, images)
+    }
+
+    /// `new`, taking each texture's image from the area's `shared` images
+    /// when one of that name is still loaded.
+    pub fn sharing(
+        textures: &'t BTreeMap<String, TextureIr>,
+        area: AreaLight,
+        images: &mut Assets<Image>,
+        shared: &SharedImages,
+    ) -> Spawner<'t> {
+        let handles = textures
+            .iter()
+            .map(|(name, texture)| (name.as_str(), shared.image(name, texture, images)))
+            .collect();
+        Self::with_images(textures, handles, area, images)
+    }
+
+    fn with_images(
+        textures: &'t BTreeMap<String, TextureIr>,
+        handles: BTreeMap<&'t str, Handle<Image>>,
+        area: AreaLight,
+        images: &mut Assets<Image>,
+    ) -> Spawner<'t> {
         let frames = textures
             .iter()
             .filter_map(|(name, texture)| Some((name.as_str(), flipbook_images(texture, images)?)))
@@ -1124,6 +1199,7 @@ impl<'t> Spawner<'t> {
             solid: false,
             bakes: false,
             unowned: false,
+            rest_box: None,
         }
     }
 
@@ -1141,6 +1217,10 @@ impl<'t> Spawner<'t> {
         (placed, index, is_room): (&Placed, usize, bool),
         (parent, transform): (Entity, Transform),
     ) -> (Entity, Vec<Entity>) {
+        self.rest_box = (placed.ir.meshes.iter().any(|mesh| mesh.skin.is_some())
+            && !crate::fixed_bounds::root_bone_nodes(&placed.ir).is_empty())
+        .then(|| local_bounds(placed))
+        .flatten();
         self.owner =
             (!is_room && index != usize::MAX).then(|| placed.hook.map_or(index, |(body, _)| body));
         let model_root = commands
@@ -1179,6 +1259,12 @@ impl<'t> Spawner<'t> {
             index,
             nodes: nodes.clone(),
         });
+        if let Some(bones) = self
+            .rest_box
+            .and_then(|rest| crate::fixed_bounds::root_bones(&placed.ir, &nodes, rest))
+        {
+            commands.entity(model_root).insert(bones);
+        }
         if let Some(clip) = &placed.clip
             && let Some(animator) = animator(placed, clip, &nodes)
         {
@@ -1271,14 +1357,7 @@ impl<'t> Spawner<'t> {
     ) -> Option<(Entity, AssetId<Mesh>, Handle<OdysseyMaterial>, bool)> {
         let tally = &mut self.tally;
         let textures = &self.textures;
-        // A skinned mesh stays in main memory too: a cut reads it
-        // (`severing`), and so do a body's marks (`body_marks`), a head's
-        // too; a danglymesh's vertices are rewritten each frame (`dangly`).
-        let usage = if part.skin.is_some() || placed.attach.is_some() || part.dangly.is_some() {
-            RenderAssetUsages::default()
-        } else {
-            RenderAssetUsages::RENDER_WORLD
-        };
+        let usage = mesh_usage(placed, part);
         let texture = part
             .texture
             .as_deref()
@@ -1296,7 +1375,7 @@ impl<'t> Spawner<'t> {
             .as_deref()
             .is_some_and(|name| textures.contains_key(name));
         if !material::mesh_drawn(
-            is_room,
+            (is_room, part.shadow),
             (part.texture.is_some(), texture.is_some()),
             (part.lightmap.is_some(), lightmap_loaded),
         ) {
@@ -1490,25 +1569,34 @@ impl<'t> Spawner<'t> {
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
-        // Whether the mesh's box can follow its bones: every vertex weighted
-        // whole, so each one skinned lies within its joints' boxes.
-        let mut bounded = false;
+        // Every vertex must be weighted whole, so each one skinned stays near its
+        // bones, and its bones' boxes must be made for its box to follow them.
+        let mut culled = false;
         if let Some(skin) = skinned {
             mesh.insert_attribute(
                 Mesh::ATTRIBUTE_JOINT_INDEX,
                 VertexAttributeValues::Uint16x4(skin.vertex_joints.clone()),
             );
             mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, skin.vertex_weights.clone());
-            bounded = skin
+            let whole = skin
                 .vertex_weights
                 .iter()
-                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT)
-                && mesh.generate_skinned_mesh_bounds().is_ok();
+                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT);
+            if whole {
+                culled = mesh.generate_skinned_mesh_bounds().is_ok();
+            }
         }
-        if part.dangly.is_some() {
-            mesh = crate::dangly::with_previous(mesh);
-        }
+        // A skinned danglymesh is left at rest, since the dangly shaders do not
+        // skin. The model reader never makes one (`fmt_odyssey::mdl::NODE_TYPES`).
+        let mut slotted = part
+            .dangly
+            .as_ref()
+            .filter(|_| skinned.is_none())
+            .and_then(|_| crate::dangly::slot(&mut mesh, stores.sway));
         let mesh = stores.meshes.add(mesh);
+        if let Some(slotted) = &mut slotted {
+            stores.sway.hold(mesh.id(), slotted);
+        }
         let spawned = (mesh.id(), material.clone());
         let child = commands
             .spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::IDENTITY))
@@ -1536,9 +1624,18 @@ impl<'t> Spawner<'t> {
             commands.entity(child).insert(crate::light_probes::Unowned);
         }
         if let Some(dangly) = &part.dangly {
-            commands
-                .entity(child)
-                .insert(crate::dangly::Dangly::new(dangly));
+            if let Some(slotted) = slotted {
+                commands
+                    .entity(child)
+                    .insert(crate::dangly::Dangly::new(dangly, slotted));
+            }
+            if skinned.is_none()
+                && let Some(bounds) = crate::fixed_bounds::dangly(part)
+            {
+                commands
+                    .entity(child)
+                    .insert((bounds, bevy::camera::visibility::NoAutoAabb));
+            }
             tally.dangly += 1;
         }
         if let Some(skin) = skinned {
@@ -1549,18 +1646,26 @@ impl<'t> Spawner<'t> {
                     .add(SkinnedMeshInverseBindposes::from(binds)),
                 joints: skin.joints.iter().map(|&node| nodes[node]).collect(),
             });
-            // The bones can carry the mesh far from its rest bounds (a
-            // character walking off): its box follows them each frame, so it
-            // is culled where it truly stands (off screen, out of a lamp's
-            // cone). One whose weights do not add up is never culled.
-            if bounded {
-                commands
-                    .entity(child)
-                    .insert(bevy::camera::visibility::DynamicSkinnedMeshBounds);
-            } else {
-                commands
-                    .entity(child)
-                    .insert(bevy::camera::visibility::NoFrustumCulling);
+            let node_world = to_mat4(&placed.ir.nodes[part.node].world);
+            match self.rest_box.filter(|_| culled) {
+                Some(rest) => {
+                    let fixed_box = crate::fixed_bounds::skinned(rest, node_world);
+                    commands.entity(child).insert((
+                        fixed_box,
+                        crate::fixed_bounds::FixedBox(fixed_box),
+                        bevy::camera::visibility::NoAutoAabb,
+                    ));
+                }
+                None if culled => {
+                    commands
+                        .entity(child)
+                        .insert(bevy::camera::visibility::DynamicSkinnedMeshBounds);
+                }
+                None => {
+                    commands
+                        .entity(child)
+                        .insert(bevy::camera::visibility::NoFrustumCulling);
+                }
             }
             tally.skinned_meshes += 1;
             let unweighted = skin
@@ -1670,54 +1775,48 @@ impl<'t> Spawner<'t> {
             .as_deref()
             .and_then(|name| crate::weapons::own_colour(name, self.irs.get(name)?));
         // The trail keeps its texture: its colour is its vertices'.
-        let material =
-            |name: &str, recolour: bool, glow: f32, materials: &mut Assets<OdysseyMaterial>| {
-                let made = OdysseyMaterial::new(
-                    Vec4::ONE,
-                    self.textures.get(name).cloned(),
-                    None,
-                    None,
-                    Surface::AddOne,
-                    &Lighting {
-                        self_illum: [0.0; 3],
-                        ambient: [1.0; 3],
-                        diffuse: [1.0; 3],
-                        alpha: 1.0,
-                        is_static: false,
-                        is_room: true,
-                        fogged: false,
-                    },
-                    &self.area,
-                )
-                .glowing(glow);
-                materials.add(match own.filter(|_| recolour) {
-                    Some(colour) => made.recoloured(colour),
-                    None => made,
-                })
-            };
-        let glow_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
-        let core_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
-        // Built with its colour attribute from the start: a mesh must keep
-        // one vertex layout.
-        let trail_mesh = stores
-            .meshes
-            .add(coloured_quads(Vec::new(), Vec::new(), Vec::new()));
+        let material = |name: &str, recolour: bool, glow: f32| {
+            let made = OdysseyMaterial::new(
+                Vec4::ONE,
+                self.textures.get(name).cloned(),
+                None,
+                None,
+                Surface::AddOne,
+                &Lighting {
+                    self_illum: [0.0; 3],
+                    ambient: [1.0; 3],
+                    diffuse: [1.0; 3],
+                    alpha: 1.0,
+                    is_static: false,
+                    is_room: true,
+                    fogged: false,
+                },
+                &self.area,
+            )
+            .glowing(glow);
+            match own.filter(|_| recolour) {
+                Some(colour) => made.recoloured(colour),
+                None => made,
+            }
+        };
+        let mut list = |made: OdysseyMaterial, coloured: bool| {
+            let assets = (
+                &mut *stores.meshes,
+                &mut *stores.buffers,
+                &mut *stores.materials,
+            );
+            QuadList::new(made, coloured, assets)
+        };
+        let glow = list(material(&spec.glow, true, 1.0), false);
+        let core = list(material(&spec.core, true, BLADE_CORE_GLOW), false);
+        let trail_quads = list(material(&spec.trail_texture, false, 1.0), true);
         if shipped.is_empty() {
-            parts.push((
-                glow_mesh.clone(),
-                material(&spec.glow, true, 1.0, stores.materials),
-            ));
-            parts.push((
-                core_mesh.clone(),
-                material(&spec.core, true, BLADE_CORE_GLOW, stores.materials),
-            ));
+            parts.push(glow.drawn());
+            parts.push(core.drawn());
         }
         let (origin, dir) = (Vec3::from_array(spec.origin), Vec3::from_array(spec.dir));
         if !spec.trail.is_empty() || spec.live {
-            parts.push((
-                trail_mesh.clone(),
-                material(&spec.trail_texture, false, 1.0, stores.materials),
-            ));
+            parts.push(trail_quads.drawn());
         }
         commands
             .spawn((
@@ -1732,8 +1831,8 @@ impl<'t> Spawner<'t> {
                     dir,
                     length: spec.length,
                     radius: spec.radius,
-                    glow: glow_mesh,
-                    core: core_mesh,
+                    glow,
+                    core,
                     extend: spec
                         .extend
                         .iter()
@@ -1741,7 +1840,7 @@ impl<'t> Spawner<'t> {
                         .collect(),
                     period: spec.period,
                     trail: spec.trail.clone(),
-                    trail_mesh,
+                    trail_quads,
                     trail_color: own.unwrap_or(spec.trail_color),
                     shown: spec.shown.clone(),
                     glow_empty: true,
@@ -1826,7 +1925,12 @@ pub(crate) fn spawn_scene(
     };
     queries.reset(&culling.bounds);
     let (images, mut stores) = assets.split();
-    let mut spawner = Spawner::new(&loaded.textures, loaded.area_light(), images);
+    let mut spawner = Spawner::sharing(
+        &loaded.textures,
+        loaded.area_light(),
+        images,
+        &loaded.images,
+    );
     // Lights in Bevy world space: model offset and bearing, then the
     // light node's rest-pose position.
     let mut lights = Vec::new();
@@ -2213,8 +2317,7 @@ pub(crate) fn spawn_scene(
         &mut commands,
         &loaded.effects,
         (&spawner.textures, &loaded.textures),
-        stores.meshes,
-        stores.materials,
+        (stores.meshes, stores.buffers, stores.materials),
         &mut refractions,
         loaded.ambient,
     );
@@ -2419,7 +2522,7 @@ fn cull_rooms(
     mut rooms: Query<(&RoomOf, &mut Visibility)>,
     mut culling: ResMut<Culling>,
     mut occlusion: crate::room_queries::Occlusion,
-    (mut facts, dump_due): (ResMut<DumpFacts>, Res<console::DumpDue>),
+    mut facts: ResMut<DumpFacts>,
     (casters, mut doors, mut exempt): (
         Option<Res<crate::shadows::Casters>>,
         Local<Option<Vec<u8>>>,
@@ -2476,7 +2579,7 @@ fn cull_rooms(
         }
         culling.shown = shown;
     }
-    if !shown_changed && !picked_changed && !dump_due.0 {
+    if !picked_changed && !facts.wanted() {
         return;
     }
     // `visible` lists the rooms the VIS and the fog pick, which do not
@@ -2484,10 +2587,6 @@ fn cull_rooms(
     // queries hide this frame.
     let visible: Vec<&str> = (0..all.len())
         .filter(|&index| culling.picked[index])
-        .map(|index| all[index].name.as_str())
-        .collect();
-    let occluded: Vec<&str> = (0..all.len())
-        .filter(|&index| culling.picked[index] && !culling.shown[index])
         .map(|index| all[index].name.as_str())
         .collect();
     // Off every floor the camera can be in two rooms at once: both are
@@ -2508,6 +2607,13 @@ fn cull_rooms(
             all.len()
         );
     }
+    if !facts.wanted() {
+        return;
+    }
+    let occluded: Vec<&str> = (0..all.len())
+        .filter(|&index| culling.picked[index] && !culling.shown[index])
+        .map(|index| all[index].name.as_str())
+        .collect();
     facts.0.insert(
         "culling".into(),
         serde_json::json!({
@@ -2541,8 +2647,20 @@ fn pick_lights(
     lights: Option<ResMut<SceneLights>>,
     (carried, bodies, shots, blades, powers): MovingLights,
     (mut buffers, mut area): (ResMut<Assets<ShaderBuffer>>, ResMut<material::AreaLights>),
-    mut facts: ResMut<DumpFacts>,
+    (mut facts, mut picked, mut names): (
+        ResMut<DumpFacts>,
+        Local<Option<Picked>>,
+        Local<RoomNames>,
+    ),
 ) {
+    if let Some(scene) = scene.as_ref().filter(|scene| scene.is_changed()) {
+        *names = scene.0.rooms.iter().map(|room| room.name.clone()).collect();
+    }
+    if facts.wanted()
+        && let Some(picked) = picked.take()
+    {
+        facts.0.insert("lighting".into(), picked.fact());
+    }
     let Some(mut lights) = lights else { return };
     let Ok(camera) = cameras.single() else { return };
     let powers_changed = powers.as_ref().is_some_and(|powers| powers.is_changed());
@@ -2627,30 +2745,78 @@ fn pick_lights(
     (area.0.flash_at, area.0.flash_colour) = flash;
     area.0.enhanced = enhanced;
     area.upload(&mut buffers);
-    facts.0.insert(
-        "lighting".into(),
-        serde_json::json!({
-            "candidates": near.len(),
-            "active": active.len(),
-            "carried": carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
-            "combat": active.iter().filter(|index| combat(**index)).count(),
-            // Each fight's light gives where it is (game space), its
-            // strength, whether it was picked, the room it is in, and how
-            // many rooms it is kept from.
-            "combat_lights": fight_rooms.iter().map(|&(index, here)| {
-                let light = all[index];
-                let at = to_game * light.position_radius.truncate();
-                let [x, y, z, m] = [at.x, at.y, at.z, light.color_multiplier.w]
-                    .map(|x| (x * 100.0).round() / 100.0);
-                let unseen: u32 = here.map_or(0, |here| {
-                    culling.fight.unseen(here).to_array().map(u32::count_ones).iter().sum()
-                });
-                let room = here.map(|here| rooms[here].name.as_str());
-                serde_json::json!([x, y, z, m, active.contains(&index), room, unseen])
-            }).collect::<Vec<_>>(),
-        }),
-    );
+    let round = |x: f32| (x * 100.0).round() / 100.0;
+    let fights = fight_rooms.iter().map(|&(index, room)| {
+        let light = all[index];
+        let at = to_game * light.position_radius.truncate();
+        let unseen: u32 = room.map_or(0, |here| {
+            culling
+                .fight
+                .unseen(here)
+                .to_array()
+                .map(u32::count_ones)
+                .iter()
+                .sum()
+        });
+        FightLight {
+            at: at.to_array().map(round),
+            strength: round(light.color_multiplier.w),
+            picked: active.contains(&index),
+            room,
+            unseen,
+        }
+    });
+    let pick = Picked {
+        candidates: near.len(),
+        active: active.len(),
+        carried: carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
+        combat: active.iter().filter(|index| combat(**index)).count(),
+        fights: fights.collect(),
+        rooms: names.clone(),
+    };
+    if facts.wanted() {
+        facts.0.insert("lighting".into(), pick.fact());
+        *picked = None;
+    } else {
+        *picked = Some(pick);
+    }
     lights.active = Some(active);
+}
+
+struct Picked {
+    candidates: usize,
+    active: usize,
+    carried: usize,
+    combat: usize,
+    fights: Vec<FightLight>,
+    rooms: RoomNames,
+}
+
+type RoomNames = std::sync::Arc<[String]>;
+
+struct FightLight {
+    at: [f32; 3],
+    strength: f32,
+    picked: bool,
+    room: Option<usize>,
+    unseen: u32,
+}
+
+impl Picked {
+    fn fact(&self) -> serde_json::Value {
+        let fights = self.fights.iter().map(|light| {
+            let [x, y, z] = light.at;
+            let room = light.room.and_then(|room| self.rooms.get(room));
+            serde_json::json!([x, y, z, light.strength, light.picked, room, light.unseen])
+        });
+        serde_json::json!({
+            "candidates": self.candidates,
+            "active": self.active,
+            "carried": self.carried,
+            "combat": self.combat,
+            "combat_lights": fights.collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// The time animations read: the clock, or what `anim <seconds>` holds.
@@ -2870,13 +3036,14 @@ impl Animator {
     }
 
     /// Poses the bound nodes as the clip has them `at` seconds in.
-    pub(crate) fn pose(&self, at: f32, transforms: &mut Query<&mut Transform>) {
+    pub(crate) fn pose(&self, at: f32, transforms: &mut impl Transforms) {
         for &(entity, rest_t, rest_r, track) in &self.bindings {
             let (translation, rotation) = self.local(at, (rest_t, rest_r, track));
-            if let Ok(mut transform) = transforms.get_mut(entity) {
-                transform.translation = translation;
-                transform.rotation = rotation;
-            }
+            transforms.set(entity, |now| Transform {
+                translation,
+                rotation,
+                ..*now
+            });
         }
     }
 
@@ -2889,7 +3056,7 @@ impl Animator {
         at: f32,
         (from, from_at): (&Animator, f32),
         toward: f32,
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut impl Transforms,
     ) {
         let mut mixed: std::collections::BTreeMap<Entity, [(Vec3, Quat); 2]> =
             std::collections::BTreeMap::new();
@@ -2900,7 +3067,7 @@ impl Animator {
             }
         }
         for (entity, [(ta, ra), (tb, rb)]) in mixed {
-            if let Ok(mut transform) = transforms.get_mut(entity) {
+            if let Some(transform) = transforms.write(entity) {
                 transform.translation = ta.lerp(tb, toward);
                 transform.rotation = ra.slerp(rb, toward);
             }
@@ -2909,10 +3076,16 @@ impl Animator {
 
     /// Mixes the clip `at` seconds in over the bound nodes' pose as it
     /// stands, `weight` (0 to 1) of the way: places lerped, turns slerped.
-    pub(crate) fn pose_over(&self, at: f32, weight: f32, transforms: &mut Query<&mut Transform>) {
+    pub(crate) fn pose_over(&self, at: f32, weight: f32, transforms: &mut impl Transforms) {
+        if weight <= 0.0 {
+            return;
+        }
+        if weight >= 1.0 {
+            return self.pose(at, transforms);
+        }
         for &(entity, rest_t, rest_r, track) in &self.bindings {
             let (translation, rotation) = self.local(at, (rest_t, rest_r, track));
-            if let Ok(mut transform) = transforms.get_mut(entity) {
+            if let Some(transform) = transforms.write(entity) {
                 transform.translation = transform.translation.lerp(translation, weight);
                 transform.rotation = transform.rotation.slerp(rotation, weight);
             }
@@ -2929,7 +3102,7 @@ impl Animator {
         at: f32,
         weight: f32,
         turned: &[Entity],
-        transforms: &mut Query<&mut Transform>,
+        transforms: &mut impl Transforms,
     ) {
         for &(entity, rest_t, rest_r, track) in &self.bindings {
             if !turned.contains(&entity) {
@@ -2937,7 +3110,7 @@ impl Animator {
             }
             let (_, from) = self.local(0.0, (rest_t, rest_r, track));
             let (_, to) = self.local(at, (rest_t, rest_r, track));
-            if let Ok(mut transform) = transforms.get_mut(entity) {
+            if let Some(transform) = transforms.write(entity) {
                 let by = Quat::IDENTITY.slerp(from.inverse() * to, weight);
                 transform.rotation = (transform.rotation * by).normalize();
             }
@@ -2945,12 +3118,13 @@ impl Animator {
     }
 
     /// Puts the bound nodes back in their rest pose.
-    pub(crate) fn rest(&self, transforms: &mut Query<&mut Transform>) {
+    pub(crate) fn rest(&self, transforms: &mut impl Transforms) {
         for &(entity, rest_t, rest_r, _) in &self.bindings {
-            if let Ok(mut transform) = transforms.get_mut(entity) {
-                transform.translation = rest_t;
-                transform.rotation = rest_r;
-            }
+            transforms.set(entity, |now| Transform {
+                translation: rest_t,
+                rotation: rest_r,
+                ..*now
+            });
         }
     }
 }
@@ -3032,14 +3206,14 @@ struct Blade {
     dir: Vec3,
     length: f32,
     radius: f32,
-    glow: Handle<Mesh>,
-    core: Handle<Mesh>,
+    glow: QuadList,
+    core: QuadList,
     /// (seconds, [Quake units, 0, 0]) keys, as `sample_position` reads
     /// them; empty for always `length`.
     extend: Vec<(f32, [f32; 3])>,
     period: f32,
     trail: Vec<crate::viewer::TrailKey>,
-    trail_mesh: Handle<Mesh>,
+    trail_quads: QuadList,
     trail_color: [f32; 3],
     /// Seconds of the period the blade is drawn in; empty for always.
     shown: Vec<(f32, f32)>,
@@ -3171,7 +3345,7 @@ fn follow_paths(
 /// lightmap's UVs when `lightmapped`; every triangle, or only `piece`'s
 /// (corner indices into `part.positions`), its vertices numbered anew so
 /// the mesh's bounds are the piece's.
-fn odyssey_mesh(
+pub(crate) fn odyssey_mesh(
     part: &asset_odyssey::model::MeshIr,
     usage: RenderAssetUsages,
     lightmapped: bool,
@@ -3254,7 +3428,7 @@ fn see_through_pieces(positions: &[[f32; 3]], indices: &[u32]) -> Vec<Vec<u32>> 
 
 /// A mesh of quads. An empty one is given a single degenerate quad: Bevy's
 /// mesh allocator logs use-after-free errors for meshes that go empty.
-fn blade_mesh(mut positions: Vec<[f32; 3]>, mut uvs: Vec<[f32; 2]>) -> Mesh {
+pub(crate) fn blade_mesh(mut positions: Vec<[f32; 3]>, mut uvs: Vec<[f32; 2]>) -> Mesh {
     if positions.is_empty() {
         positions = vec![[0.0; 3]; 4];
         uvs = vec![[0.0; 2]; 4];
@@ -3280,7 +3454,7 @@ fn blade_mesh(mut positions: Vec<[f32; 3]>, mut uvs: Vec<[f32; 2]>) -> Mesh {
 /// newer key's edge back to the older one's, showing for the newer key's
 /// life and fading out over it, its texture sliding along as it ages.
 /// Coloured `color`; none when no segment shows.
-fn trail_mesh(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Option<Mesh> {
+fn trail_quads(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Option<Quads> {
     let game = game_to_bevy();
     let mut positions = Vec::new();
     let mut uvs = Vec::new();
@@ -3310,7 +3484,11 @@ fn trail_mesh(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Opt
             colours.push(colour);
         }
     }
-    (!positions.is_empty()).then(|| coloured_quads(positions, uvs, colours))
+    (!positions.is_empty()).then_some(Quads {
+        positions,
+        uvs,
+        colours: Some(colours),
+    })
 }
 
 /// `blade_mesh` with vertex colours; never empty: an invisible quad keeps
@@ -3381,8 +3559,8 @@ fn draw_blades(
     mut drawn: ResMut<DrawnBlades>,
     transforms: Query<&GlobalTransform>,
     cameras: Query<&GlobalTransform, With<FlyCamera>>,
-    (mut meshes, mut lights): (ResMut<Assets<Mesh>>, ResMut<BladeLights>),
-    mut facts: ResMut<DumpFacts>,
+    mut stores: crate::model_fx::SprayStores,
+    (mut lights, mut facts): (ResMut<BladeLights>, ResMut<DumpFacts>),
 ) {
     let Ok(camera) = cameras.single() else {
         return;
@@ -3402,6 +3580,7 @@ fn draw_blades(
             .map(|x| (x * 1000.0).round() / 1000.0)
     };
     let mut ends = Vec::new();
+    let dump = facts.wanted();
 
     for (place, mut blade) in blades.iter_mut().enumerate() {
         let salt = place as u32 * 16;
@@ -3428,7 +3607,7 @@ fn draw_blades(
                     tip: (to_game * (origin + dir * (current + 3.0) * unit)).to_array(),
                     life_ms: if current >= 0.5 { wanted.trail_ms } else { 0.0 },
                 });
-                let trail = trail_mesh(live.recent.make_contiguous(), seconds, blade.trail_color);
+                let trail = trail_quads(live.recent.make_contiguous(), seconds, blade.trail_color);
                 (current, Some(trail))
             }
             None => {
@@ -3441,26 +3620,27 @@ fn draw_blades(
                         .map_or(blade.length, |extent| extent[0])
                 };
                 let trail = (!blade.trail.is_empty())
-                    .then(|| trail_mesh(&blade.trail, at, blade.trail_color));
+                    .then(|| trail_quads(&blade.trail, at, blade.trail_color));
                 (length, trail)
             }
         };
         if let Some(trail) = trail {
             let empty = trail.is_none();
-            if !(empty && blade.trail_empty)
-                && let Some(mut asset) = meshes.get_mut(&blade.trail_mesh)
-            {
-                *asset =
-                    trail.unwrap_or_else(|| coloured_quads(Vec::new(), Vec::new(), Vec::new()));
+            if !(empty && blade.trail_empty) {
+                let trail = trail.unwrap_or_else(Quads::default);
+                blade.trail_quads.write(&trail, stores.assets());
             }
             blade.trail_empty = empty;
         }
 
         if current < 0.5 {
             if !blade.glow_empty {
-                let shipped = blade.shipped.iter().map(|part| &part.mesh);
-                for handle in [&blade.glow, &blade.core].into_iter().chain(shipped) {
-                    if let Some(mut asset) = meshes.get_mut(handle) {
+                for list in [&mut blade.glow, &mut blade.core] {
+                    list.write(&Quads::default(), stores.assets());
+                }
+                let (meshes, ..) = stores.assets();
+                for part in &blade.shipped {
+                    if let Some(mut asset) = meshes.get_mut(&part.mesh) {
                         *asset = blade_mesh(Vec::new(), Vec::new());
                     }
                 }
@@ -3472,7 +3652,9 @@ fn draw_blades(
         let length = current * unit;
         let start = origin + dir * length;
         lit.extend(blade_lights(origin, dir * length, blade.trail_color));
-        ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
+        if dump {
+            ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
+        }
         if blade.live.is_some()
             && let Some(slot) = drawn.0.get_mut(blade.spec)
         {
@@ -3485,6 +3667,7 @@ fn draw_blades(
             } else {
                 1.0
             };
+            let (meshes, ..) = stores.assets();
             for part in &blade.shipped {
                 if let Some(mut asset) = meshes.get_mut(&part.mesh) {
                     *asset = part.mesh(hilt, (blade.origin, blade.dir), stretch);
@@ -3527,9 +3710,12 @@ fn draw_blades(
             origin,
             (5.5 + (flicker(seconds, salt + 1) * 0.5 + 0.5) * 0.25) * unit,
         );
-        if let Some(mut asset) = meshes.get_mut(&blade.glow) {
-            *asset = blade_mesh(positions, uvs);
-        }
+        let glow = Quads {
+            positions,
+            uvs,
+            colours: None,
+        };
+        blade.glow.write(&glow, stores.assets());
 
         let end = origin - dir * unit;
 
@@ -3543,13 +3729,18 @@ fn draw_blades(
             (end + side * w).to_array(),
         ];
         let core_uvs = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
-        if let Some(mut asset) = meshes.get_mut(&blade.core) {
-            *asset = blade_mesh(core, core_uvs);
-        }
+        let core = Quads {
+            positions: core,
+            uvs: core_uvs,
+            colours: None,
+        };
+        blade.core.write(&core, stores.assets());
     }
-    facts
-        .0
-        .insert("blade_ends".into(), serde_json::Value::Array(ends));
+    if dump {
+        facts
+            .0
+            .insert("blade_ends".into(), serde_json::Value::Array(ends));
+    }
     lights.set_if_neq(BladeLights(lit));
 }
 

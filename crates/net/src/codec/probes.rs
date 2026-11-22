@@ -268,7 +268,7 @@ fn exactness_in(run: &Recorded, back: usize, shots: std::ops::Range<usize>) -> E
                     let snapshot = Snapshot::join(&parts).map_err(CodecError::Snapshot)?;
                     Ok(Rebuilt {
                         tick: snapshot.tick,
-                        parts,
+                        parts: Arc::new(parts),
                         snapshot: Arc::new(snapshot),
                     })
                 })
@@ -277,7 +277,7 @@ fn exactness_in(run: &Recorded, back: usize, shots: std::ops::Range<usize>) -> E
             let problem = result.as_ref().map_or_else(
                 |error| error.to_string(),
                 |rebuilt| {
-                    if rebuilt.parts != *shot.stepped.parts() {
+                    if *rebuilt.parts != *shot.stepped.parts() {
                         "different parts".to_string()
                     } else if rebuilt.snapshot.hash() != shot.hash {
                         "different hash".to_string()
@@ -363,7 +363,7 @@ pub fn session(run: &Recorded, loss_percent: u32, delay: usize, seed: u64) -> Se
         }
         for (_, frame, sent_at) in frames.iter().filter(|(due, _, _)| *due <= index) {
             match client.receive(frame) {
-                Ok(rebuilt) if rebuilt.parts == *run.shots[*sent_at].stepped.parts() => {
+                Ok(rebuilt) if *rebuilt.parts == *run.shots[*sent_at].stepped.parts() => {
                     found.rebuilt += 1;
                 }
                 Ok(rebuilt) => found

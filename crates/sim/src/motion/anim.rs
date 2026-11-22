@@ -814,6 +814,23 @@ anims!(
     BOTH_SONICPAIN_START,
     BOTH_SONICPAIN_HOLD,
     BOTH_SONICPAIN_END,
+    // The grab with bare hands (`world::grapples`): the reach, the miss,
+    // the grabber's three finishers, the victim's three, and the victim
+    // thrown (JA's own pairs, `wp_saber.cpp:3151-3166`). The first finisher
+    // ends with the victim knocked into `BOTH_KNOCKDOWN2`.
+    BOTH_KNOCKDOWN2,
+    BOTH_KYLE_GRAB,
+    BOTH_KYLE_MISS,
+    BOTH_KYLE_PA_1,
+    BOTH_KYLE_PA_2,
+    BOTH_KYLE_PA_3,
+    BOTH_PLAYER_PA_1,
+    BOTH_PLAYER_PA_2,
+    BOTH_PLAYER_PA_3,
+    BOTH_PLAYER_PA_FLY,
+    BOTH_PLAYER_PA_3_FLY,
+    // Lightning cast with both hands, by a character with no weapon.
+    BOTH_FORCE_2HANDEDLIGHTNING_HOLD,
 );
 
 impl Anim {
@@ -1280,7 +1297,12 @@ impl Families {
             running: starts("BOTH_RUN"),
             landing: starts("BOTH_LAND"),
             slope: starts("LEGS_"),
-            knockdown: AnimSet::of(|a| a == BOTH_KNOCKDOWN1 || a.name().contains("GETUP")),
+            // JA counts the first finisher's fall and the third's flight as
+            // knockdowns too (bg_pmove.cpp:6019-6033).
+            knockdown: AnimSet::of(|a| {
+                matches!(a, BOTH_KNOCKDOWN1 | BOTH_KNOCKDOWN2 | BOTH_PLAYER_PA_3_FLY)
+                    || a.name().contains("GETUP")
+            }),
             kicking: starts("BOTH_A7_KICK_").union(AnimSet::named(&[
                 "BOTH_A7_HILT",
                 "BOTH_GETUP_BROLL_F",
@@ -1461,6 +1483,24 @@ pub(crate) fn is_knockdown(anim: Anim) -> bool {
 
 pub(crate) fn is_kick(anim: Anim) -> bool {
     FAMILIES.kicking.has(anim)
+}
+
+/// How fast `anim` plays against its JA speed: the split kick slower
+/// (`rules::duel::kicks::SPLIT_SPEED_PCT`, the owner's call), everything
+/// else as authored. The sim holds a slowed clip that much longer, and the
+/// view plays it at this speed.
+pub fn clip_speed(anim: Anim) -> f32 {
+    match anim {
+        Anim::BOTH_A7_KICK_RL => f32::from(rules::duel::kicks::SPLIT_SPEED_PCT) / 100.0,
+        _ => 1.0,
+    }
+}
+
+/// A grab's animation (`world::grapples`): the reach, the miss, a
+/// finisher on either side, or the victim's flight (JA's grapple moves,
+/// bg_panimate.c:695).
+pub fn is_grapple(anim: Anim) -> bool {
+    anim.between(BOTH_KYLE_GRAB, BOTH_PLAYER_PA_3_FLY)
 }
 
 pub(crate) fn is_kata(anim: Anim) -> bool {

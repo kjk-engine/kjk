@@ -102,7 +102,12 @@ pub struct DuelViewPlugin;
 impl Plugin for DuelViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Warned>()
-            .add_systems(Update, facts.run_if(resource_exists::<PresentedSnapshot>))
+            .add_systems(
+                Update,
+                facts
+                    .run_if(resource_exists::<PresentedSnapshot>)
+                    .before(console::ConsoleQueue),
+            )
             .add_systems(
                 PostUpdate,
                 // With the frame's camera, as the floating words are placed
@@ -142,6 +147,9 @@ fn fact(id: u32, fighter: &Fighter) -> serde_json::Value {
 /// The duel meters of every fighter standing, for `dump`: the rules, and
 /// each one's Stamina and guard.
 fn facts(presented: Res<PresentedSnapshot>, mut facts: ResMut<console::DumpFacts>) {
+    if !facts.wanted() {
+        return;
+    }
     let snapshot = presented.0.current();
     let fighters: Vec<_> = snapshot
         .entities
@@ -442,6 +450,7 @@ fn warning(
                     push: Vec4::new(PUSH_M, 0.0, 0.0, 0.0),
                 },
                 texture: None,
+                sway: crate::dangly::SWAY,
             })
         })
         .clone();

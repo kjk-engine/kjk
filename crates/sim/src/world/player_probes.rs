@@ -28,7 +28,8 @@ const APPEARANCE: u16 = 95;
 const PORTRAIT: u16 = 2;
 
 /// One class: a d8, 4 skill points, the first four skills its own, a feat
-/// granted and one picked at level 1.
+/// granted and one picked at level 1, and a feat TSL's creation grants a
+/// player that the class could also pick.
 fn classes() -> Classes {
     let class = Class {
         hit_die: 8,
@@ -40,7 +41,7 @@ fn classes() -> Classes {
         power_picks: vec![0; 20],
         granted: vec![(1, GRANTED)],
         pc_granted: vec![PC_GRANTED],
-        feats: vec![RECOMMENDED, PICKED, NEEDS_PICKED],
+        feats: vec![RECOMMENDED, PICKED, NEEDS_PICKED, PC_GRANTED],
         class_skills: std::array::from_fn(|skill| skill < 4),
         skill_order: (0..SKILLS as u8).collect(),
         ..Class::default()
@@ -242,9 +243,22 @@ pub fn creation() -> Checks {
             format!("{first:?}"),
         ),
     ));
+    let unmade = creation::unmade_of(&classes, 0, [10, 14, 14, 12, 10, 10], 2);
+    let picks = classes.picks(&unmade, &Vec::new(), 0);
+    let wasted = refused(|c| c.choices.feats = vec![PC_GRANTED]);
+    checks.push((
+        "the creation screen shows TSL's player feats known and never offers them as a pick",
+        check(
+            picks.as_ref().is_some_and(|picks| {
+                picks.known.contains(&PC_GRANTED) && !picks.feats.contains(&PC_GRANTED)
+            }) && wasted == Some(Refused::Level),
+            format!("{picks:?}, picking it {wasted:?}"),
+        ),
+    ));
     checks.push(planned(&classes));
     checks.push(banked(&classes));
     checks.push(class_skill_feat(&classes));
+    checks.push(first_class_skills(&classes));
 
     let mut world = world(Vec::new(), "", Catalog::default());
     let made_world = world.create(&made(vec![PICKED]));
@@ -402,6 +416,44 @@ fn class_skill_feat(classes: &Classes) -> (&'static str, Result<String, String>)
         check(
             with == Some((2, 0)) && without.is_none() && shown == (Some(true), Some(false)),
             format!("with the feat {with:?}, without {without:?}; picks show {shown:?}"),
+        ),
+    )
+}
+
+/// A character made in class 0 (the first four skills its class skills)
+/// who takes up class 1 (only the last four) keeps the first class's
+/// skills as class skills at its first level of class 1. A rank of skill 0
+/// (4 ranks already, so 5, past the cross-class most of 2) and a rank of
+/// skill 2 cost a point each: the level's 2 points buy both. The level's
+/// picks (the level-up screen's) show skills of both classes.
+fn first_class_skills(classes: &Classes) -> (&'static str, Result<String, String>) {
+    let mut classes = classes.clone();
+    classes.classes[1].class_skills = std::array::from_fn(|skill| skill >= 4);
+    let made = creation::sheet(&classes, &made(vec![PICKED]), 2);
+    let Ok((sheet, mut career, _)) = made else {
+        return ("the first class's skills kept", Err(format!("{made:?}")));
+    };
+    career.push((1, 0));
+    let mut choices = Choices {
+        class: 1,
+        ability: None,
+        skills: [0; SKILLS],
+        feats: Vec::new(),
+        powers: Vec::new(),
+    };
+    choices.skills[0] = 1;
+    choices.skills[2] = 1;
+    let taken = classes
+        .taken(&sheet, &career, &choices, 0)
+        .map(|(after, career, left)| (after.skills, career, left));
+    let shown = classes.picks(&sheet, &career, 1).map(|p| p.class_skills);
+    (
+        "a second class keeps the first class's skills as class skills",
+        check(
+            taken.as_ref().is_ok_and(|(skills, career, left)| {
+                skills[0] == 5 && skills[2] == 1 && *career == vec![(0, 1), (1, 1)] && *left == 0
+            }) && shown == Some([true; SKILLS]),
+            format!("taken {taken:?}, picks show {shown:?}"),
         ),
     )
 }

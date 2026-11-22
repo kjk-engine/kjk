@@ -152,8 +152,13 @@ pub enum Action {
     /// Recover it: disarm it and keep its kit (10 harder).
     Recover(ObjectIndex),
     /// Set a mine the party carries on a locked door or placeable within
-    /// reach, to blast its lock (TSL's; `world::traps`).
-    Mine(ObjectIndex),
+    /// reach, to blast its lock (TSL's; `world::traps`): the kit item the
+    /// player chose, as TSL's menu lists each kit, else the one the sim
+    /// picks (`traps::lock_kit`).
+    Mine {
+        object: ObjectIndex,
+        kit: Option<u32>,
+    },
     /// The draw or holster key, for the seat's body, or for the first seat
     /// the companion leading. It puts the weapon in hand away when it is out,
     /// until it attacks or changes weapons (`combat::Sheath::Holstered`). It
@@ -175,7 +180,7 @@ pub enum Action {
     Breakdown { bench: Workbench, item: u32 },
     /// Make the item of row `row` of the bench's table, of its components.
     Create { bench: Workbench, row: u16 },
-    /// Exchange the weapon sets (the swap key, the HUD's swap button) of the
+    /// Exchange the weapon sets (the swap key) of the
     /// seat's body: its own character's, the companion leading's for the
     /// first seat (`script::items::State::switch_weapons`; in a fight it
     /// takes the round's second, `combat::SWAP_MS`).
@@ -493,6 +498,7 @@ const PICK_STANCE: u8 = 64;
 const BAR: u8 = 65;
 const FEAT: u8 = 66;
 const GRENADE: u8 = 67;
+const MINE_KIT: u8 = 68;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -654,9 +660,17 @@ impl Action {
                 out.u8(RECOVER);
                 out.u32(*object);
             }
-            Action::Mine(object) => {
+            Action::Mine { object, kit: None } => {
                 out.u8(MINE);
                 out.u32(*object);
+            }
+            Action::Mine {
+                object,
+                kit: Some(kit),
+            } => {
+                out.u8(MINE_KIT);
+                out.u32(*object);
+                out.u32(*kit);
             }
             Action::Holster => out.u8(HOLSTER),
             Action::Request { talk, accept } => {
@@ -863,7 +877,14 @@ impl Action {
             },
             DISARM => Action::Disarm(input.u32()?),
             RECOVER => Action::Recover(input.u32()?),
-            MINE => Action::Mine(input.u32()?),
+            MINE => Action::Mine {
+                object: input.u32()?,
+                kit: None,
+            },
+            MINE_KIT => Action::Mine {
+                object: input.u32()?,
+                kit: Some(input.u32()?),
+            },
             HOLSTER => Action::Holster,
             REQUEST => {
                 let talk = input.u32()?;
@@ -980,7 +1001,7 @@ impl Action {
             | Action::Unfit { .. }
             | Action::Disarm(_)
             | Action::Recover(_)
-            | Action::Mine(_)
+            | Action::Mine { .. }
             | Action::Holster
             | Action::Request { .. }
             | Action::Watch { .. }

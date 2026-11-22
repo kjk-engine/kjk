@@ -113,7 +113,7 @@ fn collision_probes() {
         "k1 {module}: {} traces, {:.2} µs each, answers digest {}",
         facts.traces, facts.trace_us, facts.traces_digest
     );
-    assert_eq!(probes.0.len(), 4);
+    assert_eq!(probes.0.len(), 5);
     assert_eq!(probes.failed(), 0, "module probes failed");
 }
 
@@ -315,6 +315,201 @@ fn grunts() {
     println!("grunts skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
     probed("grunts", &kjk_game::grunts::probes(), 7);
+}
+
+/// Where a disruptor's beam aims from (`kjk_game::shot_fx::probes`). A
+/// companion leading the party aims its beam from its crosshair line, the
+/// line the sim shoots along, and not from its eye. Needs `--features
+/// rig`; no installs (proposed 2026-11-20, awaiting approval).
+#[test]
+fn disruptor_beams() {
+    #[cfg(not(feature = "rig"))]
+    println!("disruptor_beams skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("disruptor beams", &kjk_game::shot_fx::probes(), 1);
+}
+
+/// Both blades of a double-bladed lightsaber whose blade nodes share one
+/// name (`kjk_game::weapons::blade_probes`). Lightsaber Hilt Variety names
+/// all eight blade nodes of its double-bladed hilts `plane239`, and kjk
+/// built only the upper blade for them. A made-up hilt with eight blade
+/// nodes of one name builds two blades, one up and one down. With K1
+/// installed, `w_dblsbr_001` with its blade nodes renamed in memory builds
+/// the same two blades as with its own names. Needs `--features rig`
+/// (proposed 2026-11-21, awaiting approval).
+#[test]
+fn double_blades_sharing_a_name() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "double_blades_sharing_a_name skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed("saber blades", &kjk_game::weapons::blade_probes(), 2);
+}
+
+/// A walker at a dung heap (`sim::motion::prop_step_probes::heap_probes`).
+/// From the ground, the heap's non-walkable flank is an upright wall,
+/// though it rises gently with no step. A walker run straight at it stops
+/// at its foot, one run slantwise slides along the foot, and one standing
+/// on the heap's top walks across a rise on it. No installs (proposed
+/// 2026-11-20, awaiting approval).
+#[test]
+fn heap_flank_stops_a_walker() {
+    probed(
+        "heap flank",
+        &sim::motion::prop_step_probes::heap_probes(),
+        3,
+    );
+}
+
+/// Which bolt hits leave a burn (`kjk_game::bolt_hits::probes`). A bolt
+/// leaves a burn when it is a critical hit, a Power Blast, a Sniper Shot or
+/// the killing shot, or deals at least 15% of the target's maximum
+/// vitality. Any other bolt leaves a burn only when the body's last bolt
+/// burn was laid at least 500 ms before. A hit on a bare head never leaves a
+/// burn. A hit on an armoured head (a droid's, or a helmet such as a Sith
+/// trooper's or a Mandalorian's) burns as a hit on the chest does. A body
+/// with no maximum vitality counts no hit as heavy. Two hits in
+/// one snapshot are gated one after the other. A pistol's burn is small, a
+/// rifle's larger and a Power Blast's the largest. A hit is matched to the
+/// shooter's bolt drawn in the last 250 ms whose line passes nearest the hit
+/// location, if it passes within 1.5 m. A bolt already more than one tick's
+/// flight past the hit location missed and is never matched. That line is
+/// the bolt as drawn, leaving the gun and joining its own way. The hit's
+/// light sits where the line passes the hit location. Needs `--features
+/// rig`; no installs (proposed 2026-11-18, awaiting approval).
+#[test]
+fn bolt_hits() {
+    #[cfg(not(feature = "rig"))]
+    println!("bolt_hits skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("bolt hits", &kjk_game::bolt_hits::probes(), 16);
+}
+
+/// The burns bolts leave on bodies (`kjk_game::body_marks::probes`). A mark
+/// keeps a triangle that crosses its depth window and drops one wholly in
+/// front of it. A lightsaber's mark on a curved strip keeps no triangle
+/// farther than its reach from the hit across the blade, and keeps a
+/// triangle that crosses its whole depth window. A bolt burn's flash is near white when
+/// laid, red at 300 ms and gone at 600 ms. Its embers glow until 3500 ms.
+/// Its burn stays whole until 6000 ms and fades out by 8000 ms. A body keeps
+/// at most 6 bolt burns: a seventh takes the place of the oldest bolt burn,
+/// never of a lightsaber mark, and never of a burn on another body. A bolt's
+/// line meets a body's front before its back. A line that meets the head
+/// first leaves no burn. A bolt burn at the neck covers neither the head's
+/// mesh nor a triangle skinned to the head. A bolt as drawn that passes
+/// beside the body is moved to pass through its aim point, so it burns the
+/// side it came from, even when the aim point lies behind the body's middle.
+/// A line that meets nothing, moved or not, puts the burn on the skin
+/// nearest a point 0.3 m from the chest toward the shooter that is not the
+/// head's. A droid, with no hit location nodes, is aimed at the chest its
+/// movement state gives, and its burn goes on its front at that height. Needs `--features rig`; no installs (proposed
+/// 2026-11-18, awaiting approval).
+#[test]
+fn bolt_burns() {
+    #[cfg(not(feature = "rig"))]
+    println!("bolt_burns skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("bolt burns", &kjk_game::body_marks::probes(), 11);
+}
+
+/// A bolt burn on armour (`kjk_game::body_marks::armour_probes`). The Sith
+/// trooper (`g_sithtroop01`) is loaded as the scene loads it and posed at
+/// rest, and a pistol's bolt strikes its chest from the front. The burn is
+/// made on at least one drawn mesh of its body model, never of its head, and
+/// every triangle of the burn lies within 5 cm of the armour. Needs
+/// `--features rig`; without a K1 install the check is skipped (proposed
+/// 2026-11-18, awaiting approval).
+#[test]
+fn armour_burns() {
+    #[cfg(not(feature = "rig"))]
+    println!("armour_burns skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "armour burns",
+        &kjk_game::body_marks::armour_probes::probes(),
+        1,
+    );
+}
+
+/// The firing motion (`kjk_game::recoil::probes`): each shot pushes a gun
+/// back along its barrel and lifts its muzzle. At the hip the push is the
+/// wield's reference push (a blaster pistol 5 cm and 3°, a blaster rifle
+/// 8 cm and 1.2°) times the gun's kick rule against the reference gun's,
+/// from half to twice. A gun held like a rifle is pushed back less the
+/// further it is raised, down to 2.5 cm fully raised. The push is exactly
+/// nothing 1.5 seconds after a lone shot, and no 8 ms step moves it by more
+/// than the share of its own push that one step of its rise covers. The
+/// gun-side collar bone turns back, a rifle's chest turns, and a pistol's
+/// forearm and upper arm follow. Each turn is 0 before the shot and
+/// exactly 0 once the wield's settle time has passed, and its size follows
+/// the gun's kick, from half to twice the wield's reference gun. A pair
+/// moves only the side that fired. Rapid fire, even 40 ms apart, never
+/// passes a single shot's peak and keeps the same peaks for 5 seconds. No
+/// 8 ms step moves a bone by more than a quarter of its peak, or by more
+/// than 3°. A dead or unarmed body does not move, and the body looked
+/// through in first person turns no bone. From the third shot of a streak
+/// with no gap over 1100 ms, the chest leans 4° forward within 300 ms. It
+/// holds the lean until 1100 ms after the last shot and straightens over
+/// the next 400 ms, with no 8 ms step over 0.2°. A new streak starts with
+/// no lean, and the body looked through does not lean. On a posed KOTOR
+/// body, a rifle shot never takes the support hand more than 1 cm further
+/// from its grip, moves the shoulder back rather than up, moves the muzzle
+/// back more than up, and moves it sideways no more than half as far as
+/// back. A right-hand shot of a pair leaves the left gun within 3 mm. A
+/// fully raised rifle, its stock at the shoulder and the cheek resting on
+/// it, comes within 3 cm of the head before a shot and stays at least 1 cm
+/// from it through the shot, and the right eye stands above the rifle
+/// within 4 cm of its barrel. The support hand's palm stays within 1 cm of
+/// its grip on a raised rifle aimed level, 10 degrees up and 10 degrees
+/// down, through a shot. On the same rifle aimed the same three ways, each
+/// forearm stays no more than 1.6 cm inside the chest's mesh through a shot, and the arms stay
+/// at least 1 cm from the head. A fully raised blaster rifle's stock stands within 3 cm of the
+/// gun-side shoulder joint's height and in front of it, and every point of the
+/// rifle stays at least 8 cm from that joint and the upper arm's bone
+/// through a shot, and at the shot's peak the shoulder joint goes back at
+/// least 60% as far as the stock. The lowest ring of the head's neck stays
+/// joined to the body's collar, moving no more than 5 mm off it, with the
+/// rifle raised and aimed the same three ways through a shot and with the
+/// head turned 60 degrees to each side. Every K1 gun model of its own
+/// shape, raised on Carth's body and on a player woman's (`pfbal`, head
+/// `pfha01`) and fired once, stays at least 1 cm from the head; a gun at
+/// the shoulder points within 0.1 degrees of its target, with its stock's
+/// rear end in front of the shoulder joint, neither forearm more than 1.5 cm
+/// into the chest, and the trigger elbow no higher than the shoulder. Pressing or letting go of [Aim] around a
+/// rifle shot never makes the firing motion alone move the muzzle more than
+/// 2 cm in a step. A rifle fired once a second breathes as a body that does
+/// not fire. Needs `--features rig`; the posed checks need JA and KOTOR
+/// installed (proposed 2026-11-17, changed 2026-11-18, awaiting approval).
+#[test]
+fn firing_motion() {
+    #[cfg(not(feature = "rig"))]
+    println!("firing_motion skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("firing motion", &kjk_game::recoil::probes(), 31);
+}
+
+/// The aim pose (`kjk_game::aim_pose_probes`): a body raising its gun to
+/// aim follows the sim's raise with no step larger than a tenth of the
+/// way, each wield's gun hand stands 15 to 30 cm below the eyes, a walking body's
+/// feet keep the walk, and another character holds its gun up for 600 ms
+/// after a shot. Presses and releases of [Aim] and of a charge during a
+/// pistol's or a rifle's shot never make the gun hand jump, and the fade
+/// that smooths a change of the guns' state hides no jump of a torso bone
+/// larger than 45°. A Sniper Shot's sight shows only while it is steadied.
+/// While the watched character aims, the third-person camera comes in to
+/// 80% of its range, moves out to 130% of its shoulder offset and narrows
+/// its field of view to 75%, over the raise's 200 ms with no frame moving it
+/// more than 15% of the way. The sim's crosshair line stays on the camera
+/// throughout. In first person only the field of view narrows.
+/// Needs `--features rig`; the pose checks need JA installed (proposed
+/// 2026-11-17).
+#[test]
+fn aim_pose() {
+    #[cfg(not(feature = "rig"))]
+    println!("aim_pose skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("aim pose", &kjk_game::aim_pose_probes::probes(), 11);
 }
 
 /// The equip page's attack and damage lines (`kjk_game::character::probes`)
@@ -1928,6 +2123,80 @@ fn git_entry_keeps_template_fields() {
     );
 }
 
+/// A trigger that names a module and a tag leads there, whatever its
+/// `LinkedToFlags` say, as K1's executable takes it out. A door whose flags
+/// are 0 leads nowhere, as the Taris hideout's door does. Mission to
+/// Sleheyron's trigger back onto the Ebon Hawk has flags 0, and the player
+/// was stranded on the landing pad. The module is made here; no installs.
+#[test]
+fn trigger_leads_out_whatever_its_link_flags() {
+    use asset_odyssey::made::{blank_module, gff, node, resref};
+    use asset_odyssey::module::ModuleIr;
+    use fmt_odyssey::gff::GffValue;
+
+    let linked = |template: &str, flags: Option<u8>| {
+        let mut fields = vec![
+            ("TemplateResRef", resref(template)),
+            ("Tag", GffValue::String(template.as_bytes().to_vec())),
+            ("LinkedToModule", resref("ebo_m12aa")),
+            ("LinkedTo", GffValue::String(b"ramp".to_vec())),
+        ];
+        fields.extend(flags.map(|flags| ("LinkedToFlags", GffValue::Byte(flags))));
+        node(fields)
+    };
+    let mut files = blank_module(Vec::new(), &["Room_A"]);
+    files.0.insert(
+        "area.git".into(),
+        gff(
+            b"GIT ",
+            vec![
+                (
+                    "TriggerList",
+                    GffValue::List(vec![
+                        linked("trg_flags0", Some(0)),
+                        linked("trg_flags2", Some(2)),
+                        linked("trg_bare", None),
+                    ]),
+                ),
+                (
+                    "Door List",
+                    GffValue::List(vec![
+                        linked("door_flags0", Some(0)),
+                        linked("door_flags1", Some(1)),
+                        linked("door_bare", None),
+                    ]),
+                ),
+            ],
+        ),
+    );
+    let module = ModuleIr::build("blank", &files).expect("the module builds");
+    let mut seen: Vec<String> = module.areas[0]
+        .instances
+        .iter()
+        .map(|instance| {
+            let to = instance
+                .linked_to
+                .as_ref()
+                .map(|(module, tag)| format!("{module}:{}", String::from_utf8_lossy(tag)));
+            format!("{} {to:?}", String::from_utf8_lossy(&instance.tag))
+        })
+        .collect();
+    seen.sort();
+    let out = r#"Some("ebo_m12aa:ramp")"#;
+    assert_eq!(
+        seen,
+        [
+            format!("door_bare {out}"),
+            "door_flags0 None".to_string(),
+            format!("door_flags1 {out}"),
+            format!("trg_bare {out}"),
+            format!("trg_flags0 {out}"),
+            format!("trg_flags2 {out}"),
+        ],
+        "where each door and trigger leads"
+    );
+}
+
 /// A 2DA's stored cell-data size is not read, as in the games and reone:
 /// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
 /// any other wrong size reads as written. No installs (approved
@@ -2170,7 +2439,9 @@ fn punch_through_cut_out() {
 /// untextured (`kjk_game::material::mesh_drawn`), as KOTOR 2's executable
 /// draws it. The Ebon Hawk's rooms lie over such a plane. Without it, the
 /// hyperspace sky showed blue through the seams of the floor (issue 441).
-/// Such a mesh on a creature, a placeable or a door is still not drawn. A
+/// Such a mesh that casts shadows is not drawn: the Dantooine enclave's
+/// rooms each have one, a box whose lid hid the sky above the council
+/// chamber's round opening. Such a mesh on a creature, a placeable or a door is still not drawn. A
 /// mesh that names a texture of which none loaded is not drawn either. An
 /// untextured mesh whose alpha is below 1 is blended, not drawn solid.
 /// Needs `--features rig` (the game's library); no installs (proposed
@@ -2183,20 +2454,23 @@ fn untextured_mesh_drawn() {
     {
         use kjk_game::material::{Surface, mesh_drawn, surface};
 
-        // (room, (diffuse named, loaded), (lightmap named, loaded), drawn)
+        // ((room, casts shadows), (diffuse named, loaded), (lightmap named,
+        // loaded), drawn)
         for (room, texture, lightmap, drawn) in [
-            (true, (false, false), (false, false), true),
-            (false, (false, false), (false, false), false),
-            (true, (true, false), (false, false), false),
-            (true, (true, false), (true, false), false),
-            (true, (true, false), (true, true), true),
-            (false, (false, false), (true, true), true),
-            (false, (true, true), (false, false), true),
+            ((true, false), (false, false), (false, false), true),
+            ((true, true), (false, false), (false, false), false),
+            ((false, false), (false, false), (false, false), false),
+            ((true, false), (true, false), (false, false), false),
+            ((true, false), (true, false), (true, false), false),
+            ((true, false), (true, false), (true, true), true),
+            ((true, true), (true, true), (false, false), true),
+            ((false, false), (false, false), (true, true), true),
+            ((false, false), (true, true), (false, false), true),
         ] {
             assert_eq!(
                 mesh_drawn(room, texture, lightmap),
                 drawn,
-                "room {room}, diffuse {texture:?}, lightmap {lightmap:?}"
+                "room and shadow {room:?}, diffuse {texture:?}, lightmap {lightmap:?}"
             );
         }
         for (alpha, expected) in [
@@ -3737,6 +4011,18 @@ fn fists_brawl() {
     probed("fists", &sim::strikes::fist_probes(), 7);
 }
 
+/// Baton swings (proposed 2026-11-18): on the proving ground a player
+/// holding a stun baton, attack held, swings KOTOR's two baton swings in
+/// turn, each starting its interval after the last and hitting at the
+/// swing's own hit moment, each hit paced by that interval so a round deals
+/// one round's damage; no punch shows on the torso; a foe with a baton
+/// closes in and swings back the same way; two runs end the same. The sim
+/// alone.
+#[test]
+fn baton_swings() {
+    probed("baton", &sim::strikes::baton_probes(), 7);
+}
+
 /// The player's blows on a creature that is not its foe (issue #341): on
 /// the proving ground the player, bare-handed, holds attack at a neutral
 /// creature for 12 s. Its punches meet the creature, which loses no hit
@@ -3766,15 +4052,57 @@ fn holster_weapon() {
 /// two-weapon penalty; the hand keys take neither down; a trigger let go
 /// banks no shot; a pair broken mid-fight fires its one gun from the right;
 /// Rapid Shot alternates (right, left, right, left; Multi Shot a shot more),
-/// Power Blast and Sniper Shot fire both guns at once for one cost
-/// (owner's ask, 2026-11-02), and a gunner without the feats only fires plain
-/// shots with the alternate; a hostile creature with a pair fires
+/// Power Blast fires both guns at once for one cost (owner's ask,
+/// 2026-11-02), a steadied Sniper Shot fires both guns on the same step for
+/// one cost (changed 2026-11-17, awaiting approval), and a gunner without
+/// the feats only fires plain shots with [Feat attack]; a hostile creature with a pair fires
 /// both, oftener than with one; the pair's state comes back whole from a
 /// snapshot mid-burst; two runs end the same. The sim alone.
 /// (approved 2026-10-25)
 #[test]
 fn dual_pistols() {
     probed("dual pistols", &sim::pair_probes::probes(), 12);
+}
+
+/// Hold to aim (`sim::aim_probes`). A player's shots go where the middle of
+/// the screen looks, whatever the camera. Holding [Aim] raises the gun
+/// fully after `weapons.aim.in_ms`, and letting go lowers it fully after
+/// `weapons.aim.out_ms`. The aim and a Sniper Shot's steadying come back
+/// whole from a snapshot. A snapshot from before hold to aim reads the gun
+/// lowered. Putting the gun away lowers it. The scripted words `alt` and
+/// `feat`, and `Command::other_mode`, hold the aim and feat attack buttons.
+/// On the proving ground, a repeating blaster fully raised spreads its
+/// shots by the aiming stance of `weapons.bloom.stance`, standing and
+/// walking, and one still rising uses the normal spread. A character aiming covers
+/// the distance a held [Walk] covers, also under Force Speed, and never
+/// jumps or rolls. All seven blasters aim. A lightsaber, a vibroblade and
+/// bare hands do not. A creature's held aim does nothing. A weapon switch,
+/// the holster, a stun, a knockdown and a medpac each lower the gun on
+/// the next step. A predicted step raises the gun as the authority's does.
+/// With a blaster, [Feat attack] fires the feat attack, [Attack] counts as
+/// not held while it is, and [Alt attack] does nothing. A Sniper Shot held
+/// for `feats.specials.sniper_shot.steady_ms` fires one shot on the
+/// release, with no spread, for one cost. Let go sooner, it fires nothing
+/// and costs nothing. It may steady while the gun cools down after a shot.
+/// Let go once steady, it leaves on the first step the gun is ready, so a
+/// rifle's chained Sniper Shots leave one refire apart. While it steadies,
+/// the character walks and cannot jump. A weapon switch, the holster, a
+/// stun, a knockdown and a medpac each end it, also while a steady shot
+/// waits for the gun, and nothing fires or is paid. A steady shot that
+/// waits stays steady when the gun leaves the aimed state. [Next feat
+/// attack] ends a steadying, a waiting shot or a Power Blast's charge, and
+/// nothing fires from it or is paid twice. Without the stamina,
+/// [Feat attack] fires as [Attack] does. A creature's mind fires Sniper
+/// Shots without aiming, and a feat attack chosen from the action bar is
+/// the one [Feat attack] fires. [Feat attack] counts as an attack
+/// everywhere an attack matters: a companion holding it fires nothing while
+/// a conversation holds the world, and it ends stealth mode, breaks off a
+/// revive and a steered walk, is an attack to the scripts, and cannot raise
+/// a holstered gun while a grenade is readied.
+/// The sim alone. (proposed 2026-11-17, awaiting approval)
+#[test]
+fn aim() {
+    probed("aim", &sim::aim_probes::probes(), 40);
 }
 
 /// Every pistol is held in one hand, by its `baseitems.2da` row's
@@ -3934,6 +4262,18 @@ fn tsl_force() {
 #[test]
 fn force_scream_ears() {
     probed("force scream", &sim::scream_probes::probes(), 5);
+}
+
+/// C11's holds (`kjk sim probes --only holds`): a stun, stasis, fear, sleep
+/// or droid stun lasts its own time up to the Longest Hold, its target rolls
+/// the save that first allowed it each round with a growing bonus, repeated
+/// holds are shorter and a fourth is refused with "Immune", story holds keep
+/// the old round, an old snapshot's hold rolls nothing, and the design's two
+/// examples go their full length about 37% and 2% of the time. The sim
+/// alone (proposed 2026-11-19, awaiting approval).
+#[test]
+fn crowd_holds() {
+    probed("holds", &sim::hold_probes::probes(), 22);
 }
 
 /// The powers only their impact scripts cast (`kjk sim probes --only
@@ -4222,17 +4562,26 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 /// Guests drive companions (I31): `sim::drivers::probes`, the sim alone.
 /// The `led_own_walked_by_script` check was added and approved on
 /// 2026-11-12. A script's move of the player's own character walks it while
-/// a companion leads, as Hendar's gate in K1's Undercity needs.
+/// a companion leads, as Hendar's gate in K1's Undercity needs. The
+/// `played_bodies_agree`, `leader_bolts_break_a_crate` and
+/// `leader_blows_on_a_tank_count` checks were proposed on 2026-11-20 and
+/// are not yet approved. A companion leading the party is played by its
+/// player, in the sim and in its views: its bolts break a locked crate,
+/// and its blows on a hostile stasis tank it aims at hurt the tank. The
+/// player's own character standing meanwhile is played by its mind.
 #[test]
 fn guests_drive_companions() {
-    probed("drivers", &sim::drivers::probes(), 30);
+    probed("drivers", &sim::drivers::probes(), 41);
 }
 
 /// Conversations in co-op (I31): `sim::coop_talk::probes`, every phase's
 /// cases and the whole scenario run twice ending alike; the sim alone.
+/// The check that a dialogue script nobody spoke to begins no conversation
+/// with `BeginConversation()`, and a click still does
+/// (`unspoken_begins_nothing`, TSL's Handmaiden sisters), awaits approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 145);
+    probed("coop talk", &sim::coop_talk::probes(), 146);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
@@ -4256,14 +4605,20 @@ fn dialogue_coop() {
 /// awaits approval. The check that a forced move to a point of a shut
 /// door's doorway, short of the panel, arrives there and leaves the door
 /// shut (`walks_into_doorway_short_of_door`, issue 501) awaits approval.
+/// The check that a door a script closes waits for a body walking through
+/// its doorway but shuts on one standing still there
+/// (`door_shuts_on_one_standing`, the apartment door on Citadel Station)
+/// awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 77);
+    probed("scene", &sim::scene_probes::all(), 78);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
 /// a break's freeze and the ready check, and what enters a trigger; the sim
-/// alone.
+/// alone. The check that the view and the shots agree on whom a player's
+/// shot stops on (`shots_stop_as_drawn`: the hostile, never the neutral,
+/// the other player only with friendly fire full) awaits approval.
 #[test]
 fn party_calls() {
     probed("party", &sim::party::probes(), 20);
@@ -4314,10 +4669,13 @@ fn placeable_facing_is_its_front() {
 /// A script makes a waypoint from its template, and a party that leaves the
 /// module and comes back by the waypoint's tag arrives at it, not at the
 /// module's entry: `sim::made_waypoint_probes` (TSLRCM's Red Eclipse scene
-/// on the Nar Shaddaa landing pad, issue 519).
+/// on the Nar Shaddaa landing pad, issue 519). A script also makes a store
+/// from its template, with the template's terms, as Brotherhood of Shadow's
+/// merchants make the stores they open (added 2026-11-21, awaiting
+/// approval).
 #[test]
 fn made_waypoint_is_an_arrival() {
-    probed("made_waypoint", &sim::made_waypoint_probes::probes(), 2);
+    probed("made_waypoint", &sim::made_waypoint_probes::probes(), 3);
 }
 
 /// A playthrough's character up on a raised floor its walk's goal is not
@@ -4363,7 +4721,7 @@ fn companions_do_not_shove_players() {
 /// on 2026-11-16).
 #[test]
 fn force_deflection_turns_bolts() {
-    probed("deflection", &sim::trace::deflection_probes::probes(), 5);
+    probed("deflection", &sim::trace::deflection_probes::probes(), 7);
 }
 
 /// Under the Advanced rules a kick needs and uses `duel.kicks.uses`
@@ -4411,6 +4769,105 @@ fn item_uses() {
     probed("item uses", &sim::item_uses::probes(), 30);
 }
 
+/// An item that the game's data says is equipped and activated works as
+/// an energy shield does (`sim::item_uses::activated_probes`). The 2021
+/// Schematic Lightsaber Mod for KOTOR 2 makes its schematics datapads that
+/// the player equips in the shield slot and activates, and kjk never
+/// offered to activate them. A UTI made here is such a datapad. Its base
+/// item is the shields' row of a made-up `baseitems.2da` (row 46, equipped
+/// on either arm, item type 20). Its Activate Item property casts a
+/// `spells.2da` row that the engine does not name, with ten charges and one
+/// spent a use. Read as the game reads templates, it is equipped on the
+/// arms and casts that row. Worn on the right arm, it is one of the
+/// character's item kinds and a carried one is not. The shield button
+/// activates it with the shield's clip, spends a charge of the worn one and
+/// casts its row on its wearer. No installs (proposed 2026-11-21, awaiting
+/// approval).
+#[test]
+fn worn_items_activate() {
+    use asset_odyssey::made::{Files, gff, node};
+    use asset_odyssey::module::Source;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::GffValue;
+    use fmt_odyssey::twoda::TwoDa;
+    use std::collections::BTreeMap;
+
+    const TEMPLATE: &str = "schematic";
+    // A row past both games' own tables, as a mod's patcher appends one.
+    const ROW: u16 = 300;
+    let table = |columns: &[&str], rows: Vec<Vec<&str>>| {
+        let bytes = |text: &&str| text.as_bytes().to_vec();
+        TwoDa {
+            columns: columns.iter().map(bytes).collect(),
+            row_labels: (0..rows.len())
+                .map(|n| n.to_string().into_bytes())
+                .collect(),
+            cells: rows
+                .iter()
+                .map(|row| row.iter().map(bytes).collect())
+                .collect(),
+            column_separator: b'\t',
+            row_separator: b'\t',
+        }
+        .write()
+    };
+    let blank = |rows: usize, width: usize| vec![vec!["****"; width]; rows];
+    let mut baseitems = blank(46, 4);
+    baseitems.push(vec!["Forearm_Bands", "0x00180", "20", "1"]);
+    let mut itempropdef = blank(10, 1);
+    itempropdef.push(vec!["CastSpell"]);
+    let activate = node(vec![
+        ("PropertyName", GffValue::Word(10)),
+        ("Subtype", GffValue::Word(ROW)),
+        ("CostValue", GffValue::Byte(6)),
+    ]);
+    let uti = gff(
+        b"UTI ",
+        vec![
+            ("BaseItem", GffValue::Int(46)),
+            ("Charges", GffValue::Byte(10)),
+            ("StackSize", GffValue::Word(1)),
+            ("PropertiesList", GffValue::List(vec![activate])),
+        ],
+    );
+    let files = Files(BTreeMap::from([
+        (
+            "baseitems.2da".into(),
+            table(
+                &["label", "equipableslots", "itemtype", "stacking"],
+                baseitems,
+            ),
+        ),
+        ("itempropdef.2da".into(), table(&["label"], itempropdef)),
+        (format!("{TEMPLATE}.uti"), uti),
+    ]));
+    // The made files, listing the one template.
+    struct Listed(Files);
+    impl Source for Listed {
+        fn read(&self, resref: &str, restype: ResType) -> Option<Vec<u8>> {
+            self.0.read(resref, restype)
+        }
+        fn exists(&self, resref: &str, restype: ResType) -> bool {
+            self.0.exists(resref, restype)
+        }
+        fn names(&self, restype: ResType) -> Vec<String> {
+            if restype == ResType::UTI {
+                vec![TEMPLATE.into()]
+            } else {
+                Vec::new()
+            }
+        }
+    }
+    let (catalog, unread) = session::item_catalog(&Listed(files));
+    let facts = catalog.get(TEMPLATE).expect("the datapad reads");
+    let arms = 1 << sim::inventory::slots::LEFT_ARM | 1 << sim::inventory::slots::RIGHT_ARM;
+    assert!(unread.is_empty(), "unread {unread:?}");
+    assert_eq!(facts.slots, arms, "equipped on either arm");
+    assert!(facts.shield, "the shields' item type");
+    assert_eq!(facts.spell.map(|spell| spell.row), Some(ROW));
+    probed("worn items", &sim::item_uses::activated_probes(facts), 4);
+}
+
 /// Item properties beyond combat (`sim::inventory::probes`): an item's
 /// best bonus of a kind with its penalties, typed extras and Keen; two
 /// items' scores, skills, saves, dodge defence, defence against a race and
@@ -4433,15 +4890,18 @@ fn item_properties() {
 /// snapshots and prediction, a standing creature taken, a guest giving way;
 /// a companion's body changed in the run that makes it (107PER's Kreia); a
 /// companion standing in a module left, not in the party, kept by the table
-/// as it stands, body and all; the creature played outliving the script
-/// that destroys it, and its creature gone when it is taken off the table
+/// as it stands, body and all; a companion made available by object
+/// played on a creature the switch makes of it, while the script destroys
+/// the standing one, and that creature gone when it is taken off the table
 /// (TSL's B-4D4; added and approved 2026-11-12; its companion number is no
 /// longer available before the script makes the droid available, as on
-/// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
+/// Telos, amended and approved 2026-11-14 for issue 396; the creature made
+/// by the switch, not the standing one, as both executables make it,
+/// amended 2026-11-21, awaiting approval); armour the player took
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
 /// 366); a companion leading the party arrives in a module facing the
-/// arrival's way (issue 412, approved 2026-11-16); the companion played
+/// arrival's way (issue 412, approved 2026-11-16); the creature played
 /// taken through two modules that lack its template, still played and with
 /// its facts in both (TSL's B-4D4 through the docks, added 2026-11-17,
 /// awaiting approval); the sim alone.
@@ -4462,10 +4922,12 @@ fn encounters_count_drivers() {
 /// A death's XP read from either game's `xptable.2da` heading, and TSL's
 /// death XP as its executable works it out (`session::journal::probes`); no
 /// install. The same probes also read a `global.jrl` with one bad quest name
-/// and check that every quest is still read.
+/// and check that every quest is still read, read a quest that keeps its own
+/// words in place of talk-table lines, and read KOTOR 2's global catalogue as
+/// its executable does (the first row of a name decides).
 #[test]
 fn kill_xp_tables() {
-    probed("kill xp tables", &session::journal::probes(), 4);
+    probed("kill xp tables", &session::journal::probes(), 6);
 }
 
 /// Minigames in co-op (`docs/MINIGAMES.md`):
@@ -4575,7 +5037,7 @@ fn save_copy_round_trip() {
 #[cfg(feature = "editor")]
 #[test]
 fn save_edits() {
-    probed("save edits", &edit::probes::all(), 28);
+    probed("save edits", &edit::probes::all(), 31);
     probed("save editor", &save_editor::probes::all(), 0);
 }
 
@@ -4603,6 +5065,18 @@ fn save_safety() {
 #[test]
 fn startup_files() {
     probed("startup files", &saves::startup_probes(), 4);
+}
+
+/// A playthrough checkpoint written as a player's save
+/// (`saves::checkpoint_probes`, proposed 2026-11-18). A checkpoint made on
+/// the proving ground with the player immortal and dealing ten times the
+/// damage is written as a save. The save reads back whole with neither
+/// flag on its player and nothing else changed, the world loaded from it
+/// has neither flag, and the checkpoint's own bytes still carry both. No
+/// install is needed.
+#[test]
+fn checkpoint_saves_without_test_aids() {
+    probed("checkpoint saves", &saves::checkpoint_probes(), 3);
 }
 
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept
@@ -5082,6 +5556,111 @@ fn tsl_armour_body_letters() {
         .expect("the appearance resolves");
         assert_eq!(look.body, body, "{item}");
     }
+}
+
+/// A cell of KOTOR 2's `appearance.2da` that reads `&` and a row number
+/// draws that row instead, wearing the same armour. GitHub issue 584
+/// reported the Handmaiden drawn in her own clothes with nothing on. Her
+/// row (454) draws her clothes and sends every other letter to row 638,
+/// which has a head. With a TSL install (else skipped), she wears these
+/// bodies. With nothing on she wears `p_handmaidenba` from row 638. In the
+/// basic clothes (`g_a_clothes01`, letter B) she wears her own clothes,
+/// `p_handmaidenbb`. In a Jedi robe (`a_robe_02`, letter I) she wears
+/// row 638's `pfbim`. In her mother's robe (`a_robe_x01`, letter N) her
+/// row names her own clothes, so she wears `p_handmaidenbb` (proposed
+/// 2026-11-19, issue 584).
+#[test]
+fn tsl_appearance_redirects() {
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor2).is_none() {
+        println!("TSL's redirects skipped: no KOTOR 2 install (set KJK_KOTOR2 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor2, "152har").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    for (item, appearance, body) in [
+        (None, 638, "p_handmaidenba"),
+        (Some("g_a_clothes01"), 454, "p_handmaidenbb"),
+        (Some("a_robe_02"), 638, "pfbim"),
+        (Some("a_robe_x01"), 454, "p_handmaidenbb"),
+    ] {
+        let look = asset_odyssey::creature::resolve_appearance(
+            &install,
+            454,
+            item.map(str::to_string),
+            &mut tables,
+        )
+        .expect("the appearance resolves");
+        assert_eq!(
+            (look.appearance, look.body.as_str()),
+            (appearance, body),
+            "{item:?}"
+        );
+    }
+}
+
+/// KOTOR 2 reads a `&` cell of `appearance.2da` only when an item goes into
+/// the body slot or comes out of it. A creature made with nothing on its
+/// body keeps its own row. A Discord report showed the two Handmaidens who
+/// meet Bao-Dur outside the Telos academy (`p_handmaiden001` and
+/// `p_handmaiden002` in 261tel) in their underwear. Their templates use
+/// the Handmaiden's row (454) and wear nothing, and kjk sent them to row
+/// 638 as if they had taken their clothes off. With a TSL install (else
+/// skipped), each sister keeps row 454 and wears `p_handmaidenbb`, the
+/// row's `race` model. The party's Handmaiden (`p_handmaiden`, made in her
+/// clothes) wears the same body. Row 454 with nothing put on (as made)
+/// wears `p_handmaidenbb`, and with clothes taken off it wears row 638's
+/// `p_handmaidenba` (proposed 2026-11-22).
+#[test]
+fn tsl_sisters_made_dressed() {
+    use asset_odyssey::creature::{Dressing, resolve_dressed, resolve_with};
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor2).is_none() {
+        println!("TSL's sisters skipped: no KOTOR 2 install (set KJK_KOTOR2 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor2, "261tel").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    for template in ["p_handmaiden001", "p_handmaiden002", "p_handmaiden"] {
+        let look = resolve_with(&install, template, &mut tables).expect("she resolves");
+        assert_eq!(
+            (look.appearance, look.body.as_str()),
+            (454, "p_handmaidenbb"),
+            "{template}"
+        );
+    }
+    for (dressing, appearance, body) in [
+        (Dressing::AsMade, 454, "p_handmaidenbb"),
+        (Dressing::Changed, 638, "p_handmaidenba"),
+    ] {
+        let look = resolve_dressed(&install, 454, None, dressing, &mut tables)
+            .expect("the appearance resolves");
+        assert_eq!(
+            (look.appearance, look.body.as_str()),
+            (appearance, body),
+            "{dressing:?}"
+        );
+    }
+}
+
+/// A template's off hand weapon is drawn only when the equip screen would
+/// let it be held there. GitHub issue 569 reported a Mandalorian in the
+/// Sandral Grounds on Dantooine (`dan14ad_mand02`) with a blaster rifle in
+/// each hand: his template lists one in each, and a blaster rifle can be
+/// equipped only in the main hand. With a K1 install (else skipped), he
+/// holds the rifle in his main hand and nothing in his off hand (proposed
+/// 2026-11-19, issue 569).
+#[test]
+fn off_hand_rifle_not_held() {
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor1).is_none() {
+        println!("K1's Mandalorian skipped: no KOTOR install (set KJK_KOTOR1 in .env)");
+        return;
+    }
+    let source = module_source(&discovery, vfs::Game::Kotor1, "danm14ad").expect("it opens");
+    let look = asset_odyssey::creature::resolve(&source, "dan14ad_mand02").expect("he resolves");
+    assert!(look.right_weapon.is_some(), "a rifle in his main hand");
+    assert_eq!(look.left_weapon, None, "nothing in his off hand");
 }
 
 /// A model's reference node carries the model it names, as the games draw
@@ -6212,4 +6791,73 @@ fn program_image(bytes: &[u8]) -> Result<(original_find::Image<'_>, bool), Strin
         }
         _ => Err("not a Mach-O or PE program".into()),
     }
+}
+
+const PREPASS_READERS: [(&str, &str); 3] = [
+    (
+        "upscale.rs",
+        "kjk's upscaler reads the depth and the motion. `temporal::apply` declares `Need::TEMPORAL` for it.",
+    ),
+    (
+        "odyssey.wgsl",
+        "Ambient occlusion reads the depth, and its debug view of the normals reads the normals. `ambient_occlusion::mark` declares `Need::AMBIENT_OCCLUSION` for both.",
+    ),
+    (
+        "motion_debug.wgsl",
+        "The motion debug view reads the motion. `temporal::motion_debug` declares `Need::TEMPORAL` for it.",
+    ),
+];
+
+const PREPASS_READS: [&str; 5] = [
+    "depth_prepass_texture",
+    "normal_prepass_texture",
+    "motion_vector_prepass_texture",
+    "prepass_utils::",
+    "ViewPrepassTextures",
+];
+
+/// Proposed 2026-11-18, awaiting approval.
+#[test]
+fn prepass_readers_declared() {
+    fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).expect("the game's sources") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                walk(&path, files);
+            } else if path
+                .extension()
+                .is_some_and(|ext| ext == "rs" || ext == "wgsl")
+            {
+                files.push(path);
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../game/src");
+    let mut files = Vec::new();
+    walk(&root, &mut files);
+    let mut readers: Vec<String> = files
+        .iter()
+        .filter(|path| {
+            let text = std::fs::read_to_string(path).expect("a source file");
+            text.lines()
+                .map(|line| line.split("//").next().unwrap_or(""))
+                .any(|code| PREPASS_READS.iter().any(|read| code.contains(read)))
+        })
+        .map(|path| {
+            let relative = path.strip_prefix(&root).expect("under the sources");
+            relative.to_string_lossy().replace('\\', "/")
+        })
+        .collect();
+    readers.sort();
+    let mut listed: Vec<String> = PREPASS_READERS
+        .iter()
+        .map(|(file, _)| file.to_string())
+        .collect();
+    listed.sort();
+    assert!(files.len() > 100, "the game's sources found at {root:?}");
+    assert_eq!(
+        readers, listed,
+        "the files reading a prepass's texture, against PREPASS_READERS"
+    );
+    println!("{} prepass readers, each declared", readers.len());
 }

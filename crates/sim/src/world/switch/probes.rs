@@ -454,7 +454,7 @@ pub fn probes() -> crate::probe::Checks {
     };
     checks.push(("standing_creature_taken", standing_taken()));
     checks.push(("back_where_its_game_puts_it", back_where_its_game_puts_it()));
-    checks.push(("played_outlives_its_destroy", played_outlives_its_destroy()));
+    checks.push(("played_made_from_the_object", played_made_from_the_object()));
     checks.push(("played_crosses_modules", played_crosses_modules()));
     checks.push(("tsl_switch_sends_party_to_base", party_sent_to_base()));
     checks.push(("guest_drives_its_companion_again", guest_back_after_base()));
@@ -1069,14 +1069,16 @@ fn guest_back_after_base() -> Result<String, String> {
 }
 
 /// TSL's Telos plays B-4D4 so (`probe_droid`): the standing creature is
-/// made a companion, switched to, and destroyed by the same script; seat 0
-/// plays it on. Letting it go (`probe_let_go`) takes it off the table
-/// before switching back: seat 0 has its own character again and the
-/// creature is gone. In both games. The companion number is not yet
-/// available, as Bao-Dur's is not when Telos plays B-4D4: a number already
-/// available is not made available again (`tsl_probes`'
-/// `available_again_refused`).
-fn played_outlives_its_destroy() -> Result<String, String> {
+/// made a companion, switched to, and destroyed by the same script. Made
+/// available by object, the table saves the creature and names none, as
+/// both executables do, so the switch makes a new one from the table at
+/// the player's place, and seat 0 plays that one while the standing one is
+/// destroyed. Letting it go (`probe_let_go`) takes it off the table before
+/// switching back: seat 0 has its own character again and the creature is
+/// gone. In both games. The companion number is not yet available, as
+/// Bao-Dur's is not when Telos plays B-4D4: a number already available is
+/// not made available again (`tsl_probes`' `available_again_refused`).
+fn played_made_from_the_object() -> Result<String, String> {
     let mut seen = Vec::new();
     let mut held = true;
     for game in ["k1", "tsl"] {
@@ -1099,15 +1101,18 @@ fn played_outlives_its_destroy() -> Result<String, String> {
         let returned = back.body(Seat(0)).map(|e| e.id);
         let available = world.script_state().party.available.contains_key(&STANDING);
         let calls = tokens(&back, DROID_TOKENS[0]..=DROID_TOKENS[3]);
-        let ok = body == Some(standing)
+        let made_gone = body.is_some_and(|made| back.get(made).is_none());
+        let ok = body.is_some()
+            && body != Some(standing)
+            && played.get(standing).is_none()
+            && made_gone
             && returned == Some(own)
-            && back.get(standing).is_none()
             && !available
             && calls.iter().all(|call| call == "1");
         held &= ok;
         seen.push(format!(
-            "{game}: played {body:?} (the standing one {standing:?}), then {returned:?} (its own {own:?}), the creature gone {}, still available {available}, calls {calls:?}",
-            back.get(standing).is_none()
+            "{game}: played {body:?} (the standing one {standing:?}, destroyed {}), then {returned:?} (its own {own:?}), the one played gone {made_gone}, still available {available}, calls {calls:?}",
+            played.get(standing).is_none()
         ));
     }
     check(held, seen.join("; "))
@@ -1115,10 +1120,11 @@ fn played_outlives_its_destroy() -> Result<String, String> {
 
 /// TSL's Telos takes B-4D4 so, through the docks to the Czerka offices
 /// (`probe_droid`, then two module changes): the standing creature is made
-/// a companion by object, switched to, and taken through two modules whose
-/// libraries lack its template, as the docks (201TEL) lack the droid's.
-/// Seat 0 still plays it in the second module, and the creature has its
-/// facts in both (the portrait at the bottom left is read from them).
+/// a companion by object and switched to, and the creature the switch makes
+/// of it is taken through two modules whose libraries lack its template, as
+/// the docks (201TEL) lack the droid's. Seat 0 still plays that one in the
+/// second module, and the creature has its facts in both (the portrait at
+/// the bottom left is read from them).
 fn played_crosses_modules() -> Result<String, String> {
     let (mut world, _, standing) = switch_world_in(Some("tsl"), 1, false)?;
     let mut state = world.script_state().clone();
@@ -1126,9 +1132,9 @@ fn played_crosses_modules() -> Result<String, String> {
     world.set_script_state(state);
     queue(&mut world, "probe_droid");
     run(&mut world, 1, 0);
-    run(&mut world, 1, 0);
-    let mut seen = Vec::new();
-    let mut held = true;
+    let played = run(&mut world, 1, 0).body(Seat(0)).map(|entity| entity.id);
+    let mut seen = vec![format!("plays {played:?} (the droid {standing:?})")];
+    let mut held = played.is_some() && played != Some(standing);
     for name in ["probe_docks", "probe_offices"] {
         let (level, _) = ground(Some("tsl"))?;
         let mut data = (**level.module().ok_or("the ground has no module")?).clone();
@@ -1155,10 +1161,10 @@ fn played_crosses_modules() -> Result<String, String> {
         let facts = body
             .and_then(|entity| instances.of_entity(entity))
             .map(|facts| facts.tag.clone());
-        let ok = body.map(|entity| entity.id) == Some(standing) && facts.is_some();
+        let ok = body.map(|entity| entity.id) == played && facts.is_some();
         held &= ok;
         seen.push(format!(
-            "{name}: seat 0 plays {:?} (the droid {standing:?}), its facts' tag {facts:?}",
+            "{name}: seat 0 plays {:?}, its facts' tag {facts:?}",
             body.map(|entity| entity.id)
         ));
     }

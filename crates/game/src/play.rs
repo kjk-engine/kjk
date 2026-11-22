@@ -267,7 +267,9 @@ fn wears(
                     (sim::Seat(seat), tsl),
                     &|_| false,
                 ))
-                .and_then(|(resolver, worn)| crate::persona::wear(resolver, &mut tables, worn));
+                .and_then(|(resolver, worn)| {
+                    crate::persona::wear((resolver, None), &mut tables, worn)
+                });
             Ok(worn.unwrap_or_else(|| {
                 let (body, head) = stand_ins[usize::from(seat) % stand_ins.len()];
                 Wear {
@@ -423,6 +425,7 @@ pub fn compose(
         name,
         models,
         textures,
+        images: Default::default(),
         missing: body.missing.clone(),
         missing_body_textures: Vec::new(),
         default_envmap: None,
@@ -801,8 +804,8 @@ pub fn load_for(
                 && world.level().arena_rules().is_some()
             {
                 crate::by_hand::give_items(&mut world, &crate::arena::gear(&library))?;
-                // The guns `--class soldier@ROW,ROW` names, drawn in hand as
-                // the first of K1's weapons of that row by template (`g_w_`).
+                // The guns `--class soldier@ROW,ROW` names, drawn in hand
+                // (`Library::gun_of_row`).
                 let slots = [
                     sim::inventory::slots::RIGHT_WEAPON,
                     sim::inventory::slots::LEFT_WEAPON,
@@ -816,15 +819,7 @@ pub fn load_for(
                         let row = weapon
                             .filter(|w| matches!(w.delivery, sim::combat::Delivery::Blaster(_)))?
                             .base_item;
-                        let item = library
-                            .items()
-                            .iter()
-                            .filter(|item| !item.plot && item.base_item == row)
-                            .filter(|item| item.weapon.is_some_and(|w| w.delivery.ranged()))
-                            .min_by_key(|item| {
-                                (!item.template.starts_with("g_w_"), &item.template)
-                            })?;
-                        Some((item.template.as_str(), slot))
+                        Some((library.gun_of_row(row)?, slot))
                     })
                     .collect();
                 if !guns.is_empty() {

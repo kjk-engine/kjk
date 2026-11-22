@@ -4,6 +4,7 @@
 //! Force powers; under Jedi Academy's rules the older bar still pays.
 
 mod late;
+mod missed;
 mod reach;
 mod stamina;
 pub mod targeted;
@@ -45,8 +46,8 @@ const SETTLED: usize = 61;
 const READY: usize = 150;
 /// A tick safely inside that wait: the last one before a key is pressed.
 const READY_AT: usize = SETTLED + READY - 5;
-/// The `feat.2da` row of Rapid Shot, whose burst a gunner starts with the
-/// alternate button.
+/// The `feat.2da` row of Rapid Shot, whose burst a gunner starts with
+/// [Feat attack].
 const RAPID_SHOT: u16 = 30;
 
 /// A fight of seat 0 (`kind`, `fp` its Force points) against a medium-style
@@ -198,10 +199,10 @@ fn kata_uses_force_under_ja() -> Result<String, String> {
 }
 
 /// Seat 0 holding a pistol with `fp` Force points and Rapid Shot presses
-/// the alternate button, after `more`, under `rules`.
+/// [Feat attack], after `before`, under `rules`.
 fn burst(rules: &str, fp: u16, before: &str) -> Result<Spent, String> {
     let more = format!("sheet 0 feats={RAPID_SHOT}");
-    let then = format!("tick {READY}\n{before}\ntick 3 b0=alt\ntick 80\ntick 3 b0=alt\ntick 20");
+    let then = format!("tick {READY}\n{before}\ntick 3 b0=feat\ntick 80\ntick 3 b0=feat\ntick 20");
     Spent::of(
         &play(&fight(rules, ("pistol", fp), &more, &then))?,
         SETTLED + READY,
@@ -246,7 +247,7 @@ fn feat_special_uses_stamina() -> Result<String, String> {
     )
 }
 
-/// A tired gunner's alternate button starts no special: its Stamina is not
+/// A tired gunner's [Feat attack] starts no special: its Stamina is not
 /// used up, and it pays no Force points.
 fn tired_gunner_starts_no_special() -> Result<String, String> {
     // A little under the tired mark, which Stamina refilling in the few ticks
@@ -2915,5 +2916,6 @@ pub fn probes() -> Checks {
     all.extend(reach::probes());
     all.extend(unguarded::probes());
     all.extend(late::probes());
+    all.extend(missed::probes());
     all
 }

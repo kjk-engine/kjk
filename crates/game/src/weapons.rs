@@ -111,8 +111,9 @@ pub struct Held {
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<PowerClips>,
-    /// How the model lies when carried on the back (`back_lay`).
-    pub lay: Transform,
+    /// How the model lies when carried on the back, on the right side and
+    /// on the left (`back_lay`).
+    pub lay: [Transform; 2],
 }
 
 /// Where a blade leaves its hilt and which way it runs, in the hilt's space
@@ -133,8 +134,9 @@ pub struct Armed {
     pub ends: Vec<BladeEnd>,
     pub gun: Option<GunShape>,
     pub power: Option<Power>,
-    /// How the model lies when carried on the back (`back_lay`).
-    pub lay: Transform,
+    /// How the model lies when carried on the back, on the right side and
+    /// on the left (`back_lay`).
+    pub lay: [Transform; 2],
 }
 
 impl Held {
@@ -252,6 +254,9 @@ impl Power {
 const PROFILE_STEP: f32 = 0.02;
 /// The furthest from the grip the other hand holds a gun (metres).
 const FOREGRIP: f32 = 0.3;
+/// How deep (metres) along the barrel a gun's rear end is taken to be
+/// (`GunShape::butt`).
+const BUTT_DEPTH: f32 = 0.015;
 
 /// A gun model's shape as its hold reads it, in its own space (metres):
 /// where its shots leave it (its `bullethook` node, KOTOR's, else its
@@ -262,13 +267,117 @@ const FOREGRIP: f32 = 0.3;
 /// the muzzle; its up, of the other two axes the one the muzzle lies
 /// furthest along, toward it (above the grip, the model's origin); and its
 /// underside and middle across, every `PROFILE_STEP` along the barrel from
-/// the grip to as far as it is held (`FOREGRIP`).
+/// the grip to as far as it is held (`FOREGRIP`); and the middle of its
+/// rear end, the corners within `BUTT_DEPTH` of its rearmost along the
+/// barrel (a rifle's stock against the shoulder).
 #[derive(Debug, Clone)]
 pub struct GunShape {
     pub muzzle: Vec3,
     pub barrel: Vec3,
     pub up: Vec3,
+    pub butt: Vec3,
+    /// The point of the gun placed in the shoulder when it is raised
+    /// (`asset_ja::rig::Aim::butt`, `seat`).
+    pub seat: Vec3,
     profile: Vec<(f32, f32)>,
+}
+
+/// How far (metres) below the top of a gun's rear end its seat in the
+/// shoulder stands (`seat`). On the blaster rifle (`w_blstrrfl_001`) the
+/// top of the stock stands 3.64 cm above the middle of its rear end.
+const COMB_DROP: f32 = 0.0364;
+/// How far (metres) along the barrel from its rearmost point a gun's rear
+/// end is taken to reach, for its top and its side toward the face
+/// (`seat`). The blaster carbine's scope starts 3 to 5 cm ahead of its
+/// rearmost point.
+const REAR_END: f32 = 0.03;
+/// How much higher (metres) than the top of a gun's rear end a part of it
+/// stands to count as its sight (`seat`): a scope, or a raised rail.
+const SIGHT_RISE: f32 = 0.01;
+/// The nearest (metres, along the barrel) a gun's sight starts ahead of its
+/// seat (`seat`), so the sight stays in front of the eye. The blaster
+/// rifle's starts 12.4 cm ahead. The scope of the yellow blaster carbine
+/// (`w_blstrcrbn_003`) starts 8.1 cm ahead of where its rear end alone would
+/// put the seat, and its rear touches the eye. At 11.5 cm its scope keeps
+/// at least 1 cm from Carth's eye through a shot.
+const SIGHT_NEAREST: f32 = 0.115;
+/// How far (metres) under a gun's seat its grip may stand before the gun is
+/// held further out (`seat`). The blaster rifle's grip stands 10 cm under
+/// its seat.
+const LOW_GRIP_FROM: f32 = 0.10;
+/// How much further out (metres) a gun is held for each metre its grip
+/// stands lower under its seat than `LOW_GRIP_FROM` (`seat`). A low grip
+/// puts the trigger hand low in front of the chest, and its forearm runs up
+/// through the chest to the elbow.
+const LOW_GRIP_OUT: f32 = 1.0;
+/// The furthest (metres) a low grip holds a gun further out (`seat`). The
+/// heavy repeating blaster's grip stands 18.8 cm under its seat.
+const LOW_GRIP_OUT_MOST: f32 = 0.045;
+/// The least distance (metres) from the middle of a gun's seat across to
+/// the side of its rear end toward the face (`seat`): half the width of the
+/// blaster rifle's stock.
+const CHEEK_SIDE: f32 = 0.022;
+
+/// The point of a gun (its `triangles` in its own space, along `barrel`
+/// with `up` its up) that a raised gun puts in the shoulder pocket
+/// (`asset_ja::rig::POCKET`). The gun's rearmost point along the barrel is
+/// `rearmost`, and the middle of its rear end is `butt`. The rules were
+/// fitted so that the blaster rifle's seat is the middle of its rear end,
+/// as it was before every gun had its own seat.
+///
+/// - Along the barrel, the middle of its rear end, unless its grip would
+///   then stand nearer the shoulder than `asset_ja::rig::GRIP_NEAREST`.
+///   Then the seat is a point behind the gun, so the gun is held further
+///   out. The blaster carbine's rear end is 6.5 cm behind its grip, so the
+///   carbine is held 9.4 cm further out than its rear end would put it.
+///   A gun whose grip stands lower under its seat than `LOW_GRIP_FROM` is
+///   held `LOW_GRIP_OUT` times as much further out again, at most
+///   `LOW_GRIP_OUT_MOST`, so the trigger forearm stays out of the chest.
+///   The blaster carbine with the long magazine (`w_blstrcrbn_004`) and the
+///   disruptor rifle are held 4.5 cm further out.
+/// - Further forward still when the gun's sight (any part more than
+///   `SIGHT_RISE` higher than its rear end) would then start nearer than
+///   `SIGHT_NEAREST` ahead of the seat.
+/// - Its height, `COMB_DROP` below the top of the gun's rear end (within
+///   `REAR_END` of its rearmost point). Every gun's rear end then stands as
+///   high beside the cheek as the blaster rifle's stock. The middle of a
+///   gun's rear end is no good for this, since not every gun has a stock.
+///   The blaster carbine's rear end is the back of its grip, and its middle
+///   stands 19 cm lower than the top of the gun there.
+/// - Across, the middle of its rear end, or further out from the face on a
+///   gun wider than the blaster rifle, so that the side of its rear end
+///   toward the face stands where the blaster rifle's does. The heavy
+///   repeating blaster's rear end reaches 10 cm toward the face.
+fn seat(
+    triangles: &[[Vec3; 3]],
+    (barrel, up): (Vec3, Vec3),
+    (rearmost, butt): (f32, Vec3),
+) -> Vec3 {
+    let rear: Vec<Vec3> = (triangles.iter().flatten())
+        .filter(|p| (rearmost..rearmost + REAR_END).contains(&p.dot(barrel)))
+        .copied()
+        .collect();
+    let side = barrel.cross(up);
+    let most = |of: Vec3, pick: fn(f32, f32) -> f32| rear.iter().map(|p| p.dot(of)).reduce(pick);
+    let top = most(up, f32::max).unwrap_or(butt.dot(up));
+    // Where its sight starts: the rearmost point higher than its rear end.
+    let sight = (triangles.iter().flatten())
+        .filter(|p| p.dot(up) > top + SIGHT_RISE)
+        .map(|p| p.dot(barrel))
+        .reduce(f32::min);
+    let [ahead, ..] = asset_ja::rig::POCKET;
+    // How far under the seat the grip (the gun's origin) stands.
+    let high = top - COMB_DROP;
+    let low_grip = ((high - LOW_GRIP_FROM).max(0.0) * LOW_GRIP_OUT).min(LOW_GRIP_OUT_MOST);
+    let along = butt
+        .dot(barrel)
+        .min(ahead - asset_ja::rig::GRIP_NEAREST - low_grip)
+        .min(sight.map_or(f32::INFINITY, |sight| sight - SIGHT_NEAREST));
+    // The face is on the gun's left, toward its −side. A seat further
+    // toward the −side holds the gun further from the face.
+    let face = most(side, f32::min).unwrap_or(butt.dot(side));
+    let across = butt.dot(side).min(face + CHEEK_SIDE);
+    barrel * along + up * high + side * across
 }
 
 impl GunShape {
@@ -344,10 +453,21 @@ impl GunShape {
                 }
             })
             .collect();
+        let rearmost = (triangles.iter().flatten())
+            .map(|p| p.dot(barrel))
+            .fold(f32::INFINITY, f32::min);
+        let rear: Vec<Vec3> = (triangles.iter().flatten())
+            .filter(|p| p.dot(barrel) <= rearmost + BUTT_DEPTH)
+            .copied()
+            .collect();
+        let butt = rear.iter().sum::<Vec3>() / rear.len().max(1) as f32;
+        let seat = seat(&triangles, (barrel, up), (rearmost, butt));
         Some(GunShape {
             muzzle,
             barrel,
             up,
+            butt,
+            seat,
             profile,
         })
     }
@@ -366,16 +486,15 @@ impl GunShape {
 /// How a gun is held up and kicks (`asset_ja::rig::Aim`, `cast`): where the
 /// other hand holds it, as a share of the way from the grip to the muzzle
 /// (none for one hand); how far the wrist goes forward of where JA's pose
-/// has it (metres); a shot's kick up (degrees) and back (metres), how long
-/// it takes to peak and to settle (ms), and the share of it that lingers and
-/// how long that takes to settle (ms); its muzzle flash's colour, as a multiple of its model's; and
-/// its flash before the eyes.
+/// has it (metres); how long a shot's kick takes to peak and to settle
+/// (ms), and the share of it that lingers and how long that takes to
+/// settle (ms); its muzzle flash's colour, as a multiple of its model's;
+/// and its flash before the eyes. How far a shot pushes the gun is the
+/// firing motion's (`recoil::push`).
 #[derive(Debug, Clone, Copy)]
 pub struct Handling {
     pub support: Option<f32>,
     pub forward: f32,
-    pub kick_degrees: f32,
-    pub kick_back: f32,
     pub rise_ms: f32,
     pub settle_ms: f32,
     pub tail: (f32, f32),
@@ -399,8 +518,6 @@ impl Handling {
     pub const STILL: Handling = Handling {
         support: None,
         forward: 0.0,
-        kick_degrees: 0.0,
-        kick_back: 0.0,
         rise_ms: 1.0,
         settle_ms: 1.0,
         tail: (0.0, 1.0),
@@ -414,7 +531,10 @@ impl Handling {
 
     /// How much of its kick a gun shows (0 to 1) `since` ms after its last
     /// shot: up over `rise_ms`, then settling. With a kick that lingers it
-    /// rises from what was left of the shot `gap` ms before it.
+    /// rises from what was left of the shot `gap` ms before it. The settle
+    /// is lowered by `KICK_CUT` and stretched back to the full height, so
+    /// it reaches exactly nothing once it would fall below that share, and
+    /// it never jumps there.
     pub fn kick(&self, since: f32, gap: Option<f32>) -> f32 {
         let (share, tail_ms) = self.tail;
         if since < 0.0 {
@@ -426,11 +546,15 @@ impl Handling {
             left + (1.0 - left) * since / self.rise_ms
         } else {
             let after = since - self.rise_ms;
-            (1.0 - share) * (-after * 3.0 / self.settle_ms).exp()
-                + share * (-after * 3.0 / tail_ms).exp()
+            let left = (1.0 - share) * (-after * 3.0 / self.settle_ms).exp()
+                + share * (-after * 3.0 / tail_ms).exp();
+            ((left - KICK_CUT) / (1.0 - KICK_CUT)).max(0.0)
         }
     }
 }
+
+/// The share of a shot's kick below which it is gone (`Handling::kick`).
+const KICK_CUT: f32 = 0.01;
 
 /// How long a muzzle flash stands at its brightest before the eyes (ms): two
 /// frames at 60 frames a second.
@@ -448,17 +572,17 @@ pub fn handling(blaster: Blaster) -> Handling {
         Blaster::Repeater => (Some(0.45), 0.08),
         _ => (Some(0.5), 0.0),
     };
-    // Up (degrees), back (metres), rise and settle (ms), the kick's tail
-    // (the camera turns with the sim's kick, `sim::combat::bloom`); the
-    // flash's colour; its size and light.
-    let (kick_degrees, kick_back, rise_ms, settle_ms, tail) = match blaster {
-        Blaster::Pistol => (3.0, 0.05, 30.0, 110.0, (0.35, 500.0)),
-        Blaster::Rifle => (0.8, 0.08, 40.0, 90.0, (0.45, 600.0)),
-        Blaster::Repeater => (0.6, 0.05, 20.0, 45.0, (0.5, 350.0)),
-        Blaster::Bowcaster => (1.5, 0.1, 50.0, 140.0, (0.45, 800.0)),
-        Blaster::Disruptor => (1.5, 0.12, 40.0, 150.0, (0.5, 900.0)),
-        Blaster::Ion => (1.0, 0.07, 40.0, 100.0, (0.45, 600.0)),
-        Blaster::Sonic => (1.5, 0.09, 35.0, 110.0, (0.4, 600.0)),
+    // The kick's rise and settle (ms) and its tail (the camera turns with
+    // the sim's kick, `sim::combat::bloom`); the flash's colour; its size
+    // and light.
+    let (rise_ms, settle_ms, tail) = match blaster {
+        Blaster::Pistol => (30.0, 110.0, (0.35, 500.0)),
+        Blaster::Rifle => (40.0, 90.0, (0.45, 600.0)),
+        Blaster::Repeater => (20.0, 45.0, (0.5, 350.0)),
+        Blaster::Bowcaster => (50.0, 140.0, (0.45, 800.0)),
+        Blaster::Disruptor => (40.0, 150.0, (0.5, 900.0)),
+        Blaster::Ion => (40.0, 100.0, (0.45, 600.0)),
+        Blaster::Sonic => (35.0, 110.0, (0.4, 600.0)),
     };
     let flash_tint = match blaster {
         Blaster::Pistol | Blaster::Rifle => Vec3::new(1.0, 0.4, 0.3),
@@ -479,8 +603,6 @@ pub fn handling(blaster: Blaster) -> Handling {
     Handling {
         support,
         forward,
-        kick_degrees,
-        kick_back,
         rise_ms,
         settle_ms,
         tail,
@@ -572,7 +694,8 @@ impl JaHilt {
     /// Its model, named as the KOTOR hilt it stands for (`kotor`). It keeps
     /// the KOTOR hilt's refused saber meshes, which name the blade texture:
     /// the scene loads that texture by them, and a blade in a colour JA has
-    /// no blade of (`BladeSpec::own`) takes its colour from it.
+    /// no blade of (`BladeSpec::own`) takes its colour from it. Their node
+    /// numbers are the KOTOR hilt's, so nothing places a blade by them here.
     fn model(&self, kotor: &ModelIr) -> ModelIr {
         let blades = (kotor.refusals.iter())
             .filter(|(_, refusal)| matches!(refusal, Refusal::SaberBlade { .. }))
@@ -800,11 +923,15 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
                 .collect::<Vec<_>>()
         })
         .chain(parts.iter().map(points));
-    let boxes = ir.refusals.iter().filter_map(|(name, refusal)| {
-        let Refusal::SaberBlade { bounds: b, .. } = refusal else {
+    let boxes = ir.refusals.iter().filter_map(|(_, refusal)| {
+        let Refusal::SaberBlade {
+            node, bounds: b, ..
+        } = refusal
+        else {
             return None;
         };
-        let node = ir.node_index(name)?;
+        let node = *node;
+        ir.nodes.get(node)?;
         let corners = (0..8).map(|c: usize| {
             let pick = |axis: usize| b[axis + 3 * ((c >> axis) & 1)];
             place(node, [pick(0), pick(1), pick(2)])
@@ -926,7 +1053,7 @@ pub fn arm(
             ends: Vec::new(),
             gun: GunShape::of(&placed.ir),
             power: PowerClips::of(&placed.ir),
-            lay: Transform::IDENTITY,
+            lay: [Transform::IDENTITY; 2],
         };
         if let Some((hilt, specs)) = kotor_blades(placed.ir.clone()) {
             // A JA hilt the settings name in its place (`Sabers::hilts`),
@@ -1136,23 +1263,51 @@ impl Stow {
             f32::to_radians(rz),
         ))
     }
+
+    /// The place (`place`) on the right side (`side` 0), or on the left
+    /// (`side` 1), mirrored across the body's x.
+    fn placed(self, side: usize) -> Transform {
+        let place = self.place();
+        if side == 0 {
+            return place;
+        }
+        Transform {
+            translation: place.translation * Vec3::new(-1.0, 1.0, 1.0),
+            rotation: Quat::from_xyzw(
+                place.rotation.x,
+                -place.rotation.y,
+                -place.rotation.z,
+                place.rotation.w,
+            ),
+            scale: place.scale,
+        }
+    }
 }
 
 /// How far past its place on the back a weapon's near end may reach
 /// (metres): a long hilt over the shoulder.
 const BACK_REACH: f32 = 0.2;
 
-/// How a weapon model lies on the back, under its `Stow::Back` place. The
-/// place is tuned for a blade, whose length runs along its model's +Z from
-/// the hilt and whose flat faces its ±X, against the back. A blade keeps
-/// that lie. Any other model, such as a gun whose barrel runs along its +Y,
-/// is turned to lie the same way. Its longest side runs along +Z, toward
-/// its end farther from its origin (a gun's muzzle). Its thinnest side
-/// faces ±X, against the back. A gun's top (`GunShape::up`) faces +Y, the
-/// way a blade's edge does. Any model is then moved down along its length
-/// until its near end reaches no more than `BACK_REACH` past the place, so
-/// a long gun's stock does not stand up past the shoulder.
-fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> Transform {
+/// How far (metres) a weapon on the back may reach in front of its place,
+/// into the body: half a blade's thickness, the depth the place was fitted
+/// with.
+const BACK_SINK: f32 = 0.01;
+
+/// How a weapon model lies on the back, under its `Stow::Back` place, on
+/// the right side and on the left. The place is tuned for a blade, whose
+/// length runs along its model's +Z from the hilt and whose flat faces its
+/// ±X, against the back. A blade keeps that lie. Any other model, such as
+/// a gun whose barrel runs along its +Y, is turned to lie the same way.
+/// Its longest side runs along +Z, toward its end farther from its origin
+/// (a gun's muzzle). Its thinnest side faces ±X, against the back. A gun's
+/// top (`GunShape::up`) faces +Y, the way a blade's edge does. Any model is
+/// then moved down along its length until its near end reaches no more
+/// than `BACK_REACH` past the place, so a long gun's stock does not stand
+/// up past the shoulder. Last, a model thicker than a blade is moved back
+/// off the body until no part of it reaches more than `BACK_SINK` in front
+/// of the place. A heavy repeating blaster placed by its middle, as a blade
+/// is, sank into the back, and only its stock and its muzzle showed.
+fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> [Transform; 2] {
     let (lo, hi) = model
         .meshes
         .iter()
@@ -1163,7 +1318,7 @@ fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> Transform {
             |(lo, hi), p| (lo.min(p), hi.max(p)),
         );
     if lo.x > hi.x {
-        return Transform::IDENTITY;
+        return [Transform::IDENTITY; 2];
     }
     let size = hi - lo;
     let by_size = |a: &Vec3, b: &Vec3| size.dot(*a).total_cmp(&size.dot(*b));
@@ -1188,7 +1343,28 @@ fn back_lay(model: &ModelIr, gun: Option<&GunShape>) -> Transform {
     // How far its near end reaches behind its origin, along its length.
     let behind = -lo.dot(length).min(hi.dot(length));
     let down = (behind - BACK_REACH).max(0.0);
-    Transform::from_translation(Vec3::Z * down).with_rotation(rotation)
+    let laid = Transform::from_translation(Vec3::Z * down).with_rotation(rotation);
+    let corners = (0..8).map(|corner: u8| {
+        let pick = |bit: u8, low: f32, high: f32| if corner & bit == 0 { low } else { high };
+        laid.transform_point(Vec3::new(
+            pick(1, lo.x, hi.x),
+            pick(2, lo.y, hi.y),
+            pick(4, lo.z, hi.z),
+        ))
+    });
+    std::array::from_fn(|side| {
+        // The way into the body (the node's +Y) as the model lies.
+        let into = Stow::Back.placed(side).rotation.inverse() * Vec3::Y;
+        let deepest = corners
+            .clone()
+            .map(|corner| corner.dot(into))
+            .fold(f32::NEG_INFINITY, f32::max);
+        let back = (deepest - BACK_SINK).max(0.0);
+        Transform {
+            translation: laid.translation - into * back,
+            ..laid
+        }
+    })
 }
 
 /// Where `body` carries a `stow`ed weapon (right, left): its node and the
@@ -1200,23 +1376,12 @@ pub fn stow_nodes(body: &ModelIr, ja: bool, stow: Stow) -> [Option<(usize, Trans
     if ja {
         return [None, None];
     }
-    let place = stow.place();
-    let mirrored = Transform {
-        translation: place.translation * Vec3::new(-1.0, 1.0, 1.0),
-        rotation: Quat::from_xyzw(
-            place.rotation.x,
-            -place.rotation.y,
-            -place.rotation.z,
-            place.rotation.w,
-        ),
-        scale: place.scale,
-    };
     let names = stow.nodes();
     let lies_on = stow.lies_on().and_then(|name| body.node_index(name));
     let rest = |node: usize| crate::scene::to_mat4(&body.nodes[node].world);
     std::array::from_fn(|side| {
         let node = body.node_index(names[side])?;
-        let place = if side == 0 { place } else { mirrored };
+        let place = stow.placed(side);
         Some(match lies_on {
             Some(on) => (
                 on,
@@ -1297,8 +1462,9 @@ struct Wield {
     hung: Hung,
     /// A powered item's clips (`Power`).
     power: Option<Power>,
-    /// How it lies when carried on the back (`back_lay`).
-    lay: Transform,
+    /// How it lies when carried on the back, on the right side and on the
+    /// left (`back_lay`).
+    lay: [Transform; 2],
 }
 
 /// Where a weapon model hangs: the hand that holds it in a fight, where it
@@ -1510,9 +1676,10 @@ impl Wielded {
             // On the back it lies along its length (`back_lay`); a
             // double-bladed one is turned the same way but stays held by
             // its middle.
+            let lay = armed.lay[usize::from(slot == 1)];
             let lay = match stow {
-                Some(Stow::Back) => armed.lay,
-                Some(Stow::Staff) => Transform::from_rotation(armed.lay.rotation),
+                Some(Stow::Back) => lay,
+                Some(Stow::Staff) => Transform::from_rotation(lay.rotation),
                 _ => Transform::IDENTITY,
             };
             let belt = stow
@@ -1957,15 +2124,142 @@ pub fn view_probes() -> sim::probe::Checks {
     checks.push(("crystal blades", crystal_blades()));
     checks.push(("short saber blades", short_saber_blades()));
     checks.push(("back lay", back_lays()));
+    checks.extend(blade_probes());
     checks
+}
+
+/// The blades built from a KOTOR hilt's saber nodes (`kotor_blades`).
+/// Lightsaber Hilt Variety names all eight blade nodes of its
+/// double-bladed hilts `plane239`, and kjk built one blade for them.
+#[cfg(feature = "probes")]
+pub fn blade_probes() -> sim::probe::Checks {
+    vec![
+        ("double blades sharing a name", made_double_blades()),
+        ("vanilla double blades renamed", renamed_double_blades()),
+    ]
+}
+
+/// `(origin, dir, length)` of each blade, to compare two builds.
+#[cfg(feature = "probes")]
+fn blade_lines(blades: &[BladeSpec]) -> Vec<String> {
+    (blades.iter())
+        .map(|b| format!("{:.3?} {:.0?} {:.2}", b.origin, b.dir, b.length))
+        .collect()
+}
+
+/// A made-up double-bladed hilt: a grip and eight saber nodes, all named
+/// `plane239`. Each has a blade box 0.8 long running up from its node.
+/// Four sit 0.1 above the grip, and four sit 0.9 below it, so that their
+/// boxes end 0.1 below the grip. It builds two blades of the same length.
+/// One leaves the grip 0.1 above it and runs up +Z, and the other leaves
+/// it 0.1 below it and runs down −Z.
+#[cfg(feature = "probes")]
+fn made_double_blades() -> Result<String, String> {
+    use fmt_odyssey::mdl::{Mesh, Model, Node};
+    let node = |name: &str, position: [f32; 3], mesh: Option<Mesh>| Node {
+        flags: 0,
+        number: 0,
+        name: name.into(),
+        position,
+        orientation: [1.0, 0.0, 0.0, 0.0],
+        controllers: Vec::new(),
+        light: None,
+        reference: None,
+        emitter: None,
+        mesh,
+        children: Vec::new(),
+        animated: false,
+    };
+    let saber_mesh = || Mesh {
+        bounds: [-0.01, -0.01, 0.0, 0.01, 0.01, 0.8],
+        textures: ["w_lsabre_red01".into(), "".into(), "".into(), "".into()],
+        diffuse: [1.0; 3],
+        ambient: [1.0; 3],
+        transparency_hint: 0,
+        render: true,
+        shadow: false,
+        lightmapped: false,
+        background: false,
+        beaming: false,
+        rotate_texture: false,
+        animate_uv: None,
+        positions: Vec::new(),
+        normals: Vec::new(),
+        uv1: Vec::new(),
+        uv2: Vec::new(),
+        faces: Vec::new(),
+        indices: Vec::new(),
+        skin: None,
+        dangly: None,
+        aabb: None,
+        saber: true,
+    };
+    let mut root = node("w_dblsbr_probe", [0.0; 3], None);
+    for z in [0.1, -0.9] {
+        for _ in 0..4 {
+            let piece = node("plane239", [0.0, 0.0, z], Some(saber_mesh()));
+            root.children.push(piece);
+        }
+    }
+    let model = Model {
+        name: "w_dblsbr_probe".into(),
+        classification: 0,
+        subclassification: 0,
+        affected_by_fog: false,
+        supermodel: None,
+        bounding_box: [0.0; 6],
+        radius: 0.0,
+        animation_scale: 1.0,
+        root,
+        animations: Vec::new(),
+    };
+    let ir = ModelIr::from_model(&model);
+    let (_, blades) = kotor_blades(ir).ok_or("no blades")?;
+    let ends: Vec<[f32; 2]> = (blades.iter())
+        .map(|blade| [blade.origin[2], blade.dir[2]])
+        .collect();
+    let placed = ends.len() == 2
+        && (ends.iter().zip([[0.1, 1.0], [-0.1, -1.0]]))
+            .all(|(got, want)| (0..2).all(|at| (got[at] - want[at]).abs() < 1e-4));
+    let same_length = blades
+        .windows(2)
+        .all(|pair| (pair[0].length - pair[1].length).abs() < 1e-4);
+    sim::probe::check(placed && same_length, format!("{:?}", blade_lines(&blades)))
+}
+
+/// K1's `w_dblsbr_001` read from the install, with every saber node given
+/// one name in memory, as Lightsaber Hilt Variety names them. It builds
+/// the same two blades as the model with its own names.
+#[cfg(feature = "probes")]
+fn renamed_double_blades() -> Result<String, String> {
+    let Some(resolver) = crate::k1_resolver() else {
+        return Ok("skipped: no K1 install".into());
+    };
+    let ir = viewer::model(&resolver, "w_dblsbr_001")?.ok_or("w_dblsbr_001: not read")?;
+    let mut renamed = ir.clone();
+    for (name, refusal) in &mut renamed.refusals {
+        if let Refusal::SaberBlade { node, .. } = refusal {
+            *name = "plane239".into();
+            renamed.nodes[*node].name = "plane239".into();
+        }
+    }
+    let lines = |ir: ModelIr| kotor_blades(ir).map(|(_, blades)| blade_lines(&blades));
+    let (own, shared) = (lines(ir), lines(renamed));
+    sim::probe::check(
+        own.as_ref().is_some_and(|own| own.len() == 2) && own == shared,
+        format!("own names {own:?}, one name {shared:?}"),
+    )
 }
 
 /// How weapons lie on the back (`back_lay`), on boxes shaped like KOTOR's
 /// models. A blaster rifle's barrel runs along its +Y, its top along +Z
 /// and its stock 0.12 m behind its grip: it is turned so its barrel runs
-/// along +Z and its top along +Y, and stays where it is. A sword's blade
-/// already runs along +Z and keeps its lie. A bowcaster's stock reaches
-/// 0.3 m behind its grip, so it moves 0.1 m down its length.
+/// along +Z and its top along +Y. It is 4 cm thick, so it moves 1 cm back
+/// off the body, on either side. A sword's blade already runs along +Z,
+/// is 2 cm thick and keeps its lie. A bowcaster's stock reaches 0.3 m
+/// behind its grip, so it moves 0.1 m down its length, and it is 6 cm
+/// thick, so it moves 2 cm back off the body. A heavy repeating
+/// blaster 14 cm thick moves 6 cm back off the body.
 #[cfg(feature = "probes")]
 fn back_lays() -> Result<String, String> {
     let boxed = |lo: [f32; 3], hi: [f32; 3]| {
@@ -1983,21 +2277,36 @@ fn back_lays() -> Result<String, String> {
         muzzle: Vec3::new(0.0, 0.6, 0.0),
         barrel: Vec3::Y,
         up: Vec3::Z,
+        butt: Vec3::ZERO,
+        seat: Vec3::ZERO,
         profile: Vec::new(),
     };
     let rifle = back_lay(&boxed([-0.02, -0.12, -0.1], [0.02, 0.6, 0.05]), Some(&gun));
     let sword = back_lay(&boxed([-0.01, -0.03, -0.1], [0.01, 0.03, 0.9]), None);
     let bowcaster = back_lay(&boxed([-0.2, -0.3, -0.03], [0.2, 0.5, 0.03]), Some(&gun));
+    let heavy = back_lay(&boxed([-0.07, -0.1, -0.15], [0.07, 0.7, 0.1]), Some(&gun));
     let near = |a: Vec3, b: Vec3| a.distance(b) < 1e-4;
-    let rifle_ok = near(rifle.rotation * Vec3::Y, Vec3::Z)
-        && near(rifle.rotation * Vec3::Z, Vec3::Y)
-        && near(rifle.translation, Vec3::ZERO);
-    let sword_ok = sword == Transform::IDENTITY;
-    let bowcaster_ok =
-        near(bowcaster.translation, Vec3::Z * 0.1) && near(bowcaster.rotation * Vec3::Y, Vec3::Z);
+    // How far each lay moves the model off the body, on each side.
+    let off = |lay: [Transform; 2]| {
+        [0, 1].map(|side| {
+            let into = Stow::Back.placed(side).rotation.inverse() * Vec3::Y;
+            -(lay[side].translation.dot(into))
+        })
+    };
+    let near_each = |got: [f32; 2], want: f32| got.iter().all(|got| (got - want).abs() < 1e-4);
+    let rifle_ok = rifle
+        .iter()
+        .all(|lay| near(lay.rotation * Vec3::Y, Vec3::Z) && near(lay.rotation * Vec3::Z, Vec3::Y))
+        && near_each(off(rifle), 0.01);
+    let sword_ok = sword == [Transform::IDENTITY; 2];
+    let bowcaster_ok = bowcaster
+        .iter()
+        .all(|lay| (lay.translation.z - 0.1).abs() < 1e-4 && near(lay.rotation * Vec3::Y, Vec3::Z))
+        && near_each(off(bowcaster), 0.02);
+    let heavy_ok = near_each(off(heavy), 0.06);
     sim::probe::check(
-        rifle_ok && sword_ok && bowcaster_ok,
-        format!("rifle {rifle:?}, sword {sword:?}, bowcaster {bowcaster:?}"),
+        rifle_ok && sword_ok && bowcaster_ok && heavy_ok,
+        format!("rifle {rifle:?}, sword {sword:?}, bowcaster {bowcaster:?}, heavy {heavy:?}"),
     )
 }
 

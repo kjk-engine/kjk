@@ -30,8 +30,10 @@ use rules::movement::rolls;
 
 use crate::input::{Command, buttons};
 use crate::math::{self, Vec3, dot, length, mad, normalize, scale};
+#[cfg(feature = "probes")]
+pub(crate) use anim::is_kick;
 pub use anim::is_run;
-pub use anim::{Anim, AnimInfo, AnimTable, Part};
+pub use anim::{Anim, AnimInfo, AnimTable, Part, clip_speed, is_grapple};
 use anim::{Animator, Parts, play_flags};
 pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
 #[cfg(feature = "probes")]
@@ -289,6 +291,18 @@ pub fn react(ps: &mut MotionState, anims: &AnimTable, anim: Anim, torso_only: bo
     );
 }
 
+/// `react` on both parts, started over when it already plays: a grab's
+/// clips (`world::grapples`), each its own from the start.
+pub fn react_anew(ps: &mut MotionState, anims: &AnimTable, anim: Anim) {
+    let animator = Animator {
+        table: anims,
+        sent_legs: ps.legs.anim,
+        sent_torso: ps.torso.anim,
+    };
+    let set = play_flags::OVER_ANY | play_flags::HOLD_FULL | play_flags::ANEW;
+    animator.play(ps, Parts::WHOLE, anim, set);
+}
+
 /// Plays a shot's `anim` on the torso: over whatever plays, started over
 /// when it already plays or when the step began in it (`sent`), so each
 /// shot of a held trigger kicks; its timer is left as it is. Not for the
@@ -371,6 +385,12 @@ struct Move<'a, 'b> {
     on_walkable: bool,
     /// The plane of the ground below, walkable or steep.
     ground_plane: Option<Vec3>,
+    /// The box stands with its middle on a placeable's drawn shape that is
+    /// not walkable (`slide::flank`), such as a heap's top it jumped onto.
+    on_shape: bool,
+    /// The ground below is a flank (`slide::flank`) under any part of the
+    /// box.
+    ground_flank: bool,
     /// The speed the keys ask for at full tilt (units/s).
     speed: f32,
     /// The view's forward and right.
@@ -380,6 +400,29 @@ struct Move<'a, 'b> {
     /// The state as the step found it, before anything moved it.
     origin_before: Vec3,
     velocity_before: Vec3,
+    room: SearchedOnce,
+    freed: SearchedOnce,
+}
+
+/// The world does not change within a step, and a body wedged in the level
+/// searches the same spots at both of a step's ground checks.
+#[derive(Default)]
+struct SearchedOnce(Option<(BoxAt, Option<Vec3>)>);
+
+#[derive(PartialEq, Clone, Copy)]
+struct BoxAt([u32; 9]);
+
+impl SearchedOnce {
+    fn get_or(&mut self, key: BoxAt, search: impl FnOnce() -> Option<Vec3>) -> Option<Vec3> {
+        match self.0 {
+            Some((made, answer)) if made == key => answer,
+            _ => {
+                let answer = search();
+                self.0 = Some((key, answer));
+                answer
+            }
+        }
+    }
 }
 
 /// One movement step of `msec` milliseconds ending at `time_ms`, against
@@ -438,6 +481,14 @@ pub(crate) fn walker_world<'a>(
         collision::Masked::new(world, Contents::SHAPE)
     } else {
         collision::Masked::new(world, Contents::NONE)
+    }
+}
+
+pub(crate) fn body_box(maxs_z: f32) -> Extents {
+    let half = HALF_WIDTH * UNIT;
+    Extents {
+        mins: [-half, -half, SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
     }
 }
 
@@ -528,12 +579,16 @@ impl<'a, 'b> Move<'a, 'b> {
             maxs,
             on_walkable: false,
             ground_plane: None,
+            on_shape: false,
+            ground_flank: false,
             speed: 0.0,
             view_forward: [0.0; 3],
             view_right: [0.0; 3],
             touches: Vec::new(),
             origin_before: ps.origin,
             velocity_before: ps.velocity,
+            room: SearchedOnce::default(),
+            freed: SearchedOnce::default(),
             ps,
         }
     }
@@ -869,21 +924,32 @@ impl Move<'_, '_> {
         self.ps.ground = None;
         self.ground_plane = None;
         self.on_walkable = false;
+        self.on_shape = false;
+        self.ground_flank = false;
+    }
+
+    fn box_at(&self) -> BoxAt {
+        let mut key = [0; 9];
+        let all = self.ps.origin.iter().chain(&self.mins).chain(&self.maxs);
+        for (slot, value) in key.iter_mut().zip(all) {
+            *slot = value.to_bits();
+        }
+        BoxAt(key)
     }
 
     /// Finds what the box stands on, landing it when it comes down.
     fn find_ground(&mut self) {
         let mut hit = self.probe_below();
         if hit.all_solid
-            && let Some(spot) = self.room_nearby()
+            && let Some(spot) = self.room_nearby_once()
             && spot != self.ps.origin
         {
             self.ps.origin = spot;
             hit = self.probe_below();
         }
 
-        if hit.all_solid && self.room_nearby().is_none() {
-            if let Some(spot) = self.free_spot() {
+        if hit.all_solid && self.room_nearby_once().is_none() {
+            if let Some(spot) = self.free_spot_once() {
                 self.ps.origin = spot;
             }
             self.leave_ground();
@@ -893,14 +959,20 @@ impl Move<'_, '_> {
             self.ground_missed();
             self.ground_plane = None;
             self.on_walkable = false;
+            self.on_shape = false;
+            self.ground_flank = false;
             return;
         }
+        self.ground_flank = slide::flank(hit.contents);
+        self.on_shape = self.ground_flank && self.middle_on_flank(self.ps.origin);
         let velocity = self.ps.velocity;
         if velocity[2] > 0.0 && dot(velocity, hit.normal) > rules::movement::air::THROWN_OFF {
-            if self.cmd.forward >= 0 {
+            // A finisher's throw flies in its own clip (`world::grapples`).
+            let thrown = anim::is_grapple(self.ps.legs.anim);
+            if !thrown && self.cmd.forward >= 0 {
                 self.animator.legs_now(self.ps, Anim::BOTH_JUMP1);
                 self.ps.flags &= !motion_flags::JUMPED_BACK;
-            } else {
+            } else if !thrown {
                 self.animator.legs_now(self.ps, Anim::BOTH_JUMPBACK1);
                 self.ps.flags |= motion_flags::JUMPED_BACK;
             }
@@ -1008,7 +1080,8 @@ impl Move<'_, '_> {
         // A special jump's legs still playing land in their own clip (JA
         // sets the landing's timer only on legs that can be cut).
         let legs = self.ps.legs;
-        let held = anim::in_special_jump(legs.anim) && legs.timer > 0;
+        let held =
+            (anim::in_special_jump(legs.anim) || anim::is_grapple(legs.anim)) && legs.timer > 0;
         if !rolling && !held && self.ps.in_air_anim {
             let anim = if self.ps.flags & motion_flags::JUMPED_BACK != 0 {
                 Anim::BOTH_LANDBACK1
@@ -1090,6 +1163,32 @@ impl Move<'_, '_> {
         self.trace(o, end, self.mins, self.maxs).fraction < rules::movement::fine::CREVICE_FREE
     }
 
+    fn room_nearby_once(&mut self) -> Option<Vec3> {
+        let key = self.box_at();
+        let mut room = std::mem::take(&mut self.room);
+        let found = room.get_or(key, || self.room_nearby());
+        self.room = room;
+        found
+    }
+
+    fn free_spot_once(&mut self) -> Option<Vec3> {
+        let key = self.box_at();
+        let mut freed = std::mem::take(&mut self.freed);
+        let found = freed.get_or(key, || self.free_spot());
+        self.freed = freed;
+        found
+    }
+
+    fn fits(&self, spot: Vec3) -> bool {
+        let at = scale(spot, UNIT);
+        let extents = Extents {
+            mins: scale(self.mins, UNIT),
+            maxs: scale(self.maxs, UNIT),
+        };
+        self.collision
+            .fits(at, &Shape::Upright(extents), Contents::PLAYER_SOLID)
+    }
+
     /// The first of the 27 spots within a unit of the origin on each axis
     /// (the origin among them) where the box fits (JA only checks for one:
     /// a body with room so near is left where it is).
@@ -1100,7 +1199,7 @@ impl Move<'_, '_> {
             NUDGES.iter().find_map(|&dy| {
                 NUDGES.iter().find_map(|&dz| {
                     let spot = [o[0] + dx, o[1] + dy, o[2] + dz];
-                    (!self.trace(spot, spot, self.mins, self.maxs).all_solid).then_some(spot)
+                    self.fits(spot).then_some(spot)
                 })
             })
         })
@@ -1121,7 +1220,7 @@ impl Move<'_, '_> {
                     .into_iter()
                     .find_map(|dz| {
                         let spot = [o[0] + r * cos, o[1] + r * sin, o[2] + dz];
-                        (!self.trace(spot, spot, self.mins, self.maxs).all_solid).then_some(spot)
+                        self.fits(spot).then_some(spot)
                     })
             })
         })
@@ -1220,7 +1319,7 @@ impl Move<'_, '_> {
         self.friction();
         self.note_push_direction();
 
-        let plane = self.ground_plane.unwrap_or([0.0, 0.0, 1.0]);
+        let plane = self.walking_plane().unwrap_or([0.0, 0.0, 1.0]);
         let along = |v: Vec3| {
             let mut v = self.along_plane([v[0], v[1], 0.0], plane);
             normalize(&mut v);

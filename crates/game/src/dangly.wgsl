@@ -1,43 +1,34 @@
-// A danglymesh drawn into a camera's prepass (`material`, `dangly`): placed
-// as Bevy's prepass places an unskinned mesh (and its main pass, whose depth
-// this must match), with where each vertex was the frame before taken from
-// `PREVIOUS_POSITION`, which `dangly::sway` writes as it moves them. Its
-// motion is then the sway's as well as the node's.
+// Placed as Bevy places an unskinned mesh, so the prepass's depth matches
+// the main pass's.
 
 #import bevy_pbr::{
     mesh_functions,
-    prepass_io::VertexOutput,
     view_transformations::position_world_to_clip,
 }
+#ifdef PREPASS_PIPELINE
+#import bevy_pbr::prepass_io::{Vertex, VertexOutput}
+#else
+#import bevy_pbr::forward_io::{Vertex, VertexOutput}
+#endif
+#import kjk::sway::{SwayVertex, last_slot}
 
-struct Vertex {
-    @builtin(instance_index) instance_index: u32,
-    @location(0) position: vec3<f32>,
-#ifdef VERTEX_UVS_A
-    @location(1) uv: vec2<f32>,
-#endif
-#ifdef VERTEX_UVS_B
-    @location(2) uv_b: vec2<f32>,
-#endif
-#ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS
-#ifdef VERTEX_NORMALS
-    @location(3) normal: vec3<f32>,
-#endif
-#endif
-#ifdef VERTEX_COLORS
-    @location(7) color: vec4<f32>,
-#endif
-    // `material::PREVIOUS_POSITION_LOCATION`.
-    @location(8) previous_position: vec3<f32>,
+@group(#{MATERIAL_BIND_GROUP}) @binding(19) var<storage, read> sway: array<SwayVertex>;
+
+fn place(at: array<f32, 3>) -> vec4<f32> {
+    return vec4<f32>(at[0], at[1], at[2], 1.0);
 }
 
 @vertex
-fn vertex(vertex: Vertex) -> VertexOutput {
+fn vertex(
+    vertex: Vertex,
+    @location(#{DANGLY_SLOT}) slot: u32,
+) -> VertexOutput {
+    let swayed = sway[min(slot, last_slot(arrayLength(&sway)))];
     var out: VertexOutput;
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     out.world_position = mesh_functions::mesh_position_local_to_world(
         world_from_local,
-        vec4<f32>(vertex.position, 1.0),
+        place(swayed.now),
     );
     out.position = position_world_to_clip(out.world_position.xyz);
 #ifdef VERTEX_UVS_A
@@ -46,6 +37,10 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #ifdef VERTEX_UVS_B
     out.uv_b = vertex.uv_b;
 #endif
+#ifdef VERTEX_COLORS
+    out.color = vertex.color;
+#endif
+#ifdef PREPASS_PIPELINE
 #ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS
 #ifdef VERTEX_NORMALS
     out.world_normal = mesh_functions::mesh_normal_local_to_world(
@@ -54,14 +49,26 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     );
 #endif
 #endif
-#ifdef VERTEX_COLORS
-    out.color = vertex.color;
-#endif
 #ifdef MOTION_VECTOR_PREPASS
     out.previous_world_position = mesh_functions::mesh_position_local_to_world(
         mesh_functions::get_previous_world_from_local(vertex.instance_index),
-        vec4<f32>(vertex.previous_position, 1.0),
+        place(swayed.was),
     );
+#endif
+#else
+#ifdef VERTEX_NORMALS
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(
+        vertex.normal,
+        vertex.instance_index,
+    );
+#endif
+#ifdef VERTEX_TANGENTS
+    out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
+        world_from_local,
+        vertex.tangent,
+        vertex.instance_index,
+    );
+#endif
 #endif
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     out.instance_index = vertex.instance_index;

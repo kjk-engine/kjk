@@ -191,6 +191,8 @@ impl Step<'_> {
                     || mv.parry()
                     || saber.blocked != Blocked::None,
                 recovering: man.f.force.recover_until > now,
+                under_fire: !man.keyed
+                    && defence::bolts_turned_lately(&man.f, self.tick, self.msec) > 0,
             };
             let man = &mut self.men[at];
             let pool = man.pool();
@@ -626,7 +628,8 @@ impl Step<'_> {
     /// good parry, when `d`'s stance set has the parry for where the blades
     /// met and `d`'s weapon. The parry is not a saber move: `d` stays in
     /// the ready move, its torso plays the parry over it, and its weapon
-    /// timer is set to a random 300 to 600 ms. It is skipped, with the
+    /// timer is set to a random 150 to 300 ms after a perfect block, or 300
+    /// to 600 ms after a good parry (`duel::parry_wait`). It is skipped, with the
     /// perfect block's rewards kept, while `d` is in a transition, a
     /// bounce, a knockaway, an attack or a broken move, rolling, down, or
     /// raising or lowering its blade. A perfect block of an unblockable
@@ -673,7 +676,7 @@ impl Step<'_> {
             return if perfect { Took::Nothing } else { took };
         }
         let length = i64::from(sequence.frames) * i64::from(sequence.frame_lerp.abs());
-        let wait = duel::parry_wait(|low, high| roll_between(self.rng, low, high));
+        let wait = duel::parry_wait(perfect, |low, high| roll_between(self.rng, low, high));
         let now = self.now;
         let f = &mut self.men[d].f;
         f.weapon_wait_ms = wait;
@@ -999,13 +1002,13 @@ impl Step<'_> {
 /// A bolt that met `fighter` at `at` under the Advanced rules, as
 /// `sabers::bolt_block` under JA's: a lit lightsaber in hand and the Jedi
 /// Defense feat turn it when its shooter lies within the feat's arc
-/// (`shots::in_arc`), a player also holding block with the Stamina to pay
-/// for it, a creature paying what it has. A bolt from outside the arc, or
-/// to a fighter without the feat, hits; one on a blade not blocking is
+/// (`shots::in_arc`) and it has the Stamina the block takes, a player also
+/// holding block. A bolt from outside the arc, to a fighter without the
+/// feat or to one with too little Stamina, hits; one on a blade not blocking is
 /// turned wildly for `bolts::WILD`. The shooter's way is its place, else the
 /// bolt's own way reversed. Where it goes (`shots::aim`): toward the crosshair (block
 /// alone), back at the shooter's head (block and attack), a creature's at
-/// the shooter's chest. Its pose by the meter left (`bolts::BANDS`). The
+/// the shooter's chest (strayed further by `world::bolts`, `creature_fate`). Its pose by the meter left (`bolts::BANDS`). The
 /// shooter's Precise Shot takes `penalty` off the deflection bonus that
 /// lowers the cost.
 #[allow(clippy::too_many_arguments)]
@@ -1055,12 +1058,20 @@ pub(in crate::world) fn bolt_block(
     let to_shooter = shots::to_shooter(ps.origin, shooter, bolt.velocity);
     let covers = shots::in_arc(tier, forward, to_shooter);
     let from_ahead = shots::in_arc(top, forward, to_shooter);
-    let blocking = covers && (!player || (state.block_held && steady && left >= cost));
+    // Neither a player nor a creature turns a bolt with less of the bar
+    // than the block takes.
+    let blocking = covers && left >= cost && (!player || (state.block_held && steady));
     let back = math::sub(math::scale(at, 2.0), ps.origin);
     let toward = shooter.unwrap_or(back);
     let swinging = !current.idle();
     let way = if blocking {
         meter::spend(fighter, cost.min(left), cap);
+        // A turned bolt uses the press of attack that is not yet paid for, as
+        // a perfect block does, so the press costs nothing
+        // (`perfect::MISS_COST`).
+        if player {
+            fighter.saber.duel.perfect_until = 0;
+        }
         let aim = match (player, aimed, shooter) {
             (true, false, _) | (_, _, None) => shots::Aim::Crosshair {
                 forward,
@@ -1101,6 +1112,7 @@ pub(in crate::world) fn bolt_block(
         weapon: Some(bolt.weapon.delivery),
         at: Some(Event::units(at)),
         visual: None,
+        wild: !blocking,
     });
     Some(BoltFate::Turned(way))
 }

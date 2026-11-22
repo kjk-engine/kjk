@@ -39,7 +39,7 @@ use crate::input::{Command, Seat, TickInput, buttons};
 use crate::install::InstallError;
 use crate::math::{self, scale};
 use crate::module::{Bulk, Global, ModuleData, ObjectData, ObjectKind, Side};
-use crate::motion::{self, AnimTable, MotionState, Touches};
+use crate::motion::{self, AnimTable, MotionState};
 use crate::rng::SimRng;
 use crate::walk;
 pub mod arena;
@@ -100,6 +100,10 @@ pub mod effects_probes;
 pub mod floor_probes;
 #[cfg(feature = "probes")]
 pub mod force_probes;
+#[cfg(feature = "probes")]
+pub mod held_probes;
+#[cfg(feature = "probes")]
+pub mod hold_probes;
 mod minigame;
 #[cfg(feature = "probes")]
 pub mod own_item_probes;
@@ -165,6 +169,7 @@ pub mod doorway_probes;
 #[cfg(feature = "probes")]
 pub mod facing_probes;
 mod firing;
+pub mod grapples;
 mod harm;
 mod interaction;
 #[cfg(feature = "probes")]
@@ -320,6 +325,11 @@ impl Rules {
     }
 }
 
+/// The share of the normal damage each side takes, the session's
+/// (`Snapshot::damage_taken`).
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct DamageTaken(pub(crate) crate::combat::damage::Taken);
+
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
 
@@ -397,11 +407,6 @@ struct Module {
     /// (`crate::visuals`).
     visuals: Vec<crate::visuals::OnObject>,
 }
-
-/// What each seat's move ran into this step (in seat order). Filled by
-/// `move_players`, read by `interact`; not state.
-#[derive(Resource, Default)]
-struct Touched(Vec<(Seat, Touches)>);
 
 /// Who ran into which entity this step, in move order: a closed door
 /// that opens opens for that creature, its opener (`interact`). Not state.
@@ -527,12 +532,22 @@ struct Hit {
 /// `by` at `now`: holds as C11 holds the Force's (fear's ends on damage),
 /// confusion, Slow's first level, a point of an ability drained, a
 /// `poison.2da` row's poison (the level's table; none where it has none), a
-/// knockdown as a thermal detonator's.
-fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, level: &Level) {
+/// knockdown as a thermal detonator's. Whether a hold was refused for the
+/// target's recent holds (`ForceState::weary`).
+fn struck_by(
+    fighter: &mut Fighter,
+    effect: gear::Struck,
+    by: SimId,
+    now: u64,
+    level: &Level,
+) -> bool {
     match effect {
-        gear::Struck::Hold { ms, fear } => {
-            if fighter.force.hold(now, ms) {
+        gear::Struck::Hold { ms, fear, save } => {
+            let kind = crate::combat::force::HoldKind::Combat(Some(save));
+            if fighter.force.hold(now, ms, kind) {
                 fighter.force.hold = if fear { Hold::Fear } else { Hold::Stun };
+            } else {
+                return fighter.force.weary(now);
             }
         }
         gear::Struck::Confuse(ms) => {
@@ -564,6 +579,7 @@ fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, l
         }
         gear::Struck::Death => {}
     }
+    false
 }
 
 /// A script's push (`EffectForcePushed`, `EffectForcePushTargeted` outside
@@ -931,6 +947,18 @@ impl SimWorld {
     /// from its snapshots). A module change and a save keep the choice.
     pub fn set_targeted_blocks(&mut self, on: bool) {
         self.world.resource_mut::<Rules>().1 = on;
+    }
+
+    /// The party and the enemies take `taken` of the normal damage from now
+    /// on (the options' choice, on the host: a guest's world takes the
+    /// host's from its snapshots). A module change and a save keep it.
+    pub fn set_damage_taken(&mut self, taken: crate::combat::damage::Taken) {
+        self.world.resource_mut::<DamageTaken>().0 = taken;
+    }
+
+    /// The share of the normal damage each side takes.
+    pub fn damage_taken(&self) -> crate::combat::damage::Taken {
+        self.world.resource::<DamageTaken>().0
     }
 
     /// Whether targeted blocks apply. They apply only under the Advanced
@@ -1434,6 +1462,21 @@ pub fn lent(party: &crate::script::party::Party) -> Option<SimId> {
         .map(SimId)
 }
 
+/// Whether a seat plays the body `id`, which carries `avatar`. A seat
+/// plays it when a seat's commands act through it (`keyed_by`). Those
+/// bodies are a seat's own character, a companion a seat drives or is
+/// switched to, and the companion leading the party (`lent`).
+///
+/// While a companion leads, the leader's own character is not played. Its
+/// mind plays it. A played body acts as its player does. It shoots along
+/// its crosshair line, its bolts break what a player's bolts break, and
+/// its blows on a placeable count as aimed. Every other body is a creature
+/// its mind plays. The views read the same from a snapshot
+/// (`Snapshot::played`).
+fn played(id: SimId, avatar: Option<&Avatar>, lent: Option<SimId>) -> bool {
+    keyed_by(avatar.map(|avatar| avatar.0), id, lent).is_some()
+}
+
 /// The body seat `seat`'s commands act through: its own (`own`: its
 /// avatar, or the companion it drives), or, for the leader's seat, the
 /// companion leading the party (`lent`).
@@ -1485,14 +1528,29 @@ fn command_for(
         angles: player.command_angles,
         ..Command::default()
     };
-    let mut command = match avatar {
+    match avatar {
         _ if !fighter.alive() || fighter.force.stunned(now) => idle,
         Some(_) if fighter.mind.steered => fighter.last_command,
         Some(avatar) => inputs.get(avatar.0).copied().unwrap_or(idle),
         None => fighter.last_command,
-    };
-    // No jumping while aiming a Sniper Shot (JA's disruptor zoom).
-    if fighter.shooting.aiming {
+    }
+}
+
+/// `command` as the body of `fighter` moves by it. While the gun is raised
+/// to aim, or a Sniper Shot steadies, the character walks and cannot jump.
+/// A roll needs a run, so none starts. The step on which [Aim] is pressed
+/// counts too (`firing::aims`), so a jump pressed with it never leaves the
+/// ground. `sheet` is the body's sheet, as `firing::aims` reads it, or none
+/// for a creature, which never aims.
+fn slowed_to_aim(
+    mut command: Command,
+    fighter: &Fighter,
+    sheet: Option<&Sheet>,
+    now: u64,
+) -> Command {
+    let aims = sheet.is_some_and(|sheet| firing::aims(&command, fighter, sheet, false, now));
+    if fighter.shooting.slowed() || aims {
+        command.walk();
         command.up = command.up.min(0);
     }
     command

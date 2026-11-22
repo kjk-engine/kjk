@@ -174,7 +174,9 @@ lightning and how to see them).
   4 `on`, 5 `off`), then a script's `PlayAnimation` /
   `ActionPlayAnimation` (200 on, 201 off, 202 open, 203 closed, 204–213
   `animloop01`–`10`), a container opened (open) and let go (closed),
-  broken by blows (a container open, any other dead). Each look loops its
+  broken by blows (a container open, any other dead), killed by a death
+  effect (dead even when it holds items, then removed from the area 2 s
+  later, as the executables remove it). Each look loops its
   clip; a change plays its way there once first: to on `off2on`, to off
   `on2off`, to open `close2open`, to closed `open2close` (from open only),
   to dead `die`, back to default the way it came; none to a loop. A look
@@ -244,9 +246,10 @@ kjk play --stage sta_m45ad --arrive sta_way_captive2 --run k_psta_cutdrain2 --he
   (following it): `duration` (else their own clip, the shields' `default`)
   round and round while it lasts, `SoundDuration` held, then `cessation`
   once, its end models (`Ces_*_Node`) and `SoundCessastion` as it ends.
-  An added mesh is drawn unlit, in its self-illumination's colour (the
-  shield spheres' grey `fx_tex_13` red or blue, as the games show them;
-  `material::OdysseyMaterial::new`).
+  An added mesh with a self-illumination is lit. Its texture is scaled by
+  the self-illumination plus the light of the place, up to full light. In
+  a dark place the shield spheres' grey `fx_tex_13` shows red or blue, as
+  the games show them (`material::OdysseyMaterial::new`).
 - A beam (`ProgFX_Duration` 608 to 621) draws the model the game's
   executable picks for it (`BEAMS`, read off the Mac build: lightning
   small and large, the droids' disable, destroy and stun, the death

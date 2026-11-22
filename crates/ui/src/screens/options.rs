@@ -98,12 +98,21 @@ enum LineKind {
     /// A setting stepped through its values. The row shows the option's
     /// name and the chosen value ("Menu width: Up to 16:9"). Activating
     /// the row steps on and wraps. Left and Right step back and on while
-    /// the row is the list's cursor row.
-    Step(&'static str, Values),
+    /// the row is the list's cursor row. A row with `Arrows::Shown` also
+    /// has KOTOR 2's minus and plus arrows at its ends, and a click on one
+    /// steps back or on.
+    Step(&'static str, Values, Arrows),
     /// A row that opens another page. No page of the game has such a row
     /// yet, so only the probes' page makes one (`SAMPLE`).
     #[cfg_attr(not(feature = "probes"), allow(dead_code))]
     Open(&'static str),
+}
+
+/// Whether a stepped row draws minus and plus arrows at its ends.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Arrows {
+    None,
+    Shown,
 }
 
 /// The values a stepped row goes through, in order.
@@ -196,7 +205,7 @@ impl LineKind {
     /// The setting the row changes.
     fn key(self) -> Option<&'static str> {
         match self {
-            LineKind::Check { key, .. } | LineKind::Step(key, _) => Some(key),
+            LineKind::Check { key, .. } | LineKind::Step(key, ..) => Some(key),
             LineKind::Open(_) => None,
         }
     }
@@ -207,7 +216,7 @@ impl LineKind {
     fn needs_movie_duels(self, vm: &ViewModel) -> bool {
         match self {
             LineKind::Check { key, .. } => without_movie_duels(vm, key),
-            LineKind::Step(key, values) => {
+            LineKind::Step(key, values, _) => {
                 !vm.movie_duels && values.stepped(vm, key, false).is_none()
             }
             LineKind::Open(_) => false,
@@ -273,6 +282,9 @@ pub struct Page {
     /// The row of the page's list last pointed at (`List`). It starts at
     /// the first row, as KOTOR 2 opens the page with it.
     row: usize,
+    /// The part of that row the pointer was last on: its minus arrow
+    /// (`paint::ROW_MINUS`), its plus arrow, or the rest of it.
+    part: usize,
 }
 
 use Help::{Ours, Told};
@@ -474,6 +486,20 @@ pub const COLLISION: &str = "game.collision";
 /// The key of Combat rules (`sim::combat::saber::SaberRules::name`). A
 /// session keeps the rules it started with.
 pub const SABER_RULES_KEY: &str = "game.saber_rules";
+
+/// The keys of Damage taken by party and Damage taken by enemies
+/// (`sim::combat::damage::Taken`), in percent, and their default.
+pub const DAMAGE_PARTY: &str = "game.damage_party";
+pub const DAMAGE_ENEMIES: &str = "game.damage_enemies";
+pub const DAMAGE_NORMAL: &str = "100";
+
+/// The damage multipliers offered: steps of 10% up to the normal damage,
+/// then steps of 50% up to the rulebook's highest
+/// (`rules::combat::damage::TAKEN_MOST`).
+const DAMAGE_PERCENTS: [&str; 24] = [
+    "10", "20", "30", "40", "50", "60", "70", "80", "90", "100", "150", "200", "250", "300", "350",
+    "400", "450", "500", "550", "600", "650", "700", "750", "800",
+];
 
 /// The collision modes (`session::Collision::name`), the original game's
 /// first.
@@ -927,16 +953,17 @@ const INTERFACE: [Line; 7] = [
     ),
 ];
 
-/// The sabers' page's rows: the saber rules a session played here plays by,
+/// The combat page's rows: the saber rules a session played here plays by,
 /// the three duel options, the hilts KOTOR's single- and double-bladed
-/// lightsabers are drawn with, and whether characters use Movie Duels'
-/// stances. Each one is off or at its first value while its setting is
-/// unset. All seven are kjk's own. KOTOR 2 has no such options. The rows
+/// lightsabers are drawn with, whether characters use Movie Duels'
+/// stances, and the damage the party and the enemies take. Each one is off
+/// or at its first value while its setting is unset, and the damage rows
+/// at 100%. All nine are kjk's own. KOTOR 2 has no such options. The rows
 /// with choices of Movie Duels' own are greyed or offer fewer values
 /// without it installed (`JA_OWN`). The combat rules' row is greyed while a
 /// session runs (`FIXED_IN_SESSION`). Targeted blocks are switched off, so
 /// the page has no row for them (`Settings::targeted_blocks`).
-const SABERS: [Line; 7] = [
+const SABERS: [Line; 9] = [
     stepped(
         strings::SABER_RULES,
         strings::SABER_RULES_HELP,
@@ -975,6 +1002,18 @@ const SABERS: [Line; 7] = [
         strings::STANCE_SETS,
         strings::STANCE_SETS_HELP,
     ),
+    stepped_with_arrows(
+        strings::DAMAGE_PARTY,
+        strings::DAMAGE_PARTY_HELP,
+        DAMAGE_PARTY,
+        Values::Percents(&DAMAGE_PERCENTS, DAMAGE_NORMAL),
+    ),
+    stepped_with_arrows(
+        strings::DAMAGE_ENEMIES,
+        strings::DAMAGE_ENEMIES_HELP,
+        DAMAGE_ENEMIES,
+        Values::Percents(&DAMAGE_PERCENTS, DAMAGE_NORMAL),
+    ),
 ];
 
 /// A stepped row of kjk's own, with its name and its help.
@@ -987,7 +1026,20 @@ const fn stepped(
     Line {
         name: Ours(name),
         help: Ours(help),
-        kind: LineKind::Step(key, values),
+        kind: LineKind::Step(key, values, Arrows::None),
+    }
+}
+
+/// The same, with minus and plus arrows at its ends.
+const fn stepped_with_arrows(
+    name: &'static str,
+    help: &'static str,
+    key: &'static str,
+    values: Values,
+) -> Line {
+    Line {
+        kind: LineKind::Step(key, values, Arrows::Shown),
+        ..stepped(name, help, key, values)
     }
 }
 
@@ -1061,7 +1113,11 @@ const SAMPLE: Spec = Spec {
                 Line {
                     name: Told(feedback::CHOICES[3].name),
                     help: Told(feedback::CHOICES[3].help),
-                    kind: LineKind::Step(SmallFonts::SETTING, Values::Named(TEXT_SIZES)),
+                    kind: LineKind::Step(
+                        SmallFonts::SETTING,
+                        Values::Named(TEXT_SIZES),
+                        Arrows::None,
+                    ),
                 },
                 Line {
                     name: Ours(strings::CAMERA),
@@ -1102,6 +1158,7 @@ fn opened(spec: &'static Spec, vm: &ViewModel) -> Box<dyn Screen> {
         before,
         focus: None,
         row: 0,
+        part: 0,
     })
 }
 
@@ -1135,6 +1192,7 @@ impl Page {
             let needs = (line.kind.key())
                 .filter(|key| without_movie_duels(vm, key))
                 .map(|key| match key.starts_with("saber.hilt.") {
+                    _ if vm.movie_duels_incomplete => strings::MOVIE_DUELS_INCOMPLETE,
                     true => strings::MOVIE_DUELS_HILTS,
                     false => strings::NEEDS_MOVIE_DUELS,
                 });
@@ -1177,7 +1235,7 @@ impl Page {
                 let now = set_or(vm, key, default);
                 out.push(Intent::Setting(key.into(), (!now).to_string()));
             }
-            Some(LineKind::Step(key, values)) => {
+            Some(LineKind::Step(key, values, _)) => {
                 if session_note(vm, key).is_some() {
                     return false;
                 }
@@ -1295,8 +1353,9 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
             greyed: !live || line.kind.fixed(vm),
             ..named(line.name, None)
         },
-        LineKind::Step(key, values) => Row {
+        LineKind::Step(key, values, arrows) => Row {
             unmarked: true,
+            arrows: arrows == Arrows::Shown,
             greyed: line.kind.needs_movie_duels(vm) || line.kind.fixed(vm),
             ..named(line.name, Some(values.shown(vm, key)))
         },
@@ -1462,10 +1521,20 @@ impl Screen for Page {
     }
 
     /// A list's row activated (a click, Enter or the pad's A). A check box
-    /// row turns its option on or off, a stepped row steps on, and an open
-    /// row opens its page. A greyed row does nothing.
+    /// row turns its option on or off, a stepped row steps on (back from
+    /// its minus arrow), and an open row opens its page. A greyed row does
+    /// nothing.
     fn row(&mut self, list: &str, index: usize, vm: &ViewModel, out: &mut Vec<Intent>) {
-        self.act(list, index, false, vm, out);
+        let back = self.part == crate::paint::ROW_MINUS;
+        self.act(list, index, back, vm, out);
+    }
+
+    /// The pointer came to part `part` of a row with arrows: its minus
+    /// arrow, its plus arrow or the rest (`paint::arrow_at`).
+    fn cell(&mut self, list: &str, _index: usize, part: usize, _vm: &ViewModel) {
+        if self.list().is_some_and(|(tag, _)| tag == list) {
+            self.part = part;
+        }
     }
 
     /// On a page with a list of option rows, the keyboard's X key activates

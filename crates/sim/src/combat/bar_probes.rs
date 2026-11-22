@@ -514,6 +514,32 @@ fn wheel_mines_need_demolitions() -> Result<String, String> {
     )
 }
 
+/// A worn item's Bonus Feat (Davik's Visor's Improved Power Blast, the
+/// second tier) puts its feat attack on the setup screen's list for a
+/// character who never learned the line. A soldier without Power Blast
+/// lists it while the gear gives the feat, at that tier, and not without.
+fn item_feat_listed() -> Result<String, String> {
+    let mut plain = soldier();
+    plain.feats.remove(feats::POWER_BLAST[0]);
+    let mut visored = plain;
+    visored.gear.feats.insert(feats::POWER_BLAST[1]);
+    let listed = |sheet: &Sheet| {
+        with_rules(false, |rules| {
+            crate::combat::bar::assignable(sheet, rules)
+                .contains(&Content::Feat(FeatLine::PowerBlast))
+        })
+    };
+    let tier = FeatLine::PowerBlast.known(&visored);
+    check(
+        listed(&visored) && !listed(&plain) && tier == Some(feats::POWER_BLAST[1]),
+        format!(
+            "with the item {}, without {}, tier {tier:?}",
+            listed(&visored),
+            listed(&plain)
+        ),
+    )
+}
+
 fn wheel_empty() -> Result<String, String> {
     let mut sheet = droid();
     settled(&mut sheet);
@@ -919,7 +945,7 @@ fn edit_refused() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 19] = [
+    let cases: [(&'static str, Case); 20] = [
         ("bar_put_and_swap", put_and_swap),
         ("bar_put_out_of_range", put_out_of_range),
         ("bar_clear_empties", clear_empties),
@@ -937,6 +963,7 @@ pub fn probes() -> Checks {
             wheel_mines_need_demolitions,
         ),
         ("bar_wheel_empty", wheel_empty),
+        ("bar_item_feat_listed", item_feat_listed),
         ("bar_filled_in_the_world", filled_in_the_world),
         ("bar_no_library", no_library),
         ("bar_feat_set_and_toggle", feat_set_and_toggle),

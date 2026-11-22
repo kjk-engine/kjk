@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `aa0d71b9413ed8b5`.
+Edition `99e4a0aff324c12e`.
 
 ## Contents
 
@@ -21,6 +21,7 @@ Edition `aa0d71b9413ed8b5`.
   - [The Action Bar and the Power Wheel](#controls-bar)
   - [Grenades and Items](#controls-items)
   - [Fists](#controls-unarmed)
+  - [Grabs (Advanced rules)](#controls-grab)
   - [Rolls, Getting Up and Stealth](#controls-moving)
 - [Combat](#combat)
   - [Damage](#combat-damage)
@@ -44,7 +45,9 @@ Edition `aa0d71b9413ed8b5`.
   - [Sonic Weapons](#weapons-sonic)
   - [Bolts in Flight](#weapons-flight)
   - [Unarmed Combat](#weapons-unarmed)
+  - [Baton Swings](#weapons-baton)
   - [Bloom and Kick](#weapons-bloom)
+  - [Aiming](#weapons-aim)
 - [Feats](#feats)
   - [Weapon Training](#feats-weapon)
   - [Two-Weapon Fighting and Dueling](#feats-two-weapon)
@@ -309,6 +312,7 @@ Edition `aa0d71b9413ed8b5`.
   - [Saber Locks](#duel-locks)
   - [Saber Wear](#duel-wear)
   - [Kicks](#duel-kicks)
+  - [Grabs](#duel-grab)
   - [NPC Saber Fighters](#duel-npc)
   - [Targeted Blocks](#duel-targeted)
 - [Scripts](#scripts)
@@ -347,9 +351,10 @@ jumps. [Crouch] crouches, or rolls while the character is running. [Walk]
 makes the character walk.
 
 [Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
-second mode. For a blaster this is a feat attack. For a lightsaber it is a
-throw or a kick. [Use] uses the object in front of the character. Holding
-[Use] over an unconscious party member revives them.
+second mode. For a lightsaber it is a throw or a kick. With a blaster in
+hand, [Alt attack] does nothing. [Aim] raises the blaster instead, and
+[Saber throw/kata/ranged feat] fires a feat attack. [Use] uses the object in front of the
+character. Holding [Use] over an unconscious party member revives them.
 
 Some objects offer more than one action. A mine offers Disarm Mine and
 Recover Mine. A locked door offers Open and Security. The mouse wheel chooses
@@ -512,10 +517,13 @@ none of the second bar. Under the Advanced rules only [Kick] kicks, and
 ### <a id="controls-duel"></a>Blocks and Kicks Under the Advanced Rules
 
 The Advanced combat rules are kjk's own. The player picks them on the
-Saber Options page. Under the Advanced rules, the blade blocks only while 
+Combat Options page. Under the Advanced rules, the blade blocks only while 
 [Block (Advanced rules)] is held down. Pressing [Attack] while holding 
 [Block (Advanced rules)] starts a short window for a perfect block. [Kick] kicks
-with any weapon in hand. Under Jedi Academy's rules, [Block (Advanced rules)]
+with any weapon in hand. A kick to the left or to the right becomes a split
+kick when another character stands on each side of the kicking character,
+within 2.5 meters. The split kick kicks both of
+them at once, whether they are enemies or companions. Under Jedi Academy's rules, [Block (Advanced rules)]
 does nothing, and [Kick] kicks only with a double-bladed lightsaber, as
 [Alt attack] does there.
 
@@ -525,6 +533,8 @@ button. Under the Advanced rules, that button blocks instead of using
 a sword, a vibroblade or a staff. Holding the button takes out a weapon that
 is put away and turns on a lightsaber that is off. The button works as
 [Alt attack] with any other weapon, or under Jedi Academy's rules.
+[Aim] is on the same button by default. It raises a blaster and does
+nothing with any other weapon.
 A player who binds [Block (Advanced rules)] to a separate key has both actions on
 their own keys.
 
@@ -533,12 +543,16 @@ the player controls a companion, that companion blocks only while the player
 holds [Block (Advanced rules)]. It does not block by itself as other characters
 do.
 
-[Saber throw and kata] is the alternate attack on a key of its own. It works
-even while the shared button blocks. Under the Advanced rules it never kicks.
-Pressed alone, it throws a lightsaber of any kind, a double-bladed lightsaber
-included. With any other weapon it does nothing. Pressed together with
-[Attack], it starts the kata of the saber style and throws nothing. Under Jedi
-Academy's rules it does what [Alt attack] does.
+[Saber throw/kata/ranged feat] is the alternate attack on a key of its own. It
+works even while the shared button blocks. Under the Advanced rules it never
+kicks. Pressed alone, it throws a lightsaber of any kind, a double-bladed
+lightsaber included. With a melee weapon or with empty hands it does nothing.
+Pressed together with [Attack], it starts the kata of the saber style and
+throws nothing. Under Jedi Academy's rules it does what [Alt attack] does.
+With a blaster in hand it fires a feat attack instead, as the Blasters entry
+describes. On a controller, its default chord is LB held with the right
+trigger. With anything other than a blaster in hand, that chord only attacks
+while blocking, and it throws nothing.
 
 ### <a id="controls-throw"></a>Lightsaber Throw
 
@@ -553,19 +567,45 @@ Advanced rules it can.
 
 ### <a id="controls-guns"></a>Blasters
 
-[Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up 15% of the character's
-stamina and never uses Force points. Under Jedi Academy's rules only a
-character who does not use the Force has stamina, so a Force user's feat
-attacks cost nothing there.
-With Power Blast, hold [Alt attack] to charge the shot and release it to
-fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
-With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
-critical threat range is wider, it moves more slowly, and it cannot jump.
+[Attack] fires. [Alt attack] does nothing with a blaster in hand.
+
+Hold [Aim] to raise the gun to the eye. The gun is fully raised
+0.2 seconds after the player presses [Aim]. Once it is fully
+raised, the spread of its shots is multiplied by
+0.5. While the gun is raised, the character moves
+at walking speed and cannot run, roll or jump.
+
+[Saber throw/kata/ranged feat] makes a feat attack that the character knows. The feat attack
+uses up 15% of the character's stamina and never
+uses Force points. Under Jedi Academy's rules only a character who does not
+use the Force has stamina, so a Force user's feat attacks cost nothing
+there. While [Saber throw/kata/ranged feat] is held, [Attack] does nothing.
+With Power Blast, hold [Saber throw/kata/ranged feat] to charge the shot and
+release it to fire. With Rapid Shot or Multi Shot,
+[Saber throw/kata/ranged feat] fires a burst of shots. With Sniper Shot, hold
+[Saber throw/kata/ranged feat] to steady the gun and release it to
+fire one shot. The gun is steady after
+0.5 seconds, or after
+0.25 seconds while the character aims. The
+character can start to steady the gun while it is still cooling down after
+the last shot. If the gun is steady but not yet ready to fire again, the
+shot leaves as soon as the gun is ready. While the character steadies the
+gun, it moves at walking speed and cannot jump.
+A Sniper Shot has no spread. It gets
++4 to hit with Sniper Shot,
++6 with Improved Sniper Shot
+and +8 with Master Sniper
+Shot. Its critical threat range is multiplied by
+2 with Sniper Shot,
+3 with Improved Sniper Shot
+and 4 with Master Sniper
+Shot. For the round after the shot, the character suffers a
+-5 penalty to Defense.
 
 [Next feat attack] chooses among the feat attacks the character knows. Each
 type of gun remembers its own choice. If the character knows none of these
-feats, or its second bar is too low, [Alt attack] fires like [Attack].
+feats, or its second bar is too low, [Saber throw/kata/ranged feat] fires
+like [Attack].
 
 ### <a id="controls-force"></a>Force Powers
 
@@ -685,13 +725,78 @@ Letting go after choosing uses nothing.
 ### <a id="controls-unarmed"></a>Fists
 
 With no weapon in hand, hold [Attack] to punch. The character punches with
-the left fist, then the right, one punch each round. Fists have no swing
-directions and no special attacks.
+the left fist, then the right. Fists have no swing directions. Under Jedi
+Academy's rules the character throws one punch each round, and fists have
+no special attacks.
+
+Under the Advanced rules the character punches again as soon as the last
+punch ends. Each press of [Attack] throws a punch, and holding [Attack]
+keeps punching. A press made during a punch is remembered, and the next
+punch follows as soon as the current one ends. Each punch deals a smaller
+share of damage, so the punches of one round deal as much damage together
+as the single punch of Jedi Academy's rules. Weapon effects that trigger on
+a hit trigger by the same share, so they do not trigger more often in a
+round.
+
+With a stun baton or a plasma torch in hand, hold [Attack] to swing it. The
+character swings first one way and then the other, and each swing flows into
+the next. The character can walk while swinging. A baton swings about four
+times a round, and each hit deals about a quarter of a round's damage.
 
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
 feat the character knows, and then to no feat. Every punch uses the chosen
-feat.
+feat. Flurry makes every punch come sooner, under both rule sets.
+
+Under the Advanced rules, a character with no weapon can also kick. Press
+[Kick] right after a punch to follow it with a spinning kick. The player can
+press [Kick] from the moment the fist is fully out until
+0.3 seconds after the punch ends. This works whether or not
+the punch hit anyone. The spinning kick hits
+every enemy around the character. The next punch waits until the spinning
+kick is over. A spinning kick after a punch never adds a second blow of
+that punch.
+
+Press [Kick] with [Strafe left] or [Strafe right] while another character
+stands on each side of the kicking character, within
+2.5 meters. The kicking character then does a split
+kick, which kicks both of them at once, whether they are enemies or
+companions. The split
+kick plays at 60% of its normal speed. Every
+kick, the spinning kick and the split kick included, uses up
+40 Stamina. A kick with no weapon in hand also deals
+the character's Strength modifier and Unarmed Specialist dice as extra
+damage. Under Jedi Academy's rules, a character with
+no weapon cannot kick.
+
+### <a id="controls-grab"></a>Grabs (Advanced rules)
+
+Under the Advanced rules, a character with no weapon in hand grabs the enemy
+in front with [Alt attack]. The enemy must stand within a punch's reach. A
+grab uses 40 Stamina, and a character with less cannot
+grab. Beasts and droids cannot be grabbed.
+
+A grab is rolled like an attack. It holds far more often on an enemy that
+has less than 40% of its health left. Such an
+enemy counts its Defense 10 lower. Any other enemy
+counts its Defense 5 higher. A grab that misses
+leaves the character stumbling for a moment, unable to act.
+
+A grab that holds plays a finisher on both characters. A movement key picks
+the finisher. The key held when the grab reaches the enemy picks it. When
+no key is held then, the key held when [Alt attack] was pressed picks it.
+When no key is held at either moment, the first finisher plays. No key or
+[Forward] punches the enemy and knocks it down. [Strafe left] or
+[Strafe right] catches its kick by the foot, swings it over and slams it to
+the ground. The slam always kills it. [Backward] chokes it and throws it to
+the ground. Each blow of a finisher deals the damage of
+a whole round of punches, and it always hits. An enemy that a blow would
+kill dies when the finisher lets it go. After [Backward], such an enemy
+dies as it is thrown and flies limp. While a finisher plays, neither
+character can attack, change weapons or use anything. Knocking the grabber down breaks the grab. Pushing
+the two apart breaks it too, once they stand about 40% farther apart than
+the finisher placed them. Enemies with bare hands grab too, but only a character
+below 40% of its health.
 
 ### <a id="controls-moving"></a>Rolls, Getting Up and Stealth
 
@@ -756,6 +861,26 @@ The target's resistances and damage reduction can still reduce the damage to 0.
 A hit that can harm its target deals at least 1 hundredth of a vitality point. A target that is immune to the damage takes none.
 
 <sub>Source: JA's minimum damage of 1. Code: `sim::combat::damage::assess`.</sub>
+
+<a id="combat-damage-taken-least"></a>**Lowest Damage Multiplier** = **10%** · `combat.damage.taken_least`
+
+The options Damage taken by party and Damage taken by enemies can be set as low as 10%. At that setting, a character takes 10% of the normal damage from every hit.
+
+Each option sets the damage that a group of characters takes. The party is
+the player, the companions, the other players in co-op and their remote
+droids. The enemies are every other character. The multiplier is applied to
+each hit before energy shields, Force protection and rage reduce it. A blow
+that the story stages in a scene, and a death that a script deals, are never
+multiplied, so scripted scenes play out as written. A new or loaded game
+takes the options' values. In co-op, the host's values apply.
+
+<sub>Source: the owner's choice (2026-11-18). Code: `sim::combat::damage::Taken`.</sub>
+
+<a id="combat-damage-taken-most"></a>**Highest Damage Multiplier** = **800%** · `combat.damage.taken_most`
+
+The options Damage taken by party and Damage taken by enemies can be set as high as 800%. At that setting, a character takes 800% of the normal damage from every hit.
+
+<sub>Source: the owner's choice (2026-11-18). Code: `sim::combat::damage::Taken`.</sub>
 
 ### <a id="combat-margin"></a>Chance to Hit
 
@@ -982,6 +1107,15 @@ main character.
 The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
 vitality) + damage / (maximum vitality / 2). This sum is then divided by
 2.
+
+A hit from a gun or from fists flinches by a smaller chance when it carries
+less than one KOTOR attack's damage. The chance is multiplied by the time
+since the attacker's previous attack, times 4,
+divided by the length of a round, and never by more than 1. This is the same
+factor that sizes the hit's damage. A repeating blaster fires every 0.1
+seconds, so each of its bolts has about 13% of the normal chance. A creature
+under steady fire therefore flinches about as often from many small bolts as
+from a few large shots that deal the same damage.
 
 <a id="combat-flinch-skill-divisor"></a>**Flinch Divisor** = **×2** · `combat.flinch.skill_divisor`
 
@@ -1612,6 +1746,50 @@ An unarmed critical hit multiplies the damage roll by 2.
 
 <sub>Source: KOTOR's unarmed strike. Code: `sim::combat::sheet::Weapon::UNARMED`.</sub>
 
+### <a id="weapons-baton"></a>Baton Swings
+
+A character with a stun baton or a plasma torch swings it with KOTOR's two
+baton swings, first one and then the other, for as long as Attack is held.
+Each swing flows into the next. Each hit deals a part of a round's damage
+that matches how long its swing takes, so the damage over a round stays the
+same as one hit a round.
+
+<a id="weapons-baton-g1a1-hit-ms"></a>**First Baton Swing Hit** = **0.53 seconds** (`533 ms`) · `weapons.baton.g1a1_hit_ms`
+
+The first baton swing hits 0.53 seconds after it starts.
+
+<sub>Source: the Hit event of g1a1 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms). Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-g1a2-hit-ms"></a>**Second Baton Swing Hit** = **0.53 seconds** (`533 ms`) · `weapons.baton.g1a2_hit_ms`
+
+The second baton swing hits 0.53 seconds after it starts.
+
+<sub>Source: the Hit event of g1a2 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms). Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-next-after-hit-ms"></a>**Next Baton Swing** = **0.25 seconds** (`250 ms`) · `weapons.baton.next_after_hit_ms`
+
+While Attack is held, the next baton swing starts 0.25 seconds after the last swing hits.
+
+<sub>Source: ours, tuned by watching. Code: `sim::world::strikes::baton_swing`.</sub>
+
+<a id="weapons-baton-blend-ms"></a>**Baton Swing Blend** = **0.15 seconds** (`150 ms`) · `weapons.baton.blend_ms`
+
+One baton swing fades into the next over 0.15 seconds.
+
+<sub>Source: ours, tuned by watching. Code: `kjk_game::acting::BatonSwings`.</sub>
+
+<a id="weapons-baton-aim-turn-deg"></a>**Baton Swing Aim** = **30 deg** · `weapons.baton.aim_turn_deg`
+
+A character's torso turns 30 deg to the left during a baton swing, so the swing strikes straight ahead. KOTOR's own swings strike about 30 degrees to the right of where the character faces.
+
+<sub>Source: ours, measured from above in the arena. Code: `kjk_game::acting::swing_tracks`.</sub>
+
+<a id="weapons-baton-follow-through-pct"></a>**Baton Follow-Through** = **35%** · `weapons.baton.follow_through_pct`
+
+After a baton swing hits, the arm and torso move on only 35% as far as in KOTOR's own swing. KOTOR's second swing carries the baton on around the head to the left shoulder.
+
+<sub>Source: ours, tuned by watching. Code: `kjk_game::acting::swing_tracks`.</sub>
+
 ### <a id="weapons-bloom"></a>Bloom and Kick
 
 A player's blaster becomes less accurate the longer it keeps firing. This
@@ -1620,15 +1798,16 @@ little. When the player stops firing, the bloom shrinks and the aim
 settles back. The gap in the crosshair shows how far the next shot may
 stray.
 
-The first shot after a pause flies straight at the aim, unless the weapon
-always spreads its shots. Characters that no player controls use their
+A shot fired without aiming always spreads a little, even the first shot
+after a pause. The first shot after a pause while aiming flies straight at
+the aim, unless the weapon always spreads its shots. Characters that no player controls use their
 own accuracy rules instead (see AI, Shot Spread).
 
-<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.25 / ×0.6** (`×2.5 / 0.25 / 0.6`) · `weapons.bloom.stance`
+<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.5 / ×0.6** (`×2.5 / 0.5 / 0.6`) · `weapons.bloom.stance`
 
-in the air **×2.5** · aiming **×0.25** · crouched **×0.6**
+in the air **×2.5** · aiming **×0.5** · crouched **×0.6**
 
-A shot's spread is multiplied by 2.5 while the character is in the air. It is multiplied by 0.25 while the character aims a Sniper Shot, and by 0.6 while the character is crouched.
+A shot's spread is multiplied by 2.5 while the character is in the air. It is multiplied by 0.5 while the character aims, and by 0.6 while the character is crouched.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
 
@@ -1639,6 +1818,12 @@ walking **0.4°** · running **1°**
 A walking character's shots spread 0.4 degrees more, and a running character's shots spread 1 degrees more. This applies even when the character has not fired for a while.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
+
+<a id="weapons-bloom-hip-spread"></a>**Spread from the Hip** = **1°** · `weapons.bloom.hip_spread`
+
+A shot fired without aiming spreads 1 degrees more. This applies even to the first shot after a pause. A shot fired while the character is fully aimed does not get this extra spread.
+
+<sub>Source: the owner's call, 2026-11-19. Code: `sim::combat::bloom::cone`.</sub>
 
 <a id="weapons-bloom-kick-limit"></a>**Kick Limit** = **4° / 12° / 80°** (`4 / 12 / 80°`) · `weapons.bloom.kick_limit`
 
@@ -1655,6 +1840,31 @@ walking **0.51 meters per second** · running **4.1 meters per second**
 For the spread of its shots, a character counts as walking when it moves faster than 0.51 meters per second. It counts as running when it moves faster than 4.1 meters per second. A character runs at 6.4 meters per second in combat.
 
 <sub>Source: kjk. Code: `sim::combat::bloom::stance`.</sub>
+
+### <a id="weapons-aim"></a>Aiming
+
+A player holds [Aim] to raise a blaster to the eye. While the gun is
+raised, the character moves at walking speed. The character cannot run,
+roll or jump while aiming. Once the gun is fully raised, the spread of its
+shots is multiplied by 0.5. Every blaster can
+aim. Only players aim. Enemies and companions keep their own accuracy and
+speed.
+
+The gun is fully raised 0.2 seconds after the player presses
+[Aim]. It is fully lowered 0.15 seconds after the player lets
+go. A shot fired before the gun is fully raised uses the normal spread.
+
+<a id="weapons-aim-in-ms"></a>**Time to Aim** = **0.2 seconds** (`200 ms`) · `weapons.aim.in_ms`
+
+A character is fully aimed 0.2 seconds after the player presses [Aim].
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::Shooting::aim_step`.</sub>
+
+<a id="weapons-aim-out-ms"></a>**Time to Lower** = **0.15 seconds** (`150 ms`) · `weapons.aim.out_ms`
+
+A character stops aiming 0.15 seconds after the player lets go of [Aim].
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::Shooting::aim_step`.</sub>
 
 ## <a id="feats"></a>Feats
 
@@ -1727,6 +1937,24 @@ The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon F
 A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
 
 <sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
+
+<a id="feats-two-weapon-superior-main"></a>**Superior Two-Weapon Fighting, Main Hand** = **1 points / 2 points / 2 points** (`1 / 2 / 2 points`) · `feats.two_weapon.superior_main`
+
+I **1 points** · II **2 points** · III **2 points**
+
+In KOTOR 2, Superior Two-Weapon Fighting I reduces the main hand's penalty by 1 more. Superior Two-Weapon Fighting II and III reduce it by 2 more.
+
+These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply to blasters as well as to melee weapons and lightsabers.
+
+<sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 with the first feat, +2 with the second or third) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
+
+<a id="feats-two-weapon-superior-off"></a>**Superior Two-Weapon Fighting, Off Hand** = **0 points / 0 points / 1 points** (`0 / 0 / 1 points`) · `feats.two_weapon.superior_off`
+
+I **0 points** · II **0 points** · III **1 points**
+
+In KOTOR 2, Superior Two-Weapon Fighting III reduces the off hand's penalty by 1. The first two ranks leave the off hand's penalty as it is.
+
+<sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 to the off hand with the third feat only) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
@@ -1842,14 +2070,15 @@ Force Focus adds +1 to the DC of the character's Force powers. Advanced Force Fo
 
 ### <a id="feats-specials"></a>Feat Attacks for Ranged Weapons
 
-The alternate fire of a ranged weapon uses a feat attack that the character
-knows. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
-type of gun does not decide which one is used. [Next feat attack] switches
-between the feat attacks the character knows, and each type of gun
-remembers its own choice. Until the character makes a choice, the
-alternate fire uses the first feat attack the character knows, in the
-order Power Blast, Rapid Shot, Sniper Shot. A character without any of
-these feats, or without enough stamina, fires normally.
+With a ranged weapon in hand, [Saber throw/kata/ranged feat] fires a feat
+attack that the character knows. The feat attacks are Power Blast, Rapid
+Shot and Sniper Shot. The type of gun does not decide which one is used.
+[Next feat attack] switches between the feat attacks the character knows,
+and each type of gun remembers its own choice. Until the character makes a
+choice, the first feat attack the character knows is used, in the order
+Power Blast, Rapid Shot, Sniper Shot. While [Saber throw/kata/ranged feat]
+is held, [Attack] does nothing. A character without any of these feats, or
+without enough stamina, fires normally with [Saber throw/kata/ranged feat].
 The penalties of a feat attack last for one round
 (3 seconds).
 
@@ -1861,15 +2090,15 @@ A feat attack uses up 15% of the character's maximum stamina. It never uses Forc
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
-Keep the alternate fire pressed to charge a Power Blast, and release it to
-fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
+Keep [Saber throw/kata/ranged feat] pressed to charge a Power Blast, and
+release it to fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
 the charge, the stronger the shot.
 
 <a id="feats-specials-power-blast-step-ms"></a>**Charge Step** = **0.2 seconds** (`200 ms`) · `feats.specials.power_blast.step_ms`
 
 A Power Blast charges in steps of 0.2 seconds.
 
-The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping the alternate fire deals no more damage per second than holding it.
+The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Saber throw/kata/ranged feat] deals no more damage per second than holding it.
 
 <sub>Source: JA (the Bryar's charge). Code: `sim::combat::specials::pull`.</sub>
 
@@ -1901,7 +2130,8 @@ A Power Blast suffers a -3 penalty to hit.
 
 #### <a id="feats-specials-rapid-shot"></a>Rapid Shot
 
-The alternate fire shoots a burst of shots as soon as the weapon is ready.
+[Saber throw/kata/ranged feat] shoots a burst of shots as soon as the
+weapon is ready.
 The weapon is ready to fire again one normal shot's time after the first
 shot of the burst, or when the burst ends if that is later. Every shot
 after the first is therefore an extra attack. For the round after the
@@ -1939,18 +2169,26 @@ For the round after a burst, the character suffers a -4 penalty to attacks and D
 
 #### <a id="feats-specials-sniper-shot"></a>Sniper Shot
 
-Keep the alternate fire pressed to aim. While aiming, the character moves
-slowly and cannot jump. Every shot fired while aiming gets a bonus to hit, and its
-critical threat range is multiplied. The critical threat range is the set
-of d20 rolls that can score a critical hit. For the round after the shot,
-the character suffers a penalty to Defense. In kjk, Sniper Shot does not
-stun.
+Hold [Saber throw/kata/ranged feat] to steady the gun, then let go to fire
+one shot. A
+character with a pistol in each hand fires both pistols at once. The shot
+has no spread. It gets a bonus to hit, and its critical threat range is
+multiplied. The critical threat range is the set of d20 rolls that can
+score a critical hit. The character can start to steady the gun while it
+is still cooling down after the last shot. If the character lets go once
+the gun is steady but before it is ready to fire again, the shot leaves as
+soon as the gun is ready. Until the shot leaves, the character moves at
+walking speed and cannot jump. Letting go before the gun is steady fires
+nothing and uses nothing. For the round after the shot, the character suffers a
+penalty to Defense. In kjk, Sniper Shot does not stun.
 
-<a id="feats-specials-sniper-shot-aim-speed"></a>**Aiming Speed** = **×0.5** · `feats.specials.sniper_shot.aim_speed`
+<a id="feats-specials-sniper-shot-steady-ms"></a>**Sniper Shot Steadying** = **0.5 seconds / 0.25 seconds** (`500 / 250 ms`) · `feats.specials.sniper_shot.steady_ms`
 
-A character aiming a Sniper Shot moves at 0.5 times normal speed.
+from the hip **0.5 seconds** · while aiming **0.25 seconds**
 
-<sub>Source: JA (the disruptor's zoom). Code: `sim::combat::specials::AIM_SPEED`.</sub>
+A character steadies a Sniper Shot for 0.5 seconds before it can fire. A character who is already aiming steadies it for 0.25 seconds.
+
+<sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::pull, sim::combat::ai::choose_special`.</sub>
 
 <a id="feats-specials-sniper-shot-threat-times"></a>**Sniper Shot Threat Range** = **×2 / ×3 / ×4** (`×2 / 3 / 4`) · `feats.specials.sniper_shot.threat_times`
 
@@ -1964,15 +2202,15 @@ Sniper Shot multiplies the critical threat range by 2. Improved Sniper Shot mult
 
 Sniper Shot **4 points** · Improved **6 points** · Master **8 points**
 
-An aimed shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
+A Sniper Shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
 
-The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, an aimed shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
+The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, a Sniper Shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
 
 <sub>Source: ours. Code: `sim::combat::specials::Special::shot`.</sub>
 
 <a id="feats-specials-sniper-shot-defence-penalty"></a>**Sniper Shot Penalty** = **-5 points** · `feats.specials.sniper_shot.defence_penalty`
 
-For the round after an aimed shot, the character suffers a -5 penalty to Defense.
+For the round after a Sniper Shot, the character suffers a -5 penalty to Defense.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 
@@ -3578,6 +3816,14 @@ A bolt that hits a lit lightsaber blade is always turned away, even at
 bolt level 0. Ion bolts burst on the blade. Melee weapons do not block
 bolts.
 
+<a id="sabers-bolts-blade-reach"></a>**Blade Thickness for Bolts** = **0.076 meters** (`3 units`) · `sabers.bolts.blade_reach`
+
+A blaster bolt meets a lit lightsaber only where it passes within 0.076 meters of the blade, measured along each axis from a point on the blade.
+
+The game places small boxes one after another along each blade, from the hilt to the tip. A bolt that passes beside the blade, or between a character's two blades, does not touch them. Before this rule, one box enclosed all of a character's blades, and a character holding two lightsabers caught bolts across the whole space between them.
+
+<sub>Source: the owner's decision (2026-11): bolts were stopped by blades they visibly missed. Code: `sim::combat::saber::blades::bolt_boxes`.</sub>
+
 <a id="sabers-bolts-deflect-per-level"></a>**Deflection Bonus** = **5 points** · `sabers.bolts.deflect_per_level`
 
 Every 5 points of deflection bonus on a lightsaber raises its bolt level by 1. A penalty lowers it.
@@ -3607,6 +3853,34 @@ A deflected bolt strays from the direction the character is looking by up to 1 o
 A reflected bolt strays from the shooter by up to 0.2 on each axis.
 
 <sub>Source: JA: bolt impacts. Code: `sim::combat::saber::defence::bolt`.</sub>
+
+<a id="sabers-bolts-overwhelm-ms"></a>**Sustained Fire** = **2 seconds** (`2000 ms`) · `sabers.bolts.overwhelm_ms`
+
+An NPC who deflects blaster bolts in quick succession can be overwhelmed. Every bolt the NPC deflected in the last 2 seconds counts toward the Overwhelmed rule. This applies under both the Jedi Academy rules and the Advanced rules.
+
+The player's characters are never overwhelmed. A bolt that gets through hits the NPC's body, even if it touched the blade. Bolts that got through do not count, so steady fire settles at a rate where some bolts are deflected and some hit.
+
+<sub>Source: the owner's request of 18 November 2026 to make blasters against Jedi more viable. Code: `sim::combat::saber::defence::bolts_turned_lately`.</sub>
+
+<a id="sabers-bolts-overwhelm"></a>**Overwhelmed** = **20% / 16% / 12% / 8%** (`20 / 16 / 12 / 8%`) · `sabers.bolts.overwhelm`
+
+no Jedi Defense **20%** · Jedi Defense **16%** · Advanced Jedi Defense **12%** · Master Jedi Defense **8%**
+
+For every bolt an NPC deflected in the last 2 seconds, the next bolt has a chance to get past the NPC's lightsaber and hit them. The chance for each deflected bolt is 16% with Jedi Defense, 12% with Advanced Jedi Defense and 8% with Master Jedi Defense. An NPC without the feat has a chance of 20% for each bolt. The first bolt after a pause is always deflected as usual.
+
+The chance grows with each bolt the NPC deflected in that time. An NPC who deflected 3 bolts lets the fourth through with three times the chance in the table. A higher tier of the feat lowers the chance, so a master of Jedi Defense needs much heavier fire to be overwhelmed. The chance never goes above 100%.
+
+<sub>Source: the owner's request of 18 November 2026 that consecutive shots overwhelm a Jedi. Code: `sim::combat::saber::defence::overwhelm_percent`.</sub>
+
+<a id="sabers-bolts-creature-spread"></a>**NPC Deflection Spread** = **0.25 / 0.2 / 0.15 / 0.1** · `sabers.bolts.creature_spread`
+
+no Jedi Defense **0.25** · Jedi Defense **0.2** · Advanced Jedi Defense **0.15** · Master Jedi Defense **0.1**
+
+A bolt that an NPC deflects strays further from where the NPC sent it. It strays by up to 0.2 on each axis with Jedi Defense, 0.15 with Advanced Jedi Defense and 0.1 with Master Jedi Defense. An NPC without the feat makes it stray by up to 0.25. This applies under both the Jedi Academy rules and the Advanced rules.
+
+The stray is added on top of the stray the bolt already has. A stray of 0.1 on each axis is about 6 degrees. A bolt sent back from 15 meters away misses a shooter more often than one sent back from 4 meters away. The player's characters deflect bolts as before.
+
+<sub>Source: the owner's request of 18 November 2026 that enemy Jedi deflect bolts less accurately. Code: `sim::combat::saber::defence::creature_stray`.</sub>
 
 ### <a id="sabers-clash"></a>Clashes
 
@@ -4230,6 +4504,12 @@ lightsaber is also knocked down.
 The spin kick strikes all around the character. The back-front kick strikes
 to the front and then to the back. The split kick strikes to the right and
 to the left.
+
+Under the Advanced rules, a kick by a character with no weapon in hand deals
+extra damage. The extra damage is the character's Strength modifier plus the
+dice of the character's Unarmed Specialist feat, and it always hits. A
+character with a weapon in hand, or with no Strength bonus and no Unarmed
+Specialist feat, deals no extra damage.
 
 <a id="saber-moves-kicks-reach-times"></a>**Kick Range** = **×1.5** · `saber_moves.kicks.reach_times`
 
@@ -5565,9 +5845,16 @@ A single-target power affects one target up to 26 meters away.
 An area power affects every enemy within that range, within
 90° of the Jedi's aim and in front of the Jedi. A
 target is affected only if it is not immune, does not resist the Force and
-fails its saving throw. The power's effect on a target lasts at most
-3 seconds. After that, the target cannot be affected again
-for 1 second. Fear ends when the frightened target takes
+fails its saving throw. A stun, paralysis, fear, sleep or Force Whirlwind
+effect lasts as long as the power's description says, but never longer than
+30 seconds. Every 3 seconds, a held target
+rolls its saving throw again, and it breaks free if the save succeeds.
+Each new roll of the same hold gets 5 more
+than the roll before it. A target that was held several times in a short
+while is held for a shorter time, and after
+3 such holds it cannot be held for a while.
+After a hold ends, the target cannot be affected again for
+1 second. Fear ends when the frightened target takes
 damage.
 
 Fear powers and Force Scream allow a Will save. The other powers allow a
@@ -5575,7 +5862,11 @@ Fortitude save. A target that fails its save against Force Scream covers
 its ears instead of being stunned. Disable Droid also affects all droids within
 5 meters of the target droid. Destroy
 Droid also affects all droids within 6
-meters of the target droid.
+meters of the target droid. The saving throw each round uses the same save
+and the same difficulty as the save that the hold first allowed. A hold
+that allowed no save, such as the adhesive grenade's, lasts its whole time.
+A hold that a story script applies, and a hold that never ends, work as in
+KOTOR and roll no saves.
 
 <a id="force-crowd-reach"></a>**Force Power Range** = **26 meters** (`1024 units`) · `force.crowd.reach`
 
@@ -5585,12 +5876,71 @@ Confusion.
 
 <sub>Source: ours (push's area reach). Code: `sim::world::powers::Cast::crowd_caught`.</sub>
 
-<a id="force-crowd-hold-ms"></a>**Maximum Stun Time** = **3 seconds** (`3000 ms`) · `force.crowd.hold_ms`
+<a id="force-crowd-hold-ms"></a>**Hold Without a Duration** = **3 seconds** (`3000 ms`) · `force.crowd.hold_ms`
 
-A stun, paralysis, fear, sleep or Force Whirlwind effect lasts at most
-3 seconds, whatever duration the power's description lists.
+A stun, fear or droid power that kjk's own combat casts, where no script
+of the game runs, keeps its target held for 3 seconds. A hold that
+a story script applies, or that a friendly character applies, also lasts at
+most 3 seconds.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-round-ms"></a>**Saving Throw Each Round** = **3 seconds** (`3000 ms`) · `force.crowd.round_ms`
+
+A held target rolls a new saving throw every 3 seconds,
+which is one round of KOTOR's combat. If the save succeeds, the hold ends
+at once. The first roll comes 3 seconds after the hold
+starts.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
+
+<a id="force-crowd-struggle-bonus"></a>**Struggle Bonus** = **5 points** · `force.crowd.struggle_bonus`
+
+Each saving throw to break free of a hold gets a bonus of
+5 for every earlier roll against the same
+hold. The second roll gets 5, and the third
+gets twice that.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
+
+<a id="force-crowd-longest-ms"></a>**Longest Hold** = **30 seconds** (`30000 ms`) · `force.crowd.longest_ms`
+
+No stun, paralysis, fear, sleep or Force Whirlwind effect keeps its target
+held for longer than 30 seconds, whatever duration the script or
+the item asks for.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-recent-ms"></a>**Recent Hold** = **10 seconds** (`10000 ms`) · `force.crowd.recent_ms`
+
+A hold counts as recent until 10 seconds after it ends.
+The more recent holds a character had, the shorter its next hold is.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-second-percent"></a>**Second Recent Hold** = **50%** · `force.crowd.second_percent`
+
+A character's second recent hold lasts 50% of its
+duration. A shortened hold lasts at least 3 seconds, unless
+its full duration is shorter than that.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-third-percent"></a>**Third Recent Hold** = **25%** · `force.crowd.third_percent`
+
+A character's third recent hold lasts 25% of its
+duration. A shortened hold lasts at least 3 seconds, unless
+its full duration is shorter than that.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
+
+<a id="force-crowd-most-recent"></a>**Recent Holds Before Immunity** = **3 count** · `force.crowd.most_recent`
+
+A character that already had 3 recent holds
+cannot be held again. It becomes immune until 10 seconds have
+passed since its last hold ended.
+
+<sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-immune-ms"></a>**Stun Immunity** = **1 second** (`1000 ms`) · `force.crowd.immune_ms`
 
@@ -8106,15 +8456,9 @@ Where no scripts run, a creature with a grenade and a target in range has a chan
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_grenade`.</sub>
 
-<a id="minds-items-charge-past-ms"></a>**Power Blast Charge** = **0.01 seconds** (`10 ms`) · `minds.items.charge_past_ms`
+<a id="minds-items-charge-past-ms"></a>**Held Past the Charge** = **0.01 seconds** (`10 ms`) · `minds.items.charge_past_ms`
 
-A creature keeps charging a Power Blast for 0.01 seconds after the last charge step. This makes sure the shot fires at full strength.
-
-<sub>Source: ours. Code: `sim::combat::ai::choose_special`.</sub>
-
-<a id="minds-items-sniper-aim-ms"></a>**Sniper Shot Aim** = **1.5 seconds** (`1500 ms`) · `minds.items.sniper_aim_ms`
-
-A creature aims a Sniper Shot for 1.5 seconds before it fires.
+A creature keeps charging a Power Blast for 0.01 seconds after the last charge step. A creature also keeps steadying a Sniper Shot for 0.01 seconds after the gun is steady. This makes sure each shot fires at full strength.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_special`.</sub>
 
@@ -9054,28 +9398,65 @@ A door or container has a -10 modifier to its base Defense of 10, so only a roll
 
 ## <a id="creatures"></a>Beasts and Fists
 
-A beast with no weapon attacks once a round with its claws, its bite or
-its horns. A humanoid with no weapon fights with its fists.
+A beast with no weapon attacks with its claws, its bite or its horns. A
+humanoid with no weapon fights with its fists.
 
 ### <a id="creatures-beasts"></a>Beasts
 
 Some creatures have no humanoid skeleton. These include beasts, droids and
-many aliens. Such a creature with no weapon in hand attacks once a round
-when its target is within reach. The attack hits at the moment in its
-attack animation where it strikes, if the target is still within reach. It
-deals the damage of the creature's natural weapon, such as its claws or
-bite.
+many aliens. Such a creature with no weapon in hand attacks every
+1500 milliseconds when its target is within
+reach. The attack hits at the moment in its attack animation where it
+strikes, if the target is still within reach. It deals the damage of the
+creature's natural weapon, such as its claws or bite. A character with a
+blade in hand can block the attack.
 
 A creature that is flinching, knocked down or stunned does not make its
 attack. A creature of this kind that has a weapon in hand, such as a
 Gamorrean with an axe, fights the way a humanoid does.
 
+<a id="creatures-beasts-every-ms"></a>**Beast Attack Interval** = **1.5 seconds** (`1500 ms`) · `creatures.beasts.every_ms`
+
+A beast attacks every 1500 milliseconds. A beast whose attack animation takes longer to reach its hit moment attacks that much more slowly.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::strikes::round_ms`.</sub>
+
+<a id="creatures-beasts-per-round"></a>**Beast Damage per Round** = **×3** · `creatures.beasts.per_round`
+
+Over one combat round, a beast's attacks deal 3 times the damage of a single attack in KOTOR, split among the attacks it makes in that round. Every other attacker deals 4 times. KOTOR II's scaled enemies deal 2 times. A scaled beast deals 3 times, as every beast does.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::strikes::cadence`.</sub>
+
+<a id="creatures-beasts-block"></a>**Blocking a Beast** = **10 points** · `creatures.beasts.block`
+
+A character blocks a beast's attack when they have a lightsaber, a sword or
+a staff in hand, face the beast and are able to defend. Under the Advanced
+rules a player must also hold the block button, and the block takes
+10 Stamina. A player with less Stamina than the
+block takes does not block. Under Jedi Academy's rules, and for an NPC under
+either rule set, the blade must be free to block, and the block succeeds only
+when KOTOR's attack roll for the beast's attack misses. That block takes no
+Stamina.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::sabers::strike_block`.</sub>
+
+<a id="creatures-beasts-block-strength"></a>**Blocking a Stronger Beast** = **1 points** · `creatures.beasts.block_strength`
+
+Each point by which the beast's Strength modifier is higher than the blocker's adds 1 Stamina to the block. A critical hit takes 2 times as much Stamina.
+
+<sub>Source: ours (the owner's call of 17 November 2026). Code: `sim::world::sabers::strike_block`.</sub>
+
 ### <a id="creatures-fists"></a>Fists
 
-A humanoid with no weapon in hand punches once a round, first with the
-left fist and then with the right. Each punch deals 1-3 bludgeoning damage
-to an opponent in front of the attacker. The opponent must be within
-0.5 meters of the attacker's body.
+A humanoid with no weapon in hand punches once a round under Jedi Academy's
+rules, first with the left fist and then with the right. Each punch deals
+1-3 bludgeoning damage to an opponent in front of the attacker. The opponent
+must be within 0.5 meters of the attacker's body.
+
+Under the Advanced rules a humanoid punches again as soon as its last punch
+ends. Each punch deals the share of a round's damage that its length is of
+a round. The punches of one round together deal as much damage as one
+punch under Jedi Academy's rules.
 
 With friendly fire off, a punch passes through party members without
 hurting them. A character can also bash open doors and containers with
@@ -9229,26 +9610,45 @@ party member's influence allows.
 
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
-based on the main character's level and the enemy's challenge rating.
+based on the level that the main character's experience has reached and
+the enemy's challenge rating.
 Quests and conversations award experience as the story advances. A
 character needs 1,000 experience for level 2 and 190,000 experience for
 level 20. The highest level is 50 in both games.
 
-Every player sees each gain or loss of experience. In KOTOR 2, the
+Every player sees each gain or loss of experience. In both games, the
 experience for a defeated enemy comes from a table. The game looks up the
 row for the level that the main character's experience has reached, and
-the column for the enemy's challenge rating. The table stops at row and
-column 30, so a higher level or rating
-counts as the last one. An enemy that scales with the party has a
-challenge rating equal to the main character's level when the enemy
-appeared, plus the change set by its scaling. The game then multiplies the
-result by its experience percentage and rounds it up.
+the column for the enemy's challenge rating. The row does not depend on
+the levels the character has taken, so a character who puts off a level-up
+gains no more experience than one who takes it. In KOTOR 2, the table stops
+at row and column 30, so a higher level
+or rating counts as the last one. In KOTOR 2, an enemy that scales with the
+party has a challenge rating equal to the main character's level when the
+enemy appeared, plus the change set by its scaling. The game then
+multiplies the result by its experience percentage and rounds it up.
 
 <a id="progression-experience-tsl-most"></a>**KOTOR 2 Experience Table Limit** = **30** · `progression.experience.tsl_most`
 
 KOTOR 2's experience table for defeated enemies stops at row and column 30. A higher level or challenge rating counts as the last row or column.
 
 <sub>Source: TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`). Code: `sim::script::xp::Experience::tsl_kill`.</sub>
+
+<a id="progression-experience-mentor-levels"></a>**Mentor Tiers** = **6 / 12** · `progression.experience.mentor_levels`
+
+first tier's top level **6** · second tier's top level **12**
+
+In KOTOR 2, Mentor gives its first experience bonus up to level 6, its second up to level 12, and its third above that.
+
+<sub>Source: TSL's executable (`CSWPartyTable::DistributeExperience`) and the feat's description. Code: `sim::script::xp::mentor`.</sub>
+
+<a id="progression-experience-mentor-share"></a>**Mentor Bonus** = **0.03 / 0.05 / 0.07** · `progression.experience.mentor_share`
+
+to the first tier **0.03** · to the second **0.05** · above it **0.07**
+
+A party member in the active party with Mentor adds 0.03 / 0.05 / 0.07 of each experience reward, rounded up, by the mentor's level.
+
+<sub>Source: TSL's executable (`CSWPartyTable::DistributeExperience`: 3%, 5%, 7% by the first active mentor's total level, rounded up) and the feat's description. Code: `sim::script::xp::mentor`.</sub>
 
 ### <a id="progression-skill-xp"></a>Experience for Mines and Locks
 
@@ -9308,7 +9708,9 @@ One rank in a class skill takes 1
 skill point. One rank in a cross-class skill takes
 2 skill points. A Class Skill feat
 makes its skill a class skill for the character, whatever the class. A
-class skill can
+character with two classes keeps the class skills of both. A Scoundrel who
+becomes a Jedi Sentinel still has Stealth as a class skill. A class skill
+can
 have at most as many ranks as the character's level plus
 3. A cross-class skill can have at
 most that number divided by 2.
@@ -9575,6 +9977,12 @@ In KOTOR 2, a creature can flourish its weapon again 1 second after its last flo
 
 <sub>Source: TSL's executable (its client's cooldown). Code: `sim::world::scripts::apply`.</sub>
 
+<a id="world-timings-killed-placeable-ms"></a>**Destroyed Placeables** = **2 seconds** (`2000 ms`) · `world.timings.killed_placeable_ms`
+
+A placeable that a script kills with a death effect plays its death animation and is removed from the area 2 seconds later. Nothing blocks the way where it stood after that.
+
+<sub>Source: TSL's executable (its death effect on a placeable). Code: `sim::world::scripts::scripts`.</sub>
+
 ### <a id="world-factions"></a>Factions
 
 Each faction has a standing toward every other faction. A standing is a
@@ -9689,7 +10097,9 @@ A party member uncovers the area map within 10 meters of where it stands.
 
 In the combat arena, the player can call in creatures to fight. A called
 creature appears 5 meters in front of the
-player, facing the player. The creature is always hostile. A creature that
+player, facing the player. If that spot is taken or too narrow for the
+creature's whole body, the creature appears at the nearest free place where
+its whole body fits. The creature is always hostile. A creature that
 falls into the pit dies. A defeated party member gets back up at the
 respawn point with full hit points. The player cannot lose in the arena.
 
@@ -11603,11 +12013,11 @@ While a perfect block slows the game, the world moves at 0.3 times its normal sp
 
 <sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
-<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
+<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.3 seconds** (`300 ms`) · `duel.slow_motion.ms`
 
-A perfect block slows the game for 200 ms of real time.
+A perfect block slows the game for 300 ms of real time.
 
-<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+<sub>Source: ours; Movie Duels slows the game for 200 ms (docs/SABER-RULES.md section 3). Code: `game::sim_host::Slowed`.</sub>
 
 ### <a id="duel-hud"></a>Stamina Bars
 
@@ -11731,13 +12141,13 @@ Each time a character's Stamina comes back, they regain 1 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **100 percent / 75 percent / 0 percent** (`100 / 75 / 0 percent`) · `duel.refill.by_stance`
+<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **100 percent / 75 percent / 50 percent** (`100 / 75 / 50 percent`) · `duel.refill.by_stance`
 
-standing **100 percent** · walking **75 percent** · running **0 percent**
+standing **100 percent** · walking **75 percent** · running **50 percent**
 
-How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at 100% of that rate, a walking character at 75% and a running character at 0%. A running character regains no Stamina at all. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking.
+How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at 100% of that rate, a walking character at 75% and a running character at 50%. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking.
 
-<sub>Source: the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
+<sub>Source: the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. The owner's call of 21 November 2026 raised the running rate from 0% to 50%. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
 
 <a id="duel-refill-walking-above"></a>**Walking Speed** = **0.025 meters per second** (`1 units/s`) · `duel.refill.walking_above`
 
@@ -11756,6 +12166,12 @@ A character whose lightsaber is thrown waits 2000 ms longer for each point of St
 A crouching player regains 2% of their maximum Force points every 100 ms, as long as they are on the ground and not swinging, running or knocked down. This is a Force point rule and does not change Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-under-fire"></a>**Recovery under Fire** = **0 percent** · `duel.refill.under_fire`
+
+An NPC who deflected a blaster bolt in the last 2 seconds regains Stamina at 0% of the usual rate. At 0% the NPC regains no Stamina while it keeps deflecting bolts, in the same way that a player regains none while holding block. An NPC with less Stamina than a deflection takes does not deflect the bolt. Sustained blaster fire therefore wears an enemy Jedi down.
+
+<sub>Source: the owner's call of 18 November 2026: an enemy that is blocking blaster fire regains no Stamina. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-refill-force-hold-ms"></a>**Force While Blocking** = **2 seconds** (`2000 ms`) · `duel.refill.force_hold_ms`
 
@@ -11887,13 +12303,27 @@ A player who keeps both the block and attack buttons held down for 3000 ms or lo
 
 <sub>Source: docs/SABER-RULES.md 2.5. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
-<a id="duel-perfect-parry-wait-ms"></a>**Perfect Parry Delay** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
+<a id="duel-perfect-parry-wait-ms"></a>**Good Parry Delay** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
 
 shortest **0.3 seconds** · longest **0.6 seconds**
 
-After a perfect parry, the blocker can swing again only after a random time between 300 ms and 600 ms.
+After a creature's good parry, the creature can swing again only after a random time between 300 ms and 600 ms.
 
 <sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-block-wait-ms"></a>**Perfect Parry Delay** = **0.15 seconds / 0.3 seconds** (`150 / 300 ms`) · `duel.perfect.block_wait_ms`
+
+shortest **0.15 seconds** · longest **0.3 seconds**
+
+After a perfect block, the blocker can swing again only after a random time between 150 ms and 300 ms. This is always shorter than the 350 ms the attacker is frozen for, so the blocker can strike back before the attacker recovers, and always inside the riposte window.
+
+<sub>Source: ours. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-miss-cost"></a>**Missed Perfect Block** = **5 points** · `duel.perfect.miss_cost`
+
+A player who presses attack while holding block, and neither makes a perfect block nor deflects a blaster bolt with that press, loses 5 points Stamina. The press is judged when its perfect block window has closed and attack is no longer held, or when the player lets go of block or presses attack again. This keeps a player from pressing attack over and over to catch every blow.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
 
 <a id="duel-perfect-parry-blend-ms"></a>**Perfect Parry Blend** = **0.1 seconds** (`100 ms`) · `duel.perfect.parry_blend_ms`
 
@@ -12381,6 +12811,18 @@ A character who starts a kick loses 40 Stamina, whether or not the kick hits. Th
 
 <sub>Source: the owner's call of 15 November 2026. Code: `sim::combat::saber::duel::meter::kicked`.</sub>
 
+<a id="duel-kicks-split-speed-pct"></a>**Split Kick Speed** = **60%** · `duel.kicks.split_speed_pct`
+
+A character who kicks to one side while an enemy stands on each side does the split kick, which hits both. The split kick plays at 60% of the speed Jedi Academy plays it.
+
+<sub>Source: the owner's call of 18 November 2026, from a preview. Code: `sim::motion::clip_speed`.</sub>
+
+<a id="duel-kicks-spin-window-ms"></a>**Spin Kick Window** = **0.3 seconds** (`300 ms`) · `duel.kicks.spin_window_ms`
+
+A character with no weapon who presses Kick after a punch hits, and before 0.3 seconds have passed since the punch ended, does a spin kick, which hits everyone around it.
+
+<sub>Source: ours (the design of 18 November 2026). Code: `sim::motion::Move::spin_combo`.</sub>
+
 <a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
 
 A character who absorbs a kick is staggered if they have more than 50 Stamina. Otherwise they stumble.
@@ -12434,6 +12876,126 @@ An NPC that is not in its kick guard and is not actively guarding is knocked dow
 A kick against an actively guarding NPC breaks its guard 60% of the time. An NPC actively guards when its blade is out, it is not tired, and it is not swinging, bouncing off a block, staggered or kicking. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses 5 Stamina. Otherwise the NPC's guard absorbs the kick.
 
 <sub>Source: the owner's call of 15 November 2026, raised from 40% to 60% on 16 November 2026. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-grab"></a>Grabs
+
+Under the Advanced rules, a character with no weapon in hand grabs the enemy in front with the alternate attack button. A grab that holds plays one of Jedi Academy's three grapple finishers on both characters. Each blow of a finisher deals one unarmed hit's damage, and the finisher ends with the victim on the ground.
+
+<a id="duel-grab-hurt-below-pct"></a>**Hurt Enough to Grab** = **40%** · `duel.grab.hurt_below_pct`
+
+A grab is rolled as an attack: a d20 plus the grabber's melee attack bonus against the victim's Defense. A victim with less than 40% of its maximum health counts its Defense 10 lower. A victim with 40% or more counts it 5 higher. A natural 20 always holds, and a natural 1 always misses.
+
+<sub>Source: the owner's call of 18 November 2026. Code: `sim::combat::grab::grab_roll`.</sub>
+
+<a id="duel-grab-hurt-defence"></a>**Hurt Victim's Defense** = **10 points** · `duel.grab.hurt_defence`
+
+A victim below 40% of its maximum health counts its Defense 10 lower against a grab.
+
+<sub>Source: the owner's call of 18 November 2026. Code: `sim::combat::grab::grab_roll`.</sub>
+
+<a id="duel-grab-healthy-defence"></a>**Healthy Victim's Defense** = **5 points** · `duel.grab.healthy_defence`
+
+A victim with 40% or more of its maximum health counts its Defense 5 higher against a grab.
+
+<sub>Source: the owner's call of 18 November 2026. Code: `sim::combat::grab::grab_roll`.</sub>
+
+<a id="duel-grab-uses"></a>**Grab Stamina** = **40 points** · `duel.grab.uses`
+
+A character who starts a grab loses 40 Stamina, whether or not the grab holds. A character with less than 40 Stamina cannot grab.
+
+<sub>Source: ours, the same as a kick's, until the Stamina balance pass. Code: `sim::combat::saber::duel::meter::grabbed`.</sub>
+
+<a id="duel-grab-reach-left-ms"></a>**Grab Reach** = **0.2 seconds / 0.2 seconds** (`200 / 200 ms`) · `duel.grab.reach_left_ms`
+
+held past the clip **0.2 seconds** · left when it reaches **0.2 seconds**
+
+The grab's clip is held 200 ms past its end. The grab reaches for the victim, and its roll is made, when 200 ms of that are left.
+
+<sub>Source: code/game/bg_pmove.cpp:11323 holds the grab 200 ms longer, and code/game/g_active.cpp:2483 reaches when 200 ms are left. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-height-units"></a>**Grab Height** = **0.2 meters** (`8 units`) · `duel.grab.height_units`
+
+A grab takes only a victim standing on the ground within 8 units of the grabber's height, in front of the grabber and within the reach of a punch.
+
+<sub>Source: G_GrabClient in code/game/g_active.cpp:2286. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-victim-extra-ms"></a>**Victim Held Longer** = **0.2 seconds** (`200 ms`) · `duel.grab.victim_extra_ms`
+
+The victim's finisher clip is held 200 ms past its end.
+
+<sub>Source: code/game/wp_saber.cpp:3420-3421. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-end-ms"></a>**Finisher End** = **0.1 seconds** (`100 ms`) · `duel.grab.end_ms`
+
+A victim whose finisher clip has 100 ms left is let go. After the first finisher it is thrown back and knocked down. After the third it is thrown and flies through the air before it lands.
+
+<sub>Source: code/game/g_active.cpp:3057 and 3072-3113. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-blows-1"></a>**First Finisher's Blows** = **3.2 seconds / 1.2 seconds / 0.1 seconds** (`3150 / 1150 / 100 ms`) · `duel.grab.blows_1`
+
+The first finisher strikes the victim when 3150 ms, 1150 ms and 100 ms of the victim's clip are left. Each blow deals one unarmed hit's damage, and it always hits.
+
+<sub>Source: code/game/g_active.cpp:2893-2933. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-blows-2"></a>**Second Finisher's Blows** = **5.7 seconds / 5.2 seconds / 4.6 seconds / 3.6 seconds** (`5700 / 5200 / 4550 / 3550 ms`) · `duel.grab.blows_2`
+
+The second finisher strikes the victim when 5700 ms, 5200 ms, 4550 ms and 3550 ms of the victim's clip are left.
+
+<sub>Source: code/game/g_active.cpp:2934-2988. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-blows-3"></a>**Third Finisher's Blows** = **3.8 seconds / 3.1 seconds / 1.7 seconds** (`3800 / 3100 / 1650 ms`) · `duel.grab.blows_3`
+
+The third finisher strikes the victim when 3800 ms, 3100 ms and 1650 ms of the victim's clip are left. The victim then flies, and it is struck once more when 100 ms of its flight is left.
+
+<sub>Source: code/game/g_active.cpp:2989-3048. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-throw"></a>**Finisher Throw** = **19.1 meters per second / 0.25 meters per second** (`750 / 10 units/s`) · `duel.grab.throw`
+
+lift for each unit of the direction's height **19.1 meters per second** · degrees the direction tips down before it is turned back **0.25 meters per second**
+
+The first and the third finisher throw the victim away from the grabber a little upward. The throw tips 10 degrees from level, and it lifts the victim at 750 units a second for each unit of that tip's height.
+
+<sub>Source: G_Throw(ent, throwDir, -100) with the view tipped 10 degrees in code/game/g_active.cpp:3076-3081, worked out by G_Throw in code/game/wp_saber.cpp:504-507 with g_knockback 1000 and a mass of 200. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-throw-speed"></a>**Finisher Throw Speed** = **3.6 meters per second** (`140 units/s`) · `duel.grab.throw_speed`
+
+The first and the third finisher throw the victim back from the grabber at 140 units a second. The victim lands about 1.5 to 2 m away.
+
+<sub>Source: ours, lowered from Jedi Academy's 400 units a second (code/game/wp_saber.cpp:504) at the owner's request of 19 November 2026, so the victim lands about 1.5 to 2 m away rather than about 4 m. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-let-go-ms"></a>**Foot Let Go** = **3.5 seconds** (`3500 ms`) · `duel.grab.let_go_ms`
+
+The second finisher ends 3500 ms into its clips, when the grabber's hands leave the victim's foot. The victim dies then, and it falls limp from the pose it is in.
+
+<sub>Source: the last touch of Jedi Academy's own pair in the second finisher (the probe foot_let_go_measured), at the owner's request of 19 November 2026. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-gap-m"></a>**Finisher Gap** = **1.37 m / 1.49 m / 1.49 m** (`1.37 / 1.49 / 1.49 m`) · `duel.grab.gap_m`
+
+first finisher **1.37 m** · second finisher **1.49 m** · third finisher **1.49 m**
+
+When a grab holds, the two characters are moved to stand 1.37 m apart for the first finisher, 1.49 m for the second and 1.49 m for the third, facing each other. Jedi Academy places its pair 46 units (1.17 m) apart. KOTOR's bodies are about 1.3 times the size of Jedi Academy's, so the gap is scaled to match, then fitted so the hands meet the victim.
+
+<sub>Source: 46 units in code/game/wp_saber.cpp:3145, scaled by the bodies' size (1.25 for Carth and a Sith trooper) and fitted on those two bodies so their hands come nearest Jedi Academy's touches (the probe gap_fitted, 19 November 2026). Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-break-dist"></a>**Grab Broken** = **1.2 meters / 1.6 meters** (`46 / 64 units`) · `duel.grab.break_dist`
+
+Jedi Academy's gap **1.2 meters** · Jedi Academy's break **1.6 meters**
+
+A finisher breaks off when something pushes the two characters apart by more than 64 units for every 46 units of their gap. Both are let go, and the victim falls.
+
+<sub>Source: codemp/game/w_saber.c:8185 (64 units) against code/game/wp_saber.cpp:3145 (46 units). Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-contact-m"></a>**Hand Contact** = **0.10 m** · `duel.grab.contact_m`
+
+A grabber's hand touches the victim while it stays within 0.10 m of one of the victim's bones in Jedi Academy's own pair. The view pulls the hand onto the same place on the KOTOR body during each touch.
+
+<sub>Source: the design of 18 November 2026, from Jedi Academy's pairs, which meet within 2 to 12 cm. Code: `kjk_game::grapple_view`.</sub>
+
+<a id="duel-grab-contact-blend-ms"></a>**Hand Contact Blend** = **0.1 seconds** (`100 ms`) · `duel.grab.contact_blend_ms`
+
+The view moves the grabber's hand onto the victim over 100 ms as a touch begins, and lets it go over the same time as the touch ends.
+
+<sub>Source: the design of 18 November 2026. Code: `kjk_game::grapple_view`.</sub>
 
 ### <a id="duel-npc"></a>NPC Saber Fighters
 

@@ -1,5 +1,0 @@
-[formats]
-snapshot = "a sheet's action bar has ten slots (`bar::SLOTS`)."
-
-[migrations]
-snapshot = "old saves read six slots, and slots 7 to 10 are empty"

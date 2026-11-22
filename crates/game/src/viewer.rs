@@ -27,6 +27,16 @@ use crate::material::{AreaLight, Fog};
 use crate::model_fx::{Chunk, ModelFx};
 use crate::weapons::{Arms, Owner};
 
+/// What `Viewer::place_appearance` dresses a creature in: its
+/// `appearance.2da` row, its body item and how it came to wear it, its
+/// `heads.2da` row, and its headgear.
+pub type Outfit<'a> = (
+    u32,
+    (Option<&'a str>, creature::Dressing),
+    Option<u8>,
+    Option<&'a str>,
+);
+
 /// A model placed in the scene at an offset, turned by `facing` radians
 /// about Z (game space).
 #[derive(Clone)]
@@ -222,6 +232,9 @@ pub struct LoadedScene {
     pub name: String,
     pub models: Vec<Placed>,
     pub textures: BTreeMap<String, TextureIr>,
+    /// The images `textures` were uploaded as, which the characters and
+    /// placeables spawned later take again (`scene::SharedImages`).
+    pub images: crate::scene::SharedImages,
     /// Texture names the meshes use but the install does not resolve, or
     /// that do not decode (`stand_in` says what is drawn instead).
     pub missing: Vec<String>,
@@ -1668,6 +1681,7 @@ pub fn module_scene(
         name: module.to_string(),
         models,
         textures,
+        images: Default::default(),
         missing,
         entry: Some((ir.entry_position, ir.entry_direction)),
         missing_models,
@@ -1862,24 +1876,26 @@ impl CreatureLoad {
     }
 
     /// A creature of `appearance.2da` row `appearance` wearing `armour` (a
-    /// UTI) or nothing on its body and `headgear` (a UTI) or nothing on its
-    /// head, with the head of `heads.2da` row `head` where one is given
-    /// (else the row's own), dressed for `aligned`, as `place` places one
-    /// of a template.
+    /// UTI) or nothing on its body, put on or taken off as `dressing` says,
+    /// and `headgear` (a UTI) or nothing on its head, with the head of
+    /// `heads.2da` row `head` where one is given (else the row's own),
+    /// dressed for `aligned`, as `place` places one of a template.
     pub fn place_appearance(
         &mut self,
         (resolver, game): (&Resolver, Game),
-        (appearance, armour, head, headgear): (u32, Option<&str>, Option<u8>, Option<&str>),
+        (appearance, (armour, dressing), head, headgear): Outfit<'_>,
+        owner: Option<&Resolver>,
         aligned: creature::Aligned,
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
     ) -> Result<Option<CreatureView>, String> {
         let name = format!("appearance {appearance}");
         let source = ResolverSource(resolver);
-        let mut look = creature::resolve_appearance(
+        let mut look = creature::resolve_dressed(
             &source,
             appearance,
             armour.map(str::to_string),
+            dressing,
             &mut self.tables,
         )
         .map_err(|refusal| format!("{name}: {refusal:?}"))?;
@@ -1889,7 +1905,7 @@ impl CreatureLoad {
             look.head_row = Some(usize::from(head));
         }
         look.headgear =
-            headgear.and_then(|item| creature::item_model_with(&source, item, &mut self.tables));
+            headgear.and_then(|item| worn_model(owner, &source, &mut self.tables, item));
         self.place_look(
             (resolver, game),
             (0, &name, look, aligned),
@@ -2256,6 +2272,21 @@ fn floor(resolver: &Resolver, room: &str, walkable: &[bool]) -> Result<Vec<[[f32
         .collect())
 }
 
+/// The model `item` (an item template) is drawn with: read from `source`,
+/// else, for a module's own template (`sim::inventory::own_template`), from
+/// `owner`, the archives of the module that holds it. A party member may
+/// wear such an item far from that module (Davik's Visor, from his estate
+/// on Taris), where `source` lacks its template.
+pub fn worn_model(
+    owner: Option<&Resolver>,
+    source: &ResolverSource,
+    tables: &mut asset_odyssey::tables::Tables,
+    item: &str,
+) -> Option<String> {
+    creature::item_model_with(source, item, tables)
+        .or_else(|| creature::item_model(&ResolverSource(owner?), item))
+}
+
 /// A model through a per-load cache.
 /// `headgear` (a model) hung on the head `models[head]` at its
 /// `gogglehook`, as reone hangs a mask: it follows that node, as a weapon
@@ -2392,6 +2423,13 @@ pub fn scripted_clips(
         .chain(
             (own && !creature)
                 .then(crate::acting::rifle_gait_names)
+                .into_iter()
+                .flatten(),
+        )
+        // A retargeted body swings a stun baton with KOTOR's own swings.
+        .chain(
+            (!attacks)
+                .then(crate::acting::baton_names)
                 .into_iter()
                 .flatten(),
         );

@@ -476,6 +476,7 @@ fn hits() -> Checks {
             share: 1000,
             area: false,
             second: None,
+            sure: false,
         },
         location: Location::None,
         direction: None,
@@ -528,11 +529,16 @@ fn hits() -> Checks {
     let mut mindless = fighter;
     mindless.effects.worn_immune = 1 << immunity::MIND_SPELLS;
     let struck = |weapon: &Weapon, fighter: &Fighter, rng: &mut SimRng| {
-        gear::on_hits(weapon, &target, fighter, 0, rng)
+        gear::on_hits(weapon, &target, fighter, (0, 1000), rng)
     };
     let stunned = struck(&stunning, &fighter, &mut rng);
     let kept_off = struck(&stunning, &mindless, &mut rng);
     let killed = struck(&deadly, &fighter, &mut rng);
+    // A hit worth a quarter of a round (a baton's swing) gets a quarter of
+    // the chance: of 2000 such hits about 500 stun.
+    let quarter = (0..2000)
+        .filter(|_| !gear::on_hits(&stunning, &target, &fighter, (0, 250), &mut rng).is_empty())
+        .count();
     vec![
         (
             "immune_to_criticals",
@@ -548,6 +554,7 @@ fn hits() -> Checks {
                     == vec![gear::Struck::Hold {
                         ms: 6000,
                         fear: false,
+                        save: crate::combat::force::HoldSave { index: 2, dc: 100 },
                     }]
                     && kept_off.is_empty(),
                 format!("{stunned:?} {kept_off:?}"),
@@ -556,6 +563,13 @@ fn hits() -> Checks {
         (
             "on_hit_death",
             check(killed == vec![gear::Struck::Death], format!("{killed:?}")),
+        ),
+        (
+            "on_hit_chance_by_share",
+            check(
+                (430..=570).contains(&quarter),
+                format!("{quarter} of 2000 quarter-round hits stunned"),
+            ),
         ),
     ]
 }

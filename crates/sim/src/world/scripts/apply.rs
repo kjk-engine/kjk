@@ -182,16 +182,11 @@ pub(in crate::world) fn apply(
         let sheet = balance.map_or(sheet, |set| set.scaled(sheet, scripts.state.pc_level()));
         // Where the safe-location search stands it, as a jump's
         // (`install::jump_place`), clear of the living bodies and of those
-        // made before it; none found, where it was put.
+        // made before it; none found, where it was put. An arena's foe
+        // also needs room for its whole body (`install::ARENA`).
         let space = crate::world::strikes::humanoid_space(made.facts.personal_space);
         let free = level.0.with(states.as_deref(), |world| {
-            crate::install::stand_among(
-                &level.0,
-                world,
-                made.at,
-                &stood,
-                (space, crate::install::JUMP),
-            )
+            crate::install::stand_among(&level.0, world, made.at, &stood, (space, made.reach))
         });
         let origin = free.unwrap_or_else(|| {
             let mut origin = scale(made.at, 1.0 / collision::UNIT);
@@ -360,6 +355,12 @@ pub(in crate::world) fn apply(
                     ps.face(yaw);
                 }
             }
+            Change::Halt { who } => {
+                if let Some((_, mut player)) = players.iter_mut().find(|(id, _)| id.0.0 == who.0) {
+                    let ps = &mut player.0;
+                    ps.velocity = [0.0, 0.0, ps.velocity[2]];
+                }
+            }
             Change::Face { who, yaw } => {
                 if let Some((_, mut player)) = players.iter_mut().find(|(id, _)| id.0.0 == who.0) {
                     player.0.face(yaw);
@@ -476,20 +477,29 @@ pub(in crate::world) fn apply(
                 if (object.state.state != 0) == open {
                     continue;
                 }
-                // A door closes on no one standing in its doorway: it would
-                // shut them in its panels (Manaan's Sith base, its wing door
-                // behind an apprentice). KOTOR's executable closes it at once
-                // (its close looks for no one in the way), so it closes once
-                // the doorway is clear: its own queue
+                // A door closes on no one passing through its doorway: it
+                // would shut them in its panels (Manaan's Sith base, its wing
+                // door behind an apprentice). KOTOR's executable closes it at
+                // once (its close looks for no one in the way), so it closes
+                // once no one in the doorway is on the move: its own queue
                 // asks again (Citadel Station's Exchange door, shut and locked
-                // behind Slusk as he walks through it to his desk).
+                // behind Slusk as he walks through it to his desk). One
+                // standing still there with nothing left to do is shut in, as
+                // KOTOR shuts it. Grenn's officer stops a metre short of his
+                // mark outside the Exile's apartment in Residential 082 East,
+                // in the doorway, and the apartment's door (`a_grenn_intro`)
+                // must close and lock behind Grenn all the same.
                 let index = object.index;
-                let standing_in = players.iter().any(|(id, player)| {
+                let passing = players.iter().any(|(id, player)| {
                     let alive = fighters
                         .iter()
                         .find(|(of, _)| of.0 == id.0)
                         .is_none_or(|(_, fighting)| fighting.0.alive());
+                    let [x, y, _] = player.0.velocity;
+                    let busy =
+                        (scripts.state.actions.get(&id.0.0)).is_some_and(|queue| !queue.is_empty());
                     alive
+                        && (x != 0.0 || y != 0.0 || busy)
                         && crate::world::in_doorway(
                             &level.0,
                             index,
@@ -503,7 +513,7 @@ pub(in crate::world) fn apply(
                 if !open && broken {
                     continue;
                 }
-                if !open && standing_in {
+                if !open && passing {
                     let again = script::actions::Queued {
                         action: script::actions::Action::Door { door, open },
                         started_ms: None,

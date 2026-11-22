@@ -20,8 +20,8 @@
 //!   step as a fighter's new perfect block (`Duel::perfect_at`) sounds one
 //!   of `saberbounce1–3` at 4.2 times its gain. It plays in place of
 //!   `saberblock1–9`, and together with KOTOR's parry for a blow not of a
-//!   lightsaber. Its flare is twice as large, at full brightness, and shows
-//!   for 400 ms instead of 150 ms. Every player who sees and hears the
+//!   lightsaber. Its flare is 1.5 times as large, at 0.9 brightness instead
+//!   of 0.8, and shows for 250 ms instead of 150 ms. Every player who sees and hears the
 //!   block gets these. When the body that the player controls made the
 //!   perfect block, that player's camera also shakes for 250 ms of real
 //!   time (`ClashShake`).
@@ -88,13 +88,13 @@ const BLOCK_FLARE: FlareLook = FlareLook {
     bright: 0.8,
     ms: 150.0,
 };
-/// A perfect block's flare: twice as large as an ordinary block's, at full
-/// brightness. It shows for 400 ms, which is 2.7 times as long as an
+/// A perfect block's flare: 1.5 times as large as an ordinary block's, at
+/// 0.9 brightness. It shows for 250 ms, which is 1.7 times as long as an
 /// ordinary block's flare, so that it is still seen after the slow motion.
 const PERFECT_FLARE: FlareLook = FlareLook {
-    size: 600.0 / 320.0,
-    bright: 1.0,
-    ms: 400.0,
+    size: 450.0 / 320.0,
+    bright: 0.9,
+    ms: 250.0,
 };
 
 /// An ordinary block's sound: one of `saberblock1–9`.
@@ -310,7 +310,12 @@ fn sound(
         ResMut<Bursts>,
         ResMut<Added>,
     ),
-    (mut cuts, wielders, drawn): (ResMut<Cuts>, Res<Wielders>, Res<DrawnBlades>),
+    (mut cuts, wielders, drawn, doors): (
+        ResMut<Cuts>,
+        Res<Wielders>,
+        Res<DrawnBlades>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
     cameras: Query<(&GlobalTransform, &Projection), SceneCamera>,
     kotor: Option<Res<WeaponSounds>>,
 ) {
@@ -345,15 +350,15 @@ fn sound(
     };
     let frames = (frame - last).clamp(0, i64::from(MOST_FRAMES)) as u32;
     blades.frame = frame;
+    let objects = Instances::in_snapshot(level, current);
     if frames > 0 {
-        let objects = Instances::in_snapshot(level, current);
         let out = (&mut cues.0, &mut bursts.0, &mut cuts.0);
         let met = (current, &objects, kotor);
         walls(
             blades,
             (&wielders.0, &drawn),
             met,
-            level,
+            (level, doors.of(&presented.0, &swap).as_deref()),
             (now, frames),
             out,
         );
@@ -370,11 +375,9 @@ fn sound(
             (at, now - from, now, look),
             camera,
             projection,
-            level,
-            presented.0.current(),
+            (level, doors.of(&presented.0, &swap).as_deref()),
         ));
     }
-    let objects = Instances::in_snapshot(level, current);
     for entity in &current.entities {
         let Some(saber) = held_saber(entity, &objects) else {
             continue;
@@ -430,8 +433,7 @@ fn flare(
     (at, since, now, look): (Vec3, f32, f32, FlareLook),
     camera: &GlobalTransform,
     projection: &Projection,
-    level: &Level,
-    snapshot: &Snapshot,
+    (level, doors): (&Level, Option<&[u8]>),
 ) -> Option<asset_ja::fx::Spawned> {
     if since <= 0.0 || since >= look.ms {
         return None;
@@ -443,8 +445,7 @@ fn flare(
     if away.dot(forward) < 0.2 {
         return None;
     }
-    let doors = level.states_in(snapshot);
-    let hit = level.with(doors.as_deref(), |world| {
+    let hit = level.with_unremembered(doors, |world| {
         world.trace(
             (eye * UNIT).to_array(),
             (at * UNIT).to_array(),
@@ -759,11 +760,10 @@ fn walls(
     blades: &mut Blades,
     (wielders, drawn): (&[(SimId, usize, usize)], &DrawnBlades),
     (snapshot, objects, kotor): Met,
-    level: &Level,
+    (level, states): (&Level, Option<&[u8]>),
     (ms, frames): (f32, u32),
     (cues, bursts, cuts): (&mut Vec<Cue>, &mut Vec<Burst>, &mut Vec<Cut>),
 ) {
-    let states = level.states_in(snapshot);
     let point = Extents {
         mins: [0.0; 3],
         maxs: [0.0; 3],
@@ -779,7 +779,7 @@ fn walls(
         if entity.is_some_and(|entity| held_saber(entity, objects).is_none()) {
             continue;
         }
-        let trace = level.with(states.as_deref(), |world| {
+        let trace = level.with_unremembered(states, |world| {
             world.trace(hilt.to_array(), tip.to_array(), &point, Contents::SOLID)
         });
         if trace.fraction >= 1.0 || trace.start_solid {
@@ -1129,13 +1129,14 @@ fn block_sounds() -> Result<String, String> {
 /// away, under a view whose half horizontal field of view has the tangent 1.
 /// The ordinary flare keeps the size it had before perfect blocks had their
 /// own, 131.25 units, and its brightness of 0.8. The perfect block's flare
-/// is twice as large at full strength and fades over 400 ms instead of
-/// 150 ms, so 50 ms after the clash it is 344.53 units, at full brightness.
+/// is 1.5 times as large at 0.9 brightness and fades over 250 ms instead
+/// of 150 ms, so 50 ms after the clash it is 236.25 units, at 0.9
+/// brightness.
 #[cfg(feature = "probes")]
 fn flare_sizes() -> Result<String, String> {
     let rows = [
         ("an ordinary block", BLOCK_FLARE, (131.25, 0.8)),
-        ("a perfect block", PERFECT_FLARE, (344.531_25, 1.0)),
+        ("a perfect block", PERFECT_FLARE, (236.25, 0.9)),
     ];
     let wrong: Vec<String> = (rows.iter())
         .map(|(name, look, want)| (name, (look.radius(50.0, 100.0, 1.0), look.bright), want))
@@ -1153,7 +1154,7 @@ fn flare_sizes() -> Result<String, String> {
 /// The colour of the flare that `flare` spawns, seen from seat 0's eye at a
 /// point at seat 1's chest in the first snapshot of a staged fight in the
 /// arena. Its colour, at the start and at the end, is the look's brightness
-/// in each channel: 0.8 for an ordinary block and 1.0 for a perfect one.
+/// in each channel: 0.8 for an ordinary block and 0.9 for a perfect one.
 #[cfg(feature = "probes")]
 fn flare_colours() -> Result<String, String> {
     use sim::trace::duelling_probes::targeted::{Stage, staged};
@@ -1183,8 +1184,7 @@ fn flare_colours() -> Result<String, String> {
                 (at, 50.0, 0.0, *look),
                 &camera,
                 &projection,
-                &level,
-                &snapshot,
+                (&level, level.states_in(&snapshot).as_deref()),
             );
             (
                 *name,

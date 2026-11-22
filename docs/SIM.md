@@ -144,17 +144,29 @@ network client rebuilt (`solo`, docs/NET.md); `sim_view` draws from that.
 
 
 ## The step thread
-A frame steps all but its last tick itself, and hands the last to a thread
-of its own (`game::sim_worker`). At 40 frames a second that is 2 ticks of
-every frame on the main thread. `KJK_STEP_BATCH=on` hands the thread every
-tick (issue 395). It is off by default, because it puts the view a frame
-behind and how that feels in play is not judged yet. The rest of this
-section is the frame with it on.
+A live game's frame hands every tick that is due to a thread of its own
+(`game::sim_worker`), and the main thread draws while the sim steps. This
+is the default since 2026-11-18
+(https://github.com/kjk-engine/kjk/issues/395). It puts the view a frame
+later, which is about 8 ms at 120 frames a second. The owner judged it in
+a blind test on 2026-11-18. They played the same fight in Anchorhead with
+it on and with it off. They felt the same responsiveness both ways, and
+they noticed a higher frame rate with it on. On the owner's PC (an RTX
+4080 and an i7-8700K), big fights ran 37% to 71% faster with it on. The
+Jekk'Jekk Tarr cantina went from about 49 to 80 frames a second, the
+Refugee Quad from 49 to 84, and Anchorhead from 51 to 70. Those fights
+were measured before `kjk bench` could repeat a fight, so the fight with
+the step thread on was not the same as the fight with it off.
 
-A live game's frame does not step the world itself then. The frame
+`KJK_STEP_BATCH=off` turns it off for the run. Every frame then steps all
+but its last tick itself, and hands only the last to the thread. Every
+frame did this before 2026-11-18. At 40 frames a second that is 2 ticks
+of every frame on the main thread.
+
+With it on, a live game's frame does not step the world itself. The frame
 makes the commands of every tick that is due, at most 8, and hands the
-ticks with the world to a thread of its own (`game::sim_worker`). The
-thread steps them in order while the frame draws. The next frame takes the
+ticks with the world to the thread. The thread steps them in order
+while the frame draws. The next frame takes the
 world back first, and then records each tick, tells the session of it and
 shows it, in order, as if it had stepped them itself. Whatever must read
 the world sooner (a save, a dump, the session's end) waits for the thread
@@ -163,27 +175,28 @@ the world sooner (a save, a dump, the session's end) waits for the thread
 - **What the player sees** is the time of the frame before, less one tick.
   The frame blends the two newest ticks by the clock of the frame that
   handed them over, so the view moves evenly whatever number of ticks each
-  frame has. Before, a slow frame showed the ticks it stepped itself, 16 ms
-  behind the clock. Now the view is one frame and 8 ms behind: 33 ms at
-  40 frames a second.
+  frame has. The view is one frame and 8 ms behind the clock, which is
+  33 ms at 40 frames a second. With `KJK_STEP_BATCH=off`, a slow frame
+  shows the ticks it stepped itself, 16 ms behind the clock.
 - **A tick that holds the world** ends the thread's work: a tick that calls
   a break, or one that asks for a transition when the session installs
   modules. The thread steps no tick after it. The clock goes back to that
   tick, and the players' actions taken for the ticks after it wait for the
   next tick (`Solo::unstepped`).
-- **A frame steps all but its last tick itself**, as every frame did
-  before, when a tick's command depends on the tick before it: a pilot or
-  a minigame's bot drives, a break holds at the frame's start, or a
-  transition failed to plan and the steps still ask for it. Only the last
-  tick goes to the thread then. A host that players can join over the
-  network does the same in every frame: the server takes a guest's command
-  for a tick when the tick's input is made, so the guests' commands keep
-  the time they had to arrive.
+- **A frame steps all but its last tick itself** when a tick's command
+  depends on the tick before it, as every frame does with
+  `KJK_STEP_BATCH=off`. This happens when a pilot or a minigame's bot
+  drives, when a break holds at the frame's start, or when a transition
+  failed to plan and the steps still ask for it. Only the last tick goes
+  to the thread then. A host that players can join over the network does
+  the same in every frame. Its server takes a guest's command for a tick
+  when the tick's input is made, so the guests' commands keep the time
+  they had to arrive.
 - **A replay, or a time held by `anim`,** steps every tick in the frame, so
   the frame shows the moment it holds. A guest steps its own world beside
   its frames (docs/NET.md).
 - A human player's keys are read once a frame, so every tick of a frame
-  gets the same keys either way. One thing is decided once a frame now:
+  gets the same keys either way. One thing is decided once a frame:
   whether a shared Block and alternate attack button blocks, by what the
   character held when the frame began.
 - A dump's `sim` fact counts the ticks stepped
@@ -200,6 +213,15 @@ kjk sim skeleton [--saber single_1]   # blades vs Ghoul2 and the renderer (SKELE
 kjk sim view [--replay file] [--headless --cmds 'wait 3s; dump; quit']
 kjk play …   # the player on a stage (docs/MOVEMENT.md); same host
 ```
+A recording made on an arena stage (`kjk play --stage arena@302nar`) is
+replayed in the level that stage makes, because the module alone does not
+make that level. `KJK_REPLAY_STAGE` names the stage for `kjk sim replay`.
+`KJK_REPLAY_HOSTILE` names the creatures that `--hostile` turned against
+the player when the recording was made, separated by commas. With
+`KJK_REPLAY_TIMES` set to a file name, the replay also writes into that
+file each tick's number and the microseconds since the tick before it,
+one tick a line. A tick after a checkpoint also counts the time to hash
+the checkpoint.
 An `anim <seconds>` command holds the host's clock: it steps up to that
 time, so a scripted `kjk play` shot shows the same moment every run.
 Each writes `facts.json` into a run folder; `view` also writes the session's

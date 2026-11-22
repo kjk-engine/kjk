@@ -87,12 +87,14 @@ pub const ANTI_ALIASING_DLSS_QUALITY: &str = "DLSS: Quality";
 pub const ANTI_ALIASING_DLSS_BALANCED: &str = "DLSS: Balanced";
 pub const ANTI_ALIASING_DLSS_PERFORMANCE: &str = "DLSS: Performance";
 pub const ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE: &str = "DLSS: Ultra Performance";
-/// kjk's sabers' page, which KOTOR 2's options do not have. These are the
+/// kjk's combat page, which KOTOR 2's options do not have. These are the
 /// gameplay page's button that opens it, its title, the names of its rows
 /// and the words of their values. A stepped row shows its name and its
-/// value ("Saber rules: Jedi Academy", "Hilt: Luke (ROTJ)").
-pub const SABERS: &str = "Sabers";
-pub const SABER_OPTIONS: &str = "Saber Options";
+/// value ("Combat rules: Jedi Academy", "Damage taken by party: 400%").
+pub const SABERS: &str = "Combat";
+pub const SABER_OPTIONS: &str = "Combat Options";
+pub const DAMAGE_PARTY: &str = "Damage taken by party";
+pub const DAMAGE_ENEMIES: &str = "Damage taken by enemies";
 pub const SABER_RULES: &str = "Combat rules";
 pub const SABER_RULES_JA: &str = "Jedi Academy";
 pub const SABER_RULES_ADVANCED: &str = "Advanced";
@@ -142,9 +144,12 @@ pub const SHADOWS_LOW: &str = "Shadows: Low";
 pub const SHADOWS_HIGH: &str = "Shadows: High";
 pub const SHADOWS_ULTRA: &str = "Shadows: Ultra";
 pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws only the nearest characters' shadows, with hard edges.\n\nUltra shows the full shape of every character and object in its shadow. Ultra needs a graphics card with ray tracing, and TAA or DLSS anti-aliasing. With other anti-aliasing, Ultra looks the same as High.";
-/// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
+pub const DAMAGE_PARTY_HELP: &str = "The damage you, your companions and other players take, as a percentage of the normal damage.\n\nA change applies when you next start or load a game. In co-op, the host's setting applies.";
+pub const DAMAGE_ENEMIES_HELP: &str = "The damage enemies and other characters outside your party take, as a percentage of the normal damage.\n\nA change applies when you next start or load a game. In co-op, the host's setting applies.";
+/// The combat page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
-pub const SABERS_HELP: &str = "Combat rules, Stamina bars and lightsaber hilts.";
+pub const SABERS_HELP: &str =
+    "Combat rules, Stamina bars, lightsaber hilts and damage multipliers.";
 pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with a melee weapon, such as a lightsaber, a sword, a vibroblade or a staff. A blaster, a stun baton and bare fists cannot block. While blocking, press {attack} just before an attack lands for a perfect block. Every character has Stamina. Blocking, attacking and special moves use it.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
 pub const DUEL_BARS_HELP: &str = "Shows a health bar and a Stamina bar above each enemy that is fighting you or your party, or that you have targeted. Companions and characters who are not fighting never show bars. You always see your own Stamina bar next to your portrait, whether or not this option is on. Advanced rules only.";
 pub const DUEL_WARNING_HELP: &str =
@@ -160,6 +165,10 @@ pub const STANCE_SETS_FIXED: &str =
 pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
 pub const MOVIE_DUELS_HILTS: &str =
     "Movie Duels' hilts need Movie Duels installed beside Jedi Academy.";
+/// What it says of them when Movie Duels' archives are there but its
+/// stances or hilts are not in them.
+pub const MOVIE_DUELS_INCOMPLETE: &str =
+    "Movie Duels is missing some of its files. Reinstall Movie Duels to use its stances and hilts.";
 pub const STANCE_SETS_HELP: &str = "Characters use Movie Duels stances and guards. In co-op, every player needs Movie Duels when this is on.";
 pub const HILT_HELP: &str = "The hilt model for single-bladed lightsabers.";
 pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";

@@ -162,9 +162,13 @@ pub fn run(options: RunOptions) -> AppExit {
                 })
                 .disable::<WinitPlugin>(),
         )
-        .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
-            1.0 / 60.0,
-        )));
+        .add_plugins(ScheduleRunnerPlugin::run_loop(
+            if crate::display::uncapped() {
+                Duration::ZERO
+            } else {
+                Duration::from_secs_f64(1.0 / 60.0)
+            },
+        ));
     } else {
         app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
             primary_window: Some(game_window()),
@@ -174,7 +178,11 @@ pub fn run(options: RunOptions) -> AppExit {
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");
-    app.add_plugins((ScenePlugin, crate::executors::ExecutorsPlugin));
+    app.add_plugins((
+        ScenePlugin,
+        crate::executors::ExecutorsPlugin,
+        crate::extract_gates::ExtractGatesPlugin,
+    ));
     if thunder {
         // Its mixer first, so the plugin opens no menu one.
         crate::sound::install(app.world_mut(), crate::sound::Bank::default());
@@ -241,7 +249,8 @@ pub fn run(options: RunOptions) -> AppExit {
                     play: crate::movie_view::played(options.headless),
                 },
             ),
-        ));
+        ))
+        .init_resource::<crate::bolt_hits::BoltHits>();
     }
     if let Some(start) = screens {
         app.add_plugins((
@@ -301,7 +310,15 @@ pub fn run(options: RunOptions) -> AppExit {
         crate::crash::DeviceLostPlugin,
         crate::render_facts::RenderFactsPlugin,
     ))
-    .add_systems(Startup, (log_render_adapter, write_manifest).chain());
+    .add_systems(
+        Startup,
+        (
+            log_render_adapter,
+            write_manifest,
+            crate::crash::refuse_software_adapter,
+        )
+            .chain(),
+    );
     if menu {
         app.add_systems(Startup, crate::crash::notice);
     }

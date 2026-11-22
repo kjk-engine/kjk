@@ -67,6 +67,22 @@ impl PartialEq for TemplateSources {
     }
 }
 
+impl TemplateSources {
+    pub(crate) fn are_of(&self, level: &Level) -> bool {
+        fn same<T: ?Sized>(weak: &Option<std::sync::Weak<T>>, arc: &Option<Arc<T>>) -> bool {
+            match (weak, arc) {
+                (Some(weak), Some(arc)) => std::ptr::addr_eq(weak.as_ptr(), Arc::as_ptr(arc)),
+                (None, None) => true,
+                _ => false,
+            }
+        }
+        std::ptr::addr_eq(self.placed.as_ptr(), Arc::as_ptr(&level.placed))
+            && same(&self.scripts, &level.scripts)
+            && same(&self.module, &level.module)
+            && std::ptr::addr_eq(self.companions.as_ptr(), Arc::as_ptr(&level.companions))
+    }
+}
+
 /// Which level a recording or a save was made in: its name, for reports,
 /// and `Level::digest`, which a level must have to replay or load it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -345,7 +361,7 @@ impl Level {
     }
 
     /// The facts an instance of `template` made in play has: a creature's,
-    /// a placeable's and a waypoint's from the script library's templates; the dead's
+    /// a placeable's, a waypoint's and a store's from the script library's templates; the dead's
     /// remains (`remains::bag_template`) from their `bodybag.2da` row; a
     /// mine laid in play (`traps::laid_template`) from its `traps.2da` row:
     /// its row's script and trap, no outline (its area is the square round
@@ -363,6 +379,7 @@ impl Level {
             }
             ObjectKind::Placeable => self.scripts()?.placeable(template).cloned(),
             ObjectKind::Waypoint => self.scripts()?.waypoint(template).cloned(),
+            ObjectKind::Store => self.scripts()?.store(template).cloned(),
             ObjectKind::Trigger => crate::traps::laid_facts(self.module()?, template).map(Arc::new),
             _ => None,
         }
@@ -574,6 +591,21 @@ impl Level {
         match (self.collision.level(), states) {
             (Some(level), Some(states)) => run(&level.with_states(states)),
             _ => run(self.collision.as_ref()),
+        }
+    }
+
+    /// Traces like `with`, but the level does not remember the answers
+    /// (`collision::Stated::unremembered`). The view traces this way. The
+    /// answers are the same as `with` gives.
+    pub fn with_unremembered<R>(
+        &self,
+        states: Option<&[u8]>,
+        run: impl FnOnce(&dyn CollisionWorld) -> R,
+    ) -> R {
+        match (self.collision.level(), states) {
+            (Some(level), Some(states)) => run(&level.with_states(states).unremembered()),
+            (Some(level), None) => run(&level.stated().unremembered()),
+            (None, _) => run(self.collision.as_ref()),
         }
     }
 

@@ -13,21 +13,24 @@ title = "Experience"
 summary = """
 Every player character and every available party member receives the
 experience that the party gains. Defeating an enemy awards experience
-based on the main character's level and the enemy's challenge rating.
+based on the level that the main character's experience has reached and
+the enemy's challenge rating.
 Quests and conversations award experience as the story advances. A
 character needs 1,000 experience for level 2 and 190,000 experience for
 level 20. The highest level is {progression.levels.most:bare} in both games.
 """
 detail = """
-Every player sees each gain or loss of experience. In KOTOR 2, the
+Every player sees each gain or loss of experience. In both games, the
 experience for a defeated enemy comes from a table. The game looks up the
 row for the level that the main character's experience has reached, and
-the column for the enemy's challenge rating. The table stops at row and
-column {progression.experience.tsl_most:bare}, so a higher level or rating
-counts as the last one. An enemy that scales with the party has a
-challenge rating equal to the main character's level when the enemy
-appeared, plus the change set by its scaling. The game then multiplies the
-result by its experience percentage and rounds it up.
+the column for the enemy's challenge rating. The row does not depend on
+the levels the character has taken, so a character who puts off a level-up
+gains no more experience than one who takes it. In KOTOR 2, the table stops
+at row and column {progression.experience.tsl_most:bare}, so a higher level
+or rating counts as the last one. In KOTOR 2, an enemy that scales with the
+party has a challenge rating equal to the main character's level when the
+enemy appeared, plus the change set by its scaling. The game then
+multiplies the result by its experience percentage and rounds it up.
 """
 
 [experience.tsl_most]
@@ -38,6 +41,28 @@ range = [1, 50]
 summary = "KOTOR 2's experience table for defeated enemies stops at row and column {progression.experience.tsl_most:bare}. A higher level or challenge rating counts as the last row or column."
 source = "TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`)"
 see = "sim::script::xp::Experience::tsl_kill"
+
+[experience.mentor_levels]
+name = "Mentor Tiers"
+type = "u8"
+value = [6, 12]
+labels = ["first tier's top level", "second tier's top level"]
+range = [1, 50]
+summary = "In KOTOR 2, Mentor gives its first experience bonus up to level {progression.experience.mentor_levels[0]:bare}, its second up to level {progression.experience.mentor_levels[1]:bare}, and its third above that."
+source = "TSL's executable (`CSWPartyTable::DistributeExperience`) and the feat's description"
+see = "sim::script::xp::mentor"
+applies = ["feat:MENTOR", "kind:companion"]
+
+[experience.mentor_share]
+name = "Mentor Bonus"
+type = "f32"
+value = [0.03, 0.05, 0.07]
+labels = ["to the first tier", "to the second", "above it"]
+range = [0.0, 1.0]
+summary = "A party member in the active party with Mentor adds {progression.experience.mentor_share} of each experience reward, rounded up, by the mentor's level."
+source = "TSL's executable (`CSWPartyTable::DistributeExperience`: 3%, 5%, 7% by the first active mentor's total level, rounded up) and the feat's description"
+see = "sim::script::xp::mentor"
+applies = ["feat:MENTOR", "kind:companion"]
 
 [skill_xp]
 title = "Experience for Mines and Locks"
@@ -112,7 +137,9 @@ One rank in a class skill takes {progression.levels.skill_cost[0]:bare}
 skill point. One rank in a cross-class skill takes
 {progression.levels.skill_cost[1]:bare} skill points. A Class Skill feat
 makes its skill a class skill for the character, whatever the class. A
-class skill can
+character with two classes keeps the class skills of both. A Scoundrel who
+becomes a Jedi Sentinel still has Stealth as a class skill. A class skill
+can
 have at most as many ranks as the character's level plus
 {progression.levels.rank_cap_over:bare}. A cross-class skill can have at
 most that number divided by {progression.levels.cross_class_cap_divisor:bare}.

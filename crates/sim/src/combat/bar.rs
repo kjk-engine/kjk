@@ -31,7 +31,7 @@
 use std::collections::BTreeMap;
 
 use crate::combat::force;
-use crate::combat::items::{self, Shelf};
+use crate::combat::items::Shelf;
 use crate::combat::picks;
 use crate::combat::sheet::{Rows, Sheet, feats, flags, skills};
 use crate::script::Library;
@@ -96,7 +96,7 @@ impl FeatLine {
             .iter()
             .rev()
             .copied()
-            .find(|row| sheet.feats.has(*row))
+            .find(|row| sheet.knows(*row))
     }
 
     /// Whether the weapon in `hand` can use the line (`combat::picks`). A
@@ -207,9 +207,11 @@ const SHELVES: [Shelf; 4] = [Shelf::Medpac, Shelf::Grenade, Shelf::Stim, Shelf::
 
 /// Whether `sheet` carries at least one item of kind `shelf`.
 fn carries(sheet: &Sheet, shelf: Shelf) -> bool {
-    sheet.items.iter().flatten().any(|carried| {
-        carried.count > 0 && items::use_of(carried.row).is_some_and(|used| used.shelf() == shelf)
-    })
+    sheet
+        .items
+        .iter()
+        .flatten()
+        .any(|carried| carried.count > 0 && carried.kind().shelf() == shelf)
 }
 
 /// The powers `sheet` can put on the bar, in the order the power key

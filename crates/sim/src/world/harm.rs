@@ -2,6 +2,7 @@
 //! settle.
 
 use super::*;
+use crate::combat::force::{HoldKind, HoldSave};
 
 /// The step's hits, in order, through the damage pipeline
 /// (`combat::damage`: `assess`, then `apply`), on the authority and in
@@ -24,7 +25,13 @@ pub(super) fn hurt(
     mut battering: ResMut<objects::Battering>,
     mut notices: ResMut<crate::notice::Notices>,
     mut module: ResMut<Module>,
-    (scene_held, talking, saber_rules): (Res<scene::Held>, Res<Talking>, Res<super::Rules>),
+    (scene_held, talking, saber_rules, damage_taken, mut progressed): (
+        Res<scene::Held>,
+        Res<Talking>,
+        Res<super::Rules>,
+        Res<super::DamageTaken>,
+        ResMut<super::Progressed>,
+    ),
     mut states_ended: ResMut<scripts::StatesEnded>,
     // A benched character is out of the area in TSL (`Away`): found here too.
     benched: Query<(&Benched, &PlayerSheet), bevy_ecs::query::Allow<Away>>,
@@ -127,7 +134,7 @@ pub(super) fn hurt(
                 .until
                 .map(|until| until.min(now + u64::from(course.for_ms))),
         };
-        // A hold decides how its link shows, as C11 cuts it short: its visuals
+        // A hold decides how its link shows, as C11 holds it: its visuals
         // and icon for as long as it holds, none where it is kept off. What
         // else is linked keeps its time; a permanent link (a scene's stasis)
         // keeps its look.
@@ -135,6 +142,10 @@ pub(super) fn hurt(
         if let (Some(at), Some(until)) = (at, until) {
             for leaf in &leaves {
                 if let ScriptEffect::Hold(hold) = leaf {
+                    let kind = hold_kind(&actors, &scripts.state, &level, (at, by), (*hold, until))
+                        .map_or(HoldKind::Story, |fallback| {
+                            HoldKind::Combat(Some(applied.save.unwrap_or(fallback)))
+                        });
                     let (.., object, sheet, _, fighting) = &mut actors[at];
                     let feats = sheet_of(*sheet, *object).feats;
                     let fighter = &mut fighting.0;
@@ -150,10 +161,16 @@ pub(super) fn hurt(
                         && if *hold == Hold::Ears {
                             fighter.force.cover_ears(now)
                         } else {
-                            fighter.force.hold(now, until.saturating_sub(now))
+                            fighter.force.hold(now, until.saturating_sub(now), kind)
                         };
                     if took {
                         fighter.force.hold = *hold;
+                    } else if kind != HoldKind::Story
+                        && *hold != Hold::Ears
+                        && fighter.alive()
+                        && fighter.force.weary(now)
+                    {
+                        float(&mut progressed, &level, target, FEEDBACK_IMMUNE, now);
                     }
                     let end = took.then_some(fighter.force.stunned_until);
                     held = Some(held.flatten().or(end));
@@ -187,7 +204,7 @@ pub(super) fn hurt(
                         damage_type: row,
                         cast: applied.cast(),
                         shot: blade,
-                        staged: !applied.cast(),
+                        staged: !applied.cast() && !applied.laid,
                     });
                 }
                 // The story's death (I30 P13): a party member's too.
@@ -436,11 +453,18 @@ pub(super) fn hurt(
                 // (TSL's academy: Bao-Dur spawned in his cell, killed where
                 // he lies by `EffectDeath`, and raised as the cells open,
                 // `a_shutdowncells`, to speak to the Exile).
-                ScriptEffect::Resurrection => {
+                ScriptEffect::Resurrection(percent) => {
+                    let percent = *percent;
                     if let Some(at) = at {
-                        let (.., player, fighting) = &mut actors[at];
+                        let (_, _, object, sheet, player, fighting) = &mut actors[at];
                         if fighting.0.downed() || fighting.0.dead() {
-                            falls::stand(&mut player.0, &mut fighting.0, &level.0.anims, now);
+                            let max_hp = i32::from(sheet_of(*sheet, *object).max_hp);
+                            let hp = if percent > 0 {
+                                (max_hp * i32::from(percent) / 100).clamp(1, max_hp) * 100
+                            } else {
+                                falls::RISE_HP
+                            };
+                            falls::get_up(&mut player.0, &mut fighting.0, &level.0.anims, hp, now);
                         }
                     }
                 }
@@ -488,6 +512,31 @@ pub(super) fn hurt(
         .collect();
     for at in alarmed {
         break_fragile(&mut actors[at].5.0, now);
+    }
+    // A held character's saving throw each round to break free (C11): the
+    // roll told to its own seat, "Saved" floated over it, and the hold's
+    // looks ended with it.
+    let lent = super::lent(&scripts.state.party);
+    for (id, avatar, object, sheet, _, fighting) in actors.iter_mut() {
+        let fighter = &mut fighting.0;
+        if !fighter.alive() || fighter.force.due(now).is_none() {
+            continue;
+        }
+        let sheet = effects::sheet_now(sheet_of(*sheet, *object), fighter, now);
+        let end = fighter.force.stunned_until;
+        let d20 = || {
+            i32::try_from(streams.authority.below(rules::interaction::checks::DIE)).unwrap_or(0) + 1
+        };
+        let Some(rolled) = fighter.force.roll_free(now, d20, |index| sheet.save(index)) else {
+            continue;
+        };
+        if let Some(seat) = super::keyed_by(avatar.map(|avatar| avatar.0), id.0, lent) {
+            notices.0.push((seat, save_notice(rolled)));
+        }
+        if rolled.saved {
+            end_looks(fighter, end, now);
+            float(&mut progressed, &level, id.0, FEEDBACK_SAVED, now);
+        }
     }
     for (id, .., fighting) in actors.iter_mut() {
         settle_effects(
@@ -594,6 +643,19 @@ pub(super) fn hurt(
         // hit count several times over, at the scaled creatures' own pace
         // (`combat::balance`); never a party member's.
         let mut hit = hit;
+        // A beast's own attack (`strikes`): its claws or bite, nothing in
+        // its hands.
+        let strike = attacker.filter(|by| *by != at).is_some_and(|by| {
+            let beast = actors[by]
+                .2
+                .and_then(|object| object.facts.as_ref())
+                .is_some_and(|facts| facts.strike.is_some());
+            let bare = matches!(
+                held(&who[by].0, &actors[by].5.0).delivery,
+                Delivery::Unarmed | Delivery::Baton
+            );
+            beast && bare && matches!(hit.source, Source::Weapon { .. })
+        });
         if let (
             Some(by),
             Source::Weapon {
@@ -608,7 +670,11 @@ pub(super) fn hurt(
                 .and_then(|(facts, library)| library.experience().balance(facts.multiplier_set))
         {
             *weapon = set.weapon(*weapon, scripts.state.pc_level());
-            *cadence_ms = crate::combat::balance::cadence(*cadence_ms);
+            // A beast's attack deals the beasts' own damage a round
+            // (`strikes::cadence`), scaled or not.
+            if !strike {
+                *cadence_ms = crate::combat::balance::cadence(*cadence_ms);
+            }
         }
         // A weapon's hit within its attacker's opener out of stealth
         // (`stealth::OPENER_MS`): on a target that has not perceived the
@@ -620,7 +686,9 @@ pub(super) fn hurt(
                 spent.push(by);
                 !scripts::perceived(&scripts.state, hit.target.0, hit.attacker.0)
             });
-        let attacker_seat = attacker.and_then(|by| actors[by].1.map(|avatar| avatar.0));
+        let attacker_seat = attacker.and_then(|by| {
+            super::keyed_by(actors[by].1.map(|avatar| avatar.0), actors[by].0.0, lent)
+        });
         let (target_sheet, target_side) = who[at];
         let target_party = target_side.party;
         // A creature outside the party lands its attack on its target
@@ -662,10 +730,13 @@ pub(super) fn hurt(
         );
         // A creature its appearance gives no movement (`moverate` NOMOVE:
         // a turret) is pushed by no blow: KOTOR moves it not at all.
+        // Nor is one in a grab: a grapple finisher holds both where it put
+        // them (`world::grapples`).
         let immobile = actors[at]
             .2
             .and_then(|object| object.facts.as_ref()?.body)
-            .is_some_and(|body| body.immobile());
+            .is_some_and(|body| body.immobile())
+            || actors[at].5.0.grapple.is_some();
         // An invisible attacker its target does not see through
         // (`Modifies::Invisibility`): the target's DEX bonus to Defense is
         // lost against it.
@@ -696,15 +767,18 @@ pub(super) fn hurt(
             _ => 0,
         };
         let (_, avatar, _, _, player, fighting) = &mut actors[at];
-        // Whether a player plays it: a seat's own character, the companion a
-        // seat drives, or the companion leading the party in the first
-        // seat's place (`lent`, which has no avatar of its own). A body a
-        // player plays never flinches and is never caught unaware.
-        let played = avatar.is_some() || lent == Some(hit.target);
+        // A body a seat plays (`world::played`) never flinches and is never
+        // caught unaware.
+        let played = super::played(hit.target, *avatar, lent);
+        let member = match (target_party, avatar.is_some()) {
+            (false, _) => damage::Member::Outsider,
+            (true, false) => damage::Member::Companion,
+            (true, true) => damage::Member::Player,
+        };
         // The dead take nothing more; the downed nothing but the story's
-        // death.
+        // death of a companion.
         let death = matches!(hit.source, Source::Death);
-        if !fighting.0.alive() && !(death && fighting.0.downed()) {
+        if !fighting.0.alive() && !(death && fighting.0.downed() && member.dies_of_death()) {
             continue;
         }
         let was_down = fighting.0.downed();
@@ -784,8 +858,43 @@ pub(super) fn hurt(
         fighting.0.mind.aware_at = fighting.0.mind.aware_at.min(clock.time_ms);
         let saved = assessed.saved;
         let mut assessed = assessed;
+        // A blade turns a beast's attack (`sabers::strike_block`): no
+        // damage, no push, and the attacker hears it was parried.
+        if let (true, Some(by), Some(from), Source::Weapon { weapon, .. }) =
+            (strike, attacker, attacker_origin, hit.source)
+            && assessed.outcome != crate::combat::Outcome::Refused
+        {
+            let rules = scene_held.saber_rules(&talking.0, hit.target, saber_rules.0);
+            let blow = super::sabers::StrikeBlow {
+                from,
+                at: hit.point.unwrap_or(from),
+                stronger: who[by].0.modifier(crate::combat::sheet::Ability::Strength)
+                    - target_sheet.modifier(crate::combat::sheet::Ability::Strength),
+                critical: assessed.outcome == crate::combat::Outcome::Critical,
+                chance: damage::chance(&who[by].0, &weapon, &defending),
+            };
+            if super::sabers::strike_block(
+                (rules, played),
+                &mut fighting.0,
+                ps,
+                &target_sheet,
+                blow,
+                clock.time_ms,
+                &mut streams.authority,
+            ) {
+                assessed.outcome = crate::combat::Outcome::Parried;
+                assessed.damage = 0;
+                assessed.push = None;
+            }
+        }
+        let parried = assessed.outcome == crate::combat::Outcome::Parried;
         // Nothing stands between the story and its death.
         if !death {
+            // The options' damage multipliers come first. A blow the story
+            // stages keeps its number, so a scene plays out as written.
+            if !matches!(hit.source, Source::Script { staged: true, .. }) {
+                assessed.damage = damage_taken.0.scaled(assessed.damage, target_party);
+            }
             // After the pipeline, in order: speed's extra attacks scale a
             // weapon hit's budget (C2); an energy shield takes what it covers,
             // until spent; a battle stim's vitality goes before hit points;
@@ -830,15 +939,25 @@ pub(super) fn hurt(
         // death takes the rest of its hit points with the blow, the rest
         // once it has landed.
         let struck = match hit.source {
-            Source::Weapon { weapon, .. }
-                if attacker.is_some_and(|by| by != at)
-                    && assessed.outcome != crate::combat::Outcome::Refused =>
+            Source::Weapon {
+                weapon, cadence_ms, ..
+            } if attacker.is_some_and(|by| by != at)
+                && !parried
+                && assessed.outcome != crate::combat::Outcome::Refused =>
             {
+                // A hit worth less than a round (a chained punch) rolls that
+                // share of each chance: its cadence's thousandths of a round.
+                let share = match weapon.delivery {
+                    crate::combat::Delivery::Unarmed | crate::combat::Delivery::Baton => {
+                        (u64::from(cadence_ms) * 1000 / crate::combat::damage::ROUND_MS).min(1000)
+                    }
+                    _ => 1000,
+                } as u32;
                 gear::on_hits(
                     &weapon,
                     &target_sheet,
                     &fighting.0,
-                    clock.time_ms,
+                    (clock.time_ms, share),
                     &mut streams.authority,
                 )
             }
@@ -854,17 +973,42 @@ pub(super) fn hurt(
             &mut fighting.0,
             clock.time_ms,
             clock.tick,
-            target_party,
+            member,
         );
+        // A creature with Min1HP takes a blow's damage, but its hit points
+        // stop at 1. Its damaged script still runs for the part the floor
+        // held, so a script waiting for 1 HP sees the creature there on the
+        // next blow. TSLRCM's Visas Marr yields so (`k_visas_damage`, #571).
+        // Its first run at half health or less only marks that, so a blow
+        // that took her from over half to 1 HP ran that part alone. Before
+        // this, no later blow took any hit points, so the script never ran
+        // again and the fight never ended.
+        let held = assessed.damage.saturating_sub(resolved.damage);
+        if held > 0
+            && !death
+            && target_sheet.flags & crate::combat::sheet::flags::MIN_ONE_HP != 0
+            && let Some(watched) = scripts.state.watch.seen.get_mut(&hit.target.0)
+        {
+            watched.hp = watched.hp.max(fighting.0.hp.saturating_add(held));
+        }
         if fighting.0.alive() {
             for effect in struck {
-                struck_by(
+                let weary = struck_by(
                     &mut fighting.0,
                     effect,
                     hit.attacker,
                     clock.time_ms,
                     &level.0,
                 );
+                if weary {
+                    float(
+                        &mut progressed,
+                        &level,
+                        hit.target,
+                        FEEDBACK_IMMUNE,
+                        clock.time_ms,
+                    );
+                }
             }
         }
         // Only an attack puts the target in combat (`Resolved::attacked`).
@@ -902,18 +1046,30 @@ pub(super) fn hurt(
             && !resolved.downed
             && !(saved && effect.save_spares)
         {
-            grenades::afflict(
+            let weary = grenades::afflict(
                 &mut fighting.0,
                 effect.secondary,
+                effect.dc,
                 hit.attacker,
                 clock.time_ms,
             );
+            if weary {
+                float(
+                    &mut progressed,
+                    &level,
+                    hit.target,
+                    FEEDBACK_IMMUNE,
+                    clock.time_ms,
+                );
+            }
         }
         // Fear ends on damage (C11).
         let fear = &mut fighting.0.force;
         if fear.hold == Hold::Fear && resolved.damage > 0 {
             fear.hold = Hold::Stun;
-            fear.stunned_until = fear.stunned_until.min(clock.time_ms);
+            let end = fear.stunned_until;
+            fear.release(clock.time_ms);
+            end_looks(&mut fighting.0, end, clock.time_ms);
         }
         // A mind trick or a droid's scramble breaks on any damage, and on
         // another's attack reaching it.
@@ -969,6 +1125,14 @@ pub(super) fn hurt(
                 }
                 _ => true,
             };
+            // A shot that is not a blade's flinches by its share of one
+            // KOTOR attack, as its damage is (`rules::combat::flinch`).
+            let share = match hit.source {
+                Source::Weapon { cadence_ms, .. } if !attacker_blade => {
+                    crate::combat::damage::pace(cadence_ms).min(1000)
+                }
+                _ => 1000,
+            };
             let chance = death::pain_chance(
                 resolved.damage,
                 fighting.0.hp,
@@ -976,6 +1140,7 @@ pub(super) fn hurt(
                 surprised,
                 attacker_blade && cut,
                 target_sheet.flags & flags::DROID != 0,
+                share,
             );
             // Spins, specials, knockdowns, rolls and flips go on.
             if i64::from(streams.authority.below(1000)) < chance && !motion::shrugs_off_pain(ps) {
@@ -1138,6 +1303,107 @@ pub(super) fn settle_effects(
     }
     if clear {
         clear_actions(id, fighter, state);
+    }
+}
+
+/// `feedbacktext.2da`'s rows that float over a held character: "Immune"
+/// over one refused for its recent holds, "Saved" over one that broke free.
+const FEEDBACK_IMMUNE: usize = 1;
+const FEEDBACK_SAVED: usize = 2;
+
+/// Floats `feedbacktext.2da` row `row` over `over` from `now`.
+fn float(progressed: &mut super::Progressed, level: &Static, over: SimId, row: usize, now: u64) {
+    let strref = level
+        .0
+        .scripts()
+        .and_then(|library| library.presentation().feedback.get(row).copied())
+        .unwrap_or(0);
+    progressed.0.feedback.push(crate::snapshot::Feedback {
+        over: over.0,
+        strref,
+        at_ms: now,
+    });
+}
+
+/// How a script's hold on `actors[at]` by `by` until `until` takes hold
+/// (C11): `None` for a story's (a choke, a permanent hold, one whose
+/// creator is not hostile to its target), else the save it rolls each
+/// round when the script asked none: the creator's power DC
+/// (`force::save_dc`, `GetSpellSaveDC`), with Fortitude for a stun, a
+/// paralysis and a droid's stun, Reflex for a whirlwind, and Will for fear
+/// and sleep.
+#[allow(clippy::type_complexity)]
+fn hold_kind(
+    actors: &[(
+        &Id,
+        Option<&Avatar>,
+        Option<&Object>,
+        Option<&PlayerSheet>,
+        Mut<Player>,
+        Mut<Fighting>,
+    )],
+    scripts: &crate::script::State,
+    level: &Static,
+    (at, by): (usize, SimId),
+    (hold, until): (Hold, u64),
+) -> Option<HoldSave> {
+    let caster = actors.binary_search_by_key(&by, |(own, ..)| own.0).ok()?;
+    if hold == Hold::Choke || until == u64::MAX {
+        return None;
+    }
+    let repute = (level.0.module.as_ref()).map(|module| module.repute.with(&scripts.reputation));
+    let side = |at: usize| {
+        let (id, avatar, object, sheet, _, fighting) = &actors[at];
+        side_of(id.0, *avatar, &fighting.0, &sheet_of(*sheet, *object))
+    };
+    if crate::module::relation(repute, side(caster), side(at)) != Relation::Hostile {
+        return None;
+    }
+    let (_, _, object, sheet, ..) = &actors[caster];
+    let index = match hold {
+        Hold::Fear | Hold::Sleep => 2,
+        Hold::Whirlwind => 1,
+        _ => 0,
+    };
+    Some(HoldSave {
+        index,
+        dc: crate::combat::force::save_dc(&sheet_of(*sheet, *object)),
+    })
+}
+
+/// A roll to break free as the game's saving throw line.
+fn save_notice(rolled: crate::combat::force::Struggled) -> crate::notice::Notice {
+    let save = match rolled.save.index {
+        0 => locks::lines::FORTITUDE_SAVE,
+        1 => locks::lines::REFLEX_SAVE,
+        _ => locks::lines::WILL_SAVE,
+    };
+    let clamp = |value: i32| value.clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
+    crate::notice::Notice::Save {
+        save,
+        roll: rolled.roll.clamp(0, i32::from(u8::MAX)) as u8,
+        total: clamp(rolled.total),
+        dc: clamp(rolled.save.dc),
+        success: rolled.saved,
+    }
+}
+
+/// Ends the looks of a hold that ended early at `now` (a save, a fear's
+/// damage): its icons and visuals, which were to last until its `end`.
+fn end_looks(fighter: &mut Fighter, end: u64, now: u64) {
+    if end <= now {
+        return;
+    }
+    for slot in &mut fighter.effects.lasting {
+        if slot.is_some_and(|l| {
+            l.until == end
+                && matches!(
+                    l.modifies,
+                    effects::Modifies::Icon | effects::Modifies::Visual
+                )
+        }) {
+            *slot = None;
+        }
     }
 }
 

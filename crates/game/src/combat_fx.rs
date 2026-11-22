@@ -20,6 +20,15 @@
 //!   the attacker. Hits that drew no blood (refused: an ally's stray shot)
 //!   have none, nor have parried and deflected ones, powers', blasts', or
 //!   unarmed and baton hits.
+//! - Bolt hit records: each bolt hit is also written down as a
+//!   `bolt_hits::BoltHit`, for the burns, the smoke and the flinch drawn
+//!   from it. The record names the line the bolt was drawn along. That line
+//!   is the trail of the shooter's recently drawn bolt that passes nearest
+//!   the hit location (`bolt_hits::pick_trail`). With no such trail, the
+//!   line runs from the attacker's chest to the hit. Each record also
+//!   lights the spot where that line meets the body, in the colour of the
+//!   gun's flash, for `HIT_LIGHT_MS`. A hit that an own bolt's impact
+//!   foretold is written and lit as well, but plays no spark or sound again.
 //! - Blade hits: a saber's or a melee blade's plays KOTOR's lightsaber
 //!   sparks (`HIT_SPARKS`, drawn by `script_fx`) at the hit as above, and
 //!   its hit sound there: a lightsaber's one of JA's three
@@ -71,9 +80,10 @@ use sim::module::ObjectKind;
 use sim::{EntityState, Instances, Kind, SimId, Snapshot};
 
 use crate::blaster_view::{BlasterShots, BoltShown, Flash, Flashed, Pulse};
+use crate::bolt_hits::{self, BoltHit, BoltHits, Trail};
 use crate::cast::{self, Guns, Hitboxes};
 use crate::lifecycle_view::SceneCamera;
-use crate::material::OdysseyMaterial;
+use crate::model_fx::SprayStores;
 use crate::saber_marks::{self, Cuts, DrawnLevel};
 use crate::scene::{SceneContent, game_to_bevy};
 use crate::scene_fx::{self, Batch, ShaderMeshes};
@@ -134,6 +144,15 @@ const DEFLECT_LIGHT: Vec3 = Vec3::new(1.0, 0.75, 0.45);
 const DEFLECT_STRENGTH: f32 = 1.5;
 const DEFLECT_RADIUS: f32 = 5.0;
 const DEFLECT_MS: f64 = 160.0;
+/// A bolt's hit on a body flashes: a light at the hit in the colour of the
+/// gun's flash, this strong, reaching this far (metres), gone in this long
+/// (ms).
+const HIT_LIGHT_STRENGTH: f32 = 1.2;
+const HIT_LIGHT_RADIUS: f32 = 2.5;
+const HIT_LIGHT_MS: f64 = 120.0;
+/// A bolt is taken to have left with the shooter's shot nearest the time it
+/// was fired, if that shot left within this long of it (ms).
+const SHOT_MATCH_MS: f32 = 50.0;
 /// How bright a muzzle flash lights what is near when it is not before the
 /// eyes (`weapons::EyeFlash::glow` sets those).
 const MUZZLE_GLOW: f32 = 0.6;
@@ -332,6 +351,13 @@ struct Drawn {
     /// fired: taken once, when the view reaches the shot, so the arm's kick
     /// after does not shake it; kept while the bolt flies.
     launches: BTreeMap<(SimId, u64), Vec3>,
+    /// Each bolt as drawn, by the key it is drawn under (`BoltShown::key`),
+    /// kept for `bolt_hits::TRAIL_MS` after it was last drawn: the bolts the
+    /// hits are matched to.
+    trails: Trails,
+    /// The shots of the last `bolt_hits::TRAIL_MS`, each with when it left
+    /// the gun (the view's ms): a bolt's trail takes its shot's special.
+    fired: Vec<(Shot, f32)>,
     shaders: ShaderMeshes,
     /// The hits' primitives, oldest first (the oldest go past
     /// `MOST_PRIMITIVES`).
@@ -362,6 +388,9 @@ struct Tally {
     unconfirmed: usize,
 }
 
+/// The bolts as drawn, by the key each is drawn under (`BoltShown::key`).
+type Trails = BTreeMap<(u32, u64), Trail>;
+
 /// The setup until the first frame builds the meshes.
 #[derive(Resource)]
 struct Pending(Option<Setup>);
@@ -376,6 +405,7 @@ impl Plugin for CombatFxPlugin {
             .init_resource::<Bursts>()
             .init_resource::<Added>()
             .init_resource::<Cuts>()
+            .init_resource::<BoltHits>()
             .add_systems(PreUpdate, spawn.run_if(resource_exists::<Pending>))
             .add_systems(
                 PostUpdate,
@@ -461,8 +491,7 @@ fn spawn(
     mut commands: Commands,
     mut pending: ResMut<Pending>,
     mut images: ResMut<Assets<Image>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<OdysseyMaterial>>,
+    mut stores: SprayStores,
 ) {
     let Some(setup) = pending.0.take() else {
         return;
@@ -472,8 +501,7 @@ fn spawn(
         &mut commands,
         (&setup.blends, &setup.textures),
         &mut images,
-        &mut meshes,
-        &mut materials,
+        stores.assets(),
     );
     commands.insert_resource(Drawn {
         named: setup.named,
@@ -490,6 +518,8 @@ fn spawn(
         flashing: Vec::new(),
         pulses: Vec::new(),
         launches: BTreeMap::new(),
+        trails: BTreeMap::new(),
+        fired: Vec::new(),
         shaders,
         impacts: Vec::new(),
         seen: BTreeMap::new(),
@@ -599,7 +629,7 @@ fn draw(
     swap: Res<SceneSwap>,
     (hitboxes, guns, eyes): (Res<Hitboxes>, Res<Guns>, Res<crate::first_person::Eyes>),
     drawn: Option<ResMut<Drawn>>,
-    (mut contacts, mut fire): (ResMut<Contacts>, ResMut<OwnFire>),
+    (mut contacts, mut fire, mut records): (ResMut<Contacts>, ResMut<OwnFire>, ResMut<BoltHits>),
     (mut cues, mut asked, mut added, mut cuts): (
         ResMut<Cues>,
         ResMut<Bursts>,
@@ -608,14 +638,18 @@ fn draw(
     ),
     places: Query<&GlobalTransform>,
     cameras: Query<&GlobalTransform, SceneCamera>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut stores: SprayStores,
     mut facts: ResMut<DumpFacts>,
     (kotor, visuals, mut blasters): (
         Option<Res<WeaponSounds>>,
         Option<ResMut<HookVisuals>>,
         ResMut<BlasterShots>,
     ),
-    (rooms, mut level): (Option<Res<crate::shadows::RoomSurfaces>>, Local<DrawnLevel>),
+    (rooms, mut level, doors): (
+        Option<Res<crate::shadows::RoomSurfaces>>,
+        Local<DrawnLevel>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
 ) {
     let Some(mut drawn) = drawn else { return };
     // KOTOR's sparks are drawn by `script_fx`; none without it.
@@ -640,12 +674,18 @@ fn draw(
         drawn.flashing.clear();
         drawn.pulses.clear();
         drawn.launches.clear();
+        drawn.trails.clear();
+        drawn.fired.clear();
+        records.0.clear();
         contacts.0.clear();
         fire.shots.clear();
         fire.bolts.clear();
     }
     let current = presented.0.current();
     let now = view_ms(&presented.0) as f32;
+    records
+        .0
+        .retain(|hit| now - hit.ms as f32 <= bolt_hits::KEPT_MS as f32);
     let shown = drawn.shown.len();
     drawn.shown.retain(|&(.., at)| now - at <= CONTACT_MATCH_MS);
     drawn.contacts.unconfirmed += shown - drawn.shown.len();
@@ -662,9 +702,9 @@ fn draw(
         (cues, &mut sparked),
     );
     // An effect's end traced from it (`org2fromTrace`) stops at the level.
-    let states = swap.level.states_in(current);
+    let states = doors.of(&presented.0, &swap);
     let line = |from: Vec3, to: Vec3| {
-        swap.level.with(states.as_deref(), |world| {
+        swap.level.with_unremembered(states.as_deref(), |world| {
             world.trace(
                 (from * UNIT).to_array(),
                 (to * UNIT).to_array(),
@@ -762,7 +802,7 @@ fn draw(
             }
         }
         hits(
-            drawn,
+            (drawn, &mut records),
             snapshot,
             (&swap.level, kotor),
             &hitboxes,
@@ -774,8 +814,7 @@ fn draw(
         fly(
             drawn,
             (me, own_now, now),
-            (&swap.level, kotor),
-            current,
+            (&swap.level, states.as_deref(), kotor),
             &fire.bodies,
             (cues, &mut sparked),
         );
@@ -834,6 +873,12 @@ fn draw(
         }
     }
     drawn.launches.retain(|shot, _| flying.contains(shot));
+    drawn
+        .trails
+        .retain(|_, trail| now - trail.last_ms <= bolt_hits::TRAIL_MS);
+    drawn
+        .fired
+        .retain(|(_, start)| now - start <= bolt_hits::TRAIL_MS);
     let Some(camera) = cameras.iter().next() else {
         return;
     };
@@ -901,9 +946,18 @@ fn draw(
             until: f32::INFINITY,
             launch: launched(drawn, missile.owner, missile.from_ms),
         };
-        if let Some(shown) = path.shown((entity.id.0, 0), model, now) {
+        let key = host_key(entity.id);
+        if let Some(shown) = path.shown(key, model, now) {
             blasters.bolts.push(shown);
             bolts += 1;
+            let bolt = (missile.owner, missile.weapon, missile.power);
+            keep_trail(
+                (&mut drawn.trails, &drawn.fired),
+                key,
+                (&path, 0.0),
+                bolt,
+                now,
+            );
         }
     }
     // The own bolts not yet handed over, at own time.
@@ -923,9 +977,19 @@ fn draw(
                 },
                 launch: launched(drawn, me, own.fired as u64),
             };
-            let key = (u32::MAX - me.0, own.tick);
+            let key = own_key(me, own.tick);
             if let Some(shown) = path.shown(key, model, own_now as f32) {
                 blasters.bolts.push(shown);
+                // Its trail is kept in the view's time, as the hits come.
+                let lead = (own_now - f64::from(now)) as f32;
+                let bolt = (me, own.weapon, own.power);
+                keep_trail(
+                    (&mut drawn.trails, &drawn.fired),
+                    key,
+                    (&path, lead),
+                    bolt,
+                    now,
+                );
             }
         }
     }
@@ -968,7 +1032,7 @@ fn draw(
     drawn
         .saber_marks
         .draw(now, &drawn.shaders, &mut batches, to_bevy);
-    drawn.shaders.fill(batches, &mut meshes);
+    drawn.shaders.fill(batches, stores.assets());
     let flying: BTreeSet<SimId> = current.entities.iter().map(|e| e.id).collect();
     drawn.handovers.retain(|id, _| flying.contains(id));
     drawn.hidden.retain(|id| flying.contains(id));
@@ -1026,16 +1090,26 @@ struct Path {
     launch: Vec3,
 }
 
-impl Path {
-    /// How far off its way the bolt is drawn `ms` after it was fired: all
-    /// of `launch` at first, none once `CONVERGE` units out, in step with
-    /// the way flown, so it flies straight from the muzzle to its way there,
-    /// along the barrel aimed at that point (`cast::gun_aim`).
-    fn off(&self, ms: f32) -> Vec3 {
-        let gone = self.velocity.length() * ms / 1000.0;
-        self.launch * (1.0 - gone / CONVERGE).clamp(0.0, 1.0)
-    }
+/// Where a bolt from `base` (units) at `velocity` (units per second),
+/// leaving the gun `launch` off its way, is drawn `t` ms after it was
+/// fired, and its way as drawn there (a unit vector, toward where it will be
+/// a frame on). It is drawn off its way by all of `launch` at first and by
+/// none once `CONVERGE` units out, in step with the way flown. So it flies
+/// straight from the muzzle to its way there, along the barrel aimed at that
+/// point (`cast::gun_aim`).
+pub(crate) fn drawn_line((base, velocity, launch): (Vec3, Vec3, Vec3), t: f32) -> (Vec3, Vec3) {
+    let at = |t: f32| {
+        let off = launch * (1.0 - velocity.length() * t / 1000.0 / CONVERGE).clamp(0.0, 1.0);
+        base + velocity * (t / 1000.0) + off
+    };
+    let (here, next) = (at(t), at(t + FRAME_MS));
+    (
+        here,
+        (next - here).normalize_or(velocity.normalize_or(Vec3::Y)),
+    )
+}
 
+impl Path {
     /// The bolt `key` in `model` as drawn at `now`: none before it was
     /// fired, nor once it stopped (KOTOR's bolt goes as it arrives).
     fn shown(&self, key: (u32, u64), (model, tint): (String, Vec3), now: f32) -> Option<BoltShown> {
@@ -1043,15 +1117,13 @@ impl Path {
             return None;
         }
         let t = now - self.fired;
-        let at = self.base + self.velocity * (t / 1000.0) + self.off(t);
-        // Its way as drawn: toward where it will be a moment on.
-        let next = self.base + self.velocity * ((t + FRAME_MS) / 1000.0) + self.off(t + FRAME_MS);
+        let (at, way) = drawn_line((self.base, self.velocity, self.launch), t);
         let speed = self.velocity.length() * UNIT / 1000.0;
         Some(BoltShown {
             key,
             model,
             at: at * UNIT,
-            way: (next - at).normalize_or(self.velocity.normalize_or(Vec3::Y)),
+            way,
             tint,
             flown: speed * t,
             left: speed * (self.until - now),
@@ -1131,6 +1203,58 @@ fn launched(drawn: &Drawn, who: SimId, fired: u64) -> Vec3 {
         .unwrap_or(Vec3::ZERO)
 }
 
+/// The key a host bolt (the missile `id`) is drawn and its trail kept under.
+fn host_key(id: SimId) -> (u32, u64) {
+    (id.0, 0)
+}
+
+/// The key an own bolt of `me`, fired at `tick`, is drawn and its trail kept
+/// under.
+fn own_key(me: SimId, tick: u64) -> (u32, u64) {
+    (u32::MAX - me.0, tick)
+}
+
+/// Keeps the trail of the bolt drawn under `key` at `now` (the view's ms)
+/// along `path`, which is `lead` ms ahead of the view's time (an own bolt's,
+/// drawn at own time). `owner` fired it with `weapon`, and `power` marks a
+/// Power Blast's bolt. The trail is a Sniper Shot's once the shot it left
+/// with is found among `fired` (`sniper_shot`).
+fn keep_trail(
+    (trails, fired): (&mut Trails, &[(Shot, f32)]),
+    key: (u32, u64),
+    (path, lead): (&Path, f32),
+    (owner, weapon, power): (SimId, sim::combat::sheet::Weapon, bool),
+    now: f32,
+) {
+    let fired_at = path.fired - lead;
+    let sniper =
+        trails.get(&key).is_some_and(|trail| trail.sniper) || sniper_shot(fired, owner, fired_at);
+    trails.insert(
+        key,
+        Trail {
+            owner,
+            base: path.base,
+            velocity: path.velocity,
+            launch: path.launch,
+            fired: fired_at,
+            last_ms: now,
+            weapon,
+            power,
+            sniper,
+        },
+    );
+}
+
+/// Whether the shot of `owner` that left the gun nearest `fired_at` (the
+/// view's ms), within `SHOT_MATCH_MS`, was a Sniper Shot.
+fn sniper_shot(fired: &[(Shot, f32)], owner: SimId, fired_at: f32) -> bool {
+    fired
+        .iter()
+        .filter(|(shot, start)| shot.by == owner && (start - fired_at).abs() <= SHOT_MATCH_MS)
+        .min_by(|a, b| (a.1 - fired_at).abs().total_cmp(&(b.1 - fired_at).abs()))
+        .is_some_and(|(shot, _)| matches!(shot.special, Some(Special::SniperShot(_))))
+}
+
 /// A muzzle flash for `shot` at `start` (the view's ms), and its shot
 /// sound then, each shot's a little higher or lower and louder or softer
 /// than the last (`FIRE_GAIN`, `FIRE_RATE`, `FIRE_SHARE`); `whose` 0 for the
@@ -1156,6 +1280,7 @@ fn flash(
         });
     }
     drawn.flashing.push((*shot, start));
+    drawn.fired.push((*shot, start));
     drawn.flashes[whose] += 1;
 }
 
@@ -1192,13 +1317,15 @@ fn place_flashes(
             .and_then(|kotor| kotor.ammo(shot.base_item))
             .and_then(|ammo| ammo.muzzle_flash.clone())
             .map(Flashed::Model);
-        // A Power Blast's is its charge-up, on the gun already (`aim_fx`); a
-        // Sniper Shot's none before the eyes the camera looks through (its
-        // scope's glint there would stand in the view).
+        // A Power Blast's visual is its charge-up, which is on the gun
+        // already (`aim_fx`). A Sniper Shot plays none either. Its sight
+        // belongs to the steadying (`aim_fx`) and goes when the shot leaves.
+        // The Improved and Master rows also hold KOTOR's holographic scope
+        // (two meshes over the gun). KOTOR plays that as the attack begins,
+        // so played here it would stand over the gun for 2.3 s after the shot.
         let feat = shot
             .special
-            .filter(|special| !matches!(special, Special::PowerBlast(_)))
-            .filter(|special| !matches!(special, Special::SniperShot(_)) || eyes != Some(shot.by))
+            .filter(|special| !matches!(special, Special::PowerBlast(_) | Special::SniperShot(_)))
             .and_then(crate::blaster_view::feat_row)
             .map(Flashed::Row);
         let ms = f64::from(start.max(now));
@@ -1260,6 +1387,16 @@ fn take_over(
             .launches
             .insert((missile.owner, missile.from_ms), launch);
     }
+    // The copy keeps the own bolt's Sniper Shot mark, even when the host
+    // fired it too far from the own shot to match that shot itself.
+    if let Some(trail) = drawn
+        .trails
+        .get(&own_key(missile.owner, own.tick))
+        .filter(|trail| trail.sniper)
+        .copied()
+    {
+        drawn.trails.insert(host_key(id), trail);
+    }
     own.fate = Fate::Handed(id);
     drawn.handovers.insert(id, handover);
     drawn.own[1] += 1;
@@ -1272,16 +1409,14 @@ fn take_over(
 fn fly(
     drawn: &mut Drawn,
     (me, own_now, now): (SimId, f64, f32),
-    (level, kotor): (&sim::Level, Option<&WeaponSounds>),
-    current: &Snapshot,
+    (level, doors, kotor): (&sim::Level, Option<&[u8]>, Option<&WeaponSounds>),
     bodies: &[collision::Body],
     (cues, sparked): (&mut Vec<Cue>, &mut Vec<HookVisual>),
 ) {
-    let doors = level.states_in(current);
     let mut met = Vec::new();
     for own in &mut drawn.own_bolts {
         let flying = !matches!(own.fate, Fate::Ended(_) | Fate::Handed(_));
-        match own.fly(own_now, (level, doors.as_deref()), bodies, me) {
+        match own.fly(own_now, (level, doors), bodies, me) {
             Some((victim, point)) => met.push((own.weapon.base_item, victim, point, -own.velocity)),
             None if flying && matches!(own.fate, Fate::Ended(_)) => drawn.own[4] += 1,
             None => {}
@@ -1312,8 +1447,11 @@ fn bolt_hit(
 
 /// The impacts of the events new in `snapshot`: at the hit location's node
 /// (as the bodies stand this frame) or the chest, out toward the attacker.
+/// Each bolt hit is also written to `records` as a `BoltHit` and lights the
+/// spot it met. A bolt hit that an own bolt's impact foretold is written and
+/// lit too, but plays no spark or sound again.
 fn hits(
-    drawn: &mut Drawn,
+    (drawn, records): (&mut Drawn, &mut BoltHits),
     snapshot: &Snapshot,
     (level, kotor): (&sim::Level, Option<&WeaponSounds>),
     hitboxes: &Hitboxes,
@@ -1323,6 +1461,7 @@ fn hits(
     let to_game = game_to_bevy().inverse();
     let objects = Instances::in_snapshot(level, snapshot);
     let catalog = level.scripts().map(|library| library.items());
+    let mut trails: Option<Vec<Trail>> = None;
     for entity in &snapshot.entities {
         let (Some(fighter), Some(player)) = (entity.fighter, entity.player) else {
             continue;
@@ -1355,13 +1494,10 @@ fn hits(
                     if drawn.foretold(event.by, entity.id) {
                         continue;
                     }
-                    false
+                    None
                 }
-                Some(Delivery::Blaster(_)) => {
-                    if drawn.foretold(event.by, entity.id) {
-                        continue;
-                    }
-                    true
+                Some(Delivery::Blaster(blaster)) => {
+                    Some((blaster, drawn.foretold(event.by, entity.id)))
                 }
                 // Fists, claws and batons sound, with no effect.
                 Some(Delivery::Unarmed | Delivery::Baton) => {
@@ -1389,10 +1525,62 @@ fn hits(
             let mut rng = seed(entity.id.0, u32::from(event.sequence));
             let at = point + toward * SURFACE;
             let ms = snapshot.time_ms as f32;
-            if bolt {
-                let base_item = attacker.map_or(0, |by| cast::weapon(by, &objects).base_item);
-                bolt_hit((cues, sparked), kotor, base_item, (at, ms));
-                drawn.hits[0] += 1;
+            if let Some((blaster, foretold)) = bolt {
+                let gun = attacker.map(|by| cast::weapon(by, &objects));
+                // A hit foretold played its spark and sound already.
+                if !foretold {
+                    let base_item = gun.map_or(0, |gun| gun.base_item);
+                    bolt_hit((cues, sparked), kotor, base_item, (at, ms));
+                    drawn.hits[0] += 1;
+                }
+                // The trails are copied once, when a snapshot's first bolt
+                // hit is met.
+                let trails = trails.get_or_insert_with(|| drawn.trails.values().copied().collect());
+                let trail = event
+                    .by
+                    .and_then(|by| bolt_hits::pick_trail(trails, by, ms, point));
+                // With no trail, the line runs from the attacker's chest
+                // (or the effect's place) to the hit.
+                let (from, way) = trail.map_or_else(
+                    || {
+                        let chest = attacker.and_then(|a| a.player).map(|a| mind::chest(&a));
+                        (chest.map_or(at, Vec3::from_array), -toward)
+                    },
+                    |trail| bolt_hits::line_of(trail, ms),
+                );
+                let record = BoltHit {
+                    victim: entity.id,
+                    by: event.by,
+                    sequence: event.sequence,
+                    ms: snapshot.time_ms,
+                    location: event.location,
+                    critical: event.result == Outcome::Critical,
+                    power_blast: trail.is_some_and(|trail| trail.power),
+                    sniper_shot: trail.is_some_and(|trail| trail.sniper),
+                    killing: fighter.hp <= 0,
+                    damage: event.damage,
+                    max_hp: cast::sheet(entity, &objects).max_hp,
+                    one_handed: trail
+                        .map(|trail| trail.weapon)
+                        .or(gun)
+                        .is_none_or(|gun| gun.one_handed()),
+                    from: from * UNIT,
+                    way,
+                    node: node.map(|node| node * UNIT),
+                    tint: crate::weapons::handling(blaster).flash_tint,
+                    armoured_head: hitboxes.1.contains(&entity.id),
+                };
+                // The light shows where the line passes the hit location.
+                let spot = bolt_hits::nearest_on_line((from, way), point);
+                drawn.pulses.push(Pulse {
+                    at: spot * UNIT,
+                    colour: record.tint,
+                    strength: HIT_LIGHT_STRENGTH,
+                    radius: HIT_LIGHT_RADIUS,
+                    ms: snapshot.time_ms as f64,
+                    lasts: HIT_LIGHT_MS,
+                });
+                records.0.push(record);
                 continue;
             }
             let met = (snapshot, &objects, catalog);

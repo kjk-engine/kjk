@@ -37,8 +37,8 @@ use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
 use crate::intent::{GuiSound, Intent};
 use crate::paint::{
-    ControlState, Hint, ListView, Painter, Palette, flow_cell_at, proto_height, row_height,
-    rows_that_fit,
+    ControlState, Hint, ListView, Painter, Palette, arrow_at, flow_cell_at, proto_height,
+    row_height, rows_that_fit,
 };
 use crate::skin::Source;
 use crate::strings;
@@ -88,6 +88,11 @@ pub trait Screen: Send + Sync {
     /// not heard opening or closing.
     fn quiet(&self) -> bool {
         false
+    }
+    /// The sound a click on the button or list `tag` makes: the default
+    /// click, unless the game gives that button a sound of its own.
+    fn click_sound(&self, _tag: &str) -> GuiSound {
+        GuiSound::Clicked
     }
     /// Back (Escape, gamepad B).
     fn back(&mut self, out: &mut Vec<Intent>) {
@@ -1896,7 +1901,10 @@ impl Entry {
             .map(|control| control.kind);
         match kind {
             Some(Kind::CheckBox) => out.push(Intent::Sound(GuiSound::Check)),
-            Some(Kind::Button | Kind::ListBox) => out.push(Intent::Sound(GuiSound::Clicked)),
+            Some(Kind::Button | Kind::ListBox) => {
+                let tag = self.focus.as_deref().unwrap_or("");
+                out.push(Intent::Sound(self.screen.click_sound(tag)));
+            }
             _ => {}
         }
     }
@@ -2510,12 +2518,12 @@ impl Entry {
         };
         if row < count {
             cursor.row = row;
-            let cells = view
-                .as_ref()
-                .and_then(|view| view.rows.get(row))
-                .map_or(0, |row| row.cells.len());
+            let shown = view.as_ref().and_then(|view| view.rows.get(row));
+            let cells = shown.map_or(0, |row| row.cells.len());
             cursor.cell = if cells > 0 {
                 flow_cell_at(proto, at[0], cells)
+            } else if shown.is_some_and(|row| row.arrows) {
+                arrow_at(proto, at[0])
             } else {
                 0
             };

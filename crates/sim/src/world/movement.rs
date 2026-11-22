@@ -107,9 +107,10 @@ pub(crate) const SUITED: u32 = 42346;
 /// equipment, no stealth, no mine, and only plot items to use (the
 /// Manaan sea floor's sonic emitter). Each seat with a body keeps its look,
 /// its walk and use, and loses the rest of its command: those buttons
-/// (`RESTRICTED_BUTTONS`) and the up axis, so JA's jump, crouch and roll,
-/// which KOTOR has none of, go too. Its weapon goes away (`move_actors`);
-/// its actions are refused by the scripts' step (`seats::refused`).
+/// (`RESTRICTED_BUTTONS`), [Aim] and the feat attack, and the up axis, so
+/// JA's jump, crouch and roll, which KOTOR has none of, go too. Its weapon
+/// goes away (`move_actors`). Its actions are refused by the scripts' step
+/// (`seats::refused`).
 pub(super) fn restrict_seats(
     mut inputs: ResMut<Inputs>,
     avatars: Query<&Avatar>,
@@ -122,11 +123,12 @@ pub(super) fn restrict_seats(
         let Some(command) = inputs.0.get(avatar.0).copied() else {
             continue;
         };
-        let restricted = Command {
+        let mut restricted = Command {
             buttons: command.buttons & !RESTRICTED_BUTTONS,
             up: 0,
             ..command
         };
+        restricted.drop_attacks();
         inputs.0.insert(avatar.0, restricted);
     }
 }
@@ -181,7 +183,8 @@ pub(crate) fn stow_grenade(
 ///   for the grenade slot (`Action::PickItem`) is readied too.
 /// - While a grenade is readied, the attack button is read as the grenade
 ///   button (`grenades::pull` charges and throws it), and the weapon's other
-///   attack puts the grenade away. Neither reaches the weapon.
+///   attack puts the grenade away. Neither reaches the weapon, and neither
+///   do [Feat attack] and [Aim].
 /// - The grenade is put away when the body goes down, when no seat acts
 ///   through it any more (the leader changed), while a conversation holds
 ///   the world or the player restrict mode is on, when its player switches
@@ -277,12 +280,14 @@ pub(super) fn ready_grenades(
             Readied::Stowing if raw & ATTACKS == 0 => Readied::Off,
             other => other,
         };
-        match fighter.pack.readied {
-            Readied::Off => continue,
-            Readied::On if raw & buttons::ATTACK != 0 => {
-                command.buttons = (raw & !ATTACKS) | buttons::GRENADE;
-            }
-            Readied::On | Readied::Stowing => command.buttons = raw & !ATTACKS,
+        if fighter.pack.readied == Readied::Off {
+            continue;
+        }
+        // No attack reaches the weapon, nor [Feat attack] or [Aim], which
+        // would raise the holstered gun while the grenade is in hand.
+        command.drop_attacks();
+        if fighter.pack.readied == Readied::On && raw & buttons::ATTACK != 0 {
+            command.buttons |= buttons::GRENADE;
         }
         inputs.0.insert(seat, command);
     }
@@ -314,7 +319,7 @@ pub(super) fn move_actors(
     clock: Res<Clock>,
     (inputs, grenade_keys): (Res<Inputs>, Res<GrenadeHolsterKeys>),
     level: Res<Static>,
-    (mut touched, mut bumped, mut sent): (ResMut<Touched>, ResMut<Bumped>, ResMut<TorsoSent>),
+    (mut bumped, mut sent): (ResMut<Bumped>, ResMut<TorsoSent>),
     (driven, scripts, held, talking, fight, made_faces, personas, rules): (
         Res<Driven>,
         Res<scripts::Scripts>,
@@ -347,7 +352,7 @@ pub(super) fn move_actors(
     let mut actors: Vec<_> = actors.iter_mut().collect();
     actors.sort_by_key(|(id, avatar, ..)| (avatar.is_none(), avatar.map(|a| a.0), id.0));
     // The living a move meets: everyone, or all but the party, or all but
-    // the companions (a body a seat's player moves stays solid, `players_body`).
+    // the companions (a body a seat's player moves stays solid, `world::played`).
     let living = |passes: Passes| {
         let mut bodies: Vec<Body> = actors
             .iter()
@@ -357,7 +362,7 @@ pub(super) fn move_actors(
                         Passes::None => true,
                         Passes::Party => !in_party(*avatar, &fighting.0),
                         Passes::Companions => {
-                            !in_party(*avatar, &fighting.0) || players_body(id.0, *avatar, lent)
+                            !in_party(*avatar, &fighting.0) || super::played(id.0, *avatar, lent)
                         }
                     }
             })
@@ -418,10 +423,10 @@ pub(super) fn move_actors(
         .filter(|(_, avatar, ..)| avatar.is_some())
         .map(|(.., player, _)| player.0.origin)
         .collect();
-    // The bodies the seats' players move, by entity (`players_body`).
+    // The bodies the seats' players move, by entity (`world::played`).
     let played: Vec<u32> = actors
         .iter()
-        .filter(|(id, avatar, ..)| players_body(id.0, *avatar, lent))
+        .filter(|(id, avatar, ..)| super::played(id.0, *avatar, lent))
         .map(|(id, ..)| id.0.0 | BODY)
         .collect();
     // Who KOTOR's walkers push aside rather than bump into (`walk::Met`),
@@ -536,7 +541,6 @@ pub(super) fn move_actors(
             .copied()
             .unwrap_or(crate::snapshot::ObjectState::GONE)
     };
-    touched.0.clear();
     bumped.0.clear();
     for (id, avatar, object, sheet, player, fighting) in actors.iter_mut() {
         let (id, avatar, object, sheet) = (*id, *avatar, *object, *sheet);
@@ -571,8 +575,10 @@ pub(super) fn move_actors(
         let leads = lent
             .filter(|body| *body == id.0)
             .map(|_| Avatar(LEADER_SEAT));
-        let stands = avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT) && lent.is_some();
-        let seat = avatar.or(leads.as_ref()).filter(|_| !scripted && !stands);
+        let keyed = keyed_by(avatar.map(|avatar| avatar.0), id.0, lent);
+        let plays = keyed.is_some();
+        let seat = keyed.filter(|_| !scripted).map(Avatar);
+        let seat = seat.as_ref();
         // A script's lit saber is one act: `SetOverrideLightsaberState`
         // powers it once and holds nothing. The game decides again from the
         // next fight (`SetCombatState`), and the party's goes out once no
@@ -705,7 +711,15 @@ pub(super) fn move_actors(
         let mut command = if kotor.is_some() {
             fighting.0.last_command
         } else {
-            command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
+            let fighter = &fighting.0;
+            let now = clock.time_ms;
+            let creature = !plays;
+            let command = command_for(&inputs.0, seat, &player.0, fighter, now);
+            // The aim step reads the body's own sheet (`sheet_of`: a player's,
+            // or the one a creature's equipment changed), and only for a body
+            // a seat plays, since a creature never aims.
+            let sheet = (!creature).then(|| sheet_of(sheet, object));
+            slowed_to_aim(command, fighter, sheet.as_ref(), now)
         };
         // The rules this body plays by: JA's in a scene (`saber_rules`).
         let session = *rules;
@@ -713,9 +727,11 @@ pub(super) fn move_actors(
         let targeted = rules.targeted(session.1);
         // JA has no block button: its bit is dropped, so a fighter's kept
         // command is JA's own. The kick bit stays, because under JA the kick
-        // key kicks with the staff as the alternate attack does.
+        // key kicks with the staff as the alternate attack does. A blaster's
+        // aim and feat attack stay too, because they work under every
+        // rule set.
         if !rules.duel() {
-            command.holds &= crate::input::holds::KICK;
+            command.holds &= !crate::input::holds::BLOCK;
         }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's
@@ -933,7 +949,7 @@ pub(super) fn move_actors(
         // Chuundar's throne room Freyyr, come up beside the player at a
         // slanting wall, held it with his box's corner on either side, a
         // pocket no walk got out of.
-        let inside = clear_of(&met_as(&mine, avatar.is_some()), bodies);
+        let inside = clear_of(&met_as(&mine, plays), bodies);
         let bodies = inside.bodies.as_ref();
         let before = player.0.origin;
         let standing_in = props
@@ -1076,7 +1092,7 @@ pub(super) fn move_actors(
         // moved others' ways and a player's walk turned back and forth).
         if stepped.is_none() {
             let maxs_z = player.0.maxs_z;
-            let seated = avatar.is_some();
+            let seated = plays;
             let spaces = |entity: u32| {
                 let theirs = pushable
                     .binary_search_by_key(&SimId(entity & !BODY), |(id, ..)| *id)
@@ -1231,7 +1247,7 @@ pub(super) fn move_actors(
         idle::check(
             &mut player.0,
             &mut fighting.0,
-            (&command, avatar.is_some()),
+            (&command, plays),
             &kit,
             &level.0.anims,
             (clock.time_ms, clock.msec),
@@ -1251,10 +1267,10 @@ pub(super) fn move_actors(
             fighting.0.force.tricked = 0;
         }
         // A creature opens what it runs into only as `opens_doors` has it.
-        // What a player's commands moved touched it: the leading
-        // companion's body's, not its own standing one's.
+        // A player's body opens nothing it runs into: KOTOR opens a door,
+        // or leaves by one, only when it is used.
         match keyed_by(avatar.map(|avatar| avatar.0), id.0, lent) {
-            Some(seat) => touched.0.push((seat, touches)),
+            Some(_) => {}
             None if avatar.is_some() => {}
             None if opens_doors(&fighting.0) => {
                 // A door it touches it opens only where its walk leads
@@ -1688,13 +1704,6 @@ enum Passes {
     Party,
     /// The companions' only: a body a seat's player moves stays solid.
     Companions,
-}
-
-/// Whether the body `id` (its avatar's seat, if it carries one) is one a
-/// seat's player moves: a player's own, or the companion leading the party
-/// (`keyed_by`).
-pub(super) fn players_body(id: SimId, avatar: Option<&Avatar>, lent: Option<SimId>) -> bool {
-    keyed_by(avatar.map(|avatar| avatar.0), id, lent).is_some()
 }
 
 /// A character's personal space (metres): its appearance's `perspace`

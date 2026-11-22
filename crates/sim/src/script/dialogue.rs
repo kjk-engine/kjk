@@ -292,12 +292,17 @@ fn holds_world(conversations: &[Conversation], seat_bodies: &[ObjectId]) -> bool
 /// where its wait flags hold it for the voice, to its fade's end where they
 /// hold it for its fade (`fade_ms`), and to `LEAST_LINE_MS`. A line with no
 /// wait flags in an animated cut lasts nothing: the cut's animation times
-/// it, and one held by its camera clip (`clip_held`) has no timer of its
-/// own: the clip and its other flagged waits time it, so a voice running
-/// over several shots (Zhar's training speech, `k_player_dialog`: one
-/// voiced line, then voiceless ones under it) plays on through the next
-/// shots instead of freezing the first until it ends (reone times such a
-/// line by its clip alone). As the games' loader has it, a `Delay` counts as a wait flag and a
+/// it. A line held by its camera model's clip (`clip_held`) has no timer of
+/// its own in an animated cut, nor anywhere when it is voiced: the clip and
+/// its other flagged waits time it, so a voice running over several shots
+/// plays on through the next shots instead of freezing the first until it
+/// ends (reone times such a line by its clip alone). Zhar's training
+/// speech (`k_player_dialog`, an animated cut) is one voiced line with
+/// voiceless ones under it; so is the sea floor survivor's death on Manaan
+/// (`m28ab_c01`, a camera model and stunts but no animated cut), whose
+/// scream played before the shots of him being taken, which then showed
+/// silently. An unvoiced line outside an animated cut keeps its text's
+/// timer. As the games' loader has it, a `Delay` counts as a wait flag and a
 /// voiced line (`voiced`: naming a voice of its own or alien speech) with
 /// neither waits for its voice. TSL's `SetDialogDelay` reads a delayed
 /// line's text or voice time only for a conversation no player is in (its
@@ -314,7 +319,7 @@ fn line_ms(
 ) -> u64 {
     let voice = u64::from(voice.unwrap_or(0));
     let chars = read_chars(library, node);
-    let base = if node.delay.is_some() || animated_cut && clip_held {
+    let base = if node.delay.is_some() || clip_held && (animated_cut || voiced) {
         0
     } else if voice >= MIN_VOICE_MS {
         voice

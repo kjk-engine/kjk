@@ -461,7 +461,7 @@ pub(crate) enum Verb {
         #[arg(long, default_value = "default")]
         preset: String,
         /// Only these scenes (a comma list); all but the held-out ones
-        /// (`bench::HELD_OUT`) by default
+        /// (`Scene::held_out`) by default
         #[arg(long, value_delimiter = ',')]
         scenes: Vec<String>,
         /// Seconds after the world is up before measuring
@@ -486,8 +486,8 @@ pub(crate) enum Verb {
         /// shadow maps and main passes, in the table and the results
         #[arg(long)]
         gpu: bool,
-        /// Run each scene with no window. Its frames are paced at 60 a
-        /// second, so the GPU's pass times (`--gpu`) are what it measures
+        /// Run each scene with no window. Its frames are not paced, so it
+        /// measures the frame rate as a run in a window does
         #[arg(long)]
         headless: bool,
     },
