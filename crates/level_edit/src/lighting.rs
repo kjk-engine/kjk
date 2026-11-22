@@ -65,6 +65,12 @@ pub fn kept_bake(folder: &Path, module: &str) -> Option<std::path::PathBuf> {
     (!pictures(&bake).is_empty()).then_some(bake)
 }
 
+/// The file in a bake's folder that holds a digest of what the bake was
+/// made from: the level's lights, lamps, kinds of fitting, room levels and
+/// rooms as they were when the bake started. The level editor writes it,
+/// and marks a kept bake as stale once the level's own digest differs.
+pub const MADE_FROM: &str = "made-from.txt";
+
 /// Keeps the bake in `from` (a folder of baked lightmaps, `NAME.png`) as
 /// the bake of the level `module` of the project in `folder`, in place of
 /// the one kept before. How many lightmaps it holds.
@@ -89,6 +95,11 @@ pub fn keep_bake(folder: &Path, module: &str, from: &Path) -> Result<usize, Stri
     let fill = from.join(FILL);
     if fill.is_file() {
         std::fs::copy(&fill, fresh.join(FILL)).map_err(failed)?;
+    }
+    // What the bake was made from (`MADE_FROM`), where the bake says it.
+    let made_from = from.join(MADE_FROM);
+    if made_from.is_file() {
+        std::fs::copy(&made_from, fresh.join(MADE_FROM)).map_err(failed)?;
     }
     if bake.exists() {
         std::fs::remove_dir_all(&bake).map_err(failed)?;

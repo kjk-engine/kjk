@@ -98,7 +98,9 @@ pub fn set_mode(mode: Mode) {
 
 /// Before the scene of `module` is drawn: where no mode was chosen, a level
 /// whose level editor project keeps a bake of it (`level_edit::lighting`)
-/// is lit `Baked`, with that bake (`viewer`), and every other level `Off`.
+/// is lit `Baked`, with that bake (`viewer`). A level without a bake whose
+/// lights or lamps placed by hand are its project's own is lit `Live`, by
+/// those lights. Every other level is `Off`.
 pub fn for_module(module: &str) {
     let _ = mode();
     if CHOSEN.load(std::sync::atomic::Ordering::Relaxed) {
@@ -112,7 +114,23 @@ pub fn for_module(module: &str) {
             );
             Mode::Baked
         }
-        None => Mode::Off,
+        // No bake, but lights or lamps of the project's own (a new map's,
+        // or an installed level's once the project changed them): they
+        // shine live, so a level an author lit is not dark in play before
+        // it is baked.
+        None => {
+            let own = level_edit::active::map_lights(module)
+                .is_some_and(|lights| !lights.is_empty())
+                || level_edit::active::map_lamps(module).is_some_and(|lamps| !lamps.is_empty());
+            if own {
+                bevy::log::info!(
+                    "{module} is lit by its project's own lights, live: its project keeps no bake of it"
+                );
+                Mode::Live
+            } else {
+                Mode::Off
+            }
+        }
     };
     *MODE
         .write()

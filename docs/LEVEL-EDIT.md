@@ -369,6 +369,25 @@ project's own. It copies the bake's lightmaps into the project's folder,
 as `kjk-bake/<module>/<lightmap>.png`, in place of the bake kept before.
 The Dantooine enclave's bake is 110 lightmaps, about 3 MB.
 
+**Play without a bake.** A level whose project keeps no bake of it is
+still lit in play when its lights or lamps placed by hand are the
+project's own. That is every new map with lights, and a level of the game
+once the project changed its lights. kjk then lights the rooms live from
+those lights, as the editor's Live view does, and says so in its log. A
+bake looks better and costs less to draw, so a finished level should
+keep one. A level of the game whose lights the project did not change is
+lit as the game stores it. `KJK_FITTED_LIGHTS` still chooses the lighting
+when it is set.
+
+A kept bake does not follow the lights. A bake the editor makes notes
+what it was made from: the level's lights and lamps placed by hand, its
+sun, the kinds of fitting and room levels the project changed, and a new
+map's rooms. Once any of these differs from the kept bake's note, the
+Lighting menu says **The project's bake is older than the level's
+lights**. **Bake again and keep** (`edit bake renew`) saves, bakes the
+level as it is now, and keeps the new bake in place of the old one. A
+bake kept before this version has no note and is never marked.
+
 - **Play is lit with it.** `kjk play --project NAME` draws the level's
   rooms with the project's bake, as the editor's Baked view does. Every
   other level is lit as the game stores it. `KJK_FITTED_LIGHTS` still
@@ -1499,11 +1518,15 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit bake` | saves, then bakes the area's lightmaps from its lights and shows the bake when it is done |
 | `edit bake compare` | shows the newest bake and the one before it in turn |
 | `edit bake keep`, `edit bake drop` | keeps the bake the Baked view shows in the project, where play with the project is lit with it; takes the project's bake out |
+| `edit bake renew` | saves, bakes, and keeps the new bake in the project when it is done |
+| `edit snap door` | puts the selected door in the nearest doorway of the level's layout, facing as the doorway does |
+| `edit align` | lines the selected thing up with the nearest thing within 1 metre along X and along Y |
+| `edit measure A to B` | says how far apart two things or places are; each is a thing as `select` names it, or X Y Z |
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit play here`, `edit walk here` | the same, the player starting where the view looks at the floor |
 | `edit audit` | saves, then runs `kjk collision audit` on the project. The audit runs beside the editor, which says its result among the messages when it ends |
-| `edit ui tool select`, `move`, `rotate`, `scale` | picks the tool |
+| `edit ui tool select`, `move`, `rotate`, `scale`, `measure` | picks the tool |
 | `edit ui tab placeables`, `creatures`, `props`, `shapes`, `waypoints`, `triggers`, `sounds`, `stores`, `encounters`, `lights` | shows a tab of the asset picker |
 | `edit ui search TEXT`, `edit ui find TEXT` | sets the asset picker's or the outliner's search |
 | `edit ui snap on`, `edit ui snap off` | turns snapping on or off |
@@ -1600,6 +1623,30 @@ kind still shows what is selected of it, and its models stay drawn.
 With several things selected, the details panel says how far their
 places span along X, along Y and in height. With two selected it also
 says how far apart they are.
+
+**Doors and doorways.** A level's layout says where each of its doors
+hangs and which way it faces. A door added within 1.5 metres of such a
+doorway stands in it, at the doorway's place and facing. The message says
+so. With **Snap** ticked, a door let go within 1.5 metres of a doorway
+does the same. The details panel's **Snap to doorway** button, or
+`edit snap door`, puts the selected door in the nearest doorway however
+far away it is. A new map's rooms bring the doorways of the areas they
+come from, moved and turned with the rooms. A room joined to another
+where its own level had a wall has no doorway there, and a door at such a
+place is turned by hand.
+
+**Lining things up.** With **Snap** ticked and the Move tool, a thing let
+go lines up with what stands near it. It takes the X of the nearest thing
+whose X is within 0.25 metres of its own, and the Y likewise. `edit align`
+does it for the selected thing at any time, within 1 metre. Only things
+on the same floor and within 30 metres count.
+
+**Measuring.** The toolbar's **Measure** tool measures between two
+places. Click one place of the level, then another. The view draws a line
+between them and says how far apart they are, how far along the floor,
+and how far up. A third click starts again. `edit measure A to B` says
+the same among the messages. `A` and `B` are each a thing as `select`
+names it, or a place as three numbers.
 
 An edit or a command that does nothing says why in a red notice at the
 top of the view for five seconds, as well as among the messages.
@@ -1793,6 +1840,12 @@ together in co-op.
   and seven lights. It passes when every command is answered ok, the
   level's facts are the expected ones, a trial of the quiz opens the seal,
   and the level exports as a mod. A run takes about 35 seconds.
+- `tools/level-editor/big-level/measure.py` measures how the editor
+  holds a big level. It fills a new map with 1,000 objects, 200 lights and
+  50 conversations through the agent link, then reads the editor's own
+  timings. It passes when the editor draws 60 frames a second while idle,
+  a save takes under 2 seconds, and the scene is drawn again after an
+  edit in under 1 second. It needs a window.
 - `tools/level-editor/tomb-speedrun/run.py` plays the tomb with no
   person at the controls. `kjk playthrough` walks `tomb.route`: into the
   tomb from the Valley of the Dark Lords, the datapad, the carvings, the

@@ -39,6 +39,8 @@ pub enum Tool {
     Move,
     Rotate,
     Scale,
+    /// Two clicks in the view measure between the places clicked.
+    Measure,
 }
 
 /// The asset picker's tabs.
@@ -116,6 +118,9 @@ pub struct UiState {
     pub(crate) file: crate::file::FileState,
     snapping: bool,
     snap_distance: f32,
+    /// The places the measuring tool was clicked on: one, or the two it
+    /// measures between.
+    measure: Vec<[f32; 3]>,
     snap_angle: f32,
     outliner_search: String,
     /// The outliner's rows of the area's objects, kind by kind, as they
@@ -245,6 +250,7 @@ impl Default for UiState {
             file: crate::file::FileState::default(),
             snapping: false,
             snap_distance: STEP_M,
+            measure: Vec::new(),
             snap_angle: TURN_DEG,
             outliner_search: String::new(),
             outliner_rows: None,
@@ -736,7 +742,7 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
         return None;
     }
     match (tool, target) {
-        (Tool::Select, _) => None,
+        (Tool::Select | Tool::Measure, _) => None,
         // The sun only turns round the level.
         (Tool::Move | Tool::Scale, Target::Sun) => None,
         (Tool::Move, _) => Some(GizmoMode::all_from_kind(GizmoModeKind::Translate)),
@@ -886,6 +892,10 @@ fn panels(
             ["tool", "move"] => ui.tool = Tool::Move,
             ["tool", "rotate"] => ui.tool = Tool::Rotate,
             ["tool", "scale"] => ui.tool = Tool::Scale,
+            ["tool", "measure"] => {
+                ui.tool = Tool::Measure;
+                ui.measure.clear();
+            }
             ["tab", "rooms"] => ui.tab = Tab::Rooms,
             ["tab", "placeables"] => ui.tab = Tab::Placeables,
             ["tab", "creatures"] => ui.tab = Tab::Creatures,
@@ -1211,6 +1221,15 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
             ] {
                 ui.selectable_value(&mut ui_state.tool, tool, label)
                     .on_hover_text(format!("{label} ({key})"));
+            }
+            if ui
+                .selectable_value(&mut ui_state.tool, Tool::Measure, "Measure")
+                .on_hover_text(
+                    "Click two places of the level: the view shows how far apart they are. A third click starts again.",
+                )
+                .clicked()
+            {
+                ui_state.measure.clear();
             }
             ui.separator();
             ui.checkbox(&mut ui_state.snapping, "Snap");
@@ -1909,6 +1928,16 @@ fn details(
                                 .clicked()
                             {
                                 state.pending_command = Some("drop".into());
+                            }
+                            if matches!(target, Target::Object(Kind::Door, _))
+                                && ui
+                                    .button("Snap to doorway")
+                                    .on_hover_text(
+                                        "Puts the door in the nearest doorway of the level's layout, facing as the doorway does",
+                                    )
+                                    .clicked()
+                            {
+                                state.pending_command = Some("snap door".into());
                             }
                         });
                         if let Target::Room(_) = target
@@ -3835,7 +3864,10 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
     let mut select: Option<(Side, usize, Option<LinkAt>)> = None;
     egui::Window::new(format!("Conversation {name}"))
         .id(egui::Id::new("conversation window"))
-        .default_size([860.0, 620.0])
+        // It opens over the outliner's side, so the level's view stays
+        // clear. It can be moved and resized from there.
+        .default_pos([8.0, 44.0])
+        .default_size([520.0, 560.0])
         .resizable(true)
         .open(&mut open)
         .show(ctx, |ui| {
@@ -5668,23 +5700,83 @@ fn viewport(
             }
             state.dragging = ui_state.dragging;
             if !ctx.input(|input| input.pointer.primary_down()) && !ctx.egui_is_using_pointer() {
-                // A room let go with snapping on meets the nearest seam.
-                if ui_state.dragging
-                    && ui_state.snapping
-                    && let Some(Target::Room(at)) = state.editor.selected
-                {
-                    state::snap_to_seam(state, at, true);
+                // A room let go with snapping on meets the nearest seam. A
+                // door let go near a doorway stands in it. Anything else
+                // lines up with what stands near it.
+                if ui_state.dragging && ui_state.snapping {
+                    match state.editor.selected {
+                        Some(Target::Room(at)) => {
+                            state::snap_to_seam(state, at, true);
+                        }
+                        Some(target @ Target::Object(Kind::Door, _)) => {
+                            let _ = state::snap_door(state, target, state::DOOR_REACH, true);
+                        }
+                        Some(_) if ui_state.tool == Tool::Move => {
+                            let _ = state::align_selected(state, state::ALIGN_REACH, true);
+                        }
+                        _ => {}
+                    }
                 }
                 ui_state.dragging = false;
             }
 
-            // A click picks what is under the pointer.
+            // A click picks what is under the pointer. With the measuring
+            // tool it marks the place under the pointer instead.
             if response.clicked()
                 && !on_gizmo
                 && let Some(at) = response.interact_pointer_pos()
             {
-                state.pending_pick = Some(Vec2::new(at.x, at.y));
-                state.pending_pick_adds = ctx.input(|input| input.modifiers.command);
+                if ui_state.tool == Tool::Measure {
+                    let place = place_at(state, cameras, Some(Vec2::new(at.x, at.y)));
+                    if ui_state.measure.len() >= 2 {
+                        ui_state.measure.clear();
+                    }
+                    ui_state.measure.push(place);
+                } else {
+                    state.pending_pick = Some(Vec2::new(at.x, at.y));
+                    state.pending_pick_adds = ctx.input(|input| input.modifiers.command);
+                }
+            }
+            if ui_state.tool == Tool::Measure && !ui_state.measure.is_empty() {
+                let to_screen = |point: [f32; 3]| {
+                    let world = game_to_bevy() * Vec3::from_array(point);
+                    (camera.world_to_viewport(eye, world).ok()).map(|at| egui::pos2(at.x, at.y))
+                };
+                let painter = ui.painter_at(rect);
+                let colour = egui::Color32::from_rgb(120, 220, 255);
+                let marks: Vec<Option<egui::Pos2>> = ui_state
+                    .measure
+                    .iter()
+                    .map(|place| to_screen(*place))
+                    .collect();
+                for mark in marks.iter().flatten() {
+                    painter.circle_filled(*mark, 4.0, colour);
+                }
+                if let [a, b] = ui_state.measure.as_slice() {
+                    let flat = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+                    let all = (flat.powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+                    if let [Some(from), Some(to)] = marks.as_slice() {
+                        painter.line_segment([*from, *to], egui::Stroke::new(2.0, colour));
+                        let middle =
+                            egui::pos2((from.x + to.x) * 0.5, (from.y + to.y) * 0.5 - 14.0);
+                        let text = format!(
+                            "{all:.2} m  ({flat:.2} m along the floor, {:.2} m up)",
+                            b[2] - a[2]
+                        );
+                        let galley = painter.layout_no_wrap(
+                            text,
+                            egui::FontId::proportional(14.0),
+                            egui::Color32::WHITE,
+                        );
+                        let back = egui::Rect::from_center_size(middle, galley.size()).expand(5.0);
+                        painter.rect_filled(back, 3.0, egui::Color32::from_black_alpha(190));
+                        painter.galley(
+                            back.min + egui::vec2(5.0, 5.0),
+                            galley,
+                            egui::Color32::WHITE,
+                        );
+                    }
+                }
             }
             // A drag from an empty part of the view selects everything whose
             // marker lies in its box (with Ctrl, joins the selection).
@@ -6867,6 +6959,32 @@ fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
         ui.checkbox(&mut state.show_levels, "Room levels");
         ui.separator();
         let baking = state.bake_job.is_some();
+        // A kept bake made before the lights were changed.
+        if state::bake_stale(state) {
+            ui.colored_label(
+                egui::Color32::from_rgb(255, 190, 90),
+                "The project's bake is older than the level's lights.",
+            );
+            if ui
+                .add_enabled(
+                    !baking && state.setup.tools,
+                    egui::Button::new("Bake again and keep"),
+                )
+                .on_hover_text(
+                    "Saves, bakes the level from its lights as they are now, and keeps the new bake in the project in place of the old one",
+                )
+                .on_disabled_hover_text(if baking {
+                    "A bake is running."
+                } else {
+                    crate::state::NO_TOOLS
+                })
+                .clicked()
+            {
+                state.pending_command = Some("bake renew".into());
+                ui.close();
+            }
+            ui.separator();
+        }
         if ui
             .add_enabled(!baking && state.setup.tools, egui::Button::new("Bake now"))
             .on_hover_text(

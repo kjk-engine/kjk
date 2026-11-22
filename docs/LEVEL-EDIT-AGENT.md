@@ -92,6 +92,12 @@ changed. It holds these fields:
   null otherwise. `bake_shown` is the folder of the bake the view shows,
   `bake_kept` is the folder of the bake the project keeps for play
   (`bake keep` keeps the bake shown, `bake drop` takes it out),
+  `bake_stale` is true when the kept bake was made before the level's
+  lights were changed (`bake renew` bakes again and keeps the new bake),
+  `timings` says how long the editor's work takes in milliseconds: a
+  frame (`frame_ms`, smoothed over about a second), the longest frame of
+  the last 120 (`frame_worst_ms`), the last building of the scene
+  (`redraw_ms`) and the last save (`save_ms`),
   and `light_view` is how the view lights the rooms (`Off`, `Live`,
   `LampsOnly` or `Baked`).
 
@@ -159,7 +165,9 @@ words, it says so among `messages`.
   thing can stand on, `METRES` apart (2 when it is left out, from 0.25 to
   20). Each place is `[X, Y, Z]`. The file also has the floor's least and
   most corner, and for a new map each room with the corners of its
-  walkmesh's box. One `floormap` replaces the many `floor X Y` questions
+  walkmesh's box, and the level's doorways: where its layout hangs a
+  door, and the way that door faces. A door added within 1.5 metres of a
+  doorway stands in it. One `floormap` replaces the many `floor X Y` questions
   that finding a level's floor took. Send it a few seconds after adding
   rooms, once they are solid.
 - `details NAME` writes `details.json`: the details of one thing, without

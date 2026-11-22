@@ -303,6 +303,12 @@ pub struct EditorState {
     /// lights).
     pub(crate) bake_job: Option<crate::bake::BakeJob>,
     bake_request: Option<String>,
+    /// What the bake asked for or running was made from (`light_digest`),
+    /// written into its folder when it is done.
+    bake_from: Option<String>,
+    /// Whether the bake asked for or running is kept in the project when
+    /// it is done (`bake renew`).
+    bake_renew: bool,
     /// How the lights were drawn: the view's mode, its bake, and whether
     /// the lights are shown. The selected light's reach is drawn over the
     /// view (`ui::reach_in_view`), so a selection never draws the scene
@@ -367,6 +373,9 @@ pub struct EditorState {
     /// output arrives.
     pub(crate) audit_job: Option<(std::time::Instant, AuditResult)>,
     redraws: u32,
+    /// How long the editor's work takes, for the agent link and the big
+    /// level benchmark.
+    pub(crate) timings: Timings,
 }
 
 impl EditorState {
@@ -456,6 +465,8 @@ impl EditorState {
             module_facts: BTreeMap::new(),
             bake_job: None,
             bake_request: None,
+            bake_from: None,
+            bake_renew: false,
             shown_lights: (kjk_game::fitted_lights::Mode::Off, None, false),
             nav_facts: None,
             dragging: false,
@@ -479,6 +490,7 @@ impl EditorState {
             elsewhere: Default::default(),
             audit_job: None,
             redraws: 0,
+            timings: Timings::default(),
         };
         // How the light data holds each kind the project changed: what the
         // view shows again when a change is undone, and what Publish and a
@@ -1448,6 +1460,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     state.shown_collision = state.show_collision;
     state.shown_nav = state.show_nav;
     state.redraws += 1;
+    state.timings.redraw_ms = started.elapsed().as_secs_f32() * 1000.0;
     info!(
         target: "editor",
         "drew {module} in {:.0} ms",
@@ -1457,7 +1470,14 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
 }
 
 /// The scene drawn again once the edits have stopped for a moment.
-pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
+pub(crate) fn redraw(
+    mut commands: Commands,
+    mut state: ResMut<EditorState>,
+    time: Option<Res<Time>>,
+) {
+    if let Some(time) = time {
+        state.timings.frame(time.delta_secs() * 1000.0);
+    }
     state.quiet = state.quiet.saturating_add(1);
     crate::recover::tick(&mut state);
     // A bake that ended is shown.
@@ -1467,6 +1487,10 @@ pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
         let seconds = job.started.elapsed().as_secs();
         match ended {
             Ok(bake) => {
+                // What the bake was made from, for telling a stale one.
+                if let Some(from) = state.bake_from.take() {
+                    let _ = std::fs::write(bake.join(level_edit::lighting::MADE_FROM), from);
+                }
                 state.setup.bakes.retain(|had| *had != bake);
                 state.setup.bakes.insert(0, bake.clone());
                 state.bake = Some(bake);
@@ -1475,11 +1499,19 @@ pub(crate) fn redraw(mut commands: Commands, mut state: ResMut<EditorState>) {
                     "bake {} done in {seconds} s: {}",
                     job.label, job.status
                 ));
+                if std::mem::take(&mut state.bake_renew)
+                    && let Err(why) = keep_shown_bake(&mut state)
+                {
+                    state.say(format!("the new bake was not kept: {why}"));
+                }
             }
-            Err(why) => state.say(format!(
-                "bake {} failed after {seconds} s: {why}",
-                job.label
-            )),
+            Err(why) => {
+                state.bake_renew = false;
+                state.say(format!(
+                    "bake {} failed after {seconds} s: {why}",
+                    job.label
+                ));
+            }
         }
     }
     // An audit that ended is shown.
@@ -1729,6 +1761,254 @@ fn height_in([a, b, c]: &[[f32; 3]; 3], x: f32, y: f32) -> Option<f32> {
     (u >= -1e-4 && v >= -1e-4 && w >= -1e-4).then(|| u * a[2] + v * b[2] + w * c[2])
 }
 
+/// How near a doorway a door must be added or let go to stand in it,
+/// metres.
+pub(crate) const DOOR_REACH: f32 = 1.5;
+
+/// How near another thing's line a thing must be let go to take it,
+/// metres.
+pub(crate) const ALIGN_REACH: f32 = 0.25;
+
+/// The doorways of the level: where its layout says a door hangs, and the
+/// way the door faces (degrees from +X). A layout (`.lyt`) names them as
+/// door hooks, each of one room. A new map's rooms bring the hooks of the
+/// areas they are from, moved and turned as the map places the rooms.
+pub(crate) fn doorways(state: &EditorState) -> Vec<([f32; 3], f32)> {
+    let resolver = &state.setup.resolver;
+    // A hook's line is its room, its name, a 0, its place and a quaternion
+    // as W X Y Z. `fmt_odyssey::lyt` keeps the eight numbers in order.
+    let hooks = |area: &str| -> Vec<(String, [f32; 3], f32)> {
+        (resolver.read(area, ResType::LYT))
+            .and_then(|bytes| fmt_odyssey::lyt::Layout::parse(&bytes).ok())
+            .map_or_else(Vec::new, |layout| {
+                (layout.door_hooks.into_iter())
+                    .map(|hook| {
+                        let at = [hook.position[1], hook.position[2], hook.extra[0]];
+                        // From -180 to 180, as the games' own doors face.
+                        let turn = 2.0 * hook.extra[4].atan2(hook.extra[1]).to_degrees();
+                        let facing = (turn + 180.0).rem_euclid(360.0) - 180.0;
+                        (hook.room, at, facing)
+                    })
+                    .collect()
+            })
+    };
+    let project = &state.editor.project;
+    let Some(map) = &project.map else {
+        return (hooks(&project.area).into_iter())
+            .map(|(_, at, facing)| (at, facing))
+            .collect();
+    };
+    let mut read: BTreeMap<String, Vec<(String, [f32; 3], f32)>> = BTreeMap::new();
+    let mut found = Vec::new();
+    for room in &map.rooms {
+        let Some(library) = (state.setup.rooms.iter())
+            .find(|library| library.model.eq_ignore_ascii_case(&room.model))
+        else {
+            continue;
+        };
+        let of_area = (read.entry(library.area.clone())).or_insert_with(|| hooks(&library.area));
+        let (sin, cos) = collision::trig::sin_cos_deg(room.yaw);
+        for (_, at, facing) in of_area
+            .iter()
+            .filter(|(name, ..)| name.eq_ignore_ascii_case(&room.model))
+        {
+            let (x, y) = (at[0] - room.from[0], at[1] - room.from[1]);
+            found.push((
+                [
+                    room.position[0] + x * cos - y * sin,
+                    room.position[1] + x * sin + y * cos,
+                    room.position[2] + at[2] - room.from[2],
+                ],
+                facing + room.yaw,
+            ));
+        }
+    }
+    found
+}
+
+/// Puts the door `target` in the nearest doorway of the layout within
+/// `reach` metres, facing as the doorway does: where it now stands, or
+/// `None` when no doorway is that near. `joining` joins the edit before
+/// it (the door's add, or its drag).
+pub(crate) fn snap_door(
+    state: &mut EditorState,
+    target: Target,
+    reach: f32,
+    joining: bool,
+) -> Result<Option<[f32; 3]>, String> {
+    if !matches!(target, Target::Object(Kind::Door, _)) {
+        return Err("only a door stands in a doorway".into());
+    }
+    let (at, _) = (state.editor.placement(target)).ok_or("the door has no place")?;
+    let distance = |hook: &[f32; 3]| {
+        ((hook[0] - at[0]).powi(2) + (hook[1] - at[1]).powi(2) + (hook[2] - at[2]).powi(2)).sqrt()
+    };
+    let nearest = (doorways(state).into_iter())
+        .map(|(hook, facing)| (distance(&hook), hook, facing))
+        .filter(|(far, ..)| *far <= reach)
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    let Some((_, hook, facing)) = nearest else {
+        return Ok(None);
+    };
+    let edits = vec![Edit::Move(target, hook), Edit::Turn(target, facing)];
+    if joining {
+        state.apply_many_continuing(edits);
+    } else {
+        state.apply_many(edits);
+    }
+    Ok(Some(hook))
+}
+
+/// Lines the selected thing up with a thing near it: it takes the X of
+/// the nearest thing whose X is within `reach` metres of its own, and the Y
+/// likewise, so a row of crates or a pair of statues stands straight.
+/// Whether it moved. `joining` joins the edit before it (a drag).
+pub(crate) fn align_selected(
+    state: &mut EditorState,
+    reach: f32,
+    joining: bool,
+) -> Result<bool, String> {
+    let target = selected(state)?;
+    if matches!(target, Target::Sun | Target::Fitted(_) | Target::Room(_))
+        || state.editor.selection().len() > 1
+    {
+        return Ok(false);
+    }
+    let (at, _) = (state.editor.placement(target)).ok_or("the selection has no place")?;
+    let project = &state.editor.project;
+    let others: Vec<Target> = (state.editor.entries().into_iter())
+        .map(|entry| Target::Object(entry.kind, entry.index))
+        .chain((0..project.kjk.props.len()).map(Target::Prop))
+        .chain((0..project.kjk.boxes.len()).map(Target::Box))
+        .chain((0..project.kjk.lamps.len()).map(Target::Lamp))
+        .chain((0..project.kjk.lights.len()).map(Target::Light))
+        .filter(|other| *other != target)
+        .collect();
+    // Only things on the same floor and close by are lined up with.
+    let places: Vec<[f32; 3]> = (others.into_iter())
+        .filter_map(|other| state.editor.placement(other))
+        .map(|(place, _)| place)
+        .filter(|place| {
+            (place[2] - at[2]).abs() < 3.0
+                && (place[0] - at[0]).abs() < 30.0
+                && (place[1] - at[1]).abs() < 30.0
+        })
+        .collect();
+    let mut to = at;
+    for axis in 0..2 {
+        let nearest = (places.iter())
+            .map(|place| place[axis])
+            .filter(|line| (line - at[axis]).abs() <= reach && (line - at[axis]).abs() > 1e-4)
+            .min_by(|a, b| (a - at[axis]).abs().total_cmp(&(b - at[axis]).abs()));
+        if let Some(line) = nearest {
+            to[axis] = line;
+        }
+    }
+    if to == at {
+        return Ok(false);
+    }
+    let edit = Edit::Move(target, to);
+    if joining {
+        state.apply_continuing(edit);
+    } else {
+        state.apply(edit);
+    }
+    state.say(format!(
+        "lined up with what stands near: now at {:.2} {:.2}",
+        to[0], to[1]
+    ));
+    Ok(true)
+}
+
+/// The place `words` name: three numbers, or a thing as `select` names it.
+fn place_named(
+    state: &mut EditorState,
+    words: &[&str],
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Result<[f32; 3], String> {
+    if words.len() == 3 && words.iter().all(|word| word.parse::<f32>().is_ok()) {
+        return point(words);
+    }
+    if words.is_empty() {
+        return Err("measure takes two things or places: measure A to B".into());
+    }
+    let kept = state.editor.kept_selection();
+    let mut select = vec!["select"];
+    select.extend(words.iter().copied());
+    let found = command(state, &select, cameras)
+        .and_then(|()| {
+            state
+                .editor
+                .selected
+                .ok_or("nothing is named so".to_string())
+        })
+        .and_then(|target| {
+            (state.editor.placement(target))
+                .map(|(at, _)| at)
+                .ok_or("that has no place".to_string())
+        });
+    state.editor.set_selection(kept);
+    found
+}
+
+/// A digest of what a bake of the level is made from: its lights and lamps
+/// placed by hand, its sun, the kinds of fitting and room levels the
+/// project changed, and a new map's rooms.
+pub(crate) fn light_digest(state: &EditorState) -> String {
+    let project = &state.editor.project;
+    let lit = level_edit::KjkArea {
+        lights: project.kjk.lights.clone(),
+        lamps: project.kjk.lamps.clone(),
+        sun: project.kjk.sun,
+        own_lights: project.kjk.own_lights,
+        ..level_edit::KjkArea::default()
+    };
+    let mut hasher = blake3::Hasher::new();
+    for part in [
+        lit.write(),
+        format!("{:?}", project.kinds),
+        format!("{:?}", project.levels),
+        project
+            .map
+            .as_ref()
+            .map_or_else(String::new, level_edit::map::NewMap::write),
+    ] {
+        hasher.update(&(part.len() as u64).to_le_bytes());
+        hasher.update(part.as_bytes());
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
+/// Whether the bake the project keeps of this level is stale: it says what
+/// it was made from (`level_edit::lighting::MADE_FROM`), and the level's
+/// lights are no longer that. A kept bake that does not say is not marked.
+pub(crate) fn bake_stale(state: &EditorState) -> bool {
+    bake_kept(state)
+        .and_then(|bake| std::fs::read_to_string(bake.join(level_edit::lighting::MADE_FROM)).ok())
+        .is_some_and(|from| from.trim() != light_digest(state))
+}
+
+/// Keeps the bake the view shows in the project (`bake keep`).
+fn keep_shown_bake(state: &mut EditorState) -> Result<(), String> {
+    let shown = (state.bake.clone())
+        .ok_or("the view shows no bake to keep: bake first, or pick one in the Lighting menu")?;
+    let project = &state.editor.project;
+    let kept = level_edit::lighting::bake_folder(&project.folder, &project.module);
+    if shown == kept {
+        return Err("the bake shown is the one the project keeps already".into());
+    }
+    let count = level_edit::lighting::keep_bake(&project.folder, &project.module, &shown)?;
+    // The view goes on showing the same lightmaps, now the project's.
+    state.setup.bakes.retain(|had| *had != kept);
+    state.setup.bakes.insert(0, kept.clone());
+    state.bake = Some(kept.clone());
+    state.say(format!(
+        "kept the bake's {count} lightmaps in the project, at {}; play with the project is lit with it",
+        kept.display()
+    ));
+    Ok(())
+}
+
 /// The most places `floor_map` lists.
 const FLOOR_PLACES: usize = 60_000;
 
@@ -1820,12 +2100,19 @@ pub(crate) fn floor_map(state: &mut EditorState, cell: f32) -> Result<serde_json
         }
     }
     Ok(serde_json::json!({
-        "note": "Each place is [X, Y, Z] in metres: a point of the walkable floor, where a thing can stand. A place with two heights is listed twice, one for each floor. A room's least and most are the corners of its walkmesh's box.",
+        "note": "Each place is [X, Y, Z] in metres: a point of the walkable floor, where a thing can stand. A place with two heights is listed twice, one for each floor. A room's least and most are the corners of its walkmesh's box. A doorway is where the layout hangs a door, with the way the door faces: a door added within 1.5 m of one stands in it.",
         "metres_apart": cell,
         "least": low.map(round),
         "most": high.map(round),
         "places": listed,
         "rooms": rooms,
+        "doorways": doorways(state)
+            .into_iter()
+            .map(|(at, facing)| serde_json::json!({
+                "at": at.map(round),
+                "facing_degrees": round(facing),
+            }))
+            .collect::<Vec<_>>(),
     }))
 }
 
@@ -2223,6 +2510,16 @@ pub(crate) fn add_object(
     });
     let imported = edits.len() > 1;
     state.apply_many(edits);
+    // A door added near a doorway of the layout stands in it.
+    if kind == Kind::Door
+        && let Some(added) = state.editor.selection().last().copied()
+        && let Ok(Some(at)) = snap_door(state, added, DOOR_REACH, true)
+    {
+        state.say(format!(
+            "the door stands in the doorway at {:.2} {:.2} {:.2}",
+            at[0], at[1], at[2]
+        ));
+    }
     // The new object alone is selected, as after any add: the edits that
     // copied its template kept what was selected before among the
     // selection, and a `tag` after the add would have named that instead.
@@ -2524,6 +2821,41 @@ fn command_words(
         ["turn", degrees] => {
             let target = selected(state)?;
             state.apply(Edit::Turn(target, number(degrees)?));
+        }
+        // The selected door put in the nearest doorway of the layout, as
+        // far away as it may be, facing as the doorway does.
+        ["snap", "door"] => {
+            let target = selected(state)?;
+            let at = snap_door(state, target, f32::MAX, false)?
+                .ok_or("the level's layout names no doorway")?;
+            state.answer = Some(format!("{:.2} {:.2} {:.2}", at[0], at[1], at[2]));
+        }
+        // The selected thing lined up with a thing near it (`align_selected`).
+        ["align"] => {
+            if !align_selected(state, ALIGN_REACH * 4.0, false)? {
+                return Err("nothing stands near enough to line up with".into());
+            }
+        }
+        // How far two things or places are apart. Each is named as `select`
+        // names a thing, or is a place: X Y Z.
+        ["measure", rest @ ..] => {
+            let at = rest
+                .iter()
+                .position(|word| *word == "to")
+                .ok_or("measure takes two things or places: measure A to B")?;
+            let (from, to) = (&rest[..at], &rest[at + 1..]);
+            let (a, b) = (
+                place_named(state, from, cameras)?,
+                place_named(state, to, cameras)?,
+            );
+            let flat = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+            let all = (flat.powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+            let said = format!(
+                "{all:.2} m apart: {flat:.2} m along the floor, {:.2} m up",
+                b[2] - a[2]
+            );
+            state.say(said.clone());
+            state.answer = Some(said);
         }
         ["scale", scale] => match selected(state)? {
             Target::Prop(at) => state.apply(Edit::Scale(at, number(scale)?)),
@@ -2862,35 +3194,21 @@ fn command_words(
             state.apply(Edit::SetLevel(room.to_string(), level));
         }
         ["bake"] | ["audit"] if !state.setup.tools => return Err(NO_TOOLS.into()),
-        ["bake"] => {
+        // `bake renew` bakes and keeps the new bake in the project when it
+        // is done: a stale kept bake made again in one step.
+        ["bake"] | ["bake", "renew"] => {
             if state.bake_job.is_some() || state.bake_request.is_some() {
                 return Err("a bake is running".into());
             }
             command(state, &["save"], cameras)?;
+            state.bake_from = Some(light_digest(state));
+            state.bake_renew = words.len() == 2;
             state.bake_request = Some(crate::bake::label_now());
             state.quiet = SETTLE_FRAMES;
         }
         // The bake the view shows kept in the project, where play with the
         // project finds it; and the project's bake taken out again.
-        ["bake", "keep"] => {
-            let shown = (state.bake.clone()).ok_or(
-                "the view shows no bake to keep: bake first, or pick one in the Lighting menu",
-            )?;
-            let project = &state.editor.project;
-            let kept = level_edit::lighting::bake_folder(&project.folder, &project.module);
-            if shown == kept {
-                return Err("the bake shown is the one the project keeps already".into());
-            }
-            let count = level_edit::lighting::keep_bake(&project.folder, &project.module, &shown)?;
-            // The view goes on showing the same lightmaps, now the project's.
-            state.setup.bakes.retain(|had| *had != kept);
-            state.setup.bakes.insert(0, kept.clone());
-            state.bake = Some(kept.clone());
-            state.say(format!(
-                "kept the bake's {count} lightmaps in the project, at {}; play with the project is lit with it",
-                kept.display()
-            ));
-        }
+        ["bake", "keep"] => keep_shown_bake(state)?,
         ["bake", "drop"] => {
             let project = &state.editor.project;
             let kept = level_edit::lighting::bake_folder(&project.folder, &project.module);
@@ -4476,6 +4794,41 @@ fn own_item(state: &EditorState, name: &str) -> Result<level_edit::Template, Str
         ))
 }
 
+/// How long the editor's work takes (`live.json`'s `timings`).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Timings {
+    /// A frame's time, smoothed over about the last second, milliseconds.
+    pub(crate) frame_ms: f32,
+    /// The longest frame among the last `Timings::WINDOW` frames.
+    pub(crate) frame_worst_ms: f32,
+    /// The longest frame of the window being counted, and how many of its
+    /// frames have passed.
+    counting: (f32, u32),
+    /// How long the scene took to build the last time it was drawn again.
+    pub(crate) redraw_ms: f32,
+    /// How long the last save took.
+    pub(crate) save_ms: f32,
+}
+
+impl Timings {
+    /// How many frames the longest frame is taken over.
+    const WINDOW: u32 = 120;
+
+    /// Takes one frame's time.
+    fn frame(&mut self, ms: f32) {
+        self.frame_ms = if self.frame_ms == 0.0 {
+            ms
+        } else {
+            self.frame_ms * 0.97 + ms * 0.03
+        };
+        self.counting = (self.counting.0.max(ms), self.counting.1 + 1);
+        if self.counting.1 >= Timings::WINDOW {
+            self.frame_worst_ms = self.counting.0;
+            self.counting = (0.0, 0);
+        }
+    }
+}
+
 /// How many series of numbers the names of copies are dealt into
 /// (`own_series`).
 const SERIES: u32 = 251;
@@ -4956,6 +5309,13 @@ fn compile_scripts(state: &mut EditorState) {
 /// light data does not save, the project's own files are saved all the
 /// same, and the error says so.
 pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
+    let started = std::time::Instant::now();
+    let saved = save_timed(state);
+    state.timings.save_ms = started.elapsed().as_secs_f32() * 1000.0;
+    saved
+}
+
+fn save_timed(state: &mut EditorState) -> Result<(), String> {
     let made_by = format!("kjk {}", kjk_game::GIT_SHA);
     let warnings: Vec<String> = state
         .editor

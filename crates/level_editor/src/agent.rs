@@ -691,6 +691,13 @@ impl Link {
             })),
             "bake_shown": state.bake.as_ref().map(|bake| bake.display().to_string()),
             "bake_kept": state::bake_kept(state).map(|bake| bake.display().to_string()),
+            "bake_stale": state::bake_stale(state),
+            "timings": {
+                "frame_ms": (state.timings.frame_ms * 10.0).round() / 10.0,
+                "frame_worst_ms": (state.timings.frame_worst_ms * 10.0).round() / 10.0,
+                "redraw_ms": state.timings.redraw_ms.round(),
+                "save_ms": state.timings.save_ms.round(),
+            },
             "light_view": format!("{:?}", state.light_view),
             "answered": self.answered,
             "answers": self
