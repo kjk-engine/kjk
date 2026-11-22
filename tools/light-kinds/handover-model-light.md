@@ -37,9 +37,16 @@ nearly black, so their ratios are not meaningful. Under the bake before,
 the Mandalorian was lit as if the room were bright. After, he is dark with
 it.
 
-What is left: models in the open and characters of 203tel are darker
-against their floor than today. That is step 3, probes written by the
-baker. The owner has not seen pictures of step 1 yet.
+Step 3 was tried and set aside. The baker wrote each probe's light as a
+texel facing each of its six ways would take it (local branch
+`feat/baked-probes`, commit `1fdceb60`, not pushed). The Rakatan chair came
+to 0.70, as today, but every model was brighter: the cylinder in the shade
+2.49, the corner cylinders 11.3. The owner compared the two on 22 November
+2026 and chose step 1: "I actually think your darker light prob thingy was
+better than the latest brighter one". Step 1, with the probes made from the
+lightmaps, is the look to keep. A hybrid (the sun and the fitted lights
+live on a model, the probes for bounce and sky) was proposed and not taken
+up.
 
 Written on 22 November 2026 on the Mac, for a session on the Windows PC.
 It follows `handover-models.md`, which states the problem and the owner's
