@@ -146,9 +146,9 @@ pub(crate) enum Progress {
 struct Flow {
     job: Option<Mutex<Receiver<Progress>>>,
     launch: bool,
-    /// The session being prepared restores a save's story
-    /// (`sim_host::FromStory` once it is in).
-    restoring: bool,
+    /// The session being prepared loads a save or restores a save's story
+    /// (`sim_host::FromSave` once it is in).
+    from_save: bool,
     /// A save's story offered (`story_restore`), its question the
     /// session's error until the box closes.
     asking: bool,
@@ -571,7 +571,12 @@ fn start(
             }
             Intent::Session(session) if flow.job.is_none() => {
                 info!(target: "session", ?session, "starting");
-                flow.restoring = matches!(session, SessionIntent::Restore { .. });
+                flow.from_save = matches!(
+                    session,
+                    SessionIntent::Restore { .. }
+                        | SessionIntent::Solo { save: Some(_), .. }
+                        | SessionIntent::Host { save: Some(_), .. }
+                );
                 // A guest keeps what the host gives: nothing made here.
                 made.0 = match &session {
                     SessionIntent::Solo { character, .. }
@@ -661,13 +666,13 @@ fn finish(world: &mut World) {
         return;
     };
     let launch = std::mem::take(&mut world.resource_mut::<Flow>().launch);
-    let restoring = std::mem::take(&mut world.resource_mut::<Flow>().restoring);
+    let from_save = std::mem::take(&mut world.resource_mut::<Flow>().from_save);
     world.resource_mut::<Flow>().job = None;
     match result.and_then(|loaded| install(world, loaded)) {
         Ok(()) => {
             world.resource_mut::<console::Hold>().0 = false;
-            if restoring {
-                world.insert_resource(crate::sim_host::FromStory);
+            if from_save {
+                world.insert_resource(crate::sim_host::FromSave);
             }
         }
         Err(why) if launch => {
