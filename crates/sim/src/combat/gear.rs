@@ -528,9 +528,9 @@ pub const DRAIN_MS: u64 = rules::items::properties::DRAIN_MS;
 /// slow Will, a drain Reflex (mind-affecting, as the games code it);
 /// poison and death no save. A slay against a side does nothing (an empty
 /// handler in both games). A hit worth `share` thousandths of a round (a
-/// chained punch's, `damage::pace`) has that share of each chance, so a
-/// round's hits roll as often as one KOTOR attack's; at a whole round or
-/// more the roll is the games' own.
+/// stun baton's swing or a chained punch's, `damage::pace`) has that share
+/// of each chance, so a round's hits roll as often as one KOTOR attack's;
+/// at a whole round or more the roll is the games' own.
 pub fn on_hits(
     weapon: &crate::combat::Weapon,
     target: &Sheet,

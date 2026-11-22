@@ -3600,6 +3600,57 @@ pub(super) fn equip_locks_slots() -> Vec<Check> {
     })]
 }
 
+/// A droid's slots on the equip page (issue 632). Both games show a droid
+/// the same slots as a living character, with the droid's empty slot icons
+/// and names. The hands slot of a droid shows `idhands` and is named
+/// Utility (strref 41811). A living character's shows `ihands` and is named
+/// Hands (strref 31383).
+pub(super) fn equip_droid_slots() -> Vec<Check> {
+    let seen = |droid: bool| {
+        let (mut assets, mut vm) = trask_page(
+            "equip",
+            &[
+                "BTN_INV_HANDS",
+                "LBL_INV_HANDS",
+                "LBL_INV_IMPLANT",
+                "LBL_INV_HEAD",
+                "LBL_SLOTNAME",
+            ],
+            Vec::new(),
+            true,
+        );
+        if let Some(me) = vm.character.as_mut() {
+            me.droid = droid;
+        }
+        let mut stack = opened("equip", &mut assets, &vm);
+        let icons = ["LBL_INV_HANDS", "LBL_INV_IMPLANT", "LBL_INV_HEAD"]
+            .map(|tag| stack.state_of(tag, &vm).and_then(|state| state.fill));
+        press(&mut stack, &mut assets, &vm, "BTN_INV_HANDS");
+        let name = stack
+            .state_of("LBL_SLOTNAME", &vm)
+            .and_then(|state| state.strref);
+        (icons, name)
+    };
+    let shows =
+        |icons: [&str; 3], name: u32| (icons.map(|icon| Some(icon.to_string())), Some(name));
+    let (droid, living) = (seen(true), seen(false));
+    vec![check("equip_droid_slots", {
+        expect(
+            &format!("a droid: {droid:?}"),
+            droid == shows(["idhands", "idimplant", "idhead"], 41811),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("a living character: {living:?}"),
+                living == shows(["ihands", "iimplant", "ihead"], 31383),
+            )
+        })
+        .map(|()| {
+            "a droid's slots show the droid's icons, and its hands slot is named Utility".into()
+        })
+    })]
+}
+
 /// Each slot's list opens with its cursor at the top, though the slots
 /// share one list (#269, #270): a pad scrolled far down the right hand's
 /// list of every gun and sword, then in the shorter left hand's list, chose

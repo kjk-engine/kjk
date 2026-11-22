@@ -532,9 +532,22 @@ impl Move<'_, '_> {
         if valid && !arms.fighter.saber.on {
             self.light(arms);
         }
-        let state = &mut arms.fighter.saber.duel;
         let aimed = valid && attack;
-        if aimed && !state.aimed {
+        let pressed = aimed && !arms.fighter.saber.duel.aimed;
+        let state = &arms.fighter.saber.duel;
+        // A press that made no perfect block and turned no bolt is paid for
+        // once it is over: its window has run out and attack is let go, the
+        // block ended, or a new press replaces it. A perfect block or a
+        // turned bolt closes the window first (`perfect_until` 0), so such a
+        // press costs nothing.
+        let over = !valid || pressed || (now >= state.perfect_until && !attack);
+        if state.perfect_until != 0 && over {
+            let cap = duel::standing::cap(arms.kit.level);
+            meter::spend(arms.fighter, rules::duel::perfect::MISS_COST, cap);
+            arms.fighter.saber.duel.perfect_until = 0;
+        }
+        let state = &mut arms.fighter.saber.duel;
+        if pressed {
             let mut window = duel::standing::window_ms(duel::window(), arms.kit.reflex);
             if arms.targeted {
                 window = duel::aim::window_ms(window);

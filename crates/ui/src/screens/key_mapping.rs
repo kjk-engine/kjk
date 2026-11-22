@@ -397,6 +397,7 @@ const NAMES: &[(&str, &str)] = &[
     ("NumpadEnter", "Num Enter"),
     ("NumLock", "Num Lock"),
     ("ScrollLock", "Scroll Lock"),
+    ("PrintScreen", "Print Screen"),
     ("ContextMenu", "Menu key"),
 ];
 

@@ -915,8 +915,7 @@ slots (`BTN_INV_WEAP_R2`, `…L2`; "Config 2" in the layout) list what the
 first set's hands take and wear it in slots 18 and 19, and Switch Weapons
 (`BTN_SWAPWEAPONS`) exchanges the sets of the member shown
 (`GameAction::SwitchWeapons` → `Action::SwitchWeaponsOn`), greyed for one
-this player does not dress. The HUD's swap button (`hud::swap_at`, a click
-while the pointer is free) and the swap key (B; TSL's own is H, the
+this player does not dress. The swap key (B; TSL's own is H, the
 holster's here) swap the seat's body's sets (`Action::SwitchWeapons`,
 `game::weapon_set_view`), a second apart at the least as TSL's client
 keeps them. Level Up opens the level-up screen

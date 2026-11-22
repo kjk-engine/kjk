@@ -429,6 +429,83 @@ summary = "An unarmed critical hit multiplies the damage roll by {weapons.unarme
 source = "KOTOR's unarmed strike"
 see = "sim::combat::sheet::Weapon::UNARMED"
 
+[baton]
+title = "Baton Swings"
+summary = """
+A character with a stun baton or a plasma torch swings it with KOTOR's two
+baton swings, first one and then the other, for as long as Attack is held.
+Each swing flows into the next. Each hit deals a part of a round's damage
+that matches how long its swing takes, so the damage over a round stays the
+same as one hit a round.
+"""
+applies = ["kind:baton"]
+
+[baton.g1a1_hit_ms]
+name = "First Baton Swing Hit"
+type = "u16"
+value = 533
+unit = "ms"
+range = [0, 5000]
+summary = "The first baton swing hits {weapons.baton.g1a1_hit_ms:s} after it starts."
+source = "the Hit event of g1a1 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms)"
+see = "sim::world::strikes::baton_swing"
+applies = ["kind:baton"]
+
+[baton.g1a2_hit_ms]
+name = "Second Baton Swing Hit"
+type = "u16"
+value = 533
+unit = "ms"
+range = [0, 5000]
+summary = "The second baton swing hits {weapons.baton.g1a2_hit_ms:s} after it starts."
+source = "the Hit event of g1a2 in KOTOR 1's and KOTOR 2's S_Male02 model (combatanimations.2da rounds it to 500 ms)"
+see = "sim::world::strikes::baton_swing"
+applies = ["kind:baton"]
+
+[baton.next_after_hit_ms]
+name = "Next Baton Swing"
+type = "u16"
+value = 250
+unit = "ms"
+range = [0, 2000]
+summary = "While Attack is held, the next baton swing starts {weapons.baton.next_after_hit_ms:s} after the last swing hits."
+source = "ours, tuned by watching"
+see = "sim::world::strikes::baton_swing"
+applies = ["kind:baton"]
+
+[baton.blend_ms]
+name = "Baton Swing Blend"
+type = "u16"
+value = 150
+unit = "ms"
+range = [0, 1000]
+summary = "One baton swing fades into the next over {weapons.baton.blend_ms:s}."
+source = "ours, tuned by watching"
+see = "kjk_game::acting::BatonSwings"
+applies = ["kind:baton"]
+
+[baton.aim_turn_deg]
+name = "Baton Swing Aim"
+type = "u16"
+value = 30
+unit = "deg"
+range = [0, 90]
+summary = "A character's torso turns {weapons.baton.aim_turn_deg} to the left during a baton swing, so the swing strikes straight ahead. KOTOR's own swings strike about 30 degrees to the right of where the character faces."
+source = "ours, measured from above in the arena"
+see = "kjk_game::acting::swing_tracks"
+applies = ["kind:baton"]
+
+[baton.follow_through_pct]
+name = "Baton Follow-Through"
+type = "u16"
+value = 35
+unit = "%"
+range = [0, 100]
+summary = "After a baton swing hits, the arm and torso move on only {weapons.baton.follow_through_pct} as far as in KOTOR's own swing. KOTOR's second swing carries the baton on around the head to the left shoulder."
+source = "ours, tuned by watching"
+see = "kjk_game::acting::swing_tracks"
+applies = ["kind:baton"]
+
 [bloom]
 title = "Bloom and Kick"
 summary = """

@@ -1,3 +1,6 @@
+//! The screenshot key (`Action::Screenshot`) saves a picture of the window
+//! in the user's folder's `screenshots` (`shoot`).
+//!
 //! Bug reports: F12 (`Action::Report`) takes a screenshot and asks what
 //! went wrong (`ui::screens::report`); the report is a zip in the user's
 //! folder's `reports` holding the note, the screenshot, the machine, the
@@ -247,29 +250,35 @@ fn packed(parts: &[Part], dropped: &[String]) -> Vec<u8> {
         })
 }
 
-/// `bytes` kept in `reports` as `kjk-report-<UTC time>.zip`, the newest
-/// `KEPT` kept; its path.
-pub fn save(reports: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
-    std::fs::create_dir_all(reports)?;
+/// A free name in `folder` for a file made now: `<prefix>-<UTC time>.<ext>`,
+/// with `-2`, `-3` and so on after the time when that name is taken.
+fn stamped(folder: &Path, prefix: &str, ext: &str) -> PathBuf {
     let now = saves::now();
     let (year, month, day) = saves::civil_from_days((now / 86_400) as i64);
     let seconds = now % 86_400;
     let stem = format!(
-        "kjk-report-{year:04}{month:02}{day:02}-{:02}{:02}{:02}",
+        "{prefix}-{year:04}{month:02}{day:02}-{:02}{:02}{:02}",
         seconds / 3600,
         seconds / 60 % 60,
         seconds % 60
     );
-    let path = (1..)
+    (1..)
         .map(|n| {
-            reports.join(if n == 1 {
-                format!("{stem}.zip")
+            folder.join(if n == 1 {
+                format!("{stem}.{ext}")
             } else {
-                format!("{stem}-{n}.zip")
+                format!("{stem}-{n}.{ext}")
             })
         })
         .find(|path| !path.exists())
-        .expect("a free name");
+        .expect("a free name")
+}
+
+/// `bytes` kept in `reports` as `kjk-report-<UTC time>.zip`, the newest
+/// `KEPT` kept; its path.
+pub fn save(reports: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(reports)?;
+    let path = stamped(reports, "kjk-report", "zip");
     std::fs::write(&path, bytes)?;
     let mut kept: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(reports)?
         .flatten()
@@ -419,9 +428,9 @@ pub struct ReportPlugin;
 
 impl Plugin for ReportPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<Shots>().add_systems(
             Update,
-            (ask, make)
+            (ask, make, shoot, tell)
                 .chain()
                 .after(crate::ui_view::Stepped)
                 .run_if(resource_exists::<Ui>),
@@ -466,6 +475,111 @@ fn ask(
             .observe(bevy::render::view::screenshot::save_to_disk(path));
     }
     *waiting = Some(BOX_AFTER_FRAMES);
+}
+
+/// The folder the screenshot key saves in: the user's folder's
+/// `screenshots`.
+fn screenshots() -> PathBuf {
+    crate::settings::folder().map_or_else(
+        || crate::runtime::artifacts().join("screenshots"),
+        |folder| folder.join("screenshots"),
+    )
+}
+
+/// The screenshots saved and not yet told (`tell`). The capture's observer
+/// fills it a frame or more after the key.
+#[derive(Resource, Default, Clone)]
+struct Shots(std::sync::Arc<std::sync::Mutex<Vec<PathBuf>>>);
+
+/// Whether the screenshot key asks for a picture this frame. The action
+/// pressed asks. So does a release of its key that came with no press
+/// (`down` remembers a press), with the binding's modifiers held. Windows
+/// sends only the release of Print Screen, so that key never reads as
+/// pressed there.
+fn shot_asked(
+    pressed: bool,
+    binding: Option<crate::settings::Binding>,
+    mods: crate::settings::Mods,
+    typed: impl IntoIterator<Item = (KeyCode, bevy::input::ButtonState)>,
+    down: &mut bool,
+) -> bool {
+    let key = binding.and_then(|binding| match binding.input {
+        crate::settings::Input::Key(key) if mods.covers(binding.mods) => Some(key),
+        _ => None,
+    });
+    let mut lone_release = false;
+    for (code, state) in typed {
+        if Some(code) != key {
+            continue;
+        }
+        match state {
+            bevy::input::ButtonState::Pressed => *down = true,
+            bevy::input::ButtonState::Released => {
+                lone_release |= !*down;
+                *down = false;
+            }
+        }
+    }
+    pressed || lone_release
+}
+
+/// The screenshot key (`Action::Screenshot`, Print Screen by default): the
+/// window as it is now, saved as a PNG in the screenshots folder. The key
+/// works in play, in a conversation and over a screen (`pad::SCREEN_KEYS`).
+#[allow(clippy::too_many_arguments)]
+fn shoot(
+    mut commands: Commands,
+    actions: Option<Res<crate::pad::Actions>>,
+    map: Option<Res<crate::settings::KeyMap>>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut typed: MessageReader<bevy::input::keyboard::KeyboardInput>,
+    mut down: Local<bool>,
+    shots: Res<Shots>,
+    windows: Query<(), With<bevy::window::PrimaryWindow>>,
+) {
+    let typed = typed.read().map(|input| (input.key_code, input.state));
+    let asked = shot_asked(
+        actions.is_some_and(|actions| actions.pressed(Action::Screenshot)),
+        map.and_then(|map| map.binding(Action::Screenshot)),
+        keys.map_or_else(Default::default, |keys| crate::settings::Mods::held(&keys)),
+        typed,
+        &mut down,
+    );
+    if !asked || windows.is_empty() {
+        return;
+    }
+    let folder = screenshots();
+    if let Err(error) = std::fs::create_dir_all(&folder) {
+        warn!(target: "report", folder = %folder.display(), "screenshots folder: {error}");
+        return;
+    }
+    let path = stamped(&folder, "kjk", "png");
+    let mut save = bevy::render::view::screenshot::save_to_disk(path.clone());
+    let saved = shots.0.clone();
+    commands
+        .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
+        .observe(
+            move |captured: On<bevy::render::view::screenshot::ScreenshotCaptured>| {
+                save(captured);
+                if path.exists() {
+                    saved.lock().expect("shots").push(path.clone());
+                }
+            },
+        );
+}
+
+/// A screenshot saved: "Screenshot saved" at the window's right edge, and
+/// the file's path in the messages.
+fn tell(shots: Res<Shots>, mut ui: ResMut<Ui>, mut told: Option<ResMut<crate::progress::Told>>) {
+    let saved = std::mem::take(&mut *shots.0.lock().expect("shots"));
+    for path in saved {
+        ui.vm
+            .feedback
+            .push(format!("Screenshot saved as {}.", path.display()));
+        if let Some(told) = told.as_deref_mut() {
+            told.notices.push("Screenshot saved".into());
+        }
+    }
 }
 
 /// The box's Make report: the report made and kept, the folder and the
@@ -545,6 +659,21 @@ fn encoded(text: &str) -> String {
     })
 }
 
+/// The warning at the top of a new bug report. Players often submit without
+/// the zip because they think the game attached it. The same text is in
+/// `.github/ISSUE_TEMPLATE/bug.md`.
+const ZIP_WARNING: &str = "> [!WARNING]\n> **The report zip is NOT attached automatically.** \
+You must drag and drop the `kjk-report-….zip` file from the folder the game opened onto this box \
+before you press Create. Without the zip we cannot replay the bug.";
+
+/// The line where the zip goes. If the player forgets the zip, this line stays
+/// in the issue and shows that it is missing.
+const ZIP_DROP_HERE: &str = "⚠️ **NO ZIP YET.** Drag and drop the `kjk-report-….zip` file onto this box, \
+then delete this line.";
+
+/// A box the player ticks only after dropping the zip.
+const ZIP_CHECKBOX: &str = "- [ ] I dragged and dropped the report zip onto this box";
+
 /// The bug template filled in: the title the note's first line, the box
 /// (`body`) the note and the version, the note scrubbed of `me`, with
 /// comments saying what else may go in and where the zip is dropped.
@@ -559,6 +688,8 @@ pub fn issue_url(note: &str, version: &str, me: &Identity) -> String {
         .collect();
     let happened: String = note.chars().take(NOTE_KEPT).collect();
     let body = [
+        ZIP_WARNING,
+        "",
         "<!-- What happened, and what you expected instead. -->",
         &happened,
         "",
@@ -567,10 +698,10 @@ pub fn issue_url(note: &str, version: &str, me: &Identity) -> String {
         "",
         &format!("**kjk version:** {version}"),
         "",
-        "**Report:** <!-- drag the kjk-report-….zip from the folder that opened here -->",
+        "**Report:**",
+        ZIP_DROP_HERE,
         "",
-        "",
-        "- [x] Report zip attached",
+        ZIP_CHECKBOX,
     ]
     .join("\n");
     let mut url = ISSUE.to_string();

@@ -383,7 +383,8 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
             (facts.multiplier_set, pc_level)
         });
         let members = state.party.members.len() + 1;
-        Some(experience.tsl_kill(potential, facts.challenge, autobalanced, members))
+        let kill = experience.tsl_kill(potential, facts.challenge, autobalanced, members);
+        Some(script::xp::mentor(view, state, kill))
     };
     worth().unwrap_or(0)
 }
@@ -1230,6 +1231,7 @@ pub(super) fn scripts(
         lost,
         broke,
         opened,
+        removed,
     } in &battered.0
     {
         if attacked {
@@ -1253,6 +1255,13 @@ pub(super) fn scripts(
         if broke && !opened {
             state.last.insert((object.0, script::last::KILLER), by.0);
             raise(&view, state, ObjectId(object.0), Hook::Death, None);
+        }
+        if removed {
+            out.changes.push(Change::Destroy {
+                who: ObjectId(object.0),
+                ms: rules::world::timings::KILLED_PLACEABLE_MS,
+                going: None,
+            });
         }
     }
     // The 107per turret's bolts that met the area's things: each one's
@@ -1461,13 +1470,20 @@ pub(super) fn scripts(
                 .insert((script::MODULE.0, script::last::PLAYER_DIED), id.0);
             raise(&view, state, script::MODULE, Hook::PlayerDeath, None);
         }
-        // A death, not a fall: a downed party member (I30 P11) raises
-        // nothing until it dies.
-        if !was.dead && dead {
-            if let Some(by) = by {
-                state.last.insert((id.0, script::last::KILLER), by);
-            }
+        // A fall runs the creature's `OnDeath` as both executables'
+        // `OnApplyDeath` does when a party member's hit points reach 0
+        // (Atton's `a_attonspirit`); only a death records a killer or gives
+        // XP.
+        if !was.dead
+            && dead
+            && let Some(by) = by
+        {
+            state.last.insert((id.0, script::last::KILLER), by);
+        }
+        if (was.alive && !alive) || (!was.dead && dead) {
             raise(&view, state, id, Hook::Death, None);
+        }
+        if !was.dead && dead {
             let xp = kill_xp(&view, library, state, id);
             state.reward(xp, &mut scripts.notices);
             script::xp::tell_pc_level(library, &view, state);

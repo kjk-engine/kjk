@@ -103,7 +103,7 @@ block).
 
 **Block-point regeneration (kjk's Advanced rules, players and NPCs alike; this replaces what Movie Duels does):**
 a fighter regains 1 block point every 100 ms, scaled by how it moves: standing 100%, walking 75%,
-running 0% (`duel::refill::by_stance`). Nothing comes back while the fighter swings, is in a special, parry, return,
+running 50% (`duel::refill::by_stance`). Nothing comes back while the fighter swings, is in a special, parry, return,
 stab, bounce or broken move, is knocked down or off the ground, was just staggered or blocked, or (a player) holds the
 block button. A thrown saber adds 2000 ms to each wait, and Rage recovery one regen interval. Crouching changes none of this: a crouched fighter counts as standing or walking by its speed. Movie
 Duels' own rules, which kjk no longer uses, were: a player +1 per 100 ms but waiting 2000 ms more above 75 points, with
@@ -178,6 +178,13 @@ back-left, back-right, back, forward-left, forward-right, forward, left, right, 
 attack ends the state and resets the window, and a new press is needed for a new window. In kjk, releasing attack ends
 the state but leaves a player's window open for its full length (section 3).
 
+**A missed press costs Stamina (kjk only).** A player who presses attack while holding block, and neither makes a
+perfect block nor turns a blaster bolt with that press, loses 5 Stamina. The press is judged once it is over: when its
+window has run out and attack is no longer held, when the player lets go of block, or when the player presses attack
+again. A perfect block made in the window, a late perfect block, or a bolt turned while the press lasts makes the
+press free. A turned bolt closes the window, as a perfect block does, so a saber blow later in the same window meets
+an ordinary block.
+
 Holding block plus attack for 3 s or more: the directional "accurate parry" test fails, and bolt block costs double.
 
 Holding walk + block + attack together is a separate "accurate missile block" input; it only has an effect with a
@@ -231,7 +238,8 @@ NPCs and for bolt costs.
   - attacker reaction: if the attacker's mishap is 13 or more, a mishap roll (section 5); otherwise a heavy stagger,
     whose heavy-bounce animation plays at 0.55 speed when Saber Attack Speed is MD;
   - player blocker: camera shake (0.45 for 100 ms) and, with "Perfect Block Slowmo Action" on, slow motion
-    (time x0.3 for 200 ms); a perfect-block sound; NPC blocker: a taunt/combat bark;
+    (time x0.3 for 200 ms; kjk slows time for 300 ms of real time instead); a perfect-block sound; NPC blocker: a
+    taunt/combat bark;
   - bright clash effect; the "perfect block" mark stays on until the blocker lets go of block, bounces or attacks.
 - **Against an unblockable attack inside the window:** the attacker is disarmed (subject to disarm protection, 4.6),
   damage cancelled, blocker +15 meter and -5 mishap, attacker -10 meter and +5 mishap, slow motion and sound as above.
@@ -265,7 +273,9 @@ Read from the source of 2026-11-11.
 
 - **How it plays.** On the torso only. The legs keep their stand, walk or run, and the blocker may move. It is forced
   over what the torso played, from its start, with a 100 ms blend, and it is held for its whole length. The weapon
-  timer is set to a random 300 to 600 ms. The MD knockaways and the back parries play at their own rate. The bounce
+  timer is set to a random 300 to 600 ms. In kjk the timer after a perfect block is a random 150 to 300 ms instead.
+  The attacker is frozen for 350 ms, so the blocker can always strike back first, and inside the 500 ms riposte
+  window. A creature's good parry keeps the 300 to 600 ms. The MD knockaways and the back parries play at their own rate. The bounce
   sequences (BOTH_B#_) follow the speed rules of 6.4.
 - **Not a saber move.** The blocker's saber move stays the ready move, with no start or end quadrant. When the hold
   ends the blocker shows the held-block pose (11.5) if block is still held, else the ready stance. There is no return

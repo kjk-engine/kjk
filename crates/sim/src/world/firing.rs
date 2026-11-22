@@ -354,7 +354,7 @@ pub(super) fn fire(
         // keeps to that pace (C2), and they spread by its aim. A body a seat
         // plays (its avatar, a companion it drives, the one leading the
         // party) shoots as its player.
-        let creature = creature(avatar.is_some(), fighter, lent, id.0);
+        let creature = !super::played(id.0, avatar, lent);
         let troop = fighter.mind.troop;
         let paced = (creature && troop.pace_ms > 0).then_some(troop.pace_ms);
         // The aim moves before the trigger, so a shot on the step the gun
@@ -674,13 +674,6 @@ pub(super) fn fire(
     }
 }
 
-/// Whether the body `id` is a creature that its mind plays. A body a seat
-/// plays is not: its avatar, a companion a guest drives, and the companion
-/// leading the party (`lent`).
-pub(super) fn creature(avatar: bool, fighter: &Fighter, lent: Option<SimId>, id: SimId) -> bool {
-    !avatar && fighter.mind.driver.is_none() && lent != Some(id)
-}
-
 /// Whether `command` raises the gun in `fighter`'s hand at `now`. The body
 /// must be alive and not a `creature`, the command must hold [Aim], the
 /// weapon in hand must be a blaster, and the gun must not be put away.
@@ -872,6 +865,50 @@ impl Sides {
             .copied()
             .collect()
     }
+}
+
+/// The bodies other than its own that `shooter`'s shots may stop on in
+/// `world` now, by entity number (`SimId`), as `fire` picks them:
+/// `Targets::met_by`, then `Sides::met` (the shot's trace skips the
+/// shooter's own body). The probes hold the view's
+/// `Snapshot::shot_stops_on` to it.
+#[cfg(feature = "probes")]
+pub(crate) fn stopped_by(world: &mut World, shooter: SimId) -> Vec<u32> {
+    let level = world.resource::<Static>().0.clone();
+    let mut actors = world.query::<(
+        &Id,
+        Option<&Avatar>,
+        Option<&Object>,
+        Option<&PlayerSheet>,
+        &Player,
+        &Fighting,
+    )>();
+    let scripts = world.resource::<scripts::Scripts>();
+    let sides = sides_of(
+        &level,
+        scripts,
+        (actors.iter(world)).map(|(id, avatar, object, sheet, _, fighting)| {
+            (id.0, avatar, object, sheet, fighting)
+        }),
+    );
+    let targets = Targets::of(
+        level.friendly_fire,
+        (actors.iter(world)).map(|(id, avatar, object, _, player, fighting)| {
+            (
+                id.0,
+                &player.0,
+                object_bulk(object),
+                fighting.0.alive(),
+                in_party(avatar, &fighting.0),
+            )
+        }),
+    );
+    let mut stopped: Vec<u32> = (sides.met(shooter, targets.met_by(shooter)).iter())
+        .map(|body| body.entity & !BODY)
+        .filter(|&entity| entity != shooter.0)
+        .collect();
+    stopped.sort();
+    stopped
 }
 
 /// `Sides` of the characters `actors` holds, with what scripts changed of

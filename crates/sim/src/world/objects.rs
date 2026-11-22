@@ -304,6 +304,12 @@ pub(crate) struct BlowTaken {
     /// runs and `GetLastOpenedBy` names the attacker. Its `OnDeath` does
     /// not run, because only a death effect raises it for a door.
     pub opened: bool,
+    /// A death effect killed a placeable. Both games take a placeable that
+    /// a death effect kills out of its area once its death animation has
+    /// played (TSL's executable posts the destroy event 2 s on), so nothing
+    /// blocks the way where it stood: the Therangen obelisk in Ajunta
+    /// Pall's tomb (`k_pkor_ther_dest`, issue 618).
+    pub removed: bool,
 }
 
 /// How a blow on an object is resolved: a body of defence
@@ -357,20 +363,29 @@ pub(crate) fn land(facts: &ObjectData, state: &mut ObjectState, lost: i32) -> (u
         return (0, false);
     };
     let floor = if facts.toughness.min_one_hp { 1 } else { 0 };
-    let whole = ((lost + 50) / 100).clamp(0, (now - floor).max(0));
+    // A death effect's blow is `i32::MAX` hundredths: rounded without
+    // overflowing, it takes every hit point left.
+    let whole = (lost.saturating_add(50) / 100).clamp(0, (now - floor).max(0));
     let whole = u16::try_from(whole).unwrap_or(u16::MAX);
     state.damage = state.damage.saturating_add(whole);
     (whole, state.broken(facts))
 }
 
 /// Breaks `state`'s object open: unlocked, a shut door opened away from
-/// `from` (metres), a container open, any other placeable dead. Returns
+/// `from` (metres), a container open, any other placeable dead. A placeable
+/// that a death effect killed (`death`) is dead even when it holds items,
+/// as the executables play its death animation and then remove it. Returns
 /// whether it was a door.
-fn break_open(facts: &ObjectData, state: &mut ObjectState, from: Option<[f32; 3]>) -> bool {
+fn break_open(
+    facts: &ObjectData,
+    state: &mut ObjectState,
+    from: Option<[f32; 3]>,
+    death: bool,
+) -> bool {
     state.lock = lock::UNLOCKED;
     match facts.kind {
         ObjectKind::Door if state.state == 0 => state.state = facts.opening(from),
-        ObjectKind::Placeable if facts.container => state.state = look::OPEN,
+        ObjectKind::Placeable if facts.container && !death => state.state = look::OPEN,
         ObjectKind::Placeable => state.state = look::DEAD,
         _ => {}
     }
@@ -415,6 +430,7 @@ pub(super) fn objects(
     if blows.is_empty() {
         return;
     }
+    let lent = super::lent(&scripts.state.party);
     // Who struck a script's bash, with what: they swing.
     let mut swings = Vec::new();
     for Bash {
@@ -460,10 +476,11 @@ pub(super) fn objects(
             sure: false,
         });
         // An attack on a placeable the party attacks is a blow of a body a
-        // seat drives that aims at it: a companion's sweep or a stray shot
-        // at Malak that crosses a stasis tank does not kill its Jedi.
-        let aimed = attacker.is_some_and(|(_, avatar, _, _, player, fighting)| {
-            (avatar.is_some() || fighting.0.mind.driver.is_some()) && aims_at(&player.0, &facts)
+        // seat plays (`world::played`) that aims at it: a companion's sweep
+        // or a stray shot at Malak that crosses a stasis tank does not kill
+        // its Jedi.
+        let aimed = attacker.is_some_and(|(id, avatar, _, _, player, _)| {
+            super::played(id.0, avatar, lent) && aims_at(&player.0, &facts)
         });
         let attacked =
             aimed && Regard::of(&level.0, &scripts.state).attacks(target, &facts, &object.state);
@@ -478,6 +495,7 @@ pub(super) fn objects(
                     lost: 0,
                     broke: false,
                     opened: false,
+                    removed: false,
                 });
             }
             continue;
@@ -527,11 +545,12 @@ pub(super) fn objects(
         }
         // A death effect breaks a door without opening it through the
         // opening routine: KOTOR raises the door's `OnDeath` for it instead.
+        let death = matches!(source, Source::Death);
         let opened = broke && {
             let from =
                 attacker.map(|(.., player, _)| math::scale(player.0.origin, collision::UNIT));
-            let door = break_open(&facts, &mut object.state, from);
-            door && !matches!(source, Source::Death)
+            let door = break_open(&facts, &mut object.state, from, death);
+            door && !death
         };
         battered.0.push(BlowTaken {
             object: target,
@@ -540,6 +559,7 @@ pub(super) fn objects(
             lost,
             broke,
             opened,
+            removed: broke && death && facts.kind == ObjectKind::Placeable,
         });
     }
     for (by, delivery) in swings {

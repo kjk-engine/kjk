@@ -279,9 +279,9 @@ pub(crate) fn members(party: &crate::script::party::Party) -> Vec<(u32, String)>
 
 /// The templates of the party table's companions that `next`'s library
 /// lacks and the table has not kept yet, read from their creatures in the
-/// module being left (`before`, made in `old`), by `NPC_*` number. A
-/// companion made available by object (`AddAvailableNPCByObject`) has no
-/// template kept. TSL's executable keeps the whole creature in its party
+/// module being left (`before`, made in `old`), by `NPC_*` number. A save
+/// from before companions made available by object kept their creature
+/// has no template kept for them. TSL's executable keeps the whole creature in its party
 /// table at a module change, so such a companion is made in a module that
 /// does not ship its template. TSL's Telos needs it. The player plays the
 /// droid B-4D4, whose template only the Ithorian compound and the Czerka

@@ -30,6 +30,7 @@ pub fn probes() -> Checks {
     ));
     checks.extend(unexpected(&root.join("runs")));
     checks.push(("prune_keeps_crashes", prune(&root.join("prune"))));
+    checks.push(("software_adapter_refused", software_adapter()));
     let _ = std::fs::remove_dir_all(&root);
     checks
 }
@@ -213,4 +214,28 @@ fn prune(runs: &Path) -> Result<String, String> {
     let kept = kept(folders.clone(), 10, now);
     let wanted: Vec<PathBuf> = folders[1..3].iter().chain(&folders[5..]).cloned().collect();
     check(kept == wanted, format!("kept {} of 15", kept.len()))
+}
+
+/// A run with a window refuses a software renderer and nothing else. A
+/// headless run and a run with `KJK_SOFTWARE_RENDERER=1` take it.
+fn software_adapter() -> Result<String, String> {
+    use wgpu::DeviceType::{Cpu, DiscreteGpu, IntegratedGpu, Other, VirtualGpu};
+    // Each case: the adapter, headless, allowed, and whether it is refused.
+    let cases = [
+        (Cpu, false, false, true),
+        (Cpu, true, false, false),
+        (Cpu, false, true, false),
+        (IntegratedGpu, false, false, false),
+        (DiscreteGpu, false, false, false),
+        (VirtualGpu, false, false, false),
+        (Other, false, false, false),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|(device, headless, allowed, refused)| {
+            refuses_adapter(*device, *headless, *allowed) != *refused
+        })
+        .map(|case| format!("{case:?}"))
+        .collect();
+    check(wrong.is_empty(), format!("wrong for {wrong:?}"))
 }

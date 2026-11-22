@@ -131,23 +131,94 @@ fn vitality(me: &CharacterView) -> String {
     format!("{}/{}", me.hp.0, me.hp.1)
 }
 
-/// The equip slots: their label, their button, the empty slot's icon,
-/// the slot's name (a strref: the same in both games' talk tables; no
-/// layout or table carries them, so the second set's hands are named as
-/// the first's), its `INVENTORY_SLOT_*`.
-const SLOTS: [(&str, &str, &str, u32, u8); 11] = [
-    ("LBL_INV_IMPLANT", "BTN_INV_IMPLANT", "iimplant", 31388, 9),
-    ("LBL_INV_HEAD", "BTN_INV_HEAD", "ihead", 31375, 0),
-    ("LBL_INV_HANDS", "BTN_INV_HANDS", "ihands", 31383, 3),
-    ("LBL_INV_ARM_L", "BTN_INV_ARM_L", "iforearm_l", 31376, 7),
-    ("LBL_INV_BODY", "BTN_INV_BODY", "iarmor", 31380, 1),
-    ("LBL_INV_ARM_R", "BTN_INV_ARM_R", "iforearm_r", 31377, 8),
-    ("LBL_INV_WEAP_L", "BTN_INV_WEAP_L", "iweap_l", 31378, 5),
-    ("LBL_INV_BELT", "BTN_INV_BELT", "ibelt", 31382, 10),
-    ("LBL_INV_WEAP_R", "BTN_INV_WEAP_R", "iweap_r", 31379, 4),
-    ("LBL_INV_WEAP_L2", "BTN_INV_WEAP_L2", "iweap_l", 31378, 19),
-    ("LBL_INV_WEAP_R2", "BTN_INV_WEAP_R2", "iweap_r", 31379, 18),
+/// The equip slots: their label, their button, the name of the empty
+/// slot's icon, the slot's name for a living character and for a droid,
+/// and its `INVENTORY_SLOT_*`. The names are strrefs, the same in both
+/// games' talk tables. No layout or table carries them, so the second
+/// set's hands are named as the first's.
+///
+/// Both games show a droid the same slots as a living character, with
+/// other icons and names. A droid's empty slot icon is the living
+/// character's with a "d" after the first "i" (`idhands`, not `ihands`).
+/// A droid's head is its Sensor, its body its Plating, its belt its
+/// Shield, its two forearms its Special Weapons, and its hands and implant
+/// slots its two Utility slots.
+const SLOTS: [(&str, &str, &str, u32, u32, u8); 11] = [
+    (
+        "LBL_INV_IMPLANT",
+        "BTN_INV_IMPLANT",
+        "implant",
+        31388,
+        41811,
+        9,
+    ),
+    ("LBL_INV_HEAD", "BTN_INV_HEAD", "head", 31375, 41810, 0),
+    ("LBL_INV_HANDS", "BTN_INV_HANDS", "hands", 31383, 41811, 3),
+    (
+        "LBL_INV_ARM_L",
+        "BTN_INV_ARM_L",
+        "forearm_l",
+        31376,
+        41814,
+        7,
+    ),
+    ("LBL_INV_BODY", "BTN_INV_BODY", "armor", 31380, 41813, 1),
+    (
+        "LBL_INV_ARM_R",
+        "BTN_INV_ARM_R",
+        "forearm_r",
+        31377,
+        41814,
+        8,
+    ),
+    (
+        "LBL_INV_WEAP_L",
+        "BTN_INV_WEAP_L",
+        "weap_l",
+        31378,
+        31378,
+        5,
+    ),
+    ("LBL_INV_BELT", "BTN_INV_BELT", "belt", 31382, 41812, 10),
+    (
+        "LBL_INV_WEAP_R",
+        "BTN_INV_WEAP_R",
+        "weap_r",
+        31379,
+        31379,
+        4,
+    ),
+    (
+        "LBL_INV_WEAP_L2",
+        "BTN_INV_WEAP_L2",
+        "weap_l",
+        31378,
+        31378,
+        19,
+    ),
+    (
+        "LBL_INV_WEAP_R2",
+        "BTN_INV_WEAP_R2",
+        "weap_r",
+        31379,
+        31379,
+        18,
+    ),
 ];
+
+/// The icon an empty slot shows for `me`: `i` and the slot's name, with a
+/// `d` between them for a droid.
+fn empty_icon(me: &CharacterView, name: &str) -> String {
+    format!("i{}{name}", if me.droid { "d" } else { "" })
+}
+
+/// The name of `slot` (a `SLOTS` button) for `me`, as a strref.
+fn slot_name(me: &CharacterView, slot: &str) -> Option<u32> {
+    SLOTS
+        .iter()
+        .find(|(_, button, ..)| *button == slot)
+        .map(|(.., living, droid, _)| if me.droid { *droid } else { *living })
+}
 
 /// The slot whose `equipableslots` bit a slot's items carry: the second
 /// weapon set's hands (18, 19) the first's (4, 5), as TSL's equip screen
@@ -348,7 +419,7 @@ impl Page for Equip {
                 return hidden();
             }
         }
-        if let Some((.., empty, _, slot)) = SLOTS.iter().find(|(label, ..)| *label == tag) {
+        if let Some((_, _, empty, .., slot)) = SLOTS.iter().find(|(label, ..)| *label == tag) {
             let worn = me
                 .worn
                 .iter()
@@ -362,7 +433,7 @@ impl Page for Equip {
             return image(Some(
                 worn.or(hand)
                     .and_then(|entry| entry.icon.clone())
-                    .unwrap_or_else(|| empty.to_string()),
+                    .unwrap_or_else(|| empty_icon(&me, empty)),
             ));
         }
         // A locked slot's button in red, as TSL's equip screen draws it.
@@ -378,12 +449,7 @@ impl Page for Equip {
                 None => hidden(),
             },
             "LBL_SLOTNAME" => ControlState {
-                strref: self.slot.and_then(|(slot, _)| {
-                    SLOTS
-                        .iter()
-                        .find(|(_, button, ..)| *button == slot)
-                        .map(|(.., strref, _)| *strref)
-                }),
+                strref: self.slot.and_then(|(slot, _)| slot_name(&me, slot)),
                 skin_strref: true,
                 text: self.slot.is_none().then(Vec::new),
                 ..ControlState::default()

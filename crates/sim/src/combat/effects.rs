@@ -986,23 +986,32 @@ pub fn regenerate(fighter: &mut Fighter, (max_hp, pool): (u16, u16), (now, msec)
     }
 }
 
-/// When the toggle that `spell` (a `spells.2da` row) belongs to ends, for
-/// the powers JA toggles and KOTOR's scripts buff with (speed, protect,
-/// absorb); `None` for the others.
-fn toggle_until(force: &mut ForceState, spell: u16) -> Option<&mut u64> {
-    match of_row(spell)? {
-        (Power::Speed, _) => Some(&mut force.speed_until),
-        (Power::Protect, _) => Some(&mut force.protect_until),
-        (Power::Absorb, _) => Some(&mut force.absorb_until),
+/// The toggle slot that `spell` (a `spells.2da` row) belongs to (`until`,
+/// `running_level`, and `spell`'s own level), for the powers JA toggles and
+/// KOTOR's scripts buff with (speed, protect, absorb); `None` for the
+/// others.
+fn toggle_slot(force: &mut ForceState, spell: u16) -> Option<(&mut u64, &mut u8, u8)> {
+    let (power, level) = of_row(spell)?;
+    match power {
+        Power::Speed => Some((&mut force.speed_until, &mut force.speed_level, level)),
+        Power::Protect => Some((&mut force.protect_until, &mut force.protect_level, level)),
+        Power::Absorb => Some((&mut force.absorb_until, &mut force.absorb_level, level)),
         _ => None,
     }
 }
 
 /// Puts a script's lasting effect on `fighter`. A toggled power's own
-/// effects last as long as the toggle does (JA's length, turned off early).
+/// effects last as long as the toggle does (JA's length, turned off early);
+/// when the script puts one on a fighter whose toggle is not running
+/// (Kreia's Force Chain, or a script's cast), it starts the toggle for the
+/// effect's time.
 pub fn add(fighter: &mut Fighter, mut lasting: Lasting, now: u64) {
-    if let Some(until) = toggle_until(&mut fighter.force, lasting.spell) {
-        lasting.until = lasting.until.min(*until);
+    if let Some((until, running_level, level)) = toggle_slot(&mut fighter.force, lasting.spell) {
+        if *until > now && level <= *running_level {
+            lasting.until = lasting.until.min(*until);
+        } else if lasting.until > now {
+            (*until, *running_level) = (lasting.until, level);
+        }
     }
     fighter.effects.add(lasting, now);
 }
@@ -1044,7 +1053,9 @@ pub fn remove(fighter: &mut Fighter, id: Option<u32>, now: u64) {
             }
             _ => *slot = None,
         }
-        if let Some(until) = toggle_until(&mut fighter.force, lasting.spell) {
+        if let Some((until, running_level, level)) = toggle_slot(&mut fighter.force, lasting.spell)
+            && (id.is_none() || *running_level == level)
+        {
             *until = (*until).min(now);
         }
     }

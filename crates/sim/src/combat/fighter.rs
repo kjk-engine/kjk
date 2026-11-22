@@ -432,6 +432,10 @@ pub struct Fighter {
     /// The finisher (1 to 3) the movement keys picked as its grab began,
     /// 0 for no key (`world::grapples`).
     pub grab_pick: u8,
+    /// When (sim ms) its last stun baton swing began, 0 for never: only a
+    /// swing's own time lands a baton blow (`world::strikes`), not the
+    /// weapon timer a grenade's throw or a weapon change raises.
+    pub swung_at: u64,
     /// The last to hurt it, and when (sim ms).
     pub last_attacker: Option<(SimId, u64)>,
     /// The grab it is in, holding or held, while a grapple finisher plays
@@ -624,6 +628,7 @@ impl Fighter {
             punched_at: 0,
             fists: Fists::default(),
             grab_pick: 0,
+            swung_at: 0,
             last_attacker: None,
             grapple: None,
             blasted_ms: 0,
@@ -864,6 +869,7 @@ impl Fighter {
         write_fixed(out, self.grapple.as_ref(), &Grapple::BLANK, Grapple::encode);
         out.u8(self.fists.code());
         out.u8(self.grab_pick);
+        out.u64(self.swung_at);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -961,6 +967,12 @@ impl Fighter {
         } else {
             (Fists::default(), 0)
         };
+        // Older snapshots: no baton swing under way.
+        let swung_at = if input.since(crate::since::snapshot::FEAT_BATON_SWINGS) {
+            input.u64()?
+        } else {
+            0
+        };
         Ok(Fighter {
             hp,
             fp,
@@ -972,6 +984,7 @@ impl Fighter {
             punched_at,
             fists,
             grab_pick,
+            swung_at,
             last_attacker,
             grapple,
             blasted_ms,

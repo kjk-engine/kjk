@@ -1006,9 +1006,15 @@ const SCREEN_ACTIONS: [Action; 10] = [
 ];
 
 /// What the keys keep while the screens have them, beside the screens'
-/// own actions: the bug report, and quick save and quick load, which
-/// their own screens refuse where they must (`report`, `save_view`).
-const SCREEN_KEYS: [Action; 3] = [Action::Report, Action::QuickSave, Action::QuickLoad];
+/// own actions: the bug report, the screenshot, and quick save and quick
+/// load, which their own screens refuse where they must (`report`,
+/// `save_view`).
+const SCREEN_KEYS: [Action; 4] = [
+    Action::Report,
+    Action::Screenshot,
+    Action::QuickSave,
+    Action::QuickLoad,
+];
 
 /// What a conversation with no screen over it leaves to the keys, beside
 /// the screens' actions: answering a guest's join request, a break and a

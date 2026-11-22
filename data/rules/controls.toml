@@ -468,6 +468,11 @@ as the single punch of Jedi Academy's rules. Weapon effects that trigger on
 a hit trigger by the same share, so they do not trigger more often in a
 round.
 
+With a stun baton or a plasma torch in hand, hold [Attack] to swing it. The
+character swings first one way and then the other, and each swing flows into
+the next. The character can walk while swinging. A baton swings about four
+times a round, and each hit deals about a quarter of a round's damage.
+
 [Next feat attack] chooses which melee feat the fists or a stun baton use:
 Power Attack, Critical Strike or Flurry. Each press moves on to the next
 feat the character knows, and then to no feat. Every punch uses the chosen
@@ -494,7 +499,7 @@ the character's Strength modifier and Unarmed Specialist dice as extra
 damage. Under Jedi Academy's rules, a character with
 no weapon cannot kick.
 """
-applies = ["kind:unarmed", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
+applies = ["kind:unarmed", "kind:baton", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
 
 [grab]
 title = "Grabs (Advanced rules)"

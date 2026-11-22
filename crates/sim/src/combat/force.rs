@@ -789,6 +789,19 @@ impl ForceState {
             .then(|| self.stunned_until.saturating_sub(ja::EARS_MS))
     }
 
+    /// When the running hold began (sim ms). `hold` puts the first saving
+    /// throw one round after the hold begins, and each failed throw puts
+    /// the next one a round later, so the start is that many rounds before
+    /// the next throw. Covering the ears starts `ja::EARS_MS` before it
+    /// ends.
+    pub fn held_since(&self) -> u64 {
+        if self.hold == Hold::Ears {
+            return self.stunned_until.saturating_sub(ja::EARS_MS);
+        }
+        let rounds = u64::from(self.rolls) + 1;
+        self.save_due.saturating_sub(rounds * ja::ROUND_MS)
+    }
+
     /// Whether a power runs that pauses regeneration (JA: any active power
     /// but drain alone).
     pub fn pausing(&self, now: u64) -> bool {

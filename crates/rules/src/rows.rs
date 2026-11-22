@@ -690,6 +690,7 @@ pub mod feats {
         ("FINESSE_MELEE_WEAPONS", 194),
         ("REGENERATE_VITALITY_POINTS", 196),
         ("STEALTH_RUN", 197),
+        ("MENTOR", 202),
         ("UNARMED_SPECIALIST_I", 212),
         ("UNARMED_SPECIALIST_II", 213),
         ("UNARMED_SPECIALIST_III", 214),

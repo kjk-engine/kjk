@@ -538,20 +538,27 @@ pub(super) fn think(
             awareness,
             me_now.gear.has(crate::combat::gear::traits::TRUE_SEEING),
         );
-        // Bare hands punch, closer in, and a beast strikes within its own
-        // reach (`strikes`): each walks up and stands there attacking, as
-        // KOTOR's creatures do, not stepping about as a swing's keys would.
+        // Bare hands punch and a stun baton swings, closer in, and a beast
+        // strikes within its own reach (`strikes`): each walks up and stands
+        // there attacking, as KOTOR's creatures do, not stepping about as a
+        // swing's keys would.
         let facts = object.and_then(|object| object.facts.as_ref());
         let space = facts.map_or(0.0, |facts| facts.personal_space);
         // Its personal space as bodies keep it (`scene_stop`).
         let kept_space = super::movement::personal_space(object);
         let unarmed = held(&me, fighter).delivery == Delivery::Unarmed;
+        // A stun baton closes in to punching distance as bare hands do.
+        // Only bare hands can start a grab.
+        let closes_in = matches!(
+            held(&me, fighter).delivery,
+            Delivery::Unarmed | Delivery::Baton
+        );
         // It can start a grab now: Stamina enough, its weapon timer out.
         let grab_ready =
             crate::combat::saber::duel::meter::can_grab(i32::from(fighter.saber.duel.points))
                 && fighter.weapon_wait_ms <= 0;
         let close = match facts.and_then(|facts| facts.strike) {
-            _ if !unarmed => mind::Attack::Swing,
+            _ if !closes_in => mind::Attack::Swing,
             Some(strike) => mind::Attack::Blow(super::strikes::strike_reach(&strike, space)),
             None => mind::Attack::Blow(super::strikes::punch_reach(space)),
         };

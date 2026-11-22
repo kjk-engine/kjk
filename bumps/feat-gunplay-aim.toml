@@ -1,8 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "A player holds [Aim] to raise a blaster. Once the gun is fully raised, its spread is halved. While it is raised, the character is limited to a walk, and a jump pressed on the same step as [Aim] does not leave the ground. A blaster's feat attack is read from its own hold. A player's shot fired without aiming spreads 1 degree more, even the first shot after a pause. Sniper Shot is one steadied shot with no spread, and it may steady while the gun cools down after a shot. A creature's mind holds a Sniper Shot for the steadying time instead of aiming for 1500 ms. The aiming stance multiplies the spread by 0.5 instead of 0.25."
-
-[formats]
-snapshot = "a fighter carries how far its gun is raised to aim and whether it steadies a Sniper Shot (`Shooting::aim`, `Shooting::steadying`)."
-
-[migrations]
-snapshot = "Old saves read the gun lowered and no Sniper Shot steadying. The old Sniper Shot aim flag is dropped. A player who holds [Aim] after loading raises the gun again."

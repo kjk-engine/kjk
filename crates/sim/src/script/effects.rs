@@ -177,8 +177,9 @@ pub enum Effect {
         vulnerable: u16,
         resist: u16,
     },
-    /// A downed party member up again (`EffectResurrection`).
-    Resurrection,
+    /// A downed party member up again (`EffectResurrection`), with its share
+    /// of its most HP (`0..=100`; 0 for `falls::RISE_HP`).
+    Resurrection(u8),
     /// A poison's course (`EffectPoison`, a `poison.2da` row's).
     Poison(crate::combat::items::Course),
     /// Thrown back and knocked down, away from `from` (metres;
@@ -243,7 +244,7 @@ impl Effect {
             Effect::Hold(hold) => format!("Effect{hold:?}"),
             Effect::State { state, .. } => format!("a state ({state})"),
             Effect::Shield { .. } => "EffectForceShield".into(),
-            Effect::Resurrection => "EffectResurrection".into(),
+            Effect::Resurrection(_) => "EffectResurrection".into(),
             Effect::Poison(_) => "EffectPoison".into(),
             Effect::Pushed { from: Some(_) } => "EffectForcePushTargeted".into(),
             Effect::Pushed { from: None } => "EffectForcePushed".into(),
@@ -326,7 +327,11 @@ impl Effect {
                 out.u16(*vulnerable);
                 out.u16(*resist);
             }
-            Effect::Resurrection => out.u8(12),
+            Effect::Resurrection(0) => out.u8(12),
+            Effect::Resurrection(percent) => {
+                out.u8(19);
+                out.u8(*percent);
+            }
             Effect::Knockdown => out.u8(17),
             Effect::Ints {
                 modifies,
@@ -416,7 +421,8 @@ impl Effect {
                     resist,
                 }
             }
-            12 => Effect::Resurrection,
+            12 => Effect::Resurrection(0),
+            19 => Effect::Resurrection(input.u8()?.min(100)),
             17 => Effect::Knockdown,
             18 => Effect::Ints {
                 modifies: Modifies::of_index(input.u8()?)
@@ -459,6 +465,10 @@ pub struct Applied {
     /// The save its target last failed against its creator in the script
     /// run that applied it, for a hold's roll each round (C11).
     pub save: Option<crate::combat::force::HoldSave>,
+    /// Whether a mine that a character laid applied it. Its `by` is then
+    /// that character, and its damage is that character's attack, which the
+    /// options' damage multipliers scale.
+    pub laid: bool,
 }
 
 impl Applied {
@@ -519,6 +529,7 @@ impl Applied {
         out.u8(u8::from(self.save.is_some()));
         out.u8(save.index);
         out.u32(save.dc as u32);
+        out.u8(u8::from(self.laid));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Applied, DecodeError> {
@@ -549,6 +560,7 @@ impl Applied {
             } else {
                 None
             },
+            laid: input.since(crate::since::save::FIX_WEAPONS_MINES_2026_11_20) && input.u8()? != 0,
         })
     }
 }
@@ -781,6 +793,7 @@ impl Strike {
             id: 0,
             at: None,
             save: None,
+            laid: false,
         }
     }
 }

@@ -793,11 +793,15 @@ fn instance(kind: Kind, item: &GffStruct) -> Instance {
             Direction::Vector([dx, dy]),
         )
     };
-    // `LinkedToFlags` 0 links to nothing, whatever the names say (xoreos;
-    // the Taris hideout's door names its module, and its own script and
-    // the party screen take the player out); one without the field is
-    // read by its names.
-    let unlinked = item.uint("LinkedToFlags") == Some(0);
+    // A door whose `LinkedToFlags` is 0 links to nothing, whatever the
+    // names say (xoreos; the Taris hideout's door names its module, and its
+    // own script and the party screen take the player out). A door without
+    // the field is read by its names. A trigger is read by its names
+    // whatever its flags say. K1's executable reads a trigger's flags only
+    // to answer the script routine that asks where a transition leads, and
+    // its trigger leads out by its module and tag alone. Mission to
+    // Sleheyron's trigger back onto the Ebon Hawk has flags 0.
+    let unlinked = kind == Kind::Door && item.uint("LinkedToFlags") == Some(0);
     let linked_to = (matches!(kind, Kind::Door | Kind::Trigger) && !unlinked).then(|| {
         (
             item.resref("LinkedToModule").unwrap_or_else(String::new),

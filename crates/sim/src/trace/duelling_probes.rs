@@ -4,6 +4,7 @@
 //! Force powers; under Jedi Academy's rules the older bar still pays.
 
 mod late;
+mod missed;
 mod reach;
 mod stamina;
 pub mod targeted;
@@ -2950,5 +2951,6 @@ pub fn probes() -> Checks {
     all.extend(reach::probes());
     all.extend(unguarded::probes());
     all.extend(late::probes());
+    all.extend(missed::probes());
     all
 }

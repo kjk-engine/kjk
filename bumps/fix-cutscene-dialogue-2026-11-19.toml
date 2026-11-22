@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "a cutscene's melee fighter stops no nearer than its own and its target's personal spaces (issue 586); a voiced line held by its camera model's clip lasts the clip outside animated cuts too (issue 567)"

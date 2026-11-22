@@ -75,7 +75,9 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// 51: the snapshot a replay starts from keeps whether the session plays with
 /// targeted blocks, each saber's camera turn, and the striker's move of each
 /// held hit, and each saber's late swing.
-const VERSION: u32 = 51 + crate::pending::REPLAY;
+/// 52: a seat may set the mine kit it chose on a lock (`Action::Mine::kit`, new
+/// action code 68).
+const VERSION: u32 = 52 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

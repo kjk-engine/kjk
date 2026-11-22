@@ -65,6 +65,10 @@ int GetIsFriend(object oTarget, object oSource);
 int GetIsNeutral(object oTarget, object oSource);
 // 24
 void DetonateMine(object oMine);
+// 25
+effect EffectDamage(int nDamageAmount, int nDamageType, int nDamagePower);
+// 26
+object GetEnteringObject();
 "#;
 
 /// Scripts that tell the player one word.
@@ -172,6 +176,29 @@ fn library() -> crate::script::Library {
         })
         .op(Op::Retn);
     scripts.push(("probe_detonate".into(), detonate.build()));
+    // Deals the creature that sprang the mine 1 point of universal damage
+    // (`DAMAGE_TYPE_UNIVERSAL`, 8), at once.
+    let mut blast = Asm::default();
+    blast
+        .op(Op::Const(Const::Float(0.0)))
+        .op(Op::Action {
+            routine: 26,
+            args: 0,
+        })
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::Int(8)))
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Action {
+            routine: 25,
+            args: 3,
+        })
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Action {
+            routine: 5,
+            args: 4,
+        })
+        .op(Op::Retn);
+    scripts.push(("probe_blast".into(), blast.build()));
     let talents = crate::script::Talents {
         poisons: courses(),
         ..Default::default()
@@ -649,6 +676,79 @@ fn spring_with(script: &str) -> Result<(Vec<String>, crate::combat::Fighter), St
     Ok((said, fighter))
 }
 
+/// A mine of the player's faction, its row's script dealing 1 point to the
+/// creature that springs it, sprung by the hostile creature with the
+/// enemies' damage multiplier at 200%. `laid`: the player laid the mine.
+/// What the creature lost (hundredths of an HP), and who its newest event
+/// names as the attacker, against the player's id.
+fn mine_blast(laid: bool) -> Result<(i32, bool), String> {
+    use crate::combat::damage::Taken;
+    let mut world = world("probe_blast")?;
+    world.set_damage_taken(Taken::new(100, 200));
+    let first = world.snapshot();
+    let id_of = |found: &dyn Fn(&crate::Kind) -> bool| {
+        first
+            .entities
+            .iter()
+            .find(|entity| found(&entity.kind))
+            .map(|entity| entity.id)
+    };
+    let player = id_of(&|kind| matches!(kind, crate::Kind::Avatar(_))).ok_or("no player")?;
+    let mine = id_of(&|kind| matches!(kind, crate::Kind::Object(_, MINE))).ok_or("no mine")?;
+    let ally = id_of(&|kind| matches!(kind, crate::Kind::Object(_, ALLY))).ok_or("no creature")?;
+    let hp = |snapshot: &crate::Snapshot| {
+        snapshot
+            .get(ally)
+            .and_then(|entity| entity.fighter)
+            .map(|fighter| {
+                (
+                    fighter.hp,
+                    fighter.newest().next().and_then(|event| event.by),
+                )
+            })
+    };
+    let (before, _) = hp(&first).ok_or("the creature has no fighter")?;
+    let mut state = world.script_state().clone();
+    state.traps.insert(
+        mine.0,
+        crate::script::TrapState {
+            creator: laid.then_some(player.0),
+            faction: Some(PLAYER),
+            ..Default::default()
+        },
+    );
+    world.set_script_state(state);
+    let mut last = first.clone();
+    for tick in 1..=10 {
+        place(&mut world, AWAY, MINE_AT);
+        last = crate::step(
+            &mut world,
+            tick,
+            &TickInput::default(),
+            8,
+            StepReason::Authority,
+        );
+    }
+    let (after, by) = hp(&last).ok_or("the creature is gone")?;
+    Ok((before - after, by == Some(player)))
+}
+
+/// A mine the player laid deals its damage as the player's attack: the
+/// enemies' damage multiplier doubles it, and the creature it struck names
+/// the player as its attacker (the player then sees the damage number). A
+/// mine the area placed keeps its damage as written and names no player.
+fn laid_mine_damage() -> Result<String, String> {
+    let laid = mine_blast(true)?;
+    let placed = mine_blast(false)?;
+    check(
+        laid == (200, true) && placed == (100, false),
+        format!(
+            "laid by the player: lost {}, by the player {}; placed: lost {}, by the player {}",
+            laid.0, laid.1, placed.0, placed.1
+        ),
+    )
+}
+
 /// What `k_trp_generic` asks of the engine beyond springing:
 /// `GetReflexAdjustedDamage` (a Reflex save against the DC halves it) and
 /// `EffectPoison` (a Fortitude save against the row's `dc_save` keeps it
@@ -675,6 +775,7 @@ pub(crate) fn trap_routines() -> Vec<(&'static str, Result<String, String>)> {
                 format!("{poisoned:?}"),
             ),
         ),
+        ("laid_mine_damage", laid_mine_damage()),
     ]
 }
 

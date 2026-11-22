@@ -480,9 +480,15 @@ pub(crate) fn marks(
         // The player's tokens are filled in, as the journal's are
         // ("Journal Updated: Rescue <FullName>" in KOTOR 2).
         let fill = crate::dialogue_view::Fill::party(snapshot);
-        let line = |strref| {
-            let raw = assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+        let words = |text: &sim::script::journal::JournalText| {
+            let raw = text.words(|strref| assets.text(Source::Campaign, strref));
             fmt_odyssey::code_page(&crate::dialogue_view::said(&raw, fill))
+        };
+        let line = |strref| {
+            words(&sim::script::journal::JournalText {
+                strref,
+                own: Vec::new(),
+            })
         };
         let moved = progress
             .journal
@@ -491,7 +497,7 @@ pub(crate) fn marks(
         let mut sound = None;
         for (tag, state) in moved {
             let quest = library.and_then(|library| library.quests().get(tag));
-            let name = quest.map_or_else(|| tag.clone(), |quest| line(quest.name));
+            let name = quest.map_or_else(|| tag.clone(), |quest| words(&quest.name));
             ui.vm
                 .feedback
                 .push(format!("{} {name}", line(JOURNAL_UPDATED)));

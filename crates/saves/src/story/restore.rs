@@ -265,6 +265,20 @@ impl Restore<'_> {
         sheet.level = character.level;
         sheet.max_hp = character.max_hp;
         sheet.max_fp = character.max_fp;
+        if character.npc.is_some()
+            && !sheet.feats.has(sim::combat::sheet::feats::FORCE_SENSITIVE)
+            && classes.is_some_and(|classes| {
+                !character.classes.is_empty()
+                    && character.classes.iter().all(|&(class, _)| {
+                        classes
+                            .classes
+                            .get(usize::from(class))
+                            .is_none_or(|of| of.force_die == 0)
+                    })
+            })
+        {
+            sheet.max_fp = 0;
+        }
         sheet.good_evil = character.alignment;
         sim::inventory::rewear(sheet, before, &self.worn(label))
     }

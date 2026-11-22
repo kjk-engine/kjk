@@ -52,11 +52,11 @@ applies = ["kind:lightsaber"]
 [slow_motion.ms]
 name = "Slow-Motion Length"
 type = "u32"
-value = 200
+value = 300
 unit = "ms"
 range = [0, 2000]
 summary = "A perfect block slows the game for {duel.slow_motion.ms} of real time."
-source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 3"
+source = "ours; Movie Duels slows the game for 200 ms (docs/SABER-RULES.md section 3)"
 see = "game::sim_host::Slowed"
 applies = ["kind:lightsaber"]
 
@@ -276,12 +276,12 @@ see = "sim::combat::saber::duel::meter::refill"
 [refill.by_stance]
 name = "Recovery by Movement"
 type = "u32"
-value = [100, 75, 0]
+value = [100, 75, 50]
 labels = ["standing", "walking", "running"]
 unit = "percent"
 range = [0, 1000]
-summary = "How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at {duel.refill.by_stance[0]:bare}% of that rate, a walking character at {duel.refill.by_stance[1]:bare}% and a running character at {duel.refill.by_stance[2]:bare}%. A running character regains no Stamina at all. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking."
-source = "the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat"
+summary = "How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A standing character regains Stamina at {duel.refill.by_stance[0]:bare}% of that rate, a walking character at {duel.refill.by_stance[1]:bare}% and a running character at {duel.refill.by_stance[2]:bare}%. Crouching does not change the rate. A crouching character who stays still counts as standing, and one who moves counts as walking."
+source = "the owner's playtest of 14 November 2026, and players' reports of 17 November 2026 that everyone crouched in combat. The owner's call of 21 November 2026 raised the running rate from 0% to 50%"
 see = "sim::combat::saber::duel::meter::Stance"
 
 [refill.walking_above]
@@ -512,14 +512,33 @@ source = "docs/SABER-RULES.md 2.5"
 see = "sim::combat::saber::duel::shots::cost"
 
 [perfect.parry_wait_ms]
-name = "Perfect Parry Delay"
+name = "Good Parry Delay"
 type = "i32"
 value = [300, 600]
 labels = ["shortest", "longest"]
 unit = "ms"
-summary = "After a perfect parry, the blocker can swing again only after a random time between {duel.perfect.parry_wait_ms[0]} and {duel.perfect.parry_wait_ms[1]}."
+summary = "After a creature's good parry, the creature can swing again only after a random time between {duel.perfect.parry_wait_ms[0]} and {duel.perfect.parry_wait_ms[1]}."
 source = "docs/SABER-RULES.md 3.1"
 see = "sim::world::sabers"
+
+[perfect.block_wait_ms]
+name = "Perfect Parry Delay"
+type = "i32"
+value = [150, 300]
+labels = ["shortest", "longest"]
+unit = "ms"
+summary = "After a perfect block, the blocker can swing again only after a random time between {duel.perfect.block_wait_ms[0]} and {duel.perfect.block_wait_ms[1]}. This is always shorter than the {duel.perfect.riposte_freeze_ms} the attacker is frozen for, so the blocker can strike back before the attacker recovers, and always inside the riposte window."
+source = "ours"
+see = "sim::world::sabers"
+
+[perfect.miss_cost]
+name = "Missed Perfect Block"
+type = "i32"
+value = 5
+unit = "points"
+summary = "A player who presses attack while holding block, and neither makes a perfect block nor deflects a blaster bolt with that press, loses {duel.perfect.miss_cost} Stamina. The press is judged when its perfect block window has closed and attack is no longer held, or when the player lets go of block or presses attack again. This keeps a player from pressing attack over and over to catch every blow."
+source = "ours"
+see = "sim::motion::saber"
 
 [perfect.parry_blend_ms]
 name = "Perfect Parry Blend"
