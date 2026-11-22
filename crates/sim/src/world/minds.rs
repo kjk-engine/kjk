@@ -87,6 +87,8 @@ struct Seen {
     stunned: bool,
     /// It lies knocked down.
     floored: bool,
+    /// Who hit it last, and when (`Fighter::last_attacker`).
+    hit_by: Option<(SimId, u64)>,
     /// A Force Scream cannot make it cover its ears now
     /// (`ForceState::deaf`).
     deaf: bool,
@@ -338,6 +340,7 @@ pub(super) fn think(
                 ) == pace::Tier::Boss,
                 stunned: fighting.0.force.stunned(now),
                 floored: fighting.0.saber.floored(),
+                hit_by: fighting.0.last_attacker,
                 deaf: fighting.0.force.deaf(now),
                 buff: crate::combat::effects::weakest_buff(&fighting.0, now),
                 pack: fighting.0.pack,
@@ -672,6 +675,34 @@ pub(super) fn think(
         let in_hand = held(&me, fighter);
         let gun_target = rules.0.duel()
             && target.is_some_and(|entry| matches!(entry.arms, pace::Arms::Gun { .. }));
+        // A companion nobody drives or leads (`companion` below).
+        let free_companion = in_party && avatar.is_none() && lent != Some(id.0);
+        // A creature its scripts set to attack with its weapon only
+        // (`NPC_AISTYLE_MELEE_ATTACK`) chooses nothing, as its own combat
+        // script gives it no talent. The Dark Jedi and Jedi staged on the
+        // Star Forge are set so. One of them choked its Jedi, which moved
+        // the Jedi, and its script then attacked a nearer one who could not
+        // die yet, so the scene never went on.
+        let attacks_only = scripts.state.party.ai_styles.get(&id.0.0)
+            == Some(&crate::script::party::NPC_AISTYLE_MELEE_ATTACK);
+        let tag = facts.map_or("", |facts| facts.tag.as_str());
+        let kit_now = crate::combat::saber::Kit::of(&me);
+        // A melee weapon that is not a lightsaber, and a second or third
+        // rank of a melee feat attack (`pace::elite`).
+        let melee_in_hand = matches!(in_hand.delivery, Delivery::Melee | Delivery::Baton);
+        let second_rank = {
+            use crate::combat::sheet::feats;
+            [
+                &feats::POWER_ATTACK[1..],
+                &feats::CRITICAL_STRIKE[1..],
+                &feats::FLURRY_RANKS[1..],
+            ]
+        }
+        .into_iter()
+        .flatten()
+        .any(|row| me.feats.has(*row));
+        let cap = crate::combat::saber::duel::standing::cap(me.level);
+        let (_, right, _) = math::angle_vectors([0.0, ps.view[1], 0.0]);
         let mut own = Own {
             id: id.0,
             saber_move: fighter.saber.current_move,
@@ -681,11 +712,16 @@ pub(super) fn think(
             ally: in_party,
             duel: rules.0.duel(),
             points: i32::from(fighter.saber.duel.points),
-            tier: pace::found_tier(
-                matches!(in_hand.delivery, Delivery::Saber(_)),
-                me.powers.rows().count(),
-                (facts.map_or("", |facts| facts.tag.as_str()), in_party),
+            tier: pace::lifted_tier(
+                pace::found_tier(
+                    matches!(in_hand.delivery, Delivery::Saber(_)),
+                    me.powers.rows().count(),
+                    (tag, in_party),
+                    fighter.mind.pace.forced,
+                ),
                 fighter.mind.pace.forced,
+                pace::elite(melee_in_hand, second_rank, tag),
+                free_companion,
             ),
             kata_cost: (fighter.saber.style != Some(crate::combat::saber::Style::Dual)
                 || me.max_fp > 0)
@@ -732,6 +768,22 @@ pub(super) fn think(
                     entry.target == Some(id.0)
                         || pace::aimed_at(entry.ps.origin, forward, ps.origin)
                 }),
+            veteran: pace::veteran(free_companion, me.level),
+            restrained: attacks_only || world_held,
+            older: fighter.fp,
+            pool: kit_now.pool,
+            side_cost: crate::combat::saber::duel::standing::special_cost(
+                i32::from(rules::saber_moves::costs::SIDE),
+                cap,
+            ),
+            grenade: grenade_near(bolts.iter().map(|bolt| &bolt.0), id.0, ps.origin, now)
+                .map(|at| math::dot(right, math::sub(at, ps.origin))),
+            running: crate::motion::anim::is_run(ps.legs.anim)
+                && math::dot(ps.velocity, ps.velocity)
+                    >= rules::movement::rolls::FROM_SPEED_SQUARED,
+            rolling: crate::motion::anim::is_roll(ps.legs.anim)
+                || crate::motion::anim::is_cartwheel(ps.legs.anim),
+            drawn: fighter.saber.on,
         };
         // When its last round's swing began (sim ms): its next round waits
         // a round on (`begin_round`).
@@ -965,16 +1017,20 @@ pub(super) fn think(
                             (&visible, &others),
                         )
                     }
-                    _ if paced => fight(
-                        mind,
-                        id.0,
-                        ps,
-                        &own,
-                        (&entry, aloft),
-                        (now, clock.msec),
-                        &level.0,
-                        opening,
-                    ),
+                    _ if paced => {
+                        let command = fight(
+                            mind,
+                            id.0,
+                            ps,
+                            &own,
+                            (&entry, aloft),
+                            (now, clock.msec),
+                            &level.0,
+                            opening,
+                        );
+                        choices::log_told(tag, now, mind.pace.take_told());
+                        command
+                    }
                     _ => grab_if_hurt(
                         engage(
                             mind,
@@ -1359,14 +1415,8 @@ pub(super) fn think(
         // chooses while a conversation holds the world or a scene plays on
         // it.
         let calm = !world_held && !scene;
-        // A creature its scripts set to attack with its weapon only
-        // (`NPC_AISTYLE_MELEE_ATTACK`) chooses nothing, as its own combat
-        // script gives it no talent. The Dark Jedi and Jedi staged on the
-        // Star Forge are set so. One of them choked its Jedi, which moved
-        // the Jedi, and its script then attacked a nearer one who could not
-        // die yet, so the scene never went on.
-        let attacks_only = scripts.state.party.ai_styles.get(&id.0.0)
-            == Some(&crate::script::party::NPC_AISTYLE_MELEE_ATTACK);
+        // A creature its scripts set to attack with its weapon only chooses
+        // nothing (`attacks_only` above).
         let chooses = (companion || own_choice || (!in_party && !attacks_only))
             && !leading
             && calm
@@ -1520,7 +1570,13 @@ pub(super) fn think(
                         Cast::Hold(_, ms) => *ms,
                         Cast::Press(_) => 0,
                     };
-                    fighter.mind.cast_after = now + held_ms + choose::wait_ms(own.tier, dice);
+                    // A veteran companion waits as a Boss does.
+                    let tier = if own.veteran {
+                        pace::Tier::Boss
+                    } else {
+                        own.tier
+                    };
+                    fighter.mind.cast_after = now + held_ms + choose::wait_ms(tier, dice);
                     choices::log(tag, option, &scene);
                 }
                 // On a stage without scripts, a gunner's feat special when
@@ -2402,6 +2458,25 @@ struct Own {
     bolt_incoming: bool,
     /// Its target, a gun, aims at it.
     aimed_at: bool,
+    /// It is a companion that takes the Boss chance and the Boss wait
+    /// (`pace::veteran`).
+    veteran: bool,
+    /// It starts no escape, and a special move only as a Boss
+    /// (`pace::Sight::restrained`).
+    restrained: bool,
+    /// Its older bar now (hundredths) and the bar's size (whole points).
+    older: i32,
+    pool: u16,
+    /// What its cartwheel costs under the Advanced rules (Stamina).
+    side_cost: i32,
+    /// How far a grenade near it lies to its right (units), if one does.
+    grenade: Option<f32>,
+    /// It runs fast enough to roll, and a roll or a cartwheel of its own
+    /// plays.
+    running: bool,
+    rolling: bool,
+    /// Its weapon is drawn.
+    drawn: bool,
 }
 
 /// Whether a swing (an attack, its start or its transition) is under way.
@@ -2575,6 +2650,31 @@ fn fight(
     command
 }
 
+/// Where the nearest grenade near a fighter `me` at `origin` lies at `now`:
+/// one that someone else threw, that rests or falls, within
+/// `ai.choices.escapes.grenade_within_m` of it on the flat.
+fn grenade_near<'a>(
+    missiles: impl IntoIterator<Item = &'a crate::combat::Missile>,
+    me: SimId,
+    origin: Vec3,
+    now: u64,
+) -> Option<Vec3> {
+    let within = rules::ai::choices::escapes::GRENADE_WITHIN_M / UNIT;
+    missiles
+        .into_iter()
+        .filter(|missile| missile.owner != me)
+        .filter(|missile| {
+            missile
+                .lob
+                .is_some_and(|lob| lob.resting || missile.velocity_at(now)[2] <= 0.0)
+        })
+        .map(|missile| missile.at(now))
+        .map(|at| (math::flat_distance(at, origin), at))
+        .filter(|(apart, _)| *apart <= within)
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, at)| at)
+}
+
 /// What a blade wielder at `ps` sees of `target` on a think (`pace::Sight`).
 fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
     let speed = |velocity: Vec3| math::length(velocity);
@@ -2609,6 +2709,13 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
     let (ahead, ..) = math::angle_vectors(ps.view);
     let swing = own.saber_move;
     let receding = pace::moving_away(target.ps.velocity, me_to_it);
+    // The target's speed away from it and across, on the flat.
+    let flat = |v: Vec3| [v[0], v[1], 0.0];
+    let foe_away = math::dot(flat(target.ps.velocity), flat(me_to_it));
+    let foe_around = math::length(math::sub(
+        flat(target.ps.velocity),
+        math::scale(flat(me_to_it), foe_away),
+    ));
     let (target_ahead, ..) = math::angle_vectors(target.ps.view);
     pace::Sight {
         foe: target.id,
@@ -2656,6 +2763,23 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         broken: swing.broken(),
         parried: swing.parry(),
         pain_until: own.pain_until,
+        veteran: own.veteran,
+        restrained: own.restrained,
+        older: own.older,
+        pool: own.pool,
+        side_cost: own.side_cost,
+        can_jump: own.can_jump,
+        grenade: own.grenade,
+        own_running: own.running,
+        own_rolling: own.rolling,
+        own_drawn: own.drawn,
+        foe_away,
+        foe_around,
+        foe_disabled: target.stunned || target.floored,
+        foe_hit_at: target
+            .hit_by
+            .filter(|(by, _)| *by == own.id)
+            .map_or(0, |(_, at)| at),
     }
 }
 

@@ -6113,6 +6113,152 @@ fn choice_waits() {
     }
 }
 
+/// The tiers and chances of special saber moves (`ai.choices.specials`) and
+/// the rules of escapes (`ai.choices.escapes`), one row a case. A fighter
+/// with a melee weapon that is not a lightsaber is an elite with a second or
+/// third rank of a melee feat attack, or with a tag in
+/// `data/duel_skilled.txt`. An Ordinary elite and an Ordinary companion are
+/// Skilled, and a tier the bench forced stays. A companion from level 15
+/// takes the Boss chance. A Skilled fighter starts a special move one time
+/// in 10 and a Boss one time in 4. An Ordinary fighter never does. A
+/// restrained fighter does so only as a Boss under the Advanced rules. Under
+/// the Jedi Academy rules a special move is paid from the older bar. A
+/// fighter escapes to the side away from a danger. The katas and the jump
+/// attacks are the long moves, and a long move needs a stunned or knocked
+/// down target, or a tired one that stands still. A special move missed when
+/// the fighter did not hit its target after it began. (proposed 2026-11-21,
+/// changed 2026-11-21, awaiting approval)
+#[test]
+fn choice_specials() {
+    use rules::ai::choices::specials::{COMPANION_BOSS_LEVEL, SKILLED_ONE_IN};
+    use rules::ai::duelling::tiers::SPECIAL_ONE_IN as BOSS_ONE_IN;
+    use sim::combat::pace::{
+        Tier, elite, lifted_tier, pays_older, side_away, special_one_in, veteran,
+    };
+    // Holds a melee weapon, knows a second rank, its tag, and whether it is
+    // an elite.
+    let elites = [
+        (true, true, "g_thug", true),
+        (true, false, "kas25_mandalor01", true),
+        (true, false, "KAS25_MANDALOR01", true),
+        (false, true, "kas25_mandalor01", false),
+        (true, false, "g_thug", false),
+    ];
+    for (melee, second, tag, want) in elites {
+        assert_eq!(
+            elite(melee, second, tag),
+            want,
+            "elite {melee} {second} {tag}"
+        );
+    }
+    // The tier found, the tier forced, elite, companion, and the tier.
+    let tiers = [
+        (Tier::Ordinary, None, true, false, Tier::Skilled),
+        (Tier::Ordinary, None, false, true, Tier::Skilled),
+        (Tier::Ordinary, None, false, false, Tier::Ordinary),
+        (
+            Tier::Ordinary,
+            Some(Tier::Ordinary),
+            true,
+            true,
+            Tier::Ordinary,
+        ),
+        (Tier::Skilled, None, true, true, Tier::Skilled),
+        (Tier::Boss, None, true, true, Tier::Boss),
+    ];
+    for (found, forced, is_elite, companion, want) in tiers {
+        let got = lifted_tier(found, forced, is_elite, companion);
+        assert_eq!(
+            got, want,
+            "{found:?} forced {forced:?} elite {is_elite} companion {companion}"
+        );
+    }
+    // A companion or not, its level, and whether it is a veteran.
+    let veterans = [
+        (true, COMPANION_BOSS_LEVEL, true),
+        (true, COMPANION_BOSS_LEVEL - 1, false),
+        (false, COMPANION_BOSS_LEVEL + 5, false),
+    ];
+    for (companion, level, want) in veterans {
+        assert_eq!(
+            veteran(companion, level),
+            want,
+            "companion {companion} level {level}"
+        );
+    }
+    // The tier, veteran, restrained, the Advanced rules, and the chance.
+    let chances = [
+        (Tier::Ordinary, false, false, true, None),
+        (Tier::Ordinary, true, false, false, None),
+        (Tier::Skilled, false, false, true, Some(SKILLED_ONE_IN)),
+        (Tier::Skilled, false, false, false, Some(SKILLED_ONE_IN)),
+        (Tier::Skilled, true, false, false, Some(BOSS_ONE_IN)),
+        (Tier::Boss, false, false, false, Some(BOSS_ONE_IN)),
+        (Tier::Skilled, false, true, true, None),
+        (Tier::Boss, false, true, true, Some(BOSS_ONE_IN)),
+        (Tier::Boss, false, true, false, None),
+    ];
+    for (tier, vet, restrained, duel, want) in chances {
+        let got = special_one_in(tier, vet, restrained, duel);
+        assert_eq!(
+            got, want,
+            "{tier:?} veteran {vet} restrained {restrained} advanced {duel}"
+        );
+    }
+    // The older bar (hundredths), its size, the cost in percent, and
+    // whether the fighter pays.
+    let purses = [
+        (5000, 100, 50, true),
+        (4999, 100, 50, false),
+        (10_000, 0, 10, false),
+    ];
+    for (older, pool, percent, want) in purses {
+        assert_eq!(
+            pays_older(older, pool, percent),
+            want,
+            "{older} of {pool} for {percent}%"
+        );
+    }
+    assert_eq!(
+        (side_away(12.0), side_away(-3.0), side_away(0.0)),
+        (-1, 1, 1)
+    );
+    // The long moves are the katas and the jump attacks.
+    use sim::combat::pace::Special;
+    let long: Vec<bool> = ["lunge", "kata", "flip_slash", "leap", "jump_attack", "spin"]
+        .iter()
+        .filter_map(|name| Special::named(name))
+        .map(Special::long)
+        .collect();
+    assert_eq!(long, [false, true, false, false, true, false], "long moves");
+    // A special move that began at 5 seconds missed unless the fighter hit
+    // its target at or after then.
+    use sim::combat::pace::{SpecialWhy, long_allowed, missed};
+    let misses = [
+        (5_000, 0, true),
+        (5_000, 4_999, true),
+        (5_000, 5_000, false),
+        (5_000, 6_000, false),
+    ];
+    for (began, hit, want) in misses {
+        assert_eq!(missed(began, hit), want, "began {began} hit {hit}");
+    }
+    // A long move needs a disabled target, or a tired one that stands
+    // still. The drift is away and around, in units a second.
+    let fast = rules::ai::choices::specials::LEAVING_M_S / collision::UNIT;
+    let longs = [
+        (SpecialWhy::Disabled, [0.0, 0.0], true),
+        (SpecialWhy::Tired, [0.0, 0.0], true),
+        (SpecialWhy::Tired, [0.0, fast * 0.9], false),
+        (SpecialWhy::Staggered, [0.0, 0.0], false),
+        (SpecialWhy::Coming, [0.0, 0.0], false),
+        (SpecialWhy::BlocksStill, [0.0, 0.0], false),
+    ];
+    for (why, drift, want) in longs {
+        assert_eq!(long_allowed(why, drift), want, "{why:?} at {drift:?}");
+    }
+}
+
 /// The feat line the combat AI takes against its target
 /// (`sim::combat::choose::feat_line`, `ai.choices.feats`). Each row is one
 /// case. A fighter takes Flurry against a staggered or tired target, Power
@@ -6367,6 +6513,25 @@ fn choice_feat_picks() {
 #[test]
 fn feat_choices() {
     probed("feat choices", &sim::feat_choice_probes::probes(), 11);
+}
+
+/// The special saber moves and escapes a fighter starts itself
+/// (`sim::special_choice_probes`). A Mandalorian, Skilled by its tag, starts
+/// a special move within 40 attacks under both rule sets, and a companion
+/// with a vibroblade does too. A Skilled fighter rolls or cartwheels away
+/// from a grenade that rests beside it within 3 seconds under both rule
+/// sets. An ordinary enemy, and a Mandalorian its scripts set to attack
+/// only, start neither in 30 seconds. A Mandalorian at a target that stands
+/// still starts no kata. A Boss at a player who circles it starts no special
+/// move in 20 attacks (10 under the Advanced rules). A companion starts a
+/// kata against a stunned foe. After each special move that missed, a Boss
+/// waits the wait after a miss. A Boss's pace alone starts special moves at
+/// a still target and none at a target that runs away or around it, under
+/// both rule sets. (proposed 2026-11-21, changed 2026-11-21, awaiting
+/// approval)
+#[test]
+fn special_choices() {
+    probed("special choices", &sim::special_choice_probes::probes(), 13);
 }
 
 /// Whether a fight is intense for the party (`sim::combat::choose`), how

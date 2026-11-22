@@ -192,6 +192,8 @@ pub use world::scream_probes;
 pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
+#[cfg(feature = "probes")]
+pub use world::special_choice_probes;
 pub use world::stances::{played_ids, row_set};
 #[cfg(feature = "probes")]
 pub use world::step_down_probes;
