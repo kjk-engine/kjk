@@ -406,6 +406,7 @@ impl LoadedScene {
             fog: self.fog,
             shadowed: self.lit,
             probed: self.lit,
+            dark_unlit: crate::fitted_lights::baked() && dark_unlit(&self.name),
         }
     }
 }
@@ -821,22 +822,105 @@ pub(crate) fn stored_lightmap(name: &str) -> Option<TextureIr> {
 /// How much of its stored light each baked lightmap takes, by name in
 /// lower case: `fill.txt` of the `KJK_DETAIL_BAKE` folder, which
 /// `kjk detail-bake --fill-stored` writes.
-static BAKED_FILLS: std::sync::LazyLock<BTreeMap<String, f32>> = std::sync::LazyLock::new(|| {
-    let Some(folder) = std::env::var_os("KJK_DETAIL_BAKE").filter(|folder| !folder.is_empty())
-    else {
-        return BTreeMap::new();
-    };
-    let Ok(text) = std::fs::read_to_string(std::path::Path::new(&folder).join("fill.txt")) else {
-        return BTreeMap::new();
-    };
-    (text.lines())
-        .filter(|line| !line.starts_with('#'))
-        .filter_map(|line| {
-            let (name, fill) = line.split_once(' ')?;
-            Some((name.to_ascii_lowercase(), fill.trim().parse().ok()?))
+static BAKED_FILLS: std::sync::LazyLock<BTreeMap<String, f32>> =
+    std::sync::LazyLock::new(|| baked_numbers("fill.txt"));
+
+/// The least share of its stored linear light each texel of a baked
+/// lightmap shows, by the lightmap's name in lower case: `floor.txt` of the
+/// `KJK_DETAIL_BAKE` folder. The bake writes it for a module with the stored
+/// fill, so a wall that no lamp reaches is not black (`FILL_FLOOR` in
+/// `crates/launcher/src/detail_bake/gpu.rs`).
+static BAKED_FLOORS: std::sync::LazyLock<BTreeMap<String, f32>> =
+    std::sync::LazyLock::new(|| baked_numbers("floor.txt"));
+
+/// The lines `<lightmap> <number>` of file `file` in every bake's folder.
+fn baked_numbers(file: &str) -> BTreeMap<String, f32> {
+    let mut fills = BTreeMap::new();
+    for folder in baked_folders() {
+        let Ok(text) = std::fs::read_to_string(folder.join(file)) else {
+            continue;
+        };
+        fills.extend(
+            (text.lines())
+                .filter(|line| !line.starts_with('#'))
+                .filter_map(|line| {
+                    let (name, fill) = line.split_once(' ')?;
+                    Some((name.to_ascii_lowercase(), fill.trim().parse().ok()?))
+                }),
+        );
+    }
+    fills
+}
+
+/// The areas whose bake asks for their rooms' surfaces with no lightmap to
+/// be dark: the folder name over each bake's set that holds `unlit.txt`,
+/// in lower case. `bake.sh` writes the file for a module whose entry in
+/// `data/lights/bake.toml` has `dark_unlit = true`. Nar Shaddaa's tunnels
+/// (305nar) have no lightmap, and the game showed them at half of full
+/// light, which the owner called too bright (21 November 2026).
+static DARK_UNLIT_AREAS: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
+    (baked_folders().into_iter())
+        .filter(|folder| folder.join("unlit.txt").is_file())
+        .filter_map(|folder| {
+            let area = folder.parent()?.file_name()?.to_str()?;
+            Some(area.to_ascii_lowercase())
         })
         .collect()
 });
+
+/// Whether scene `name` is of one of `DARK_UNLIT_AREAS`. A module's scene
+/// is named "<label> in <module>". A KOTOR 1 module's folder has the
+/// area's name without its planet, `m01aa` for `end_m01aa`.
+fn dark_unlit(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let module = name.rsplit(' ').next().unwrap_or(&name);
+    (DARK_UNLIT_AREAS.iter()).any(|area| module == area || module.ends_with(&format!("_{area}")))
+}
+
+/// The folders of baked lightmaps. `KJK_DETAIL_BAKE` names one area's
+/// folder. `KJK_DETAIL_BAKES` names a file with one folder a line, for a
+/// run that goes through many areas (`walk::step`). A line that starts
+/// with `#` is a comment.
+fn baked_folders() -> Vec<std::path::PathBuf> {
+    let mut folders: Vec<std::path::PathBuf> = std::env::var_os("KJK_DETAIL_BAKE")
+        .filter(|folder| !folder.is_empty())
+        .map(std::path::PathBuf::from)
+        .into_iter()
+        .collect();
+    if let Some(list) = std::env::var_os("KJK_DETAIL_BAKES").filter(|list| !list.is_empty()) {
+        match std::fs::read_to_string(&list) {
+            Ok(text) => folders.extend(
+                (text.lines())
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                    .map(std::path::PathBuf::from),
+            ),
+            Err(error) => warn!("KJK_DETAIL_BAKES: {}: {error}", list.to_string_lossy()),
+        }
+    }
+    folders
+}
+
+/// Every baked lightmap of `baked_folders`, by its name in lower case. A
+/// lightmap's name holds its area's, so two areas never share one.
+static BAKED_LIGHTMAPS: std::sync::LazyLock<BTreeMap<String, std::path::PathBuf>> =
+    std::sync::LazyLock::new(|| {
+        let mut found = BTreeMap::new();
+        for folder in baked_folders() {
+            let Ok(entries) = std::fs::read_dir(&folder) else {
+                warn!("no folder of baked lightmaps at {}", folder.display());
+                continue;
+            };
+            for path in entries.flatten().map(|entry| entry.path()) {
+                if path.extension().is_some_and(|extension| extension == "png")
+                    && let Some(name) = path.file_stem().and_then(|name| name.to_str())
+                {
+                    found.insert(name.to_ascii_lowercase(), path);
+                }
+            }
+        }
+        found
+    });
 
 /// Adds `fill` times the stored lightmap's linear light to a baked
 /// lightmap. A room with no lamp that the level art shows was lit by lamps
@@ -849,7 +933,9 @@ static BAKED_FILLS: std::sync::LazyLock<BTreeMap<String, f32>> = std::sync::Lazy
 /// `detail_bake/gpu.rs`): a baked level is stored at 1 / `GAIN`, a level is
 /// linear light to the power 1 / `GAMMA`, and a level above `KNEE` is eased
 /// so that it never passes `KNEE + OVER` (`eased_level`).
-fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32) {
+/// With `floor` the stored light times `fill` is the least the texel shows,
+/// and not added (`BAKED_FLOORS`).
+fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32, floor: bool) {
     use asset_odyssey::texture::Encoding;
     const GAIN: f32 = 2.0;
     const GAMMA: f32 = 2.2;
@@ -908,7 +994,11 @@ fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32
                 let eased = (brightness - KNEE).min(OVER * 0.999);
                 level *= (KNEE + eased * OVER / (OVER - eased)) / brightness;
             }
-            let light = level.powf(GAMMA) + added;
+            let light = if floor {
+                level.powf(GAMMA).max(added)
+            } else {
+                level.powf(GAMMA) + added
+            };
             // And the sum eased again, as the bake eases it.
             let mut level = light.max(Vec3::ZERO).powf(1.0 / GAMMA);
             let brightness = luma(level);
@@ -925,24 +1015,20 @@ fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32
 }
 
 fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
-    static FOLDER: std::sync::LazyLock<Option<std::path::PathBuf>> =
-        std::sync::LazyLock::new(|| {
-            std::env::var_os("KJK_DETAIL_BAKE")
-                .filter(|folder| !folder.is_empty())
-                .map(std::path::PathBuf::from)
-        });
-    let Some(folder) = FOLDER.as_ref() else {
+    let Some(path) = BAKED_LIGHTMAPS.get(&name.to_ascii_lowercase()) else {
         return texture;
     };
-    let path = folder.join(format!("{}.png", name.to_ascii_lowercase()));
-    if texture.cube || texture.frames > 1 || !path.is_file() {
+    if texture.cube || texture.frames > 1 {
         return texture;
     }
-    match image::open(&path) {
+    match image::open(path) {
         Ok(picture) => {
             let mut picture = picture.into_rgba8();
             if let Some(fill) = BAKED_FILLS.get(&name.to_ascii_lowercase()) {
-                add_stored_fill(&mut picture, &texture, *fill);
+                add_stored_fill(&mut picture, &texture, *fill, false);
+            }
+            if let Some(share) = BAKED_FLOORS.get(&name.to_ascii_lowercase()) {
+                add_stored_fill(&mut picture, &texture, *share, true);
             }
             STORED_LIGHTMAPS
                 .lock()

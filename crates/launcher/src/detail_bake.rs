@@ -300,8 +300,9 @@ fn read_stored(resolver: &Resolver, name: &str) -> Option<Stored> {
     })
 }
 
-/// The mean colour of a texture in linear light, from a small level.
-fn albedo(resolver: &Resolver, name: &str) -> Option<Vec3> {
+/// The mean colour of a texture in linear light, from a small level, and
+/// the mean of its alpha.
+fn albedo(resolver: &Resolver, name: &str) -> Option<(Vec3, f32)> {
     let texture = TextureIr::from_texture(&resolver.texture(name)?, None)?;
     let size = |level: usize| {
         (
@@ -320,17 +321,27 @@ fn albedo(resolver: &Resolver, name: &str) -> Option<Vec3> {
         Encoding::Bc3 => dxt::decode(data, width, height, true)?,
     };
     let mut sum = Vec3::ZERO;
+    let mut alpha = 0.0f32;
     let mut count = 0.0f32;
-    for [r, g, b, _] in rgba.as_chunks::<4>().0.iter().take(width * height) {
+    for [r, g, b, a] in rgba.as_chunks::<4>().0.iter().take(width * height) {
         sum += Vec3::new(
             linear(f32::from(*r) / 255.0),
             linear(f32::from(*g) / 255.0),
             linear(f32::from(*b) / 255.0),
         );
+        alpha += f32::from(*a) / 255.0;
         count += 1.0;
     }
-    (count > 0.0).then(|| sum / count)
+    (count > 0.0).then(|| (sum / count, alpha / count))
 }
+
+/// A mesh with a lightmap whose texture's alpha has a mean under this is a
+/// layer the game draws over another by its alpha: wet sand, foam or a
+/// shore's water. It casts no shadow and walls no texel in. As a solid
+/// sheet the sand layers of unk_m41ac walled in the shore's bottom, and the
+/// bake left hard black shapes there (22 November 2026). A mesh with no
+/// lightmap, such as leaves, still casts its shadow.
+const LAYER_ALPHA: f32 = 0.9;
 
 // ---------------------------------------------------------------------------
 // The texels.
@@ -542,7 +553,7 @@ fn texels(
     } = &placement;
 
     let mut unwalked: Vec<String> = Vec::new();
-    let mut albedos: HashMap<String, Vec3> = HashMap::new();
+    let mut albedos: HashMap<String, (Vec3, f32)> = HashMap::new();
     let mut maps: Vec<Stored> = Vec::new();
     let mut map_of: BTreeMap<String, Option<usize>> = BTreeMap::new();
     let mut claims: Vec<Vec<Option<Claim>>> = Vec::new();
@@ -615,14 +626,16 @@ fn texels(
                 }
                 _ => None,
             };
-            let opaque = mesh.transparency_hint == 0
-                && mesh.alpha >= 0.99
-                && (mesh.texture.is_some() || mesh.lightmap.is_some());
-            let colour = mesh.texture.as_deref().map_or(Vec3::splat(0.5), |name| {
+            let (colour, coverage) = mesh.texture.as_deref().map_or((Vec3::splat(0.5), 1.0), |name| {
                 *albedos
                     .entry(name.to_ascii_lowercase())
-                    .or_insert_with(|| albedo(resolver, name).unwrap_or(Vec3::splat(0.5)))
+                    .or_insert_with(|| albedo(resolver, name).unwrap_or((Vec3::splat(0.5), 1.0)))
             });
+            let layer = mesh.lightmap.is_some() && coverage < LAYER_ALPHA;
+            let opaque = mesh.transparency_hint == 0
+                && mesh.alpha >= 0.99
+                && !layer
+                && (mesh.texture.is_some() || mesh.lightmap.is_some());
             for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
                 let corner = |i: u32| world.get(i as usize).copied();
                 let (Some(pa), Some(pb), Some(pc)) = (corner(a), corner(b), corner(c)) else {
@@ -1759,6 +1772,7 @@ fn bake_lights(
         folder,
         &[("a", &shown_a[..], true), ("b", &shown_b[..], false)],
         None,
+        false,
     )?;
     lap("pictures", &mut times);
 
@@ -1847,6 +1861,7 @@ fn write_sets(
     folder: &Path,
     sets: &[(&str, &[Vec3], bool)],
     sunlit: Option<&[f32]>,
+    stored_backdrop: bool,
 ) -> Result<(), String> {
     let sunlit = sunlit.map(|sunlit| {
         let values: Vec<Vec3> = sunlit.iter().map(|share| Vec3::splat(*share)).collect();
@@ -1887,19 +1902,28 @@ fn write_sets(
         }
         // A sky's or a backdrop's lightmap is not baked. In a set that keeps
         // the stored lightmap it shows half its stored light, as the live
-        // trial shows it. A set without it leaves that lightmap out, and the
-        // game then shows the stored lightmap at twice its light.
-        for name in unwalked.iter().filter(|_| keep_stored) {
+        // trial shows it. The lamps' set leaves it out, and the game then
+        // shows the stored lightmap at twice its light. With
+        // `stored_backdrop` the lamps' set shows it at its stored light, as
+        // the game shows it today. On Taris's walkways the buildings and
+        // trees glared at twice their light while the walkway, lit by its
+        // lamps alone, stayed dark. Elsewhere the owner walked the brighter
+        // backdrop, and it stays.
+        let backdrop = if keep_stored { 2.0 } else { 1.0 };
+        for name in unwalked.iter().filter(|_| keep_stored || stored_backdrop) {
             let Some(stored) = read_stored(resolver, name) else {
                 continue;
             };
             let mut picture = image::RgbaImage::new(stored.width as u32, stored.height as u32);
             for (i, [r, g, b, a]) in stored.texels.iter().enumerate() {
-                let [r, g, b] = [r, g, b].map(|v| to_byte(v / 2.0 / GAIN));
+                let [r, g, b] = [r, g, b].map(|v| to_byte(v / backdrop / GAIN));
+                // The lamps' set holds the suns' share in its alpha. A room
+                // the bake did not read takes no sun's shadow.
+                let a = if keep_stored { to_byte(*a) } else { 255 };
                 picture.put_pixel(
                     (i % stored.width) as u32,
                     (i / stored.width) as u32,
-                    image::Rgba([r, g, b, to_byte(*a)]),
+                    image::Rgba([r, g, b, a]),
                 );
             }
             let path = out.join(format!("{name}.png"));

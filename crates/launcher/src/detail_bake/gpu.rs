@@ -162,6 +162,23 @@ pub(crate) struct GpuOptions {
     /// seems to be some light they have baked in there from the ceiling",
     /// "We should make that one stronger and work with that".
     pub fill_stored: bool,
+    /// Each texel of `b` shows at least this share of its stored linear
+    /// light, as `floor.txt` asks of the game. A room may reach its level by
+    /// its bright lightmaps alone, and a wall far from every lamp stayed
+    /// black: the hall of stunt_18 showed a mean of 4 where the game shows
+    /// 47 (22 November 2026). The owner asked for such a wall to be lit, on
+    /// the darker side of the original. A module asks for it in
+    /// `data/lights/bake.toml` with `floor`.
+    pub floor: Option<f32>,
+    /// Every room that has a lightmapped mesh is baked, as under a sun,
+    /// not only the rooms with a walkable face. Manaan's sea floor lies in
+    /// rooms no one walks on, and the pole lamps by the walkway lit none of
+    /// it (21 November 2026).
+    pub every_room: bool,
+    /// A room with no walkable face shows its stored light in `b`, and not
+    /// twice it. Taris's buildings beside a walkway glared at twice their
+    /// light (owner, 21 November 2026).
+    pub stored_backdrop: bool,
     /// The least a room's lamps are scaled by in `b`, where it is not
     /// `B_LEAST`. A ship's dark rooms have lamps that are too bright at
     /// half their strength.
@@ -508,7 +525,7 @@ pub(super) fn bake_lights(
         unwalked,
         names,
         grass,
-    } = texels(reader, resolver, area, options.sun.is_some())?;
+    } = texels(reader, resolver, area, options.sun.is_some() || options.every_room)?;
     if std::env::var_os("KJK_BAKE_LAPS").is_some() {
         eprintln!("{} triangles, bounds {:?}", surfaces.len(), bounds(&surfaces));
     }
@@ -853,18 +870,27 @@ pub(super) fn bake_lights(
         .collect();
     drop(first);
     lap("direct light".into(), &mut times);
+    // What each texel is, for the pictures of `KJK_BAKE_DEBUG`, before the
+    // shadows are smoothed (`debug_pictures`).
+    let kinds: Option<Vec<[u8; 3]>> = std::env::var_os("KJK_BAKE_DEBUG").map(|_| {
+        (0..count)
+            .map(|i| texel_kind(&points[i], counts[i], open[i], shadowed[i]))
+            .collect()
+    });
     // The probe's texels as the graphics card lit them, and the lamp places
     // of the lights that reach them most.
     if let Some((at, radius)) = options.probe {
         for (i, point) in points.iter().enumerate() {
             if point.inside && point.at.distance(at) <= radius {
                 outln!(
-                    "  gpu texel {} of {} at {:.3}: without shadows {:.3}, with shadows {:.3}",
+                    "  gpu texel {} of {} at {:.3}, normal {:.2}: without shadows {:.3}, with shadows {:.3}, counts {}",
                     point.texel,
                     maps[point.map].name,
                     point.at,
+                    point.normal,
                     luma(open[i]),
-                    luma(shadowed[i])
+                    luma(shadowed[i]),
+                    counts[i]
                 );
             }
         }
@@ -1408,7 +1434,13 @@ pub(super) fn bake_lights(
         folder,
         &[("a", &shown_a[..], true), ("b", &written_b[..], false)],
         sunlit.as_deref(),
+        options.stored_backdrop,
     )?;
+    // A set baked earlier into the same folder may hold a `fill.txt` or a
+    // `floor.txt` that this bake does not ask for.
+    for name in ["fill.txt", "floor.txt"] {
+        let _ = std::fs::remove_file(folder.join("b").join(name));
+    }
     if !fills_b.is_empty() {
         let mut text = String::from(
             "# How much of its stored light each lightmap takes when the game loads it:\n\
@@ -1421,6 +1453,23 @@ pub(super) fn bake_lights(
         }
         let path = folder.join("b").join("fill.txt");
         std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    // The floor (`GpuOptions::floor`): one share for every lightmap of set
+    // `b`, which the game holds each texel to.
+    if let Some(floor) = options.floor.filter(|_| !options.old) {
+        let mut text = String::from(
+            "# The least share of its stored linear light each texel of a lightmap shows when the game loads it:
+             # the lightmap's name and the share.
+",
+        );
+        for map in &maps {
+            let _ = writeln!(text, "{} {floor:.3}", map.name);
+        }
+        let path = folder.join("b").join("floor.txt");
+        std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    if let Some(kinds) = &kinds {
+        debug_pictures(folder, &maps, &points, kinds, &|i| stored_at(&points[i]), &shown_b)?;
     }
     lap("pictures".into(), &mut times);
 
@@ -1442,9 +1491,10 @@ pub(super) fn bake_lights(
     );
     let _ = writeln!(
         report,
-        "  {} lightmaps, {} lightmaps of rooms with no walkable face kept at half",
+        "  {} lightmaps, {} lightmaps of rooms with no walkable face kept {}",
         maps.len(),
-        unwalked.len()
+        unwalked.len(),
+        if options.stored_backdrop { "as stored" } else { "at half" }
     );
     let _ = writeln!(report, "  {} room triangles block rays", surfaces.len());
     if !far.is_empty() {
@@ -1655,6 +1705,86 @@ fn smooth_shadows(
         open[index] * (sum / total)
     });
     shadowed[..points.len()].copy_from_slice(&smoothed);
+}
+
+/// The colour that tells what a texel is in the pictures of
+/// `KJK_BAKE_DEBUG`. Red is a texel inside a wall: too many of its rays meet
+/// the back of a surface, and it does not count. Blue is a texel whose
+/// centre lies off its triangle, on the ring the bake adds round a patch.
+/// Magenta is a texel whose mesh normal faces away from its triangle.
+/// Dark cyan is a texel that no light faces. Grey is the share of its
+/// lights' light that reaches it past every shadow, white where all does.
+fn texel_kind(point: &Point, counts: bool, open: Vec3, shadowed: Vec3) -> [u8; 3] {
+    if !counts {
+        return [220, 0, 0];
+    }
+    if !point.inside {
+        return [0, 60, 230];
+    }
+    if point.shading.is_some_and(|shading| shading.dot(point.normal) < 0.0) {
+        return [220, 0, 220];
+    }
+    if luma(open) < 1e-6 {
+        return [0, 70, 70];
+    }
+    let share = (luma(shadowed) / luma(open)).clamp(0.0, 1.0);
+    let grey = (40.0 + 215.0 * share) as u8;
+    [grey, grey, grey]
+}
+
+/// Writes `debug/<lightmap>.png` into `folder` for `KJK_BAKE_DEBUG`, each
+/// three pictures wide at the bake's own texels: what each texel is
+/// (`texel_kind`, black where no triangle claims it), the stored lightmap,
+/// and the lamps' set `b` as the bake shows it. `debug/texels.txt` gives
+/// each lightmap's side of a stored texel in metres and how many texels
+/// are of each kind.
+fn debug_pictures(
+    folder: &Path,
+    maps: &[Stored],
+    points: &[Point],
+    kinds: &[[u8; 3]],
+    stored: &dyn Fn(usize) -> Vec3,
+    shown: &[Vec3],
+) -> Result<(), String> {
+    let out = folder.join("debug");
+    std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
+    let mut text = String::from(
+        "# lightmap, stored texel side in metres (median), texels counted, inside a wall, off the triangle, normal away, unlit\n",
+    );
+    for (number, map) in maps.iter().enumerate() {
+        let (w, h) = (map.width * SCALE, map.height * SCALE);
+        let mut picture = image::RgbImage::new((3 * w) as u32, h as u32);
+        let mut sizes = Vec::new();
+        let mut tally = [0usize; 5];
+        for (i, point) in points.iter().enumerate().filter(|(_, point)| point.map == number) {
+            let (x, y) = ((point.texel % w) as u32, (point.texel / w) as u32);
+            let kind = kinds[i];
+            picture.put_pixel(x, y, image::Rgb(kind));
+            let s = stored(i).to_array().map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
+            picture.put_pixel(x + w as u32, y, image::Rgb(s));
+            let b = shown[i].to_array().map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
+            picture.put_pixel(x + 2 * w as u32, y, image::Rgb(b));
+            sizes.push(point.size);
+            tally[match kind {
+                [220, 0, 0] => 1,
+                [0, 60, 230] => 2,
+                [220, 0, 220] => 3,
+                [0, 70, 70] => 4,
+                _ => 0,
+            }] += 1;
+        }
+        sizes.sort_by(f32::total_cmp);
+        let side = sizes.get(sizes.len() / 2).copied().unwrap_or(0.0);
+        let _ = writeln!(
+            text,
+            "{} {side:.3} {} {} {} {} {}",
+            map.name, tally[0], tally[1], tally[2], tally[3], tally[4]
+        );
+        let path = out.join(format!("{}.png", map.name));
+        picture.save(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    let path = out.join("texels.txt");
+    std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// `b`'s stored level of a light: `stored_level`, eased above `B_KNEE` so

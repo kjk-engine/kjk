@@ -953,15 +953,6 @@ says = "Not a light. It lights nothing."
 reason = "A proposal the owner has not seen. The texture shows rock, not a lamp."
 
 [[fitting]]
-game = "tsl"
-texture = "mal_floor3"
-on = "room"
-form = "glows"
-lamp = false
-says = "Not a light. It lights nothing."
-reason = "A proposal the owner has not seen. The texture shows a floor, not a lamp."
-
-[[fitting]]
 game = "k1"
 texture = "lhr_trim03"
 on = "room"
@@ -978,10 +969,12 @@ on = "placeable"
 form = "faint"
 colour = [0.36, 0.62, 1.0]
 reach = 2.5
-strength = 0.3
+strength = 0.6
+cone = 0.6
 dark = true
-says = "A terminal's blue displays give a little blue light close by, about 2.5 m."
-reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\""
+lift = 0.785
+says = "A terminal's blue displays give a little blue light close by, about 2.5 m, out of the screen and up at 45 degrees."
+reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\". The owner saw the terminals with one light for each screen at strength 0.24 and asked for at least a little more light, about half of what they had before (22 November 2026). At 0.6 a terminal gives back about half of the blue it used to leave on the floor before the merge."
 
 [[fitting]]
 game = "tsl"
@@ -990,10 +983,12 @@ on = "placeable"
 form = "faint"
 colour = [0.36, 0.62, 1.0]
 reach = 2.5
-strength = 0.3
+strength = 0.6
+cone = 0.6
 dark = true
-says = "A terminal's blue displays give a little blue light close by, about 2.5 m."
-reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\""
+lift = 0.785
+says = "A terminal's blue displays give a little blue light close by, about 2.5 m, out of the screen and up at 45 degrees."
+reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\". The owner saw the terminals with one light for each screen at strength 0.24 and asked for at least a little more light, about half of what they had before (22 November 2026). At 0.6 a terminal gives back about half of the blue it used to leave on the floor before the merge."
 
 [[fitting]]
 game = "tsl"
@@ -1002,10 +997,12 @@ on = "placeable"
 form = "faint"
 colour = [0.36, 0.62, 1.0]
 reach = 2.5
-strength = 0.3
+strength = 0.6
+cone = 0.6
 dark = true
-says = "A terminal's blue displays give a little blue light close by, about 2.5 m."
-reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\""
+lift = 0.785
+says = "A terminal's blue displays give a little blue light close by, about 2.5 m, out of the screen and up at 45 degrees."
+reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\". The owner saw the terminals with one light for each screen at strength 0.24 and asked for at least a little more light, about half of what they had before (22 November 2026). At 0.6 a terminal gives back about half of the blue it used to leave on the floor before the merge."
 
 # The Dantooine enclave (danm13), baked on 18 November 2026. The owner has
 # seen neither entry.
@@ -1039,3 +1036,396 @@ form = "glows"
 lamp = false
 says = "Not a light. It lights nothing."
 reason = "A proposal the owner has not seen. The texture is the wooden gate of the Sand People's huts. The files make it glow in place of baked light. Its orange wood passed as a force field, so it took 136 lights in tat_m20aa, and each hut had an orange pool at its gate."
+
+[[fitting]]
+game = "k1"
+texture = "lsi_tech01"
+on = "room"
+form = "panel"
+colour = [0.541, 0.702, 1.0]
+reach = 4.0
+strength = 1.1
+cone = 0.2
+dark = true
+says = "A blue display panel. It sheds light although little of its texture is bright."
+reason = "The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan and of the Sith base on Taris: the small blue terminals and the blue displays give off no light. The meshes have no lightmap and a dim texture, so the rules skipped them."
+
+[[fitting]]
+game = "k1"
+texture = "lts_lolit03"
+on = "room"
+form = "panel"
+colour = [0.591, 1.0, 1.0]
+reach = 2.8
+strength = 1.1
+cone = 0.2
+dark = true
+says = "A hanging ceiling panel. It sheds light although little of its texture is bright."
+reason = "The owner, walking KOTOR 1 on 21 November 2026, of the big swoop room in the Black Vulkar base (tar_m10ac): the ceiling's light panels give off no light. The meshes have no lightmap and a dim texture, so the rules skipped them."
+
+[[fitting]]
+game = "k1"
+texture = "plc_burnjunk"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 3.5
+strength = 0.2
+gather = true
+always = true
+dark = true
+says = "A burning pile or a fire pit gives one faint warm light about 3.5 m wide, just above it."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\""
+
+[[fitting]]
+game = "k1"
+texture = "plc_firepit2"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 3.5
+strength = 0.2
+gather = true
+always = true
+dark = true
+says = "A burning pile or a fire pit gives one faint warm light about 3.5 m wide, just above it."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\""
+
+[[fitting]]
+game = "k1"
+texture = "plc_frcdist01"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+says = "A force cage's field gives a little light of its own colour, about 4 m."
+reason = "As an unnamed texture its sides were too wide to count as a small lamp, so plc_frcdist01 gave none and plc_frcdist02 gave very little. The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan: the force cages still give off almost no light, and they should give off at least some."
+
+[[fitting]]
+game = "k1"
+texture = "plc_frcdist02"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+says = "A force cage's field gives a little light of its own colour, about 4 m."
+reason = "As an unnamed texture its sides were too wide to count as a small lamp, so plc_frcdist01 gave none and plc_frcdist02 gave very little. The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan: the force cages still give off almost no light, and they should give off at least some."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_burnjunk"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 3.5
+strength = 0.2
+gather = true
+always = true
+dark = true
+says = "A burning pile or a fire pit gives one faint warm light about 3.5 m wide, just above it."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\""
+
+[[fitting]]
+game = "tsl"
+texture = "plc_firepit2"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 3.5
+strength = 0.2
+gather = true
+always = true
+dark = true
+says = "A burning pile or a fire pit gives one faint warm light about 3.5 m wide, just above it."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\""
+
+[[fitting]]
+game = "tsl"
+texture = "plc_frcdist01"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+says = "A force cage's field gives a little light of its own colour, about 4 m."
+reason = "As an unnamed texture its sides were too wide to count as a small lamp, so plc_frcdist01 gave none and plc_frcdist02 gave very little. The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan: the force cages still give off almost no light, and they should give off at least some."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_frcdist02"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+says = "A force cage's field gives a little light of its own colour, about 4 m."
+reason = "As an unnamed texture its sides were too wide to count as a small lamp, so plc_frcdist01 gave none and plc_frcdist02 gave very little. The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan: the force cages still give off almost no light, and they should give off at least some."
+
+[[fitting]]
+game = "k1"
+texture = "plc_map01"
+on = "placeable"
+form = "faint"
+colour = [1.0, 1.0, 1.0]
+reach = 2.4
+strength = 0.5
+tint = true
+says = "The holographic map gives a little light of its own colour, about 2.4 m."
+reason = "The owner, walking KOTOR 1 on 21 November 2026, of the Endar Spire's command module: the holographic map is a little too bright, so its reach is a fifth shorter than the survey's 3 m."
+
+[[fitting]]
+game = "k1"
+texture = "plc_starmap15"
+on = "placeable"
+form = "faint"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 0.4
+says = "A Star Map gives a little white light close by, about 3 m."
+reason = "With `tint` it took the red of its texture once a tinted kind took its texels' colour (21 November 2026), and the Star Map on Manaan shed red. The owner liked the Star Maps' white light, and called Manaan's a tad too bright."
+
+[[fitting]]
+game = "k1"
+texture = "lta_dor02"
+on = "placeable"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A door of Anchorhead. The files make it glow in place of baked light, and its green passed as a force field, so it shed a green pool. The owner, walking KOTOR 1 on 21 November 2026: \"this weird green light doesnt make sense, u can remove it\""
+
+[[fitting]]
+game = "k1"
+texture = "lma_light01"
+on = "room"
+form = "panel"
+colour = [0.993, 1.0, 1.0]
+reach = 4.0
+strength = 1.1
+cone = 0.7
+always = true
+lift = -0.6
+says = "A Manaan pole lamp shines as a spotlight out of its panel and down at the ground, about 4 m, and every one is lit."
+reason = "With a cone of 0.2 it lit a wide front and much behind it. Three of manm28ad's were off, because their meshes do not glow and their stored lightmap is dark. The owner, walking KOTOR 1 on 21 November 2026: \"these lamps are not really glowing from their panels or emitting light, they should emit directional spotlight\""
+
+[[fitting]]
+game = "k1"
+texture = "plc_desk1"
+on = "placeable"
+form = "faint"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 0.4
+cone = 0.2
+lamps = "bright"
+tint = true
+always = true
+dark = true
+says = "A desk's panels each give a faint light of their own colour, about 3 m, on its outside too."
+reason = "The outer panels are on a mesh that is not set to glow, so the rules skipped them. The owner, walking KOTOR 1 on 21 November 2026, of the swoop manager's desk on Taris: the panels on the outer surface should give off a little light; the inner displays' light is already good."
+
+[[fitting]]
+game = "k1"
+texture = "lts_gwall01"
+on = "room"
+form = "panel"
+colour = [0.76, 1.0, 0.52]
+reach = 5.0
+strength = 1.1
+cone = 0.2
+says = "Taris's green wall panels shed a pale green light."
+reason = "The survey took the colour of their strong yellow-green glass, 0.525, 1.0, 0.05. This colour is halfway from it to white. The owner, walking KOTOR 1 on 21 November 2026, of the upper city apartments: the light is a little too green."
+
+[[fitting]]
+game = "tsl"
+texture = "nar_jtrm"
+on = "room"
+form = "strip"
+colour = [0.705, 0.84, 1.0]
+reach = 3.5
+strength = 0.8
+always = true
+says = "Nar Shaddaa's round light strips shine where the files do not set them to glow too."
+reason = "The tunnels of 305nar have the strips at glow 0, so they shed nothing there. The owner, 21 November 2026: \"all these bring circles look like light strips and should be used to light this place up and then darken the rest of it\""
+
+[[fitting]]
+game = "tsl"
+texture = "nar_jtrm2"
+on = "room"
+form = "strip"
+colour = [0.705, 0.84, 1.0]
+reach = 3.5
+strength = 0.8
+always = true
+says = "The second kind of Nar Shaddaa's round light strips, as nar_jtrm."
+reason = "It had no kind and its pieces have glow 0. The owner asked that the strips light the tunnels (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "nar_d_lit01"
+on = "room"
+form = "panel"
+colour = [0.882, 0.992, 1.0]
+reach = 5.0
+strength = 1.1
+cone = 0.7
+says = "Goto's yacht's glow panels light the rooms below them."
+reason = "It was faint at 0.4 and 2 m. The owner, 21 November 2026: the yacht's light should come off the glow panels all over."
+
+[[fitting]]
+game = "tsl"
+texture = "nar_d_wl_o"
+on = "room"
+form = "down"
+colour = [1.0, 0.678, 0.216]
+reach = 5.0
+strength = 1.1
+cone = 0.7
+always = true
+says = "The yacht's wall lamps shine where the files do not set them to glow too."
+reason = "Their meshes have glow 0 and shed only a dim light. The owner asked for the yacht's light to come off its lamps (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_hl3"
+on = "room"
+form = "panel"
+colour = [1.0, 1.0, 1.0]
+reach = 5.0
+strength = 1.1
+cone = 0.2
+tint = true
+says = "The Citadel Station's lamps outside the cantina shed light of their own colour."
+reason = "As an unnamed texture they were faint. The owner, 21 November 2026: use the lights outside the cantina; there are cool lights there."
+
+[[fitting]]
+game = "tsl"
+texture = "ond_lt02"
+on = "room"
+form = "down"
+colour = [1.0, 0.921, 0.783]
+reach = 9.0
+strength = 1.1
+cone = 0.7
+says = "Onderon's ceiling lamps hang about 7 m over the floor and reach it."
+reason = "At 5 m their light hardly reached the floor. The owner, 21 November 2026, of 506ond: light should be sourced from the ceiling lamps instead."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_cgrn"
+on = "room"
+form = "point"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 1.1
+tint = true
+says = "Dantooine's green crystals shed light of their own colour, as the purple ones do."
+reason = "They were faint and white. The owner, 21 November 2026: not sure the green crystals are emitting light as they should."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_cblu"
+on = "room"
+form = "point"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 1.1
+tint = true
+says = "Dantooine's blue crystals shed light of their own colour, as the purple ones do."
+reason = "As the green crystals (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_cylw"
+on = "room"
+form = "point"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 1.1
+tint = true
+says = "Dantooine's yellow crystals shed light of their own colour, as the purple ones do."
+reason = "As the green crystals (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_hlt1"
+on = "room"
+form = "panel"
+colour = [1.0, 1.0, 1.0]
+reach = 5.0
+strength = 1.1
+cone = 0.2
+tint = true
+always = true
+says = "The wall and ceiling lamps of the Dantooine enclave's ruins shed light."
+reason = "They had no kind and fell to the weak rule for unnamed textures. The owner, 21 November 2026, of 610dan: lights on walls and ceiling should be emitting light."
+
+[[fitting]]
+game = "tsl"
+texture = "mal_gtbeams"
+on = "room"
+form = "strip"
+colour = [1.0, 0.9, 0.3]
+reach = 4.0
+strength = 1.0
+line = true
+tint = true
+dark = true
+says = "Malachor's glowing cracks in the floor shed a yellow light along them."
+reason = "They had no kind and shed nothing. The owner, 21 November 2026: if we can get more of the light stemming from these light cracks in the floor that would be cool. The owner, 22 November 2026, of Malachor (902mal to 906mal): far too bright, about half as bright, and lit more by the red lights on the floors, the walls and the doors."
+
+[[fitting]]
+game = "tsl"
+texture = "mal_floor3"
+on = "room"
+form = "faint"
+colour = [1.0, 0.2, 0.1]
+reach = 4.0
+strength = 1.0
+tint = true
+dark = true
+says = "Malachor's red floor discs give a little red light close by."
+reason = "It was no lamp, a proposal the owner had not seen. The owner, 21 November 2026, of 903mal: emit some red light from the lights. The owner, 22 November 2026, of Malachor (902mal to 906mal): far too bright, about half as bright, and lit more by the red lights on the floors, the walls and the doors."
+
+[[fitting]]
+game = "tsl"
+texture = "fx_ritual01"
+on = "room"
+form = "faint"
+colour = [1.0, 0.6, 0.35]
+reach = 8.0
+strength = 0.8
+says = "The ritual fire on Dxun lights the floor round it."
+reason = "Its lights hang 4 m up with a reach of 3 m, so they lit nothing. The owner, 21 November 2026, of 411dxn: fires not emitting light."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_flwr"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "The plants of the Telos prison's long hall glow green in the files in place of baked light, and as an unnamed texture they shed 176 lights (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "mal_dor02"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.2, 0.1]
+reach = 4.0
+strength = 1.0
+tint = true
+dark = true
+door = true
+says = "The red ring of Malachor's doors gives a red light around the door."
+reason = "A door shed light only as a force field, at the faint strength of an unnamed texture. The owner, 22 November 2026, of Malachor (902mal to 906mal): far too bright, about half as bright, and lit more by the red lights on the floors, the walls and the doors."

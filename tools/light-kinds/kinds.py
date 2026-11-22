@@ -23,7 +23,9 @@ kind that is no lamp has `lamp = false` and nothing more. A lamp has:
 - `tint = true` where each lamp has the colour of its own bright texels;
 - `always = true` where it shines although its mesh is not set to glow;
 - `grow = true` where a large lamp shines stronger than a small one;
-- `dark = true` where it shines although little of its texture is bright.
+- `dark = true` where it shines although little of its texture is bright;
+- `lift`: one light for each screen, aimed out of it and this far up (radians).
+- `door = true` where a door of the texture takes the kind too.
 
 A `[[fitting]]` of `fittings.toml` for a texture the survey does not list
 is written as it stands, or as no lamp where it has `lamp = false`. The survey misses a lamp whose texture is dim by
@@ -34,7 +36,7 @@ from propose import DATA, ON, ROOT, propose
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAMES = {'k1': 'KOTOR 1', 'tsl': 'KOTOR 2'}
-FIELDS = ('colour', 'reach', 'strength', 'cone', 'line', 'gather', 'off', 'lamps', 'longest', 'tint', 'always', 'grow', 'dark')
+FIELDS = ('colour', 'reach', 'strength', 'cone', 'line', 'gather', 'off', 'lamps', 'longest', 'tint', 'always', 'grow', 'dark', 'lift', 'door')
 
 
 def value(v):

@@ -222,6 +222,14 @@ const PROBED: u32 = 32768u;
 // A room's lamp that the files do not set to glow: its glow shows only on
 // its texture's bright texels.
 const LAMP_TEXELS: u32 = 65536u;
+// A room's surface with no lightmap in an area whose bake asks for it to be
+// dark (`material.rs`'s `DARK_UNLIT`).
+const DARK_UNLIT: u32 = 131072u;
+// A room's surface with a lightmap, opaque or not (`material.rs`).
+const ROOM_LIGHTMAP: u32 = 262144u;
+// What such a surface keeps under the baked trial, in place of half of full
+// light. The fitted lights add to it.
+const BAKED_UNLIT_LIGHT: f32 = 0.12;
 // Under the baked trial a door's or a placeable's dull glow is at most this
 // many times the light the probes hold where it stands.
 const GLOW_BY_ROOM: f32 = 2.0;
@@ -1169,6 +1177,12 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             continue;
         }
         let b = box_at(near_box.x);
+        // A box does not shadow a light inside it: a kolto tank's or a Star
+        // Map's own light. Its box shaded a wide ring of floor round it from
+        // that light, which the owner saw on Manaan (21 November 2026).
+        if box_distance(position + direction * distance, b) <= 0.0 {
+            continue;
+        }
         // A light with a kept tile of the placeable reads the tile. The
         // rest trace its box, unless it casts from its tiles alone.
         var tile = NO_TILE;
@@ -1569,7 +1583,9 @@ fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
     var placeables = near.box_at;
     for (var k = 0u; k < near.boxes; k++) {
         let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
-        if (b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b) {
+        // A box does not shadow a light inside it (`cone_visibility`).
+        if (b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b)
+            || box_distance(position + direction * distance, b) <= 0.0 {
             continue;
         }
         let centre = b.centre.xyz - position;
@@ -1890,7 +1906,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let dimmed = select(1.0, 0.5, trial);
     // Under 8 a room's lightmap is the bake. It is shown whole, and it is
     // stored at 1 / `BAKED_GAIN` of its level so a level above 1 fits.
-    let baked_room = shadows.debug == 8u && (params.flags & ROOM) != 0u
+    let baked_room = shadows.debug == 8u && (params.flags & ROOM_LIGHTMAP) != 0u
         && (params.flags & HAS_LIGHTMAP) != 0u;
     let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED)
         * select(dimmed, BAKED_GAIN, baked_room);
@@ -1918,8 +1934,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         lighting = min(vec3<f32>(1.0), self_lit + baked);
     } else if (params.flags & ROOM) != 0u && trial {
         // Under the trial a room's surface with no lightmap keeps half of
-        // its light too, as a lightmapped one does.
-        lighting = min(vec3<f32>(1.0), dull_glow + vec3<f32>(dimmed));
+        // its light too, as a lightmapped one does. Under the baked trial
+        // one that `DARK_UNLIT` marks keeps `BAKED_UNLIT_LIGHT`.
+        // Its bright texels, a strip's tubes, keep full light.
+        let dark_kept = mix(BAKED_UNLIT_LIGHT, 1.0, smoothstep(0.6, 0.9, max3(texel.rgb)));
+        let unlit_kept = select(dimmed, dark_kept,
+            shadows.debug == 8u && (params.flags & DARK_UNLIT) != 0u);
+        lighting = min(vec3<f32>(1.0), dull_glow + vec3<f32>(unlit_kept));
     }
     // The characters whose shadows may fall on this fragment.
     var near = no_casters();

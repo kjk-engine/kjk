@@ -335,6 +335,7 @@ impl Plugin for ScenePlugin {
             crate::linear_frame::LinearFramePlugin,
         ))
         .add_systems(Startup, spawn_camera)
+        .add_systems(Update, crate::walk::step)
         .add_systems(
             Update,
             // The warm-up reads the new meshes before their data goes

@@ -1123,6 +1123,11 @@ impl View {
         self.history.clear();
         self.followed = None;
         self.started = false;
+        // In walk mode the camera starts behind the player again in a new
+        // module (`walk::step`), where it stood in the last one otherwise.
+        if crate::walk::on() {
+            self.fixed = false;
+        }
         // The shoulder stays where it was: a new module does not slide it in.
         self.camera = ThirdPerson {
             side: self.camera.side,
