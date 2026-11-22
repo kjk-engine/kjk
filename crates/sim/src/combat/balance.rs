@@ -147,6 +147,12 @@ impl Boss {
         paced(cadence_ms, bosses::PACE[self as usize])
     }
 
+    /// Whether a creature's script has switched the shared combat script
+    /// off for it: `read` is what `GetLocalBoolean` reads of a flag of its.
+    pub fn script_off(read: impl Fn(i32) -> i32) -> bool {
+        read(bosses::SCRIPT_OFF_FLAG) != 0
+    }
+
     /// When a final boss that acts for itself may start its next Force power
     /// (sim ms), after one it started at `now`.
     pub fn next_power(now: u64) -> u64 {

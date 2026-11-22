@@ -599,7 +599,8 @@ other templates.
   `encounters.balance.pace`.
 - **Acting for itself.** Where the games' scripts run, a mind fights only
   whom its script names. A final boss is the exception (`world::minds`,
-  `alone`): when its script has given it no attack, no move and no queued
+  `alone`): when its script has switched the shared combat script off for
+  it (`Boss::script_off`), has given it no attack, no move and no queued
   action, and no conversation or scene holds it, it picks the nearest
   hostile character it sees and chooses its own powers
   (`ai::choose_power`), as a mind does on a stage without scripts. With
@@ -612,7 +613,10 @@ other templates.
   lightsabers fight.
 
 Probes: `kjk sim probes --only "enemy scaling"` (`boss_vitality`,
-`boss_pace`, `boss_power_wait`).
+`boss_pace`, `boss_power_wait`, `boss_script_off`). A boss whose combat
+script runs is left to it. Darth Nihilus's last scene waits for him to
+stand still at his last vitality, and the Ravager bridge route blocked when
+he acted for himself there.
 
 Two things differ from TSL's executable. It keeps the level the creature
 appeared at (`PCLevelAtSpawn`) and reads it for the damage multiplier; kjk

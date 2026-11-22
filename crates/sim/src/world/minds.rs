@@ -596,12 +596,18 @@ pub(super) fn think(
         // himself as the exam's fight began, fought himself). Else the one
         // it had while it stays hostile, within the fight's reach.
         let intent = scripts.state.intents.get(&id.0.0);
-        // A final boss its scripts give nothing to do acts for itself
-        // (`rules::encounters::bosses`): it picks its own foe as a mind on
-        // a stage without scripts does, and its own powers. Darth Traya's
-        // script switches her combat script off as her first phase ends.
+        // A final boss whose script has switched its combat script off acts
+        // for itself (`rules::encounters::bosses`): it picks its own foe as
+        // a mind on a stage without scripts does, and its own powers. Darth
+        // Traya's script does so as her first phase ends. One whose combat
+        // script runs is left to it: Darth Nihilus's last scene waits for
+        // him to stand still at his last vitality.
         let alone = facts.is_some_and(|facts| Boss::of_template(&facts.template).is_some())
             && !party
+            && Boss::script_off(|flag| {
+                let place = (module.game.as_str(), module.name.as_str());
+                crate::script::local(&scripts.state, place, ObjectId(id.0.0), true, flag)
+            })
             && intent.is_none()
             && !fighter.mind.queued
             && !world_held

@@ -114,6 +114,7 @@ pub fn probes() -> Checks {
     list.push(("boss_vitality", boss_vitality()));
     list.push(("boss_pace", boss_pace()));
     list.push(("boss_power_wait", boss_power_wait()));
+    list.push(("boss_script_off", boss_script_off()));
     list.extend(
         FOOTING
             .iter()
@@ -201,6 +202,18 @@ fn boss_power_wait() -> Result<String, String> {
     let seen = Boss::next_power(10_000);
     let wanted = 10_000 + rules::encounters::bosses::POWER_WAIT_MS;
     check(seen == wanted, format!("{seen} ms, wanted {wanted}"))
+}
+
+/// A creature's combat script counts as switched off when its local flag
+/// of the rule is set, and only then.
+fn boss_script_off() -> Result<String, String> {
+    let flag = rules::encounters::bosses::SCRIPT_OFF_FLAG;
+    let set = Boss::script_off(|asked| i32::from(asked == flag));
+    let clear = Boss::script_off(|_| 0);
+    check(
+        set && !clear,
+        format!("flag {flag} set: {set}; clear: {clear}"),
+    )
 }
 
 /// The dice of a weapon hit: 1 + (level - 1) x the set's damage multiplier,
