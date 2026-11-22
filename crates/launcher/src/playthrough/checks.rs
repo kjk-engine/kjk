@@ -786,17 +786,27 @@ pub(super) fn picks() -> sim::probe::Checks {
 /// the party in combat. A beast 15 m from the player may be taken. The foe
 /// 100 m off may be taken, as a player goes to help a companion. A beast 50 m
 /// off that keeps no one in combat may not be taken, though it stands nearer
-/// than the foe that stretched the fight's reach.
+/// than the foe that stretched the fight's reach. A foe 15 m from where the
+/// fight began may be taken, though the chase has led the player 60 m from
+/// that place and 75 m from the foe (Dxun's camp, the Sith assassins the
+/// departure waits for).
 pub(super) fn fight_reach() -> sim::probe::Checks {
-    let (near, keeper, between) = (sim::SimId(1), sim::SimId(2), sim::SimId(3));
-    let foes = vec![(near, [15.0, 0.0, 0.0]), (between, [50.0, 0.0, 0.0]), (keeper, [100.0, 0.0, 0.0])];
-    let taken: Vec<sim::SimId> = fight_foes(foes, [0.0; 3], 20.0, &[keeper])
+    let (near, keeper, between, behind) = (sim::SimId(1), sim::SimId(2), sim::SimId(3), sim::SimId(4));
+    let foes = vec![
+        (near, [15.0, 0.0, 0.0]),
+        (between, [50.0, 0.0, 0.0]),
+        (keeper, [100.0, 0.0, 0.0]),
+        (behind, [-75.0, 0.0, 0.0]),
+    ];
+    let began = [-60.0, 0.0, 0.0];
+    let taken: Vec<sim::SimId> = fight_foes(foes, [[0.0; 3], began], 20.0, &[keeper])
         .into_iter()
         .map(|(id, _)| id)
         .collect();
     let detail = format!("taken {taken:?}");
-    let cases: [(&'static str, sim::SimId, bool); 3] = [
+    let cases: [(&'static str, sim::SimId, bool); 4] = [
         ("fight_takes_a_foe_within_its_radius", near, true),
+        ("fight_takes_a_foe_near_where_it_began", behind, true),
         ("fight_takes_a_far_foe_keeping_the_party_in_combat", keeper, true),
         ("fight_leaves_a_far_foe_keeping_no_one_in_combat", between, false),
     ];
