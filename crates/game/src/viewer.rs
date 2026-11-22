@@ -1612,14 +1612,19 @@ impl CreatureLoad {
     }
 
     /// A creature of `appearance.2da` row `appearance` wearing `armour` (a
-    /// UTI) or nothing on its body and `headgear` (a UTI) or nothing on its
-    /// head, with the head of `heads.2da` row `head` where one is given
-    /// (else the row's own), dressed for `aligned`, as `place` places one
-    /// of a template.
+    /// UTI) or nothing on its body, put on or taken off as `dressing` says,
+    /// and `headgear` (a UTI) or nothing on its head, with the head of
+    /// `heads.2da` row `head` where one is given (else the row's own),
+    /// dressed for `aligned`, as `place` places one of a template.
     pub fn place_appearance(
         &mut self,
         (resolver, game): (&Resolver, Game),
-        (appearance, armour, head, headgear): (u32, Option<&str>, Option<u8>, Option<&str>),
+        (appearance, (armour, dressing), head, headgear): (
+            u32,
+            (Option<&str>, creature::Dressing),
+            Option<u8>,
+            Option<&str>,
+        ),
         owner: Option<&Resolver>,
         aligned: creature::Aligned,
         (position, facing): ([f32; 3], f32),
@@ -1627,10 +1632,11 @@ impl CreatureLoad {
     ) -> Result<Option<CreatureView>, String> {
         let name = format!("appearance {appearance}");
         let source = ResolverSource(resolver);
-        let mut look = creature::resolve_appearance(
+        let mut look = creature::resolve_dressed(
             &source,
             appearance,
             armour.map(str::to_string),
+            dressing,
             &mut self.tables,
         )
         .map_err(|refusal| format!("{name}: {refusal:?}"))?;

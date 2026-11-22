@@ -5592,6 +5592,50 @@ fn tsl_appearance_redirects() {
     }
 }
 
+/// KOTOR 2 reads a `&` cell of `appearance.2da` only when an item goes into
+/// the body slot or comes out of it. A creature made with nothing on its
+/// body keeps its own row. A Discord report showed the two Handmaidens who
+/// meet Bao-Dur outside the Telos academy (`p_handmaiden001` and
+/// `p_handmaiden002` in 261tel) in their underwear. Their templates use
+/// the Handmaiden's row (454) and wear nothing, and kjk sent them to row
+/// 638 as if they had taken their clothes off. With a TSL install (else
+/// skipped), each sister keeps row 454 and wears `p_handmaidenbb`, the
+/// row's `race` model. The party's Handmaiden (`p_handmaiden`, made in her
+/// clothes) wears the same body. Row 454 with nothing put on (as made)
+/// wears `p_handmaidenbb`, and with clothes taken off it wears row 638's
+/// `p_handmaidenba` (proposed 2026-11-22).
+#[test]
+fn tsl_sisters_made_dressed() {
+    use asset_odyssey::creature::{Dressing, resolve_dressed, resolve_with};
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor2).is_none() {
+        println!("TSL's sisters skipped: no KOTOR 2 install (set KJK_KOTOR2 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor2, "261tel").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    for template in ["p_handmaiden001", "p_handmaiden002", "p_handmaiden"] {
+        let look = resolve_with(&install, template, &mut tables).expect("she resolves");
+        assert_eq!(
+            (look.appearance, look.body.as_str()),
+            (454, "p_handmaidenbb"),
+            "{template}"
+        );
+    }
+    for (dressing, appearance, body) in [
+        (Dressing::AsMade, 454, "p_handmaidenbb"),
+        (Dressing::Changed, 638, "p_handmaidenba"),
+    ] {
+        let look = resolve_dressed(&install, 454, None, dressing, &mut tables)
+            .expect("the appearance resolves");
+        assert_eq!(
+            (look.appearance, look.body.as_str()),
+            (appearance, body),
+            "{dressing:?}"
+        );
+    }
+}
+
 /// A template's off hand weapon is drawn only when the equip screen would
 /// let it be held there. GitHub issue 569 reported a Mandalorian in the
 /// Sandral Grounds on Dantooine (`dan14ad_mand02`) with a blaster rifle in
