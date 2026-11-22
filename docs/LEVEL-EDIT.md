@@ -931,6 +931,60 @@ An encounter's fields:
 New encounters are placed from the asset picker's Encounters tab. A new
 encounter gets a square outline 2 metres wide and no spawn points.
 
+## A door's lock
+
+A selected door shows its lock and its toughness in the details panel,
+and `edit number LABEL VALUE` sets them. They are the door's own, kept in
+its entry of the area's object list.
+
+- `Locked` and `Lockable`: whether the door is locked, and whether it can
+  be locked again.
+- `KeyRequired`: Security cannot open it. Only its key or a script does.
+- `OpenLockDC`: how hard the lock is to open with Security, from 0 to 255.
+- `Plot`: the door takes no damage, so it cannot be bashed open.
+- `Min1HP`: it is hurt down to 1 hit point and no further.
+- `Hardness`, `HP` and `CurrentHP`: its toughness.
+
+A door that only a puzzle opens has `Locked`, `KeyRequired` and `Plot`
+all set to 1. A script then opens it, or the logic block that unlocks a
+door.
+
+## A project's own items and quests
+
+**Items.** A project makes an item of its own as a copy of one of the
+game's. `edit item new NAME BASE` copies the game's item `BASE` under the
+name `NAME`. The copy keeps that item's kind, look and properties.
+
+- `edit item name NAME TEXT` sets the name the games show.
+- `edit item text NAME TEXT` sets its description. A datapad's text is
+  its description.
+- `edit item tag NAME TAG` sets the tag scripts find it by.
+- `edit item number NAME LABEL VALUE` sets its worth (`Cost`), how many
+  stack (`StackSize`), whether it can be sold or dropped (`Plot`), and
+  whether it is known when found (`Identified`).
+- `edit item drop NAME` takes it out of the project.
+
+A placeable, a creature or a store takes the item by its name, as it
+takes any item (`edit item add NAME`). The item is saved in the project's
+folder as `NAME.uti`. What an item does is still its base item's: the
+editor does not change an item's properties yet.
+
+**Quests.** The games keep every quest in one journal file. A project
+that adds a quest keeps a copy of that file, `global.jrl`, with its quest
+added.
+
+- `edit quest new TAG NAME` adds a quest. The journal shows `NAME`.
+- `edit quest entry TAG N TEXT` sets the quest's entry number `N`.
+- `edit quest end TAG N TEXT` sets an entry that closes the quest.
+- `edit quest show TAG` lists a quest's entries among the messages.
+- `edit quest drop TAG` takes a quest out.
+
+A conversation's line, a logic block or a script then adds an entry by
+the quest's tag and the entry's number. The journal is one file for the
+whole game, so two mods that each bring one take each other's place.
+
+Items and quests have commands only. The window does not list them yet.
+
 ## Trigger outlines
 
 A selected trigger or encounter shows its outline over the view, its
@@ -1235,6 +1289,10 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit link MODULE [TAG]`, `edit link none` | leads the selected door or trigger to the module, arriving at the door or waypoint of that tag (the module's entry without one), or nowhere |
 | `edit entrance MODULE door\|trigger N [TAG]` | leads door or trigger N of the module's entry area here, arriving at the door or waypoint of that tag (this level's entry without one) |
 | `edit entrance drop AREA` | gives that area's object list back to the install |
+| `edit entrance add MODULE TEMPLATE X Y Z [TAG [ARRIVAL]]` | adds a new trigger to the module's entry area, made from the install's trigger template, at that point of that area. It leads here, to the door or waypoint tagged `ARRIVAL`, or to this level's entry |
+| `edit item new NAME BASE`, `edit item name\|text NAME TEXT`, `edit item tag NAME TAG`, `edit item number NAME LABEL VALUE`, `edit item drop NAME` | makes an item of the project as a copy of the game's item `BASE`; sets its name, its description, its tag or a number; takes it out |
+| `edit quest new TAG NAME`, `edit quest entry\|end TAG N TEXT`, `edit quest show TAG`, `edit quest drop TAG` | adds a quest to the project's journal; sets one of its entries, or one that closes it; lists it; takes it out |
+| `edit conversation NAME screen talk\|computer\|rakatan` | shows the conversation as speech between characters, on a computer's screen, or on a Rakatan computer's |
 | `edit outline X1 Y1 X2 Y2 X3 Y3 ...` | sets the selected trigger's or encounter's outline: three corners or more, in metres, at its height |
 | `edit area music day\|night\|battle ROW`, `edit area ambience day\|night ROW`, `edit area volume day\|night N` | the area's music and ambient sound (2DA rows) and the sound's volume (0 to 127) |
 | `edit area fog on\|off`, `edit area fog NEAR FAR`, `edit area fog colour R G B`, `edit area ambient R G B` | the area's fog and ambient light (colours from 0 to 1) |
@@ -1265,7 +1323,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit flag useable on`, `edit flag inventory off` | sets the selected placeable's `Useable` or `HasInventory` |
 | `edit item add ITEM`, `edit item remove N` | adds an item template to the selected placeable's, creature's or store's items, or removes its Nth, from 0 |
 | `edit item N drops on\|off`, `edit item N infinite on\|off` | sets whether a creature's Nth item drops when it dies, or a store's Nth item never runs out |
-| `edit number LABEL VALUE` | sets a number of the selected creature, store or encounter by its template field (`Str`, `Appearance_Type`, `MarkUp`, `MaxCreatures`); a check box is 0 or 1 |
+| `edit number LABEL VALUE` | sets a number of the selected creature, store or encounter by its template field (`Str`, `Appearance_Type`, `MarkUp`, `MaxCreatures`), or of the selected door (`Locked`, `Plot`, `OpenLockDC`); a check box is 0 or 1 |
 | `edit name LABEL TEXT ...` | sets a name (`FirstName`, `LastName`, a store's `LocName`, an encounter's `LocalizedName`) to its own text |
 | `edit class N ROW LEVELS`, `edit class N -` | sets the creature's Nth class (from 0) to a `classes.2da` row and its levels, adds one at the end, or removes it |
 | `edit feat ROW on\|off`, `edit power N ROW on\|off` | gives or takes a feat, or a Force power of the Nth class (`feat.2da`, `spells.2da` rows) |

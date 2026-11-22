@@ -23,6 +23,8 @@ pub mod dialog;
 pub mod editor;
 pub mod fields;
 pub mod git;
+pub mod items;
+pub mod journal;
 pub mod kinds;
 pub mod lamps;
 pub mod levels;

@@ -104,9 +104,33 @@ pub enum Edit {
         index: usize,
         link: crate::template::Link,
     },
+    /// A new trigger added to another module's area (`Project::others`),
+    /// which leads where `link` says: a way in from a level the project
+    /// does not edit. `base` is that area's GIT as the install has it, read
+    /// when the project does not hold the area yet. The trigger is made
+    /// from the install's trigger template `template`, stands at `position`
+    /// with a square outline round it, and is tagged `tag`.
+    AddOther {
+        module: String,
+        area: String,
+        base: Option<fmt_odyssey::gff::Gff>,
+        template: String,
+        position: [f32; 3],
+        tag: String,
+        link: crate::template::Link,
+    },
     /// Another module's area given back to the install: the project no
     /// longer changes its doors and triggers.
     DropOther(String),
+    /// One of the project's templates that no object of the area is made
+    /// from, put in or changed whole: an item (`items`) or the journal
+    /// (`journal`), by its name.
+    SetTemplate {
+        name: String,
+        template: Box<crate::template::Template>,
+    },
+    /// Such a template taken out of the project.
+    DropTemplate(String),
     /// A conversation of the project made: `base` is a copy of the game's
     /// of that name, else it starts empty (`dialog::empty`).
     NewConversation {
@@ -662,6 +686,14 @@ impl Editor {
                 }
                 true
             }
+            // A door's lock and toughness are its entry's. No other kind
+            // read whole from its entry has numbers.
+            template::Change::Field(_) if template::whole(kind) => {
+                if kind != Kind::Door {
+                    return Err("only a door's numbers are changed in its entry".into());
+                }
+                true
+            }
             _ => template::whole(kind),
         };
         if in_entry {
@@ -712,7 +744,9 @@ impl Editor {
             .into_iter()
             .map(|entry| entry.template)
             .collect();
-        self.project.templates.retain(|name, _| used.contains(name));
+        self.project
+            .templates
+            .retain(|name, made| used.contains(name) || !crate::template::of_objects(made.restype));
         Ok(())
     }
 
@@ -1179,6 +1213,81 @@ impl Editor {
                     .remove(&name)
                     .ok_or(format!("the project has no conversation {name}"))?;
                 Ok(self.selected)
+            }
+            Edit::AddOther {
+                module,
+                area,
+                base,
+                template,
+                position,
+                tag,
+                link,
+            } => {
+                let area = area.to_ascii_lowercase();
+                if area == self.project.area {
+                    return Err(format!(
+                        "{area} is the project's own area: add the trigger in the level itself"
+                    ));
+                }
+                if template.is_empty() || template.len() > git::RESREF_LEN {
+                    return Err(format!("{template:?} is not a trigger template's name"));
+                }
+                if tag.len() > git::TAG_LEN || !position.iter().all(|value| value.is_finite()) {
+                    return Err(
+                        "the trigger's tag is too long, or its place is not a number".into(),
+                    );
+                }
+                let other = match self.project.others.entry(area.clone()) {
+                    std::collections::btree_map::Entry::Occupied(held) => held.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(free) => {
+                        let git = base.ok_or(format!("{area}'s GIT was not read"))?;
+                        free.insert(crate::project::OtherArea {
+                            module: module.to_ascii_lowercase(),
+                            git,
+                        })
+                    }
+                };
+                let index = git::add_from(
+                    &mut other.git,
+                    Kind::Trigger,
+                    (&template, None),
+                    position,
+                    0.0,
+                );
+                let mut item = git::item(&other.git, Kind::Trigger, index)
+                    .ok_or(format!("{area} did not take the trigger"))?
+                    .clone();
+                crate::template::set_link(&mut item, &link)?;
+                item.fields.push(fmt_odyssey::gff::GffField {
+                    label: b"Tag".to_vec(),
+                    value: fmt_odyssey::gff::GffValue::String(tag.into_bytes()),
+                });
+                for field in item.fields {
+                    let label = String::from_utf8_lossy(&field.label).into_owned();
+                    git::set_entry_field(&mut other.git, Kind::Trigger, index, &label, field.value);
+                }
+                Ok(self.selected)
+            }
+            Edit::SetTemplate { name, template } => {
+                let name = name.to_ascii_lowercase();
+                if name.is_empty() || name.len() > git::RESREF_LEN {
+                    return Err(format!("{name:?} is not a template's name"));
+                }
+                if crate::template::of_objects(template.restype) {
+                    return Err("an object's template is changed through its object".into());
+                }
+                self.project.templates.insert(name, *template);
+                Ok(self.selected)
+            }
+            Edit::DropTemplate(name) => {
+                let name = name.to_ascii_lowercase();
+                match self.project.templates.get(&name) {
+                    Some(made) if !crate::template::of_objects(made.restype) => {
+                        self.project.templates.remove(&name);
+                        Ok(self.selected)
+                    }
+                    _ => Err(format!("the project has no item or journal named {name}")),
+                }
             }
             Edit::DropOther(area) => {
                 self.project

@@ -2784,6 +2784,11 @@ fn command_words(
         ["link", module] => link(state, module, "")?,
         ["link", module, tag] => link(state, module, tag)?,
         ["entrance", "drop", area] => state.apply(Edit::DropOther(area.to_string())),
+        // A new trigger in another level that leads into this one.
+        ["entrance", "add", module, template, x, y, z, rest @ ..] => {
+            let at = point(&[x, y, z])?;
+            entrance_add(state, module, template, at, rest)?;
+        }
         ["entrance", module, kind, index] => {
             entrance(state, module, (kind, index), "")?;
         }
@@ -2842,6 +2847,89 @@ fn command_words(
                 "HasInventory"
             };
             state.change_template(target, Change::Flag(label.to_string(), *on == "on"));
+        }
+        // The project's own items (`level_edit::items`): a copy of one of
+        // the game's, with a name and a text of its own.
+        ["item", "new", name, base] => {
+            let (name, base) = (name.to_ascii_lowercase(), base.to_ascii_lowercase());
+            if let Some(problem) = level_edit::items::name_problem(&name) {
+                return Err(problem);
+            }
+            if state.editor.project.templates.contains_key(&name)
+                || state.setup.resolver.find(&name, ResType::UTI).is_some()
+            {
+                return Err(format!("there is an item named {name} already"));
+            }
+            let gff = (state.setup.resolver.read(&base, ResType::UTI))
+                .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+                .ok_or(format!("the game has no item {base} to copy"))?;
+            let gff = level_edit::items::new_item(&gff, &name)?;
+            state.apply(Edit::SetTemplate {
+                name: name.clone(),
+                template: Box::new(level_edit::Template {
+                    restype: ResType::UTI,
+                    from: base.clone(),
+                    gff,
+                }),
+            });
+            state.say(format!("new item {name}, a copy of {base}"));
+        }
+        ["item", what @ ("name" | "text"), name, words @ ..] => {
+            let text = words.join(" ");
+            let change = if *what == "name" {
+                level_edit::items::ItemChange::Name(text)
+            } else {
+                level_edit::items::ItemChange::Text(text)
+            };
+            change_item(state, name, change)?;
+        }
+        ["item", "tag", name, tag] => {
+            change_item(
+                state,
+                name,
+                level_edit::items::ItemChange::Tag(tag.to_string()),
+            )?;
+        }
+        ["item", "number", name, label, value] => {
+            let value = f64::from(number(value)?);
+            change_item(
+                state,
+                name,
+                level_edit::items::ItemChange::Number(label.to_string(), value),
+            )?;
+        }
+        ["item", "drop", name] => {
+            own_item(state, name)?;
+            state.apply(Edit::DropTemplate(name.to_ascii_lowercase()));
+        }
+        // The project's own quests (`level_edit::journal`): the game's
+        // journal with quests added.
+        ["quest", "new", tag, name @ ..] => {
+            let mut jrl = journal(state);
+            level_edit::journal::add_quest(&mut jrl, tag, &name.join(" "))?;
+            set_journal(state, jrl);
+        }
+        ["quest", how @ ("entry" | "end"), tag, n, text @ ..] => {
+            let id: u32 = n
+                .parse()
+                .map_err(|_| format!("{n:?} is not an entry's number"))?;
+            let mut jrl = journal(state);
+            level_edit::journal::set_entry(&mut jrl, tag, id, &text.join(" "), *how == "end")?;
+            set_journal(state, jrl);
+        }
+        ["quest", "drop", tag] => {
+            let mut jrl = journal(state);
+            level_edit::journal::drop_quest(&mut jrl, tag)?;
+            set_journal(state, jrl);
+        }
+        ["quest", "show", tag] => {
+            let (tag, name, entries) = level_edit::journal::quest(&journal(state), tag)
+                .ok_or(format!("the journal has no quest {tag}"))?;
+            state.say(format!("quest {tag}: {name}, {} entries", entries.len()));
+            for (id, text, end) in entries {
+                let closes = if end { ", closes the quest" } else { "" };
+                state.say(format!("  {id}{closes}: {text}"));
+            }
         }
         ["item", "add", item] => {
             let target = selected(state)?;
@@ -3599,6 +3687,12 @@ fn conversation_command(
             Talk::Delete(side, n)
         }
         ["end", script] => Talk::End(none(script)),
+        ["screen", kind] => Talk::Screen(match *kind {
+            "talk" => 0,
+            "computer" => 1,
+            "rakatan" => 2,
+            _ => return Err("a conversation is shown as talk, computer or rakatan".into()),
+        }),
         ["abort", script] => Talk::Abort(none(script)),
         _ => {
             return Err(
@@ -3959,6 +4053,111 @@ pub(crate) fn entrance(
         link: level_edit::template::Link {
             module: own,
             to: tag.to_string(),
+            to_door,
+        },
+    });
+    Ok(())
+}
+
+/// The project's item `name`, refused when the project has no such item.
+fn own_item(state: &EditorState, name: &str) -> Result<level_edit::Template, String> {
+    let name = name.to_ascii_lowercase();
+    (state.editor.project.templates.get(&name))
+        .filter(|made| made.restype == ResType::UTI)
+        .cloned()
+        .ok_or(format!(
+            "the project has no item {name}: item new NAME BASE makes one from one of the game's"
+        ))
+}
+
+/// Makes `change` in the project's item `name`.
+fn change_item(
+    state: &mut EditorState,
+    name: &str,
+    change: level_edit::items::ItemChange,
+) -> Result<(), String> {
+    let mut item = own_item(state, name)?;
+    level_edit::items::apply(&mut item.gff, &change)?;
+    state.apply(Edit::SetTemplate {
+        name: name.to_ascii_lowercase(),
+        template: Box::new(item),
+    });
+    Ok(())
+}
+
+/// The journal as the project has it: its own, else the game's, else an
+/// empty one.
+pub(crate) fn journal(state: &EditorState) -> fmt_odyssey::gff::Gff {
+    state
+        .template_gff(level_edit::journal::NAME, ResType::JRL)
+        .unwrap_or_else(level_edit::journal::empty)
+}
+
+/// Makes `jrl` the project's journal.
+fn set_journal(state: &mut EditorState, jrl: fmt_odyssey::gff::Gff) {
+    state.apply(Edit::SetTemplate {
+        name: level_edit::journal::NAME.to_string(),
+        template: Box::new(level_edit::Template {
+            restype: ResType::JRL,
+            from: level_edit::journal::NAME.to_string(),
+            gff: jrl,
+        }),
+    });
+}
+
+/// Adds a trigger to `module`'s entry area that leads into this project's
+/// level: made from the install's trigger template `template`, at `at` in
+/// that area. `rest` may name the trigger's tag, then the door or waypoint
+/// of this level to arrive at (the level's entry when left out).
+fn entrance_add(
+    state: &mut EditorState,
+    module: &str,
+    template: &str,
+    at: [f32; 3],
+    rest: &[&str],
+) -> Result<(), String> {
+    let module = module.to_ascii_lowercase();
+    let template = template.to_ascii_lowercase();
+    let own = state.editor.project.module.clone();
+    if module == own {
+        return Err("that is this level: add the trigger from the asset picker".into());
+    }
+    if state.setup.triggers.binary_search(&template).is_err() {
+        return Err(format!("the install has no trigger template {template}"));
+    }
+    let (tag, arrival) = match rest {
+        [] => (format!("kje_to_{own}"), ""),
+        [tag] => ((*tag).to_string(), ""),
+        [tag, arrival] => ((*tag).to_string(), *arrival),
+        _ => {
+            return Err(
+                "entrance add takes MODULE TEMPLATE X Y Z, then a tag and an arrival".into(),
+            );
+        }
+    };
+    let to_door = if arrival.is_empty() {
+        false
+    } else {
+        let here = level_edit::git::arrivals(&state.editor.project.git);
+        here.iter()
+            .find(|(own_tag, _)| own_tag.eq_ignore_ascii_case(arrival))
+            .ok_or(format!(
+                "this level has no door or waypoint tagged {arrival}"
+            ))?
+            .1
+    };
+    let (area, git) = module_area(state, &module)?;
+    let base = (!state.editor.project.others.contains_key(&area)).then_some(git);
+    state.apply(Edit::AddOther {
+        module,
+        area,
+        base,
+        template,
+        position: at,
+        tag,
+        link: level_edit::template::Link {
+            module: own,
+            to: arrival.to_string(),
             to_door,
         },
     });
@@ -4561,6 +4760,14 @@ pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
             "redraws": state.redraws,
             "problems": project.problems().into_iter().map(|p| p.what).collect::<Vec<_>>(),
             "conversations": project.conversations.keys().collect::<Vec<_>>(),
+            "project_items": project.templates.iter()
+                .filter(|(_, made)| made.restype == ResType::UTI)
+                .map(|(name, made)| {
+                    let (shown, text) = level_edit::items::shown(&made.gff);
+                    serde_json::json!({"name": name, "copied_from": made.from, "shown": shown, "text": text})
+                })
+                .collect::<Vec<_>>(),
+            "project_journal": project.templates.contains_key(level_edit::journal::NAME),
             "project_scripts": state.project_scripts,
             "script_errors": state.script_errors,
             "nav_links": project.kjk.links.iter().map(|link| serde_json::json!({

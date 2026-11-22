@@ -330,9 +330,89 @@ pub const ENCOUNTER: [Number; 10] = [
     ),
 ];
 
+/// A door's numbers. A door is read whole from its GIT entry, so they are
+/// changed there (`apply_door`), and an entry that lacks one takes it from
+/// the door's template.
+pub const DOOR: [Number; 9] = [
+    switch(
+        "Locked",
+        "Locked",
+        "A locked door does not open until it is unlocked.",
+    ),
+    switch(
+        "Lockable",
+        "Can be locked again",
+        "Whether the door can be locked once it has been opened.",
+    ),
+    switch(
+        "KeyRequired",
+        "Needs its key",
+        "Security cannot open it: only its key, or a script, unlocks it.",
+    ),
+    number(
+        "OpenLockDC",
+        "Security to unlock",
+        Store::Byte,
+        (0.0, 255.0),
+        "How hard the lock is to open with Security.",
+    ),
+    switch(
+        "Plot",
+        "Cannot be hurt",
+        "A plot door takes no damage, so it cannot be bashed open.",
+    ),
+    switch(
+        "Min1HP",
+        "Never destroyed",
+        "It is hurt down to 1 hit point and no further.",
+    ),
+    number(
+        "Hardness",
+        "Hardness",
+        Store::Byte,
+        (0.0, 255.0),
+        "Whole points taken off every blow against it.",
+    ),
+    number(
+        "HP",
+        "Most hit points",
+        Store::Short,
+        (1.0, 32000.0),
+        "How much damage it takes before it breaks.",
+    ),
+    number(
+        "CurrentHP",
+        "Hit points now",
+        Store::Short,
+        (1.0, 32000.0),
+        "The hit points it starts with.",
+    ),
+];
+
+/// Makes `change` in a door's GIT entry `item`: one of `DOOR`'s numbers.
+pub fn apply_door(item: &mut GffStruct, change: &FieldChange) -> Result<(), String> {
+    let FieldChange::Number(label, value) = change else {
+        return Err("only a door's numbers are changed in its entry".into());
+    };
+    let number = DOOR
+        .iter()
+        .find(|number| number.label == label)
+        .ok_or_else(|| format!("{label} is not a number of a door the editor changes"))?;
+    if !value.is_finite() || !(number.min..=number.max).contains(value) {
+        return Err(format!(
+            "{} is from {} to {}",
+            number.shown, number.min, number.max
+        ));
+    }
+    let value = stored(item.get(label), number.store, *value);
+    set(item, label, value);
+    Ok(())
+}
+
 /// The numbers of templates of `restype` the editor changes.
 pub fn numbers(restype: ResType) -> &'static [Number] {
     match restype {
+        ResType::UTD => &DOOR,
         ResType::UTC => &CREATURE,
         ResType::UTM => &STORE,
         ResType::UTE => &ENCOUNTER,

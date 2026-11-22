@@ -2157,7 +2157,9 @@ fn behaviour(
         }
     }
     // A creature's, a store's or an encounter's numbers and lists.
-    if let Some(restype) = restype
+    // A door's lock and toughness are its own entry's numbers.
+    let fields_of = restype.or((kind == Kind::Door).then_some(ResType::UTD));
+    if let Some(restype) = fields_of
         && !level_edit::fields::numbers(restype).is_empty()
     {
         template_fields(ui, state, ui_state, (target, restype), &gff, &mut changes);
@@ -2417,6 +2419,7 @@ fn template_fields(
     egui::CollapsingHeader::new(match restype {
         fmt_odyssey::ResType::UTC => "Statistics",
         fmt_odyssey::ResType::UTM => "Prices",
+        fmt_odyssey::ResType::UTD => "Lock and toughness",
         _ => "Spawning",
     })
     .id_salt("template numbers")

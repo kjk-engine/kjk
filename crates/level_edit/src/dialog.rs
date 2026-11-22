@@ -99,6 +99,9 @@ pub enum Edit {
     /// The scripts run as the conversation ends, and as it is cut short.
     End(String),
     Abort(String),
+    /// How the games show the conversation: 0 as speech between characters,
+    /// 1 on a computer's screen, 2 on a Rakatan computer's.
+    Screen(u8),
 }
 
 /// The longest resref, a script's or a conversation's name.
@@ -392,6 +395,21 @@ pub fn apply(gff: &mut Gff, edit: &Edit) -> Result<Option<(Side, usize)>, String
         Edit::Abort(script) => {
             let value = resref(script)?;
             set(&mut gff.root, "EndConverAbort", value);
+        }
+        Edit::Screen(kind) => {
+            if *kind > 2 {
+                return Err("a conversation is shown as talk, computer or rakatan".into());
+            }
+            set(
+                &mut gff.root,
+                "ConversationType",
+                GffValue::Int(i32::from(*kind > 0)),
+            );
+            set(
+                &mut gff.root,
+                "ComputerType",
+                GffValue::Byte(u8::from(*kind == 2)),
+            );
         }
     }
     Ok(None)

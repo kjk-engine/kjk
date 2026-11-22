@@ -158,14 +158,26 @@ pub fn tag_in_entry(kind: Kind) -> bool {
 
 /// The template types the project's folder may hold, with their
 /// extensions.
-pub const TYPES: [(ResType, &str); 6] = [
+pub const TYPES: [(ResType, &str); 8] = [
     (ResType::UTP, "utp"),
     (ResType::UTC, "utc"),
     (ResType::UTT, "utt"),
     (ResType::UTS, "uts"),
     (ResType::UTE, "ute"),
     (ResType::UTM, "utm"),
+    // The project's own items (`items`) and its journal (`journal`). No
+    // object of the area is made from these, so they stay whether or not
+    // an object names them (`of_objects`).
+    (ResType::UTI, "uti"),
+    (ResType::JRL, "jrl"),
 ];
+
+/// Whether templates of `restype` are the ones an object of the area is
+/// made from. A project drops such a template once no object uses it. Its
+/// items and its journal are kept until they are taken out by name.
+pub fn of_objects(restype: ResType) -> bool {
+    !matches!(restype, ResType::UTI | ResType::JRL)
+}
 
 /// The extension a template is written with.
 pub fn extension(restype: ResType) -> &'static str {
@@ -387,7 +399,9 @@ pub fn apply_entry(item: &mut GffStruct, change: &Change) -> Result<(), String> 
         Change::Tag(tag) => set_tag(item, tag),
         Change::Link(link) => set_link(item, link),
         Change::Conversation(name) => set_conversation(item, name),
-        _ => Err("only a template has use, items, numbers and lists".into()),
+        // A door's lock and toughness (`fields::DOOR`).
+        Change::Field(change) => crate::fields::apply_door(item, change),
+        _ => Err("only a template has use, items and lists".into()),
     }
 }
 
