@@ -1870,6 +1870,8 @@ pub(super) fn display_options() -> Vec<Check> {
                 check_box("CB_VSYNC", 2, 180),
                 linked("BTN_CANCEL", 3, 400, -1, -1),
                 linked("BTN_ANISOTROPY", 4, 220, -1, -1),
+                linked("BTN_TEXQUAL", 5, 260, -1, -1),
+                linked("BTN_TEXQUALLEFT", 6, 300, -1, -1),
             ],
         ),
     );
