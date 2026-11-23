@@ -138,6 +138,16 @@ fn sound_device_layouts() {
     probed("sound device", &audio::probes::device_layouts(), 45);
 }
 
+/// `bink::probes`: the movie decoder's parts, without a movie. The Huffman
+/// trees are whole, bits are read least significant first, both inverse
+/// DCTs give what their definitions give, a header's audio track reads, and
+/// headers other than Bink 1 revision "i" with DCT audio are refused.
+/// Approved 2026-11-23.
+#[test]
+fn bink_decoder_parts() {
+    probed("bink decoder", &bink::probes::probes(), 11);
+}
+
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
     assert!(
         (measured - expected).abs() <= tolerance,

@@ -249,6 +249,7 @@ version = "0.0.0"
 dependencies = [
  "asset_odyssey",
  "audio",
+ "bink",
  "bumps",
  "collision",
  "collision_odyssey",
@@ -1760,6 +1761,10 @@ dependencies = [
  "shlex 1.3.0",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "bink"
+version = "0.0.0"
 
 [[package]]
 name = "bit-set"
@@ -4035,6 +4040,7 @@ checksum = "e53debba6bda7a793e5f99b8dacf19e626084f525f7829104ba9898f367d85ff"
 name = "movie"
 version = "0.0.0"
 dependencies = [
+ "bink",
  "image",
 ]
 
