@@ -1,37 +1,29 @@
-//! `kjk detail-bake <module>`: an area's lightmaps made `SCALE` times
-//! larger, with the detail the stored size cannot hold
-//! (`docs/LIGHTING-PLAN.md`, step 10). It opens no window and runs on the
-//! CPU. It writes one PNG for each lightmap into `--out/<area>`, a grey
-//! picture of the detail alone into `--out/<area>/detail`, and a text
-//! file. The game draws the PNGs in the lightmaps' place when
-//! `KJK_DETAIL_BAKE` names that folder (`viewer::texture`).
+//! `kjk detail-bake <module>`: an area's lightmaps baked anew at `SCALE`
+//! times their stored size (`docs/LIGHTING-PLAN.md`, steps 10 and 10b). It
+//! opens no window. It writes one PNG for each lightmap into
+//! `--out/<area>` and a text file, and stamps each set it writes with the
+//! fingerprint of the files it was made from (`bake_fingerprint`).
 //!
-//! BioWare's lightmaps stay the base. Their colour and their brightness
-//! are kept. The bake needs no light of its own, because the lights
-//! BioWare baked from were not shipped (step 7).
+//! The bake has three forms.
 //!
-//! - **The texels.** Each lightmap keeps its coordinates and gets `SCALE`
-//!   times the texels along each side. A new texel belongs to the triangle
-//!   that holds its centre, or to the nearest triangle within
-//!   `FOOTPRINT` texels, which is as far as the sampler reads past a
-//!   triangle's edge.
-//! - **What a texel gathers.** `rays × rays` rays leave the texel over the
-//!   half of space in front of its triangle, more of them near the
-//!   triangle's facing. A ray brings the stored lightmap's light from the
-//!   room surface it meets. A surface nearer than `--near` blocks the room
-//!   behind it and gives back only what its texture reflects.
-//! - **The detail.** The gathered light over its own average across about
-//!   one stored texel, on the same surface. So the detail is near 1 on
-//!   average, and it darkens or brightens only what is smaller than a
-//!   stored texel. `--width` widens the average, which keeps larger
-//!   shadows too and changes the room more.
-//! - **The new lightmap.** The stored lightmap, read between its texels as
-//!   the GPU reads it, times the detail, in linear light.
-//!
-//! With `--lights <file>` the bake is made from the game's fitted lights
-//! instead, with their shadows and their bounced light. The file is one
-//! that `KJK_FITTED_DUMP` wrote. That bake is described where its code
-//! starts (`bake_lights`).
+//! - **With `--lights <file> --gpu`**, the bake of Enhanced Lightmaps. The
+//!   file is one that `KJK_FITTED_DUMP` wrote. The graphics card bakes the
+//!   game's fitted lights with their shadows and their bounced light
+//!   (`gpu::bake_lights`). It writes set `a`, which mixes in the stored
+//!   lightmaps and is never shipped, and set `b`, the lamps alone, which
+//!   the lighting download ships. `tools/light-kinds/bake.sh` and
+//!   `tools/light-kinds/canon/canon.sh` run it.
+//! - **With `--lights <file>` alone**, the first form of that bake, on the
+//!   CPU (`bake_lights`). It took 23 minutes for the Endar Spire where the
+//!   graphics card takes about 12 seconds. `--gpu --old` makes the GPU bake
+//!   match it ray for ray. Neither is used to make a bake.
+//! - **Without `--lights`**, the detail bake of step 10, which was dropped
+//!   (`bake_area`). BioWare's lightmaps stay the base, and each texel takes
+//!   the detail the stored size cannot hold. Rays from each texel gather the
+//!   stored light of the surfaces they meet, and the gathered light over its
+//!   average across one stored texel darkens or brightens only what is
+//!   smaller than that texel. The change was about 1 of 255 and could not be
+//!   seen. `kjk room-light-fit --bake` still uses it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
