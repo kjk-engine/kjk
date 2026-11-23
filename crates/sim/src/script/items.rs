@@ -811,8 +811,10 @@ impl State {
     /// What an upgrade bench's Assemble comes to (`Action::Assemble`; whose
     /// the item may be is `may_upgrade`'s): its changes made in turn
     /// (`fit`, `unfit`), every one or, one refused, none. One of a stack
-    /// is split off it first and changed alone, then added back to its
-    /// holder (`add_to`), as KOTOR 2's bench splits one off. TSL's item (one
+    /// is split off it first and changed alone. Every edited item that is
+    /// not worn is then added back to its holder (`add_to`), whether it was
+    /// split off or not, so that it joins a stack it now matches, as KOTOR
+    /// 2's bench puts every edited item back with a merge. TSL's item (one
     /// with slots) is off its wearer while on TSL's bench: back on after
     /// only if `wearer`, who wore it, may wear it as it now is (its feats,
     /// its limits), else it stays with the party.
@@ -828,7 +830,6 @@ impl State {
             .items
             .get(&item)
             .is_some_and(|held| held.slot.is_some());
-        let whole = item;
         let item = self.one_of(ObjectId(item)).0;
         let made = changes.iter().try_for_each(|change| match *change {
             Fitting::In { upgrade, replace } => self.fit(catalog, out, item, upgrade, replace),
@@ -838,7 +839,7 @@ impl State {
             (self.items, self.next_item) = before;
             return Err(refused);
         }
-        if item != whole {
+        if !worn {
             let holder = self.items.get(&item).map_or(PARTY, |held| held.holder);
             self.add_to(catalog, item, holder);
             return Ok(());
@@ -847,7 +848,7 @@ impl State {
         let facts = self
             .item_facts(catalog, &held.template)
             .ok_or(Notice::CannotUpgrade)?;
-        if let Some(wearer) = wearer.filter(|_| worn && !facts.slot_kinds.is_empty()) {
+        if let Some(wearer) = wearer.filter(|_| !facts.slot_kinds.is_empty()) {
             let now = facts.fitted(held.upgrades, &held.fitted, catalog, &self.known);
             let wears = passive::may_equip(&wearer.feats, &now.needs)
                 && properties::may_wear(&now.limits, wearer).is_ok();

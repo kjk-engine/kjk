@@ -623,6 +623,7 @@ fn assembled(world: &mut SimWorld, me: u32) -> Checks {
         ),
     ));
     checks.extend(stacks_upgraded(world));
+    checks.extend(lone_unscoped(&mut self::world()));
     checks
 }
 
@@ -705,4 +706,34 @@ fn stacks_upgraded(world: &mut SimWorld) -> Checks {
         vec![with(1, &[]), with(1, &["pack"]), with(2, &["scope"])],
     );
     checks
+}
+
+/// A lone scoped pistol that loses its scope joins the plain pistol the
+/// party carries.
+fn lone_unscoped(world: &mut SimWorld) -> Checks {
+    let scoped = give(world, "survivor", PARTY, None);
+    let scope = give(world, "scope", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::In {
+                upgrade: scope,
+                replace: None,
+            }],
+        }],
+    );
+    give(world, "survivor", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::Out(0)],
+        }],
+    );
+    let now = survivors(world);
+    vec![(
+        "a lone scoped pistol unscoped: joins the plain pistol in one stack",
+        check(now == [(2, vec![])], format!("{now:?}")),
+    )]
 }
