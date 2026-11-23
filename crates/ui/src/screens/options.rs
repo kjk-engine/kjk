@@ -375,6 +375,9 @@ const ULTRA: &str = "ultra";
 /// The ambient occlusion setting (`game::ambient_occlusion`).
 const AO_KEY: &str = "display.ambient_occlusion";
 
+/// The anisotropic filtering setting (`game::scene`).
+pub const ANISOTROPY_KEY: &str = "display.anisotropy";
+
 /// Whether `value` of `key` may be chosen as far as Movie Duels goes:
 /// every value with Movie Duels installed, and without it only those
 /// `JA_OWN` lists. A value held back is shown and played as the first.
@@ -456,6 +459,16 @@ const EFFECTS: &[(&str, &str)] = &[
 const AMBIENT_OCCLUSION: &[(&str, &str)] = &[
     ("off", strings::AMBIENT_OCCLUSION_OFF),
     ("on", strings::AMBIENT_OCCLUSION_ON),
+];
+
+/// Anisotropic Filtering: how many samples a texture seen at a shallow
+/// angle takes (`display.anisotropy`, `game::scene`).
+const ANISOTROPY: &[(&str, &str)] = &[
+    ("1", strings::ANISOTROPY_OFF),
+    ("2", strings::ANISOTROPY_2X),
+    ("4", strings::ANISOTROPY_4X),
+    ("8", strings::ANISOTROPY_8X),
+    ("16", strings::ANISOTROPY_16X),
 ];
 
 const DEAD_ZONES: &[(&str, &str)] = &[
@@ -738,9 +751,21 @@ const PAGES: [Spec; 12] = [
             // Lighting sits in KOTOR 2's Frame Buffer Effects box. That box
             // turned the game's own glow on and off.
             ("CB_FRAMEBUFF", Stepped("display.lighting", LIGHTING)),
-            ("BTN_TEXQUAL", Greyed),
-            ("BTN_TEXQUALLEFT", Greyed),
-            ("BTN_TEXQUALRIGHT", Greyed),
+            // Anisotropic Filtering sits in KOTOR 2's Texture Quality row,
+            // which kjk does not use. KOTOR 2's own Anisotropy row below it
+            // is Ambient Occlusion.
+            (
+                "BTN_TEXQUAL",
+                Cycle(ANISOTROPY_KEY, ANISOTROPY, Step::Shown),
+            ),
+            (
+                "BTN_TEXQUALLEFT",
+                Cycle(ANISOTROPY_KEY, ANISOTROPY, Step::Back),
+            ),
+            (
+                "BTN_TEXQUALRIGHT",
+                Cycle(ANISOTROPY_KEY, ANISOTROPY, Step::On),
+            ),
             // Ambient Occlusion sits in KOTOR 2's Anisotropy row, which kjk
             // does not use, just above Lighting.
             (
@@ -765,7 +790,9 @@ const PAGES: [Spec; 12] = [
             ("BTN_ANTIALIAS", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
-            ("BTN_TEXQUAL", Told(48712)),
+            ("BTN_TEXQUAL", Ours(strings::ANISOTROPY_HELP)),
+            ("BTN_TEXQUALLEFT", Ours(strings::ANISOTROPY_HELP)),
+            ("BTN_TEXQUALRIGHT", Ours(strings::ANISOTROPY_HELP)),
             ("CB_FRAMEBUFF", Ours(strings::LIGHTING_HELP)),
             ("BTN_ANISOTROPY", Ours(strings::AMBIENT_OCCLUSION_HELP)),
             ("BTN_ANISOTROPYLEFT", Ours(strings::AMBIENT_OCCLUSION_HELP)),

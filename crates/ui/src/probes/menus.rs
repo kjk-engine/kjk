@@ -1870,6 +1870,8 @@ pub(super) fn display_options() -> Vec<Check> {
                 check_box("CB_VSYNC", 2, 180),
                 linked("BTN_CANCEL", 3, 400, -1, -1),
                 linked("BTN_ANISOTROPY", 4, 220, -1, -1),
+                linked("BTN_TEXQUAL", 5, 260, -1, -1),
+                linked("BTN_TEXQUALLEFT", 6, 300, -1, -1),
             ],
         ),
     );
@@ -1977,6 +1979,16 @@ pub(super) fn display_options() -> Vec<Check> {
         .text_of("BTN_ANISOTROPY", &vm)
         .map(|text| String::from_utf8_lossy(&text).into_owned());
     let occlusion_on = press(&mut advanced, &mut assets, &vm, "BTN_ANISOTROPY");
+    // Anisotropic Filtering, in the Texture Quality row, shows 16x and its
+    // left arrow steps down to 8x.
+    let sharpest = ViewModel {
+        settings: [setting("display.anisotropy", "16")].into_iter().collect(),
+        ..vm.clone()
+    };
+    let anisotropy_shown = advanced
+        .text_of("BTN_TEXQUAL", &sharpest)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let anisotropy_down = press(&mut advanced, &mut assets, &sharpest, "BTN_TEXQUALLEFT");
     let cancelled = press(&mut advanced, &mut assets, &moved, "BTN_CANCEL");
     let cancel_closed = advanced.top().is_none();
     // Shadows at High steps on to Ultra only on a card that traces rays.
@@ -2082,6 +2094,16 @@ pub(super) fn display_options() -> Vec<Check> {
                             "display.ambient_occlusion".into(),
                             "on".into(),
                         )],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "Anisotropic Filtering shows 16x and steps down to 8x: {anisotropy_shown:?} {anisotropy_down:?}"
+                ),
+                anisotropy_shown.as_deref() == Some("Anisotropic Filtering: 16x")
+                    && anisotropy_down
+                        == vec![Intent::Setting("display.anisotropy".into(), "8".into())],
             )
         })
         .and_then(|()| {
