@@ -170,6 +170,12 @@ fn hull(planes: &[(V, f64)]) -> Option<(Vec<V>, Vec<[f32; 3]>, Vec<(usize, usize
 }
 
 /// What kjk's collision makes of a shader's contents, if anything.
+/// Whether a shader with the content flags `flags` stops a body: it is
+/// solid or a player clip. Water, fog and the like are walked through.
+pub fn stops(flags: u32) -> bool {
+    contents(flags).is_some()
+}
+
 fn contents(flags: u32) -> Option<Contents> {
     if flags & CONTENTS_SOLID != 0 {
         Some(Contents::SOLID)
@@ -186,12 +192,28 @@ impl LevelCollision {
     /// [`BRIDGE`] metres across or less, are joined where a body steps over
     /// the gap (`NavMesh::bridge`).
     pub fn nav(&self, radius: f32) -> collision::nav::NavMesh {
-        let step = collision::player::STEP_HEIGHT * UNIT;
-        let mut mesh = collision::nav::NavMesh::build_stepped(&self.floor, radius, step);
-        mesh.bridge(&self.level, BRIDGE, step);
+        let mut mesh = joined_nav(&self.floor, &self.level, radius);
         mesh.mark(&self.level);
         mesh
     }
+}
+
+/// The navigation mesh of the floor `floor` for bodies `radius` metres
+/// wide either side, with Jedi Academy's floors joined as a body walks
+/// them in `level`. Floors whose edges meet within a step's height are
+/// joined (`NavMesh::build_stepped`), and so are floors that a narrow gap
+/// of [`BRIDGE`] metres or less parts (`NavMesh::bridge`). A KOTOR area
+/// that holds rooms cut from a Jedi Academy level is joined so too. What
+/// stands on the floor is not marked yet.
+pub fn joined_nav(
+    floor: &[[[f32; 3]; 3]],
+    level: &collision::Level,
+    radius: f32,
+) -> collision::nav::NavMesh {
+    let step = collision::player::STEP_HEIGHT * UNIT;
+    let mut mesh = collision::nav::NavMesh::build_stepped(floor, radius, step);
+    mesh.bridge(level, BRIDGE, step);
+    mesh
 }
 
 /// `bsp`'s collision and floor.

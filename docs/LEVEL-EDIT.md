@@ -124,6 +124,11 @@ and so are its music and ambient sound (its GIT's area properties).
   by itself.
 - **The entry.** The outliner's Entry is where the player starts: a yellow
   map marker that moves and turns like an object.
+- **Jedi Academy rooms.** The Rooms tab also lists every room the project
+  has cut from a Jedi Academy level ("Jedi Academy rooms in a new map"
+  below). Each is shown as its level and its name, such as "t1_sour
+  hangar (Jedi Academy)". It is placed, moved and turned as a KOTOR room
+  is.
 
 A room's walkmesh is in the coordinates of the area it was made for, so a
 room placed anywhere else is copied: its model under the name
@@ -1914,8 +1919,67 @@ unless a share from 0 to 1 is given), `edit points undo`,
 point is named by its number, from 1, in the order the points were
 placed. `dump` writes the rooms as the fact `ja_rooms`.
 
-What this does not do yet: the rooms cannot be placed in a map, and
-nothing plays them.
+### Jedi Academy rooms in a new map
+
+A room cut from a Jedi Academy level can be placed in a new map of the
+same project. The project must keep both the map and the level's rooms,
+so the level is cut with that project named:
+`kjk-level-editor ja t1_sour --project my_map`. When the map is opened,
+the Rooms tab lists every room of every level the project keeps rooms of,
+the rest of each level among them.
+
+**What the map keeps.** The map keeps a Jedi Academy room as the level's
+path and the room's name (`ja_level` and `ja_room` in `kjk-map.toml`). It
+keeps none of the room's geometry, textures or light. The module that
+saving writes (`modules/<name>.mod`) leaves the room out too. So a map
+holds nothing of Jedi Academy's files, and a player needs their own copy
+of Jedi Academy to play it.
+
+**How kjk builds the room.** Each time the editor or the game opens the
+project, kjk reads the level from the Jedi Academy install and builds
+each room the map needs as a KOTOR room, in memory. No file of it is
+written. The room is built as follows.
+
+- Its model holds the room's part of the level, as the rooms tool's
+  **Textures** view draws it, with the level's textures and its own stored
+  light. A surface the level draws from both sides is drawn from both
+  sides. An animated texture shows its first picture.
+- Its collision is every drawn triangle of the room, as for a KOTOR room. A
+  surface that a body passes through in Jedi Academy, such as water or a
+  hanging cloth, is left out of the collision.
+- Its walkmesh is the level's floor inside the room. The level's floor is
+  every surface that faces up and stops a body. All of it is walkable, and
+  the game plays its footsteps as stone.
+- Its navigation mesh joins its floors as the level's own navigation mesh
+  does. Floors whose edges meet within a step's height are joined, and so
+  are floors that a gap of 30 centimetres or less parts. An area holding
+  any Jedi Academy room joins all of its floors this way, its KOTOR rooms'
+  too.
+
+Building t1_sour's two rooms takes under a second. The rooms' names,
+such as `ja8c722675cf2396`, are made from the level's path and the
+room's name. Renaming a room in the rooms tool therefore takes it out of
+every map that placed it.
+
+**Seams.** A Jedi Academy room meets another room as a KOTOR room does.
+Two rooms cut from one level and both placed at their home places
+(`edit add room MODEL home`) meet along their cut, and a character walks
+from one into the other. t1_sour's hangar and the rest of the level so
+placed give the same navigation mesh as the whole level: 482 pieces, and
+the hangar's piece is the largest. A Jedi Academy room also meets a
+KOTOR room where an edge of one's floor lies on an edge of the other's,
+which "Meet a seam" finds. A Jedi Academy room's floor has many short
+edges, so "Meet a seam" can find an edge nearer than the one meant. In a
+test, the hangar moved 67 centimetres off its home place met a seam 44
+centimetres from home. Rooms of one level are therefore best placed at
+their home places.
+
+**What a Jedi Academy room does not have yet.** Its doors and lifts are
+drawn shut and do not move, and they block the way. Its sky is not drawn.
+Its walkmesh's outline gets KOTOR's walls, so a character cannot jump
+onto a ledge higher than a step, except onto furniture under a roof
+(`collision_odyssey::edges`). Its light is Jedi Academy's own and does not
+match the KOTOR rooms' light yet.
 
 ## Limits of the prototype
 

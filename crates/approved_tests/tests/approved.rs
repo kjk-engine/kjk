@@ -7410,6 +7410,7 @@ fn level_edit_new_map() {
         from,
         position,
         yaw: 0.0,
+        ja: None,
     };
     editor
         .apply(Edit::AddRoom(room("room_a", [11.0, 21.0, 0.0], [0.0; 3])))
@@ -7614,6 +7615,7 @@ fn level_edit_turned_rooms() {
         from: [1.0, 1.0, 0.0],
         position: [10.0, 20.0, 5.0],
         yaw: 90.0,
+        ja: None,
     };
     let turned = room.placed(&walkmesh);
     // (1.5, 0.5) is 0.5 east and 0.5 south of the room's middle; turned a

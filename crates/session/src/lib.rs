@@ -801,7 +801,15 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
     );
     // A level editor project's changes to the navigation mesh.
     let walkable = level_edit::active::nav_faces(&request.game, &request.module, built.nav_faces());
-    let mut nav = collision::nav::NavMesh::build(&walkable, sim::walk::CLEARANCE * collision::UNIT);
+    let radius = sim::walk::CLEARANCE * collision::UNIT;
+    // Rooms cut from a Jedi Academy level have floors that meet as that
+    // level's do, and are joined as its are.
+    let rooms = area.rooms.iter().map(|room| room.model.as_str());
+    let mut nav = if level_edit::ja_rooms::holds_made(&request.game, rooms) {
+        asset_ja::level_collision::joined_nav(&walkable, &built.level, radius)
+    } else {
+        collision::nav::NavMesh::build(&walkable, radius)
+    };
     nav.mark(&built.level);
     // Its links between floors. One over no floor, or between floors
     // joined already, is left out; the level editor says why.

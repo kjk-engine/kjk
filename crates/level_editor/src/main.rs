@@ -331,6 +331,7 @@ fn room_library(resolver: &Resolver) -> Vec<state::LibraryRoom> {
                 model: placed.model,
                 from: placed.position,
                 area: area.clone(),
+                ja: None,
             });
         }
     }
@@ -386,6 +387,27 @@ fn setup(
     let active = level_edit::active::activate(&discovery, &folder)?;
     for note in &active.notes {
         eprintln!("project {name}: {note}");
+    }
+    // The rooms the project cut from Jedi Academy levels, built into
+    // memory before the resolver opens, so that it finds them as it finds
+    // the install's rooms.
+    let started = std::time::Instant::now();
+    let (built, made_notes) = kjk_game::ja_made::build_kept(&discovery, game, &folder);
+    for note in &made_notes {
+        eprintln!("project {name}: {note}");
+    }
+    for room in &built {
+        eprintln!(
+            "project {name}: built the Jedi Academy room {:?} of {} as {}, with {} triangles drawn and {} of floor",
+            room.ja.room, room.ja.level, room.resref, room.triangles, room.floor
+        );
+    }
+    if !built.is_empty() {
+        eprintln!(
+            "project {name}: built {} Jedi Academy rooms in {:.1} s",
+            built.len(),
+            started.elapsed().as_secs_f32()
+        );
     }
     let resolver = kjk_game::viewer::resolver(&discovery, game, Some(&module))?;
     let sorted = |restype| {
@@ -445,7 +467,13 @@ fn setup(
     let sounds = sorted(ResType::UTS);
     let stores = sorted(ResType::UTM);
     let encounters = sorted(ResType::UTE);
-    let rooms = room_library(&resolver);
+    let mut rooms = room_library(&resolver);
+    rooms.extend(built.into_iter().map(|room| state::LibraryRoom {
+        model: room.resref,
+        from: room.from,
+        area: room.ja.level.clone(),
+        ja: Some(room.ja),
+    }));
     let light_data = light_data();
     let program = kjk_program()?;
     let tools = has_tools(&program);

@@ -469,14 +469,14 @@ impl Stand {
 type Pieces<'a> = dyn Fn([Corner; 3]) -> Vec<[Corner; 3]> + 'a;
 
 /// One static model's triangles, lit by `light`, added to the batches of
-/// its shaders, or to the batch `paint` names, as the pieces its function
-/// makes of each. A surface named as a tag (`tag_...`) is left out. Gives
-/// the model's triangles.
+/// its shaders (or to the batch `paint` names, when it names one), as the
+/// pieces `paint`'s function makes of each. A surface named as a tag
+/// (`tag_...`) is left out. Gives the model's triangles.
 fn place(
     md3: &Md3,
     stand: &Stand,
     light: &ModelLight,
-    paint: Option<(&str, &Pieces)>,
+    paint: Option<(Option<&str>, &Pieces)>,
     batches: &mut BTreeMap<Key, Batch>,
     blocks: &mut Blocks,
 ) -> usize {
@@ -488,7 +488,8 @@ fn place(
         if surface.name.to_ascii_lowercase().starts_with("tag_") {
             continue;
         }
-        let key = paint.map_or_else(|| fmt_ja::game_path(shader), |(name, _)| name.to_string());
+        let key = (paint.and_then(|(name, _)| name))
+            .map_or_else(|| fmt_ja::game_path(shader), str::to_string);
         let batch = batches.entry((None, key, None)).or_default();
         let corner = |index: u32| {
             let at = index as usize;
@@ -587,6 +588,11 @@ pub enum Paint<'a> {
     /// (`level_rooms::Cutter::pieces`), and each piece takes its room's
     /// texel.
     Rooms(&'a crate::level_rooms::Cutter, &'a Palette),
+    /// One room alone (its number among the rooms), with each surface's
+    /// own shader: what the room is drawn as in a map (`room`). Every
+    /// triangle is cut as for `Rooms`, and only the pieces in the room are
+    /// kept. Its doors are kept where they rest.
+    Room(&'a crate::level_rooms::Cutter, usize),
 }
 
 /// The corner at `share` of a triangle's three corners.
@@ -604,7 +610,10 @@ fn blend(corners: &[Corner; 3], share: [f32; 3]) -> Corner {
         } else {
             corners[0].normal
         },
-        st: [0.0; 2],
+        st: {
+            let [a, b, c] = [corners[0].st, corners[1].st, corners[2].st];
+            std::array::from_fn(|axis| share[0] * a[axis] + share[1] * b[axis] + share[2] * c[axis])
+        },
         color: mix(&|corner| corner.color.map(f32::from)).map(|part| part.round() as u8),
     }
 }
@@ -613,32 +622,39 @@ fn blend(corners: &[Corner; 3], share: [f32; 3]) -> Corner {
 /// static model by its path in the game's files.
 pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &Paint) -> Level {
     let mut tally = Tally::default();
-    let rooms = match paint {
-        Paint::Shaders => None,
-        Paint::Rooms(cutter, palette) => Some((*cutter, *palette)),
+    // The cuts, the palette the rooms are coloured through, and the one
+    // room kept.
+    let (cutter, palette, only) = match paint {
+        Paint::Shaders => (None, None, None),
+        Paint::Rooms(cutter, palette) => (Some(*cutter), Some(*palette), None),
+        Paint::Room(cutter, room) => (Some(*cutter), None, Some(*room)),
     };
-    let palette = rooms.map(|(_, palette)| palette);
     // The triangles drawn in each room.
     let room_triangles = std::cell::RefCell::new(Vec::<usize>::new());
-    // A triangle as its rooms have it: the pieces the cuts make of it,
-    // each with its room's texel for its texture coordinates, and with
+    // A triangle as its rooms have it: the pieces the cuts make of it
+    // (only the one room's, when one is kept), each with its room's texel
+    // for its texture coordinates when the rooms are coloured, and with
     // the places on the light atlas of its corners when it has them.
     type Piece = ([Corner; 3], Option<[[f32; 2]; 3]>);
     let cut = |corners: [Corner; 3], texels: Option<[[f32; 2]; 3]>| -> Vec<Piece> {
-        let Some((cutter, palette)) = rooms else {
+        let Some(cutter) = cutter else {
             return vec![(corners, texels)];
         };
         let metres = [0, 1, 2].map(|at| corners[at].position.map(|part| part * collision::UNIT));
         (cutter.pieces(metres).into_iter())
+            .filter(|(room, _)| only.is_none_or(|only| *room == only))
             .map(|(room, shares)| {
                 let mut counts = room_triangles.borrow_mut();
                 if counts.len() <= room {
                     counts.resize(room + 1, 0);
                 }
                 counts[room] += 1;
-                let piece = shares.map(|share| Corner {
-                    st: palette.st(room),
-                    ..blend(&corners, share)
+                let piece = shares.map(|share| {
+                    let mut corner = blend(&corners, share);
+                    if let Some(palette) = palette {
+                        corner.st = palette.st(room);
+                    }
+                    corner
                 });
                 let places = texels.map(|texels| {
                     shares.map(|share| {
@@ -666,7 +682,7 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
     // model.
     let movers = crate::movers::movers(bsp);
     let doors = crate::movers::doors(&movers);
-    let parts = match palette {
+    let parts = match cutter {
         Some(_) => BTreeMap::new(),
         None => crate::movers::door_parts(&movers),
     };
@@ -713,13 +729,29 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                 .filter(|page| (*page as usize) >= pages && palette.is_none());
             if let Some(page) = kept {
                 tally.kept_beside += 1;
-                beside.insert(page);
                 let batch = batches.entry((owner, key, Some(page))).or_default();
-                let base = batch.positions.len() as u32;
-                for vertex in &vertices {
-                    batch.push(&Corner::of(vertex, offset), vertex.lightmap_st[0]);
+                if cutter.is_some() {
+                    for triangle in &triangles {
+                        let own = triangle.map(|index| &vertices[index as usize]);
+                        let corners = own.map(|vertex| Corner::of(vertex, offset));
+                        let places = own.map(|vertex| vertex.lightmap_st[0]);
+                        for (piece, places) in cut(corners, Some(places)) {
+                            let places = places.expect("a lightmapped piece has places");
+                            beside.insert(page);
+                            for (corner, place) in piece.iter().zip(places) {
+                                let index = batch.push(corner, place);
+                                batch.indices.push(index);
+                            }
+                        }
+                    }
+                } else {
+                    beside.insert(page);
+                    let base = batch.positions.len() as u32;
+                    for vertex in &vertices {
+                        batch.push(&Corner::of(vertex, offset), vertex.lightmap_st[0]);
+                    }
+                    (batch.indices).extend(triangles.iter().flatten().map(|index| base + index));
                 }
-                (batch.indices).extend(triangles.iter().flatten().map(|index| base + index));
                 continue;
             }
             let batch = batches.entry((owner, key, None)).or_default();
@@ -734,7 +766,7 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                         let side = LIGHTMAP_SIDE as f32;
                         [corner[0] + s * side, corner[1] + t * side]
                     };
-                    if palette.is_some() {
+                    if cutter.is_some() {
                         // Two pieces of a surface may be in two rooms, so
                         // each has corners of its own.
                         for triangle in &triangles {
@@ -793,7 +825,12 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
                 .map(|(piece, _)| piece)
                 .collect()
         };
-        let paint = palette.map(|palette| (palette.name.as_str(), &pieces as &Pieces));
+        let paint = cutter.map(|_| {
+            (
+                palette.map(|palette| palette.name.as_str()),
+                &pieces as &Pieces,
+            )
+        });
         let added = place(model, &stand, &light, paint, &mut batches, &mut blocks);
         tally.static_models += 1;
         tally.static_triangles += added;

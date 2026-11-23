@@ -497,7 +497,14 @@ impl Link {
     fn write_catalog(&self, state: &EditorState) -> Result<usize, String> {
         let setup = &state.setup;
         let rooms: Vec<serde_json::Value> = (setup.rooms.iter())
-            .map(|room| serde_json::json!({"model": room.model, "area": room.area}))
+            .map(|room| match &room.ja {
+                Some(ja) => serde_json::json!({
+                    "model": room.model,
+                    "ja_level": ja.level,
+                    "ja_room": ja.room,
+                }),
+                None => serde_json::json!({"model": room.model, "area": room.area}),
+            })
             .collect();
         let lamps: Vec<serde_json::Value> = (state.lamp_library.found.iter())
             .map(|lamp| {

@@ -1254,3 +1254,257 @@ pub fn turned(mdl: &[u8], (sin, cos): (f32, f32)) -> Result<Vec<u8>, FormatError
     }
     Ok(copy)
 }
+
+/// One mesh of a model `written` lays out: its name, its texture and its
+/// lightmap (16 characters at most each: they name resources), and its
+/// vertices and triangles in the model's space.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WrittenMesh {
+    pub name: String,
+    pub texture: String,
+    pub lightmap: String,
+    pub positions: Vec<[f32; 3]>,
+    pub normals: Vec<[f32; 3]>,
+    pub uv1: Vec<[f32; 2]>,
+    pub uv2: Vec<[f32; 2]>,
+    /// Counter-clockwise seen from the front.
+    pub triangles: Vec<[u16; 3]>,
+    /// Walk surface material of every face (`surfacemat.2da`).
+    pub material: u32,
+    /// The mesh's transparency hint. kjk counts a room's mesh with any hint
+    /// as see-through, so it is not solid.
+    pub transparency_hint: u32,
+}
+
+/// A K1 model file and its MDX of `meshes`, each a mesh node under one root
+/// node named `name`, at the model's origin, with no controller and no
+/// animation. Only kjk reads such a model: it is laid out as `Model::parse`
+/// reads one, and `renamed` and `turned` change it as they change a room's.
+/// It is what kjk builds a Jedi Academy room as (`asset_ja`), in memory.
+///
+/// Layout, offsets after the file header: the geometry and model headers,
+/// then the name table and its names, then each node (the root first): its
+/// header, a mesh's header after it, then the mesh's faces, and last the
+/// root's list of children. A mesh's vertices are in the MDX, one after
+/// another: place, normal, texture place and lightmap place (40 bytes).
+///
+/// Refused when a mesh has more than 65,535 vertices (a face numbers them
+/// with 16 bits), when its arrays differ in length, or when a name does
+/// not fit.
+pub fn written(name: &str, meshes: &[WrittenMesh]) -> Result<(Vec<u8>, Vec<u8>), FormatError> {
+    const GEOMETRY: usize = 80;
+    const MODEL: usize = 116;
+    const MESH: usize = 332;
+    const STRIDE: usize = 40;
+    if name.len() >= 32 || !name.is_ascii() {
+        return Err(unsupported(format!("{name:?} does not fit a model's name")));
+    }
+    for mesh in meshes {
+        let count = mesh.positions.len();
+        if count > usize::from(u16::MAX) {
+            return Err(unsupported(format!(
+                "{}: {count} vertices, more than a face can number",
+                mesh.name
+            )));
+        }
+        if [mesh.normals.len(), mesh.uv1.len(), mesh.uv2.len()]
+            .iter()
+            .any(|len| *len != count)
+        {
+            return Err(unsupported(format!(
+                "{}: its arrays differ in length",
+                mesh.name
+            )));
+        }
+        if mesh.texture.len() > 16 || mesh.lightmap.len() > 16 || mesh.name.len() >= 32 {
+            return Err(unsupported(format!("{}: a name is too long", mesh.name)));
+        }
+        if (mesh.triangles.iter().flatten()).any(|&at| usize::from(at) >= count) {
+            return Err(unsupported(format!(
+                "{}: a face names no vertex",
+                mesh.name
+            )));
+        }
+    }
+    fn put_u32(data: &mut [u8], at: usize, value: u32) {
+        data[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    fn put_u16(data: &mut [u8], at: usize, value: u16) {
+        data[at..at + 2].copy_from_slice(&value.to_le_bytes());
+    }
+    fn put_f32(data: &mut [u8], at: usize, value: f32) {
+        put_u32(data, at, value.to_bits());
+    }
+    fn put_text(data: &mut [u8], at: usize, len: usize, text: &str) {
+        let bytes = &text.as_bytes()[..text.len().min(len - 1)];
+        data[at..at + bytes.len()].copy_from_slice(bytes);
+    }
+    fn bounds<'a>(points: impl Iterator<Item = &'a [f32; 3]>) -> ([f32; 3], [f32; 3]) {
+        let (mut low, mut high) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+        for point in points {
+            for axis in 0..3 {
+                low[axis] = low[axis].min(point[axis]);
+                high[axis] = high[axis].max(point[axis]);
+            }
+        }
+        if low[0].is_finite() {
+            (low, high)
+        } else {
+            ([0.0; 3], [0.0; 3])
+        }
+    }
+
+    let mut data: Vec<u8> = vec![0; GEOMETRY + MODEL];
+    // The name table: the root's name, then each mesh's.
+    let names: Vec<&str> = std::iter::once(name)
+        .chain(meshes.iter().map(|mesh| mesh.name.as_str()))
+        .collect();
+    let table_at = data.len();
+    data.resize(table_at + names.len() * 4, 0);
+    for (index, text) in names.iter().enumerate() {
+        let at = data.len();
+        data.extend_from_slice(text.as_bytes());
+        data.push(0);
+        put_u32(&mut data, table_at + index * 4, at as u32);
+    }
+    while !data.len().is_multiple_of(4) {
+        data.push(0);
+    }
+    let (low, high) = bounds(meshes.iter().flat_map(|mesh| &mesh.positions));
+    let radius = (0..3)
+        .map(|axis| (high[axis] - low[axis]).powi(2))
+        .sum::<f32>()
+        .sqrt()
+        / 2.0;
+
+    // A node's header: its flags, its number and name, the root and its
+    // parent, its place at the origin, facing ahead.
+    let node_header = |data: &mut Vec<u8>, flags: u16, number: u16, parent: u32| -> usize {
+        let at = data.len();
+        data.resize(at + NODE_HEADER, 0);
+        put_u16(data, at, flags);
+        put_u16(data, at + 2, number);
+        put_u16(data, at + 4, number);
+        put_u32(data, at + 8, GEOMETRY as u32);
+        put_u32(data, at + 12, parent);
+        // Orientation (w, x, y, z): none.
+        put_f32(data, at + 28, 1.0);
+        at
+    };
+    let root = node_header(&mut data, FLAG_HEADER, 0, 0);
+    let mut mdx: Vec<u8> = Vec::new();
+    let mut children = Vec::with_capacity(meshes.len());
+    for (index, mesh) in meshes.iter().enumerate() {
+        let number = (index + 1) as u16;
+        let at = node_header(&mut data, FLAG_HEADER | FLAG_MESH, number, root as u32);
+        children.push(at as u32);
+        let header = data.len();
+        data.resize(header + MESH, 0);
+        let (low, high) = bounds(mesh.positions.iter());
+        for axis in 0..3 {
+            put_f32(&mut data, header + 20 + axis * 4, low[axis]);
+            put_f32(&mut data, header + 32 + axis * 4, high[axis]);
+            put_f32(&mut data, header + 60 + axis * 4, 1.0);
+            put_f32(&mut data, header + 72 + axis * 4, 1.0);
+        }
+        put_u32(&mut data, header + 84, mesh.transparency_hint);
+        put_text(&mut data, header + 88, 32, &mesh.texture);
+        put_text(&mut data, header + 120, 32, &mesh.lightmap);
+        put_u32(&mut data, header + 252, STRIDE as u32);
+        // Where each kind of vertex data lies in a vertex: place, normal,
+        // (no colour), texture place and lightmap place; none of the rest.
+        for slot in 0..11 {
+            let offset = match slot {
+                0 => 0,
+                1 => 12,
+                3 => 24,
+                4 => 32,
+                _ => u32::MAX,
+            };
+            put_u32(&mut data, header + 260 + slot * 4, offset);
+        }
+        put_u16(&mut data, header + 304, mesh.positions.len() as u16);
+        put_u16(&mut data, header + 306, 2);
+        // Lightmapped, not rotating its texture, not a background, casting a
+        // shadow, not beaming, drawn.
+        data[header + 308..header + 314].copy_from_slice(&[1, 0, 0, 1, 0, 1]);
+        put_u32(&mut data, header + 324, mdx.len() as u32);
+        for at in 0..mesh.positions.len() {
+            for value in (mesh.positions[at].iter())
+                .chain(&mesh.normals[at])
+                .chain(&mesh.uv1[at])
+                .chain(&mesh.uv2[at])
+            {
+                mdx.extend_from_slice(&value.to_bits().to_le_bytes());
+            }
+        }
+        // The faces: each its plane, its material, no neighbours, and its
+        // vertices.
+        let faces_at = data.len();
+        put_u32(&mut data, header + 8, faces_at as u32);
+        put_u32(&mut data, header + 12, mesh.triangles.len() as u32);
+        put_u32(&mut data, header + 16, mesh.triangles.len() as u32);
+        for triangle in &mesh.triangles {
+            let [a, b, c] = triangle.map(|at| mesh.positions[usize::from(at)]);
+            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let mut normal = [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            ];
+            let length = normal.iter().map(|part| part * part).sum::<f32>().sqrt();
+            if length > 0.0 {
+                normal = normal.map(|part| part / length);
+            }
+            let distance = -(normal[0] * a[0] + normal[1] * a[1] + normal[2] * a[2]);
+            let face = data.len();
+            data.resize(face + 32, 0);
+            for (axis, part) in normal.iter().enumerate() {
+                put_f32(&mut data, face + axis * 4, *part);
+            }
+            put_f32(&mut data, face + 12, distance);
+            put_u32(&mut data, face + 16, mesh.material);
+            for (side, corner) in triangle.iter().enumerate() {
+                put_u16(&mut data, face + 20 + side * 2, u16::MAX);
+                put_u16(&mut data, face + 26 + side * 2, *corner);
+            }
+        }
+    }
+    // The root's children.
+    let children_at = data.len();
+    for child in &children {
+        data.extend_from_slice(&child.to_le_bytes());
+    }
+    put_u32(&mut data, root + 44, children_at as u32);
+    put_u32(&mut data, root + 48, children.len() as u32);
+    put_u32(&mut data, root + 52, children.len() as u32);
+
+    // The geometry header: K1's mark, the name, the root and the count of
+    // nodes, and the model type; then the model header.
+    put_u32(&mut data, 0, 4_273_776);
+    put_text(&mut data, 8, 32, name);
+    put_u32(&mut data, 40, root as u32);
+    put_u32(&mut data, 44, names.len() as u32);
+    data[76] = 2;
+    let model = GEOMETRY;
+    data[model + 3] = 1;
+    for axis in 0..3 {
+        put_f32(&mut data, model + 24 + axis * 4, low[axis]);
+        put_f32(&mut data, model + 36 + axis * 4, high[axis]);
+    }
+    put_f32(&mut data, model + 48, radius);
+    put_f32(&mut data, model + 52, 1.0);
+    put_text(&mut data, model + 56, 32, "null");
+    put_u32(&mut data, model + 96, mdx.len() as u32);
+    put_u32(&mut data, model + 104, table_at as u32);
+    put_u32(&mut data, model + 108, names.len() as u32);
+    put_u32(&mut data, model + 112, names.len() as u32);
+
+    let mut file = Vec::with_capacity(DATA + data.len());
+    file.extend_from_slice(&0u32.to_le_bytes());
+    file.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    file.extend_from_slice(&(mdx.len() as u32).to_le_bytes());
+    file.extend_from_slice(&data);
+    Ok((file, mdx))
+}

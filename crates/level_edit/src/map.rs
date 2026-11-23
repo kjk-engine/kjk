@@ -21,6 +21,14 @@
 //! module's `module.ifo`, the area's layout and visibility, and the rooms'
 //! copies (`module_files`). The area's objects stay in the folder's `.git`,
 //! as in every project.
+//!
+//! A room can also be a room the project cut from a Jedi Academy level
+//! (`ja_rooms`). The map keeps such a room as the level's path and the
+//! room's name (`JaRoom`), never as its geometry. kjk builds the room from
+//! the player's own Jedi Academy install each time a run loads the map
+//! (`kjk_game::ja_made`), under the name `ja_rooms::room_resref` gives, and
+//! places a copy of it as it places a KOTOR room's. The module's archive
+//! leaves such a room's copy out.
 
 use fmt_odyssey::ResType;
 use fmt_odyssey::bwm::Walkmesh;
@@ -66,6 +74,19 @@ pub struct Room {
     pub position: [f32; 3],
     /// Degrees it is turned about Z, anticlockwise seen from above.
     pub yaw: f32,
+    /// The Jedi Academy room the model is built from, for a room cut from a
+    /// Jedi Academy level. Its model is then `ja_rooms::room_resref`'s
+    /// name, and `from` is where the built room's origin lies in the level.
+    pub ja: Option<JaRoom>,
+}
+
+/// A room the project cut from a Jedi Academy level.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct JaRoom {
+    /// The level's path in Jedi Academy's files (`maps/t1_sour.bsp`).
+    pub level: String,
+    /// The room's name, as the project's rooms of the level name it.
+    pub room: String,
 }
 
 impl Room {
@@ -178,8 +199,19 @@ impl NewMap {
             .and_then(toml_edit::Item::as_array_of_tables)
         {
             for table in tables.iter() {
+                let ja = match (table.get("ja_level"), table.get("ja_room")) {
+                    (None, None) => None,
+                    (level, room) => Some(JaRoom {
+                        level: text(level, "a Jedi Academy room's ja_level")?.to_ascii_lowercase(),
+                        room: text(room, "a Jedi Academy room's ja_room")?,
+                    }),
+                };
+                let model = match &ja {
+                    Some(ja) => crate::ja_rooms::room_resref(&ja.level, &ja.room),
+                    None => text(table.get("model"), "a room's model")?.to_ascii_lowercase(),
+                };
                 rooms.push(Room {
-                    model: text(table.get("model"), "a room's model")?.to_ascii_lowercase(),
+                    model,
                     from: triple(table.get("from"), "a room's from")?,
                     position: triple(table.get("position"), "a room's position")?,
                     yaw: table
@@ -189,6 +221,7 @@ impl NewMap {
                                 .or_else(|| item.as_integer().map(|whole| whole as f64))
                         })
                         .map_or(0.0, |degrees| degrees as f32),
+                    ja,
                 });
             }
         }
@@ -248,6 +281,12 @@ impl NewMap {
             ));
             if room.yaw != 0.0 {
                 out.push_str(&format!("yaw = {:?}\n", f64::from(room.yaw)));
+            }
+            if let Some(ja) = &room.ja {
+                out.push_str(&format!(
+                    "ja_level = {:?}\nja_room = {:?}\n",
+                    ja.level, ja.room
+                ));
             }
         }
         out
@@ -383,7 +422,10 @@ impl NewMap {
 
     /// Every file of the module's archive (`modules/<module>.mod`):
     /// `module.ifo`, the area's layout and visibility, and each room's copy.
-    /// `read` gives a room's files as the install has them.
+    /// `read` gives a room's files as the install has them. A room cut from
+    /// a Jedi Academy level has no copy here: its copy is made in memory
+    /// when a run loads the map, so no part of Jedi Academy's files is
+    /// written.
     pub fn module_files(
         &self,
         module: &str,
@@ -404,6 +446,9 @@ impl NewMap {
             ),
         ];
         for (index, room) in self.rooms.iter().enumerate() {
+            if room.ja.is_some() {
+                continue;
+            }
             let name = room_name(module, index);
             for (resref, restype, bytes) in room_copy(room, &name, read)? {
                 files.push((resref, restype, bytes));

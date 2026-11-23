@@ -175,6 +175,7 @@ pub mod settings;
 pub mod setup;
 pub use settings::{key_bindings, key_rows};
 pub use warmup::LATE_PIPELINE;
+pub mod ja_made;
 mod severing;
 pub mod shader_checks;
 pub mod shadow_tiles;

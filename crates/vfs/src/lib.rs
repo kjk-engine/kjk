@@ -8,6 +8,7 @@ mod discover;
 pub mod fingerprint;
 pub mod ja;
 pub mod lent;
+pub mod made;
 #[cfg(feature = "probes")]
 pub mod probes;
 pub mod project;

@@ -676,6 +676,10 @@ impl Resolver {
         if let Some(layer) = crate::project::layer(game) {
             resolver.push(layer);
         }
+        // What the run made in memory (`made`), over the project's folder.
+        if let Some(layer) = crate::made::layer(game) {
+            resolver.push(layer);
+        }
         resolver.stack_rulebook();
         resolver.stack_rows();
         Ok(resolver)

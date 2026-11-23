@@ -5319,10 +5319,19 @@ fn assets(
                             .rooms
                             .iter()
                             .map(|room| {
-                                (
-                                    Asset::Template(AssetKind::Room, room.model.clone()),
-                                    room.model.clone(),
-                                )
+                                // A room cut from a Jedi Academy level shows
+                                // its level and its name.
+                                let shown = room.ja.as_ref().map_or_else(
+                                    || room.model.clone(),
+                                    |ja| {
+                                        format!(
+                                            "{} {} (Jedi Academy)",
+                                            level_edit::ja_rooms::short(&ja.level),
+                                            ja.room
+                                        )
+                                    },
+                                );
+                                (Asset::Template(AssetKind::Room, room.model.clone()), shown)
                             })
                             .collect(),
                         Tab::Lamps => (state.lamp_library.found.iter())

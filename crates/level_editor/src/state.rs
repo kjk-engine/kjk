@@ -113,6 +113,9 @@ pub struct LibraryRoom {
     pub model: String,
     pub from: [f32; 3],
     pub area: String,
+    /// The Jedi Academy room the model is built from, for a room the
+    /// project cut from a Jedi Academy level (`kjk_game::ja_made`).
+    pub ja: Option<level_edit::map::JaRoom>,
 }
 
 /// What the editor found of the navigation mesh it drew.
@@ -1357,10 +1360,19 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         let wanted: Vec<_> = (state.editor.project.kjk.links.iter())
             .map(|link| (link.kind, link.from, link.to))
             .collect();
+        // A new map's rooms cut from a Jedi Academy level are joined as
+        // play joins them.
+        let ja = (state.editor.project.map.iter())
+            .flat_map(|map| &map.rooms)
+            .any(|room| room.ja.is_some());
         if let Some(built) = state.collision() {
             let floor = level_edit::nav::edited(built.collision.nav_faces(), &boxes);
-            let mut nav =
-                collision::nav::NavMesh::build(&floor, sim::walk::CLEARANCE * collision::UNIT);
+            let radius = sim::walk::CLEARANCE * collision::UNIT;
+            let mut nav = if ja {
+                asset_ja::level_collision::joined_nav(&floor, &built.collision.level, radius)
+            } else {
+                collision::nav::NavMesh::build(&floor, radius)
+            };
             nav.mark(&built.collision.level);
             // The links between floors, as play adds them, each checked as
             // the containment audit moves a player: a plain jump, or a drop.
@@ -2403,6 +2415,7 @@ pub(crate) fn add_room(state: &mut EditorState, model: &str, at: [f32; 3]) -> Re
         from: found.from,
         position,
         yaw: 0.0,
+        ja: found.ja.clone(),
     }));
     Ok(())
 }
@@ -2422,6 +2435,7 @@ pub(crate) fn add_room_home(state: &mut EditorState, model: &str) -> Result<(), 
         from: found.from,
         position: found.from,
         yaw: 0.0,
+        ja: found.ja.clone(),
     }));
     Ok(())
 }

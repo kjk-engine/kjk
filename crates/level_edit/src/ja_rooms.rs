@@ -65,6 +65,29 @@ pub fn digest(file: &[u8]) -> String {
     blake3::hash(file).to_hex().to_string()
 }
 
+/// The name of the KOTOR room that kjk builds from room `room` of the
+/// level `level` (its path, `maps/t1_sour.bsp`): `ja` and 14 letters and
+/// digits of a digest of the two. kjk makes the room's model and walkmesh
+/// under that name in memory (`kjk_game::ja_made`), and a new map places
+/// it as it places a KOTOR room.
+pub fn room_resref(level: &str, room: &str) -> String {
+    let key = format!("{}#{room}", level.to_ascii_lowercase());
+    let digest = blake3::hash(key.as_bytes()).to_hex();
+    format!("ja{}", &digest[..14])
+}
+
+/// Whether any of the rooms `models` of an area of the game `game` (its
+/// key) is a room kjk made in memory from a Jedi Academy level: a room of
+/// a new map whose copy the run made (`kjk_game::ja_made`). Such an
+/// area's navigation mesh joins its floors as a Jedi Academy level's are
+/// joined (`asset_ja::level_collision::joined_nav`).
+pub fn holds_made<'a>(game: &str, models: impl IntoIterator<Item = &'a str>) -> bool {
+    let Some(game) = vfs::Game::from_key(game) else {
+        return false;
+    };
+    (models.into_iter()).any(|model| vfs::made::holds(game, model, fmt_odyssey::ResType::WOK))
+}
+
 /// A level as the user names it: its path without `maps/` and `.bsp`
 /// (`t1_sour`, `mp/ffa3`).
 pub fn short(level: &str) -> &str {

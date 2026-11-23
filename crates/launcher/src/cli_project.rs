@@ -63,5 +63,10 @@ pub(crate) fn activate(name: &str) -> Result<(), String> {
     for note in &active.notes {
         eprintln!("project {}: {note}", active.project.name);
     }
+    // The Jedi Academy rooms its maps place, built into memory before any
+    // resolver opens.
+    for note in kjk_game::ja_made::make_project(&discover(), &active.project) {
+        eprintln!("project {}: {note}", active.project.name);
+    }
     Ok(())
 }
