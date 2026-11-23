@@ -287,3 +287,117 @@ fn write_zip(path: &Path, sets: &[Set]) -> Result<(usize, u64), String> {
     writer.into_inner().map_err(|error| failed(&error.error()))?;
     Ok((files, bytes_in))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A scratch folder of bakes, empty.
+    fn scratch(name: &str) -> PathBuf {
+        let folder =
+            std::env::temp_dir().join(format!("kjk-pack-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    /// Writes set `set` (`a` or `b`) of area `area` of module `module` in
+    /// the round `c1`, stamped with `format` where it is given, holding the
+    /// files `files`. The area's folder, which holds the bake's log.
+    fn set(
+        root: &Path,
+        (module, area, set): (&str, &str, &str),
+        format: Option<u32>,
+        files: &[&str],
+    ) -> PathBuf {
+        let area_folder = root.join(module).join("bake").join("c1").join(area);
+        let folder = area_folder.join(set);
+        std::fs::create_dir_all(&folder).unwrap();
+        if let Some(format) = format {
+            let print = bake_fingerprint::Fingerprint {
+                area: area.to_string(),
+                format,
+                rooms: "1".repeat(64),
+                placeables: "2".repeat(64),
+            };
+            std::fs::write(folder.join(bake_fingerprint::FILE), bake_fingerprint::text(&print)).unwrap();
+        }
+        for file in files {
+            std::fs::write(folder.join(file), b"x").unwrap();
+        }
+        area_folder
+    }
+
+    /// The names in the zip at `path`, sorted.
+    fn names_in(path: &Path) -> Vec<String> {
+        let mut zip = ::zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+        let mut names: Vec<String> = (0..zip.len())
+            .map(|index| zip.by_index(index).unwrap().name().unwrap().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn the_pack_takes_finished_b_sets_alone() {
+        let root = scratch("sets");
+        let bakes = root.join("bakes");
+        let format = Some(bake_fingerprint::FORMAT);
+        // A finished area: its set `a` stays out, and so do the files of
+        // `b` the game does not load.
+        set(&bakes, ("danm13", "m13aa", "a"), format, &["m13aa_01a_lm0.png"]);
+        set(
+            &bakes,
+            ("danm13", "m13aa", "b"),
+            format,
+            &["m13aa_01a_lm0.png", "fill.txt", "probes.txt", "placeables.txt"],
+        );
+        // A set with no fingerprint is not finished.
+        set(&bakes, ("danm14aa", "m14aa", "b"), None, &["m14aa_01a_lm0.png"]);
+        // A set baked with the stored backdrop before stored.txt holds
+        // copies of the games' own lightmaps.
+        let copied = set(&bakes, ("tar_m02ab", "tar_m02ab", "b"), format, &["tar_m02ab_lm0.png"]);
+        std::fs::write(
+            copied.join("detail-bake.txt"),
+            format!("tar_m02ab\n  rooms {STORED_BACKDROP_LOG}\n"),
+        )
+        .unwrap();
+        // The same with stored.txt names its backdrop and is packed.
+        let noted = set(
+            &bakes,
+            ("tar_m08aa", "tar_m08aa", "b"),
+            format,
+            &["tar_m08aa_lm0.png", kjk_game::stored_fill::STORED_FILE],
+        );
+        std::fs::write(noted.join("detail-bake.txt"), STORED_BACKDROP_LOG).unwrap();
+        let out = root.join("out");
+        pack("k1", &bakes, &out, "t", Some("c1")).unwrap();
+        assert_eq!(
+            names_in(&out.join("kjk-lighting-k1-t.zip")),
+            [
+                "m13aa/fill.txt",
+                "m13aa/fingerprint.txt",
+                "m13aa/m13aa_01a_lm0.png",
+                "m13aa/placeables.txt",
+                "tar_m08aa/fingerprint.txt",
+                "tar_m08aa/stored.txt",
+                "tar_m08aa/tar_m08aa_lm0.png",
+            ]
+        );
+        let manifest = std::fs::read_to_string(out.join("kjk-lighting-k1-t.txt")).unwrap();
+        assert!(manifest.contains("m13aa") && manifest.contains("tar_m08aa"));
+        assert!(!manifest.contains("m14aa") && !manifest.contains("tar_m02ab"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_pack_stops_at_a_set_of_an_old_format() {
+        let root = scratch("old");
+        let bakes = root.join("bakes");
+        set(&bakes, ("danm13", "m13aa", "b"), Some(1), &["m13aa_01a_lm0.png"]);
+        let refused = pack("k1", &bakes, &root.join("out"), "t", None).unwrap_err();
+        assert!(refused.contains("format 1"), "{refused}");
+        assert!(!root.join("out").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

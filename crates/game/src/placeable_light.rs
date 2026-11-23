@@ -446,3 +446,144 @@ pub fn read(
     }
     found
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A mesh of one triangle with these corners, normals up and texture
+    /// coordinates from 0 to 1.
+    fn triangle(corners: [[f32; 3]; 3]) -> MeshIr {
+        MeshIr {
+            node: 0,
+            positions: corners.to_vec(),
+            normals: vec![[0.0, 0.0, 1.0]; 3],
+            uv1: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            uv2: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            indices: vec![0, 1, 2],
+            texture: None,
+            lightmap: None,
+            transparency_hint: 0,
+            skinned: false,
+            shadow: false,
+            self_illum: [0.0; 3],
+            alpha: 1.0,
+            ambient: [0.0; 3],
+            diffuse: [0.0; 3],
+            uv_scroll: None,
+            skin: None,
+            dangly: None,
+        }
+    }
+
+    fn length(p: [f32; 3], q: [f32; 3]) -> f32 {
+        (0..3).map(|k| (p[k] - q[k]).powi(2)).sum::<f32>().sqrt()
+    }
+
+    #[test]
+    fn subdivide_splits_every_edge_down_to_the_longest() {
+        let mesh = triangle([[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0]]);
+        let split = subdivide(&mesh);
+        assert!(split.indices.len() > mesh.indices.len());
+        assert_eq!(split.normals.len(), split.positions.len());
+        assert_eq!(split.uv1.len(), split.positions.len());
+        assert_eq!(split.uv2.len(), split.positions.len());
+        for triangle in split.indices.as_chunks::<3>().0 {
+            for i in 0..3 {
+                let (a, b) = (triangle[i] as usize, triangle[(i + 1) % 3] as usize);
+                let edge = length(split.positions[a], split.positions[b]);
+                assert!(edge <= LONGEST_EDGE + 1e-5, "an edge of {edge} m is left");
+            }
+        }
+        // The area is kept: the triangles still cover 2 square metres.
+        let area: f32 = (split.indices.as_chunks::<3>().0.iter())
+            .map(|&[a, b, c]| {
+                let (p, q, r) = (
+                    split.positions[a as usize],
+                    split.positions[b as usize],
+                    split.positions[c as usize],
+                );
+                ((q[0] - p[0]) * (r[1] - p[1]) - (r[0] - p[0]) * (q[1] - p[1])).abs() / 2.0
+            })
+            .sum();
+        assert!((area - 2.0).abs() < 1e-4, "the split covers {area} m2");
+        // A new vertex takes the mean of its edge's ends.
+        let middle = (split.positions.iter())
+            .position(|p| length(*p, [1.0, 0.0, 0.0]) < 1e-6)
+            .expect("the long edge's middle is a vertex");
+        assert_eq!(split.uv1[middle], [0.5, 0.0]);
+    }
+
+    #[test]
+    fn subdivide_leaves_a_small_triangle_alone() {
+        let mesh = triangle([[0.0, 0.0, 0.0], [0.3, 0.0, 0.0], [0.0, 0.3, 0.0]]);
+        let split = subdivide(&mesh);
+        assert_eq!(split.positions, mesh.positions);
+        assert_eq!(split.indices, mesh.indices);
+    }
+
+    /// A scratch folder holding `text` as the set's `FILE`.
+    fn set_with(name: &str, text: &str) -> std::path::PathBuf {
+        let folder =
+            std::env::temp_dir().join(format!("kjk-placeables-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join(FILE), text).unwrap();
+        folder
+    }
+
+    #[test]
+    fn read_takes_the_stored_texels_and_their_repeats() {
+        let text = format!(
+            "# a comment\narea m13aa\nformat {}\nmap m13aa_01a_lm0 4 4\nmap m13aa_02a_lm0 8 8\n\
+             mesh 3 plc_chair 1 3 0.1 0.2 0.3 0.4 0.5 0.6 @1:7 0.7 0.8 0.9 @\n\
+             mesh 4 plc_other 0 1 1 1 1\n\
+             mesh 3 plc_chair 0 2 0.5 0.5 0.5\n",
+            crate::bake_fingerprint::FORMAT
+        );
+        let folder = set_with("format2", &text);
+        let models = BTreeMap::from([(3u32, "PLC_CHAIR"), (4, "plc_table")]);
+        let mut asked = Vec::new();
+        let mut fill = |map: &crate::stored_fill::StoredMap, texel: usize, light: [f32; 3]| {
+            asked.push((map.name.clone(), texel));
+            light.map(|v| v + 1.0)
+        };
+        let found = read(&folder, "M13AA", &models, &mut fill);
+        // Object 4's model is not the one the file names. The second line
+        // of object 3 says its mesh has two vertices but gives the light of
+        // one. Neither line is kept.
+        assert_eq!(found.len(), 1);
+        let chair = &found[&3];
+        assert_eq!(chair.meshes.len(), 2);
+        assert_eq!(chair.meshes[0], None);
+        assert_eq!(
+            chair.meshes[1],
+            Some(vec![[0.1, 0.2, 0.3], [1.4, 1.5, 1.6], [1.7, 1.8, 1.9]])
+        );
+        assert_eq!(
+            asked,
+            vec![
+                ("m13aa_02a_lm0".to_string(), 7),
+                ("m13aa_02a_lm0".to_string(), 7)
+            ]
+        );
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn read_refuses_another_area_and_an_old_format() {
+        let old = "area m13aa\nmesh 3 plc_chair 0 1 0.1 0.2 0.3\n";
+        let models = BTreeMap::from([(3u32, "plc_chair")]);
+        let mut fill = |_: &crate::stored_fill::StoredMap, _: usize, light: [f32; 3]| light;
+        let folder = set_with("old", old);
+        assert!(read(&folder, "m13aa", &models, &mut fill).is_empty());
+        let current = format!(
+            "area m13aa\nformat {}\nmesh 3 plc_chair 0 1 0.1 0.2 0.3\n",
+            crate::bake_fingerprint::FORMAT
+        );
+        std::fs::write(folder.join(FILE), &current).unwrap();
+        assert_eq!(read(&folder, "m13aa", &models, &mut fill).len(), 1);
+        assert!(read(&folder, "m14aa", &models, &mut fill).is_empty());
+        let _ = std::fs::remove_dir_all(folder);
+    }
+}
