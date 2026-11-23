@@ -146,7 +146,8 @@ pub struct StoryItem {
     /// upgrade items by template.
     pub upgrades: u32,
     pub fitted: Vec<String>,
-    /// The flags scripts may have changed. A story written before they were
+    /// The flags scripts may have changed (`Item::plot`, `droppable`,
+    /// `identified` and `non_equippable`). A story written before they were
     /// kept has none, and the template's value stands.
     pub plot: Option<bool>,
     pub droppable: Option<bool>,

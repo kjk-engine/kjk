@@ -837,13 +837,20 @@ fn restores_item_fields(level: &sim::Level, save: &sim::Save) -> Result<String, 
             sorted(&story)
         ));
     }
-    let mut old = story.clone();
-    for item in old.items.values_mut().flatten() {
-        item.plot = None;
-        item.droppable = None;
-        item.identified = None;
-        item.non_equippable = None;
+    let mut json = serde_json::to_value(&story).map_err(|error| error.to_string())?;
+    for item in json["items"]
+        .as_object_mut()
+        .into_iter()
+        .flat_map(|holders| holders.values_mut())
+        .flat_map(|items| items.as_array_mut().into_iter().flatten())
+    {
+        if let Some(item) = item.as_object_mut() {
+            for flag in ["plot", "droppable", "identified", "non_equippable"] {
+                item.remove(flag);
+            }
+        }
     }
+    let old: Story = serde_json::from_value(json).map_err(|error| error.to_string())?;
     let (world, _) = old.restore(level, 1, &|template: &str| {
         Some(ItemFacts {
             plot: true,
