@@ -30,6 +30,7 @@ pub mod ambient_occlusion;
 pub mod anim_audit_log;
 pub mod arena;
 mod armory;
+pub mod bake_fingerprint;
 mod bar_setup_view;
 pub mod bar_view;
 pub mod bark_view;

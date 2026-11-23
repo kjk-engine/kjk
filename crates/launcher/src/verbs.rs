@@ -231,6 +231,19 @@ pub(crate) enum Verb {
         /// the lamps' set. It implies --placeables
         #[arg(long)]
         placeable_light: bool,
+        /// Bake nothing. Print the fingerprint of each of the module's
+        /// areas in the game files as they are now: the format, and the
+        /// digests of the rooms and of the placeables. The game compares it
+        /// with fingerprint.txt in a bake's folder
+        #[arg(long)]
+        fingerprint: bool,
+        /// Bake nothing. Write fingerprint.txt into this folder of
+        /// lightmaps baked earlier, from the game files as they are now.
+        /// This is right only when the game files are still the ones the
+        /// bake was made from. Over other files the game would then show a
+        /// bake that does not fit them
+        #[arg(long)]
+        stamp: Option<std::path::PathBuf>,
         /// The folder the files are written to
         #[arg(long, default_value_os_t = detail_bake::default_out())]
         out: std::path::PathBuf,
@@ -661,8 +674,13 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             skylights,
             placeables,
             placeable_light,
+            fingerprint,
+            stamp,
             out,
         } => {
+            if fingerprint || stamp.is_some() {
+                return detail_bake::fingerprint(&discover(), &module, game.as_deref(), stamp.as_deref());
+            }
             let probe = match probe.as_deref().map(|text| {
                 text.split_whitespace()
                     .map(str::parse::<f32>)

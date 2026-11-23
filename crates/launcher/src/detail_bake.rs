@@ -150,41 +150,21 @@ pub fn run(
     on_gpu: Option<&GpuOptions>,
     out: &Path,
 ) -> ExitCode {
-    let games = match game {
-        None => vec![Game::Kotor1, Game::Kotor2],
-        Some(key) => match Game::from_key(key).filter(|game| *game != Game::JediAcademy) {
-            Some(game) => vec![game],
-            None => {
-                eprintln!("detail-bake: use k1 or tsl");
-                return ExitCode::from(2);
-            }
-        },
-    };
     let module = module.to_ascii_lowercase();
-    for game in games {
-        let Some(install) = discovery.get(game) else {
-            continue;
-        };
-        let index = match DirIndex::of_install(install) {
-            Ok(index) => index,
-            Err(error) => {
-                eprintln!("{}: {error}", game.key());
-                return ExitCode::FAILURE;
-            }
-        };
-        if !module_names(&index).contains(&module) {
-            continue;
+    let (game, index) = match install_with(discovery, &module, game) {
+        Ok(found) => found,
+        Err(error) => {
+            eprintln!("detail-bake: {error}");
+            return ExitCode::FAILURE;
         }
-        return match bake_module(game, &index, &module, options, lights, on_gpu, out) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("detail-bake: {error}");
-                ExitCode::FAILURE
-            }
-        };
+    };
+    match bake_module(game, &index, &module, options, lights, on_gpu, out) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("detail-bake: {error}");
+            ExitCode::FAILURE
+        }
     }
-    eprintln!("detail-bake: no install found has module {module}");
-    ExitCode::FAILURE
 }
 
 /// The default folder: `target/detail-bake` under the current folder.
@@ -241,8 +221,94 @@ fn bake_module(
         outln!("{report}");
         std::fs::write(folder.join("detail-bake.txt"), &report)
             .map_err(|error| format!("{}: {error}", folder.display()))?;
+        // Each set the bake wrote gets the fingerprint of the files it was
+        // made from, so that the game shows it only over those files.
+        let print = kjk_game::bake_fingerprint::of_area(&resolver, area);
+        for set in [folder.clone(), folder.join("a"), folder.join("b")] {
+            if holds_lightmaps(&set) {
+                kjk_game::bake_fingerprint::write(&set, &print)?;
+            }
+        }
         outln!("wrote into {}", folder.display());
     }
+    Ok(())
+}
+
+/// Whether folder `set` holds a PNG, as a set of baked lightmaps does.
+fn holds_lightmaps(set: &Path) -> bool {
+    std::fs::read_dir(set).is_ok_and(|entries| {
+        entries
+            .flatten()
+            .any(|entry| entry.path().extension().is_some_and(|extension| extension == "png"))
+    })
+}
+
+/// The install of `game` (or of either KOTOR game) that has module
+/// `module`, indexed.
+fn install_with(discovery: &Discovery, module: &str, game: Option<&str>) -> Result<(Game, DirIndex), String> {
+    let games = match game {
+        None => vec![Game::Kotor1, Game::Kotor2],
+        Some(key) => match Game::from_key(key).filter(|game| *game != Game::JediAcademy) {
+            Some(game) => vec![game],
+            None => return Err("use k1 or tsl".to_string()),
+        },
+    };
+    for game in games {
+        let Some(install) = discovery.get(game) else {
+            continue;
+        };
+        let index = DirIndex::of_install(install).map_err(|error| format!("{}: {error}", game.key()))?;
+        if module_names(&index).contains(&module.to_string()) {
+            return Ok((game, index));
+        }
+    }
+    Err(format!("no install found has module {module}"))
+}
+
+/// `kjk detail-bake <module> --fingerprint` and `--stamp <set>`: prints the
+/// fingerprint of each of the module's areas in the files the game reads
+/// now (`kjk_game::bake_fingerprint`). With `stamp` it also writes it into
+/// that set of lightmaps baked earlier. The set is taken to be of the
+/// module's only area, or of the area that its folder or the folder above
+/// it is named after.
+pub fn fingerprint(discovery: &Discovery, module: &str, game: Option<&str>, stamp: Option<&Path>) -> ExitCode {
+    match print_or_stamp(discovery, &module.to_ascii_lowercase(), game, stamp) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("detail-bake: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn print_or_stamp(discovery: &Discovery, module: &str, game: Option<&str>, stamp: Option<&Path>) -> Result<(), String> {
+    let (game, index) = install_with(discovery, module, game)?;
+    let base = Resolver::base(game, &index, TextureQuality::High).map_err(|e| e.to_string())?;
+    let resolver = base.with_module(&index, module).map_err(|error| error.to_string())?;
+    let built = ModuleIr::build(module, &ResolverSource(&resolver)).map_err(|error| format!("{error:?}"))?;
+    let prints: Vec<kjk_game::bake_fingerprint::Fingerprint> =
+        (built.areas.iter()).map(|area| kjk_game::bake_fingerprint::of_area(&resolver, area)).collect();
+    for print in &prints {
+        outln!("area {} format {} rooms {} placeables {}", print.area, print.format, print.rooms, print.placeables);
+    }
+    let Some(set) = stamp else {
+        return Ok(());
+    };
+    if !holds_lightmaps(set) {
+        return Err(format!("{} holds no baked lightmaps", set.display()));
+    }
+    let named = |path: Option<&Path>| {
+        let name = path?.file_name()?.to_str()?.to_ascii_lowercase();
+        prints.iter().find(|print| print.area == name)
+    };
+    let print = match prints.as_slice() {
+        [only] => only,
+        _ => named(Some(set))
+            .or_else(|| named(set.parent()))
+            .ok_or_else(|| format!("{} is not named after one of the module's areas", set.display()))?,
+    };
+    kjk_game::bake_fingerprint::write(set, print)?;
+    outln!("wrote {}", set.join(kjk_game::bake_fingerprint::FILE).display());
     Ok(())
 }
 

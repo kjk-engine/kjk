@@ -480,6 +480,80 @@ The sets are `bake/pl4`, the shots `shots/p4-*` and the sheets
 `sheets-pl4` of unk_m44ac, danm13 and 411dxn. 411dxn is a KOTOR 2 module,
 so its bake takes `--game tsl`.
 
+### The fingerprint of a bake (23 November 2026)
+
+Players run the games unpatched, KOTOR 2 with TSLRCM, KOTOR 1 with the K1
+Community Patch, or with other mods. TSLRCM changes the placeables of about
+11 areas and the rooms of 2. The K1 Community Patch changes the rooms of 18
+areas and the placeables of about 37 modules. A bake made over one set of
+files must not be drawn over another. So each bake now carries a
+fingerprint of the files it was made from. The code is
+`crates/game/src/bake_fingerprint.rs`, which the baker and the game both
+call.
+
+The fingerprint has three parts.
+
+- `rooms` is a digest of the area's layout (each room's model and its
+  place), each room model's MDL and MDX, and each stored lightmap that the
+  rooms name, with its TXI.
+- `placeables` is a digest of the placeables the bake lights or lets block
+  its rays. These are the placeables with a mesh that has no skin and does
+  not dangle, in the area's order. Each one counts with its number, its
+  model's name, its place, its bearing as stored, and its model's MDL and
+  MDX.
+- `format` is a number in the code (`FORMAT`). It is raised by hand when
+  the baker's files change their meaning.
+
+Every file is the one the game reads after the game folder, `override/`
+and the Steam Workshop items are ranked. Scripts, dialogue, sounds and the
+diffuse textures are left out. The digests do not depend on where the
+files lie, on their times, or on the machine.
+
+The baker writes `fingerprint.txt` into each set it writes, beside the
+PNGs. The file looks like this.
+
+```
+# (five lines of comment)
+area 105per
+format 1
+rooms <32 hexadecimal digits>
+placeables <32 hexadecimal digits>
+```
+
+A set baked before this has no fingerprint. Two commands give it one or
+show one without baking.
+
+- `kjk detail-bake 105per --stamp <set>` writes `fingerprint.txt` into the
+  set from the game files as they are now. This is right only when the
+  files are still the ones the bake was made from.
+- `kjk detail-bake 105per --fingerprint` prints each area's fingerprint.
+
+When an area loads, the game computes its fingerprint once and compares
+it with the fingerprint of each listed set of that area.
+
+- When `rooms` or `format` differs, the game draws the area with its own
+  lightmaps. It takes none of the set's fills, floors, probes, placeables'
+  light or `unlit.txt`, as if no bake existed for the area.
+- When `rooms` matches and `placeables` differs, the game shows the
+  lightmaps, and the placeables take the light probes, as under
+  `KJK_PLACEABLE_LIGHT=probes`.
+- A set without `fingerprint.txt` is shown as before, with one warning for
+  each such set.
+- When two listed sets hold a bake of one area, the game takes the one that
+  matches the most. Of two that match as much, it takes the later one in
+  the list. An unpatched and a patched bake can then ship side by side.
+
+The log says in one line for each set which of these it was. Computing the
+fingerprint takes about 0.1 seconds for a Peragus area.
+
+A build with the developer verbs (the `probes` feature) leaves the Steam
+Workshop items out unless `KJK_WORKSHOP=on` is set. The Peragus sets `pv1`
+were baked that way, without TSLRCM. On this PC, with `KJK_WORKSHOP=on`,
+TSLRCM moves a terminal in 105per and changes the placeables of 101per too.
+Both areas then keep the bake's lightmaps, and their placeables take the
+probes. The sets `pv1` of 101per and 105per are stamped. The other 169
+areas are not yet.
+
 ## Where it stands
 
 - Step 1 is the behaviour under the bake, on pull request 576.
@@ -495,6 +569,10 @@ so its bake takes `--game tsl`.
   the bake had placeables, so it does not come from the placeables blocking
   rays.
 - The baked probes stay shelved on `feat/baked-probes`.
+- Each bake now carries a fingerprint of the game files it was made from,
+  and the game shows a bake only over those files. This is uncommitted on
+  `feat/placeable-light`. Only 101per and 105per of round `pv1` are
+  stamped.
 - 411dxn's Mandalorian room is still nearly black under `pl3`, and its
   vertex-lit placeables are too bright there. danm13's terminal wedge is
   not explained.
