@@ -4,7 +4,8 @@
 //!
 //! - black to the window's edges, from the first movie asked for to the
 //!   end of the last one queued (nothing under it shows between them), the
-//!   picture fitted within 640 × 480 keeping its shape, its sound unplaced
+//!   picture as large as the window allows, keeping its shape (a wide
+//!   movie fills an ultrawide window's width), its sound unplaced
 //!   at full gain;
 //! - a Bink 1 movie (every KOTOR and TSL movie) decoded as it plays, on a
 //!   thread of its own, a few frames ahead; any other read from the store,
@@ -44,7 +45,7 @@ use vfs::Game;
 
 use crate::movie_verbs::Film;
 
-use crate::lifecycle_view::{OverlayCamera, gui_quad, unlit};
+use crate::lifecycle_view::{OverlayCamera, unlit};
 use crate::material::OdysseyMaterial;
 use crate::sim_host::{PresentedSnapshot, SceneSwap, Waited, shown_ms};
 use crate::sound::Beds;
@@ -289,12 +290,24 @@ struct Clocks<'w> {
     swap: Option<Res<'w, SceneSwap>>,
 }
 
-/// What the picture is drawn with.
+/// What the picture is drawn with, and where.
 #[derive(SystemParam)]
-struct Drawing<'w> {
+struct Drawing<'w, 's> {
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<OdysseyMaterial>>,
     images: ResMut<'w, Assets<Image>>,
+    /// The stage's camera, whose view has the window's shape.
+    cameras: Query<'w, 's, &'static Camera>,
+    places: Query<'w, 's, &'static mut Transform>,
+}
+
+/// The picture's place: as large as the view allows, its shape kept,
+/// centred. The view is 480 units high and `aspect` times that wide, so
+/// on an ultrawide window a wide movie fills the width.
+fn fitted((width, height): (u32, u32), aspect: f32) -> Transform {
+    let (width, height) = (width as f32, height as f32);
+    let scale = (480.0 * aspect / width).min(480.0 / height);
+    Transform::from_xyz(0.0, 0.0, 1.0).with_scale(Vec3::new(width * scale, height * scale, 1.0))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -319,8 +332,19 @@ fn show(
         mut meshes,
         mut materials,
         mut images,
+        cameras,
+        mut places,
     } = drawing;
     let theatre = &mut *theatre;
+    // The view's width over its height: the window's, or a recording's
+    // frame's. 4:3 until the stage's camera has a view.
+    let aspect = theatre
+        .stage
+        .as_ref()
+        .and_then(|stage| cameras.get(stage.camera).ok())
+        .and_then(Camera::logical_viewport_size)
+        .filter(|size| size.y > 0.0)
+        .map_or(4.0 / 3.0, |size| size.x / size.y);
     theatre.real_ms += clocks.time.delta_secs_f64() * 1000.0;
     let held = clocks.held.as_ref().is_some_and(|held| held.0.is_some());
     let clock = match &clocks.presented {
@@ -408,18 +432,11 @@ fn show(
                     TextureFormat::Rgba8Unorm,
                     RenderAssetUsages::default(),
                 ));
-                // Fitted within 640 × 480, its shape kept, centred.
-                let scale = (640.0 / width as f32).min(480.0 / height as f32);
-                let (width, height) = (width as f32 * scale, height as f32 * scale);
-                let place = gui_quad(
-                    [(640.0 - width) / 2.0, (480.0 - height) / 2.0, width, height],
-                    1.0,
-                );
                 screening.quads.add(
                     &mut commands,
                     (&mut meshes, &mut materials),
                     unlit(Vec4::ONE, Some(image.clone())),
-                    place,
+                    fitted((width, height), aspect),
                 );
                 screening.picture = Some(image);
                 screening.pictures = Some(pictures);
@@ -461,6 +478,15 @@ fn show(
     }
     let mut over = skipped || screening.failed;
     if let Some(pictures) = &mut screening.pictures {
+        // Fitted again each frame, so a resized window refits it.
+        if let Some(mut place) = screening
+            .quads
+            .entities
+            .first()
+            .and_then(|&quad| places.get_mut(quad).ok())
+        {
+            *place = fitted(pictures.size(), aspect);
+        }
         let started = *screening.started.get_or_insert(clock);
         let seconds = (clock - started) / 1000.0;
         over |= seconds >= pictures.seconds();

@@ -390,8 +390,9 @@ warning.
 - **How** (`game::movie_view`): one after another, over everything,
   black to the window's edges from the first movie to the end of the last
   one queued (the menu under the logos never shows between two of them,
-  and its music waits for the last), the picture fitted within 640 × 480
-  keeping its shape, its sound a bed at full gain. Escape, Space, Enter or a click
+  and its music waits for the last), the picture as large as the window
+  allows, keeping its shape (on an ultrawide window, a wide movie fills
+  the width), its sound a bed at full gain. Escape, Space, Enter or a click
   skips it, unless it was queued unskippable (`QueueMovie`'s flag; a skip
   of a skippable queued one drops the rest of its run, as TSL's player
   drops the rest of its list: QUIRKS Q-0237) (a press, taken: the conversation and screens under it get no
