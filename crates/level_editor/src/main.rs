@@ -7,6 +7,7 @@
 
 mod agent;
 mod bake;
+mod child;
 mod elsewhere;
 mod file;
 mod ja_rooms;
@@ -164,16 +165,34 @@ fn main() -> ExitCode {
 }
 
 fn run(options: runtime::RunOptions) -> ExitCode {
-    match runtime::run(options) {
+    let exit = runtime::run(options);
+    // A bake, an audit or a try still going is stopped with the editor.
+    child::stop_all();
+    match exit {
         bevy::app::AppExit::Success => ExitCode::SUCCESS,
         bevy::app::AppExit::Error(code) => ExitCode::from(code.get()),
     }
 }
 
-/// The `kjk` program beside this one: what plays and audits a project.
+/// The `kjk` program that plays and audits a project: the one beside this
+/// program. A package for macOS has each program in an app of its own
+/// (`cargo xtask dist`), so there it is the one in `kjk.app` beside this
+/// program's app. When neither is there, the path beside this program is
+/// given, so what did not start is named.
 fn kjk_program() -> Result<PathBuf, String> {
     let me = std::env::current_exe().map_err(|error| error.to_string())?;
-    Ok(me.with_file_name(format!("kjk{}", std::env::consts::EXE_SUFFIX)))
+    let name = format!("kjk{}", std::env::consts::EXE_SUFFIX);
+    let beside = me.with_file_name(&name);
+    if beside.is_file() {
+        return Ok(beside);
+    }
+    // This program is `<folder>/<its app>/Contents/MacOS/kjk-level-editor`.
+    let in_app = me
+        .ancestors()
+        .nth(4)
+        .map(|folder| folder.join("kjk.app/Contents/MacOS").join(&name))
+        .filter(|program| program.is_file());
+    Ok(in_app.unwrap_or(beside))
 }
 
 /// The project in `folder` made for `game`'s `module`: its entry area's GIT

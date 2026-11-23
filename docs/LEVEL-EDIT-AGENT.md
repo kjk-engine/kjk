@@ -332,7 +332,9 @@ begins with `if_has_item` shows only what happens without the item.
   folder. It replaces the export made there before. Send it when the
   person asks for the mod.
 - `play`, `walk`, `audit` and `bake` save first, then start another
-  program. `script try` and `script debug` save first too.
+  program. `script try` and `script debug` save first too. A bake, an
+  audit or a try still running when the editor closes is stopped with
+  it. A play or walk window stays open.
 - To give a script text of your own, write the text to a file anywhere,
   then send `script text NAME FILE`. The editor takes the file's text as
   the script's, makes the script when the project has none of that name,

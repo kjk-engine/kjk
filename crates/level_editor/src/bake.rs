@@ -197,8 +197,7 @@ fn detail_bake(
         bake.arg("--levels").arg(levels);
     }
     bake.arg("--out").arg(out);
-    let output = bake
-        .output()
+    let output = crate::child::output(bake)
         .map_err(|error| format!("kjk detail-bake did not start: {error}"))?;
     let text = format!(
         "{}{}",

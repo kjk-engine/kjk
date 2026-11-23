@@ -473,7 +473,7 @@ enum Command {
     /// Run one compiled script once in a module installed headless (with
     /// --project, the project's own script, as the level editor's Try does)
     /// for an object or the player, then step on: the trace of what it and
-    /// the scripts it set off called, the conversation lines, and faults
+    /// the scripts it started called, the conversation lines, and faults
     TryScript {
         /// k1 or tsl
         game: String,
@@ -492,6 +492,10 @@ enum Command {
         /// is also printed line by line, with its locals and globals
         #[arg(long)]
         debug: Option<String>,
+        /// Print the whole trace: what the module's other scripts called
+        /// while the world was stepped, too
+        #[arg(long)]
+        all: bool,
     },
     /// Play one conversation headless (with --project, the project's
     /// own, as the level editor's conversation window does): the player
@@ -877,14 +881,13 @@ pub fn run() -> ExitCode {
             on,
             seconds,
             debug,
+            all,
         }) => script_try::run(
             &discover(),
-            &game,
-            &module,
-            &script,
+            (&game, &module, &script),
             on.as_deref(),
             seconds,
-            debug.as_deref(),
+            (debug.as_deref(), all),
         ),
         Some(Command::TryConversation {
             game,

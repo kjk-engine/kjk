@@ -864,12 +864,16 @@ the editor.
 - **Try for** saves the project, compiles, and runs the script once in the
   module installed without a window (`kjk try-script`, in every build of
   kjk), for the selected object (as `OBJECT_SELF`, by its tag) or, with
-  nothing selected, for the player. It then steps on 3 s, for what the script delays. The Try tab
-  shows what happened from the run on, its own run in bold and the
-  module's scripts that ran beside it faint: each routine called with its
-  arguments and what it gave, what was said to the player, faults, and
-  scripts named that the module does not have. A try takes a few seconds,
-  most of them the module's install.
+  nothing selected, for the player. It then steps on 3 s, for what the
+  script delays. The Try tab shows what the script did from the run on:
+  each routine called with its arguments and what it gave, what was said
+  to the player, faults, and scripts named that the module does not have.
+  The script's own run and the code it deferred are in bold. A script it
+  started with `ExecuteScript` is faint. The module's other scripts go on
+  running meanwhile, and one line says how many lines of theirs were left
+  out. A try takes a few seconds, most of them the module's install. A
+  script that does not fit the games' code page is written with `?` in
+  place of each character it lacks, and the editor says how many.
 - **Give to** lists the selected object's events. One clicked gives it the
   script, as typing its name into the event's field does.
 - **Window** opens the viewer in a window of its own over the view, with

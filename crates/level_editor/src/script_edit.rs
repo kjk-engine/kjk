@@ -83,21 +83,29 @@ pub fn project_scripts(folder: &Path) -> std::collections::BTreeSet<String> {
 }
 
 /// Writes `draft` to `NAME.nss` in `folder`, beside then over the old
-/// file.
-pub fn write(folder: &Path, name: &str, draft: &mut Draft) -> Result<PathBuf, String> {
+/// file. The games' code page has a byte for each character. A character
+/// it does not have (a curly quote, a letter of another alphabet) is
+/// written as `?`. The file's path, and how many characters were written
+/// so.
+pub fn write(folder: &Path, name: &str, draft: &mut Draft) -> Result<(PathBuf, usize), String> {
     let path = folder.join(format!("{name}.nss"));
     let fresh = path.with_extension("nss.new");
-    // The games' code page: a byte a character.
+    let mut replaced = 0;
     let bytes: Vec<u8> = draft
         .text
         .chars()
-        .map(|c| u8::try_from(u32::from(c)).unwrap_or(b'?'))
+        .map(|c| {
+            u8::try_from(u32::from(c)).unwrap_or_else(|_| {
+                replaced += 1;
+                b'?'
+            })
+        })
         .collect();
     std::fs::write(&fresh, bytes)
         .and_then(|()| std::fs::rename(&fresh, &path))
         .map_err(|error| format!("{}: {error}", path.display()))?;
     draft.saved = draft.text.clone();
-    Ok(path)
+    Ok((path, replaced))
 }
 
 /// What a try asks for, gathered before its thread starts.
@@ -239,14 +247,11 @@ impl Try {
             if let Some(debug) = &plan.debug {
                 command.arg("--debug").arg(debug);
             }
-            let result = command
-                .output()
+            let result = crate::child::output(command)
                 .map_err(|error| format!("kjk try-script did not start: {error}"))
                 .map(|output| {
                     let mut lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
                         .lines()
-                        // The line that names the project opened.
-                        .filter(|line| !line.starts_with("project "))
                         .map(str::to_string)
                         .collect();
                     lines.extend(

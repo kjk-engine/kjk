@@ -83,15 +83,20 @@ the games' own compiled scripts; nothing of them is in the repo.
 - The level editor compiles a project's scripts when it saves
   (`LEVEL-EDIT.md`).
 - `kjk [--project P] try-script <game> <module> SCRIPT [--on TAG]
-  [--seconds N]` runs one compiled script once in the module installed
-  headless, for the object tagged TAG (else the player), then steps on N
-  seconds (2 by default). The script is read through the install's layers,
-  a project's folder first, and added to the module's library
-  (`Library::with_script`), so it runs where nothing names it yet. It
-  prints the trace from the run on, conversation lines, faults and the
-  scripts named but missing, and fails when the script did not run or
-  faulted. The level editor's Try runs it, so it is in every build of
-  kjk, the player's too (`launcher::script_try`).
+  [--seconds N] [--all]` runs one compiled script once in the module
+  installed headless, for the object tagged TAG (else the player), then
+  steps on N seconds (2 by default). The script is read through the
+  module's layers, as the game would read it: the module's own archives,
+  the install's shared ones, and a project's folder first. It is added to
+  the module's library (`Library::with_script`), so it runs where nothing
+  names it yet. It prints the script's own trace from the run on:
+  its runs, the code it deferred, and the scripts it started with
+  `ExecuteScript`. The module's other scripts go on running while the
+  world is stepped, and one line says how many lines of theirs were left
+  out. `--all` prints the whole trace. It also prints conversation lines,
+  faults and the scripts named but missing, and fails when the script did
+  not run or faulted. The level editor's Try runs it, so it is in every
+  build of kjk, the player's too (`launcher::script_try`).
 - `--debug NAME.ndb` records the run line by line as well: a stop at each
   source line the script starts, with its function, the calls that led
   there, its locals and the script's globals (at most 2 000 stops). The

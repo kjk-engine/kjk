@@ -5,9 +5,18 @@
 //! (`docs/LEVEL-EDIT.md`), so it is in every build of kjk, the player's
 //! too.
 //!
-//! The script is read through the install's layers (with `--project`, the
-//! project's folder first) and added to the module's library
-//! (`Library::with_script`), so it runs where nothing names it yet.
+//! The script is read through the module's layers, as the game would read
+//! it: the module's own archives, the install's shared ones, and with
+//! `--project` the project's folder first. It is added to the module's
+//! library (`Library::with_script`), so it runs where nothing names it
+//! yet.
+//!
+//! The module's own scripts go on running while the world is stepped: its
+//! creatures' heartbeats alone write thousands of lines in two seconds. So
+//! the trace printed is the tried script's own (`own_lines`): its runs, the
+//! code it deferred, and the scripts it started with `ExecuteScript`. One
+//! line says how much of the other scripts' trace was left out, and
+//! `--all` prints the whole trace.
 //!
 //! With `--debug FILE` (the script's debug notes, `NAME.ndb`, which the
 //! level editor writes beside its `.ncs`), the run is also recorded line by
@@ -19,20 +28,23 @@ use std::process::ExitCode;
 
 use fmt_odyssey::ResType;
 use fmt_odyssey::ncs::Ncs;
-use vfs::resolver::{Resolver, TextureQuality};
-use vfs::{DirIndex, Discovery, Game};
+use vfs::{Discovery, Game};
 
-/// `kjk try-script`.
+/// `kjk try-script`. `all` prints the whole trace, the module's other
+/// scripts' too.
 pub fn run(
     discovery: &Discovery,
-    game: &str,
-    module: &str,
-    script: &str,
+    (game, module, script): (&str, &str, &str),
     on: Option<&str>,
     seconds: f32,
-    debug: Option<&str>,
+    (debug, all): (Option<&str>, bool),
 ) -> ExitCode {
-    match tried(discovery, game, module, script, (on, seconds), debug) {
+    match tried(
+        discovery,
+        (game, module, script),
+        (on, seconds),
+        (debug, all),
+    ) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
@@ -45,11 +57,9 @@ pub fn run(
 /// Whether the script ran without a fault.
 fn tried(
     discovery: &Discovery,
-    game: &str,
-    module: &str,
-    script: &str,
+    (game, module, script): (&str, &str, &str),
     (on, seconds): (Option<&str>, f32),
-    debug: Option<&str>,
+    (debug, all): (Option<&str>, bool),
 ) -> Result<bool, String> {
     let debug = debug
         .map(|path| {
@@ -63,40 +73,28 @@ fn tried(
     let game = Game::from_key(game)
         .filter(|game| *game != Game::JediAcademy)
         .ok_or(format!("{game:?}: use k1 or tsl"))?;
-    let install = discovery.get(game).ok_or(format!(
-        "{}: not found (set {})",
-        game.key(),
-        game.env_var()
-    ))?;
-    let index = DirIndex::of_install(install).map_err(|error| error.to_string())?;
-    let resolver =
-        Resolver::base(game, &index, TextureQuality::High).map_err(|error| error.to_string())?;
+    let anims = std::sync::Arc::new(sim::motion::AnimTable::stand_in());
+    let installer = crate::lifecycle::Installer::new(discovery, game, anims)?;
+    // Read through the module's layers, the project's folder first.
     let script = script.trim_end_matches(".ncs").to_ascii_lowercase();
-    let bytes = resolver
+    let bytes = installer
+        .resolver(module)?
         .read(&script, ResType::NCS)
-        .ok_or(format!("{script}.ncs is not found (compile it first)"))?;
+        .ok_or(format!(
+            "{script}.ncs is not found in {module} or the install's shared files (a script written in the level editor is compiled first)"
+        ))?;
     let ncs = Ncs::parse(&bytes).map_err(|error| format!("{script}.ncs: {error}"))?;
 
     // The module for one player (the dev soldier), its library with the
     // script in it.
-    let anims = std::sync::Arc::new(sim::motion::AnimTable::stand_in());
-    let installer = crate::lifecycle::Installer::new(discovery, game, anims)?;
     let prepared = installer.prepare_one(module, None)?;
     let level = prepared.plan.level.clone();
     let library = level.scripts().ok_or("the module has no scripts")?;
     let library = (**library).clone().with_script(&script, ncs);
     let declared = library.globals_written();
     let level = level.with_scripts(library).declaring(declared);
-    let config = sim::WorldConfig {
-        seed: 1,
-        seats: 1,
-        wanderers: 0,
-        spawn: [0.0; 3],
-        yaw: 0.0,
-        sheet: sim::combat::Sheet::dev_soldier(),
-        guests: sim::Guests::Avatars,
-    };
-    let mut world = sim::SimWorld::new(config, level).map_err(|error| error.to_string())?;
+    let mut world = sim::SimWorld::new(sim::WorldConfig::one_seat(), level)
+        .map_err(|error| error.to_string())?;
     let me = world
         .snapshot()
         .entities
@@ -187,8 +185,24 @@ fn tried(
         outln!("  it did not run");
     }
     outln!("  trace:");
-    for line in report.trace_lines().iter().skip(before.0) {
-        outln!("    {line}");
+    let trace = report.trace_lines();
+    let since = &trace[before.0.min(trace.len())..];
+    if all {
+        for line in since {
+            outln!("    {line}");
+        }
+    } else {
+        let (own, others) = own_lines(since, &script);
+        for line in own {
+            outln!("    {line}");
+        }
+        if others.0 > 0 {
+            outln!(
+                "  the module's other scripts wrote {} more lines in {} runs, left out (--all prints them)",
+                others.0,
+                others.1
+            );
+        }
     }
     let talk: Vec<_> = report.talk.iter().skip(before.1).collect();
     if !talk.is_empty() {
@@ -247,6 +261,45 @@ fn tried(
         }
     }
     Ok(ran > 0 && !bad)
+}
+
+/// The script a line of the trace starts a run of: `run NAME for #7`, or
+/// `deferred NAME for #7` for code the script deferred, after the line's
+/// time. `None` for the lines of a run, which are its calls.
+pub(crate) fn run_of(line: &str) -> Option<&str> {
+    let (_, said) = line.trim_start().split_once(' ')?;
+    let mut words = said.split(' ');
+    match (words.next(), words.next(), words.next()) {
+        (Some("run" | "deferred"), Some(name), Some("for")) => Some(name),
+        _ => None,
+    }
+}
+
+/// The lines of `trace` that are `script`'s own, and how many lines and
+/// runs of other scripts were left out. A script's own lines are its runs,
+/// the code it deferred, and the runs of each script that one of those
+/// starts with `ExecuteScript`. The lines before the first run are kept.
+fn own_lines<'a>(trace: &'a [String], script: &str) -> (Vec<&'a str>, (usize, usize)) {
+    let mut own_scripts = std::collections::BTreeSet::from([script.to_ascii_lowercase()]);
+    let (mut kept, mut left, mut runs) = (Vec::new(), 0, 0);
+    let mut own = true;
+    for line in trace {
+        if let Some(name) = run_of(line) {
+            own = own_scripts.contains(&name.to_ascii_lowercase());
+            runs += usize::from(!own);
+        } else if own
+            && let Some((_, rest)) = line.split_once("ExecuteScript(\"")
+            && let Some((started, _)) = rest.split_once('"')
+        {
+            own_scripts.insert(started.to_ascii_lowercase());
+        }
+        if own {
+            kept.push(line.as_str());
+        } else {
+            left += 1;
+        }
+    }
+    (kept, (left, runs))
 }
 
 /// The most stops a debugged run keeps.

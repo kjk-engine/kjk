@@ -518,6 +518,12 @@ impl EditorState {
                 .insert((kind.texture.clone(), kind.placeable), shipped);
         }
         let scene = draw(&mut state)?;
+        if !state.setup.program.is_file() {
+            state.say(format!(
+                "kjk was not found at {}: Play, Walk and trying a script or a conversation need it there",
+                state.setup.program.display()
+            ));
+        }
         if let Some(folder) = &state.recovery {
             let what = crate::recover::describe(folder);
             state.say(format!(
@@ -541,11 +547,21 @@ impl EditorState {
         std::fs::create_dir_all(&folder)
             .map_err(|error| format!("{}: {error}", folder.display()))?;
         let mut written = 0;
+        let mut lost = Vec::new();
         for (name, draft) in &mut self.drafts {
             if draft.changed() {
-                crate::script_edit::write(&folder, name, draft)?;
+                let (_, replaced) = crate::script_edit::write(&folder, name, draft)?;
+                if replaced > 0 {
+                    lost.push(format!("{replaced} in {name}"));
+                }
                 written += 1;
             }
+        }
+        if !lost.is_empty() {
+            self.say(format!(
+                "characters that the games' code page does not have were written as ?: {}",
+                lost.join(", ")
+            ));
         }
         if written > 0 {
             self.project_scripts = crate::script_edit::project_scripts(&folder);
@@ -3286,7 +3302,9 @@ fn command_words(
             };
             state.apply(Edit::SetLevel(room.to_string(), level));
         }
-        ["bake"] | ["audit"] if !state.setup.tools => return Err(NO_TOOLS.into()),
+        ["bake"] | ["bake", "renew"] | ["audit"] if !state.setup.tools => {
+            return Err(NO_TOOLS.into());
+        }
         // `bake renew` bakes and keeps the new bake in the project when it
         // is done: a stale kept bake made again in one step.
         ["bake"] | ["bake", "renew"] => {
@@ -3726,8 +3744,7 @@ fn command_words(
             let result = AuditResult::default();
             let slot = result.clone();
             std::thread::spawn(move || {
-                let output = audit
-                    .output()
+                let output = crate::child::output(audit)
                     .map_err(|error| format!("kjk collision audit did not start: {error}"));
                 if let Ok(mut slot) = slot.lock() {
                     *slot = Some(output);

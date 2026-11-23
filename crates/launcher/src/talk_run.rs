@@ -338,14 +338,13 @@ pub fn try_conversation(
         }
         // What the conversation's own scripts called: a door a line's
         // script unlocks or opens shows here, and nowhere in the lines
-        // themselves. The trace marks each script's run (`run NAME for`),
-        // and the calls that follow are that run's.
+        // themselves. The trace marks each script's run, and its deferred
+        // code's (`script_try::run_of`), and the calls that follow are
+        // that run's.
         let mut called = Vec::new();
         let mut own = false;
         for line in report.trace_lines() {
-            let run = (line.trim_start().split_once("s run "))
-                .and_then(|(_, rest)| rest.split_whitespace().next().map(str::to_string));
-            if let Some(script) = run {
+            if let Some(script) = crate::script_try::run_of(&line) {
                 own = scripts.contains(&script.to_ascii_lowercase());
             }
             if own {

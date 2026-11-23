@@ -91,7 +91,9 @@ pub fn skips_logos() -> bool {
 }
 
 /// This program again, on its main menu, in place of this process (on
-/// Windows, beside it as this one ends).
+/// Windows, beside it as this one ends). A run that plays a level editor
+/// project (`--project`) plays it there too, so the menu loads the saves
+/// made in the project's levels.
 pub fn restart_into_menu() -> std::io::Error {
     let program = match std::env::current_exe() {
         Ok(program) => program,
@@ -99,6 +101,11 @@ pub fn restart_into_menu() -> std::io::Error {
     };
     let mut command = std::process::Command::new(program);
     command.arg("--back-to-menu");
+    if let Some((_, folder)) = vfs::project::active()
+        && let Some(name) = folder.file_name()
+    {
+        command.arg("--project").arg(name);
+    }
     if let Some(notice) = take_notice() {
         command.arg("--notice").arg(notice);
     }
