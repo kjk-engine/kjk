@@ -42,43 +42,46 @@ fn variable() -> Option<&'static str> {
         .as_deref()
 }
 
-/// Whether the area loaded last has a bake the game shows
-/// (`set_area_baked`).
-static AREA_BAKED: AtomicBool = AtomicBool::new(false);
-
-/// Notes, as an area loads, whether it has a bake the game shows. Under the
-/// options' Enhanced Lightmaps only such an area takes the trial. Any other
-/// area, one the download lacks, one of the other game, or one whose files
-/// differ from the bake's, is drawn as under Enhanced.
-pub fn set_area_baked(baked: bool) {
-    AREA_BAKED.store(baked, Ordering::Relaxed);
-}
-
-/// Whether the trial is on (`KJK_FITTED_LIGHTS` set to anything but `off`).
-/// Without the variable, it is on when the player chose the baked lightmaps
+/// Whether an area is drawn under the baked trial, where `has_bake` says
+/// whether it has a bake the game shows (`viewer::takes_bake`). The rooms
+/// then show a bake of the fitted lights in place of their live light. The
+/// rooms' lightmapped surfaces show the baked lightmap whole and take no
+/// fitted light. Doors, placeables and characters are lit as under `on`.
+///
+/// `KJK_FITTED_LIGHTS=baked` puts every area under it, with the baked
+/// lightmaps that `KJK_DETAIL_BAKE` names (`kjk detail-bake --lights`).
+/// Any other value of the variable puts no area under it. Without the
+/// variable, an area is under it when the player chose Enhanced Lightmaps
 /// in the options, a download of them is installed
-/// (`lighting_bakes::chosen`), and the area loaded last has a bake the game
-/// shows (`set_area_baked`). Under plain Enhanced the trial is off.
-pub fn wanted() -> bool {
+/// (`lighting_bakes::chosen`), and the area has a bake the game shows. Any
+/// other area, one the download lacks, one of the other game, or one whose
+/// files differ from the bake's, is drawn as under Enhanced.
+pub fn baked_area(has_bake: bool) -> bool {
     match variable() {
-        Some(value) => value != "off",
-        None => crate::lighting_bakes::chosen() && AREA_BAKED.load(Ordering::Relaxed),
+        Some(value) => value == "baked",
+        None => crate::lighting_bakes::chosen() && has_bake,
     }
 }
 
-/// Whether the rooms show a bake of the fitted lights in place of their
-/// live light (`KJK_FITTED_LIGHTS=baked`). The baked lightmaps are the ones
-/// `KJK_DETAIL_BAKE` names, made by `kjk detail-bake --lights`. The rooms'
-/// lightmapped surfaces then show the baked lightmap whole and take no
-/// fitted light. Doors, placeables and characters are lit as under `on`.
-/// Without the variable, the rooms show the installed download of baked
-/// lightmaps when the player chose it in the options (Enhanced Lightmaps,
-/// `lighting_bakes::chosen`) and the area loaded last has a bake the game
-/// shows. A variable that is set wins over the setting, for every area.
-pub fn baked() -> bool {
+/// Whether the fitted lights shine in an area, where `baked` says whether
+/// the area is drawn under the baked trial (`LoadedScene::baked`).
+/// `KJK_FITTED_LIGHTS` set to anything but `off` turns them on in every
+/// area. Without the variable they shine only in an area under the bake.
+pub fn wanted_in(baked: bool) -> bool {
     match variable() {
-        Some(value) => value == "baked",
-        None => crate::lighting_bakes::chosen() && AREA_BAKED.load(Ordering::Relaxed),
+        Some(value) => value != "off",
+        None => baked,
+    }
+}
+
+/// The shaders' trial that `KJK_FITTED_LIGHTS` asks for in every area: 8
+/// for `baked`, 0 for `off` or no variable, and 7 for any other value
+/// (`shadows::ShadowDebug`).
+pub fn trial_of_variable() -> u32 {
+    match variable() {
+        Some("baked") => 8,
+        Some("off") | None => 0,
+        Some(_) => 7,
     }
 }
 
@@ -327,13 +330,15 @@ fn unnamed() -> Kind {
 
 /// How much of its kind's strength a room's lamp that the files do not set
 /// to glow shines at, from 0 to 1 (`ON_FROM`). `stored` is the lightmap the
-/// game's data stores for the mesh. A mesh that glows, a mesh of no lamp
-/// and a faint kind's mesh give 0.
+/// game's data stores for the mesh. `wanted` says whether the area's
+/// fitted lights shine (`wanted_in`). Without them, and for a mesh that
+/// glows, a mesh of no lamp or a faint kind's mesh, it gives 0.
 pub fn switched_on(
     mesh: &asset_odyssey::model::MeshIr,
+    wanted: bool,
     stored: impl FnOnce() -> Option<TextureIr>,
 ) -> f32 {
-    if !wanted() || mesh.skin.is_some() || mesh.self_illum.iter().any(|&v| v > 0.0) {
+    if !wanted || mesh.skin.is_some() || mesh.self_illum.iter().any(|&v| v > 0.0) {
         return 0.0;
     }
     let Some(texture) = mesh.texture.as_deref() else {
@@ -639,9 +644,8 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
             continue;
         }
         for (index, mesh) in placed.ir.meshes.iter().enumerate() {
-            let share = switched_on(mesh, || {
-                let name = mesh.lightmap.as_ref()?;
-                crate::viewer::stored_lightmap(name).or_else(|| loaded.textures.get(name).cloned())
+            let share = switched_on(mesh, wanted_in(loaded.baked), || {
+                loaded.stored_lightmap(mesh.lightmap.as_ref()?).cloned()
             });
             if share > 0.0 {
                 switched.insert((model, index), share);
@@ -916,9 +920,7 @@ fn level(loaded: &LoadedScene, lights: &mut [Light], rooms: &[Option<usize>], hi
                 // A baked lightmap drawn in the stored one's place is not
                 // the light the rooms have today.
                 let name = mesh.lightmap.as_ref()?;
-                let stored = crate::viewer::stored_lightmap(name);
-                let (width, height, map) =
-                    texels(stored.as_ref().or(loaded.textures.get(name))?, 128)?;
+                let (width, height, map) = texels(loaded.stored_lightmap(name)?, 128)?;
                 Some(LampTexture::new(width, height, map))
             });
             let Some(map) = map

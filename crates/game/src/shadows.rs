@@ -752,7 +752,7 @@ fn tiles_wanted() -> (bool, bool) {
 /// the light kinds' trial instead: the rooms keep half of their baked
 /// light, so a light added by `KJK_FOUND_LIGHTS` shows how it shines. `8`
 /// is the fitted lights' trial with a bake of their light in the rooms'
-/// lightmaps (`fitted_lights::baked`). `None` under the options' Enhanced
+/// lightmaps (`fitted_lights::baked_area`). `None` under the options' Enhanced
 /// Lightmaps with no variable set: the area being drawn decides
 /// (`fitted_lights::trial_of_area`), 8 for an area with a bake the game
 /// shows and 0 for any other.
@@ -777,10 +777,8 @@ impl Default for ShadowDebug {
             // The fitted lights' trial keeps half of the baked light too:
             // the fittings' own lights make up the rest.
             // `KJK_FITTED_LIGHTS=baked` is the same trial with the rooms'
-            // light baked (`fitted_lights::baked`).
-            Err(_) if crate::fitted_lights::baked() => 8,
-            Err(_) if crate::fitted_lights::wanted() => 7,
-            Err(_) => 0,
+            // light baked (`fitted_lights::trial_of_variable`).
+            Err(_) => crate::fitted_lights::trial_of_variable(),
         }))
     }
 }

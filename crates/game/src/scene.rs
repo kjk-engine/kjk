@@ -1081,6 +1081,9 @@ pub(crate) struct Tally {
 pub(crate) struct Spawner<'t> {
     pub textures: BTreeMap<&'t str, Handle<Image>>,
     irs: &'t BTreeMap<String, TextureIr>,
+    /// The stored lightmaps that baked ones replace in `irs`
+    /// (`LoadedScene::stored_lightmaps`). Empty but for an area's scene.
+    stored: &'t BTreeMap<String, TextureIr>,
     /// One image per frame for each flip-book diffuse, and its rate.
     frames: BTreeMap<&'t str, (Vec<Handle<Image>>, f32)>,
     area: AreaLight,
@@ -1152,6 +1155,9 @@ impl SharedImages {
     }
 }
 
+/// No stored lightmap, for a scene that shows no bake.
+static NO_STORED: BTreeMap<String, TextureIr> = BTreeMap::new();
+
 impl<'t> Spawner<'t> {
     /// Images for `textures` (each flip-book's frames too).
     pub fn new(
@@ -1194,6 +1200,7 @@ impl<'t> Spawner<'t> {
         Spawner {
             textures: handles,
             irs: textures,
+            stored: &NO_STORED,
             frames,
             area,
             cache: BTreeMap::new(),
@@ -1461,9 +1468,9 @@ impl<'t> Spawner<'t> {
         // Under the fitted lights' trial a room's lamp that the files do
         // not set to glow glows by how lit its stored lightmap shows it.
         let switched = if is_room {
-            crate::fitted_lights::switched_on(part, || {
+            crate::fitted_lights::switched_on(part, self.area.fitted, || {
                 let name = part.lightmap.as_deref()?;
-                crate::viewer::stored_lightmap(name).or_else(|| self.irs.get(name).cloned())
+                crate::viewer::stored_or_drawn(self.stored, self.irs, name).cloned()
             })
         } else {
             0.0
@@ -1968,6 +1975,7 @@ pub(crate) fn spawn_scene(
         images,
         &loaded.images,
     );
+    spawner.stored = &loaded.stored_lightmaps;
     // Lights in Bevy world space: model offset and bearing, then the
     // light node's rest-pose position.
     let mut lights = Vec::new();
@@ -2097,7 +2105,7 @@ pub(crate) fn spawn_scene(
     // `KJK_FITTED_LIGHTS=on`: the area's own light fittings shine
     // (`fitted_lights`). They reach the rooms and every object, as a
     // fight's light does. A trial's switch.
-    if crate::fitted_lights::wanted() {
+    if crate::fitted_lights::wanted_in(loaded.baked) {
         let fitted = if loaded.lit {
             crate::fitted_lights::lights(loaded)
         } else {

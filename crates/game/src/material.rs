@@ -443,6 +443,10 @@ pub struct AreaLight {
     /// Its bake asks for its rooms' surfaces with no lightmap to be dark
     /// (`DARK_UNLIT`, `unlit.txt` in the bake's folder).
     pub dark_unlit: bool,
+    /// The area's fitted lights shine (`fitted_lights::wanted_in`), so a
+    /// room's lamp that the files do not set to glow may glow
+    /// (`fitted_lights::switched_on`).
+    pub fitted: bool,
 }
 
 impl AreaLight {
@@ -454,6 +458,7 @@ impl AreaLight {
             shadowed: false,
             probed: false,
             dark_unlit: false,
+            fitted: false,
         }
     }
 }

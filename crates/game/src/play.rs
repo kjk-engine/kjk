@@ -371,6 +371,7 @@ pub fn compose(
     let mut sound = None;
     let mut probes = Default::default();
     let (mut baked, mut dark_unlit) = (false, false);
+    let mut stored_lightmaps = BTreeMap::new();
     let mut name = body.label.clone();
     // A module's scene comes first: its rooms and doors name their models
     // by index.
@@ -397,6 +398,7 @@ pub fn compose(
         probes = module.probes;
         baked = module.baked;
         dark_unlit = module.dark_unlit;
+        stored_lightmaps = module.stored_lightmaps;
     }
     let mut blades = Vec::new();
     let mut arms = BTreeMap::new();
@@ -435,6 +437,7 @@ pub fn compose(
         probes,
         baked,
         dark_unlit,
+        stored_lightmaps,
         entry: None,
         missing_models: Vec::new(),
         rooms,
