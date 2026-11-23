@@ -842,18 +842,18 @@ impl Talk {
         });
     }
 
-    /// The conversations under way and asked for with PC `from` go on with
-    /// `to` (`SwitchPlayerCharacter`): its seat answers them, and it is
+    /// The conversations under way and asked for with `from` as their
+    /// `GetPCSpeaker` go on with `to` (`SwitchPlayerCharacter`): its seat answers them, and it is
     /// their `GetPCSpeaker`.
     pub(super) fn retarget(&mut self, from: ObjectId, to: ObjectId) {
-        let pcs = self
+        let speakers = self
             .conversations
             .iter_mut()
             .map(|c| &mut c.pc)
             .chain(self.asked.iter_mut().map(|start| &mut start.pc))
             .chain(self.running.as_mut());
-        for pc in pcs.filter(|pc| **pc == from) {
-            *pc = to;
+        for speaker in speakers.filter(|speaker| **speaker == from) {
+            *speaker = to;
         }
         let bodies = self
             .conversations
@@ -1181,14 +1181,14 @@ impl View<'_> {
     /// `world::switch`), that creature is the first seat's main character,
     /// from the moment a script switches it.
     pub(crate) fn main_characters(&self, table: &Party) -> Vec<ObjectId> {
-        let mut pcs = self.party.to_vec();
+        let mut mains = self.party.to_vec();
         if let Some(body) = table.switched_body().map(ObjectId) {
-            match pcs.first_mut() {
+            match mains.first_mut() {
                 Some(first) => *first = body,
-                None => pcs.push(body),
+                None => mains.push(body),
             }
         }
-        pcs
+        mains
     }
 
     /// The first seat's main character, which is the host's.
@@ -1229,10 +1229,10 @@ impl View<'_> {
         (pc, asker)
     }
 
-    /// The host's main character (the first of the main characters), and the body its seat
-    /// acts through: the companion leading, while one does (`world::lent`).
-    /// Both are read off the party table as it stands, as `main_characters` reads a
-    /// switch, not off the step's `seats`: a script's `SetPartyLeader`
+    /// The host's main character (the first of the main characters), and
+    /// the body its seat acts through: the companion leading, while one
+    /// does (`world::lent`). Both are read off the party table as it
+    /// stands, as `main_characters` reads a switch, not off the step's `seats`: a script's `SetPartyLeader`
     /// earlier in the step leaves those behind. A companion's own talk
     /// trigger (K1's `k_trg_partyinit`) hands the lead back to the PC,
     /// then has the companion start its conversation with `GetFirstPC()`:

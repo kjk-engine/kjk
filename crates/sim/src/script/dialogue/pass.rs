@@ -487,8 +487,7 @@ impl Step<'_> {
     /// (an invisible placeable a scene speaks through: Taris's raid, the
     /// swoop pits' Brejik). reone keeps the asker's DLG [verify in the
     /// game]. A companion in the party is not such a one: the script
-    /// names it as its PC, and the asker's
-    /// DLG plays (the Endar Spire's room-3 door opened by Trask).
+    /// passes it as the one conversed with, and the asker's DLG plays (the Endar Spire's room-3 door opened by Trask).
     pub(in crate::script) fn converse(
         &mut self,
         who: ObjectId,

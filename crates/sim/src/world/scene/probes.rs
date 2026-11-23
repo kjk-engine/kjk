@@ -454,7 +454,7 @@ fn tagged(tag: &str) -> [Op; 3] {
 fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::script::Library {
     let call = |routine, args| Op::Action { routine, args };
     // `BeginConversation(dialog, GetFirstPC())`: run by no dialogue event,
-    // it names the PC, as a scene's script must.
+    // it names the main character, as a scene's script must.
     let begin = program(&[
         call(3, 0),
         Op::Const(Const::String(dialog.as_bytes().to_vec())),
@@ -1726,10 +1726,10 @@ fn hostile_held_companion_leads() -> Found {
     ground.lead(buddy);
     ground.run_script("probe_assign_converse", TALKER)?;
     ground.idle(1000);
-    let pc = ground.last.talk.party().map(|c| c.pc);
-    if pc != Some(ObjectId(main.0)) {
+    let speaker = ground.last.talk.party().map(|c| c.pc);
+    if speaker != Some(ObjectId(main.0)) {
         return Err(format!(
-            "the conversation's PC is {pc:?}, not the main character {main:?}"
+            "the conversation's character is {speaker:?}, not the main character {main:?}"
         ));
     }
     let held = charge(&mut ground, "probe_attack_buddy", buddy)?;

@@ -362,7 +362,7 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
     let worth = || {
         let thing = view.thing(dead)?;
         let character = thing.character?;
-        let player = view
+        let main = view
             .thing(view.first_main_character(&state.party))?
             .character?;
         if character.party
@@ -370,14 +370,14 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
                 .module
                 .repute
                 .with(&state.reputation)
-                .hostile(character.faction, player.faction)
+                .hostile(character.faction, main.faction)
         {
             return None;
         }
         let facts = view.facts(dead)?;
         let experience = library.experience();
         let xp = state.xp(crate::inventory::PARTY);
-        let potential = library.classes().potential_level(player.level, xp);
+        let potential = library.classes().potential_level(main.level, xp);
         if crate::combat::passive::Game::named(&view.module.game)
             != crate::combat::passive::Game::Tsl
         {
@@ -390,7 +390,7 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
         let autobalanced = (facts.multiplier_set != 0).then(|| {
             let pc_level = script::global(&state.numbers, script::xp::PC_LEVEL)
                 .and_then(|level| u8::try_from(*level).ok())
-                .unwrap_or(player.level);
+                .unwrap_or(main.level);
             (facts.multiplier_set, pc_level)
         });
         let members = state.party.members.len() + 1;

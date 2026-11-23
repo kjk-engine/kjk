@@ -266,7 +266,7 @@ impl Editor<'_> {
             feats: sheet.feats,
             gender: 0,
             abilities: sheet.abilities,
-            player,
+            is_pc: player,
             tag: String::new(),
             tsl: passive::Game::named(game) == passive::Game::Tsl,
             // The editor warns of limits rather than holding to them, and a

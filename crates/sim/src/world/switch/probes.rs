@@ -537,7 +537,7 @@ fn lead(world: &mut SimWorld, body: SimId) -> Snapshot {
 fn led_first_pc() -> Result<String, String> {
     let (mut world, _, standing) = switch_world(1, true)?;
     let start = run(&mut world, 1, 0);
-    let own = start
+    let main = start
         .own(Seat(0))
         .map(|e| e.id)
         .ok_or("no main character")?;
@@ -550,7 +550,7 @@ fn led_first_pc() -> Result<String, String> {
             .chain(tokens(&snapshot, FIRST_VALID_TOKEN..=STANDING_IS_PC_TOKEN))
             .collect::<Vec<_>>()
     };
-    let (led, back) = (first(&mut world, standing), first(&mut world, own));
+    let (led, back) = (first(&mut world, standing), first(&mut world, main));
     check(
         led == ["", "1", "1"] && back == ["", "1", "0"],
         format!(
@@ -567,7 +567,7 @@ fn led_first_pc() -> Result<String, String> {
 fn led_min_one_hp() -> Result<String, String> {
     let (mut world, _, standing) = switch_world(1, true)?;
     let start = run(&mut world, 1, 0);
-    let own = start
+    let main = start
         .own(Seat(0))
         .map(|e| e.id)
         .ok_or("no main character")?;
@@ -578,13 +578,13 @@ fn led_min_one_hp() -> Result<String, String> {
     lead(&mut world, standing);
     queue(&mut world, "probe_min_one_on");
     let during = run(&mut world, 1, 0);
-    lead(&mut world, own);
+    lead(&mut world, main);
     queue(&mut world, "probe_min_one_off");
     let after = run(&mut world, 1, 0);
     let seen = (
-        kept(&during, own),
+        kept(&during, main),
         kept(&during, standing),
-        kept(&after, own),
+        kept(&after, main),
         kept(&after, standing),
     );
     check(

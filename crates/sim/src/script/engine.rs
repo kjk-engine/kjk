@@ -2104,8 +2104,8 @@ impl Engine<'_> {
                 }
                 Value::Int(0)
             }
-            // No tag is the player's (its creature has none): reone's
-            // `GetObjectByTag`; Trask's walk to the player at the Endar
+            // No tag is the main character's (its creature has none): reone's
+            // `GetObjectByTag`; Trask's walk to the main character at the Endar
             // Spire's start went to an untagged object elsewhere.
             GetObjectByTag if text(args, 0).is_empty() => Value::Object(
                 self.main_characters()
@@ -2575,7 +2575,7 @@ impl Engine<'_> {
                 None => maybe(None),
             },
             // The first creature joins the second's faction; neither may be
-            // a player's own character (`ChangeFaction` sets nothing then).
+            // a main character (`ChangeFaction` sets nothing then).
             // Either may have been made earlier in the step, and the second's
             // faction is the one this step's scripts have left it so far.
             ChangeFaction => {
@@ -3269,7 +3269,7 @@ impl Engine<'_> {
                     })
                     .unwrap_or(0),
             ),
-            // Leaves a player's own character as it is: both executables'
+            // Leaves a main character as it is: both executables'
             // `ExecuteCommandChangeFaction` (`ChangeToStandardFaction`, and
             // `ChangeFaction`) pass over a creature whose stats are a PC's,
             // so Dxun's battle circle (`a_circle_fight`, `tr_circle`: the PC
@@ -5405,7 +5405,7 @@ impl Engine<'_> {
                     caller
                 };
                 // Whoever asked for it plays, alone: the guest whose pick
-                // or use led here, else the PC speaking (I30 P8).
+                // or use led here, else the PC speaker (I30 P8).
                 let pc = self.state.talk.running.unwrap_or_else(|| {
                     self.main_characters()
                         .first()
@@ -5947,12 +5947,13 @@ impl Engine<'_> {
                     // the destroy event over for one not destroyable
                     // (506OND's `a_end_game` destroys Tobin's body, then
                     // raises him for Kreia's scene) [verify in K1's exe].
-                    // Nor is a player's own character, as the Aurora
-                    // engines never destroy a player: Gadon's night in the
-                    // Bek base (`k_ptar_racecs0`) destroys party members 1
-                    // and 2, the player among them while a companion leads.
+                    // Nor is a main character, as the Aurora engines
+                    // never destroy one: Gadon's night in the Bek base
+                    // (`k_ptar_racecs0`) destroys party members 1 and 2,
+                    // the main character among them while a companion
+                    // leads.
                     // Nor is the character the first seat is switched to,
-                    // the player's character meanwhile.
+                    // the main character meanwhile.
                     let ms = seconds_ms(float(args, 1));
                     self.keep_lent(item);
                     if ms == 0 {
@@ -6274,9 +6275,8 @@ impl Engine<'_> {
         self.view.main_characters(&self.state.party)
     }
 
-    /// The character the first seat controls: the companion it leads while
-    /// one leads (`world::lent`), else its main character. While a companion
-    /// leads, this differs from the main character that `main_characters` gives.
+    /// While a companion leads, this is that companion and not the main
+    /// character that `main_characters` gives.
     fn first_seat_character(&self) -> Option<ObjectId> {
         crate::world::lent(&self.state.party)
             .map(|body| ObjectId(body.0))

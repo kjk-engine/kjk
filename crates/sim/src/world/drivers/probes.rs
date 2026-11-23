@@ -18,10 +18,10 @@ use std::sync::Arc;
 /// The companions' templates, in the party's joining order.
 const COMPANIONS: [&str; 2] = ["probe_comp_a", "probe_comp_b"];
 
-/// The party check's script (`pcs_script`).
+/// The party check's script (`party_script`).
 const PCS: &str = "probe_pcs";
 /// The first companion's end-of-round hook, and a story's script: each
-/// moves the first companion to the second (`pcs_script`).
+/// moves the first companion to the second (`party_script`).
 const AI: &str = "probe_ai";
 const STORY: &str = "probe_story";
 /// The first companion's heartbeat (an AI hook) and a story's script: each
@@ -135,15 +135,15 @@ fn library() -> crate::script::Library {
             )
         })
         .collect();
-    pcs_script().with_creatures(creatures)
+    party_script().with_creatures(creatures)
 }
 
 /// The party check, run by the module (`PCS`): three message boxes for
-/// every player, numbered `GetIsPC(GetPartyMemberByIndex(1))`,
+/// every seat, numbered `GetIsPC(GetPartyMemberByIndex(1))`,
 /// `GetPartyMemberCount()` and `GetIsObjectValid(GetNextPC())` after
-/// `GetFirstPC()`: 0, 3 and 0 when the scripts see one player and two
-/// companions.
-fn pcs_script() -> crate::script::Library {
+/// `GetFirstPC()`: 0, 3 and 0 when the scripts see one main character
+/// and two companions.
+fn party_script() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     const CATALOG: &str = r#"
 // 0

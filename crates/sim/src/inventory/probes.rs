@@ -272,7 +272,7 @@ fn limits() -> Checks {
         feats: Rows::default(),
         gender: 1,
         abilities: [12; 6],
-        player: true,
+        is_pc: true,
         tag: String::new(),
         tsl,
         locked: 0,
