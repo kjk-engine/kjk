@@ -10,7 +10,7 @@ pub mod camera_room_probes;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::FRAC_PI_2;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 
 use asset_odyssey::model::Matrix;
 use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
@@ -758,6 +758,18 @@ pub(crate) fn fit_to_gpu(texture: &TextureIr, name: Option<&str>) -> Option<Text
     Some(fitted)
 }
 
+/// The anisotropic filtering every texture uploaded from now on samples
+/// with (the options' Anisotropic Filtering, `Settings::anisotropy`). A
+/// texture keeps the filtering it was uploaded with, so a change applies
+/// when the next area uploads its textures.
+static ANISOTROPY: AtomicU16 = AtomicU16::new(16);
+
+/// Sets the anisotropic filtering of textures uploaded from now on: 1
+/// (off), 2, 4, 8 or 16.
+pub(crate) fn set_anisotropy(samples: u16) {
+    ANISOTROPY.store(samples, Ordering::Relaxed);
+}
+
 /// `texture` for any material: a DXT1 with holes is decoded (its holes
 /// opaque black), as only the scene's material samples it as the games did.
 pub(crate) fn image(texture: &TextureIr) -> Image {
@@ -868,9 +880,10 @@ fn upload(texture: &TextureIr) -> Image {
         mag_filter: ImageFilterMode::Linear,
         min_filter: ImageFilterMode::Linear,
         mipmap_filter: ImageFilterMode::Linear,
-        // 16x anisotropic filtering keeps floors and walls sharp when the
-        // camera sees them at a shallow angle.
-        anisotropy_clamp: 16,
+        // Anisotropic filtering keeps floors and walls sharp when the
+        // camera sees them at a shallow angle (the options' Anisotropic
+        // Filtering, 16x unless the player chose less).
+        anisotropy_clamp: ANISOTROPY.load(Ordering::Relaxed),
         ..default()
     });
     image
