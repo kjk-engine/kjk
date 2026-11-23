@@ -1788,6 +1788,11 @@ impl<'t> Spawner<'t> {
         let glow = list(material(&spec.glow, true, 1.0), false);
         let core = list(material(&spec.core, true, BLADE_CORE_GLOW), false);
         let trail_quads = list(material(&spec.trail_texture, false, 1.0), true);
+        let trail_core_name = format!("{}{}", spec.trail_texture, crate::viewer_ja::SECOND_STAGE);
+        let trail_core = self
+            .textures
+            .contains_key(trail_core_name.as_str())
+            .then(|| list(material(&trail_core_name, false, 1.0), true));
         if shipped.is_empty() {
             parts.push(glow.drawn());
             parts.push(core.drawn());
@@ -1795,6 +1800,9 @@ impl<'t> Spawner<'t> {
         let (origin, dir) = (Vec3::from_array(spec.origin), Vec3::from_array(spec.dir));
         if !spec.trail.is_empty() || spec.live {
             parts.push(trail_quads.drawn());
+            if let Some(core) = &trail_core {
+                parts.push(core.drawn());
+            }
         }
         commands
             .spawn((
@@ -1819,6 +1827,7 @@ impl<'t> Spawner<'t> {
                     period: spec.period,
                     trail: spec.trail.clone(),
                     trail_quads,
+                    trail_core,
                     trail_color: own.unwrap_or(spec.trail_color),
                     shown: spec.shown.clone(),
                     glow_empty: true,
@@ -3068,6 +3077,9 @@ struct Blade {
     period: f32,
     trail: Vec<crate::viewer::TrailKey>,
     trail_quads: QuadList,
+    /// The trail's second shader stage, which Jedi Academy draws untinted
+    /// as the white core of the trail.
+    trail_core: Option<QuadList>,
     trail_color: [f32; 3],
     /// Seconds of the period the blade is drawn in; empty for always.
     shown: Vec<(f32, f32)>,
@@ -3309,6 +3321,20 @@ pub(crate) fn blade_mesh(mut positions: Vec<[f32; 3]>, mut uvs: Vec<[f32; 2]>) -
 /// life and fading out over it, its texture sliding along as it ages.
 /// Coloured `color`; none when no segment shows.
 fn trail_quads(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Option<Quads> {
+    trail_quads_of(keys, at, |age| [color[0], color[1], color[2], 1.0 - age])
+}
+
+/// The trail's untinted second stage over the same segments (JA's
+/// `rgbGen identity`: white, with no fade of its own).
+fn trail_core_quads(keys: &[crate::viewer::TrailKey], at: f32) -> Option<Quads> {
+    trail_quads_of(keys, at, |_| [1.0; 4])
+}
+
+fn trail_quads_of(
+    keys: &[crate::viewer::TrailKey],
+    at: f32,
+    colour: impl Fn(f32) -> [f32; 4],
+) -> Option<Quads> {
     let game = game_to_bevy();
     let mut positions = Vec::new();
     let mut uvs = Vec::new();
@@ -3325,7 +3351,7 @@ fn trail_quads(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Op
         // How far back the older edge's texture starts: one less what is
         // left of that edge's alpha.
         let back = 1.0 - (1.0 - (new.time - old.time) / life);
-        let colour = [color[0], color[1], color[2], 1.0 - age];
+        let colour = colour(age);
         let corners = [
             (new.base, [age, 1.0]),
             (new.tip, [age, 0.0]),
@@ -3461,8 +3487,13 @@ fn draw_blades(
                     tip: (to_game * (origin + dir * (current + 3.0) * unit)).to_array(),
                     life_ms: if current >= 0.5 { wanted.trail_ms } else { 0.0 },
                 });
-                let trail = trail_quads(live.recent.make_contiguous(), seconds, blade.trail_color);
-                (current, Some(trail))
+                let keys = live.recent.make_contiguous();
+                let trail = trail_quads(keys, seconds, blade.trail_color);
+                let core = blade
+                    .trail_core
+                    .is_some()
+                    .then(|| trail_core_quads(keys, seconds));
+                (current, Some((trail, core.flatten())))
             }
             None => {
                 let hidden = !blade.shown.is_empty()
@@ -3473,16 +3504,25 @@ fn draw_blades(
                     asset_odyssey::anim::sample_position(&blade.extend, at)
                         .map_or(blade.length, |extent| extent[0])
                 };
-                let trail = (!blade.trail.is_empty())
-                    .then(|| trail_quads(&blade.trail, at, blade.trail_color));
+                let trail = (!blade.trail.is_empty()).then(|| {
+                    let core = blade
+                        .trail_core
+                        .is_some()
+                        .then(|| trail_core_quads(&blade.trail, at))
+                        .flatten();
+                    (trail_quads(&blade.trail, at, blade.trail_color), core)
+                });
                 (length, trail)
             }
         };
-        if let Some(trail) = trail {
+        if let Some((trail, core)) = trail {
             let empty = trail.is_none();
             if !(empty && blade.trail_empty) {
                 let trail = trail.unwrap_or_else(Quads::default);
                 blade.trail_quads.write(&trail, stores.assets());
+                if let Some(list) = &mut blade.trail_core {
+                    list.write(&core.unwrap_or_default(), stores.assets());
+                }
             }
             blade.trail_empty = empty;
         }
