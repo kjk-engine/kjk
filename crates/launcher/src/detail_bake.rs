@@ -691,7 +691,7 @@ pub(crate) fn bake_area(
     } = texels(reader, resolver, area, false, &[])?;
     let level = Level::new(&surfaces, bounds(&surfaces));
     let points = points(claims, &level);
-    bake_points(&maps, &facts, &level, &points, area, options, folder, lights, started)
+    bake_points((&maps, &facts, &level, &points), area, options, folder, lights, started)
 }
 
 /// The room surfaces of an area and the new texels on them, as the bake
@@ -1192,12 +1192,8 @@ fn points(claims: Vec<Vec<Option<Claim>>>, level: &Level) -> Vec<Point> {
 }
 
 /// The rest of `bake_area`, once the texels are known.
-#[allow(clippy::too_many_arguments)]
 fn bake_points(
-    maps: &[Stored],
-    facts: &[Facts],
-    level: &Level,
-    points: &[Point],
+    (maps, facts, level, points): (&[Stored], &[Facts], &Level, &[Point]),
     area: &AreaIr,
     options: &Options,
     folder: &Path,
@@ -2042,9 +2038,7 @@ fn bake_lights(
 
     write_sets(
         resolver,
-        &maps,
-        &points,
-        &counts,
+        (&maps, &points, &counts),
         &unwalked,
         folder,
         &[("a", &shown_a[..], true), ("b", &shown_b[..], false)],
@@ -2128,12 +2122,10 @@ fn bake_lights(
 /// to 1, where the area has a sun. A set that keeps no stored texel holds it
 /// as its alpha, and the game's shadows read it there (`room_shadow` in
 /// `odyssey.wgsl`). Without it the alpha is 1.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 fn write_sets(
     resolver: &Resolver,
-    maps: &[Stored],
-    points: &[Point],
-    counts: &[bool],
+    (maps, points, counts): (&[Stored], &[Point], &[bool]),
     unwalked: &[String],
     folder: &Path,
     sets: &[(&str, &[Vec3], bool)],

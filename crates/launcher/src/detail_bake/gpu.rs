@@ -475,18 +475,15 @@ struct Passes<'g> {
 impl Passes<'_> {
     /// Runs one pass over the first `count` places, a chunk at a time.
     fn run(&self, mode: u32, count: usize, samples: u32, rays: u32, seed: u32) -> Result<(), String> {
-        self.run_toward(mode, count, samples, rays, seed, Vec3::Z, 0.0)
+        self.run_toward(mode, count, (samples, rays, seed), Vec3::Z, 0.0)
     }
 
     /// `run_toward` over the places `from` to `from + count`.
-    #[allow(clippy::too_many_arguments)]
     fn run_from(
         &self,
         mode: u32,
         (from, count): (usize, usize),
-        samples: u32,
-        rays: u32,
-        seed: u32,
+        (samples, rays, seed): (u32, u32, u32),
         toward: Vec3,
         width: f32,
     ) -> Result<(), String> {
@@ -500,14 +497,11 @@ impl Passes<'_> {
     /// `run`, with the way to the sun for `MODE_SKY` and half the sun's
     /// width. A width of 0 is the shader's own, with every ray from the
     /// texel's middle.
-    #[allow(clippy::too_many_arguments)]
     fn run_toward(
         &self,
         mode: u32,
         count: usize,
-        samples: u32,
-        rays: u32,
-        seed: u32,
+        (samples, rays, seed): (u32, u32, u32),
         toward: Vec3,
         width: f32,
     ) -> Result<(), String> {
@@ -647,7 +641,7 @@ pub(super) fn bake_lights(
     lap("texels on the CPU".into(), &mut times);
 
     if let Some((at, radius)) = options.probe {
-        probe(&maps, &facts, &names, &level, &points, lights, at, radius);
+        probe(&maps, &facts, &names, &level, &points, lights, (at, radius));
     }
 
     let losses = losses(&facts, &level, &points, &grid);
@@ -1089,7 +1083,7 @@ pub(super) fn bake_lights(
     // nothing in an area without a sun. It is kept apart from the lamps'
     // light, because a room's scale is for its lamps and not for the sun.
     let sun_and_sky = |toward: Vec3, samples: u32, rays: u32, width: f32| -> Result<Vec<[f32; 2]>, String> {
-        passes.run_toward(MODE_SKY, count, samples, rays, 20, toward, width)?;
+        passes.run_toward(MODE_SKY, count, (samples, rays, 20), toward, width)?;
         let read = gpu.read(&passes.results)?;
         Ok((0..count).map(|i| [read[2 * i][0], read[2 * i][1]]).collect())
     };
@@ -1110,7 +1104,7 @@ pub(super) fn bake_lights(
     };
     // The sun's and the sky's light on the probes' places.
     let probe_sun_and_sky = |toward: Vec3, samples: u32, rays: u32, width: f32| -> Result<Vec<[f32; 2]>, String> {
-        passes.run_from(MODE_SKY, probe_range, samples, rays, 21, toward, width)?;
+        passes.run_from(MODE_SKY, probe_range, (samples, rays, 21), toward, width)?;
         let read = gpu.read(&passes.results)?;
         Ok((0..probe_range.1).map(|j| [read[2 * (probe_first + j)][0], read[2 * (probe_first + j)][1]]).collect())
     };
@@ -1250,7 +1244,7 @@ pub(super) fn bake_lights(
         }
         let field_b = flat(&field_of(&maps, &points, &counts, b));
         passes.write_fields(&field_b, &field_b);
-        passes.run_from(MODE_BOUNCE_NEW, probe_range, 0, BOUNCE_RAYS, seed, Vec3::Z, 0.0)?;
+        passes.run_from(MODE_BOUNCE_NEW, probe_range, (0, BOUNCE_RAYS, seed), Vec3::Z, 0.0)?;
         let read = gpu.read(&passes.results)?;
         Ok((0..probe_range.1)
             .map(|j| [1, 2].map(|k| Vec3::from_slice(&read[3 * (probe_first + j) + k])))
@@ -1453,16 +1447,15 @@ pub(super) fn bake_lights(
     };
     // `a`: each room's light from the lights scaled to the live look's level
     // in that room.
+    let live_target = |texels: &[usize]| {
+        texels.iter().map(|&i| luma(shown_live[i])).sum::<f32>() / texels.len() as f32
+    };
     let rooms_a = room_levels(
         &maps,
         &points,
-        &counted,
-        &even_weights,
-        &base,
-        &added,
-        &|texels: &[usize]| {
-            texels.iter().map(|&i| luma(shown_live[i])).sum::<f32>() / texels.len() as f32
-        },
+        (&counted, &even_weights),
+        (&base, &added),
+        &live_target,
         if options.old { None } else { Some((ROOM_LEAST, ROOM_MOST)) },
         &stored_level,
     );
@@ -1502,10 +1495,8 @@ pub(super) fn bake_lights(
         let rooms = room_levels(
             &maps,
             &points,
-            &counted,
-            &even_weights,
-            &nothing,
-            &lamps_scaled,
+            (&counted, &even_weights),
+            (&nothing, &lamps_scaled),
             &|_| 0.0,
             None,
             &stored_level,
@@ -1525,18 +1516,17 @@ pub(super) fn bake_lights(
         let stated = read_levels(options.levels.as_deref())?;
         let room_of = |texels: &[usize]| texels.first().map(|&i| room_name(&maps[points[i].map]));
         let b_most = options.most.unwrap_or(B_MOST);
+        let b_target = |texels: &[usize]| {
+            room_of(texels)
+                .and_then(|room| stated.get(&room).copied())
+                .unwrap_or_else(|| without_stored(texels) * factor)
+        };
         let rooms = room_levels(
             &maps,
             &points,
-            &counted,
-            &lit_weights,
-            &sun_light,
-            &lamps_alone,
-            &|texels: &[usize]| {
-                room_of(texels)
-                    .and_then(|room| stated.get(&room).copied())
-                    .unwrap_or_else(|| without_stored(texels) * factor)
-            },
+            (&counted, &lit_weights),
+            (&sun_light, &lamps_alone),
+            &b_target,
             Some((options.least.unwrap_or(B_LEAST), b_most)),
             &eased_level,
         );
@@ -1788,9 +1778,7 @@ pub(super) fn bake_lights(
 
     write_sets(
         resolver,
-        &maps,
-        &points,
-        &counts,
+        (&maps, &points, &counts),
         &unwalked,
         folder,
         &[("a", &shown_a[..], true), ("b", &written_b[..], false)],
@@ -2975,14 +2963,11 @@ fn read_levels(path: Option<&Path>) -> Result<HashMap<String, f32>, String> {
 /// mean stored level is its `target`, within the `range`. A room is the
 /// lightmaps that share its name before `_lm`. With no range, every scale
 /// is 1 and only the levels are reported.
-#[allow(clippy::too_many_arguments)]
 fn room_levels(
     maps: &[Stored],
     points: &[Point],
-    counted: &[usize],
-    weights: &[f32],
-    base: &[Vec3],
-    added: &[Vec3],
+    (counted, weights): (&[usize], &[f32]),
+    (base, added): (&[Vec3], &[Vec3]),
     target: &dyn Fn(&[usize]) -> f32,
     range: Option<(f32, f32)>,
     level: &dyn Fn(Vec3) -> Vec3,
@@ -3045,7 +3030,6 @@ fn room_levels(
 /// Prints, for the texels within `radius` of `at`, what each light gives
 /// them and whether a ray from the texel reaches the light's nearest place,
 /// with the mesh that blocks it.
-#[allow(clippy::too_many_arguments)]
 fn probe(
     maps: &[Stored],
     facts: &[super::Facts],
@@ -3053,8 +3037,7 @@ fn probe(
     level: &Level,
     points: &[Point],
     lights: &[Fitted],
-    at: Vec3,
-    radius: f32,
+    (at, radius): (Vec3, f32),
 ) {
     let mut near: Vec<(f32, usize)> = (points.iter().enumerate())
         .filter(|(_, point)| point.inside)
