@@ -5321,11 +5321,18 @@ fn assets(
                             .map(|room| {
                                 // A room cut from a Jedi Academy level shows
                                 // its level and its name.
+                                // A room cut in another project also
+                                // shows that project.
                                 let shown = room.ja.as_ref().map_or_else(
                                     || room.model.clone(),
                                     |ja| {
+                                        let from = (room.ja_from.as_ref())
+                                            .and_then(|folder| folder.file_name())
+                                            .map_or(String::new(), |name| {
+                                                format!(", project {}", name.to_string_lossy())
+                                            });
                                         format!(
-                                            "{} {} (Jedi Academy)",
+                                            "{} {} (Jedi Academy{from})",
                                             level_edit::ja_rooms::short(&ja.level),
                                             ja.room
                                         )

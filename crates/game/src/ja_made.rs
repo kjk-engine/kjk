@@ -33,13 +33,18 @@
 //!   its texels, so rooms with the same atlas share it), and each lightmap
 //!   kept beside the level that the room uses (`jb`).
 //!
+//! The editor lists the rooms of every project, not only the map's own
+//! (`sources`). A map can so place a room cut in another project. Saving
+//! the map then copies that level's cuts into the map's project
+//! (`level_editor`), so the map's project holds all it needs to be played.
+//!
 //! The map's copy of the room, moved and turned to where the map places it,
 //! is then made as a KOTOR room's copy is (`level_edit::map::room_copy`).
 //! A run of the game makes it in memory too (`make_project`); the editor
 //! makes it as it makes every copy of a map it edits.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use asset_ja::level::Paint;
 use asset_ja::level_rooms::{Cut, RoomCuts, Shape};
@@ -74,6 +79,56 @@ pub struct Built {
     pub triangles: usize,
     /// The triangles of the room's walkmesh.
     pub floor: usize,
+    /// The folder of the project whose cuts the room was built from.
+    pub folder: PathBuf,
+}
+
+/// A level's rooms that a project keeps.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Source {
+    /// The level's path (`maps/t1_sour.bsp`).
+    pub level: String,
+    /// The project's folder.
+    pub folder: PathBuf,
+}
+
+/// The levels whose rooms a new map of the project in `folder` can place,
+/// each with the project that keeps its rooms. The project's own levels
+/// come first. A level that only other projects of `projects` (the folder
+/// of every project) keep follows, from the project whose rooms of it
+/// changed last.
+pub fn sources(folder: &Path, projects: Option<&Path>) -> Vec<Source> {
+    let mut found: Vec<Source> = (level_edit::ja_rooms::kept(folder).into_iter())
+        .map(|(level, _)| Source {
+            level,
+            folder: folder.to_path_buf(),
+        })
+        .collect();
+    // Every other project's levels, the last changed first.
+    let mut others: Vec<(Option<std::time::SystemTime>, String, PathBuf)> = Vec::new();
+    for entry in (projects.into_iter())
+        .flat_map(std::fs::read_dir)
+        .flatten()
+        .flatten()
+    {
+        let other = entry.path();
+        if !other.is_dir() || other == folder {
+            continue;
+        }
+        for (level, changed) in level_edit::ja_rooms::kept(&other) {
+            others.push((changed, level, other.clone()));
+        }
+    }
+    others.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+    for (_, level, other) in others {
+        if !found.iter().any(|source| source.level == level) {
+            found.push(Source {
+                level,
+                folder: other,
+            });
+        }
+    }
+    found
 }
 
 /// The cuts that `kept` holds, as the cutter takes them: the rest of the
@@ -251,19 +306,24 @@ pub fn build_level(
             from,
             triangles,
             floor: walkmesh.faces.len(),
+            folder: folder.to_path_buf(),
         });
     }
     Ok((built, notes))
 }
 
-/// Builds every room of every level the project in `folder` keeps rooms of
-/// (`level_edit::ja_rooms::kept`) into memory for `game`. Gives the rooms
-/// built, and what went wrong.
-pub fn build_kept(discovery: &Discovery, game: Game, folder: &Path) -> (Vec<Built>, Vec<String>) {
+/// Builds every room of every level of `sources` into memory for `game`,
+/// each from the cuts of its project. Gives the rooms built, and what went
+/// wrong.
+pub fn build_sources(
+    discovery: &Discovery,
+    game: Game,
+    sources: &[Source],
+) -> (Vec<Built>, Vec<String>) {
     let mut built = Vec::new();
     let mut notes = Vec::new();
-    for (level, _) in level_edit::ja_rooms::kept(folder) {
-        match build_level(discovery, game, folder, &level, None) {
+    for source in sources {
+        match build_level(discovery, game, &source.folder, &source.level, None) {
             Ok((rooms, more)) => {
                 built.extend(rooms);
                 notes.extend(more);

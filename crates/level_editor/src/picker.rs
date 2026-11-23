@@ -488,12 +488,30 @@ fn window(
             );
             let kotor = (picker.picked.as_ref())
                 .is_some_and(|(game, _)| *game != Game::JediAcademy);
-            let ready = kotor && level_edit::map::name_problem(&picker.new_map).is_none();
+            let problem = level_edit::map::name_problem(&picker.new_map);
+            let ready = kotor && problem.is_none();
+            // Why Make cannot be pressed yet, said beside it.
+            let why = if !kotor {
+                Some(
+                    "Pick a KOTOR level first. The new map takes its light, fog and sound."
+                        .to_string(),
+                )
+            } else if picker.new_map.is_empty() {
+                None
+            } else {
+                problem.map(|problem| format!("This name does not work, because {problem}."))
+            };
             let make = ui
                 .add_enabled(ready, egui::Button::new("Make"))
                 .on_hover_text(
                     "Makes a map of your own, built from the game's rooms. Its light,                      fog and sound start as the picked level's.",
-                );
+                )
+                .on_disabled_hover_text(why.clone().unwrap_or_else(|| {
+                    "Name the map first. A name has lowercase letters, digits and _, up to 12.".into()
+                }));
+            if let Some(why) = &why {
+                ui.label(egui::RichText::new(why).small().color(ui.visuals().warn_fg_color));
+            }
             if make.clicked()
                 && let Some((game, module)) = picker.picked.clone()
             {

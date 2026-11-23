@@ -124,11 +124,11 @@ and so are its music and ambient sound (its GIT's area properties).
   by itself.
 - **The entry.** The outliner's Entry is where the player starts: a yellow
   map marker that moves and turns like an object.
-- **Jedi Academy rooms.** The Rooms tab also lists every room the project
-  has cut from a Jedi Academy level ("Jedi Academy rooms in a new map"
-  below). Each is shown as its level and its name, such as "t1_sour
-  hangar (Jedi Academy)". It is placed, moved and turned as a KOTOR room
-  is.
+- **Jedi Academy rooms.** The Rooms tab also lists every room cut from a
+  Jedi Academy level, in this project or in any other ("Jedi Academy
+  rooms in a new map" below). Each is shown as its level and its name,
+  such as "t1_sour hangar (Jedi Academy)". It is placed, moved and turned
+  as a KOTOR room is.
 
 A room's walkmesh is in the coordinates of the area it was made for, so a
 room placed anywhere else is copied: its model under the name
@@ -1921,12 +1921,23 @@ placed. `dump` writes the rooms as the fact `ja_rooms`.
 
 ### Jedi Academy rooms in a new map
 
-A room cut from a Jedi Academy level can be placed in a new map of the
-same project. The project must keep both the map and the level's rooms,
-so the level is cut with that project named:
-`kjk-level-editor ja t1_sour --project my_map`. When the map is opened,
-the Rooms tab lists every room of every level the project keeps rooms of,
-the rest of each level among them.
+A room cut from a Jedi Academy level can be placed in any new map. When
+a map is opened, the Rooms tab lists every room of every level that any
+project keeps rooms of, the rest of each level among them.
+
+- A level the map's own project keeps rooms of is listed from that
+  project alone.
+- A level that only other projects keep is listed from the project whose
+  rooms of it changed last. Its rooms show that project's name, such as
+  "t1_sour hangar (Jedi Academy, project t1_sour)".
+
+Saving a map that places a room cut in another project copies that
+level's cuts file (`ja-rooms/<level>.toml`) into the map's project. The
+file holds only the shapes and the rooms' names. The map's project then
+keeps everything it needs, and plays without the other project. Later
+changes to the other project's cuts do not reach the map. To change the
+map's rooms, open the level with the map's project named:
+`kjk-level-editor ja t1_sour --project my_map`.
 
 **What the map keeps.** The map keeps a Jedi Academy room as the level's
 path and the room's name (`ja_level` and `ja_room` in `kjk-map.toml`). It

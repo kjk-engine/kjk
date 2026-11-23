@@ -116,6 +116,11 @@ pub struct LibraryRoom {
     /// The Jedi Academy room the model is built from, for a room the
     /// project cut from a Jedi Academy level (`kjk_game::ja_made`).
     pub ja: Option<level_edit::map::JaRoom>,
+    /// The folder of the other project whose cuts the room was built from,
+    /// for a room the project being edited did not cut. Saving a map that
+    /// places such a room copies the level's cuts into the project
+    /// (`copy_cuts`).
+    pub ja_from: Option<PathBuf>,
 }
 
 /// What the editor found of the navigation mesh it drew.
@@ -5360,6 +5365,44 @@ fn compile_scripts(state: &mut EditorState) {
 /// was written, then the light data's part (`save_light_data`). When the
 /// light data does not save, the project's own files are saved all the
 /// same, and the error says so.
+/// Copies into the project the cuts of each Jedi Academy level that its
+/// map places rooms of and that it does not keep itself: the file of
+/// the other project the rooms were built from (`LibraryRoom::ja_from`).
+/// A map's project so holds the cuts of every room it places, and plays
+/// without the other project.
+fn copy_cuts(state: &mut EditorState) -> Result<(), String> {
+    let folder = state.editor.project.folder.clone();
+    let levels: std::collections::BTreeSet<String> = (state.editor.project.map.iter())
+        .flat_map(|map| &map.rooms)
+        .filter_map(|room| Some(room.ja.as_ref()?.level.clone()))
+        .collect();
+    for level in levels {
+        let own = level_edit::ja_rooms::path(&folder, &level);
+        if own.exists() {
+            continue;
+        }
+        let Some(from) = (state.setup.rooms.iter())
+            .filter(|room| room.ja.as_ref().is_some_and(|ja| ja.level == level))
+            .find_map(|room| room.ja_from.clone())
+        else {
+            continue;
+        };
+        let source = level_edit::ja_rooms::path(&from, &level);
+        if let Some(parent) = own.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("{}: {error}", parent.display()))?;
+        }
+        std::fs::copy(&source, &own)
+            .map_err(|error| format!("{} to {}: {error}", source.display(), own.display()))?;
+        state.say(format!(
+            "copied the rooms of {level} from the project {} into this one",
+            from.file_name()
+                .map_or(String::new(), |name| name.to_string_lossy().into_owned())
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
     let started = std::time::Instant::now();
     let saved = save_timed(state);
@@ -5385,6 +5428,7 @@ fn save_timed(state: &mut EditorState) -> Result<(), String> {
     // data's, and the light data's again once they are the same.
     let own = lights_own(state);
     state.editor.project.kjk.own_lights = own;
+    copy_cuts(state)?;
     let resolver = state.setup.resolver.clone();
     let read = |name: &str, restype: ResType| resolver.read(name, restype);
     let written = state.editor.save_with(&made_by, &read)?;

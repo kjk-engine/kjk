@@ -332,6 +332,7 @@ fn room_library(resolver: &Resolver) -> Vec<state::LibraryRoom> {
                 from: placed.position,
                 area: area.clone(),
                 ja: None,
+                ja_from: None,
             });
         }
     }
@@ -392,7 +393,10 @@ fn setup(
     // memory before the resolver opens, so that it finds them as it finds
     // the install's rooms.
     let started = std::time::Instant::now();
-    let (built, made_notes) = kjk_game::ja_made::build_kept(&discovery, game, &folder);
+    // The project's own cut levels, and those only other projects keep.
+    let projects = level_edit::projects_folder(|var| std::env::var(var).ok());
+    let sources = kjk_game::ja_made::sources(&folder, projects.as_deref());
+    let (built, made_notes) = kjk_game::ja_made::build_sources(&discovery, game, &sources);
     for note in &made_notes {
         eprintln!("project {name}: {note}");
     }
@@ -473,6 +477,7 @@ fn setup(
         from: room.from,
         area: room.ja.level.clone(),
         ja: Some(room.ja),
+        ja_from: (room.folder != folder).then_some(room.folder),
     }));
     let light_data = light_data();
     let program = kjk_program()?;
