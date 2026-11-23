@@ -1,6 +1,7 @@
 //! Checks of the rooms the camera is in for the room culling, on rooms
 //! made here (no install): over a floor, against the wall between two
-//! rooms, inside a sky's bounds only, and outside every room.
+//! rooms, inside a sky's bounds only, outside every room, and with the
+//! player in another room than the camera.
 
 use bevy::prelude::*;
 
@@ -15,6 +16,7 @@ pub fn probes() -> Checks {
         ("against_a_wall", against_a_wall()),
         ("inside_a_sky_only", inside_a_sky_only()),
         ("outside_every_room", outside_every_room()),
+        ("player_in_another_room", player_in_another_room()),
     ]
 }
 
@@ -63,9 +65,9 @@ fn rooms() -> (Vec<RoomView>, Culling) {
     (rooms, culling)
 }
 
-/// The rooms that show to an eye at `eye`, without fog.
+/// The rooms that show to an eye at `eye`, without fog, with no player room.
 fn shown(rooms: &[RoomView], culling: &Culling, eye: Vec3) -> Vec<usize> {
-    let here = culling.eye_rooms(rooms, eye);
+    let here = culling.shown_from(culling.eye_rooms(rooms, eye));
     (0..rooms.len())
         .filter(|&room| culling.room_visible(rooms, here.as_deref(), eye, f32::INFINITY, room))
         .collect()
@@ -133,5 +135,31 @@ fn outside_every_room() -> Result<String, String> {
     check(
         here.is_none() && shown == [0, 1, 2, 3],
         format!("in {here:?}, shown {shown:?}; wanted no room and all four shown"),
+    )
+}
+
+/// The player stands in room c, whose VIS lists only b. The camera is 4 m
+/// away over room a's floor, and a lists only b. Rooms a, b and the sky d
+/// show from the camera alone, but c would be missing around the player.
+/// With the player's room counted, c shows too. After the player steps off
+/// every floor, c still shows, because its room is kept. A camera outside
+/// every room still shows all four rooms.
+fn player_in_another_room() -> Result<String, String> {
+    let (rooms, mut culling) = rooms();
+    let eye = Vec3::new(5.0, 5.0, 1.6);
+    let camera_only = shown(&rooms, &culling, eye);
+    culling.player_room = Some(2);
+    let with_player = shown(&rooms, &culling, eye);
+    let kept = shown(&rooms, &culling, eye);
+    let outside = shown(&rooms, &culling, Vec3::new(-900.0, 0.0, 0.0));
+    check(
+        camera_only == [0, 1, 3]
+            && with_player == [0, 1, 2, 3]
+            && kept == [0, 1, 2, 3]
+            && outside == [0, 1, 2, 3],
+        format!(
+            "camera alone showed {camera_only:?}, with the player in c {with_player:?}, \
+             kept {kept:?}, outside {outside:?}; wanted [0, 1, 3], then all four three times"
+        ),
     )
 }

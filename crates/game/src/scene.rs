@@ -104,6 +104,9 @@ pub(crate) struct Culling {
     /// The rooms the VIS and the fog pick, before the occlusion queries
     /// (`room_queries`) leave out those hidden behind walls.
     picked: Vec<bool>,
+    /// The room the player last stood in. It stays when the player steps
+    /// off every floor, as the original keeps its last room.
+    player_room: Option<usize>,
     /// What the rooms give a fight's light (its room, the rooms it does
     /// not reach), worked out when the scene is spawned.
     pub(crate) fight: crate::fight_rooms::FightRooms,
@@ -144,8 +147,26 @@ impl Culling {
         (!held.is_empty()).then_some(held)
     }
 
+    /// The rooms whose lists decide what shows: the rooms the camera is in
+    /// (`eye_rooms`, `camera`) and the room the player last stood in. The
+    /// original picks the room from the player alone. The camera here can
+    /// stand further away, in a room the player's room does not list, so
+    /// its room counts too. The player's room always counts, so a camera
+    /// in a neighbouring room never hides what the player's room lists
+    /// (issue 638). A camera in no room (a cutscene or a free camera)
+    /// gives `None`, and then every room shows.
+    fn shown_from(&self, camera: Option<Vec<usize>>) -> Option<Vec<usize>> {
+        let mut here = camera?;
+        if let Some(player) = self.player_room
+            && !here.contains(&player)
+        {
+            here.push(player);
+        }
+        Some(here)
+    }
+
     /// Whether room `room` shows to an eye at `eye` (game space) standing
-    /// in the rooms `here` (`eye_rooms`). The rooms linked with any room of
+    /// in the rooms `here` (`shown_from`). The rooms linked with any room of
     /// `here` show (`fight_rooms::linked`). That covers the rooms either
     /// VIS lists and the rooms that are only seen, such as the Ebon Hawk's
     /// space outside its cockpit (003eboq). In an area with fog, any room some part of
@@ -1916,6 +1937,7 @@ pub(crate) fn spawn_scene(
         bounds,
         shown: Vec::new(),
         picked: Vec::new(),
+        player_room: None,
     };
     queries.reset(&culling.bounds);
     let (images, mut stores) = assets.split();
@@ -2391,6 +2413,7 @@ fn cull_rooms(
     cameras: Query<(Ref<Transform>, &bevy::camera::primitives::Frustum), With<FlyCamera>>,
     mut rooms: Query<(&RoomOf, &mut Visibility)>,
     mut culling: ResMut<Culling>,
+    player: Res<PlayerRoom>,
     mut occlusion: crate::room_queries::Occlusion,
     mut facts: ResMut<DumpFacts>,
     (casters, mut doors, mut exempt): (
@@ -2409,13 +2432,20 @@ fn cull_rooms(
         return;
     }
     let eye = game_to_bevy().inverse() * camera.translation;
-    let moved = camera.is_changed() || culling.picked.len() != all.len();
+    let player_moved = player
+        .0
+        .is_some_and(|room| room < all.len() && culling.player_room != Some(room));
+    if player_moved {
+        culling.player_room = player.0;
+    }
+    let moved = camera.is_changed() || player_moved || culling.picked.len() != all.len();
     let current = moved.then(|| culling.eye_rooms(all, eye));
     let mut picked_changed = false;
     if let Some(current) = &current {
         let fog_far = scene.0.fog.as_ref().map_or(f32::INFINITY, |fog| fog.far);
+        let from = culling.shown_from(current.clone());
         let picked: Vec<bool> = (0..all.len())
-            .map(|index| culling.room_visible(all, current.as_deref(), eye, fog_far, index))
+            .map(|index| culling.room_visible(all, from.as_deref(), eye, fog_far, index))
             .collect();
         *exempt = (0..all.len())
             .map(|index| {

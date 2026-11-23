@@ -761,13 +761,14 @@ fn fight_light_rooms() {
 /// is in every room with a floor whose bounds hold it, so a camera in the
 /// wall between two rooms shows what both rooms see. A sky's bounds do not
 /// count. Outside every room it is in none, and every room shows. Needs
-/// `--features rig`; no installs. (proposed 2026-11-15, #464)
+/// `--features rig`; no installs. (proposed 2026-11-15, #464; a fifth check
+/// proposed 2026-11-23, #638)
 #[test]
 fn camera_rooms() {
     #[cfg(not(feature = "rig"))]
     println!("camera_rooms skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("camera rooms", &kjk::probes::camera_rooms(), 4);
+    probed("camera rooms", &kjk::probes::camera_rooms(), 5);
 }
 
 /// What the capsule shadows send the shader (`kjk::probes::capsule_shadows`),
