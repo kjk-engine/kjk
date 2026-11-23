@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `8b10f20ca06f252e`.
+Edition `edb75da5b5e026c4`.
 
 ## Contents
 
@@ -1344,7 +1344,7 @@ A blaster bolt can be deflected by a lightsaber.
 
 ### <a id="weapons-pistol"></a>Blaster Pistols
 
-Blaster pistols, heavy blasters and hold-out blasters fire one slow, powerful shot at a time.
+Fires one shot every 0.8 seconds. Dual-wielding pistols alternates hands (firing twice as fast) and grants +3 to hit to offset two-weapon penalties.
 
 <a id="weapons-pistol-refire-ms"></a>**Rate of Fire** = **0.8 seconds** (`800 ms`) · `weapons.pistol.refire_ms`
 
@@ -1398,7 +1398,7 @@ Each shot of a blaster pistol kicks the aim up by 0.8 degrees and to one side by
 
 ### <a id="weapons-rifle"></a>Blaster Rifles
 
-Blaster rifles and carbines fire a steady stream of bolts.
+Fires a steady stream of bolts (one every 0.35 seconds).
 
 <a id="weapons-rifle-refire-ms"></a>**Rate of Fire** = **0.35 seconds** (`350 ms`) · `weapons.rifle.refire_ms`
 
@@ -1436,7 +1436,7 @@ Each shot of a blaster rifle kicks the aim up by 0.35 degrees and to one side by
 
 ### <a id="weapons-repeater"></a>Repeating Blasters
 
-Repeating blasters and heavy repeating blasters fire a spray of small, fast bolts.
+Fires a rapid spray of bolts (one every 0.1 seconds, 80% damage per shot for players).
 
 <a id="weapons-repeater-refire-ms"></a>**Rate of Fire** = **0.1 seconds** (`100 ms`) · `weapons.repeater.refire_ms`
 
@@ -1446,7 +1446,7 @@ A repeating blaster fires once every 0.1 seconds.
 
 <a id="weapons-repeater-damage"></a>**Repeating Blaster Damage** = **80%** (`800 ‰`) · `weapons.repeater.damage`
 
-A repeating blaster fired by a character that a player controls deals 80% of its normal damage, in KOTOR and in KOTOR II.
+Player-controlled repeating blasters deal 80% of normal damage.
 
 The damage of each shot grows with the time between the weapon's shots, so a fast weapon deals small hits. A repeating blaster's spray of bolts hits nearly every time, and in KOTOR II a heavy repeating blaster rolls 2d8 damage where a blaster rifle rolls 1d12. Players found it much stronger than any other gun. A creature's shots follow the creature's own rate of fire, so this rule does not change the damage of a creature's repeating blaster.
 
@@ -1496,7 +1496,7 @@ Each shot of a repeating blaster kicks the aim up by 0.2 degrees and to one side
 
 ### <a id="weapons-bowcaster"></a>Bowcaster
 
-The bowcaster fires one slow, wide bolt with each pull of the trigger.
+Fires a slow, wide bolt every 1 second.
 
 <a id="weapons-bowcaster-refire-ms"></a>**Rate of Fire** = **1 second** (`1000 ms`) · `weapons.bowcaster.refire_ms`
 
@@ -1548,7 +1548,7 @@ Each shot of a bowcaster kicks the aim up by 1.2 degrees and to one side by up t
 
 ### <a id="weapons-disruptor"></a>Disruptors
 
-Disruptor pistols and disruptor rifles fire no bolt. Their shot hits the first thing in its path instantly. A lightsaber cannot deflect it.
+Fires an instant hitscan beam every 0.6 seconds. Cannot be deflected by a lightsaber.
 
 <a id="weapons-disruptor-refire-ms"></a>**Rate of Fire** = **0.6 seconds** (`600 ms`) · `weapons.disruptor.refire_ms`
 
@@ -1600,7 +1600,7 @@ Each shot of a disruptor kicks the aim up by 2 degrees and to one side by up to 
 
 ### <a id="weapons-ion"></a>Ion Weapons
 
-Ion blasters and ion rifles fire a wide bolt that passes through lightsaber blades.
+Fires a wide bolt every 0.5 seconds that cannot be deflected by a lightsaber.
 
 <a id="weapons-ion-refire-ms"></a>**Rate of Fire** = **0.5 seconds** (`500 ms`) · `weapons.ion.refire_ms`
 
@@ -1650,7 +1650,7 @@ Each shot of an ion weapon kicks the aim up by 0.6 degrees and to one side by up
 
 ### <a id="weapons-sonic"></a>Sonic Weapons
 
-Sonic pistols and sonic rifles fire several shards with each shot. The first shard flies straight at the aim, and the others spread out. The shot's damage is split equally between the shards.
+Fires a 5-shard spread every 0.7 seconds (damage split evenly across shards).
 
 <a id="weapons-sonic-refire-ms"></a>**Rate of Fire** = **0.7 seconds** (`700 ms`) · `weapons.sonic.refire_ms`
 
@@ -1716,9 +1716,7 @@ A bolt that hits nothing disappears after 10 seconds.
 
 ### <a id="weapons-unarmed"></a>Unarmed Combat
 
-A character with no weapon fights with its fists. An unarmed attack deals
-bludgeoning damage. The character's Strength modifier is added to the
-damage.
+Fists deal 1d3 bludgeoning damage plus your Strength mod (×2 on a natural 20).
 
 Beasts fight with their own claws, bites and gores instead.
 
@@ -2389,66 +2387,54 @@ the items that slain creatures leave behind.
 
 ### <a id="items-using"></a>Using Items in Combat
 
-Medpacs, stims and energy shields are used from a slot of the action bar or
-from the power wheel. When the character uses medpacs while poisoned or with
-a lowered attribute, the character uses an antidote kit. Otherwise the
-character uses a medpac, or a repair kit for a droid. If the character has
-neither, the character uses a squad recovery stim. The character injects a
-medpac, antidote kit or stim, and switches on an energy shield at the wrist.
-The item is used up when the character begins, and it takes effect when the
-character is done. If the character is stunned, choked, knocked down or downed before
-then, the use stops. Being hit or moving does not stop it. A weapon change or
-a Force power waits until the use is done.
+Use from the action bar or power wheel. The item is consumed when you start
+and takes effect when finished; moving or taking a hit does not interrupt
+it, but being stunned, choked, knocked down, or downed does.
 
-A character can have only one energy shield and one stim active at a time.
-Enemies also use medpacs, energy shields and stims in combat.
-
-An item used on another character, such as a droid's shock arm, stun ray or
-flame thrower, takes the user's combat round. The user can use such an item
-again only once 3 seconds have passed.
+Using the medpac slot while poisoned or attribute-drained uses an antidote
+kit; otherwise it uses a medpac (repair kit for droids), falling back to a
+squad recovery stim. Only one energy shield and one stim can be active at a
+time. Offensive droid items (shock arm, stun ray, flame thrower) have a
+one-round (3 seconds) cooldown.
 
 <a id="items-using-heal-ms"></a>**Healing Time** = **1.5 seconds** (`1500 ms`) · `items.using.heal_ms`
 
-Using a medpac or repair kit takes 1.5 seconds for a character with no ranks in Treat Injury or Repair.
+Takes 1.5 seconds to use, minus 0.1 seconds per rank in Treat Injury (or Repair for droids), down to 0.5 seconds.
 
 <sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-per-rank-ms"></a>**Healing Time per Rank** = **0.1 seconds** (`100 ms`) · `items.using.per_rank_ms`
 
-Each rank of Treat Injury makes using a medpac 0.1 seconds faster. For a droid, each rank of Repair makes using a repair kit 0.1 seconds faster.
+Each rank in Treat Injury (or Repair for droids) speeds up medpac / repair kit use by 0.1 seconds.
 
 <sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-least-ms"></a>**Fastest Healing** = **0.5 seconds** (`500 ms`) · `items.using.least_ms`
 
-Using a medpac or repair kit always takes at least 0.5 seconds.
+Medpac and repair kit use always takes at least 0.5 seconds.
 
 <sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-use-ms"></a>**Item Use Time** = **1.5 seconds** (`1500 ms`) · `items.using.use_ms`
 
-Using an energy shield, stim, antidote kit or squad recovery stim takes 1.5 seconds. The item takes effect at the end of that time.
+Takes 1.5 seconds to activate.
 
 <sub>Source: spells.2da (K1 and TSL): every item row's conjtime 170 + casttime 1330, its impact script run at the cast's end. Code: `sim::combat::items::USE_MS`.</sub>
 
 ### <a id="items-medpacs"></a>Medpacs
 
-A medpac heals 10 vitality points, plus the
-user's Wisdom modifier, plus 1 for each rank
-the user has in Treat Injury. An advanced medpac heals
-20 vitality points, plus the user's Wisdom
-modifier, plus 2 for each rank in Treat
-Injury. A life support pack heals 30 vitality
-points, plus the user's Wisdom modifier, plus
-3 for each rank in Treat Injury. Droids cannot
-use medpacs. An antidote kit cures poison and restores attributes that were
-lowered.
+Heals 10 (Medpac), 20
+(Advanced), or 30 (Life Support Pack) Vitality,
+plus your Wisdom mod and +1 /
++2 / +3 per
+rank in Treat Injury. Cannot be used by droids. Antidote kits cure poison
+and restore drained attributes.
 
 <a id="items-medpacs-points"></a>**Medpac Healing** = **10 HP / 20 HP / 30 HP** (`10 / 20 / 30 HP`) · `items.medpacs.points`
 
 Medpac **10 HP** · Advanced Medpac **20 HP** · Life Support Pack **30 HP**
 
-A medpac heals 10 vitality points. An advanced medpac heals 20, and a life support pack heals 30. The user's Wisdom modifier and Treat Injury skill are added on top.
+Base healing: 10 (Medpac), 20 (Advanced), 30 (Life Support Pack).
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -2456,27 +2442,24 @@ A medpac heals 10 vitality points. An advanced medpac heals 20, and a life suppo
 
 Medpac **1 HP** · Advanced Medpac **2 HP** · Life Support Pack **3 HP**
 
-Each rank of Treat Injury adds 1 vitality points to a medpac's healing. It adds 2 to an advanced medpac's and 3 to a life support pack's.
+Each rank in Treat Injury adds +1 / +2 / +3 Vitality.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-repair-kits"></a>Repair Kits
 
-A repair kit restores 15 vitality points,
-plus the user's Intelligence modifier, plus
-1 for each rank the user has in Repair. An
-advanced repair kit restores 25 vitality
-points, plus the user's Intelligence modifier, plus
-2 for each rank in Repair. A construction
-kit restores 35 vitality points, plus the
-user's Intelligence modifier, plus 3 for
-each rank in Repair. Only droids can use repair kits.
+Droids only. Restores 15 (Repair Kit),
+25 (Advanced), or
+35 (Construction Kit) Vitality, plus your
+Intelligence mod and +1 /
++2 /
++3 per rank in Repair.
 
 <a id="items-repair-kits-points"></a>**Repair Kit Repair** = **15 HP / 25 HP / 35 HP** (`15 / 25 / 35 HP`) · `items.repair_kits.points`
 
 Repair Kit **15 HP** · Advanced Repair Kit **25 HP** · Construction Kit **35 HP**
 
-A repair kit restores 15 vitality points. An advanced repair kit restores 25, and a construction kit restores 35. The user's Intelligence modifier and Repair skill are added on top.
+Base repair: 15 (Repair Kit), 25 (Advanced), 35 (Construction Kit).
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -2484,35 +2467,36 @@ A repair kit restores 15 vitality points. An advanced repair kit restores 25, an
 
 Repair Kit **1 HP** · Advanced Repair Kit **2 HP** · Construction Kit **3 HP**
 
-Each rank of Repair adds 1 vitality points to what a repair kit restores. It adds 2 to an advanced repair kit and 3 to a construction kit.
+Each rank in Repair adds +1 / +2 / +3 Vitality.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-squad-stim"></a>Squad Recovery Stim
 
-A squad recovery stim heals the user and every ally nearby. It heals droids
-too.
+Heals you and every ally within 20 m (including droids) for 30 Vitality.
 
 <a id="items-squad-stim-points"></a>**Squad Stim Healing** = **30 HP** · `items.squad_stim.points`
 
-A squad recovery stim heals each ally in range by 30 vitality points.
+Heals each ally in range for 30 Vitality.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-squad-stim-reach-m"></a>**Squad Stim Range** = **20 m** · `items.squad_stim.reach_m`
 
-A squad recovery stim heals allies within 20 meters of its user.
+Reaches allies within 20 m.
 
 <sub>Source: ours (a stand-in's). Code: `sim::combat::items::SQUAD_REACH`.</sub>
 
 ### <a id="items-stims"></a>Stims
 
-An adrenal strength stim raises Strength. An adrenal alacrity stim raises
-Dexterity. An adrenal stamina stim raises Constitution. A battle stimulant
-grants a bonus to attack and damage. It also grants bonus vitality points.
-Damage removes these bonus points before the character's own vitality
-points, and any that are left disappear when the stimulant wears off. A
-character can have only one stim active at a time.
+Lasts 120 seconds (only one stim active at a time). Adrenal stims
+grant +4 (Hyper: +6)
+to Strength, Dexterity, or Constitution. Battle stimulants grant
++1 / +2 /
++3 to hit and damage plus
+8 /
+16 /
+25 temporary Vitality.
 
 <a id="items-stims-ms"></a>**Stim Duration** = **120 seconds** (`120000 ms`) · `items.stims.ms`
 
@@ -2550,16 +2534,15 @@ A battle stimulant grants 8 bonus vitality points. A hyper-battle stimulant gran
 
 ### <a id="items-shields"></a>Energy Shields
 
-An energy shield absorbs damage of the types it protects against. It lasts
-until its points are used up or its time runs out. A character can have only
-one energy shield active at a time. An energy shield, an Echani dueling
-shield, Yusanis' dueling shield and a droid energy shield protect against
-energy and electrical damage. A Sith energy shield and an Echani shield also
-protect against sonic damage. An Arkanian energy shield, a Verpine prototype
-shield and a droid environment shield protect against energy, electrical,
-sonic, cold and fire damage. A Mandalorian melee shield protects against
-physical damage. A Mandalorian power shield protects against physical,
-energy and electrical damage.
+Lasts 200 seconds or until depleted (only one shield active at a
+time). Weak to ion damage (drains 2×
+as fast).
+
+Energy, Echani dueling, Yusanis' dueling, and droid energy shields block
+energy and electrical. Sith and Echani shields also block sonic. Arkanian,
+Verpine prototype, and droid environment shields block energy, electrical,
+sonic, cold, and fire. Mandalorian melee shields block physical;
+Mandalorian power shields block physical, energy, and electrical.
 
 <a id="items-shields-ms"></a>**Shield Duration** = **200 seconds** (`200000 ms`) · `items.shields.ms`
 
@@ -2993,37 +2976,37 @@ A character who makes a successful Reflex save takes the blast's damage divided 
 
 ### <a id="grenades-fragmentation"></a>Fragmentation Grenade
 
-This grenade deals piercing damage. A successful save halves the damage.
+Deals 20 piercing damage (Reflex save DC 15 for half).
 
 <a id="grenades-fragmentation-points"></a>**Damage** = **20 points** · `grenades.fragmentation.points`
 
-A fragmentation grenade deals 20 points of piercing damage.
+Deals 20 piercing damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-stun"></a>Concussion Grenade
 
-This grenade deals no damage. A character who fails the save is stunned.
+Deals no damage. Stuns targets on a failed Reflex save (DC 15) for up to 3 seconds.
 
 <a id="grenades-stun-hold-ms"></a>**Stun Duration** = **9 seconds** (`9000 ms`) · `grenades.stun.hold_ms`
 
-A concussion grenade stuns for 9 seconds. A stun never lasts longer than 3 seconds, so the shorter of the two applies.
+Stuns for 9 seconds (capped at 3 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-thermal-detonator"></a>Thermal Detonator
 
-This grenade deals energy damage and knocks characters down. A successful save halves the damage and prevents the knockdown.
+Deals 60 energy damage and knocks targets down (Reflex save DC 15 for half damage and no knockdown).
 
 <a id="grenades-thermal-detonator-points"></a>**Damage** = **60 points** · `grenades.thermal_detonator.points`
 
-A thermal detonator deals 60 points of energy damage.
+Deals 60 energy damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-poison"></a>Poison Grenade
 
-This grenade deals no damage when it explodes. A character who fails the save is poisoned, and this grenade's save is harder than the others. A character with Knight Valor, Master Valor or Improved Energy Resistance is immune to the poison.
+Poisons targets on a failed Reflex save (DC 25), dealing 4 damage every 3 seconds for 30 seconds. Blocked by poison immunity (Knight/Master Valor, Improved Energy Resistance).
 
 <a id="grenades-poison-dc"></a>**Reflex DC** = **25** · `grenades.poison.dc`
 
@@ -3051,65 +3034,65 @@ A poisoned character loses 4 vitality points every 3 seconds for 30 seconds.
 
 ### <a id="grenades-sonic"></a>Sonic Grenade
 
-This grenade deals sonic damage and lowers Dexterity. A successful save halves the damage and prevents the Dexterity loss.
+Deals 20 sonic damage and -6 Dexterity for 30 seconds (Reflex save DC 15 for half damage and no Dexterity loss).
 
 <a id="grenades-sonic-points"></a>**Damage** = **20 points** · `grenades.sonic.points`
 
-A sonic grenade deals 20 points of sonic damage.
+Deals 20 sonic damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-sonic-dex"></a>**Dexterity Loss** = **6 points** · `grenades.sonic.dex`
 
-A character who fails the save suffers -6 to Dexterity for 30 seconds.
+Inflicts -6 Dexterity for 30 seconds on a failed save.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-sonic-for-ms"></a>**Dexterity Loss Duration** = **30 seconds** (`30000 ms`) · `grenades.sonic.for_ms`
 
-A character who fails the save suffers -6 to Dexterity for 30 seconds.
+Dexterity loss lasts 30 seconds.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-adhesive"></a>Adhesive Grenade
 
-This grenade deals no damage. Every character caught in the blast is entangled, and there is no save.
+Deals no damage. Entangles everyone in the blast for up to 3 seconds (no save).
 
 <a id="grenades-adhesive-hold-ms"></a>**Entangle Duration** = **15 seconds** (`15000 ms`) · `grenades.adhesive.hold_ms`
 
-An adhesive grenade entangles for 15 seconds. An entanglement never lasts longer than 3 seconds, so the shorter of the two applies.
+Entangles for 15 seconds (capped at 3 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-cryoban"></a>CryoBan Grenade
 
-This grenade deals cold damage and paralyzes. A successful save halves the damage and prevents the paralysis.
+Deals 20 cold damage and paralyzes for up to 3 seconds (Reflex save DC 15 for half damage and no paralysis).
 
 <a id="grenades-cryoban-points"></a>**Damage** = **20 points** · `grenades.cryoban.points`
 
-A CryoBan grenade deals 20 points of cold damage.
+Deals 20 cold damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-cryoban-hold-ms"></a>**Paralysis Duration** = **6 seconds** (`6000 ms`) · `grenades.cryoban.hold_ms`
 
-A CryoBan grenade paralyzes for 6 seconds. A paralysis never lasts longer than 3 seconds, so the shorter of the two applies.
+Paralyzes for 6 seconds (capped at 3 seconds).
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-fire"></a>Plasma Grenade
 
-This grenade deals fire damage. A successful save halves the damage.
+Deals 36 fire damage (Reflex save DC 15 for half).
 
 <a id="grenades-fire-points"></a>**Damage** = **36 points** · `grenades.fire.points`
 
-A plasma grenade deals 36 points of fire damage.
+Deals 36 fire damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-ion"></a>Ion Grenade
 
-This grenade deals ion damage, and much more of it against droids. A successful save halves the damage.
+Deals 15 ion damage (45 to droids; Reflex save DC 15 for half).
 
 <a id="grenades-ion-points"></a>**Damage** = **15 points** · `grenades.ion.points`
 
@@ -4888,16 +4871,13 @@ back.
 
 ### <a id="saber-throw-out"></a>Throw Lightsaber
 
-A character with Throw Lightsaber (level 1) or Advanced Throw Lightsaber
-(level 2) can throw a lightsaber. The character must have the blade ready and
-enough Force points to use the power. In any style except the staff style,
-the player throws with [Alt attack]. With any lightsaber, the player can also
-throw with the key of an action bar slot that holds Throw Lightsaber. The
-lightsaber flies out in the direction the character looks. It returns when
-the player lets go of the button, when it hits someone or is blocked, when it
-has been out too long or has flown too far, or when the character can no
-longer use the Force. The character's Force points do not regenerate while
-the lightsaber flies. At level 2, the lightsaber follows the crosshair.
+Press [Alt attack] (except in staff style) or its action bar key to throw
+your lightsaber toward your crosshair (range:
+17.8 meters per rank; up to
+6 seconds). Advanced Throw Lightsaber tracks your
+crosshair in flight. Returns when you release the key, hit or get blocked,
+or reach max range. Force points do not regenerate while your saber is in
+flight.
 
 <a id="saber-throw-out-cost"></a>**Default Force Point Cost** = **20 Force points** (`2000 hundredths FP`) · `saber_throw.out.cost`
 
@@ -6556,247 +6536,225 @@ current target is the enemy that the character is attacking.
 
 ### <a id="forms-shii-cho"></a>Shii-Cho (Form I)
 
-Shii-Cho is the Determination Form. A character using Shii-Cho gains
-+1 to attack. The character also gains
+Grants +1 to hit and
 +3 Defense against every attacker except
-its current target.
+your current target.
 
 <a id="forms-shii-cho-to-hit"></a>**Shii-Cho Attack Bonus** = **1** · `forms.shii_cho.to_hit`
 
-A character using Shii-Cho gains +1 to attack.
+Grants +1 to hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-shii-cho-defence-others"></a>**Shii-Cho Defense** = **3** · `forms.shii_cho.defence_others`
 
-A character using Shii-Cho gains +3 Defense against every attacker except its current target.
+Grants +3 Defense against attackers other than your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 ### <a id="forms-makashi"></a>Makashi (Form II)
 
-Makashi is the Contention Form. A character using Makashi gains
-+3 to attack against an enemy who wields a
-lightsaber. Every weapon hit by the character deals
-+3 damage. The character suffers a
--5 penalty to blaster bolt deflection.
+Grants +3 to hit against lightsaber
+wielders and +3 weapon damage, at a
+-5 penalty to blaster deflection.
 
 <a id="forms-makashi-to-hit-saber"></a>**Makashi Attack Bonus** = **3** · `forms.makashi.to_hit_saber`
 
-A character using Makashi gains +3 to attack against an enemy who wields a lightsaber.
+Grants +3 to hit against lightsaber wielders.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-makashi-damage"></a>**Makashi Damage** = **3 HP** · `forms.makashi.damage`
 
-Every weapon hit by a character using Makashi deals +3 damage.
+Adds +3 damage to every weapon hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-makashi-deflection"></a>**Makashi Bolt Deflection** = **-5** · `forms.makashi.deflection`
 
-A character using Makashi suffers a -5 penalty to blaster bolt deflection.
+Inflicts -5 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 ### <a id="forms-soresu"></a>Soresu (Form III)
 
-Soresu is the Resilience Form. A character using Soresu gains
-+2 Defense against its current target. The
-character also gains +4 to blaster bolt
-deflection. The critical threat range of the character's weapons shrinks by
-1.
-
-The critical threat range is the set of attack rolls that can score a
-critical hit. Soresu never shrinks it below a natural 20.
+Grants +2 Defense against your current
+target and +4 to blaster deflection. Shrinks
+your critical threat range by 1 (never below a
+natural 20).
 
 <a id="forms-soresu-defence-target"></a>**Soresu Defense** = **2** · `forms.soresu.defence_target`
 
-A character using Soresu gains +2 Defense against its current target.
+Grants +2 Defense against your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-soresu-threat"></a>**Soresu Threat Range** = **1** · `forms.soresu.threat`
 
-The critical threat range of a character using Soresu shrinks by 1.
+Shrinks critical threat range by 1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-soresu-deflection"></a>**Soresu Bolt Deflection** = **4** · `forms.soresu.deflection`
 
-A character using Soresu gains +4 to blaster bolt deflection.
+Grants +4 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 ### <a id="forms-ataru"></a>Ataru (Form IV)
 
-Ataru is the Aggression Form. A character using Ataru gains
-+3 Defense against its current target. The
-character suffers a -2 penalty to Defense
-against every other attacker. The character also suffers a
--4 penalty to blaster bolt deflection. The
-critical threat range of the character's weapons grows by
-1.
-
-Ataru never makes every attack roll a critical threat.
+Grants +3 Defense against your current
+target and +1 to critical threat range, at
+-2 Defense against other attackers and
+-4 to blaster deflection.
 
 <a id="forms-ataru-defence-target"></a>**Ataru Defense** = **3** · `forms.ataru.defence_target`
 
-A character using Ataru gains +3 Defense against its current target.
+Grants +3 Defense against your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-ataru-defence-others"></a>**Ataru Defense Penalty** = **-2** · `forms.ataru.defence_others`
 
-A character using Ataru suffers a -2 penalty to Defense against every attacker except its current target.
+Inflicts -2 Defense against attackers other than your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-ataru-threat"></a>**Ataru Threat Range** = **1** · `forms.ataru.threat`
 
-The critical threat range of a character using Ataru grows by 1.
+Widens critical threat range by 1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-ataru-deflection"></a>**Ataru Bolt Deflection** = **-4** · `forms.ataru.deflection`
 
-A character using Ataru suffers a -4 penalty to blaster bolt deflection.
+Inflicts -4 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 ### <a id="forms-shien"></a>Shien (Form V)
 
-Shien is the Perseverance Form. A character using Shien gains
-+2 to attack and +2 to
-blaster bolt deflection. The character suffers a
--5 penalty to Defense against its current
-target. The critical multiplier of the character's weapons rises by
-1.
+Grants +2 to hit, +2 to
+blaster deflection, and +1 to critical
+multiplier, at -5 Defense against your
+current target.
 
 <a id="forms-shien-to-hit"></a>**Shien Attack Bonus** = **2** · `forms.shien.to_hit`
 
-A character using Shien gains +2 to attack.
+Grants +2 to hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-shien-defence-target"></a>**Shien Defense Penalty** = **-5** · `forms.shien.defence_target`
 
-A character using Shien suffers a -5 penalty to Defense against its current target.
+Inflicts -5 Defense against your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-shien-crit-mult"></a>**Shien Critical Multiplier** = **×1** · `forms.shien.crit_mult`
 
-The critical multiplier of a character using Shien rises by 1. A critical hit by the character then deals that many more times the normal damage.
+Raises critical hit multiplier by +1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-shien-deflection"></a>**Shien Bolt Deflection** = **2** · `forms.shien.deflection`
 
-A character using Shien gains +2 to blaster bolt deflection.
+Grants +2 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 ### <a id="forms-niman"></a>Niman (Form VI)
 
-Niman is the Moderation Form. A character using Niman gains
-+1 to attack, +1 Defense
-against every attacker and +1 to blaster bolt
-deflection. In combat, the character's Force points regenerate at
-0.3 times the rate at which they regenerate out of
+Grants +1 to hit, +1
+Defense, +1 to blaster deflection, and
+0.3× out-of-combat Force regeneration while in
 combat.
 
 <a id="forms-niman-to-hit"></a>**Niman Attack Bonus** = **1** · `forms.niman.to_hit`
 
-A character using Niman gains +1 to attack.
+Grants +1 to hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-niman-defence"></a>**Niman Defense** = **1** · `forms.niman.defence`
 
-A character using Niman gains +1 Defense against every attacker.
+Grants +1 Defense.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-niman-deflection"></a>**Niman Bolt Deflection** = **1** · `forms.niman.deflection`
 
-A character using Niman gains +1 to blaster bolt deflection.
+Grants +1 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 <a id="forms-niman-fp-base"></a>**Niman Force Regeneration** = **×0.3** · `forms.niman.fp_base`
 
-In combat, the Force points of a character using Niman regenerate at 0.3 times the rate at which they regenerate out of combat.
+In combat, Force points regenerate at 0.3× your out-of-combat rate.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_base`.</sub>
 
 ### <a id="forms-juyo"></a>Juyo (Form VII)
 
-Juyo is the Ferocity Form. A character using Juyo makes
-1 extra attack each round. The character gains
-+4 to the roll that confirms a critical hit. The
-character suffers a -2 penalty to Defense
-against its current target, and a -4 penalty
-to Defense against every other attacker.
+Grants +1 extra main-hand attack per round
+and +4 to critical confirmation rolls, at
+-2 Defense against your current target and
+-4 against other attackers.
 
 <a id="forms-juyo-defence-target"></a>**Juyo Defense Penalty against the Target** = **-2** · `forms.juyo.defence_target`
 
-A character using Juyo suffers a -2 penalty to Defense against its current target.
+Inflicts -2 Defense against your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-juyo-defence-others"></a>**Juyo Defense Penalty** = **-4** · `forms.juyo.defence_others`
 
-A character using Juyo suffers a -4 penalty to Defense against every attacker except its current target.
+Inflicts -4 Defense against attackers other than your current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-juyo-confirm"></a>**Juyo Critical Hit Bonus** = **4** · `forms.juyo.confirm`
 
-A character using Juyo gains +4 to the roll that confirms a critical hit.
+Grants +4 to critical confirmation rolls.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::confirm`.</sub>
 
 <a id="forms-juyo-extra-attacks"></a>**Juyo Extra Attack** = **1** · `forms.juyo.extra_attacks`
 
-A character using Juyo makes 1 extra attack each round with the weapon in the main hand.
+Adds +1 extra main-hand attack per round.
 
-In kjk, a character attacks whenever the player swings, not once per round.
-Instead of an extra swing, each extra attack per round adds the damage of
-one more attack to every weapon hit the character makes.
+In kjk, each extra attack per round adds one extra attack's damage to every weapon hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::extra_attacks`.</sub>
 
 ### <a id="forms-focus"></a>Force Focus (Force Form I)
 
-A character using Force Focus regenerates Force points faster, both in and out of combat. The Form adds 0.5 to the regeneration rate.
+Adds +0.5 to your Force regeneration rate (in and out of combat).
 
 <a id="forms-focus-fp-bonus"></a>**Force Focus Regeneration** = **0.5** · `forms.focus.fp_bonus`
 
-Force Focus adds 0.5 to the rate at which the character's Force points regenerate.
+Adds +0.5 to Force regeneration.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_bonus`.</sub>
 
 ### <a id="forms-affinity"></a>Force Affinity (Force Form III)
 
-In combat, the Force points of a character using Force Affinity regenerate at 0.6 times the rate at which they regenerate out of combat.
+In combat, Force points regenerate at 0.6× your out-of-combat rate.
 
 <a id="forms-affinity-fp-base"></a>**Force Affinity Regeneration** = **×0.6** · `forms.affinity.fp_base`
 
-In combat, the Force points of a character using Force Affinity regenerate at 0.6 times the rate at which they regenerate out of combat.
+In combat, Force points regenerate at 0.6× your out-of-combat rate.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_base`.</sub>
 
 ### <a id="forms-costs"></a>Force Potency and Force Mastery (Force Forms II and IV)
 
-A character using Force Potency or Force Mastery spends
-1.2 times the normal Force points on every Force
-power, rounded down. Each Force power decides for itself how much stronger
-it becomes under these Forms.
+Multiplies Force power costs by 1.2× (rounded
+down) while boosting your Force powers.
 
 <a id="forms-costs-multiplier"></a>**Potency and Mastery Cost** = **×1.2** · `forms.costs.multiplier`
 
-A character using Force Potency or Force Mastery spends 1.2 times the normal Force points on every Force power.
+Multiplies Force power costs by 1.2×.
 
 <sub>Source: TSL's executable (`CSWSpell::GetAdjustedForcePoints`). Code: `sim::combat::forms::cost`.</sub>
 

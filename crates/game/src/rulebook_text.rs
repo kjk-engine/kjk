@@ -11,12 +11,23 @@ use ui::assets::{GuiAssets, ItemLook};
 pub(crate) fn told(tags: &[String]) -> Vec<u8> {
     let mut seen: Vec<&str> = Vec::new();
     let mut text = String::new();
-    // The controls chapter is the wiki's: its keys and moves would crowd a
-    // description box.
+    // Engine, AI, and controls chapters belong to the wiki/rulebook, not
+    // in-game item/power/feat description boxes.
+    const SKIP_CHAPTERS: &[&str] = &[
+        "controls",
+        "minds",
+        "ai",
+        "scripts",
+        "world",
+        "creatures",
+        "duel",
+        "saber_moves",
+        "saber_locks",
+    ];
     let shown = tags
         .iter()
         .flat_map(|tag| rules::applying(tag))
-        .filter(|entry| entry.chapter() != "controls");
+        .filter(|entry| !SKIP_CHAPTERS.contains(&entry.chapter()));
     for entry in shown {
         if seen.contains(&entry.path) {
             continue;

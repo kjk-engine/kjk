@@ -11,16 +11,13 @@ back.
 [out]
 title = "Throw Lightsaber"
 summary = """
-A character with Throw Lightsaber (level 1) or Advanced Throw Lightsaber
-(level 2) can throw a lightsaber. The character must have the blade ready and
-enough Force points to use the power. In any style except the staff style,
-the player throws with [Alt attack]. With any lightsaber, the player can also
-throw with the key of an action bar slot that holds Throw Lightsaber. The
-lightsaber flies out in the direction the character looks. It returns when
-the player lets go of the button, when it hits someone or is blocked, when it
-has been out too long or has flown too far, or when the character can no
-longer use the Force. The character's Force points do not regenerate while
-the lightsaber flies. At level 2, the lightsaber follows the crosshair.
+Press [Alt attack] (except in staff style) or its action bar key to throw
+your lightsaber toward your crosshair (range:
+{saber_throw.out.range_per_level:m} per rank; up to
+{saber_throw.out.max_out_ms:s}). Advanced Throw Lightsaber tracks your
+crosshair in flight. Returns when you release the key, hit or get blocked,
+or reach max range. Force points do not regenerate while your saber is in
+flight.
 """
 applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER_THROW_ADVANCED"]
 

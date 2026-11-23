@@ -10,24 +10,16 @@ the items that slain creatures leave behind.
 [using]
 title = "Using Items in Combat"
 summary = """
-Medpacs, stims and energy shields are used from a slot of the action bar or
-from the power wheel. When the character uses medpacs while poisoned or with
-a lowered attribute, the character uses an antidote kit. Otherwise the
-character uses a medpac, or a repair kit for a droid. If the character has
-neither, the character uses a squad recovery stim. The character injects a
-medpac, antidote kit or stim, and switches on an energy shield at the wrist.
-The item is used up when the character begins, and it takes effect when the
-character is done. If the character is stunned, choked, knocked down or downed before
-then, the use stops. Being hit or moving does not stop it. A weapon change or
-a Force power waits until the use is done.
+Use from the action bar or power wheel. The item is consumed when you start
+and takes effect when finished; moving or taking a hit does not interrupt
+it, but being stunned, choked, knocked down, or downed does.
 """
 detail = """
-A character can have only one energy shield and one stim active at a time.
-Enemies also use medpacs, energy shields and stims in combat.
-
-An item used on another character, such as a droid's shock arm, stun ray or
-flame thrower, takes the user's combat round. The user can use such an item
-again only once {combat.timing.round_ms:s} have passed.
+Using the medpac slot while poisoned or attribute-drained uses an antidote
+kit; otherwise it uses a medpac (repair kit for droids), falling back to a
+squad recovery stim. Only one energy shield and one stim can be active at a
+time. Offensive droid items (shock arm, stun ray, flame thrower) have a
+one-round ({combat.timing.round_ms:s}) cooldown.
 """
 applies = ["kind:medpac", "kind:repairkit", "kind:shield", "kind:stim", "kind:antidote"]
 
@@ -37,7 +29,7 @@ type = "u64"
 value = 1500
 unit = "ms"
 range = [0, 10000]
-summary = "Using a medpac or repair kit takes {items.using.heal_ms:s} for a character with no ranks in Treat Injury or Repair."
+summary = "Takes {items.using.heal_ms:s} to use, minus {items.using.per_rank_ms:s} per rank in Treat Injury (or Repair for droids), down to {items.using.least_ms:s}."
 source = "ours"
 see = "sim::combat::items::heal_ms"
 applies = ["kind:medpac", "kind:repairkit"]
@@ -48,10 +40,10 @@ type = "u64"
 value = 100
 unit = "ms"
 range = [0, 1000]
-summary = "Each rank of Treat Injury makes using a medpac {items.using.per_rank_ms:s} faster. For a droid, each rank of Repair makes using a repair kit {items.using.per_rank_ms:s} faster."
+summary = "Each rank in Treat Injury (or Repair for droids) speeds up medpac / repair kit use by {items.using.per_rank_ms:s}."
 source = "ours"
 see = "sim::combat::items::heal_ms"
-applies = ["kind:medpac", "kind:repairkit", "skill:TREAT_INJURY", "skill:REPAIR"]
+applies = ["skill:TREAT_INJURY", "skill:REPAIR"]
 
 [using.least_ms]
 name = "Fastest Healing"
@@ -59,10 +51,9 @@ type = "u64"
 value = 500
 unit = "ms"
 range = [0, 10000]
-summary = "Using a medpac or repair kit always takes at least {items.using.least_ms:s}."
+summary = "Medpac and repair kit use always takes at least {items.using.least_ms:s}."
 source = "ours"
 see = "sim::combat::items::heal_ms"
-applies = ["kind:medpac", "kind:repairkit"]
 
 [using.use_ms]
 name = "Item Use Time"
@@ -70,7 +61,7 @@ type = "u64"
 value = 1500
 unit = "ms"
 range = [0, 10000]
-summary = "Using an energy shield, stim, antidote kit or squad recovery stim takes {items.using.use_ms:s}. The item takes effect at the end of that time."
+summary = "Takes {items.using.use_ms:s} to activate."
 source = "spells.2da (K1 and TSL): every item row's conjtime 170 + casttime 1330, its impact script run at the cast's end"
 see = "sim::combat::items::USE_MS"
 applies = ["kind:shield", "kind:stim", "kind:antidote"]
@@ -78,16 +69,12 @@ applies = ["kind:shield", "kind:stim", "kind:antidote"]
 [medpacs]
 title = "Medpacs"
 summary = """
-A medpac heals {items.medpacs.points[0]:bare} vitality points, plus the
-user's Wisdom modifier, plus {items.medpacs.per_rank[0]:bare} for each rank
-the user has in Treat Injury. An advanced medpac heals
-{items.medpacs.points[1]:bare} vitality points, plus the user's Wisdom
-modifier, plus {items.medpacs.per_rank[1]:bare} for each rank in Treat
-Injury. A life support pack heals {items.medpacs.points[2]:bare} vitality
-points, plus the user's Wisdom modifier, plus
-{items.medpacs.per_rank[2]:bare} for each rank in Treat Injury. Droids cannot
-use medpacs. An antidote kit cures poison and restores attributes that were
-lowered.
+Heals {items.medpacs.points[0]:bare} (Medpac), {items.medpacs.points[1]:bare}
+(Advanced), or {items.medpacs.points[2]:bare} (Life Support Pack) Vitality,
+plus your Wisdom mod and +{items.medpacs.per_rank[0]:bare} /
++{items.medpacs.per_rank[1]:bare} / +{items.medpacs.per_rank[2]:bare} per
+rank in Treat Injury. Cannot be used by droids. Antidote kits cure poison
+and restore drained attributes.
 """
 applies = ["kind:medpac", "spell:ITEM_ABILITY_MED_PACK", "spell:ITEM_ABILITY_ADVANCED_MED_PACK", "spell:ITEM_ABILITY_LIFE_SUPPORT_KIT", "skill:TREAT_INJURY"]
 
@@ -98,7 +85,7 @@ value = [10, 20, 30]
 labels = ["Medpac", "Advanced Medpac", "Life Support Pack"]
 unit = "HP"
 range = [0, 255]
-summary = "A medpac heals {items.medpacs.points[0]:bare} vitality points. An advanced medpac heals {items.medpacs.points[1]:bare}, and a life support pack heals {items.medpacs.points[2]:bare}. The user's Wisdom modifier and Treat Injury skill are added on top."
+summary = "Base healing: {items.medpacs.points[0]:bare} (Medpac), {items.medpacs.points[1]:bare} (Advanced), {items.medpacs.points[2]:bare} (Life Support Pack)."
 source = "K1's `k_sup_healing`"
 see = "sim::combat::items::use_of"
 
@@ -109,22 +96,19 @@ value = [1, 2, 3]
 labels = ["Medpac", "Advanced Medpac", "Life Support Pack"]
 unit = "HP"
 range = [0, 20]
-summary = "Each rank of Treat Injury adds {items.medpacs.per_rank[0]:bare} vitality points to a medpac's healing. It adds {items.medpacs.per_rank[1]:bare} to an advanced medpac's and {items.medpacs.per_rank[2]:bare} to a life support pack's."
+summary = "Each rank in Treat Injury adds +{items.medpacs.per_rank[0]:bare} / +{items.medpacs.per_rank[1]:bare} / +{items.medpacs.per_rank[2]:bare} Vitality."
 source = "K1's `k_sup_healing`"
 see = "sim::combat::items::use_of"
 
 [repair_kits]
 title = "Repair Kits"
 summary = """
-A repair kit restores {items.repair_kits.points[0]:bare} vitality points,
-plus the user's Intelligence modifier, plus
-{items.repair_kits.per_rank[0]:bare} for each rank the user has in Repair. An
-advanced repair kit restores {items.repair_kits.points[1]:bare} vitality
-points, plus the user's Intelligence modifier, plus
-{items.repair_kits.per_rank[1]:bare} for each rank in Repair. A construction
-kit restores {items.repair_kits.points[2]:bare} vitality points, plus the
-user's Intelligence modifier, plus {items.repair_kits.per_rank[2]:bare} for
-each rank in Repair. Only droids can use repair kits.
+Droids only. Restores {items.repair_kits.points[0]:bare} (Repair Kit),
+{items.repair_kits.points[1]:bare} (Advanced), or
+{items.repair_kits.points[2]:bare} (Construction Kit) Vitality, plus your
+Intelligence mod and +{items.repair_kits.per_rank[0]:bare} /
++{items.repair_kits.per_rank[1]:bare} /
++{items.repair_kits.per_rank[2]:bare} per rank in Repair.
 """
 applies = ["kind:repairkit", "kind:droid", "spell:ITEM_ABILITY_DROID_REPAIR_KIT", "spell:ITEM_ABILITY_DROID_REPAIR_KIT_ADV", "spell:ITEM_ABILITY_DROID_CONSTRUCTION_KIT", "skill:REPAIR"]
 
@@ -135,7 +119,7 @@ value = [15, 25, 35]
 labels = ["Repair Kit", "Advanced Repair Kit", "Construction Kit"]
 unit = "HP"
 range = [0, 255]
-summary = "A repair kit restores {items.repair_kits.points[0]:bare} vitality points. An advanced repair kit restores {items.repair_kits.points[1]:bare}, and a construction kit restores {items.repair_kits.points[2]:bare}. The user's Intelligence modifier and Repair skill are added on top."
+summary = "Base repair: {items.repair_kits.points[0]:bare} (Repair Kit), {items.repair_kits.points[1]:bare} (Advanced), {items.repair_kits.points[2]:bare} (Construction Kit)."
 source = "K1's `k_sup_healing`"
 see = "sim::combat::items::use_of"
 
@@ -146,16 +130,13 @@ value = [1, 2, 3]
 labels = ["Repair Kit", "Advanced Repair Kit", "Construction Kit"]
 unit = "HP"
 range = [0, 20]
-summary = "Each rank of Repair adds {items.repair_kits.per_rank[0]:bare} vitality points to what a repair kit restores. It adds {items.repair_kits.per_rank[1]:bare} to an advanced repair kit and {items.repair_kits.per_rank[2]:bare} to a construction kit."
+summary = "Each rank in Repair adds +{items.repair_kits.per_rank[0]:bare} / +{items.repair_kits.per_rank[1]:bare} / +{items.repair_kits.per_rank[2]:bare} Vitality."
 source = "K1's `k_sup_healing`"
 see = "sim::combat::items::use_of"
 
 [squad_stim]
 title = "Squad Recovery Stim"
-summary = """
-A squad recovery stim heals the user and every ally nearby. It heals droids
-too.
-"""
+summary = "Heals you and every ally within {items.squad_stim.reach_m:bare} m (including droids) for {items.squad_stim.points:bare} Vitality."
 applies = ["kind:stim", "spell:ITEM_ABILITY_RECOVERY_STIM"]
 
 [squad_stim.points]
@@ -164,7 +145,7 @@ type = "u8"
 value = 30
 unit = "HP"
 range = [0, 255]
-summary = "A squad recovery stim heals each ally in range by {items.squad_stim.points:bare} vitality points."
+summary = "Heals each ally in range for {items.squad_stim.points:bare} Vitality."
 source = "K1's `k_sup_healing`"
 see = "sim::combat::items::use_of"
 
@@ -173,19 +154,21 @@ name = "Squad Stim Range"
 value = 20.0
 unit = "m"
 range = [0.0, 200.0]
-summary = "A squad recovery stim heals allies within {items.squad_stim.reach_m:bare} meters of its user."
+summary = "Reaches allies within {items.squad_stim.reach_m:bare} m."
 source = "ours (a stand-in's)"
 see = "sim::combat::items::SQUAD_REACH"
 
 [stims]
 title = "Stims"
 summary = """
-An adrenal strength stim raises Strength. An adrenal alacrity stim raises
-Dexterity. An adrenal stamina stim raises Constitution. A battle stimulant
-grants a bonus to attack and damage. It also grants bonus vitality points.
-Damage removes these bonus points before the character's own vitality
-points, and any that are left disappear when the stimulant wears off. A
-character can have only one stim active at a time.
+Lasts {items.stims.ms:s} (only one stim active at a time). Adrenal stims
+grant +{items.stims.adrenal:bare} (Hyper: +{items.stims.hyper_adrenal:bare})
+to Strength, Dexterity, or Constitution. Battle stimulants grant
++{items.stims.battle_bonus[0]:bare} / +{items.stims.battle_bonus[1]:bare} /
++{items.stims.battle_bonus[2]:bare} to hit and damage plus
+{items.stims.battle_vitality[0]:bare} /
+{items.stims.battle_vitality[1]:bare} /
+{items.stims.battle_vitality[2]:bare} temporary Vitality.
 """
 applies = ["kind:stim", "kind:adrenal", "spell:ITEM_ABILITY_ADRENAL_SHOT_STRENGTH", "spell:ITEM_ABILITY_ADRENAL_SHOT_ALACRITY", "spell:ITEM_ABILITY_ADRENAL_SHOT_STAMINA", "spell:ITEM_ABILITY_HYPER_ADRENAL_SHOT_STRENGTH", "spell:ITEM_ABILITY_HYPER_ADRENAL_SHOT_ALACRITY", "spell:ITEM_ABILITY_HYPER_ADRENAL_SHOT_STAMINA", "spell:ITEM_ABILITY_COMBAT_SHOT_1", "spell:ITEM_ABILITY_COMBAT_SHOT_2", "spell:ITEM_ABILITY_COMBAT_SHOT_3"]
 
@@ -244,16 +227,16 @@ see = "sim::combat::items::use_of"
 [shields]
 title = "Energy Shields"
 summary = """
-An energy shield absorbs damage of the types it protects against. It lasts
-until its points are used up or its time runs out. A character can have only
-one energy shield active at a time. An energy shield, an Echani dueling
-shield, Yusanis' dueling shield and a droid energy shield protect against
-energy and electrical damage. A Sith energy shield and an Echani shield also
-protect against sonic damage. An Arkanian energy shield, a Verpine prototype
-shield and a droid environment shield protect against energy, electrical,
-sonic, cold and fire damage. A Mandalorian melee shield protects against
-physical damage. A Mandalorian power shield protects against physical,
-energy and electrical damage.
+Lasts {items.shields.ms:s} or until depleted (only one shield active at a
+time). Weak to ion damage (drains {items.shields.vulnerable_drain:bare}×
+as fast).
+"""
+detail = """
+Energy, Echani dueling, Yusanis' dueling, and droid energy shields block
+energy and electrical. Sith and Echani shields also block sonic. Arkanian,
+Verpine prototype, and droid environment shields block energy, electrical,
+sonic, cold, and fire. Mandalorian melee shields block physical;
+Mandalorian power shields block physical, energy, and electrical.
 """
 applies = ["kind:shield"]
 
