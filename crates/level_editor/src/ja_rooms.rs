@@ -642,6 +642,10 @@ pub fn install(app: &mut App, rooms: Rooms) {
         .insert_resource(FlyControls {
             keys_need_look: true,
             paused: false,
+            // The level editor's fly keys (`keys`).
+            keys: Some(crate::keys::fly_keys(
+                &crate::keys::Keys::load(&mut |problem| bevy::log::warn!("{problem}")).map,
+            )),
         })
         .insert_resource(bevy_egui::EguiGlobalSettings {
             auto_create_primary_context: false,

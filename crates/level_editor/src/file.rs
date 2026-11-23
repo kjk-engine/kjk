@@ -277,7 +277,8 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
             ui.close();
         }
         ui.separator();
-        if ui.button("Save    Ctrl+S").clicked() {
+        let save_keys = state.keys.map.shown(crate::keys::Action::Save);
+        if ui.button(format!("Save    {save_keys}")).clicked() {
             state.pending_command = Some("save".into());
             ui.close();
         }
@@ -292,6 +293,14 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
             ui.close();
         }
         ui.separator();
+        if ui
+            .button("Keys...")
+            .on_hover_text("Shows which keys do what, and changes them.")
+            .clicked()
+        {
+            ui_state.keys_window.open = true;
+            ui.close();
+        }
         if ui.button("Quit").clicked() {
             want(state, file, Leave::Quit);
             ui.close();

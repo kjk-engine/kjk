@@ -26,6 +26,8 @@ game.workspace = true
 level_edit.workspace = true
 script_ncs.workspace = true
 serde_json.workspace = true
+# The editor's keys file (`keys`).
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 sim.workspace = true
 store.workspace = true
 vfs.workspace = true

@@ -4118,6 +4118,7 @@ dependencies = [
  "serde_json",
  "sim",
  "store",
+ "toml_edit",
  "transform-gizmo-egui",
  "vfs",
 ]

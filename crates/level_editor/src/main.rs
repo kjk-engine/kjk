@@ -8,9 +8,11 @@
 mod agent;
 mod bake;
 mod child;
+mod choose;
 mod elsewhere;
 mod file;
 mod ja_rooms;
+mod keys;
 mod lamps;
 mod markers;
 mod picker;
@@ -281,8 +283,10 @@ fn make_map(
 
 /// The fitted lights' rule data (`data/lights`), which an installed level's
 /// lights placed by hand are read from and Publish writes to: the folder
-/// `KJK_LIGHT_DATA` names, else the one of the kjk checkout this program
-/// was built in (`target/<profile>/` lies in it).
+/// `KJK_LIGHT_DATA` names, else the first `data/lights` beside this program
+/// or a folder over it. That is the one of the kjk checkout this program
+/// was built in (`target/<profile>/` lies in it), or the copy a release
+/// package holds beside its programs (`xtask dist`).
 fn light_data() -> Option<PathBuf> {
     if let Some(folder) = std::env::var_os("KJK_LIGHT_DATA").filter(|folder| !folder.is_empty()) {
         return Some(PathBuf::from(folder));

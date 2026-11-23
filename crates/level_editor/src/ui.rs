@@ -157,8 +157,6 @@ pub struct UiState {
     typed_for: Option<Target>,
     /// The editor's count of changes when the fields were filled.
     typed_at: u64,
-    /// The field whose matches are listed under the section.
-    completing: Option<String>,
     /// The script the viewer shows, its tab, and the scripts read so far.
     viewing: Option<String>,
     view_tab: ViewTab,
@@ -229,6 +227,15 @@ pub struct UiState {
     read_scripts: BTreeMap<String, crate::script_view::ScriptView>,
     /// The editor's `script_round` the scripts above were read at.
     read_round: u32,
+    /// The Keys window (`keys`).
+    pub(crate) keys_window: crate::keys::Window,
+    /// The conversation window's line text takes the keys on the next
+    /// frame: a line was just added, to be written.
+    dialog_focus: bool,
+    /// A free move of the move tool's gizmo: how far the selection is from
+    /// the camera, as a share of how far it was when the drag began. The
+    /// mouse wheel changes it.
+    free_move: Option<f64>,
 }
 
 impl UiState {
@@ -278,7 +285,6 @@ impl Default for UiState {
             typed: BTreeMap::new(),
             typed_for: None,
             typed_at: 0,
-            completing: None,
             viewing: None,
             view_tab: ViewTab::Source,
             new_script: String::new(),
@@ -316,6 +322,9 @@ impl Default for UiState {
             viewer_window: false,
             read_scripts: BTreeMap::new(),
             read_round: 0,
+            keys_window: crate::keys::Window::default(),
+            dialog_focus: false,
+            free_move: None,
         }
     }
 }
@@ -330,6 +339,7 @@ pub fn install(app: &mut App, state: EditorState, headless: bool) {
         .insert_resource(FlyControls {
             keys_need_look: true,
             paused: false,
+            keys: None,
         })
         .insert_resource(EguiGlobalSettings {
             auto_create_primary_context: false,
@@ -601,6 +611,86 @@ fn rows(matrix: Mat4) -> mint::RowMatrix4<f64> {
         z: row(2),
         w: row(3),
     }
+}
+
+/// How near the middle of the move gizmo (points) a press starts a free
+/// move: the gizmo's inner circle, 15 points across its radius, and the
+/// margin it picks within.
+const FREE_MOVE_REACH: f32 = 22.0;
+
+/// How much farther each step of the mouse wheel takes a free move: 15%.
+const FREE_MOVE_STEP: f64 = 1.15;
+
+/// The touchpad's movement (points) that makes one step of the wheel.
+const WHEEL_STEP: f32 = 40.0;
+
+fn to_mint(v: bevy::math::DVec3) -> mint::Vector3<f64> {
+    mint::Vector3 {
+        x: v.x,
+        y: v.y,
+        z: v.z,
+    }
+}
+
+fn from_mint(v: mint::Vector3<f64>) -> bevy::math::DVec3 {
+    bevy::math::DVec3::new(v.x, v.y, v.z)
+}
+
+/// A free move of the move tool: a drag of the gizmo's middle, which moves
+/// the selection across the view. While it lasts, the mouse wheel takes
+/// the selection farther from the camera (forward) or nearer (back), along
+/// the line from the camera, so it stays under the pointer. A press near
+/// the gizmo's middle starts it. The share of the distance from the camera
+/// before this frame's wheel and after it, during a free move.
+fn free_move(
+    ctx: &egui::Context,
+    ui_state: &mut UiState,
+    (camera, eye): (&Camera, &GlobalTransform),
+    transform: &GizmoTransform,
+    eye_at: bevy::math::DVec3,
+) -> Option<(f64, f64)> {
+    let middle = from_mint(transform.translation);
+    if ui_state.tool != Tool::Move {
+        ui_state.free_move = None;
+        return None;
+    }
+    if !ui_state.dragging && ctx.input(|input| input.pointer.primary_pressed()) {
+        let pointer = ctx.input(|input| input.pointer.interact_pos());
+        let on_screen = camera
+            .world_to_viewport(eye, game_to_bevy() * middle.as_vec3())
+            .ok()
+            .map(|at| egui::pos2(at.x, at.y));
+        let on_middle = (on_screen.zip(pointer))
+            .is_some_and(|(at, pointer)| at.distance(pointer) <= FREE_MOVE_REACH);
+        ui_state.free_move = on_middle.then_some(1.0);
+    }
+    let before = ui_state.free_move?;
+    // The wheel's steps this frame: a mouse's notches, or a touchpad's
+    // movement in points.
+    let steps = ctx.input_mut(|input| {
+        let steps: f32 = (input.events.iter())
+            .map(|event| match event {
+                egui::Event::MouseWheel { unit, delta, .. } => match unit {
+                    egui::MouseWheelUnit::Line => delta.y,
+                    egui::MouseWheelUnit::Point => delta.y / WHEEL_STEP,
+                    egui::MouseWheelUnit::Page => delta.y * 3.0,
+                },
+                _ => 0.0,
+            })
+            .sum();
+        // The wheel moves the selection; nothing scrolls under it.
+        input.smooth_scroll_delta = egui::Vec2::ZERO;
+        steps
+    });
+    let mut after = before * FREE_MOVE_STEP.powf(f64::from(steps));
+    // The selection stays at least half a metre from the camera.
+    let started = (middle - eye_at).length() / before;
+    if started > 1e-6 {
+        after = after.max(0.5 / started);
+    }
+    let after = after.min(100.0);
+    ui_state.free_move = Some(after);
+    Some((before, after))
 }
 
 /// The facing (degrees about Z) of a gizmo's transform.
@@ -912,6 +1002,8 @@ pub(crate) fn ui_command(
                 .map(|target| (target, event.to_string()));
         }
         ["blocks"] => ui.blocks_event = None,
+        ["keys"] => ui.keys_window.open = true,
+        ["keys", "off"] => ui.keys_window.open = false,
         ["adventure"] => ui.adventure_open = true,
         ["adventure", "off"] => ui.adventure_open = false,
         ["conversation"] => ui.dialog_open = None,
@@ -968,7 +1060,7 @@ pub(crate) fn ui_command(
         words => {
             return crate::file::command(state, &mut ui.file, words).unwrap_or_else(|| {
                 Err(format!(
-                    "edit ui {}: takes tool, tab, search, elsewhere, find, snap, levels, view, way_in, blocks, adventure, conversation, debug, break, link, file, quit or confirm",
+                    "edit ui {}: takes tool, tab, search, elsewhere, find, snap, levels, view, way_in, blocks, adventure, conversation, keys, debug, break, link, file, quit or confirm",
                     words.join(" ")
                 ))
             });
@@ -1031,6 +1123,18 @@ fn panels(
     recovery_window(&ctx, state);
     conversation_window(&ctx, state, ui);
     adventure_window(&ctx, state, ui);
+    crate::keys::window(&ctx, state, &mut ui.keys_window, keys.as_deref());
+    // The keys file, changed by hand, is read again. The camera flies by
+    // its keys.
+    let mut heard = Vec::new();
+    state.keys.follow_file(&mut |said| heard.push(said));
+    for said in heard {
+        state.say(said);
+    }
+    let fly = crate::keys::fly_keys(&state.keys.map);
+    if controls.keys.as_ref() != Some(&fly) {
+        controls.keys = Some(fly);
+    }
     room_levels(&ctx, state);
     // The buttons' commands, run as their keys run them.
     if let Some(command) = state.pending_command.take() {
@@ -1083,6 +1187,7 @@ fn panels(
     if let Some(keys) = keys
         && !typing
         && !looking
+        && !ui.keys_window.catching()
     {
         shortcuts(state, ui, &keys, &mut camera_request, &cameras);
     }
@@ -1114,82 +1219,87 @@ fn shortcuts(
     camera_request: &mut CameraRequest,
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
 ) {
-    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-    let pressed = |key| keys.just_pressed(key);
-    if ctrl {
-        let command: &[&str] = if pressed(KeyCode::KeyZ) {
-            &["undo"]
-        } else if pressed(KeyCode::KeyY) {
-            &["redo"]
-        } else if pressed(KeyCode::KeyS) {
-            &["save"]
-        } else if pressed(KeyCode::KeyD) {
-            &["duplicate"]
-        } else if pressed(KeyCode::KeyC)
-            && (keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight))
-        {
-            ui.copy_asked = true;
-            &[]
-        } else if pressed(KeyCode::KeyC) {
-            &["copy"]
-        } else if pressed(KeyCode::KeyA) {
-            select_everything(state);
-            &[]
-        } else {
-            &[]
+    use crate::keys::{Action, Place};
+    // The keys file says which keys do what (`keys`).
+    for action in state.keys.map.pressed(Place::View, keys) {
+        let command: &[&str] = match action {
+            Action::SelectTool => {
+                ui.tool = Tool::Select;
+                &[]
+            }
+            Action::MoveTool => {
+                ui.tool = Tool::Move;
+                &[]
+            }
+            Action::RotateTool => {
+                ui.tool = Tool::Rotate;
+                &[]
+            }
+            Action::ScaleTool => {
+                ui.tool = Tool::Scale;
+                &[]
+            }
+            Action::Frame => {
+                frame_selection(state, camera_request, cameras);
+                &[]
+            }
+            Action::Delete => &["delete"],
+            Action::Duplicate => &["duplicate"],
+            Action::DropToFloor => &["drop"],
+            Action::SelectAll => {
+                select_everything(state);
+                &[]
+            }
+            Action::SelectNone => {
+                state.editor.select(None, false);
+                &[]
+            }
+            Action::Undo => &["undo"],
+            Action::Redo => &["redo"],
+            Action::Save => &["save"],
+            Action::Copy => &["copy"],
+            Action::CopyForAgent => {
+                ui.copy_asked = true;
+                &[]
+            }
+            Action::PlacePicked => {
+                if let Some(asset) = ui.picked.clone() {
+                    let at = state::place_point(state, cameras);
+                    place(state, &asset, at, ui.snapping);
+                }
+                &[]
+            }
+            Action::ShowCollision => {
+                state.show_collision = !state.show_collision;
+                &[]
+            }
+            Action::ShowNav => {
+                state.show_nav = !state.show_nav;
+                &[]
+            }
+            Action::ShowLights => {
+                state.show_lights = !state.show_lights;
+                &[]
+            }
+            Action::Play => &["play"],
+            Action::PlayHere => &["play", "here"],
+            Action::Walk => &["walk"],
+            Action::Audit => &["audit"],
+            // The fly keys work while the right mouse button is held, and
+            // the conversation's keys in its window.
+            Action::FlyForward
+            | Action::FlyBack
+            | Action::FlyLeft
+            | Action::FlyRight
+            | Action::FlyDown
+            | Action::FlyUp
+            | Action::FlyFaster
+            | Action::TalkNext
+            | Action::TalkBeside => &[],
         };
         if !command.is_empty() {
             state::run(state, command, cameras);
         }
-        return;
-    }
-    for (key, tool) in [
-        (KeyCode::KeyQ, Tool::Select),
-        (KeyCode::KeyW, Tool::Move),
-        (KeyCode::KeyE, Tool::Rotate),
-        (KeyCode::KeyR, Tool::Scale),
-    ] {
-        if pressed(key) {
-            ui.tool = tool;
-        }
-    }
-    if pressed(KeyCode::Delete) {
-        state::run(state, &["delete"], cameras);
-    }
-    if pressed(KeyCode::End) {
-        state::run(state, &["drop"], cameras);
-    }
-    if pressed(KeyCode::KeyF) {
-        frame_selection(state, camera_request, cameras);
-    }
-    if pressed(KeyCode::F2) {
-        state.show_collision = !state.show_collision;
-    }
-    if pressed(KeyCode::F3) {
-        state.show_nav = !state.show_nav;
-    }
-    if pressed(KeyCode::F4) {
-        state.show_lights = !state.show_lights;
-    }
-    if pressed(KeyCode::F7) {
-        state::run(state, &["walk"], cameras);
-    }
-    if pressed(KeyCode::F5) {
-        let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-        let words: &[&str] = if shift { &["play", "here"] } else { &["play"] };
-        state::run(state, words, cameras);
-    }
-    if pressed(KeyCode::F6) {
-        state::run(state, &["audit"], cameras);
-    }
-    if pressed(KeyCode::Escape) {
-        state.editor.select(None, false);
-    }
-    if pressed(KeyCode::Enter)
-        && let Some(asset) = ui.picked.clone()
-    {
-        let at = state::place_point(state, cameras);
-        place(state, &asset, at, ui.snapping);
     }
 }
 
@@ -1986,24 +2096,11 @@ fn details(
         });
 }
 
-/// The most matches listed under a script's or an item's field.
-const MATCHES: usize = 8;
-
 /// The field of the item to add, in `UiState::typed`.
 const ITEM_FIELD: &str = "item to add";
 
 /// The tag's field, in `UiState::typed`.
 const TAG_FIELD: &str = "tag";
-
-/// The names in `names` that hold what `typed` holds, at most `MATCHES`.
-fn matches<'n>(names: &'n [String], typed: &str) -> Vec<&'n String> {
-    let needle = typed.to_ascii_lowercase();
-    names
-        .iter()
-        .filter(|name| !needle.is_empty() && name.contains(&needle) && **name != needle)
-        .take(MATCHES)
-        .collect()
-}
 
 /// What the selected placeable or creature does: its template, its event
 /// scripts, and a placeable's use and items. A change gives the object a
@@ -2026,7 +2123,6 @@ fn behaviour(
     };
     if ui_state.typed_for != Some(target) {
         ui_state.typed.clear();
-        ui_state.completing = None;
         ui_state.typed_for = Some(target);
     }
     // A change made elsewhere (an undo, a command) shows in the fields,
@@ -2093,16 +2189,14 @@ fn behaviour(
                 .typed
                 .entry("Conversation".into())
                 .or_insert_with(|| now.clone());
-            let field = ui
-                .add(
-                    egui::TextEdit::singleline(typed)
-                        .desired_width(130.0)
-                        .hint_text("none"),
-                )
-                .on_hover_text(
-                    "The conversation the object speaks when the player talks to it or uses it.",
-                );
-            if field.lost_focus() && typed.to_ascii_lowercase() != now {
+            let field = crate::choose::field(ui, "conversation", typed, ("none", 130.0), || {
+                crate::choose::conversations(state)
+            });
+            let done = field.done();
+            field.response.on_hover_text(
+                "The conversation the object speaks when the player talks to it or uses it.",
+            );
+            if done && typed.to_ascii_lowercase() != now {
                 changes.push(Change::Conversation(typed.trim().to_ascii_lowercase()));
             }
             let own = state.editor.project.conversations.contains_key(&now);
@@ -2184,21 +2278,20 @@ fn behaviour(
                 || state.setup.scripts.binary_search(typed).is_ok()
                 || state.project_scripts.contains(typed.as_str())
                 || state.drafts.contains_key(typed.as_str());
-            let mut field = egui::TextEdit::singleline(typed)
-                .desired_width(150.0)
-                .hint_text("none");
             if !known {
-                field = field.text_color(egui::Color32::from_rgb(230, 120, 90));
+                ui.visuals_mut().override_text_color = Some(egui::Color32::from_rgb(230, 120, 90));
             }
-            let field = ui.add(field).on_hover_text(if known {
-                "The script this event runs. Type a compiled script's name."
+            let field = crate::choose::field(ui, ("script", label), typed, ("none", 150.0), || {
+                crate::choose::scripts(state)
+            });
+            ui.visuals_mut().override_text_color = None;
+            let done = field.done();
+            field.response.on_hover_text(if known {
+                "The script this event runs. Type a part of a compiled script's name and pick it."
             } else {
                 "The install has no compiled script of this name."
             });
-            if field.has_focus() {
-                ui_state.completing = Some(label.clone());
-            }
-            if field.lost_focus() && typed.to_ascii_lowercase() != *script {
+            if done && typed.to_ascii_lowercase() != *script {
                 changes.push(Change::Script(label.clone(), typed.to_ascii_lowercase()));
             }
             ui.horizontal(|ui| {
@@ -2234,29 +2327,6 @@ fn behaviour(
     }
     if matches!(kind, Kind::Trigger | Kind::Encounter) {
         outline_details(ui, state, ui_state, (kind, index));
-    }
-    // The matches of the script being typed.
-    if let Some(label) = ui_state.completing.clone()
-        && scripts.iter().any(|(l, _)| *l == label)
-    {
-        let typed = ui_state
-            .typed
-            .get(&label)
-            .cloned()
-            .unwrap_or_else(String::new);
-        let found = matches(&state.setup.scripts, &typed);
-        if !found.is_empty() {
-            ui.label(egui::RichText::new(format!("Scripts for {label}")).small());
-            ui.horizontal_wrapped(|ui| {
-                for name in found {
-                    if ui.small_button(name.as_str()).clicked() {
-                        ui_state.typed.insert(label.clone(), name.clone());
-                        changes.push(Change::Script(label.clone(), name.clone()));
-                        ui_state.completing = None;
-                    }
-                }
-            });
-        }
     }
     // A creature's, a store's or an encounter's numbers and lists.
     // A door's lock and toughness are its own entry's numbers.
@@ -2310,37 +2380,23 @@ fn behaviour(
                 .typed
                 .entry(ITEM_FIELD.into())
                 .or_insert_with(String::new);
-            let field = ui.add(
-                egui::TextEdit::singleline(typed)
-                    .desired_width(150.0)
-                    .hint_text("an item template"),
+            // An item picked from the list is added at once.
+            let field = crate::choose::field(ui, ITEM_FIELD, typed, ("an item's name", 180.0), || {
+                crate::choose::items(state)
+            });
+            field.response.on_hover_text(
+                "Type a part of an item's name, as the game shows it or as its file is named, and pick it.",
             );
-            if field.has_focus() {
-                ui_state.completing = Some(ITEM_FIELD.into());
-            }
-            let ready = state.setup.items.binary_search(typed).is_ok();
-            if ui
-                .add_enabled(ready, egui::Button::new("Add item"))
-                .clicked()
-            {
-                changes.push(Change::AddItem(typed.clone()));
+            let ready = crate::choose::item_known(state, typed);
+            let add = ui.add_enabled(ready, egui::Button::new("Add item")).clicked();
+            if let Some(picked) = field.picked.filter(|_| ready) {
+                changes.push(Change::AddItem(picked));
+                typed.clear();
+            } else if add {
+                changes.push(Change::AddItem(typed.trim().to_ascii_lowercase()));
                 typed.clear();
             }
         });
-        if ui_state.completing.as_deref() == Some(ITEM_FIELD) {
-            let typed = ui_state
-                .typed
-                .get(ITEM_FIELD)
-                .cloned()
-                .unwrap_or_else(String::new);
-            ui.horizontal_wrapped(|ui| {
-                for name in matches(&state.setup.items, &typed) {
-                    if ui.small_button(name.as_str()).clicked() {
-                        ui_state.typed.insert(ITEM_FIELD.into(), name.clone());
-                    }
-                }
-            });
-        }
     }
     for change in changes {
         state.change_template(target, change);
@@ -2703,39 +2759,23 @@ fn creature_lists(
                         ui.label(shown);
                         let key = format!("slot {slot}");
                         let typed = ui_state.typed.entry(key.clone()).or_insert_with(|| now.clone());
-                        let known = typed.is_empty() || state.setup.items.binary_search(typed).is_ok();
-                        let mut edit = egui::TextEdit::singleline(typed)
-                            .desired_width(150.0)
-                            .hint_text("none");
+                        let known = typed.is_empty() || crate::choose::item_known(state, typed);
                         if !known {
-                            edit = edit.text_color(egui::Color32::from_rgb(230, 120, 90));
+                            ui.visuals_mut().override_text_color = Some(egui::Color32::from_rgb(230, 120, 90));
                         }
-                        let edited = ui.add(edit).on_hover_text(
-                            "The item template the creature has here. Type an item's name, or empty it for none.",
+                        let edited = crate::choose::field(ui, &key, typed, ("none", 150.0), || crate::choose::items(state));
+                        ui.visuals_mut().override_text_color = None;
+                        let done = edited.done();
+                        edited.response.on_hover_text(
+                            "The item the creature has here. Type a part of an item's name and pick it, or empty the field for none.",
                         );
-                        if edited.has_focus() {
-                            ui_state.completing = Some(key.clone());
-                        }
-                        if edited.lost_focus() && known && typed.to_ascii_lowercase() != now {
+                        let known = typed.is_empty() || crate::choose::item_known(state, typed);
+                        if done && known && typed.to_ascii_lowercase() != now {
                             changes.push(field(FieldChange::Equip(slot, typed.to_ascii_lowercase())));
                         }
                         ui.end_row();
                     }
                 });
-            if let Some(key) = ui_state.completing.clone()
-                && let Some(slot) = key.strip_prefix("slot ").and_then(|slot| slot.parse::<u8>().ok())
-            {
-                let typed = ui_state.typed.get(&key).cloned().unwrap_or_else(String::new);
-                ui.horizontal_wrapped(|ui| {
-                    for name in matches(&state.setup.items, &typed) {
-                        if ui.small_button(name.as_str()).clicked() {
-                            ui_state.typed.insert(key.clone(), name.clone());
-                            changes.push(field(FieldChange::Equip(slot, name.clone())));
-                            ui_state.completing = None;
-                        }
-                    }
-                });
-            }
         });
 }
 
@@ -2803,20 +2843,17 @@ fn encounter_lists(
                     .typed
                     .entry(key.clone())
                     .or_insert_with(String::new);
-                let edited = ui.add(
-                    egui::TextEdit::singleline(typed)
-                        .desired_width(150.0)
-                        .hint_text("a creature template"),
-                );
-                if edited.has_focus() {
-                    ui_state.completing = Some(key.clone());
-                }
-                let name = typed.to_ascii_lowercase();
+                // A creature picked from the list is added at once.
+                let edited =
+                    crate::choose::field(ui, &key, typed, ("a creature's name", 180.0), || {
+                        crate::choose::creatures(state)
+                    });
+                let name = typed.trim().to_ascii_lowercase();
                 let ready = state.setup.creatures.binary_search(&name).is_ok();
-                if ui
+                let add = ui
                     .add_enabled(ready, egui::Button::new("Add creature"))
-                    .clicked()
-                {
+                    .clicked();
+                if ready && (add || edited.picked.is_some()) {
                     // It counts for the challenge its template says.
                     let cr = state
                         .template_gff(&name, ResType::UTC)
@@ -2833,20 +2870,6 @@ fn encounter_lists(
                     ui_state.typed.remove(&key);
                 }
             });
-            if ui_state.completing.as_deref() == Some("spawn to add") {
-                let typed = ui_state
-                    .typed
-                    .get("spawn to add")
-                    .cloned()
-                    .unwrap_or_else(String::new);
-                ui.horizontal_wrapped(|ui| {
-                    for name in matches(&state.setup.creatures, &typed) {
-                        if ui.small_button(name.as_str()).clicked() {
-                            ui_state.typed.insert("spawn to add".into(), name.clone());
-                        }
-                    }
-                });
-            }
         });
     // The spawn points, in the area's object list.
     let Target::Object(_, index) = target else {
@@ -3594,11 +3617,16 @@ fn conversations_menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut
                 }
             }
             ui.separator();
-            ui.label("A conversation's name, 1 to 16 letters, digits and _:");
-            ui.add(
-                egui::TextEdit::singleline(&mut ui_state.new_dialog)
-                    .hint_text("kje_talk")
-                    .desired_width(160.0),
+            ui.label(
+                "A conversation's name, 1 to 16 letters, digits and _. Type a part of a game's \
+                 conversation's name to find it and copy it.",
+            );
+            crate::choose::field(
+                ui,
+                "new conversation",
+                &mut ui_state.new_dialog,
+                ("kje_talk", 160.0),
+                || crate::choose::game_conversations(state),
             );
             let name = ui_state.new_dialog.trim().to_ascii_lowercase();
             let good = !name.is_empty()
@@ -3868,6 +3896,25 @@ fn typed_edit(
     }
 }
 
+/// `typed_edit` for a search-and-pick field (`choose`): a pick from its
+/// list is an edit of its own.
+fn picked_edit(
+    state: &mut EditorState,
+    ui_state: &mut UiState,
+    key: &str,
+    field: &crate::choose::Picked,
+    edit: Option<Edit>,
+) {
+    if field.picked.is_some() {
+        if let Some(edit) = edit {
+            state.apply(edit);
+        }
+        ui_state.dialog_typing = None;
+    } else {
+        typed_edit(state, ui_state, key, &field.response, edit);
+    }
+}
+
 /// The conversation window: the tree of the conversation open, the
 /// selected line's text, speaker, scripts and links, and its tries.
 fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &mut UiState) {
@@ -3934,6 +3981,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                 if ui.button("Add a starting line").on_hover_text("A line the conversation may open with. The first whose condition holds is said.").clicked() {
                     select = Some((Side::Entry, dlg.entries.len(), Some(LinkAt::Start(dlg.starts.len()))));
                     asked.push(Edit::Conversation(name.clone(), Talk::Add { under: None }));
+                    ui_state.dialog_focus = true;
                 }
                 ui.separator();
                 if ui_state.dialog_try.0.is_empty()
@@ -3943,7 +3991,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                     ui_state.dialog_try.0 = state.tag_of(&entry);
                 }
                 ui.label("Try with");
-                ui.add(egui::TextEdit::singleline(&mut ui_state.dialog_try.0).desired_width(110.0).hint_text("an object's tag"));
+                crate::choose::field(ui, "talk try", &mut ui_state.dialog_try.0, ("an object's tag", 110.0), || crate::choose::tags(state));
                 ui.label("answering");
                 ui.add(egui::TextEdit::singleline(&mut ui_state.dialog_try.1).desired_width(60.0).hint_text("1,2"));
                 let trying = state.script_try.is_some();
@@ -4060,26 +4108,74 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                         asked.push(Edit::Conversation(name.clone(), Talk::Text(side, index, line_text(node))));
                     }
                 } else {
+                    // While the line is typed, a key adds the next line under
+                    // it, or another beside it, and moves the typing there.
+                    let text_id = egui::Id::new(("talk line text", side, index));
+                    let mut go_on = None;
+                    if ui.memory(|memory| memory.has_focus(text_id)) {
+                        for (action, beside) in [(crate::keys::Action::TalkBeside, true), (crate::keys::Action::TalkNext, false)] {
+                            if go_on.is_none() && state.keys.map.of(action).iter().any(|chord| chord.take_from(ui.ctx())) {
+                                go_on = Some(beside);
+                            }
+                        }
+                    }
                     let mut text = line_text(node);
-                    let response = ui.add(egui::TextEdit::multiline(&mut text).desired_rows(3).desired_width(f32::INFINITY).hint_text("What is said"));
+                    let response = ui.add(egui::TextEdit::multiline(&mut text).id(text_id).desired_rows(3).desired_width(f32::INFINITY).hint_text("What is said"));
+                    if std::mem::take(&mut ui_state.dialog_focus) {
+                        response.request_focus();
+                    }
                     typed_edit(state, ui_state, &format!("{name} text {side:?} {index}"), &response, Some(Edit::Conversation(name.clone(), Talk::Text(side, index, text))));
+                    let (next, beside) = (state.keys.map.shown(crate::keys::Action::TalkNext), state.keys.map.shown(crate::keys::Action::TalkBeside));
+                    if !next.is_empty() || !beside.is_empty() {
+                        let under = if side == Side::Entry { "a reply to it" } else { "the line that answers it" };
+                        let next_says = if next.is_empty() { String::new() } else { format!("{next} adds {under}. ") };
+                        let beside_says = if beside.is_empty() || via.is_none() { String::new() } else { format!("{beside} adds another {} beside it.", if side == Side::Entry { "line" } else { "reply" }) };
+                        ui.label(egui::RichText::new(format!("{next_says}{beside_says}")).small().weak());
+                    }
+                    match go_on {
+                        // The next line, under this one.
+                        Some(false) => {
+                            let others = if side == Side::Entry { dlg.replies.len() } else { dlg.entries.len() };
+                            select = Some((side.other(), others, Some(LinkAt::From(side, index, node.links.len()))));
+                            asked.push(Edit::Conversation(name.clone(), Talk::Add { under: Some((side, index)) }));
+                            ui_state.dialog_focus = true;
+                        }
+                        // Another line beside this one: another opening, or
+                        // another line under the same one.
+                        Some(true) => match via {
+                            Some(LinkAt::Start(_)) => {
+                                select = Some((Side::Entry, dlg.entries.len(), Some(LinkAt::Start(dlg.starts.len()))));
+                                asked.push(Edit::Conversation(name.clone(), Talk::Add { under: None }));
+                                ui_state.dialog_focus = true;
+                            }
+                            Some(LinkAt::From(from, parent, _)) => {
+                                let siblings = (if from == Side::Entry { &dlg.entries } else { &dlg.replies }).get(parent).map_or(0, |parent| parent.links.len());
+                                let count = if side == Side::Entry { dlg.entries.len() } else { dlg.replies.len() };
+                                select = Some((side, count, Some(LinkAt::From(from, parent, siblings))));
+                                asked.push(Edit::Conversation(name.clone(), Talk::Add { under: Some((from, parent)) }));
+                                ui_state.dialog_focus = true;
+                            }
+                            None => {}
+                        },
+                        None => {}
+                    }
                 }
                 egui::Grid::new("talk node").num_columns(2).show(ui, |ui| {
                     if side == Side::Entry {
                         for (label, now, hint) in [("Speaker", &node.speaker, "the owner"), ("Listener", &node.listener, "the player")] {
                             ui.label(label);
                             let mut typed = now.clone();
-                            let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(150.0).hint_text(hint));
+                            let field = crate::choose::field(ui, ("talk", label), &mut typed, (hint, 150.0), || crate::choose::tags(state));
                             let change = if label == "Speaker" { Talk::Speaker(side, index, typed.trim().to_string()) } else { Talk::Listener(side, index, typed.trim().to_string()) };
-                            typed_edit(state, ui_state, &format!("{name} {label} {index}"), &response, Some(Edit::Conversation(name.clone(), change)));
+                            picked_edit(state, ui_state, &format!("{name} {label} {index}"), &field, Some(Edit::Conversation(name.clone(), change)));
                             ui.end_row();
                         }
                     }
                     ui.label("Runs");
                     ui.horizontal(|ui| {
                         let mut typed = node.script.script.clone();
-                        let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(120.0).hint_text("no script"));
-                        typed_edit(state, ui_state, &format!("{name} script {side:?} {index}"), &response, Some(Edit::Conversation(name.clone(), Talk::Script(side, index, typed.trim().to_string()))));
+                        let field = crate::choose::field(ui, "talk script", &mut typed, ("no script", 120.0), || crate::choose::scripts(state));
+                        picked_edit(state, ui_state, &format!("{name} script {side:?} {index}"), &field, Some(Edit::Conversation(name.clone(), Talk::Script(side, index, typed.trim().to_string()))));
                         if !node.script.script.is_empty() && ui.small_button("Write it").on_hover_text("Opens the script to be written: the project's own, else a copy of the game's, else a new one.").clicked() {
                             command = Some(format!("script edit {}", node.script.script));
                         }
@@ -4096,8 +4192,8 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                             ui.label(if side == Side::Entry { "Said only if" } else { "Offered only if" });
                             ui.horizontal(|ui| {
                                 let mut typed = link.active.script.clone();
-                                let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(120.0).hint_text("always"));
-                                typed_edit(state, ui_state, &format!("{name} condition {at:?}"), &response, Some(Edit::Conversation(name.clone(), Talk::Condition(at, typed.trim().to_string()))));
+                                let field = crate::choose::field(ui, "talk condition", &mut typed, ("always", 120.0), || crate::choose::scripts(state));
+                                picked_edit(state, ui_state, &format!("{name} condition {at:?}"), &field, Some(Edit::Conversation(name.clone(), Talk::Condition(at, typed.trim().to_string()))));
                                 let script = link.active.script.clone();
                                 if !script.is_empty() && ui.small_button("Write it").on_hover_text("Opens the condition to be written; a new one is a StartingConditional that answers TRUE.").clicked() {
                                     let known = state.project_scripts.contains(&script) || state.drafts.contains_key(&script) || state.setup.resolver.find(&script, ResType::NSS).is_some() || state.setup.resolver.find(&script, ResType::NCS).is_some();
@@ -4111,10 +4207,10 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                     ui.horizontal(|ui| {
                         let mut quest = node.quest.clone();
                         let mut entry = node.quest_entry;
-                        let a = ui.add(egui::TextEdit::singleline(&mut quest).desired_width(100.0).hint_text("quest tag"));
+                        let a = crate::choose::field(ui, "talk quest", &mut quest, ("quest tag", 100.0), || crate::choose::quests(state));
                         let b = ui.add(egui::DragValue::new(&mut entry).range(0..=1000));
                         let change = Some(Edit::Conversation(name.clone(), Talk::Quest(side, index, quest.trim().to_string(), entry)));
-                        typed_edit(state, ui_state, &format!("{name} quest {side:?} {index}"), &a, change.clone());
+                        picked_edit(state, ui_state, &format!("{name} quest {side:?} {index}"), &a, change.clone());
                         typed_edit(state, ui_state, &format!("{name} quest entry {side:?} {index}"), &b, change);
                     });
                     ui.end_row();
@@ -4126,6 +4222,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                         let others = if side == Side::Entry { dlg.replies.len() } else { dlg.entries.len() };
                         select = Some((side.other(), others, Some(LinkAt::From(side, index, node.links.len()))));
                         asked.push(Edit::Conversation(name.clone(), Talk::Add { under: Some((side, index)) }));
+                        ui_state.dialog_focus = true;
                     }
                     let others = if side == Side::Entry { &dlg.replies } else { &dlg.entries };
                     egui::ComboBox::from_id_salt("talk link to")
@@ -5742,15 +5839,45 @@ fn viewport(
                     ..GizmoConfig::default()
                 });
                 let several = state.editor.selection().len() > 1;
+                // A free move (the gizmo's middle dragged): the mouse wheel
+                // takes the selection nearer or farther.
+                let eye_at = (game_to_bevy().inverse() * eye.translation()).as_dvec3();
+                let shares = free_move(ctx, ui_state, (camera, eye), &transform, eye_at);
+                let given = match shares {
+                    Some((before, _)) => {
+                        let mut given = transform;
+                        given.translation = to_mint(state::along_view(
+                            eye_at,
+                            from_mint(transform.translation),
+                            1.0 / before,
+                        ));
+                        given
+                    }
+                    None => transform,
+                };
                 // The gizmo is drawn in the view's part of the window alone:
                 // a selection behind a panel does not put its handles over
                 // the outliner or the details.
                 let interacted = ui
                     .scope(|ui| {
                         ui.set_clip_rect(ui.clip_rect().intersect(rect));
-                        ui_state.gizmo.interact(ui, &[transform])
+                        ui_state.gizmo.interact(ui, &[given])
                     })
                     .inner;
+                // The gizmo moves the selection on its plane; the free move
+                // takes it along the line from the camera from there.
+                let interacted = interacted.map(|(result, mut moved)| {
+                    if let (Some((_, after)), GizmoResult::Translation { .. }) = (shares, result) {
+                        for moved in &mut moved {
+                            moved.translation = to_mint(state::along_view(
+                                eye_at,
+                                from_mint(moved.translation),
+                                after,
+                            ));
+                        }
+                    }
+                    (result, moved)
+                });
                 if let Some((result, moved)) = interacted {
                     on_gizmo = true;
                     if several && let Some(moved) = moved.first() {
@@ -5819,6 +5946,7 @@ fn viewport(
                     }
                 }
                 ui_state.dragging = false;
+                ui_state.free_move = None;
             }
 
             // A click picks what is under the pointer. With the measuring
@@ -6671,6 +6799,18 @@ fn adventure_items(
     if items.is_empty() {
         ui.label("The project has no items of its own yet.");
     }
+    // What the selection can be given: a creature's, a store's or a
+    // container's items.
+    let holder = match state.editor.selected {
+        Some(Target::Object(kind @ (Kind::Creature | Kind::Placeable | Kind::Store), index)) => {
+            state
+                .editor
+                .entry(kind, index)
+                .map(|entry| state.tag_of(&entry))
+        }
+        _ => None,
+    };
+    let few = items.len() <= 3;
     for (name, made) in items {
         let (shown, text) = level_edit::items::shown(&made.gff);
         let title = if shown.is_empty() {
@@ -6680,8 +6820,29 @@ fn adventure_items(
         };
         egui::CollapsingHeader::new(title)
             .id_salt(("item", &name))
+            .default_open(few)
             .show(ui, |ui| {
                 ui.label(format!("A copy of the game's item {}.", made.from));
+                ui.horizontal_wrapped(|ui| {
+                    let give = match &holder {
+                        Some(tag) => format!("Give it to {tag}"),
+                        None => "Give it to the selected object".to_string(),
+                    };
+                    if ui
+                        .add_enabled(holder.is_some(), egui::Button::new(give))
+                        .on_hover_text(
+                            "Adds the item to what the selected creature carries, to what the selected store \
+                             sells, or to what the selected container holds. A placeable is made a container \
+                             first if it is not one.",
+                        )
+                        .on_disabled_hover_text(
+                            "Select a creature, a store or a placeable in the level first.",
+                        )
+                        .clicked()
+                    {
+                        *command = Some(format!("item give {name}"));
+                    }
+                });
                 ui.horizontal(|ui| {
                     ui.label("Name");
                     let key = format!("item name {name}");
@@ -6728,22 +6889,89 @@ fn adventure_items(
             });
     }
     ui.add_space(4.0);
-    ui.label("A new item is a copy of one of the game's, by that item's file name.");
-    ui.horizontal(|ui| {
-        let name =
-            new_text(ui, ui_state, "new item name", "kje_reward", 130.0).to_ascii_lowercase();
-        let base =
-            new_text(ui, ui_state, "new item base", "g_a_mstrrobe07", 130.0).to_ascii_lowercase();
-        let good = level_edit::items::name_problem(&name).is_none() && !base.is_empty();
-        if ui
-            .add_enabled(good, egui::Button::new("New item"))
-            .clicked()
+    ui.label(
+        "A new item starts as a copy of one of the game's items. Find that item by its name as the \
+         game shows it, or by its file name, then name the new item.",
+    );
+    egui::Grid::new("new item").num_columns(2).show(ui, |ui| {
+        ui.label("Copy of");
+        let base = ui_state.texts.entry("new item base".into()).or_default();
+        let picked =
+            crate::choose::field(ui, "new item base", base, ("Energy Shield", 220.0), || {
+                crate::choose::game_items(state).to_vec()
+            });
+        let base = base.trim().to_ascii_lowercase();
+        let base_known = state.setup.items.binary_search(&base).is_ok();
+        ui.end_row();
+        // A base picked while the name is empty names the new item after
+        // it, which the field can then change.
+        if picked.picked.is_some()
+            && ui_state
+                .texts
+                .get("new item name")
+                .is_none_or(|name| name.trim().is_empty())
         {
-            *command = Some(format!("item new {name} {base}"));
-            ui_state.texts.remove("new item name");
-            ui_state.texts.remove("new item base");
+            ui_state
+                .texts
+                .insert("new item name".into(), free_item_name(state, &base));
         }
+        ui.label("Name");
+        let name =
+            new_text(ui, ui_state, "new item name", "kje_reward", 220.0).to_ascii_lowercase();
+        ui.end_row();
+        let problem = if base.is_empty() {
+            Some("Pick the item to copy.".to_string())
+        } else if !base_known {
+            Some(format!("The game has no item {base}."))
+        } else if name.is_empty() {
+            Some("Name the new item.".to_string())
+        } else if let Some(problem) = level_edit::items::name_problem(&name) {
+            Some(problem)
+        } else if item_name_taken(state, &name) {
+            Some(format!("There is an item named {name} already."))
+        } else {
+            None
+        };
+        ui.label("");
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(problem.is_none(), egui::Button::new("New item"))
+                .clicked()
+            {
+                *command = Some(format!("item new {name} {base}"));
+                ui_state.texts.remove("new item name");
+                ui_state.texts.remove("new item base");
+            }
+            if let Some(problem) = problem {
+                ui.label(egui::RichText::new(problem).small().weak());
+            }
+        });
+        ui.end_row();
     });
+}
+
+/// Whether an item named `name` exists already: the project's or the
+/// game's.
+fn item_name_taken(state: &EditorState, name: &str) -> bool {
+    state.editor.project.templates.contains_key(name)
+        || state.setup.resolver.find(name, ResType::UTI).is_some()
+}
+
+/// A name for a new item copied from `base` that no item has: `p_` and
+/// the base's name without its leading `g_`, with a number after it when
+/// that is taken.
+fn free_item_name(state: &EditorState, base: &str) -> String {
+    let stem: String = base.trim_start_matches("g_").chars().take(11).collect();
+    (0..100)
+        .map(|n| {
+            if n == 0 {
+                format!("p_{stem}")
+            } else {
+                format!("p_{stem}_{n}")
+            }
+        })
+        .find(|name| !item_name_taken(state, name))
+        .unwrap_or_else(|| format!("p_{stem}"))
 }
 
 /// The pickers that choose a property for the item `name`, and the button

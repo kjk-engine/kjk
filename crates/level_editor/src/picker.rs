@@ -119,6 +119,7 @@ pub fn install(app: &mut App, headless: bool) {
     .insert_resource(FlyControls {
         keys_need_look: true,
         paused: true,
+        keys: None,
     })
     .insert_resource(bevy_egui::EguiGlobalSettings {
         auto_create_primary_context: false,

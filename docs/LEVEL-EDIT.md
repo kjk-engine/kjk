@@ -1110,8 +1110,15 @@ name `NAME`. The copy keeps that item's kind, look and properties.
 - `edit item drop NAME` takes it out of the project.
 
 A placeable, a creature or a store takes the item by its name, as it
-takes any item (`edit item add NAME`). The item is saved in the project's
-folder as `NAME.uti`.
+takes any item (`edit item add NAME`). `edit item give NAME` gives the
+item to the selected creature, store or placeable. A placeable that does
+not hold items yet is made a container first. The item is saved in the
+project's folder as `NAME.uti`.
+
+`edit item find TEXT` lists the ten items whose name holds `TEXT`, the
+best match first. It finds an item by its name as the game shows it,
+such as "Energy Shield", as well as by its file name. It lists the
+project's own items too.
 
 **What an item does.** An item's properties say what it does when it is
 worn, wielded or used. A new item starts with its base item's properties.
@@ -1149,6 +1156,16 @@ name, description, worth and properties are changed there, and a
 property is added with pickers that list the game's tables by name. A
 quest's entries are changed and added there too. Every change in the
 window is one of the commands of this section.
+
+A new item is made at the foot of the window. Its **Copy of** field
+finds the game's item to copy by its name or its file name, as the other
+search fields do ("Search-and-pick fields", below). Once the item is
+picked, the **Name** field is filled with a free name, `p_` and the base
+item's file name, which can be changed. The window says what is still
+missing before **New item** can be pressed: an item to copy, a name, or a
+name that no other item has. Each of the project's items then has a
+**Give it to** button. It gives the item to the creature, the store or
+the placeable selected in the level (`edit item give`).
 
 **Quests.** The games keep every quest in one journal file. A project
 that adds a quest keeps a copy of that file, `global.jrl`, with its quest
@@ -1245,7 +1262,8 @@ A line clicked in the tree is changed on the right:
   itself, with no talk-table line, and kjk shows it as it shows the
   game's lines. A line of the game shows its talk-table text, and **Write
   its own text** gives it its own, starting from the game's. New lines
-  are text only; they have no voice.
+  are text only; they have no voice. A line just added takes the keys at
+  once, so its text can be typed without a click.
 - for a line the other side says, its speaker (an object's tag; empty
   for the conversation's owner) and its listener (empty for the player);
 - the script it runs as it shows, and **Write it** opens that script in
@@ -1258,6 +1276,28 @@ A line clicked in the tree is changed on the right:
   at** links it to a line or reply shown elsewhere; **Up** and **Down**
   move it among its siblings (the order replies are offered in); **Remove
   this link**; and **Delete**, which takes it out with every link to it.
+
+**Writing lines one after another.** While a line's text is typed, two
+keys add the next line and move the typing to it. Ctrl+Enter adds a line
+under the one being typed: a reply under a line the other side says, or
+the other side's answer under a reply. Ctrl+Shift+Enter adds another line
+beside it, under the same line as this one: another reply the player may
+pick, or another opening. So a question with three answers is typed as
+the question, Ctrl+Enter, the first answer, Ctrl+Shift+Enter, the second
+answer, Ctrl+Shift+Enter and the third answer. The two keys can be
+changed in the Keys window ("Keys and the mouse").
+
+The speaker and the listener are search-and-pick fields that list the
+tags of the level's objects. The scripts a line runs and its condition
+list the project's scripts and the game's. The journal's quest lists the
+quests of the journal, the project's own and the game's, by their names.
+The tag a try talks to lists the level's tags too. The Conversations
+menu's name field lists the game's conversations, to find one to copy.
+
+Typing in the window changes the project at each key, but the level is
+not drawn again for it, so the typing does not stall. The same holds for
+the Items and quests window. A creature's marker still shows, a moment
+after the typing stops, whether its conversation updates the journal.
 
 The window also sets the scripts run when the conversation ends and when
 it is cut short. **Try** saves, then plays the conversation in the level
@@ -1405,6 +1445,23 @@ user's own folder can send the editor commands. The editor saves only on
   move it, a ring to turn it about Z, and handles to scale a prop or to
   size a box.
 
+**Search-and-pick fields.** A field that names an item, a creature, a
+script, a conversation, a quest or an object's tag lists, under itself,
+the things that hold what is typed in it. An item or a creature is found
+by its name as the game shows it, such as "Energy Shield", or by its file
+name, such as `g_i_frarmbnds01`. Each row shows the name, the file name,
+and the kind of item. Among rows that match equally well, the project's
+own things come first. A click on a
+row puts it in the field. The Up and Down keys highlight a row, and Enter
+then puts that row in the field. Enter with no row highlighted keeps the
+text as it was typed, so a new name can be typed even when an older name
+holds it. An item picked in a creature's, a
+placeable's or a store's item list is added at once, and so is a creature
+picked in an encounter's list. These fields are the event scripts, the
+object's conversation, a creature's equipment, the items an object
+carries, an encounter's creatures, a new item's base, and the
+conversation window's speaker, listener, scripts, quest and try.
+
 The editor runs the scene under Enhanced lighting. egui, which draws the
 panels, draws on the scene camera, and only that camera's HDR texture is
 one egui's pipeline takes (`ui::attach_egui`).
@@ -1420,14 +1477,25 @@ so later runs show it at once and a changed file is drawn again.
 
 ### Keys and the mouse
 
+The default keys follow Unreal Engine 5's level editor wherever it has
+the same action. W, E and R pick the Move, Rotate and Scale tools, F
+frames the selection, End drops it to the floor, Ctrl+D duplicates it,
+and the right mouse button held with W, A, S and D flies the camera. The
+editor's older keys stay beside Unreal Engine 5's where the two differ:
+F5 and Alt+P both play, F2 and Alt+C both show the collision, and F3 and P
+both show the navigation mesh.
+
+These are the default keys:
+
 | key | what it does |
 |---|---|
 | right mouse button held, mouse | look around |
 | right mouse button held, W, A, S, D, Q, E | fly forward, left, back, right, down and up |
-| Shift | fly faster |
+| Shift, while flying | fly faster |
 | left mouse button | select the object, prop or box under the pointer (its marker, else its model); drag a gizmo's handle |
 | Ctrl + left mouse button | add the thing under the pointer to the selection, or take it out |
 | left mouse button dragged over an empty part of the view | select everything in the box (with Ctrl, add it to the selection) |
+| mouse wheel, while the move gizmo's middle is dragged | take the selection farther from the camera (wheel forward) or nearer to it (wheel back) |
 | Ctrl+C, Ctrl+V | copy the selection to the clipboard; paste a copy where the view looks |
 | Q, W, E, R | the Select, Move, Rotate and Scale tools |
 | F | move the camera to the selection |
@@ -1439,18 +1507,52 @@ so later runs show it at once and a changed file is drawn again.
 | Ctrl+S | save the project |
 | Ctrl+Shift+C | copy the selected object, or the level, as text for an agent |
 | Enter | place the asset picked in the picker where the view's centre meets the level |
-| F2 | show or hide the collision: walkable walkmesh in green, other solid surfaces in orange, the walls along the walkmesh's open edges in blue |
-| F3 | show or hide the navigation mesh |
+| Alt+C or F2 | show or hide the collision: walkable walkmesh in green, other solid surfaces in orange, the walls along the walkmesh's open edges in blue |
+| P or F3 | show or hide the navigation mesh |
 | F4 | show or hide the lights |
 | F7 | save, then walk the level in play's walk mode, lit as the view is |
-| F5 | save, then start `kjk play` on the project in a window of its own, as a level 6 Jedi |
+| Alt+P or F5 | save, then start `kjk play` on the project in a window of its own, as a level 6 Jedi |
 | Shift+F5 | the same, the player starting where the view looks at the floor |
 | Enter, Escape | while drawing an outline: end it, or leave the outline as it was |
 | F6 | save, then run the containment audit on the project and list its result |
 | Escape | select nothing |
+| Ctrl+Enter, while a conversation's line is typed | add the next line under it, and type that one |
+| Ctrl+Shift+Enter, while a conversation's line is typed | add another line beside it, and type that one |
 
 While a text field has the keyboard, the keys go to the field. While the
 right mouse button is held, they fly the camera.
+
+**Changing the keys.** Every key of the table can be changed, except the
+mouse's buttons, Ctrl+V and the keys that draw an outline. File, Keys...
+opens the Keys window. It lists every action with its keys. A key's
+button, clicked, waits for the next key or combination pressed, and that
+takes its place. The `+` button adds one more key to an action, and the
+`x` button takes a key away. A key that another action of the same place
+also has is shown in orange. **Unreal Engine 5 defaults** gives every
+action its default keys again.
+
+The keys are kept in a file, `editor-keys.toml` in kjk's own folder
+(Windows `%APPDATA%\kjk\editor-keys.toml`). The environment variable
+`KJK_EDITOR_KEYS` names another file, for a test. The editor writes the
+file with every action and its default keys when there is none. The file
+can be edited in a text editor while the editor runs. The editor reads it
+again within a second of a change, and says so among its messages. Each
+action takes one key, such as `frame = "F"`, or a list of keys, such as
+`play = ["Alt+P", "F5"]`. An empty list leaves the action without keys.
+An action the file leaves out keeps its default keys, and so does an
+action whose keys the file gets wrong, which the messages name. The
+Jedi Academy rooms tool flies with the same keys.
+
+**Moving a thing nearer or farther.** The move gizmo's middle, a small
+circle, moves the selection across the view, at the distance it had from
+the camera. While that middle is dragged, the mouse wheel moves the
+selection along the line from the camera through it. One step of the
+wheel forward takes it 15% farther, and one step back takes it 15%
+nearer. The selection stays under the pointer while it moves. It comes
+no nearer to the camera than half a metre. The whole drag, with its
+wheel steps, is one edit for undo. `edit push METRES` does the same from
+a command: it moves the selection that many metres farther from the
+camera, or nearer with a negative number.
 
 One drag of a gizmo, or of a number in the details panel, is one edit: one
 undo takes all of it back. The editor keeps the last 200 edits for undo
@@ -1500,6 +1602,12 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit item properties NAME`, `edit item property NAME add ROW SUBTYPE VALUE [PARAM]`, `edit item property NAME remove N`, `edit item property NAME clear` | lists the properties of one of the project's items; adds one by its rows of the game's tables; takes out the one at place `N`; takes out all of them |
 | `edit fights like TEMPLATE` | makes the selected creature fight as the creature of that template does, with its classes, feats, attributes and hit points |
 | `edit ui adventure`, `edit ui adventure off` | opens or closes the window of the project's items and quests |
+| `edit item find TEXT` | lists the ten items whose name as the game shows it, or whose file name, holds TEXT, the best match first, the project's own among them |
+| `edit item give NAME` | gives the item to the selected creature, store or placeable, and makes a placeable a container first |
+| `edit keys` | answers every action of the keys with its keys (a dump lists them too, under `keys`) |
+| `edit keys set ACTION KEY ...`, `edit keys clear ACTION`, `edit keys reset [ACTION]` | gives an action its keys, such as `edit keys set frame G F`; leaves it without keys; gives every action, or one, its default keys. Each writes the keys file |
+| `edit ui keys`, `edit ui keys off` | opens or closes the Keys window |
+| `edit push METRES` | moves the selection along the line from the camera through its middle: farther by METRES, nearer by a negative number |
 | `edit ui elsewhere on`, `edit ui elsewhere off` | whether the asset picker also lists the templates only other levels have |
 | `edit quest new TAG NAME`, `edit quest entry\|end TAG N TEXT`, `edit quest show TAG`, `edit quest drop TAG` | adds a quest to the project's journal; sets one of its entries, or one that closes it; lists it; takes it out |
 | `edit conversation NAME screen talk\|computer\|rakatan` | shows the conversation as speech between characters, on a computer's screen, or on a Rakatan computer's |

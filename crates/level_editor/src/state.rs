@@ -380,10 +380,19 @@ pub struct EditorState {
     /// What the game's other levels have that this one does not, looked
     /// for when it is first asked for.
     elsewhere: std::sync::OnceLock<crate::elsewhere::Elsewhere>,
+    /// The game's items, creatures and conversations by name, for the
+    /// search-and-pick fields (`choose`), read when first asked for.
+    pub(crate) names: crate::choose::Names,
+    /// The editor's keys (`keys`), read from their file as the editor
+    /// opens.
+    pub(crate) keys: crate::keys::Keys,
     /// An audit running (`edit audit`): when it started, and where its
     /// output arrives.
     pub(crate) audit_job: Option<(std::time::Instant, AuditResult)>,
     redraws: u32,
+    /// A conversation changed since the creatures' markers were read
+    /// (`creature_talks`), with the scene kept as it is drawn.
+    talks_stale: bool,
     /// How long the editor's work takes, for the agent link and the big
     /// level benchmark.
     pub(crate) timings: Timings,
@@ -506,8 +515,11 @@ impl EditorState {
             refused: None,
             install_templates: Default::default(),
             elsewhere: Default::default(),
+            names: Default::default(),
+            keys: crate::keys::Keys::standard(),
             audit_job: None,
             redraws: 0,
+            talks_stale: false,
             timings: Timings::default(),
             bake_seen: Default::default(),
         };
@@ -532,6 +544,11 @@ impl EditorState {
             state.say(format!(
                 "work that was not saved was found, {what}: Recover takes it, Discard removes it"
             ));
+        }
+        let mut key_problems = Vec::new();
+        state.keys = crate::keys::Keys::load(&mut |problem| key_problems.push(problem));
+        for problem in key_problems {
+            state.say(problem);
         }
         Ok((state, scene))
     }
@@ -637,6 +654,7 @@ impl EditorState {
 
     pub(crate) fn apply(&mut self, edit: Edit) {
         let (before, follows) = (self.editor.changes(), self.follows(&edit));
+        self.talks_stale |= changes_talk(&edit);
         if let Err(why) = self.editor.apply(edit) {
             self.refuse(why);
         }
@@ -651,6 +669,7 @@ impl EditorState {
             self.editor.changes(),
             !edits.is_empty() && edits.iter().all(|edit| self.follows(edit)),
         );
+        self.talks_stale |= edits.iter().any(changes_talk);
         if let Err(why) = self.editor.apply_many(edits) {
             self.refuse(why);
         }
@@ -664,6 +683,7 @@ impl EditorState {
             self.editor.changes(),
             !edits.is_empty() && edits.iter().all(|edit| self.follows(edit)),
         );
+        self.talks_stale |= edits.iter().any(changes_talk);
         if let Err(why) = self.editor.apply_many_continuing(edits) {
             self.refuse(why);
         }
@@ -674,6 +694,7 @@ impl EditorState {
     /// `apply`, joining the last edit's undo step (a drag).
     pub(crate) fn apply_continuing(&mut self, edit: Edit) {
         let (before, follows) = (self.editor.changes(), self.follows(&edit));
+        self.talks_stale |= changes_talk(&edit);
         if let Err(why) = self.editor.apply_continuing(edit) {
             self.refuse(why);
         }
@@ -689,6 +710,9 @@ impl EditorState {
     /// drawn again after any move.
     fn follows(&self, edit: &Edit) -> bool {
         use kjk_game::fitted_lights::Mode;
+        if draws_nothing(edit) {
+            return true;
+        }
         let target = match edit {
             Edit::Move(target, _) | Edit::Turn(target, _) => *target,
             // A lamp moved or turned in its details, as the gizmo turns it.
@@ -744,7 +768,31 @@ impl EditorState {
             self.followed = self.editor.changes();
         }
     }
+}
 
+/// Whether `edit` changes nothing the scene draws: a conversation, or one
+/// of the project's items or its journal. A conversation does change a
+/// creature's marker, which `redraw` reads again without drawing the area. Typing a conversation's line
+/// makes an edit at each key, and the whole area was drawn again after
+/// each pause in the typing.
+fn draws_nothing(edit: &Edit) -> bool {
+    match edit {
+        // A template no object of the area is made from.
+        Edit::SetTemplate { .. } | Edit::DropTemplate(_) => true,
+        _ => changes_talk(edit),
+    }
+}
+
+/// Whether `edit` changes a conversation, which a creature's marker reads
+/// (`markers::creature_talks`).
+fn changes_talk(edit: &Edit) -> bool {
+    matches!(
+        edit,
+        Edit::NewConversation { .. } | Edit::Conversation(..) | Edit::DropConversation(_)
+    )
+}
+
+impl EditorState {
     fn area_index(ir: &ModuleIr, area: &str) -> Option<usize> {
         ir.areas
             .iter()
@@ -1384,6 +1432,7 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     }
     state.shown_lights = (state.light_view, state.bake.clone(), state.show_lights);
     state.creature_talks = crate::markers::creature_talks(state);
+    state.talks_stale = false;
 
     // The navigation mesh, as play bakes it with the project's changes
     // (`level_edit::nav`).
@@ -1619,6 +1668,11 @@ pub(crate) fn redraw(
     if !others_stale && state.followed == state.editor.changes() {
         state.built = state.editor.changes();
         state.followed = u64::MAX;
+        // A conversation's lines changed: a creature's marker may now say
+        // that its conversation updates the journal.
+        if std::mem::take(&mut state.talks_stale) {
+            state.creature_talks = crate::markers::creature_talks(&state);
+        }
         return;
     }
     match draw(&mut state) {
@@ -1710,6 +1764,25 @@ fn root_attached(
 
 /// A ray from the camera through a point of its view (pixels), in game
 /// space.
+/// Where the camera's eye is, in game space.
+pub(crate) fn eye_in_game(
+    cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
+) -> Option<Vec3> {
+    let (_, transform) = cameras.iter().next()?;
+    Some(game_to_bevy().inverse() * transform.translation())
+}
+
+/// `point` moved along the line from the camera's eye `eye` through it, to
+/// `share` times as far from the eye as it is. On the screen it stays
+/// where it was.
+pub(crate) fn along_view(
+    eye: bevy::math::DVec3,
+    point: bevy::math::DVec3,
+    share: f64,
+) -> bevy::math::DVec3 {
+    eye + (point - eye) * share
+}
+
 pub(crate) fn ray_at(
     cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
     point: Vec2,
@@ -2771,6 +2844,25 @@ fn command_words(
         }
         ["select", "none"] | ["deselect"] => state.editor.select(None, false),
         ["drop"] => drop_to_floor(state)?,
+        // The selection moved along the line from the camera through its
+        // middle: away from the camera by METRES, nearer by a negative
+        // number. The mouse wheel does this during a free move.
+        ["push", metres] => {
+            let metres = number(metres)?;
+            let eye = eye_in_game(cameras).ok_or("there is no camera")?;
+            let middle = state
+                .editor
+                .selection_centre()
+                .ok_or("nothing is selected")?;
+            let to = Vec3::from_array(middle) - eye;
+            if to.length() < 1e-3 {
+                return Err("the selection is at the camera".into());
+            }
+            let share = f64::from(((to.length() + metres) / to.length()).max(0.0));
+            let moved = along_view(eye.as_dvec3(), Vec3::from_array(middle).as_dvec3(), share);
+            let by = (moved.as_vec3() - Vec3::from_array(middle)).to_array();
+            state.apply_many(state.editor.moves_by(by));
+        }
         ["markers", kind, on @ ("on" | "off")] => {
             let kinds: Vec<Kind> = match *kind {
                 "all" => Kind::ALL.to_vec(),
@@ -3398,6 +3490,7 @@ fn command_words(
             state.change_template(target, Change::Conversation(name.to_ascii_lowercase()));
         }
         ["conversation", rest @ ..] => conversation_command(state, rest, cameras)?,
+        ["keys", rest @ ..] => crate::keys::command(state, rest)?,
         ["blocks", event, "clear"] => {
             let target = selected(state)?;
             set_blocks(state, target, event, Vec::new())?;
@@ -3662,6 +3755,55 @@ fn command_words(
         ["item", "add", item] => {
             let target = selected(state)?;
             state.change_template(target, Change::AddItem(item.to_ascii_lowercase()));
+        }
+        // The items whose file name or in-game name holds TEXT, the best
+        // first, as the search-and-pick fields list them (`choose`).
+        ["item", "find", words @ ..] if !words.is_empty() => {
+            let typed = words.join(" ");
+            let all = crate::choose::items(state);
+            let found: Vec<String> = crate::choose::ranked(&all, &typed)
+                .into_iter()
+                .take(10)
+                .map(|choice| {
+                    if choice.name.is_empty() {
+                        choice.value.clone()
+                    } else {
+                        format!("{} ({}, {})", choice.value, choice.name, choice.note)
+                    }
+                })
+                .collect();
+            let said = if found.is_empty() {
+                format!("no item holds {typed:?}")
+            } else {
+                found.join("; ")
+            };
+            state.say(said.clone());
+            state.answer = Some(said);
+        }
+        // An item given to the selected creature, store or placeable. A
+        // placeable that holds no items is made a container first.
+        ["item", "give", item] => {
+            let item = item.to_ascii_lowercase();
+            if !crate::choose::item_known(state, &item) {
+                return Err(format!("there is no item {item}"));
+            }
+            let target = selected(state)?;
+            let Target::Object(kind @ (Kind::Creature | Kind::Placeable | Kind::Store), index) =
+                target
+            else {
+                return Err("only a creature, a store or a placeable is given items".into());
+            };
+            if kind == Kind::Placeable {
+                let holds = (state.editor.entry(kind, index))
+                    .and_then(|entry| state.behaviour_source(kind, &entry))
+                    .and_then(|gff| level_edit::template::flag(&gff, "HasInventory"))
+                    .unwrap_or(false);
+                if !holds {
+                    state.change_template(target, Change::Flag("HasInventory".into(), true));
+                }
+            }
+            state.change_template(target, Change::AddItem(item.clone()));
+            state.say(format!("gave {item}"));
         }
         ["item", "remove", at] => {
             let target = selected(state)?;
@@ -6051,6 +6193,12 @@ pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
             "messages": state.messages,
             "audit": state.audit,
             "redraws": state.redraws,
+            "keys": crate::keys::facts(&state.keys.map),
+            "timings": {
+                "frame_ms": (state.timings.frame_ms * 10.0).round() / 10.0,
+                "frame_worst_ms": (state.timings.frame_worst_ms * 10.0).round() / 10.0,
+                "redraw_ms": state.timings.redraw_ms.round(),
+            },
             "problems": project.problems().into_iter().map(|p| p.what).collect::<Vec<_>>(),
             "conversations": project.conversations.keys().collect::<Vec<_>>(),
             "project_items": project.templates.iter()

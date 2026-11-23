@@ -252,7 +252,11 @@ want with `item remove N`.
 of the game's item `BASE`. Any item serves as a key or a quest item,
 because scripts and blocks know it by its tag alone. `item add NAME` puts
 it into the selected container or creature, as it puts any item of the
-game.
+game. `item give NAME` does the same, and first makes a selected
+placeable a container if it is not one. `item find TEXT` answers the ten
+items whose name as the game shows it, or whose file name, holds `TEXT`,
+such as `item find energy shield`. Use it to find the `BASE` of a new
+item.
 
 **Text in a command.** A name or a text that ends its command runs to
 the end of the line, spaces and all, with or without double quotes:

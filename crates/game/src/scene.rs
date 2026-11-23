@@ -679,6 +679,38 @@ pub struct FlyControls {
     /// Nothing moves the camera: a text field has the keys, or the pointer
     /// is over a panel.
     pub paused: bool,
+    /// The keys that fly, as the program sets them (the level editor's
+    /// keys file). Without them, W, A, S, D, Q and E fly and Shift flies
+    /// faster.
+    pub keys: Option<FlyKeys>,
+}
+
+/// The keys that fly the camera: each direction's, and those that fly
+/// faster while held.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FlyKeys {
+    pub forward: Vec<KeyCode>,
+    pub back: Vec<KeyCode>,
+    pub left: Vec<KeyCode>,
+    pub right: Vec<KeyCode>,
+    pub down: Vec<KeyCode>,
+    pub up: Vec<KeyCode>,
+    pub faster: Vec<KeyCode>,
+}
+
+impl FlyKeys {
+    /// W, A, S, D, Q and E, and Shift to fly faster.
+    fn standard() -> FlyKeys {
+        FlyKeys {
+            forward: vec![KeyCode::KeyW],
+            back: vec![KeyCode::KeyS],
+            left: vec![KeyCode::KeyA],
+            right: vec![KeyCode::KeyD],
+            down: vec![KeyCode::KeyQ],
+            up: vec![KeyCode::KeyE],
+            faster: vec![KeyCode::ShiftLeft],
+        }
+    }
 }
 
 /// WASD to move, Q/E down and up, Shift faster, right mouse button to look.
@@ -729,20 +761,31 @@ fn fly(
             pitch.sin(),
         );
         let right = Vec3::new(yaw.sin(), -yaw.cos(), 0.0);
+        let standard;
+        let fly_keys = match controls
+            .as_ref()
+            .and_then(|controls| controls.keys.as_ref())
+        {
+            Some(fly_keys) => fly_keys,
+            None => {
+                standard = FlyKeys::standard();
+                &standard
+            }
+        };
         let mut step = Vec3::ZERO;
-        for (key, direction) in [
-            (KeyCode::KeyW, forward),
-            (KeyCode::KeyS, -forward),
-            (KeyCode::KeyD, right),
-            (KeyCode::KeyA, -right),
-            (KeyCode::KeyE, Vec3::Z),
-            (KeyCode::KeyQ, -Vec3::Z),
+        for (codes, direction) in [
+            (&fly_keys.forward, forward),
+            (&fly_keys.back, -forward),
+            (&fly_keys.right, right),
+            (&fly_keys.left, -right),
+            (&fly_keys.up, Vec3::Z),
+            (&fly_keys.down, -Vec3::Z),
         ] {
-            if keys_fly && keys.pressed(key) {
+            if keys_fly && keys.any_pressed(codes.iter().copied()) {
                 step += direction;
             }
         }
-        let speed = if keys.pressed(KeyCode::ShiftLeft) {
+        let speed = if keys.any_pressed(fly_keys.faster.iter().copied()) {
             20.0
         } else {
             5.0
