@@ -691,12 +691,6 @@ impl Surface {
 /// is its bump's mask, not coverage: opaque, as reone has it (xoreos ignores the bump map and
 /// blends by it, so the Hutts and the rancor showed through); reone still
 /// discards its alpha-0 texels, which would leave pinholes, so none are.
-/// A hint above 1 does not blend a mesh whose texture has no alpha.
-/// KOTOR's executable never reads the hint to blend. It blends every mesh
-/// by its texture's alpha and writes depth, so a mesh with a texture that
-/// has no alpha is solid. TSL's Dantooine slab (`brok04` of `605dank`,
-/// hint 4) was drawn blended and without depth, and it hid the ivy
-/// (`brok05`) that grows on it.
 /// A punch-through diffuse with alpha is cut out (`Cutout`), as KOTOR's
 /// executable draws it: the Wookiees' fur. Blended, its faint edges wrote
 /// depth and hid the parts of the body drawn after them.
@@ -1564,6 +1558,52 @@ pub fn sort_key_probes() -> sim::probe::Checks {
             1.0,
         ),
     ]
+}
+
+/// `kjk sim probes`' transparency hint group. KOTOR's executable never
+/// reads the hint to blend. It blends every mesh by its texture's alpha and
+/// writes depth, so a mesh whose texture has no alpha is solid. TSL's
+/// Dantooine slab (`brok04` of `605dank`, hint 4, a texture with no alpha)
+/// was drawn blended and without depth, and it hid the ivy (`brok05`) that
+/// grows on it.
+#[cfg(feature = "probes")]
+pub fn hint_probes() -> sim::probe::Checks {
+    vec![(
+        "a hint blends only a mesh whose texture has alpha",
+        hint_blends(),
+    )]
+}
+
+#[cfg(feature = "probes")]
+fn hint_blends() -> Result<String, String> {
+    let with_alpha = TextureFacts {
+        alpha: true,
+        ..TextureFacts::default()
+    };
+    let without = TextureFacts::default();
+    let cases = [
+        (4, false, &without, Surface::Opaque),
+        (4, false, &with_alpha, Surface::Blend),
+        (4, true, &without, Surface::OpaqueAlpha),
+        (4, true, &with_alpha, Surface::OpaqueAlpha),
+        (0, false, &without, Surface::Opaque),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|&(hint, skinned, facts, wanted)| {
+            let got = surface((hint, skinned), 1.0, (Some(facts), &[facts]));
+            (got != wanted).then(|| {
+                format!(
+                    "hint {hint}, skinned {skinned}, alpha {}: {got:?}, wanted {wanted:?}",
+                    facts.alpha
+                )
+            })
+        })
+        .collect();
+    sim::probe::check(
+        wrong.is_empty(),
+        format!("{} cases, wrong: {wrong:?}", cases.len()),
+    )
 }
 
 #[cfg(feature = "probes")]
