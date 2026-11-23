@@ -365,6 +365,13 @@ reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
 
 [[fitting]]
 game = "tsl"
+texture = "per_lt01"
+on = "room"
+reach = 7.0
+reason = "Peragus hangs these lamps 4.5 m over the floor. With the rules' reach of 5 m the floor under them took almost none of their light (18 November 2026)."
+
+[[fitting]]
+game = "tsl"
 texture = "per_lt02"
 on = "room"
 strength = 0.8
