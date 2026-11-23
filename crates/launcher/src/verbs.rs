@@ -221,6 +221,16 @@ pub(crate) enum Verb {
         /// down into their room, by their node's name, with spaces between
         #[arg(long)]
         skylights: Option<String>,
+        /// With --gpu, the placeables block the rays where they rest, so they
+        /// cast their shadows into the lightmaps. Skinned and dangling meshes
+        /// do not
+        #[arg(long)]
+        placeables: bool,
+        /// With --gpu, each vertex of a placeable's mesh that is not skinned
+        /// and does not dangle is lit as a texel is, into placeables.txt of
+        /// the lamps' set. It implies --placeables
+        #[arg(long)]
+        placeable_light: bool,
         /// The folder the files are written to
         #[arg(long, default_value_os_t = detail_bake::default_out())]
         out: std::path::PathBuf,
@@ -649,6 +659,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             least,
             most,
             skylights,
+            placeables,
+            placeable_light,
             out,
         } => {
             let probe = match probe.as_deref().map(|text| {
@@ -708,6 +720,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     .flat_map(|names| names.split_whitespace())
                     .map(str::to_string)
                     .collect(),
+                placeables: placeables || placeable_light,
+                placeable_light,
             });
             detail_bake::run(
                 &discover(),

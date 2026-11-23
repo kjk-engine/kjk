@@ -136,23 +136,7 @@ pub(crate) fn placeable_fx(
     (object, placed): (u32, u8),
 ) -> Option<OwnFx> {
     let fx = fx_through_chain(resolver, parsed);
-    let mut clips: BTreeMap<String, Arc<AnimationIr>> = ir
-        .animations
-        .iter()
-        .map(|clip| (clip.name.to_ascii_lowercase(), Arc::new(clip.clone())))
-        .collect();
-    for name in crate::own_fx::look_clips() {
-        if clips.contains_key(&name) {
-            continue;
-        }
-        match clip(cache, resolver, game, ir, &name) {
-            Ok(Some(found)) => {
-                clips.insert(name, found);
-            }
-            Ok(None) => {}
-            Err(why) => warn!("{}: its {name} clip is not read: {why}", ir.name),
-        }
-    }
+    let clips = crate::placeable_light::clips(cache, resolver, game, ir);
     (!clips.is_empty() || !fx.emitters.is_empty()).then(|| OwnFx {
         model: 0,
         plays: Plays::Look {
@@ -890,6 +874,104 @@ fn dark_unlit(name: &str) -> bool {
     (DARK_UNLIT_AREAS.iter()).any(|area| module == area || module.ends_with(&format!("_{area}")))
 }
 
+/// Under the baked trial, the probes the bake wrote for the rooms of
+/// `rooms` (`probes.txt` in a set of `baked_folders`): each one's room, its
+/// place (game space) and the light on its six sides. `None` when no set
+/// holds a probe of these rooms. A set baked before the bake wrote probes
+/// has no file, and the game makes its probes from the lightmaps.
+///
+/// Under `KJK_PROBE_SUN=on` the probes come from `probes-sun.txt` instead,
+/// with their light without the sun and their share of it, and the second
+/// part is the sun (`light_probes::ProbeSun`).
+fn baked_probes(
+    rooms: &[RoomView],
+) -> (Option<Vec<crate::light_probes::BakedProbe>>, Option<crate::light_probes::ProbeSun>) {
+    // The owner preferred the probes made from the lightmaps, so the bake's
+    // probes are read only under `KJK_BAKED_PROBES=on`.
+    if !crate::fitted_lights::baked() || std::env::var("KJK_BAKED_PROBES").map_or(true, |value| value != "on") {
+        return (None, None);
+    }
+    let live_sun = std::env::var("KJK_PROBE_SUN").is_ok_and(|value| value == "on");
+    let names: std::collections::HashSet<String> = rooms.iter().map(|room| room.name.to_ascii_lowercase()).collect();
+    let mut probes = Vec::new();
+    let mut sun = None;
+    for folder in baked_folders() {
+        let file = if live_sun { "probes-sun.txt" } else { "probes.txt" };
+        let Ok(text) = std::fs::read_to_string(folder.join(file)) else {
+            continue;
+        };
+        for line in text.lines().filter(|line| !line.starts_with('#')) {
+            let mut words = line.split_whitespace();
+            let Some(first) = words.next() else {
+                continue;
+            };
+            if live_sun && first == "sun" {
+                let numbers: Vec<f32> = words.filter_map(|word| word.parse().ok()).collect();
+                if numbers.len() == 9 {
+                    sun = Some(crate::light_probes::ProbeSun {
+                        way: bevy::math::Vec3::from_slice(&numbers[..3]).normalize_or_zero(),
+                        colour: bevy::math::Vec3::from_slice(&numbers[3..6]),
+                        curve: bevy::math::Vec3::from_slice(&numbers[6..9]),
+                    });
+                }
+                continue;
+            }
+            let room = first.to_ascii_lowercase();
+            if !names.contains(&room) {
+                continue;
+            }
+            let numbers: Vec<f32> = words.filter_map(|word| word.parse().ok()).collect();
+            let (share, light) = match (live_sun, numbers.len()) {
+                (true, 22) => (numbers[3], &numbers[4..]),
+                (false, 21) => (0.0, &numbers[3..]),
+                _ => continue,
+            };
+            let at = bevy::math::Vec3::from_slice(&numbers[..3]);
+            let light = std::array::from_fn(|side| bevy::math::Vec3::from_slice(&light[3 * side..3 * side + 3]));
+            probes.push(crate::light_probes::BakedProbe { room, at, light, sun: share });
+        }
+    }
+    if probes.is_empty() {
+        return (None, None);
+    }
+    (Some(probes), sun)
+}
+
+/// Under the baked trial, the baked light of the placeables in `lit` that
+/// the sets of `baked_folders` hold for area `area`, by each one's model in
+/// the scene. `lit` gives each placeable with a mesh the bake may light its
+/// model's number and name and which of its meshes those are, by its object
+/// (`placeable_light::bends`). A skinned or dangling mesh keeps the probes,
+/// whatever the set holds. Empty under `KJK_PLACEABLE_LIGHT=probes`.
+fn baked_placeables(
+    area: &str,
+    lit: &BTreeMap<u32, (usize, String, Arc<Vec<bool>>)>,
+) -> BTreeMap<usize, Arc<crate::placeable_light::BakedPlaceable>> {
+    let mut found = BTreeMap::new();
+    if !crate::fitted_lights::baked() || !crate::placeable_light::baked_light() || lit.is_empty() {
+        return found;
+    }
+    let names: BTreeMap<u32, &str> = lit.iter().map(|(object, (_, name, _))| (*object, name.as_str())).collect();
+    for folder in baked_folders() {
+        for (object, mut light) in crate::placeable_light::read(&folder, area, &names) {
+            if let Some((model, _, meshes)) = lit.get(&object) {
+                for (mesh, kept) in light.meshes.iter_mut().zip(meshes.iter()) {
+                    if !kept {
+                        *mesh = None;
+                    }
+                }
+                found.insert(*model, Arc::new(light));
+            }
+        }
+    }
+    bevy::log::info!(
+        "{area}: {} placeables have a mesh the bake may light, and {} of them take the bake's light",
+        lit.len(),
+        found.len()
+    );
+    found
+}
+
 /// The folders of baked lightmaps. `KJK_DETAIL_BAKE` names one area's
 /// folder. `KJK_DETAIL_BAKES` names a file with one folder a line, for a
 /// run that goes through many areas (`walk::step`). A line that starts
@@ -1534,6 +1616,12 @@ pub fn module_scene(
     let mut fx_of: BTreeMap<String, Option<OwnFx>> = BTreeMap::new();
     // Each door model's clips' alpha (a force field fades as it opens).
     let mut door_fx: BTreeMap<String, Arc<ModelFx>> = BTreeMap::new();
+    // Which meshes of each placeable model the bake may light, so that they
+    // take its light in place of the probes' (`placeable_light::bends`).
+    let mut lit_of: BTreeMap<String, Arc<Vec<bool>>> = BTreeMap::new();
+    // The model of each placeable with a mesh the bake may light, by its
+    // object: its number in the scene, its name and which meshes those are.
+    let mut lit: BTreeMap<u32, (usize, String, Arc<Vec<bool>>)> = BTreeMap::new();
     for (object, instance) in area.instances.iter().enumerate() {
         let Some(name) = &instance.model else {
             continue;
@@ -1551,6 +1639,9 @@ pub fn module_scene(
                     (0, sim::look::DEFAULT),
                 );
                 fx_of.insert(name.clone(), own);
+                if crate::fitted_lights::baked() && crate::placeable_light::baked_light() {
+                    lit_of.insert(name.clone(), Arc::new(crate::placeable_light::lit_meshes(ir)));
+                }
             }
             if instance.kind == Kind::Door
                 && let Some(parsed) = &parsed
@@ -1589,6 +1680,11 @@ pub fn module_scene(
         }
         match &loaded[name] {
             Some(ir) => {
+                if instance.kind == Kind::Placeable
+                    && let Some(meshes) = lit_of.get(name).filter(|meshes| meshes.iter().any(|lit| *lit))
+                {
+                    lit.insert(object as u32, (models.len(), name.clone(), meshes.clone()));
+                }
                 instance_models.insert(object as u32, models.len());
                 models.push(Placed {
                     ir: ir.clone(),
@@ -1642,7 +1738,10 @@ pub fn module_scene(
         }
     }
     laps.lap("textures");
-    let probes = crate::light_probes::bake(&models, &rooms, &textures);
+    let (baked, sun) = baked_probes(&rooms);
+    let mut probes = crate::light_probes::bake(&models, &rooms, &textures, baked);
+    probes.sun = sun;
+    probes.placeables = baked_placeables(&area.resref, &lit);
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {

@@ -263,6 +263,7 @@ fn probes_over(low: Vec2, high: Vec2, light: Vec3) -> RoomProbes {
                 at: Vec3::new(x, y, 1.0),
                 light: [light; 6],
                 lit: true,
+                sun: 0.0,
             });
             y += 1.0;
         }
@@ -296,8 +297,8 @@ fn no_blend_across_rooms() -> Result<String, String> {
     let lent = probes.light_at(&linked, Some(0), past_a);
     let unlinked = probes.light_at(&apart, Some(0), past_a);
     check(
-        in_a == Ok([Vec3::ONE; 6])
-            && lent == Ok([Vec3::ZERO; 6])
+        in_a == Ok(([Vec3::ONE; 6], 0.0))
+            && lent == Ok(([Vec3::ZERO; 6], 0.0))
             && unlinked == Err(Fallback::NoneNear),
         format!(
             "in room A by the wall {in_a:?}; past A's probes, B linked {lent:?}, B apart {unlinked:?}"

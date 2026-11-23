@@ -176,6 +176,18 @@ struct GpuProbe {
 struct ProbeList {
     // 1 under `KJK_PROBES=only`: a probed model shows its probe light alone.
     mode: u32,
+    // 1 under `KJK_MODEL_LAMPS=off`: under the baked trial a model that the
+    // bake lights takes none of the game's own lamps
+    // (`light_probes::lamps_off`).
+    lamps_off: u32,
+    // The live sun (`light_probes::ProbeSun`): the way toward it with w 1
+    // when there is one, its linear colour, and the bake's curve (its gamma,
+    // its knee and the most it lets over the knee). The probes then hold
+    // linear light without the sun, and the second colour's w holds a
+    // model's share of the sun.
+    sun_way: vec4<f32>,
+    sun_colour: vec4<f32>,
+    sun_curve: vec4<f32>,
     entries: array<GpuProbe, 1024>,
     // The source of the room's light each model's shadow takes
     // (`light_probes.rs`'s `room_light`). The xyz part is the direction
@@ -241,6 +253,11 @@ const LAMP_TEXELS: u32 = 65536u;
 const DARK_UNLIT: u32 = 131072u;
 // A room's surface with a lightmap, opaque or not (`material.rs`).
 const ROOM_LIGHTMAP: u32 = 262144u;
+// A placeable's mesh whose vertex colours hold its baked light
+// (`material.rs`, `placeable_light.rs`).
+const VERTEX_LIGHT: u32 = 524288u;
+// Such a mesh takes none of the game's own lamps (`material.rs`).
+const VERTEX_LIGHT_ALONE: u32 = 1048576u;
 // What such a surface keeps under the baked trial, in place of half of full
 // light. The fitted lights add to it.
 const BAKED_UNLIT_LIGHT: f32 = 0.12;
@@ -634,6 +651,11 @@ fn probe_light(owner: u32, normal: vec3<f32>) -> vec4<f32> {
     }
     if dot(normal, normal) < 1e-8 {
         let mean = (light[0].rgb + light[1].rgb + light[2].rgb + light[3].rgb + light[4].rgb + light[5].rgb) / 6.0;
+        if probe_list.sun_way.w > 0.5 {
+            // The mean of how squarely the six sides face the sun.
+            let facing = dot(abs(probe_list.sun_way.xyz), vec3<f32>(1.0)) / 6.0;
+            return vec4<f32>(probe_sun_curve(mean + probe_list.sun_colour.rgb * facing * light[1].w), 1.0);
+        }
         return vec4<f32>(mean, 1.0);
     }
     let n = normalize(normal);
@@ -641,7 +663,29 @@ fn probe_light(owner: u32, normal: vec3<f32>) -> vec4<f32> {
     let x = select(light[1].rgb, light[0].rgb, n.x > 0.0);
     let y = select(light[3].rgb, light[2].rgb, n.y > 0.0);
     let z = select(light[5].rgb, light[4].rgb, n.z > 0.0);
-    return vec4<f32>(x * w.x + y * w.y + z * w.z, 1.0);
+    let blended = x * w.x + y * w.y + z * w.z;
+    if probe_list.sun_way.w > 0.5 {
+        let facing = max(0.0, dot(n, probe_list.sun_way.xyz));
+        return vec4<f32>(probe_sun_curve(blended + probe_list.sun_colour.rgb * facing * light[1].w), 1.0);
+    }
+    return vec4<f32>(blended, 1.0);
+}
+
+// The bake's curve (`eased_level` in `crates/launcher/src/detail_bake/gpu.rs`)
+// on linear light with the live sun added, at the level the lightmaps store
+// (half, `GAIN` there). The bake puts each probe's side through it, and the
+// shader puts the blend of the sides through it, which is the same for a
+// surface that faces one of the six ways and close to it for the rest.
+fn probe_sun_curve(light: vec3<f32>) -> vec3<f32> {
+    let curve = probe_list.sun_curve.xyz;
+    let level = pow(max(light, vec3<f32>(0.0)), vec3<f32>(1.0 / curve.x));
+    let brightness = dot(level, vec3<f32>(0.2126, 0.7152, 0.0722));
+    var eased = level;
+    if brightness > curve.y {
+        let over = brightness - curve.y;
+        eased = level * ((curve.y + over * curve.z / (curve.z + over)) / brightness);
+    }
+    return eased * 0.5;
 }
 
 // The part of `probe_light` that comes from the probe's light from above:
@@ -655,11 +699,16 @@ fn probe_light_above(owner: u32, normal: vec3<f32>) -> vec3<f32> {
     if light[0].w < 0.5 {
         return vec3<f32>(0.0);
     }
+    var up = light[2].rgb;
+    if probe_list.sun_way.w > 0.5 {
+        // Under the live sun the up colour is linear and without the sun.
+        up = probe_sun_curve(up + probe_list.sun_colour.rgb * max(0.0, probe_list.sun_way.y) * light[1].w);
+    }
     if dot(normal, normal) < 1e-8 {
-        return light[2].rgb / 6.0;
+        return up / 6.0;
     }
     let n = normalize(normal);
-    return select(vec3<f32>(0.0), light[2].rgb * n.y * n.y, n.y > 0.0);
+    return select(vec3<f32>(0.0), up * n.y * n.y, n.y > 0.0);
 }
 
 // The model of the character whose sphere holds `origin`, nearest its
@@ -2011,8 +2060,22 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         var from_probes = false;
         let normal = normalize(in.world_normal);
         let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
+        // Under the baked trial a placeable's mesh that the bake lit takes the light
+        // the bake gave each of its vertices, in place of the probes' light
+        // (`placeable_light.rs`). It is stored as the lightmaps are, and it
+        // takes the same share of the occlusion. The material's ambient
+        // colour does not scale it, as it does not scale a lightmap.
+        var vertex_lit = false;
+#ifdef VERTEX_COLORS
+        vertex_lit = enhanced && shadows.debug == 8u && (params.flags & VERTEX_LIGHT) != 0u;
+#endif
         if (params.flags & HAS_LIGHTMAP) != 0u {
             diffuse_sum = self_lit + baked;
+        } else if vertex_lit {
+#ifdef VERTEX_COLORS
+            ambient_sum = in.color.rgb * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED);
+#endif
+            from_probes = true;
         } else if !is_static {
             // The area's ambient lights a moving mesh (a creature, a
             // placeable) that has no baked light of its own. Under Enhanced
@@ -2088,6 +2151,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             if probed_bake && light.kind.x != 0u {
                 continue;
             }
+            if vertex_lit && (params.flags & VERTEX_LIGHT_ALONE) != 0u {
+                continue;
+            }
+            if probed_bake && probe_list.lamps_off != 0u {
+                continue;
+            }
             let at = light.position_radius.xyz;
             let radius = light.position_radius.w;
             let to_light = at - position;
@@ -2153,6 +2222,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                     term_glow = kept;
                     term_above = above * scale;
                     term_sides = (probed - above) * scale;
+                    if vertex_lit {
+                        // The baked light counts as the probes' light, all
+                        // of it on the sides.
+                        term_above = vec3<f32>(0.0);
+                        term_sides = ambient_sum * BAKED_GAIN_PROBES;
+                    }
                     term_lamps = max(vec3<f32>(0.0), diffuse_sum - own) * dimmed;
                     term_floor = params.world_ambient.rgb * (PROBE_FLOOR / BAKED_GAIN_PROBES) * scale;
                 }
@@ -2356,8 +2431,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef VERTEX_COLORS
     // Effect primitives carry a colour and fading alpha per vertex (the
     // saber trail); on additive surfaces the alpha scales what is added,
-    // on vertex-alpha ones it fades the blend.
-    if (params.flags & VERTEX_ALPHA) != 0u {
+    // on vertex-alpha ones it fades the blend. A placeable's baked light is
+    // no colour of its surface (`VERTEX_LIGHT`).
+    if (params.flags & VERTEX_LIGHT) != 0u {
+    } else if (params.flags & VERTEX_ALPHA) != 0u {
         colour = colour * in.color.rgb;
         alpha = alpha * in.color.a;
     } else {

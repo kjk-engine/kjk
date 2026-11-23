@@ -116,6 +116,17 @@ const WRAP: f32 = 0.3;
 // `NEAR_LAMP_TO` everything does (metres).
 const NEAR_LAMP_FROM: f32 = 0.5;
 const NEAR_LAMP_TO: f32 = 1.0;
+// A light in a cell's list with this mark is the own light of the
+// placeable whose vertex the cell holds (`OWN_LIGHT` in `gpu.rs`). The
+// vertex takes it as if it stood no nearer than `OWN_LIGHT_LEAST` (metres),
+// so the vertices a few centimetres from the lamp are not blown out. The
+// placeable's own triangles block no ray here. A vertex that they hide from
+// its own light has that light left out of its cell's list (`own_seen` in
+// `gpu.rs`). Half a metre keeps the top of danm13's glowing table close to
+// its look on the probes, and its terminal dark. A third of a metre looked
+// the same, and a whole metre dimmed the table.
+const OWN_LIGHT: u32 = 0x80000000u;
+const OWN_LIGHT_LEAST: f32 = 0.5;
 
 fn falloff(span: f32, radius: f32) -> f32 {
     if span >= radius {
@@ -133,15 +144,16 @@ fn nearest(light: Light, at: vec3<f32>) -> vec3<f32> {
     return light.at.xyz + light.way.xyz * clamp(-dot(away, light.way.xyz), -half, half);
 }
 
-// What a light gives a surface at `at` (`Fitted::gives` in `detail_bake.rs`).
-fn gives(light: Light, at: vec3<f32>, normal: vec3<f32>, has_normal: bool) -> vec3<f32> {
+// What a light gives a surface at `at` (`Fitted::gives` in `detail_bake.rs`),
+// as if it stood no nearer than `least`.
+fn gives(light: Light, at: vec3<f32>, normal: vec3<f32>, has_normal: bool, least: f32) -> vec3<f32> {
     let to = nearest(light, at) - at;
-    let span = length(to);
+    let span = max(length(to), least);
     let radius = light.at.w;
     if span >= radius {
         return vec3<f32>(0.0);
     }
-    let toward = to / max(span, 1e-4);
+    let toward = to / max(length(to), 1e-4);
     var facing = 1.0;
     if has_normal {
         facing = WRAP + (1.0 - WRAP) * max(dot(normal, toward), 0.0);
@@ -306,9 +318,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         var lit = vec3<f32>(0.0);
         var open = vec3<f32>(0.0);
         for (var k = 0u; k < cell.y; k++) {
-            let number = cell_lights[cell.x + k];
+            let listed = cell_lights[cell.x + k];
+            let number = listed & ~OWN_LIGHT;
             let light = lights[number];
-            let given = gives(light, at, point.shading.xyz, has_shading);
+            let least = select(0.0, OWN_LIGHT_LEAST, (listed & OWN_LIGHT) != 0u);
+            let given = gives(light, at, point.shading.xyz, has_shading, least);
             if max(given.x, max(given.y, given.z)) < FAINTEST {
                 continue;
             }

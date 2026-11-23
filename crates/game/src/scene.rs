@@ -1062,6 +1062,9 @@ pub(crate) struct Tally {
     hidden: usize,
     skinned_meshes: usize,
     dangly: usize,
+    /// The placeables' meshes that take their baked light
+    /// (`placeable_light`).
+    vertex_lit: usize,
     /// The see-through room meshes cut into pieces, and their pieces.
     split: [usize; 2],
     animated: usize,
@@ -1111,6 +1114,10 @@ pub(crate) struct Spawner<'t> {
     /// scene's models. Their meshes are marked `light_probes::Unowned`, and
     /// take the number of the body they hang on once they are hung.
     pub unowned: bool,
+    /// The baked light of the placeable spawned now, under the baked trial
+    /// (`placeable_light`). Each of its meshes with light for every vertex
+    /// takes it as its vertex colour.
+    pub vertex_light: Option<std::sync::Arc<crate::placeable_light::BakedPlaceable>>,
     rest_box: Option<(Vec3, Vec3)>,
 }
 
@@ -1199,6 +1206,7 @@ impl<'t> Spawner<'t> {
             solid: false,
             bakes: false,
             unowned: false,
+            vertex_light: None,
             rest_box: None,
         }
     }
@@ -1273,8 +1281,20 @@ impl<'t> Spawner<'t> {
         }
         let mut parts = Vec::new();
         for (index, part) in placed.ir.meshes.iter().enumerate() {
+            // The mesh's baked light, where the bake gave every vertex one.
+            // The bake lit the mesh with its long triangles split
+            // (`placeable_light::subdivide`), and the game draws it so.
+            let light = (self.vertex_light.as_ref())
+                .and_then(|light| light.meshes.get(index)?.clone())
+                .filter(|_| !is_room);
+            let divided = light.as_ref().map(|_| crate::placeable_light::subdivide(part));
+            let light = light.filter(|light| divided.as_ref().is_some_and(|divided| light.len() == divided.positions.len()));
+            let part = match (&light, &divided) {
+                (Some(_), Some(divided)) => divided,
+                _ => part,
+            };
             if let Some((entity, mesh, material, skinned)) =
-                self.mesh(commands, stores, (placed, part, is_room), &nodes)
+                self.mesh(commands, stores, (placed, part, is_room), &nodes, light)
             {
                 parts.push(crate::shadow_tiles::SpawnedPart {
                     part: index,
@@ -1354,6 +1374,7 @@ impl<'t> Spawner<'t> {
         stores: &mut Stores,
         (placed, part, is_room): (&Placed, &asset_odyssey::model::MeshIr, bool),
         nodes: &[Entity],
+        light: Option<Vec<[f32; 3]>>,
     ) -> Option<(Entity, AssetId<Mesh>, Handle<OdysseyMaterial>, bool)> {
         let tally = &mut self.tally;
         let textures = &self.textures;
@@ -1478,6 +1499,10 @@ impl<'t> Spawner<'t> {
             tally.additive_without_hint += 1;
         }
         let area = self.area;
+        // A mesh with baked light draws with a material of its own, which
+        // reads the light from its vertex colours.
+        let mut bits = lighting.bits();
+        bits[10] |= u32::from(light.is_some()) << 3;
         let material = self
             .cache
             .entry((
@@ -1485,7 +1510,7 @@ impl<'t> Spawner<'t> {
                 lightmap,
                 surface,
                 envmap,
-                lighting.bits(),
+                bits,
                 part.uv_scroll.map(|dir| dir.map(f32::to_bits)),
                 culled,
                 whole,
@@ -1510,6 +1535,7 @@ impl<'t> Spawner<'t> {
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
                     .lamp_texels(switched > 0.0)
+                    .vertex_light(light.is_some())
                     .culled(culled)
                 };
                 let material = match whole {
@@ -1569,6 +1595,11 @@ impl<'t> Spawner<'t> {
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
+        if let Some(light) = &light {
+            let colours: Vec<[f32; 4]> = light.iter().map(|[r, g, b]| [*r, *g, *b, 1.0]).collect();
+            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
+            tally.vertex_lit += 1;
+        }
         // Every vertex must be weighted whole, so each one skinned stays near its
         // bones, and its bones' boxes must be made for its box to follow them.
         let mut culled = false;
@@ -2133,6 +2164,7 @@ pub(crate) fn spawn_scene(
         });
         spawner.solid = false;
         spawner.bakes = !is_room && !placeables.contains(&index) && !doors.contains(&index);
+        spawner.vertex_light = loaded.probes.placeables.get(&index).cloned();
         let (model_root, nodes) = spawner.placed(
             &mut commands,
             &mut stores,
@@ -2162,6 +2194,7 @@ pub(crate) fn spawn_scene(
     }
     spawner.room = None;
     spawner.walled = false;
+    spawner.vertex_light = None;
     let tally = &spawner.tally;
     let refused: Vec<String> = loaded
         .models
@@ -2230,6 +2263,7 @@ pub(crate) fn spawn_scene(
             "hidden_no_texture_loaded": tally.hidden,
             "skinned_meshes": tally.skinned_meshes,
             "dangly_meshes": tally.dangly,
+            "vertex_lit_meshes": tally.vertex_lit,
             "see_through_split": { "meshes": tally.split[0], "pieces": tally.split[1] },
             "animated": tally.animated,
             "missing_clips": loaded.missing_clips,

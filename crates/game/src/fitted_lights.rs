@@ -1042,6 +1042,27 @@ fn dump(
     }
     for placed in &loaded.models {
         let frame = placement(placed);
+        // The game's own lamps, from the models' light nodes, to compare
+        // with the fitted lights (`light_probes::lamps_off`): the model, where
+        // the lamp stands, its colour, its radius, its multiplier, and
+        // whether it only brightens the ambient.
+        for light in &placed.ir.lights {
+            let at = (frame * to_mat4(&placed.ir.nodes[light.node].world)).transform_point3(Vec3::ZERO);
+            let _ = writeln!(
+                text,
+                "lamp {} {} {} {} {} {} {} {} {} {}",
+                placed.ir.name,
+                at.x,
+                at.y,
+                at.z,
+                light.color[0],
+                light.color[1],
+                light.color[2],
+                light.radius,
+                light.multiplier,
+                u8::from(light.ambient_only)
+            );
+        }
         for mesh in &placed.ir.meshes {
             let Some(texture) = mesh.texture.as_deref() else {
                 continue;

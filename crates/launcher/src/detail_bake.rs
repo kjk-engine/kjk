@@ -226,9 +226,13 @@ fn bake_module(
                 std::fs::create_dir_all(&folder)
                     .map_err(|error| format!("{}: {error}", folder.display()))?;
                 match on_gpu {
-                    Some(on_gpu) => {
-                        gpu::bake_lights(&mut reader, &resolver, area, fitted, &far, on_gpu, &folder)?
-                    }
+                    Some(on_gpu) => gpu::bake_lights(
+                        (&mut reader, &resolver, game),
+                        area,
+                        (fitted, &far),
+                        on_gpu,
+                        &folder,
+                    )?,
                     None => bake_lights(&mut reader, &resolver, area, fitted, options.rays, &folder)?,
                 }
             }
@@ -384,6 +388,104 @@ struct Facts {
     mesh: u32,
 }
 
+/// A placeable with a mesh the bake may light
+/// (`kjk_game::placeable_light::bends`), as placed in the area.
+pub(crate) struct Still {
+    /// Its number among the area's instances.
+    pub(crate) object: usize,
+    /// Whether the bake may light each of its meshes. A mesh that a clip
+    /// moves is lit where it rests.
+    pub(crate) lit: Vec<bool>,
+    /// Its model's name, in lower case.
+    pub(crate) name: String,
+    pub(crate) model: std::rc::Rc<room_lights::Loaded>,
+    pub(crate) frame: asset_odyssey::model::Matrix,
+    /// Where it stands (area space).
+    pub(crate) at: Vec3,
+}
+
+impl Still {
+    /// The corners of `mesh` in the area.
+    pub(crate) fn corners(&self, mesh: &asset_odyssey::model::MeshIr) -> Vec<Vec3> {
+        let node = multiply(&self.frame, &self.model.ir.nodes[mesh.node].world);
+        (mesh.positions.iter())
+            .map(|p| Vec3::from_array(room_lights::apply(&node, *p)))
+            .collect()
+    }
+
+    /// The normals of `mesh` in the area, one for each corner. A mesh that
+    /// stores none takes the mean of its triangles' normals at each corner.
+    pub(crate) fn normals(&self, mesh: &asset_odyssey::model::MeshIr) -> Vec<Vec3> {
+        let node = multiply(&self.frame, &self.model.ir.nodes[mesh.node].world);
+        if mesh.normals.len() == mesh.positions.len() {
+            return (mesh.positions.iter().zip(&mesh.normals))
+                .map(|(p, n)| {
+                    let tip = [p[0] + n[0], p[1] + n[1], p[2] + n[2]];
+                    (Vec3::from_array(room_lights::apply(&node, tip))
+                        - Vec3::from_array(room_lights::apply(&node, *p)))
+                    .normalize_or_zero()
+                })
+                .collect();
+        }
+        let corners = self.corners(mesh);
+        let mut sums = vec![Vec3::ZERO; corners.len()];
+        for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
+            let corner = |i: u32| corners.get(i as usize).copied();
+            if let (Some(pa), Some(pb), Some(pc)) = (corner(a), corner(b), corner(c)) {
+                let front = (pb - pa).cross(pc - pa);
+                for i in [a, b, c] {
+                    sums[i as usize] += front;
+                }
+            }
+        }
+        sums.into_iter().map(Vec3::normalize_or_zero).collect()
+    }
+}
+
+/// The placeables of `area` with a mesh the bake may light, as the game
+/// finds them (`kjk_game::placeable_light`). Each model's report says how
+/// many of its meshes keep still, and why each other one moves.
+pub(crate) fn still_placeables(reader: &mut Reader, resolver: &Resolver, area: &AreaIr, game: Game) -> Vec<Still> {
+    let mut cache: BTreeMap<String, Option<asset_odyssey::model::ModelIr>> = BTreeMap::new();
+    let mut lit_of: HashMap<String, Vec<bool>> = HashMap::new();
+    let mut found = Vec::new();
+    for (object, instance) in area.instances.iter().enumerate() {
+        if instance.kind != asset_odyssey::module::Kind::Placeable {
+            continue;
+        }
+        let Some(name) = instance.model.as_deref().map(str::to_ascii_lowercase) else {
+            continue;
+        };
+        let Some(model) = reader.model(&name) else {
+            continue;
+        };
+        let lit = lit_of.entry(name.clone()).or_insert_with(|| {
+            let clips = kjk_game::placeable_light::clips(&mut cache, resolver, game, &model.ir);
+            let motions = kjk_game::placeable_light::motions(&model.ir, &clips);
+            let lit = kjk_game::placeable_light::lit_meshes(&model.ir);
+            let why: std::collections::BTreeSet<&str> = motions.iter().flatten().map(String::as_str).collect();
+            outln!(
+                "  placeable {name}: {} of {} meshes keep still, and the bake lights {}{}",
+                motions.iter().filter(|motion| motion.is_none()).count(),
+                motions.len(),
+                lit.iter().filter(|lit| **lit).count(),
+                if why.is_empty() { String::new() } else { format!(": {}", why.into_iter().collect::<Vec<_>>().join("; ")) }
+            );
+            lit
+        });
+        if lit.iter().any(|lit| *lit) {
+            found.push(Still {
+                object,
+                lit: lit.clone(),
+                name,
+                model,
+                frame: room_lights::frame(instance.position, instance.facing),
+                at: Vec3::from_array(instance.position),
+            });
+        }
+    }
+    found
+}
 /// The triangle a new texel belongs to, while the triangles are read.
 #[derive(Clone, Copy)]
 struct Claim {
@@ -520,7 +622,7 @@ pub(crate) fn bake_area(
         facts,
         claims,
         ..
-    } = texels(reader, resolver, area, false)?;
+    } = texels(reader, resolver, area, false, &[])?;
     let level = Level::new(&surfaces, bounds(&surfaces));
     let points = points(claims, &level);
     bake_points(&maps, &facts, &level, &points, area, options, folder, lights, started)
@@ -566,11 +668,16 @@ fn bounds(surfaces: &[Surface]) -> (Vec3, Vec3) {
 /// large squares of ground in different light/colors". A bake with a sun
 /// reads every room. A bake without one leaves them out as before: there
 /// such a room is a backdrop outside a window.
+///
+/// The placeables of `occluders` block rays as well. Their triangles have no
+/// lightmap, so a bounce ray that meets one takes the light at the
+/// triangle's middle, as it does from a room's mesh with no lightmap.
 fn texels(
     reader: &mut Reader,
     resolver: &Resolver,
     area: &AreaIr,
     every_room: bool,
+    occluders: &[&Still],
 ) -> Result<Texels, String> {
     let placement = room_lights::place(reader, area);
     let Placement {
@@ -709,6 +816,59 @@ fn texels(
                 density.0 += (pb - pa).cross(pc - pa).length();
                 density.1 += twice.abs() * (stored.width * stored.height) as f32;
                 pending.push((map, [pa, pb, pc], uv, corner_normals));
+            }
+        }
+    }
+    for still in occluders {
+        let ir = &still.model.ir;
+        // A mesh that moves blocks rays at rest, unless a skin or its
+        // dangles move it, since its place is then not known.
+        for mesh in ir.meshes.iter().filter(|mesh| mesh.skin.is_none() && mesh.dangly.is_none()) {
+            let (colour, coverage) = mesh.texture.as_deref().map_or((Vec3::splat(0.5), 1.0), |name| {
+                *albedos
+                    .entry(name.to_ascii_lowercase())
+                    .or_insert_with(|| albedo(resolver, name).unwrap_or((Vec3::splat(0.5), 1.0)))
+            });
+            let opaque = mesh.transparency_hint == 0
+                && mesh.alpha >= 0.99
+                && coverage >= LAYER_ALPHA
+                && mesh.texture.is_some();
+            if !opaque {
+                continue;
+            }
+            names.push(format!(
+                "{} ({})",
+                ir.nodes[mesh.node].name,
+                mesh.texture.as_deref().unwrap_or("no texture")
+            ));
+            let mesh_number = (names.len() - 1) as u32;
+            let glow = Vec3::from_array(mesh.self_illum).max(Vec3::ZERO).powf(2.2);
+            let world = still.corners(mesh);
+            for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
+                let corner = |i: u32| world.get(i as usize).copied();
+                let (Some(pa), Some(pb), Some(pc)) = (corner(a), corner(b), corner(c)) else {
+                    continue;
+                };
+                let front = (pb - pa).cross(pc - pa);
+                if front.length() < 1e-8 {
+                    continue;
+                }
+                surfaces.push(Surface {
+                    corners: [pa, pb, pc],
+                    uv: [Vec2::ZERO; 3],
+                    lightmap: None,
+                    texture: None,
+                    texture_uv: [Vec2::ZERO; 3],
+                    glow: Vec3::ZERO,
+                });
+                facts.push(Facts {
+                    normal: front.normalize(),
+                    albedo: colour,
+                    map: None,
+                    uv: [Vec2::ZERO; 3],
+                    glow: colour * glow,
+                    mesh: mesh_number,
+                });
             }
         }
     }
@@ -1713,7 +1873,7 @@ fn bake_lights(
         claims,
         unwalked,
         ..
-    } = texels(reader, resolver, area, false)?;
+    } = texels(reader, resolver, area, false, &[])?;
     let level = Level::new(&surfaces, bounds(&surfaces));
     let points = points(claims, &level);
     let grid = LightGrid::new(lights);

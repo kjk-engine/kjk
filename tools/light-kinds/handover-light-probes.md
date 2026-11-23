@@ -205,13 +205,299 @@ sun part costs one dot product a pixel. The fitted lights cost what they
 cost outside the bake, which the game paid under the bake too before step
 1. Nothing has been measured. The owner has not chosen to go ahead.
 
+### Step 4, baked vertex light for placeables (22 November 2026)
+
+This work is uncommitted on the branch `feat/placeable-light` of the
+worktree `model-light`. The code is `crates/game/src/placeable_light.rs`,
+the placeables' part of `crates/launcher/src/detail_bake/gpu.rs`, and the
+`VERTEX_LIGHT` branch of `odyssey.wgsl`.
+
+What was built:
+
+- `kjk detail-bake --placeables` makes the placeables block the bake's
+  rays where they rest, so they cast their shadows into the lightmaps. A
+  placeable that holds a fitted light blocks no ray, because its housing
+  would shut in its own light. Skinned and dangling meshes block no ray
+  either.
+- `kjk detail-bake --placeable-light` also lights each vertex of each
+  placeable's mesh that has no skin and does not dangle, exactly as it
+  lights a texel. A vertex takes the fitted lights with their shadows, the
+  sun with its shadow, the sky, three bounces, its room's scale and the
+  bake's curve. A mesh that a clip moves, such as a cylinder's lid, is lit
+  where it rests. A placeable that holds a fitted light takes its own light
+  in a special way, which the end of this step describes. The light goes
+  into `placeables.txt` in the bake's set, at half level like the
+  lightmaps.
+- The game gives each such mesh its light as a vertex colour, and the
+  shader takes it in place of the probes' light.
+- Long triangles are split before the bake lights them, so that no edge is
+  longer than half a metre (`placeable_light::subdivide`). The game splits
+  the mesh the same way before it draws it. Without the split one vertex lit
+  a whole fan of long triangles, and the light showed in streaks. The split
+  raises the vertices the bake lights from 8,074 to 17,671 in unk_m44ac,
+  from 13,240 to 16,836 in 411dxn, from 2,432 to 3,350 in danm13, and from
+  54,671 to 78,840 in 203tel. A file baked before the split no longer
+  matches a mesh's vertex count, and the game then keeps that mesh on the
+  probes.
+- A vertex inside the box of a smaller placeable that blocks rays is not
+  seen. The food on 203tel's oval tables is such a placeable. Such a vertex
+  takes the light of the vertices around it, as a vertex inside a wall
+  does. Before this, the vertex under the food was nearly black, and its
+  dark spread over the whole middle of the table. The vertices beside the
+  food still take its shade, and the floor's texels are not changed. 1,455
+  vertices of 203tel and 851 of 411dxn are under a smaller placeable.
+
+The switches, all under `KJK_FITTED_LIGHTS=baked`:
+
+- `KJK_PLACEABLE_LIGHT=probes` puts every placeable back on the probes.
+  This is step 1.
+- A mesh with baked light takes none of the game's own lamps by default.
+  The owner walked Peragus this way on 23 November 2026 and settled on it
+  for now. `KJK_MODEL_LAMPS=on` gives such a mesh the lamps back at half.
+- `KJK_MODEL_LAMPS=off` gives every model that the bake lights none of the
+  game's own lamps, the characters among them.
+- `KJK_BAKED_PROBES=on` reads the bake's `probes.txt` in place of the
+  game's own probes.
+
+The game's lamps count twice under the bake. Nearly every one of a room's
+lamps that lights from a direction is also a fitted light, a hidden lamp at
+the same place. That is 14 of 17 lamps in unk_m44ac and 153 of 156 in
+danm13. The bake holds that light already, and the game adds the lamp again
+at half. Without the lamps the models match their room, but they are darker
+against their floor than today.
+
+The trial of the baked probes in step 3 had a fault. It wrote `probes.txt`
+at the probes' whole level, while the game doubles the probes' light under
+the bake because the lightmaps are stored at half. Its models showed at
+twice their light. The baker now writes the probes at half. That trial's
+pictures, and its table in step 3, are too bright for that reason.
+
+The causes found on the way:
+
+- 411dxn's rooms baked nearly black because its fitted lights give far too
+  little light for the room levels in `levels-r2.txt`. Every room's lamps
+  reached the most scale the bake allows, six times. In the room `411dxnr`
+  the lamps at six times give a level of 0.02 against a target of 0.61.
+  The round r2 command has `--no-even`, which keeps a room under its level
+  dark. The set `pl3` of 411dxn takes `--fill-stored` in its place, as
+  203tel's command does. The bake's report says that each room then takes
+  its own stored light for the rest and reaches its level. The pictures do
+  not bear that out yet. The Mandalorian and the floor around him are still
+  nearly black, at 0.39 of the floor against 1.79 today. The foot locker
+  and the table `plc_reptab2` became too bright, at 4.01 and 3.48 against
+  2.45 and 1.98 today. The likely cause of the second fault is that a
+  vertex takes its room's fill at the room's mean, while a texel takes it
+  times the stored light at its own place, which is darker in a dark
+  corner. The first is not explained. Neither is fixed.
+- danm13's terminal has a dark wedge on the floor to the left of its post,
+  in the step 1 shots and the new shots alike. It is not the model's
+  shadow from the room's light (step 7b of the lighting plan), because the
+  wedge stays the same with `KJK_ROOM_SHADOW=up`. The terminal blocks no
+  ray in the bake, since it holds a fitted light. The cause is not found.
+  The next thing to check is the lightmap texels under the wedge in
+  `bake/pl3/m13aa/b`, against those of the round r2 set without
+  placeables.
+
+The sets are `bake/pl3` of each module's folder under
+`target/light-kinds/game` of the worktree `lighting-step6`. The shots are
+`shots/p3-*`, and the sheets are `sheets-pl3`. Each sheet has three columns.
+They are the game today, step 1, and the new candidate. The new candidate is
+the vertex light for placeables with the game's lamps dropped
+(`KJK_MODEL_LAMPS=off`).
+
+The table gives the model over its floor. The new candidate's set is
+`pl3`. Step 1 is under `pl2`, except in 411dxn, where it is under `pl3`.
+
+| Pose | Today | Step 1 | New candidate |
+|---|---|---|---|
+| Rakatan chair in the sun (unk_m44ac) | 0.69 | 0.59 | 0.33 |
+| Cylinders by the corner lamps (200253) | 7.26 | 8.89 | 2.37 |
+| Cylinder in the shade (200333) | 1.89 | 1.74 | 1.35 |
+| Yoda (danm13) | 0.70 | 0.79 | 0.42 |
+| Zhar (danm13) | 0.61 | 0.49 | 0.33 |
+| Chair (danm13) | 2.16 | 2.59 | 1.23 |
+| Terminal (danm13) | 0.35 | 0.38 | 0.27 |
+| Glowing table (danm13) | 0.93 | 1.30 | 0.71 |
+| Czerka officer (203tel) | 1.81 | 1.21 | 1.11 |
+| Opo Chano (203tel) | 1.33 | 0.84 | 0.56 |
+| Rodian (203tel) | 0.89 | 1.11 | 0.90 |
+| Rifle stand (203tel) | 2.31 | 2.29 | 1.71 |
+| Mandalorian (411dxn) | 1.79 | 0.39 | 0.39 |
+| Foot locker (411dxn) | 2.45 | 1.72 | 4.01 |
+| Table (411dxn) | 1.98 | 1.45 | 3.48 |
+| Crates of report 222059 (411dxn) | 0.44 | 0.33 | 0.71 |
+
+The split of long triangles and the rule for covered vertices changed the
+ratios by 0.06 at most against the set `pl2`. Their effect is in the
+pictures. The streaks are gone from 203tel's oval tables, and the middle of
+each table is as bright as its ends.
+
+A placeable's own light (23 November 2026). At first the bake left a
+placeable's own fitted lights out of its vertices, because with them in,
+danm13's terminal `plc_comppnl` came out bright blue. Without the game's
+lamps, nothing then lit the glowing table `plc_reptab2` from its own lamp,
+and the owner found it better on step 1. The bake log now names each
+placeable that holds lights of its own. In danm13 the table holds one and
+the terminal two. The bake now treats them in two ways.
+
+- A vertex takes its own placeable's light as if the light stood no nearer
+  than half a metre (`OWN_LIGHT_LEAST` in `detail_bake/gpu.wgsl`).
+- The placeable's own meshes shade its own light (`own_seen` in
+  `detail_bake/gpu.rs`). The test runs on the CPU against the meshes that
+  do not glow, and a hidden vertex has the light left out of its list. This
+  shade is needed. With the least distance alone, even at half a metre, the
+  whole terminal was bright blue, at 1.32 of its floor. With the shade, the
+  light reaches 430 of the table's 873 vertices and 733 of the terminal's
+  910.
+
+The set is `bake/pl5` of danm13, the shots `shots/p5-sun` (with the same
+switches as `p4-sun`), and the sheet `sheets-pl5/danm13.png`. The terminal
+is 0.37 of its floor (0.35 today, 0.38 on step 1, 0.27 in `pl4`) and is dark
+with a faint blue edge, as on step 1. The table is 1.12 (0.93 today, 1.30 on
+step 1, 0.71 in `pl4`). Its top is lit as on step 1, but its sides are
+darker, because the top shades them. A least distance of 0.3 metres gave
+1.13 and looked the same, and 1.0 metre dimmed the table to 1.01. The trial
+sets are `bake/pl5t-*`. Every other placeable, character, lightmap and probe
+of danm13 came out the same as in `pl4`. A bake of unk_m44ac, which has no
+placeable with a light of its own, came out the same as its `pl4` to the
+last byte.
+
+The bright foot locker of 411dxn (23 November 2026). The bake was searched
+for a fault, and none was found. `KJK_VERTEX_PARTS=<placeable>,...` makes
+the baker print each part of the light on those placeables' vertices, by the
+way they face, beside the texels within 1.5 metres that face the same way.
+
+- The fill from the stored lightmaps gives nearly all of the locker's light.
+  Its top takes a fill of 0.112 0.165 0.211 (linear), and the floor around it
+  takes 0.106 0.157 0.201. The nearest texel of every vertex is the floor,
+  0.04 to 0.5 metres away.
+- The fitted lights give 0.002 on the top at the room's scale of 6. The
+  cyan panels give 0.05 at most on the side that faces them. No light is
+  close enough to blow up.
+- The cold colour is the stored lightmaps' own colour in that room. The
+  floor has the same colour, and its brown texture hides it.
+- In the view without textures the locker is 1.15 of its floor (0.97
+  today), and the workbench `plc_reptab2` 0.86 (0.73 today). The corner
+  crates of report 222059 take 0.71 of their floor's light (0.39 today).
+  The workbench's sides read 47 to 51 against 86 to 94 for the floor beside
+  them.
+
+So the vertices take what the room's surfaces take. The locker and the
+crates look bright because their textures are about twice as bright as the
+floor's, and today the game lit them with less light than the floor gets.
+Three changes were tried and dropped. Taking the nearest texel that faces
+the same way gave the workbench's sides the light of the red lamps on the
+wall behind it. Scaling the fill by what each vertex gathers from the
+surfaces around made sides brighter than tops, because the stored light
+comes mostly from lamps the rooms do not show. Scaling it by the room's mean
+stored light on walls against floors made the sides brighter too, because
+411dxn's walls are brighter than its floors. If the owner wants placeables
+darker than the room, that is a choice of look, such as one share for all
+vertex light. The set `bake/pl6` is the same as `pl5`, and the sheets are
+`sheets-pl6/411dxn.png` and `sheets-pl6/411dxn-light.png` (without textures).
+
+### Step 5, the live sun for characters (22 November 2026, later)
+
+This work is uncommitted on `feat/placeable-light` too. It is the sun part
+of the hybrid. The fitted lights stay in the probes, because the game's
+lamps are the ones `KJK_MODEL_LAMPS=off` drops.
+
+- The baker writes a second probe file, `probes-sun.txt`, beside
+  `probes.txt` (`write_probes_sun` in `detail_bake/gpu.rs`). It does so in
+  every bake with a sun and probes.
+- Its first line gives the sun's way in Bevy's space, the sun's linear
+  colour, and the bake's curve. The curve is the gamma of 2.2, the knee of
+  0.8 and the most of 0.45 over the knee (`eased_level`).
+- Each probe line gives the probe's share of the sun, from 0 to 1. The share
+  is the sun's light on the probe's sides that face the sun, over what those
+  sides would take with nothing in the way. Each side's light is the share
+  of `SUN_RAYS` rays that reach the sun, so the share is softened already.
+- Each probe line then gives the six colours as linear light before the
+  curve and before the halving. They hold the sky, the fitted lights at the
+  room's scale, the room's fill and every bounce, the sun's bounce among
+  them. Only the first sun's direct light is taken out. A second sun stays
+  in the colours.
+- The game reads that file under `KJK_BAKED_PROBES=on` with
+  `KJK_PROBE_SUN=on` (`baked_probes` in `viewer.rs`). It blends the share as
+  it blends the colours, and eases it over the same quarter second. A model's
+  share goes to the shader in the w of its second colour.
+- The shader blends the six linear colours by the normal, adds the sun's
+  colour times how squarely the surface faces the sun times the share, and
+  puts the sum through the bake's curve and the halving
+  (`probe_sun_curve` in `odyssey.wgsl`). A room's scale is for its lamps,
+  so the sun takes none, as in the baker.
+
+The split is exact for a surface that faces one of the six ways. For any
+other surface the shader puts the blend of the sides through the curve,
+where the baker put each side through it. Below the knee the curve is a
+power of 1/2.2, so the two differ by a few percent at most.
+
+The live sun barely changes the ratios. The reason is in the measures
+below. The models that are dark against their floor stand in shade, so
+the share is near 0 for them, and the live sun gives nothing. A model in
+the open is as bright with the bake's sun in the probes as with the live
+sun, which is what the split should give.
+
+| Pose | Today | Step 1 | Lamps off, baked probes | Lamps off, live sun |
+|---|---|---|---|---|
+| Rakatan chair on the probes (unk_m44ac) | 0.69 | 0.59 | 0.31 | 0.34 |
+| Cylinders by the corner lamps (200253), on the probes | 7.26 | 8.89 | 3.94 | 4.15 |
+| Cylinder in the shade (200333), on the probes | 1.89 | 1.74 | 1.44 | 1.48 |
+
+In the view without textures (`KJK_MODEL_LIGHT=whole`) the Rakatan chair's
+seat reads 89 against 106 to 112 for the shaded floor beside it, and the
+sunlit floor beyond reads 222. So the camera of that pose shows the chair
+in shade, not in sun.
+
+In danm13 Yoda is 0.42 of his floor on the game's probes with the lamps
+dropped, 0.51 on the bake's probes, and 0.54 with the live sun. Zhar is
+0.33, 0.52 and 0.54. Today they are 0.70 and 0.61. In the view without
+textures Yoda's head and shoulders read 97 to 99, and the floor beside him
+117 to 129. Half of danm13's probes and half of unk_m44ac's have a share of
+0, and a tenth have a share of 1.
+
+The same bakes changed how a vertex takes a room's fill under
+`--fill-stored` (`places_pattern` in `detail_bake/gpu.rs`). The fill of a
+room from its stored light is the room's stored light times a number. A
+texel takes it times the stored light at its own place. A vertex and a
+probe took it at the room's mean before, which is brighter than a dark
+corner. Now each takes the stored light of the nearest counted texel of its
+room, within 4 metres. Without `--fill-stored` nothing changes, and the
+lightmaps and `probes.txt` of unk_m44ac came out the same to the last byte.
+
+| Pose (411dxn) | Today | Step 1 | `pl3` | `pl4` |
+|---|---|---|---|---|
+| Mandalorian | 1.79 | 0.39 | 0.39 | 0.39 |
+| Foot locker | 2.45 | 1.72 | 4.01 | 2.88 |
+| Table `plc_reptab2` | 1.98 | 1.45 | 3.48 | 1.52 |
+| Crates of report 222059 | 0.44 | 0.33 | 0.71 | 0.68 |
+
+The table is now close to today. The foot locker is still too bright and
+shows a cold, white colour, and the crates are still too bright. Their
+cause is not found.
+
+The sets are `bake/pl4`, the shots `shots/p4-*` and the sheets
+`sheets-pl4` of unk_m44ac, danm13 and 411dxn. 411dxn is a KOTOR 2 module,
+so its bake takes `--game tsl`.
+
 ## Where it stands
 
 - Step 1 is the behaviour under the bake, on pull request 576.
 - Models in the open are somewhat dark against their floor, and the owner
   prefers that to the brighter baked probes.
-- The baked probes and the hybrid are both open options. Either one needs
-  pictures for the owner before it goes further.
+- Step 4, the placeables' baked vertex light, is uncommitted on
+  `feat/placeable-light`. The owner has not seen its sheets.
+- Without the game's lamps, characters are darker against their floor than
+  today. The live sun of step 5 is built behind `KJK_PROBE_SUN=on`, and it
+  barely helps, because the dark models stand in shade. The gap is in the
+  light without the sun.
+- danm13's terminal wedge also shows in the shots `ml-base`, from before
+  the bake had placeables, so it does not come from the placeables blocking
+  rays.
+- The baked probes stay shelved on `feat/baked-probes`.
+- 411dxn's Mandalorian room is still nearly black under `pl3`, and its
+  vertex-lit placeables are too bright there. danm13's terminal wedge is
+  not explained.
 - Two Metal fixes from the Mac session are in the branch. One makes the
   baker run on Metal. It gives the same bake as before on Vulkan, checked
   to the last pixel in unk_m44ac. The other makes the fitted lights' buffer

@@ -31,8 +31,9 @@ use vfs::resolver::Resolver;
 use wgpu::util::DeviceExt as _;
 
 use super::{
-    FAR_LIGHT, Field, Fitted, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SHORT, Stored, Texels,
-    WALL_RAYS, bounds, direct, directions, field_of, points, stored_level, texels, write_sets,
+    FAR_LIGHT, Field, Fitted, GAIN, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SHORT, Still, Stored, Texels,
+    WALL_RAYS, bounds, direct, directions, field_of, points, still_placeables, stored_level, texels,
+    write_sets,
 };
 use crate::light_probes::Level;
 use crate::room_lights::Reader;
@@ -211,6 +212,14 @@ pub(crate) struct GpuOptions {
     /// game draws at full white. The stored lightmaps under it are as
     /// bright as the courtyard's are under the open sky.
     pub skylights: Vec<String>,
+    /// The placeables' meshes that have no skin and do not dangle
+    /// (`kjk_game::placeable_light::bends`) block the rays where they rest.
+    /// A placeable that holds a fitted light does not. Without this option
+    /// the bake is the same as before to the last pixel.
+    pub placeables: bool,
+    /// Each vertex of each such mesh is a place of the passes, lit as a
+    /// texel is, and set `b` gets `placeables.txt` (`write_placeables`).
+    pub placeable_light: bool,
 }
 
 /// An area's sun and sky for set `b`. The games' files hold neither. The
@@ -469,6 +478,25 @@ impl Passes<'_> {
         self.run_toward(mode, count, samples, rays, seed, Vec3::Z, 0.0)
     }
 
+    /// `run_toward` over the places `from` to `from + count`.
+    #[allow(clippy::too_many_arguments)]
+    fn run_from(
+        &self,
+        mode: u32,
+        (from, count): (usize, usize),
+        samples: u32,
+        rays: u32,
+        seed: u32,
+        toward: Vec3,
+        width: f32,
+    ) -> Result<(), String> {
+        for first in (from..from + count).step_by(CHUNK) {
+            let size = CHUNK.min(from + count - first);
+            self.dispatch(mode, (first, size, from + count), (samples, rays, seed), toward, width)?;
+        }
+        Ok(())
+    }
+
     /// `run`, with the way to the sun for `MODE_SKY` and half the sun's
     /// width. A width of 0 is the shader's own, with every ray from the
     /// texel's middle.
@@ -484,6 +512,23 @@ impl Passes<'_> {
     ) -> Result<(), String> {
         for first in (0..count).step_by(CHUNK) {
             let size = CHUNK.min(count - first);
+            self.dispatch(mode, (first, size, count), (samples, rays, seed), toward, width)?;
+        }
+        Ok(())
+    }
+
+    /// One chunk of a pass: `size` places from `first`, of the `end` the
+    /// pass works on.
+    fn dispatch(
+        &self,
+        mode: u32,
+        (first, size, end): (usize, usize, usize),
+        (samples, rays, seed): (u32, u32, u32),
+        toward: Vec3,
+        width: f32,
+    ) -> Result<(), String> {
+        {
+            let count = end;
             let mut params = word_bytes(&[
                 first as u32,
                 size as u32,
@@ -538,11 +583,9 @@ fn flat(field: &Field) -> Vec<[f32; 4]> {
 /// Bakes one area from the fitted lights in `lights` into `folder/a` and
 /// `folder/b` on the graphics card.
 pub(super) fn bake_lights(
-    reader: &mut Reader,
-    resolver: &Resolver,
+    (reader, resolver, game): (&mut Reader, &Resolver, vfs::Game),
     area: &AreaIr,
-    lights: &[Fitted],
-    far: &[Fitted],
+    (lights, far): (&[Fitted], &[Fitted]),
     options: &GpuOptions,
     folder: &Path,
 ) -> Result<String, String> {
@@ -556,6 +599,35 @@ pub(super) fn bake_lights(
         times.push((name, last.elapsed().as_secs_f64()));
         last = Instant::now();
     };
+    // The placeables with a mesh the bake may light. Those that hold a
+    // fitted light within `LAMP_CLEAR` of their box block no ray: a lamp's
+    // own housing would shut in the light the game fitted to it. These lights
+    // are the placeable's own (`own_lights`). Its vertices take them as if
+    // they stood no nearer than `OWN_LIGHT_LEAST` (`OWN_LIGHT` in
+    // `gpu.wgsl`), and its own meshes shade them (`own_seen`). Without the
+    // shade, the light fitted to a terminal's screen in danm13 lit the whole
+    // terminal a bright blue, even at a least distance of half a metre.
+    // Without its own light at all, the glowing table of danm13 was darker
+    // than on the probes (23 November 2026).
+    let still: Vec<Still> = if options.placeables {
+        still_placeables(reader, resolver, area, game)
+    } else {
+        Vec::new()
+    };
+    let own_lights: Vec<Vec<u32>> = (still.iter())
+        .map(|still| {
+            let corners: Vec<Vec3> = (still.model.ir.meshes.iter()).flat_map(|mesh| still.corners(mesh)).collect();
+            let low = corners.iter().fold(Vec3::splat(f32::MAX), |low, p| low.min(*p)) - Vec3::splat(LAMP_CLEAR);
+            let high = corners.iter().fold(Vec3::splat(f32::MIN), |high, p| high.max(*p)) + Vec3::splat(LAMP_CLEAR);
+            (0..lights.len() as u32)
+                .filter(|&k| lights[k as usize].at.cmpge(low).all() && lights[k as usize].at.cmple(high).all())
+                .collect()
+        })
+        .collect();
+    let occluders: Vec<&Still> = (still.iter().zip(&own_lights))
+        .filter(|(_, own)| own.is_empty())
+        .map(|(still, _)| still)
+        .collect();
     let Texels {
         maps,
         surfaces,
@@ -564,7 +636,7 @@ pub(super) fn bake_lights(
         unwalked,
         names,
         grass,
-    } = texels(reader, resolver, area, options.sun.is_some() || options.every_room)?;
+    } = texels(reader, resolver, area, options.sun.is_some() || options.every_room, &occluders)?;
     if std::env::var_os("KJK_BAKE_LAPS").is_some() {
         eprintln!("{} triangles, bounds {:?}", surfaces.len(), bounds(&surfaces));
     }
@@ -603,21 +675,74 @@ pub(super) fn bake_lights(
             side: 0.0,
         }
     }));
+    // The probes' places, six to a probe, one facing each of `PROBE_AXES`.
+    // They follow the triangles' middles, and every pass that lights them
+    // runs over them alone (`run_from`).
+    let probes = if options.old { Vec::new() } else { probe_places(reader, area) };
+    let probe_first = places.len();
+    places.extend(probes.iter().flat_map(|(_, at)| {
+        PROBE_AXES.map(|axis| Place {
+            at: *at,
+            normal: axis,
+            shading: Some(axis),
+            side: 0.0,
+        })
+    }));
+    // The vertices' places, one for each vertex of each mesh the bake may
+    // light (`vertex_places`). They follow the probes' places, and every pass
+    // that lights the probes lights them too.
+    let vertices = if options.placeable_light && !options.old {
+        vertex_places(area, reader, &still)
+    } else {
+        Vertices::default()
+    };
+    places.extend(vertices.places.iter().map(|(at, normal)| Place {
+        at: *at,
+        normal: *normal,
+        shading: Some(*normal),
+        side: 0.0,
+    }));
+    let probe_range = (probe_first, 6 * probes.len() + vertices.places.len());
+    // Where each probe's place and each vertex stands, for the fill it takes
+    // from the stored light beside it (`GpuOptions::fill_stored`).
+    let probe_at: Vec<Vec3> = places[probe_first..].iter().map(|place| place.at).collect();
+    // Each place's lightmap, for its room's scale and how far it is under a
+    // roof: six to a probe, then one to a vertex.
+    let map_of_room = |room: &str| maps.iter().position(|map| room_name(map).eq_ignore_ascii_case(room));
+    let probe_maps: Vec<Option<usize>> = (probes.iter())
+        .flat_map(|(room, _)| [map_of_room(room); 6])
+        .chain(vertices.rooms.iter().map(|room| room.as_deref().and_then(map_of_room)))
+        .collect();
 
     // The light grid's cells that hold a place, each with its list of lights.
-    // Cell 0 is empty.
-    let mut cell_of: HashMap<IVec3, u32> = HashMap::new();
+    // Cell 0 is empty. A vertex of a placeable that holds lights of its own
+    // takes a cell of its own placeable, whose list marks those lights with
+    // `OWN_LIGHT`.
+    let vertex_first = probe_first + 6 * probes.len();
+    let seen = own_seen(&vertices, &still, &own_lights, lights);
+    let mut cell_of: HashMap<(IVec3, usize, u32), u32> = HashMap::new();
     let mut cells: Vec<u32> = vec![0, 0];
     let mut cell_lights: Vec<u32> = Vec::new();
-    let place_cells: Vec<u32> = (places.iter())
-        .map(|place| {
+    let place_cells: Vec<u32> = (places.iter().enumerate())
+        .map(|(index, place)| {
             let key = (place.at / LIGHT_CELL).floor().as_ivec3();
             let Some(listed) = grid.cells.get(&key) else {
                 return 0;
             };
-            *cell_of.entry(key).or_insert_with(|| {
-                cells.extend([cell_lights.len() as u32, listed.len() as u32]);
-                cell_lights.extend(listed);
+            let vertex = (index.checked_sub(vertex_first)).filter(|&k| !own_lights[vertices.owners[k]].is_empty());
+            let owner = vertex.map(|k| vertices.owners[k]);
+            let sees = vertex.map_or(0, |k| seen[k]);
+            *cell_of.entry((key, owner.unwrap_or(usize::MAX), sees)).or_insert_with(|| {
+                let start = cell_lights.len();
+                let own: &[u32] = owner.map_or(&[], |owner| &own_lights[owner]);
+                for &light in listed {
+                    match own.iter().position(|&mine| mine == light) {
+                        None => cell_lights.push(light),
+                        Some(bit) if bit < 32 && sees & (1 << bit) != 0 => cell_lights.push(light | OWN_LIGHT),
+                        Some(_) => {}
+                    }
+                }
+                cells.extend([start as u32, (cell_lights.len() - start) as u32]);
                 (cells.len() / 2 - 1) as u32
             })
         })
@@ -901,6 +1026,7 @@ pub(super) fn bake_lights(
     let first = gpu.read(&passes.results)?;
     let count = points.len();
     let counts: Vec<bool> = (0..count).map(|i| first[2 * i][3] > 0.5).collect();
+    let first_counts: Vec<bool> = (0..places.len()).map(|i| first[2 * i][3] > 0.5).collect();
     let mut shadowed: Vec<Vec3> = (0..places.len())
         .map(|i| Vec3::from_slice(&first[2 * i]))
         .collect();
@@ -939,8 +1065,19 @@ pub(super) fn bake_lights(
         lap("smoothing the shadows".into(), &mut times);
     }
     let direct_light: Vec<Vec3> = shadowed[..count].iter().map(|sum| direct(*sum)).collect();
+    let probe_direct: Vec<Vec3> = (shadowed[probe_first..probe_first + probe_range.1].iter())
+        .map(|sum| direct(*sum))
+        .collect();
+    // Whether each vertex's place counts: a place inside a wall or under the
+    // floor takes the light of its neighbours (`fill_vertices`).
+    // A vertex under a smaller placeable that rests on its own does not count
+    // either (`covered_vertices`).
+    let covered = covered_vertices(&vertices, &still, &own_lights);
+    let vertex_counts: Vec<bool> = (0..vertices.places.len())
+        .map(|k| first_counts[probe_first + 6 * probes.len() + k] && !covered[k])
+        .collect();
     let unshadowed: Vec<Vec3> = open[..count].iter().map(|sum| direct(*sum)).collect();
-    let tri_direct: Vec<[f32; 4]> = shadowed[count..]
+    let tri_direct: Vec<[f32; 4]> = shadowed[count..probe_first]
         .iter()
         .map(|sum| four(direct(*sum), 1.0))
         .collect();
@@ -970,6 +1107,18 @@ pub(super) fn bake_lights(
             })
             .collect()
     };
+    // The sun's and the sky's light on the probes' places.
+    let probe_sun_and_sky = |toward: Vec3, samples: u32, rays: u32, width: f32| -> Result<Vec<[f32; 2]>, String> {
+        passes.run_from(MODE_SKY, probe_range, samples, rays, 21, toward, width)?;
+        let read = gpu.read(&passes.results)?;
+        Ok((0..probe_range.1).map(|j| [read[2 * (probe_first + j)][0], read[2 * (probe_first + j)][1]]).collect())
+    };
+    let mut probe_sky = vec![Vec3::ZERO; probe_range.1];
+    // The first sun's direct light on each probe's place, which `probe_sky`
+    // holds, and the sun's way and linear colour. The game adds it live
+    // under `KJK_PROBE_SUN=on` (`write_probes_sun`).
+    let mut probe_sun = vec![Vec3::ZERO; probe_range.1];
+    let mut sun_of_probes: Option<(Vec3, Vec3)> = None;
     let mut sunlit: Option<Vec<f32>> = None;
     let sky_light: Vec<Vec3> = match &options.sun {
         Some(sun) => {
@@ -1033,6 +1182,26 @@ pub(super) fn bake_lights(
             let on_skylight = sun.on_level_ground();
             let panes: Vec<usize> = (0..facts.len()).filter(|&t| skylight[t]).collect();
             let pane_maps: std::collections::HashSet<usize> = panes.iter().filter_map(|&t| facts[t].map).collect();
+            if probe_range.1 > 0 {
+                let seen = probe_sun_and_sky(sun.toward, sun_rays, SKY_RAYS, width)?;
+                let second: Vec<Vec3> = match sun.second {
+                    Some((toward, colour)) => (probe_sun_and_sky(toward, sun_rays, 0, width)?.iter())
+                        .map(|[sun, _]| colour.powf(GAMMA) * *sun)
+                        .collect(),
+                    None => vec![Vec3::ZERO; probe_range.1],
+                };
+                for (j, light) in probe_sky.iter_mut().enumerate() {
+                    let [sun_seen, sky_seen] = seen[j];
+                    let roof = probe_maps[j].map_or(1.0, |map| roofed[map]);
+                    let open = ((sky_seen - OPENING_FROM) / (OPENING_TO - OPENING_FROM)).clamp(0.0, 1.0);
+                    let open = open * open * (3.0 - 2.0 * open);
+                    let in_a_courtyard = (on_skylight * OPENING_GAIN).lerp(of_sky, open) * sky_seen;
+                    let under_a_roof = on_skylight * (ROOF_GAIN * sky_seen).min(1.0);
+                    *light = of_sun * sun_seen + second[j] + in_a_courtyard.lerp(under_a_roof, roof);
+                    probe_sun[j] = of_sun * sun_seen;
+                }
+                sun_of_probes = Some((sun.toward, of_sun));
+            }
             let light = (0..count)
                 .map(|i| {
                     let point = &points[i];
@@ -1073,6 +1242,19 @@ pub(super) fn bake_lights(
             })
             .collect())
     };
+    // What the probes' places gather from field `b`, and from the glow.
+    let probe_gather = |b: &[Vec3], seed: u32| -> Result<Vec<[Vec3; 2]>, String> {
+        if probe_range.1 == 0 {
+            return Ok(Vec::new());
+        }
+        let field_b = flat(&field_of(&maps, &points, &counts, b));
+        passes.write_fields(&field_b, &field_b);
+        passes.run_from(MODE_BOUNCE_NEW, probe_range, 0, BOUNCE_RAYS, seed, Vec3::Z, 0.0)?;
+        let read = gpu.read(&passes.results)?;
+        Ok((0..probe_range.1)
+            .map(|j| [1, 2].map(|k| Vec3::from_slice(&read[3 * (probe_first + j) + k])))
+            .collect())
+    };
     let (bounce_a, bounce_b) = if options.old {
         // The CPU bake's bounces: one for `a`, and for `b` a second from the
         // first with the glow.
@@ -1111,6 +1293,15 @@ pub(super) fn bake_lights(
         }
         (bounce_a, bounce_b)
     };
+    // The lamps' light on the probes: direct, and what the texels lit by
+    // them and their bounces send back.
+    let probe_lamps: Vec<Vec3> = {
+        let from_b: Vec<Vec3> = (0..count).map(|i| direct_light[i] + bounce_b[i]).collect();
+        let gathered = probe_gather(&from_b, 40)?;
+        (0..probe_range.1)
+            .map(|j| probe_direct[j] + gathered.get(j).map_or(Vec3::ZERO, |[b, glow]| *b + *glow))
+            .collect()
+    };
     // The sun's and the sky's light with its own bounces.
     let sun_light: Vec<Vec3> = if let Some(sun) = &options.sun {
         // What a bounce ray takes from a skylight is the light that falls
@@ -1138,7 +1329,13 @@ pub(super) fn bake_lights(
             );
             lap(format!("the sun's bounce {}", pass + 1), &mut times);
         }
-        (0..count).map(|i| sky_light[i] + bounced[i]).collect()
+        let from: Vec<Vec3> = (0..count).map(|i| sky_light[i] + bounced[i]).collect();
+        // The glow was gathered with the lamps' light already.
+        let gathered = probe_gather(&from, 42)?;
+        for (light, [b, _]) in probe_sky.iter_mut().zip(gathered) {
+            *light += b;
+        }
+        from
     } else {
         sky_light
     };
@@ -1277,7 +1474,7 @@ pub(super) fn bake_lights(
     // `written_b` is what set `b` holds on disk, and `fills_b` is how much
     // of its stored light each room takes when the game loads it
     // (`GpuOptions::fill_stored`).
-    let (rooms_b, shown_b, written_b, fills_b) = if options.old {
+    let (rooms_b, shown_b, written_b, fills_b, probe_light, probe_linear) = if options.old {
         // The CPU bake's way: one scale for the area, so that its mean is
         // `a`'s.
         let mean_a = mean(&|i| shown_a[i]);
@@ -1304,7 +1501,7 @@ pub(super) fn bake_lights(
             &stored_level,
         );
         let shown: Vec<Vec3> = lamps_scaled.iter().map(|l| stored_level(*l)).collect();
-        (rooms, shown.clone(), shown, std::collections::BTreeMap::new())
+        (rooms, shown.clone(), shown, std::collections::BTreeMap::new(), Vec::new(), Vec::new())
     } else {
         // Each room's target is the live formula without its stored half:
         // the room's mean level of the lights alone, without shadows. One
@@ -1460,7 +1657,93 @@ pub(super) fn bake_lights(
                 }
             })
             .collect();
-        (rooms, shown, written, fills)
+        // What the fill shows at each probe's place and each vertex: the
+        // pattern of the room's texel nearest it. The fill of a room from its
+        // stored light is the room's stored light times a number, so a texel
+        // in a dark corner takes less of it than one under a lamp. A vertex
+        // took the fill at the room's mean before, and in 411dxn the foot
+        // locker and the table were 4.01 and 3.48 of their floor, against
+        // 2.45 and 1.98 today.
+        let nearest = nearest_texels(&maps, &points, &counted, &probe_at, &probe_maps);
+        let probe_pattern = places_pattern(&pattern, &nearest, options.fill_stored);
+        // Each probe's light as its room shows it: the sun and the sky, the
+        // lamps at the room's scale, and the room's even light. The linear
+        // light before the curve is kept for the live sun
+        // (`write_probes_sun`).
+        let probe_linear: Vec<Vec3> = (0..probe_range.1)
+            .map(|j| {
+                let (fill, scale) = probe_maps[j].map_or((0.0, 1.0), |map| even[map].unwrap_or((0.0, rooms.scale[map])));
+                probe_sky[j] + probe_lamps[j] * scale + probe_pattern[j] * fill
+            })
+            .collect();
+        let probe_light: Vec<Vec3> = probe_linear.iter().map(|light| eased_level(*light)).collect();
+        // `KJK_VERTEX_PARTS=<placeable>`: each part of the light on that
+        // placeable's vertices, by the way they face, against the texels
+        // around it that face the same way.
+        if let Some(name) = std::env::var_os("KJK_VERTEX_PARTS").and_then(|name| name.into_string().ok()) {
+            let axis_of = |n: Vec3| -> usize {
+                let a = n.abs();
+                if a.z >= a.x && a.z >= a.y { if n.z > 0.0 { 4 } else { 5 } } else if a.x >= a.y { if n.x > 0.0 { 0 } else { 1 } } else if n.y > 0.0 { 2 } else { 3 }
+            };
+            let axes = ["+x", "-x", "+y", "-y", "+z", "-z"];
+            let v3 = |v: Vec3| format!("{:.4} {:.4} {:.4}", v.x, v.y, v.z);
+            for (owner, placeable) in still.iter().enumerate().filter(|(_, s)| name.split(',').any(|n| n == s.name)) {
+                let mine: Vec<usize> = (0..vertices.places.len()).filter(|&k| vertices.owners[k] == owner && vertex_counts[k]).collect();
+                let low = mine.iter().fold(Vec3::splat(f32::MAX), |low, &k| low.min(vertices.places[k].0));
+                let high = mine.iter().fold(Vec3::splat(f32::MIN), |high, &k| high.max(vertices.places[k].0));
+                outln!("  parts of {} at {} (the vertices that count): box {} to {}", placeable.name, v3(placeable.at), v3(low), v3(high));
+                for axis in 0..6 {
+                    let group: Vec<usize> = mine.iter().copied().filter(|&k| axis_of(vertices.places[k].1) == axis).collect();
+                    if group.is_empty() {
+                        continue;
+                    }
+                    let n = group.len() as f32;
+                    let sum = |f: &dyn Fn(usize) -> Vec3| group.iter().map(|&k| f(6 * probes.len() + k)).sum::<Vec3>() / n;
+                    let (fill_scale, room) = (probe_maps[6 * probes.len() + group[0]])
+                        .map_or(((0.0, 1.0), String::new()), |map| (even[map].unwrap_or((0.0, rooms.scale[map])), room_name(&maps[map])));
+                    outln!(
+                        "    vertices {} ({}), room {room}, fill {:.4}, scale {:.3}: direct {}, bounce {}, sky {}, fill part {}, linear {}, after the curve {}",
+                        axes[axis], group.len(), fill_scale.0, fill_scale.1,
+                        v3(sum(&|j| probe_direct[j] * fill_scale.1)), v3(sum(&|j| (probe_lamps[j] - probe_direct[j]) * fill_scale.1)), v3(sum(&|j| probe_sky[j])),
+                        v3(sum(&|j| probe_pattern[j] * fill_scale.0)), v3(sum(&|j| probe_linear[j])), v3(sum(&|j| probe_light[j]))
+                    );
+                    for &k in group.iter().step_by((group.len() / 4).max(1)).take(4) {
+                        let j = 6 * probes.len() + k;
+                        let texel = nearest[j].map_or("none".to_string(), |i| {
+                            format!("{} at {} facing {}, {:.2} m off, pattern {}", maps[points[i].map].name, v3(points[i].at), v3(points[i].normal), points[i].at.distance(vertices.places[k].0), v3(pattern[i]))
+                        });
+                        outln!(
+                            "      vertex at {}: direct {}, bounce {}, fill part {}, after the curve {}; nearest texel {texel}",
+                            v3(vertices.places[k].0), v3(probe_direct[j] * fill_scale.1), v3((probe_lamps[j] - probe_direct[j]) * fill_scale.1), v3(probe_pattern[j] * fill_scale.0), v3(probe_light[j])
+                        );
+                    }
+                }
+                // The counted texels within a metre and a half of its box, by the way they face.
+                let near: Vec<usize> = (counted.iter().copied())
+                    .filter(|&i| points[i].at.clamp(low, high).distance(points[i].at) < 1.5)
+                    .collect();
+                for axis in 0..6 {
+                    let group: Vec<usize> = near.iter().copied().filter(|&i| axis_of(points[i].normal) == axis).collect();
+                    if group.is_empty() {
+                        continue;
+                    }
+                    let n = group.len() as f32;
+                    let sum = |f: &dyn Fn(usize) -> Vec3| group.iter().map(|&i| f(i)).sum::<Vec3>() / n;
+                    let mut by_room: HashMap<String, usize> = HashMap::new();
+                    for &i in &group {
+                        *by_room.entry(room_name(&maps[points[i].map])).or_default() += 1;
+                    }
+                    let fs = |i: usize| even[points[i].map].unwrap_or((0.0, rooms.scale[points[i].map]));
+                    outln!(
+                        "    texels {} ({}, rooms {:?}): direct {}, bounce {}, sky {}, fill part {}, after the curve {}, stored {}",
+                        axes[axis], group.len(), by_room,
+                        v3(sum(&|i| direct_light[i] * fs(i).1)), v3(sum(&|i| bounce_b[i] * fs(i).1)), v3(sum(&|i| sun_light[i])),
+                        v3(sum(&|i| pattern[i] * fs(i).0)), v3(sum(&|i| shown[i])), v3(sum(&|i| stored_at(&points[i])))
+                    );
+                }
+            }
+        }
+        (rooms, shown, written, fills, probe_light, probe_linear)
     };
     lap("levels".into(), &mut times);
 
@@ -1477,7 +1760,7 @@ pub(super) fn bake_lights(
     )?;
     // A set baked earlier into the same folder may hold a `fill.txt` or a
     // `floor.txt` that this bake does not ask for.
-    for name in ["fill.txt", "floor.txt"] {
+    for name in ["fill.txt", "floor.txt", "probes.txt", PROBES_SUN, kjk_game::placeable_light::FILE] {
         let _ = std::fs::remove_file(folder.join("b").join(name));
     }
     if !fills_b.is_empty() {
@@ -1506,6 +1789,89 @@ pub(super) fn bake_lights(
         }
         let path = folder.join("b").join("floor.txt");
         std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+    if std::env::var_os("KJK_PROBE_CHECK").is_some() && !probe_light.is_empty() {
+        // Each probe's light from above against the upward texels under it.
+        let mut ratios: Vec<f32> = Vec::new();
+        for (k, (_, at)) in probes.iter().enumerate() {
+            let under: Vec<usize> = (0..count)
+                .filter(|&i| counts[i] && points[i].normal.z > 0.9)
+                .filter(|&i| points[i].at.truncate().distance(at.truncate()) < 0.3 && (at.z - points[i].at.z - PROBE_HEIGHT).abs() < 0.3)
+                .collect();
+            if under.is_empty() {
+                continue;
+            }
+            let floor = under.iter().map(|&i| luma(written_b[i])).sum::<f32>() / under.len() as f32;
+            if floor > 0.02 {
+                ratios.push(luma(probe_light[6 * k + 2]) / floor);
+            }
+        }
+        ratios.sort_by(f32::total_cmp);
+        let at = |q: f32| ratios.get(((ratios.len() as f32 - 1.0) * q) as usize).copied().unwrap_or(0.0);
+        eprintln!("probe up over floor texel under it, {} probes: 10% {:.2}, median {:.2}, 90% {:.2}", ratios.len(), at(0.1), at(0.5), at(0.9));
+    }
+    // The probes and the vertices are written as a lightmap's texels are:
+    // at their level over `GAIN`, which the game multiplies back. The trial
+    // of 22 November 2026 wrote the probes at their whole level, and the
+    // game showed them at twice their light.
+    let placeable_count = (area.instances.iter())
+        .filter(|instance| instance.kind == asset_odyssey::module::Kind::Placeable)
+        .count();
+    if !probes.is_empty() && !probe_light.is_empty() {
+        let light: Vec<Vec3> = probe_light[..6 * probes.len()].iter().map(|light| *light / GAIN).collect();
+        write_probes(&folder.join("b").join("probes.txt"), &probes, &light)?;
+        if let Some((toward, colour)) = sun_of_probes {
+            let unsunned: Vec<Vec3> = (0..6 * probes.len()).map(|j| probe_linear[j] - probe_sun[j]).collect();
+            write_probes_sun(&folder.join("b").join(PROBES_SUN), &probes, &unsunned, &probe_sun, toward, colour)?;
+        }
+    }
+    if !vertices.places.is_empty() && !probe_light.is_empty() {
+        let mut light: Vec<Vec3> = probe_light[6 * probes.len()..].iter().map(|light| *light / GAIN).collect();
+        let filled = fill_vertices(&vertices, &vertex_counts, &mut light);
+        outln!(
+            "  placeables: {} of {} have a mesh the bake lights, {} of them block rays, and {} hold lights of their own",
+            still.len(),
+            placeable_count,
+            occluders.len(),
+            own_lights.iter().filter(|own| !own.is_empty()).count(),
+        );
+        for (owner, (still, own)) in still.iter().zip(&own_lights).enumerate().filter(|(_, (_, own))| !own.is_empty()) {
+            let mine: Vec<u32> = (vertices.owners.iter().zip(&seen))
+                .filter(|(of, _)| **of == owner)
+                .map(|(_, sees)| *sees)
+                .collect();
+            outln!(
+                "    {} at {:.2} {:.2} {:.2} holds {} fitted lights of its own, and {} of its {} vertices see one of them past its own meshes",
+                still.name,
+                still.at.x,
+                still.at.y,
+                still.at.z,
+                own.len(),
+                mine.iter().filter(|sees| **sees != 0).count(),
+                mine.len(),
+            );
+        }
+        outln!(
+            "  placeables: {} vertices lit, {} before the long triangles were split, {} of them under a smaller placeable",
+            light.len(),
+            vertices.before,
+            covered.iter().filter(|covered| **covered).count(),
+        );
+        outln!(
+            "  placeables: {} vertices inside a surface or under a placeable: {} filled from their neighbours, {} from the nearest vertex, {} left unfilled",
+            vertex_counts.iter().filter(|counts| !**counts).count(),
+            filled.rings,
+            filled.nearest,
+            filled.none
+        );
+        write_placeables(&folder.join("b").join(kjk_game::placeable_light::FILE), &area.resref, &vertices, &light)?;
+    } else if options.placeables {
+        outln!(
+            "  placeables: {} of {} have a mesh the bake may light, {} of them block rays",
+            still.len(),
+            placeable_count,
+            occluders.len()
+        );
     }
     if let Some(kinds) = &kinds {
         debug_pictures(folder, &maps, &points, kinds, &|i| stored_at(&points[i]), &shown_b)?;
@@ -1668,6 +2034,595 @@ pub(super) fn bake_lights(
     }
     let _ = write!(report, "  {:.1} seconds in all", started.elapsed().as_secs_f64());
     Ok(report)
+}
+
+/// A placeable that holds a fitted light this near its box blocks no ray
+/// (metres).
+const LAMP_CLEAR: f32 = 0.3;
+/// The mark on a light in a cell's list that is the vertex's placeable's own
+/// (`OWN_LIGHT` in `gpu.wgsl`).
+const OWN_LIGHT: u32 = 1 << 31;
+/// How far a vertex's place is moved toward the middle of the triangles
+/// around it, at the most (metres), and at the most as a share of the way
+/// there. A place at a crate's corner then sits on its own face and not on
+/// the edge with the floor.
+const VERTEX_INWARD: f32 = 0.03;
+const VERTEX_INWARD_SHARE: f32 = 0.25;
+/// How many rings of neighbours a vertex inside a surface takes its light
+/// from, at the most.
+const VERTEX_RINGS: usize = 8;
+
+/// The vertices of the placeables' meshes that the bake lights, as places of
+/// the passes.
+#[derive(Default)]
+struct Vertices {
+    /// Each vertex's place and the way it faces, in order: mesh by mesh,
+    /// placeable by placeable.
+    places: Vec<(Vec3, Vec3)>,
+    /// The room each vertex stands in, by its model's name.
+    rooms: Vec<Option<String>>,
+    /// The placeable each vertex belongs to, by its number in the list
+    /// `vertex_places` was given.
+    owners: Vec<usize>,
+    /// Each mesh: the placeable's number among the area's instances, its
+    /// model's name, the mesh's number, where its vertices start in
+    /// `places`, and its triangles.
+    meshes: Vec<VertexMesh>,
+    /// How many vertices the meshes had before their long triangles were
+    /// split (`kjk_game::placeable_light::subdivide`).
+    before: usize,
+}
+
+/// A mesh of `Vertices`: the placeable's number among the area's
+/// instances, its model's name, the mesh's number, where its vertices start
+/// in `Vertices::places`, and its triangles.
+type VertexMesh = (usize, String, usize, usize, Vec<[u32; 3]>);
+
+/// Each vertex of each mesh of `still` that the bake lights as a place:
+/// moved toward the middle of its triangles by `VERTEX_INWARD` at the most,
+/// lifted by `LIFT` along its normal, and facing its normal. A mesh that a
+/// clip moves is taken where it rests. A vertex stands in the room of its
+/// placeable's origin.
+fn vertex_places(area: &AreaIr, reader: &mut Reader, still: &[Still]) -> Vertices {
+    let placement = crate::room_lights::place(reader, area);
+    let mut vertices = Vertices::default();
+    for (owner, placeable) in still.iter().enumerate() {
+        let lifted = placeable.at + Vec3::Z * 0.5;
+        let room = crate::room_lights::room_at(&placement.walk_boxes, lifted.to_array())
+            .map(|room| area.rooms[room].model.to_ascii_lowercase());
+        for (number, mesh) in placeable.model.ir.meshes.iter().enumerate() {
+            if !placeable.lit[number] {
+                continue;
+            }
+            // The game draws the mesh with its long triangles split, and the
+            // bake lights the vertices of the split mesh.
+            vertices.before += mesh.positions.len();
+            let divided = kjk_game::placeable_light::subdivide(mesh);
+            let mesh = &divided;
+            let corners = placeable.corners(mesh);
+            let normals = placeable.normals(mesh);
+            let triangles: Vec<[u32; 3]> = (mesh.indices.as_chunks::<3>().0.iter())
+                .filter(|triangle| triangle.iter().all(|&i| (i as usize) < corners.len()))
+                .copied()
+                .collect();
+            // The middle of the triangles around each vertex.
+            let mut middles = vec![(Vec3::ZERO, 0.0f32); corners.len()];
+            for triangle in &triangles {
+                let middle = triangle.iter().map(|&i| corners[i as usize]).sum::<Vec3>() / 3.0;
+                for &i in triangle {
+                    middles[i as usize].0 += middle;
+                    middles[i as usize].1 += 1.0;
+                }
+            }
+            let start = vertices.places.len();
+            for (k, corner) in corners.iter().enumerate() {
+                let (sum, weight) = middles[k];
+                let mut at = *corner;
+                if weight > 0.0 {
+                    let toward = sum / weight - *corner;
+                    let length = toward.length();
+                    if length > 1e-6 {
+                        at += toward * ((VERTEX_INWARD_SHARE * length).min(VERTEX_INWARD) / length);
+                    }
+                }
+                let normal = normals[k];
+                vertices.places.push((at + normal * LIFT, if normal == Vec3::ZERO { Vec3::Z } else { normal }));
+                vertices.rooms.push(room.clone());
+                vertices.owners.push(owner);
+            }
+            vertices.meshes.push((placeable.object, placeable.name.clone(), number, start, triangles));
+        }
+    }
+    vertices
+}
+
+/// Which of its placeable's own lights (`own_lights`) each vertex sees past
+/// the placeable's own meshes, one bit for each light in the order of its
+/// list. A vertex of a placeable with no light of its own has no bits.
+///
+/// A placeable that holds a light blocks no ray in the passes, so this is
+/// the only shadow its own meshes cast from its own light. The terminal of
+/// danm13 has its light in front of its screen. Without this test the light
+/// reached the terminal's post and the back of its panel, and the whole
+/// terminal came out bright blue. Meshes that glow are the lamp's glass and
+/// cast no shadow, as in the room's bake (`lamps`). A light shut inside the
+/// placeable's meshes reaches none of its vertices, as before its own lights
+/// were let in.
+fn own_seen(vertices: &Vertices, still: &[Still], own_lights: &[Vec<u32>], lights: &[Fitted]) -> Vec<u32> {
+    let blockers: Vec<Vec<[Vec3; 3]>> = (still.iter().zip(own_lights))
+        .map(|(still, own)| {
+            if own.is_empty() {
+                return Vec::new();
+            }
+            (still.model.ir.meshes.iter())
+                .filter(|mesh| {
+                    mesh.skin.is_none()
+                        && mesh.dangly.is_none()
+                        && mesh.transparency_hint == 0
+                        && mesh.alpha >= 0.99
+                        && mesh.self_illum.iter().all(|value| *value <= 0.0)
+                })
+                .flat_map(|mesh| {
+                    let world = still.corners(mesh);
+                    (mesh.indices.as_chunks::<3>().0.iter())
+                        .filter_map(|&[a, b, c]| {
+                            let corner = |i: u32| world.get(i as usize).copied();
+                            Some([corner(a)?, corner(b)?, corner(c)?])
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        })
+        .collect();
+    (vertices.places.iter().zip(&vertices.owners))
+        .map(|((at, _), &owner)| {
+            let mut seen = 0u32;
+            for (bit, &number) in own_lights[owner].iter().enumerate().take(32) {
+                let light = &lights[number as usize];
+                let goal = light.at + light.way * (*at - light.at).dot(light.way).clamp(-light.half, light.half);
+                let way = goal - *at;
+                let far = way.length() - OWN_SHADOW_SHORT;
+                if far <= 0.0 || !blockers[owner].iter().any(|corners| meets(*at, way.normalize(), far, corners)) {
+                    seen |= 1 << bit;
+                }
+            }
+            seen
+        })
+        .collect()
+}
+
+/// How far short of its own light a vertex's shadow ray stops (metres).
+const OWN_SHADOW_SHORT: f32 = 0.02;
+
+/// Whether a ray from `from` along `toward` meets the triangle `corners`
+/// beyond a millimetre and within `far`.
+fn meets(from: Vec3, toward: Vec3, far: f32, corners: &[Vec3; 3]) -> bool {
+    let [a, b, c] = *corners;
+    let (ab, ac) = (b - a, c - a);
+    let p = toward.cross(ac);
+    let det = ab.dot(p);
+    if det.abs() < 1e-9 {
+        return false;
+    }
+    let inverse = 1.0 / det;
+    let s = from - a;
+    let u = s.dot(p) * inverse;
+    if !(0.0..=1.0).contains(&u) {
+        return false;
+    }
+    let q = s.cross(ab);
+    let v = toward.dot(q) * inverse;
+    if v < 0.0 || u + v > 1.0 {
+        return false;
+    }
+    let t = ac.dot(q) * inverse;
+    t > 1e-3 && t < far
+}
+
+/// How far beyond a placeable's box a vertex still counts as under it in
+/// `covered_vertices` (metres). A vertex's place is lifted by `LIFT` off its
+/// surface.
+const COVER_MARGIN: f32 = 0.03;
+
+/// Which vertices of `vertices` stand inside the box of a smaller placeable
+/// of `still` that blocks rays, such as the food on one of 203tel's oval
+/// tables. Such a vertex is hidden under that placeable, and the rays from
+/// it meet the placeable almost all round, so the bake makes it nearly
+/// black. Blended across the triangles around it, its dark spread far past
+/// the food, so the middle of the table came out dark. Such a vertex takes
+/// the light of the vertices around it that are seen (`fill_vertices`).
+///
+/// The vertices beside the smaller placeable still count, and they keep the
+/// shade it casts. The room's texels are not changed, so the floor keeps its
+/// dark ring around a crate.
+fn covered_vertices(vertices: &Vertices, still: &[Still], own_lights: &[Vec<u32>]) -> Vec<bool> {
+    // Each placeable's box over its meshes that block rays, and its volume.
+    let boxes: Vec<Option<(Vec3, Vec3, f32)>> = (still.iter().zip(own_lights))
+        .map(|(still, own)| {
+            if !own.is_empty() {
+                return None;
+            }
+            let corners: Vec<Vec3> = (still.model.ir.meshes.iter())
+                .filter(|mesh| mesh.skin.is_none() && mesh.dangly.is_none())
+                .flat_map(|mesh| still.corners(mesh))
+                .collect();
+            if corners.is_empty() {
+                return None;
+            }
+            let low = corners.iter().fold(Vec3::splat(f32::MAX), |low, p| low.min(*p));
+            let high = corners.iter().fold(Vec3::splat(f32::MIN), |high, p| high.max(*p));
+            let size = (high - low).max(Vec3::splat(0.01));
+            Some((low, high, size.x * size.y * size.z))
+        })
+        .collect();
+    let volume_of = |owner: usize| {
+        let corners: Vec<Vec3> = still[owner].model.ir.meshes.iter().flat_map(|mesh| still[owner].corners(mesh)).collect();
+        let low = corners.iter().fold(Vec3::splat(f32::MAX), |low, p| low.min(*p));
+        let high = corners.iter().fold(Vec3::splat(f32::MIN), |high, p| high.max(*p));
+        let size = (high - low).max(Vec3::splat(0.01));
+        size.x * size.y * size.z
+    };
+    let volumes: Vec<f32> = (0..still.len()).map(volume_of).collect();
+    (vertices.places.iter().zip(&vertices.owners))
+        .map(|((at, _), &owner)| {
+            boxes.iter().enumerate().any(|(other, found)| {
+                found.is_some_and(|(low, high, volume)| {
+                    other != owner
+                        && volume < volumes[owner]
+                        && at.cmpge(low - Vec3::splat(COVER_MARGIN)).all()
+                        && at.cmple(high + Vec3::splat(COVER_MARGIN)).all()
+                })
+            })
+        })
+        .collect()
+}
+
+/// How much a neighbour that faces another way counts in `fill_vertices`,
+/// against 1 for one that faces the same way.
+const VERTEX_ASKEW: f32 = 0.05;
+
+/// How much the light of a vertex facing `from` counts toward one facing
+/// `to` in `fill_vertices`. A corner of a crate's top takes the light of the
+/// top beside it before that of the side under it.
+fn facing_weight(to: Vec3, from: Vec3) -> f32 {
+    let along = to.dot(from).max(0.0);
+    VERTEX_ASKEW + along * along
+}
+
+/// How many vertices `fill_vertices` filled, by the way it found their light.
+#[derive(Default)]
+struct Filled {
+    /// From neighbours on the same mesh.
+    rings: usize,
+    /// From the nearest vertex of the same placeable whose place counts.
+    nearest: usize,
+    /// Left unfilled: the placeable has no vertex whose place counts.
+    none: usize,
+}
+
+/// Gives each vertex whose place does not count (inside a wall or under the
+/// floor) the light of the vertices near it whose places do.
+///
+/// First it takes the mean light of its neighbours on its mesh, a ring at a
+/// time, `VERTEX_RINGS` times at most. A vertex is a neighbour of another
+/// when a triangle joins them or when they stand at the same place, as the
+/// corners of a crate's faces do. A neighbour counts by how closely it faces
+/// the same way (`facing_weight`).
+///
+/// A vertex that no ring reaches takes the light of the nearest vertex of
+/// its placeable whose place counts, among those that face its way when
+/// there are any. Without it such a vertex kept the light the passes gave
+/// its place inside the surface. A vertex is left as it is only when no
+/// vertex of its placeable counts.
+fn fill_vertices(vertices: &Vertices, counts: &[bool], light: &mut [Vec3]) -> Filled {
+    let mut filled = Filled::default();
+    let mut known: Vec<bool> = counts.to_vec();
+    for (m, (_, _, _, start, triangles)) in vertices.meshes.iter().enumerate() {
+        let end = (vertices.meshes.get(m + 1)).map_or(vertices.places.len(), |(_, _, _, next, _)| *next);
+        let size = end - start;
+        let mut next: Vec<Vec<usize>> = vec![Vec::new(); size];
+        for triangle in triangles {
+            for a in 0..3 {
+                for b in 0..3 {
+                    if a != b {
+                        next[triangle[a] as usize].push(triangle[b] as usize);
+                    }
+                }
+            }
+        }
+        let mut same: HashMap<[i32; 3], Vec<usize>> = HashMap::new();
+        for k in 0..size {
+            let key = (vertices.places[start + k].0 * 100.0).round().as_ivec3().to_array();
+            same.entry(key).or_default().push(k);
+        }
+        for group in same.values() {
+            for &k in group {
+                next[k].extend(group.iter().filter(|&&other| other != k));
+            }
+        }
+        for _ in 0..VERTEX_RINGS {
+            let before: Vec<bool> = known[*start..end].to_vec();
+            let mut any = false;
+            for k in (0..size).filter(|&k| !before[k]) {
+                let facing = vertices.places[start + k].1;
+                let (sum, weight) = (next[k].iter().filter(|&&other| before[other]))
+                    .map(|&other| {
+                        let weight = facing_weight(facing, vertices.places[start + other].1);
+                        (light[start + other] * weight, weight)
+                    })
+                    .fold((Vec3::ZERO, 0.0), |(sum, total), (light, weight)| (sum + light, total + weight));
+                if weight > 0.0 {
+                    light[start + k] = sum / weight;
+                    known[start + k] = true;
+                    filled.rings += 1;
+                    any = true;
+                }
+            }
+            if !any {
+                break;
+            }
+        }
+    }
+    // The vertices no ring reached, from the nearest that count on their
+    // placeable.
+    let mut by_owner: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (k, owner) in vertices.owners.iter().enumerate() {
+        by_owner.entry(*owner).or_default().push(k);
+    }
+    for members in by_owner.values() {
+        let sources: Vec<usize> = members.iter().copied().filter(|&k| counts[k]).collect();
+        for &k in members.iter().filter(|&&k| !known[k]) {
+            let (at, facing) = vertices.places[k];
+            let nearest = |facing_only: bool| {
+                (sources.iter().copied())
+                    .filter(|&other| !facing_only || facing.dot(vertices.places[other].1) > 0.0)
+                    .min_by(|&a, &b| {
+                        at.distance_squared(vertices.places[a].0)
+                            .total_cmp(&at.distance_squared(vertices.places[b].0))
+                    })
+            };
+            match nearest(true).or_else(|| nearest(false)) {
+                Some(other) => {
+                    light[k] = light[other];
+                    filled.nearest += 1;
+                }
+                None => filled.none += 1,
+            }
+        }
+    }
+    filled
+}
+
+/// Writes the placeables' light to `path` (`kjk_game::placeable_light::read`
+/// reads it): a line for each mesh with its placeable's number among the
+/// area's instances, its model, the mesh's number, how many vertices it has,
+/// and the light of each vertex at the level a lightmap of set `b` stores.
+fn write_placeables(path: &Path, area: &str, vertices: &Vertices, light: &[Vec3]) -> Result<(), String> {
+    let mut text = String::from(
+        "# The light on each vertex of each placeable's mesh that the bake lights (crates/game/src/placeable_light.rs):\n\
+         # mesh, the placeable's number among the area's instances, its model, the mesh's number, how many\n\
+         # vertices it has, and each vertex's r g b at the level the lightmaps of this set store.\n",
+    );
+    let _ = writeln!(text, "area {area}");
+    for (k, (object, model, number, start, _)) in vertices.meshes.iter().enumerate() {
+        let end = vertices.meshes.get(k + 1).map_or(light.len(), |(_, _, _, next, _)| *next);
+        let _ = write!(text, "mesh {object} {model} {number} {}", end - start);
+        for value in &light[*start..end] {
+            let _ = write!(text, " {:.4} {:.4} {:.4}", value.x, value.y, value.z);
+        }
+        text.push('\n');
+    }
+    std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// The ways a probe's six places face, in the area's space (z up), in the
+/// order of the game's probes (`AXES` in `crates/game/src/light_probes.rs`):
+/// east, west, up, down, south, north.
+const PROBE_AXES: [Vec3; 6] = [
+    Vec3::X,
+    Vec3::NEG_X,
+    Vec3::Z,
+    Vec3::NEG_Z,
+    Vec3::NEG_Y,
+    Vec3::Y,
+];
+/// How far apart the probes stand, how high over the walkable floor, and
+/// how far apart two storeys must be to each have one, in metres, as the
+/// game's (`probe_places` in `crates/game/src/light_probes.rs`).
+const PROBE_SPACING: f32 = 1.0;
+const PROBE_HEIGHT: f32 = 1.0;
+const PROBE_STOREY: f32 = 1.5;
+
+/// Where the area's probes stand, with the name of each one's room: on a
+/// grid `PROBE_SPACING` apart, `PROBE_HEIGHT` over each walkable face of a
+/// room's walkmesh, as the game places its own.
+fn probe_places(reader: &Reader, area: &AreaIr) -> Vec<(String, Vec3)> {
+    let mut places = Vec::new();
+    for room in &area.rooms {
+        let floor = reader.walkable_faces(&room.model);
+        let mut heights: std::collections::BTreeMap<(i32, i32), Vec<f32>> = Default::default();
+        for face in &floor {
+            let [a, b, c] = face.map(Vec3::from_array);
+            let (low, high) = (a.min(b).min(c), a.max(b).max(c));
+            for gx in (low.x / PROBE_SPACING).ceil() as i32..=(high.x / PROBE_SPACING).floor() as i32 {
+                for gy in (low.y / PROBE_SPACING).ceil() as i32..=(high.y / PROBE_SPACING).floor() as i32 {
+                    let (x, y) = (gx as f32 * PROBE_SPACING, gy as f32 * PROBE_SPACING);
+                    if let Some(z) = height_at([a, b, c], x, y) {
+                        heights.entry((gx, gy)).or_default().push(z);
+                    }
+                }
+            }
+        }
+        for ((gx, gy), mut at) in heights {
+            at.sort_by(f32::total_cmp);
+            at.dedup_by(|a, b| (*a - *b).abs() < PROBE_STOREY);
+            let (x, y) = (gx as f32 * PROBE_SPACING, gy as f32 * PROBE_SPACING);
+            places.extend(at.into_iter().map(|z| (room.model.to_ascii_lowercase(), Vec3::new(x, y, z + PROBE_HEIGHT))));
+        }
+    }
+    places
+}
+
+/// The height of triangle `[a, b, c]` over the point `x`, `y`, or `None`
+/// when the point is not over it.
+fn height_at([a, b, c]: [Vec3; 3], x: f32, y: f32) -> Option<f32> {
+    let d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    if d.abs() < 1e-9 {
+        return None;
+    }
+    let u = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / d;
+    let v = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / d;
+    let w = 1.0 - u - v;
+    (u >= -1e-4 && v >= -1e-4 && w >= -1e-4).then_some(u * a.z + v * b.z + w * c.z)
+}
+
+/// Writes the probes' light to `path`: a line for each probe with its
+/// room, its place and the light on each of its six sides, in the order of
+/// `PROBE_AXES`, at the level a lightmap of set `b` stores.
+fn write_probes(path: &Path, probes: &[(String, Vec3)], light: &[Vec3]) -> Result<(), String> {
+    let mut text = String::from(
+        "# The light on each probe, as the game's probes hold it (crates/game/src/light_probes.rs):\n\
+         # its room, its place (x y z), and the light on a surface facing east, west, up, down,\n\
+         # south and north, each r g b at the level the lightmaps of this set store.\n",
+    );
+    for (k, (room, at)) in probes.iter().enumerate() {
+        let _ = write!(text, "{room} {:.3} {:.3} {:.3}", at.x, at.y, at.z);
+        for side in &light[6 * k..6 * k + 6] {
+            let _ = write!(text, " {:.4} {:.4} {:.4}", side.x, side.y, side.z);
+        }
+        text.push('\n');
+    }
+    std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// The file of a bake's set that holds the probes for the live sun
+/// (`write_probes_sun`).
+const PROBES_SUN: &str = "probes-sun.txt";
+
+/// Writes the probes for the live sun to `path`, which the game reads under
+/// `KJK_PROBE_SUN=on` (`baked_probes` in `crates/game/src/viewer.rs`).
+///
+/// The first line gives the sun's way (Bevy's space, toward the sun), its
+/// linear colour, and the bake's curve (`eased_level`): its gamma, its knee
+/// and how far it lets light go over the knee. Each further line gives a
+/// probe's room, its place, the share of the sun that reaches it, and the
+/// linear light on its six sides without the sun's direct light, before the
+/// curve. The sky, the fitted lights at the room's scale, the room's fill
+/// and every bounce, the sun's among them, stay in it.
+///
+/// The shader adds the sun's colour times how squarely a surface faces the
+/// sun times the share, and then puts the sum through the same curve. A
+/// room's scale is for its lamps alone, so the sun takes none.
+///
+/// The share is the sun's light on the probe's sides that face the sun over
+/// what those sides would take with nothing in the way. The pass gives each
+/// side the share of `SUN_RAYS` rays that reach the sun times how squarely
+/// it faces it, so the sum over the sides is a mean of their shares weighed
+/// by how squarely each faces the sun.
+fn write_probes_sun(
+    path: &Path,
+    probes: &[(String, Vec3)],
+    light: &[Vec3],
+    sun: &[Vec3],
+    toward: Vec3,
+    colour: Vec3,
+) -> Result<(), String> {
+    // The area's space (z up) to Bevy's (y up), as `PROBE_AXES` map to the
+    // game's `AXES`: east is x, up is y and south is z.
+    let way = Vec3::new(toward.x, toward.z, -toward.y);
+    let facing: f32 = PROBE_AXES.iter().map(|axis| axis.dot(toward).max(0.0)).sum();
+    let strength = luma(colour).max(1e-6);
+    let mut text = format!(
+        "# The probes for the live sun (crates/launcher/src/detail_bake/gpu.rs, write_probes_sun).\n\
+         # sun: its way in Bevy's space (x y z), its linear colour (r g b), and the curve's gamma, knee and most over the knee.\n\
+         # Then each probe: its room, its place (x y z), the share of the sun that reaches it, and the\n\
+         # linear light without the sun on a surface facing east, west, up, down, south and north.\n\
+         sun {:.5} {:.5} {:.5} {:.5} {:.5} {:.5} {GAMMA} {B_KNEE} {B_OVER}\n",
+        way.x, way.y, way.z, colour.x, colour.y, colour.z
+    );
+    for (k, (room, at)) in probes.iter().enumerate() {
+        let reached: f32 = sun[6 * k..6 * k + 6].iter().map(|light| luma(*light)).sum();
+        let share = (reached / (strength * facing).max(1e-6)).clamp(0.0, 1.0);
+        let _ = write!(text, "{room} {:.3} {:.3} {:.3} {share:.4}", at.x, at.y, at.z);
+        for side in &light[6 * k..6 * k + 6] {
+            let side = side.max(Vec3::ZERO);
+            let _ = write!(text, " {:.5} {:.5} {:.5}", side.x, side.y, side.z);
+        }
+        text.push('\n');
+    }
+    std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// The fill's pattern (`GpuOptions::fill_stored`) at each probe's place and
+/// each vertex: that of the counted texel of the same room nearest it
+/// (`nearest`). A place with no such texel, or a bake without the stored
+/// fill, takes 1, which is the pattern's mean over its room.
+fn places_pattern(pattern: &[Vec3], nearest: &[Option<usize>], fill_stored: bool) -> Vec<Vec3> {
+    if !fill_stored {
+        return vec![Vec3::ONE; nearest.len()];
+    }
+    (nearest.iter())
+        .map(|nearest| nearest.map_or(Vec3::ONE, |i| pattern[i]))
+        .collect()
+}
+
+/// The counted texel of the same room nearest each of `at`, within 4
+/// metres.
+fn nearest_texels(
+    maps: &[Stored],
+    points: &[Point],
+    counted: &[usize],
+    at: &[Vec3],
+    map_of: &[Option<usize>],
+) -> Vec<Option<usize>> {
+    const CELL: f32 = 0.5;
+    const RINGS: i32 = 8;
+    let rooms: Vec<String> = maps.iter().map(room_name).collect();
+    let mut grid: HashMap<IVec3, Vec<usize>> = HashMap::new();
+    for &i in counted {
+        grid.entry((points[i].at / CELL).floor().as_ivec3()).or_default().push(i);
+    }
+    (at.iter().zip(map_of))
+        .map(|(at, map)| {
+            let Some(map) = *map else {
+                return None;
+            };
+            let room = &rooms[map];
+            let key = (*at / CELL).floor().as_ivec3();
+            let mut best: Option<(f32, usize)> = None;
+            for ring in 0..=RINGS {
+                for dx in -ring..=ring {
+                    for dy in -ring..=ring {
+                        for dz in -ring..=ring {
+                            if dx.abs().max(dy.abs()).max(dz.abs()) != ring {
+                                continue;
+                            }
+                            let Some(near) = grid.get(&(key + IVec3::new(dx, dy, dz))) else {
+                                continue;
+                            };
+                            for &i in near {
+                                if rooms[points[i].map] != *room {
+                                    continue;
+                                }
+                                let apart = points[i].at.distance_squared(*at);
+                                if best.is_none_or(|(least, _)| apart < least) {
+                                    best = Some((apart, i));
+                                }
+                            }
+                        }
+                    }
+                }
+                // A texel of the next ring can be nearer than one found in
+                // this ring's corner, so the search runs one ring on.
+                if let Some((least, _)) = best
+                    && least.sqrt() < ring as f32 * CELL
+                {
+                    break;
+                }
+            }
+            best.map(|(_, i)| i)
+        })
+        .collect()
 }
 
 fn luma(c: Vec3) -> f32 {

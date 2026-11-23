@@ -135,6 +135,13 @@ const DARK_UNLIT: u32 = 131072;
 /// of 401dxn blend (their alpha is under 1), and they showed their bake at
 /// a quarter of its light, black beside the baked ground.
 const ROOM_LIGHTMAP: u32 = 262144;
+/// A placeable's mesh whose vertex colours hold its baked light
+/// (`placeable_light`). Under the baked trial the light replaces the
+/// probes' light.
+const VERTEX_LIGHT: u32 = 524288;
+/// Such a mesh takes none of the game's own lamps
+/// (`placeable_light::alone`).
+const VERTEX_LIGHT_ALONE: u32 = 1048576;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -1175,6 +1182,18 @@ impl OdysseyMaterial {
     pub fn lamp_texels(mut self, lamp: bool) -> OdysseyMaterial {
         if lamp {
             self.params.flags |= LAMP_TEXELS;
+        }
+        self
+    }
+
+    /// A placeable's mesh whose vertex colours hold its baked light
+    /// (`VERTEX_LIGHT`).
+    pub fn vertex_light(mut self, baked: bool) -> OdysseyMaterial {
+        if baked {
+            self.params.flags |= VERTEX_LIGHT;
+            if crate::placeable_light::alone() {
+                self.params.flags |= VERTEX_LIGHT_ALONE;
+            }
         }
         self
     }
