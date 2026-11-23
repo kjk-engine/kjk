@@ -104,9 +104,10 @@ pub(crate) struct Culling {
     /// The rooms the VIS and the fog pick, before the occlusion queries
     /// (`room_queries`) leave out those hidden behind walls.
     picked: Vec<bool>,
-    /// The room the player last stood in. It stays when the player steps
-    /// off every floor, as the original keeps its last room.
-    player_room: Option<usize>,
+    /// The room the controlled character (the one the local seat's body
+    /// is) last stood in. It stays when that character steps off every
+    /// floor, as the original keeps its last room.
+    controlled_room: Option<usize>,
     /// What the rooms give a fight's light (its room, the rooms it does
     /// not reach), worked out when the scene is spawned.
     pub(crate) fight: crate::fight_rooms::FightRooms,
@@ -147,32 +148,33 @@ impl Culling {
         (!held.is_empty()).then_some(held)
     }
 
-    /// Remembers the room the player stands in, `room` of `count` rooms. A
-    /// player off every floor (`None`) or a room past the scene's last one
-    /// (left over from the scene before) changes nothing. Returns whether
-    /// the remembered room changed.
-    fn see_player(&mut self, room: Option<usize>, count: usize) -> bool {
-        let changed = room.is_some_and(|room| room < count && self.player_room != Some(room));
+    /// Remembers the room the controlled character stands in, `room` of
+    /// `count` rooms. A controlled character off every floor (`None`) or a
+    /// room past the scene's last one (left over from the scene before)
+    /// changes nothing. Returns whether the remembered room changed.
+    fn see_controlled(&mut self, room: Option<usize>, count: usize) -> bool {
+        let changed = room.is_some_and(|room| room < count && self.controlled_room != Some(room));
         if changed {
-            self.player_room = room;
+            self.controlled_room = room;
         }
         changed
     }
 
     /// The rooms whose lists decide what shows: the rooms the camera is in
-    /// (`eye_rooms`, `camera`) and the room the player last stood in. The
-    /// original picks the room from the player alone. The camera here can
-    /// stand further away, in a room the player's room does not list, so
-    /// its room counts too. The player's room always counts, so a camera
-    /// in a neighbouring room never hides what the player's room lists
-    ///. A camera in no room (a cutscene or a free camera)
-    /// gives `None`, and then every room shows.
+    /// (`eye_rooms`, `camera`) and the room the controlled character last
+    /// stood in. The original picks the room from the controlled character
+    /// alone. The camera here can stand further away, in a room that the
+    /// controlled character's room does not list, so the camera's room
+    /// counts too. The controlled character's room always counts, so a
+    /// camera in a neighbouring room never hides what the controlled
+    /// character's room lists. A camera in no room (a cutscene or a free
+    /// camera) gives `None`, and then every room shows.
     fn shown_from(&self, camera: Option<Vec<usize>>) -> Option<Vec<usize>> {
         let mut here = camera?;
-        if let Some(player) = self.player_room
-            && !here.contains(&player)
+        if let Some(controlled) = self.controlled_room
+            && !here.contains(&controlled)
         {
-            here.push(player);
+            here.push(controlled);
         }
         Some(here)
     }
@@ -1949,7 +1951,7 @@ pub(crate) fn spawn_scene(
         bounds,
         shown: Vec::new(),
         picked: Vec::new(),
-        player_room: None,
+        controlled_room: None,
     };
     queries.reset(&culling.bounds);
     let (images, mut stores) = assets.split();
@@ -2424,7 +2426,7 @@ fn cull_rooms(
     scene: Option<Res<SceneContent>>,
     cameras: Query<(Ref<Transform>, &bevy::camera::primitives::Frustum), With<FlyCamera>>,
     mut rooms: Query<(&RoomOf, &mut Visibility)>,
-    (mut culling, player): (ResMut<Culling>, Res<PlayerRoom>),
+    (mut culling, controlled): (ResMut<Culling>, Res<PlayerRoom>),
     mut occlusion: crate::room_queries::Occlusion,
     mut facts: ResMut<DumpFacts>,
     (casters, mut doors, mut exempt): (
@@ -2445,8 +2447,8 @@ fn cull_rooms(
     let eye = game_to_bevy().inverse() * camera.translation;
     // `find_player` runs after this system, so a new scene's first frame
     // still holds the room of the scene before.
-    let player_moved = !scene.is_changed() && culling.see_player(player.0, all.len());
-    let moved = camera.is_changed() || player_moved || culling.picked.len() != all.len();
+    let controlled_moved = !scene.is_changed() && culling.see_controlled(controlled.0, all.len());
+    let moved = camera.is_changed() || controlled_moved || culling.picked.len() != all.len();
     let current = moved.then(|| culling.eye_rooms(all, eye));
     let mut picked_changed = false;
     if let Some(current) = &current {
