@@ -214,6 +214,44 @@ kjk collision nav k1 end_m01aa     # the bake twice, 500 routes checked leg by l
 kjk collision walk k1 end_m01aa    # 50 walks through move_body, doors opened by use
 ```
 
+## Where walks still differ from the original
+
+TSL's executable was read on 2026-11-22 to check how a scripted walk meets a
+closed or locked door. kjk matches it for a walk to an object behind a
+locked door: the walker goes up to the door and waits, and walks through
+once the door opens. Four differences are left. Each one changes many
+scenes in both games, so each needs its own change and a run of every
+route in both games.
+
+1. **A walk to a place, blocked only by a door.** In the original, a walk
+   to a place plans through any door that is not Static, walks up to the
+   door, runs the walker's OnBlocked script there, and ends as done. In
+   kjk the walk ends after `scripts.moves.grace_ms` and the walker stays
+   where it stood. Only when no route exists at all, through a Static door
+   or off the walkmesh, does the original stand still, wait 2 to 4 s and
+   drop the move, as kjk does.
+2. **Doors in path planning.** The original plans through every door that
+   is not Static, closed, open or locked alike. It never checks the lock or
+   whether the walker could open the door, and it does not prefer a way
+   round through an open door. kjk plans round a door that will not open
+   for the walker, and plans through one only when no other route exists.
+3. **Who opens a door.** In the original the engine never opens a door for
+   a walker. The walker stops about one body width short of the closed
+   door and runs its OnBlocked script. The default script
+   (`k_def_blocked01`, which runs `k_ai_master` with event 1009) opens an
+   unlocked door, or bashes it if it can be bashed. A creature with no such
+   script, or a character the player controls, stands at an unlocked door.
+   In kjk the walker opens the door itself. This difference has to change
+   together with difference 2.
+4. **Walking part of the way.** When the original finds no route, and the
+   straight line to the goal stays on the walkmesh but an object blocks
+   it, the walker walks along that line to the farthest clear point. kjk
+   does not walk part of the way.
+
+The suggested order is 1, then 2 and 3 together, then 4. Before changing
+difference 1, log every walk to a place that ends with no route, and run
+every route in both games, to list the scenes it changes.
+
 The walk test plans its module without scripts (`Level::without_scripts`):
 a scene's trigger held the walker in its conversation where it stood (the
 North Apartments' interrogation and Sarna's party took 147 of
