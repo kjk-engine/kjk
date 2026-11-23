@@ -40,11 +40,11 @@ const TYPE_RUNS: [usize; 4] = [4, 8, 12, 32];
 /// How many bits a bundle's first DC value has.
 const DC_START_BITS: u32 = 11;
 /// The longest Huffman code, in bits.
-const LONGEST_CODE: u32 = 7;
+pub(crate) const LONGEST_CODE: u32 = 7;
 
 /// Each of the 16 Huffman trees as a table looked up by the next 7 bits:
 /// the code's index in the tree and its length.
-fn lookup() -> &'static [[(u8, u8); 1 << LONGEST_CODE]; 16] {
+pub(crate) fn lookup() -> &'static [[(u8, u8); 1 << LONGEST_CODE]; 16] {
     static LOOKUP: OnceLock<[[(u8, u8); 1 << LONGEST_CODE]; 16]> = OnceLock::new();
     LOOKUP.get_or_init(|| {
         let mut lookup = [[(0, 0); 1 << LONGEST_CODE]; 16];
@@ -621,7 +621,7 @@ impl Block<'_, '_> {
     }
 
     fn put(&mut self, pixels: &[u8; 64]) {
-        for (row, line) in pixels.chunks_exact(8).enumerate() {
+        for (row, line) in pixels.as_chunks::<8>().0.iter().enumerate() {
             let to = self.at + row * self.stride;
             self.current[to..to + 8].copy_from_slice(line);
         }
@@ -629,7 +629,7 @@ impl Block<'_, '_> {
 
     /// Adds a residue to the block's pixels. The sum wraps, as Bink's does.
     fn add(&mut self, residue: &[i32; 64]) {
-        for (row, line) in residue.chunks_exact(8).enumerate() {
+        for (row, line) in residue.as_chunks::<8>().0.iter().enumerate() {
             let to = self.at + row * self.stride;
             for (pixel, &value) in self.current[to..to + 8].iter_mut().zip(line) {
                 *pixel = (i32::from(*pixel) + value) as u8;
@@ -670,7 +670,7 @@ impl Block<'_, '_> {
             }
             _ => return Err(format!("a 16×16 block of kind {kind}")),
         }
-        for (row, line) in pixels.chunks_exact(8).enumerate() {
+        for (row, line) in pixels.as_chunks::<8>().0.iter().enumerate() {
             for twice in 0..2 {
                 let to = self.at + (row * 2 + twice) * self.stride;
                 for (x, &pixel) in line.iter().enumerate() {
@@ -715,7 +715,7 @@ impl Block<'_, '_> {
             self.bundles[COLOURS].take() as u8,
             self.bundles[COLOURS].take() as u8,
         ];
-        for line in pixels.chunks_exact_mut(8) {
+        for line in pixels.as_chunks_mut::<8>().0.iter_mut() {
             let mut bits = self.bundles[PATTERN].take();
             for pixel in line {
                 *pixel = colours[(bits & 1) as usize];
@@ -930,7 +930,7 @@ fn idct(block: &mut [i32; 64]) {
 
 /// The inverse DCT written as pixels. Each value wraps to a byte, as
 /// Bink's does.
-fn idct_put(pixels: &mut [u8], stride: usize, block: &mut [i32; 64]) {
+pub(crate) fn idct_put(pixels: &mut [u8], stride: usize, block: &mut [i32; 64]) {
     let temp = columns(block);
     rows(&temp, |row, values| {
         for (x, value) in values.into_iter().enumerate() {

@@ -249,6 +249,7 @@ version = "0.0.0"
 dependencies = [
  "asset_odyssey",
  "audio",
+ "bink",
  "bumps",
  "collision",
  "collision_odyssey",

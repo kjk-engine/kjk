@@ -218,7 +218,7 @@ fn float(bits: &mut Bits) -> f32 {
 /// An inverse DCT (DCT-III) of a power-of-two size N, done with a complex
 /// FFT of the same size:
 /// `y[n] = 2 / N × (x[0] / 2 + sum over k ≥ 1 of x[k] cos(π k (2n + 1) / 2N))`.
-struct Dct {
+pub(crate) struct Dct {
     size: usize,
     /// `2 / N × e^(iπk / 2N)`, halved for k = 0.
     turns: Vec<(f32, f32)>,
@@ -227,7 +227,7 @@ struct Dct {
 }
 
 impl Dct {
-    fn new(size: usize) -> Dct {
+    pub(crate) fn new(size: usize) -> Dct {
         let turns = (0..size)
             .map(|k| {
                 let angle = std::f64::consts::PI * k as f64 / (2 * size) as f64;
@@ -243,7 +243,7 @@ impl Dct {
         }
     }
 
-    fn inverse(&mut self, data: &mut [f32]) {
+    pub(crate) fn inverse(&mut self, data: &mut [f32]) {
         for ((work, &(re, im)), &x) in self.work.iter_mut().zip(&self.turns).zip(data.iter()) {
             *work = (x * re, x * im);
         }

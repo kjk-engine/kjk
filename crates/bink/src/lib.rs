@@ -13,6 +13,8 @@
 
 mod audio;
 mod bits;
+#[cfg(feature = "probes")]
+pub mod probes;
 mod tables;
 mod video;
 
