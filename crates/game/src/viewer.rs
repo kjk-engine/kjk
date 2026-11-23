@@ -2113,18 +2113,41 @@ pub fn clip(
     if let Some(found) = find(model) {
         return Ok(Some(found));
     }
+    let talking = name.starts_with("tlk");
     let mut seen = vec![model.name.to_ascii_lowercase()];
     let mut next = next_supermodel(model, &mut seen);
     while let Some(super_name) = next {
         let Some(parent) = read_into(cache, resolver, &super_name)? else {
             break;
         };
-        if let Some(found) = find(parent) {
-            return Ok(Some(found));
+        let found = find(parent).filter(|found| !talking || shares_rest_pose(model, parent, found));
+        if found.is_some() {
+            return Ok(found);
         }
         next = next_supermodel(parent, &mut seen);
     }
     Ok(None)
+}
+
+const REST_TURN_TOLERANCE_DEGREES: f32 = 20.0;
+
+/// A clip keys absolute turns, so it only suits a body that rests as its
+/// supermodel does. A Rakata does not: its eye nodes rest at about 90 degrees,
+/// and the human `tlknorm` of `s_male02` turns them 86 to 178 degrees away.
+fn shares_rest_pose(body: &ModelIr, parent: &ModelIr, clip: &AnimationIr) -> bool {
+    clip.tracks
+        .iter()
+        .filter(|track| !track.orientations.is_empty())
+        .all(|track| {
+            let (Some(own), Some(shared)) = (body.node(&track.node), parent.node(&track.node))
+            else {
+                return true;
+            };
+            let turn = bevy::math::Quat::from_array(own.rotation)
+                .normalize()
+                .angle_between(bevy::math::Quat::from_array(shared.rotation).normalize());
+            turn.to_degrees() <= REST_TURN_TOLERANCE_DEGREES
+        })
 }
 
 /// The clips `clip` found, by the model whose animation each is and its
