@@ -1044,7 +1044,14 @@ fn dark_unlit(name: &str) -> bool {
 /// Under `KJK_PROBE_SUN=on` the probes come from `probes-sun.txt` instead,
 /// with their light without the sun and their share of it, and the second
 /// part is the sun (`light_probes::ProbeSun`).
+///
+/// A probe whose room takes its fill from the stored light holds its light
+/// without it, and the game adds the fill from the player's own stored
+/// lightmap (`stored_fill`). A file of an older bake holds that fill from
+/// the games' own lightmaps and has no `format` line. The game takes none
+/// of it and makes its probes from the lightmaps.
 fn baked_probes(
+    resolver: &Resolver,
     rooms: &[RoomView],
 ) -> (
     Option<Vec<crate::light_probes::BakedProbe>>,
@@ -1065,16 +1072,41 @@ fn baked_probes(
     let mut probes = Vec::new();
     let mut sun = None;
     for (folder, _) in used_folders() {
-        let folder = &folder.path;
         let file = if live_sun {
             "probes-sun.txt"
         } else {
             "probes.txt"
         };
-        let Ok(text) = std::fs::read_to_string(folder.join(file)) else {
+        let Ok(text) = std::fs::read_to_string(folder.path.join(file)) else {
             continue;
         };
-        for line in text.lines().filter(|line| !line.starts_with('#')) {
+        let mut lines = text
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .peekable();
+        let mut format = None;
+        let mut maps = Vec::new();
+        while let Some(line) = lines.peek() {
+            if let Some(number) = line.strip_prefix("format ") {
+                format = number.trim().parse::<u32>().ok();
+            } else if let Some(map) = crate::stored_fill::StoredMap::parse(line) {
+                maps.push(map);
+            } else {
+                break;
+            }
+            lines.next();
+        }
+        if format != Some(crate::bake_fingerprint::FORMAT) {
+            warn!(
+                "{} is of an older bake (format {}, where the game reads format {}), so the game makes its probes from the lightmaps",
+                folder.path.join(file).display(),
+                format.map_or("none".to_string(), |format| format.to_string()),
+                crate::bake_fingerprint::FORMAT
+            );
+            continue;
+        }
+        let mut fills = StoredFills::new(resolver, folder);
+        for line in lines {
             let mut words = line.split_whitespace();
             let Some(first) = words.next() else {
                 continue;
@@ -1094,15 +1126,43 @@ fn baked_probes(
             if !names.contains(&room) {
                 continue;
             }
-            let numbers: Vec<f32> = words.filter_map(|word| word.parse().ok()).collect();
+            let words: Vec<&str> = words.collect();
+            // The stored texel of the probe's fill, the last word where it
+            // has one.
+            let (words, stored) = match words.split_last() {
+                Some((last, rest)) if last.starts_with('@') => {
+                    let Some((map, texel)) = crate::stored_fill::parse_word(last) else {
+                        continue;
+                    };
+                    let Some(map) = maps.get(map) else {
+                        continue;
+                    };
+                    (rest, Some((map, texel)))
+                }
+                _ => (&words[..], None),
+            };
+            let numbers: Vec<f32> = words.iter().filter_map(|word| word.parse().ok()).collect();
             let (share, light) = match (live_sun, numbers.len()) {
                 (true, 22) => (numbers[3], &numbers[4..]),
                 (false, 21) => (0.0, &numbers[3..]),
                 _ => continue,
             };
             let at = bevy::math::Vec3::from_slice(&numbers[..3]);
+            let parts = stored.and_then(|(map, texel)| fills.parts(map, texel));
             let light = std::array::from_fn(|side| {
-                bevy::math::Vec3::from_slice(&light[3 * side..3 * side + 3])
+                let light = bevy::math::Vec3::from_slice(&light[3 * side..3 * side + 3]);
+                match parts {
+                    // The live sun's probes hold linear light before the
+                    // curve, and the others a level as the lightmaps store
+                    // it.
+                    Some((stored, fill, floor)) if live_sun => {
+                        crate::stored_fill::with_fill_linear(light, stored, fill, floor)
+                    }
+                    Some((stored, fill, floor)) => {
+                        crate::stored_fill::with_fill(light, stored, fill, floor)
+                    }
+                    None => light,
+                }
             });
             probes.push(crate::light_probes::BakedProbe {
                 room,
@@ -1111,11 +1171,78 @@ fn baked_probes(
                 sun: share,
             });
         }
+        fills.report("probes");
     }
     if probes.is_empty() {
         return (None, None);
     }
     (Some(probes), sun)
+}
+
+/// The stored lightmaps that the probes and placeables of a bake's set read
+/// their fill from (`stored_fill`), each decoded once, with the set's fills
+/// and floors.
+struct StoredFills<'a> {
+    resolver: &'a Resolver,
+    folder: &'a BakeFolder,
+    texels: BTreeMap<String, Option<crate::stored_fill::StoredTexels>>,
+    /// How many places named a lightmap that the game could not read.
+    missed: usize,
+}
+
+impl<'a> StoredFills<'a> {
+    fn new(resolver: &'a Resolver, folder: &'a BakeFolder) -> StoredFills<'a> {
+        StoredFills {
+            resolver,
+            folder,
+            texels: BTreeMap::new(),
+            missed: 0,
+        }
+    }
+
+    /// The stored level at texel `texel` of `map`, and the fill and the
+    /// floor the set gives that lightmap. `None` where the set gives it
+    /// neither, or where the stored lightmap does not read.
+    fn parts(
+        &mut self,
+        map: &crate::stored_fill::StoredMap,
+        texel: usize,
+    ) -> Option<(Vec3, Option<f32>, Option<f32>)> {
+        let fill = self.folder.fills.get(&map.name).copied();
+        let floor = self.folder.floors.get(&map.name).copied();
+        if fill.is_none() && floor.is_none() {
+            return None;
+        }
+        let (u, v) = map.uv(texel)?;
+        let resolver = self.resolver;
+        let texels = self.texels.entry(map.name.clone()).or_insert_with(|| {
+            // The rooms' lightmaps have loaded by now (`detail_baked`).
+            stored_lightmap(&map.name)
+                .or_else(|| {
+                    let parsed = resolver.read_texture(&map.name)?.ok()?;
+                    let txi =
+                        texture_txi(Some(&parsed), |restype| resolver.read(&map.name, restype));
+                    TextureIr::from_texture(&parsed, txi.as_ref())
+                })
+                .and_then(|texture| crate::stored_fill::StoredTexels::of(&texture))
+        });
+        let Some(texels) = texels else {
+            self.missed += 1;
+            return None;
+        };
+        Some((texels.at(u, v), fill, floor))
+    }
+
+    /// One warning for the places whose stored lightmap did not read.
+    fn report(&self, what: &str) {
+        if self.missed > 0 {
+            warn!(
+                "{} {what} of the bake in {} take no fill, because their stored lightmap does not read",
+                self.missed,
+                self.folder.path.display()
+            );
+        }
+    }
 }
 
 /// Under the baked trial, the baked light of the placeables in `lit` that
@@ -1125,6 +1252,7 @@ fn baked_probes(
 /// (`placeable_light::bends`). A skinned or dangling mesh keeps the probes,
 /// whatever the set holds. Empty under `KJK_PLACEABLE_LIGHT=probes`.
 fn baked_placeables(
+    resolver: &Resolver,
     area: &str,
     lit: &BTreeMap<u32, (usize, String, Arc<Vec<bool>>)>,
 ) -> BTreeMap<usize, Arc<crate::placeable_light::BakedPlaceable>> {
@@ -1140,7 +1268,18 @@ fn baked_placeables(
     // (`choose_bakes`).
     for (folder, _) in (used_folders().into_iter()).filter(|(_, using)| *using == FolderUse::Whole)
     {
-        for (object, mut light) in crate::placeable_light::read(&folder.path, area, &names) {
+        let mut fills = StoredFills::new(resolver, folder);
+        let mut fill = |map: &crate::stored_fill::StoredMap, texel: usize, light: [f32; 3]| {
+            let light = Vec3::from_array(light);
+            (fills.parts(map, texel))
+                .map_or(light, |(stored, fill, floor)| {
+                    crate::stored_fill::with_fill(light, stored, fill, floor)
+                })
+                .to_array()
+        };
+        let read = crate::placeable_light::read(&folder.path, area, &names, &mut fill);
+        fills.report("placeables");
+        for (object, mut light) in read {
             if let Some((model, _, meshes)) = lit.get(&object) {
                 for (mesh, kept) in light.meshes.iter_mut().zip(meshes.iter()) {
                     if !kept {
@@ -1190,83 +1329,36 @@ fn baked_folders() -> Vec<std::path::PathBuf> {
 /// nothing of the game's own lightmaps, and the stored light comes from the
 /// player's files here.
 ///
-/// The numbers are the bake's (`crates/launcher/src/detail_bake.rs` and
-/// `detail_bake/gpu.rs`): a baked level is stored at 1 / `GAIN`, a level is
-/// linear light to the power 1 / `GAMMA`, and a level above `KNEE` is eased
-/// so that it never passes `KNEE + OVER` (`eased_level`).
+/// The numbers are the bake's (`stored_fill`).
 /// With `floor` the stored light times `fill` is the least the texel shows,
 /// and not added (`BAKED_FLOORS`).
 fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32, floor: bool) {
-    use asset_odyssey::texture::Encoding;
-    const GAIN: f32 = 2.0;
-    const GAMMA: f32 = 2.2;
-    const KNEE: f32 = 0.8;
-    const OVER: f32 = 0.45;
-    let (width, height) = (stored.width as usize, stored.height as usize);
-    let Some(data) = stored.mips.first() else {
+    use crate::stored_fill::{GAIN, GAMMA, level_of, linear_of};
+    let Some(texels) = crate::stored_fill::StoredTexels::of(stored) else {
         return;
     };
-    let rgba = match stored.encoding {
-        Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone()),
-        Encoding::Bc1 | Encoding::Bc1Holes => fmt_odyssey::dxt::decode(data, width, height, false),
-        Encoding::Bc3 => fmt_odyssey::dxt::decode(data, width, height, true),
-    };
-    let Some(rgba) = rgba.filter(|rgba| width > 0 && rgba.len() >= width * height * 4) else {
-        return;
-    };
-    let clamp = stored.facts.clamp;
-    let texel = |tx: i64, ty: i64| {
-        let (w, h) = (width as i64, height as i64);
-        let (tx, ty) = if clamp {
-            (tx.clamp(0, w - 1), ty.clamp(0, h - 1))
-        } else {
-            (tx.rem_euclid(w), ty.rem_euclid(h))
-        };
-        let at = (ty * w + tx) as usize * 4;
-        Vec3::new(
-            f32::from(rgba[at]),
-            f32::from(rgba[at + 1]),
-            f32::from(rgba[at + 2]),
-        ) / 255.0
-    };
-    let luma = |c: Vec3| 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z;
     let (w, h) = (picture.width() as usize, picture.height() as usize);
     for y in 0..h {
         for x in 0..w {
             // The stored light here, read between the four nearest texels.
-            let sx = (x as f32 + 0.5) / w as f32 * width as f32 - 0.5;
-            let sy = (y as f32 + 0.5) / h as f32 * height as f32 - 0.5;
-            let (x0, y0) = (sx.floor(), sy.floor());
-            let (fx, fy) = (sx - x0, sy - y0);
-            let (x0, y0) = (x0 as i64, y0 as i64);
-            let top = texel(x0, y0).lerp(texel(x0 + 1, y0), fx);
-            let bottom = texel(x0, y0 + 1).lerp(texel(x0 + 1, y0 + 1), fx);
-            let added = top.lerp(bottom, fy).powf(GAMMA) * fill;
+            let u = (x as f32 + 0.5) / w as f32;
+            let v = (y as f32 + 0.5) / h as f32;
+            let added = texels.at(u, v).powf(GAMMA) * fill;
             // The baked level back to linear light, with its easing undone.
             let pixel = picture.get_pixel_mut(x as u32, y as u32);
-            let mut level = Vec3::new(
+            let level = Vec3::new(
                 f32::from(pixel[0]),
                 f32::from(pixel[1]),
                 f32::from(pixel[2]),
             ) / 255.0
                 * GAIN;
-            let brightness = luma(level);
-            if brightness > KNEE {
-                let eased = (brightness - KNEE).min(OVER * 0.999);
-                level *= (KNEE + eased * OVER / (OVER - eased)) / brightness;
-            }
             let light = if floor {
-                level.powf(GAMMA).max(added)
+                linear_of(level).max(added)
             } else {
-                level.powf(GAMMA) + added
+                linear_of(level) + added
             };
             // And the sum eased again, as the bake eases it.
-            let mut level = light.max(Vec3::ZERO).powf(1.0 / GAMMA);
-            let brightness = luma(level);
-            if brightness > KNEE {
-                let over = brightness - KNEE;
-                level *= (KNEE + over * OVER / (OVER + over)) / brightness;
-            }
+            let level = level_of(light);
             let bytes = (level / GAIN).clamp(Vec3::ZERO, Vec3::ONE) * 255.0;
             pixel[0] = bytes.x.round() as u8;
             pixel[1] = bytes.y.round() as u8;
@@ -1920,10 +2012,10 @@ pub fn module_scene(
         }
     }
     laps.lap("textures");
-    let (baked, sun) = baked_probes(&rooms);
+    let (baked, sun) = baked_probes(resolver, &rooms);
     let mut probes = crate::light_probes::bake(&models, &rooms, &textures, baked);
     probes.sun = sun;
-    probes.placeables = baked_placeables(&area.resref, &lit);
+    probes.placeables = baked_placeables(resolver, &area.resref, &lit);
     laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {

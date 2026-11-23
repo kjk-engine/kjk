@@ -554,6 +554,82 @@ Both areas then keep the bake's lightmaps, and their placeables take the
 probes. The sets `pv1` of 101per and 105per are stamped. The other 169
 areas are not yet.
 
+### No stored light in the probes and placeables (23 November 2026)
+
+A bake with `--fill-stored` used to write the fill into `placeables.txt`,
+`probes.txt` and `probes-sun.txt`. The fill there is the stored lightmap's
+light at the room's texel nearest the vertex or probe, so those files held
+light taken from the games' own lightmaps. They now hold none of it, so a
+bake can be given to players as a download. This is uncommitted on
+`feat/placeable-light`.
+
+- The baker writes the light of a vertex or a probe without the fill where
+  its room takes the fill from its stored light. After the light it writes
+  a word such as `@0:244581`. The word names a lightmap from a list at the
+  top of the file and a texel of the bake's grid on that lightmap. This is
+  the texel the fill was read from. A lone `@` in `placeables.txt` names the
+  same texel as the vertex before it on the line.
+- A vertex that takes its light from its neighbours (`fill_vertices`) takes
+  the texel of the neighbour that counts most.
+- When the game reads the files, it reads that texel of the player's own
+  stored lightmap. It adds the fill that `fill.txt` gives the lightmap, and
+  it holds the light to the share that `floor.txt` gives, as it does for the
+  room's texels. The code is `crates/game/src/stored_fill.rs`.
+- Where the bake writes a floor, every vertex and probe with a texel near it
+  gets the word, and the game holds it to the floor. Before this the
+  vertices and probes took no floor. Only stunt_18 has a floor.
+- The bake's format (`FORMAT` in `bake_fingerprint.rs`) is now 2. The three
+  files carry it in a `format` line too. The game takes nothing from a
+  `placeables.txt` or a probe file without that line, and logs one line
+  saying so. The placeables then take the light probes, and the probes are
+  made from the lightmaps. Every older set needs baking again, and the sets
+  `pv1` of 101per and 105per are now turned away by their fingerprint.
+
+The sets are `bake/nf2` of 411dxn and 101per. Their lightmaps and
+`fill.txt` are the same to the last byte as those of `pl6` and `pv1`.
+101per's rooms take no stored fill, so its files changed only by the
+`format` line. `placeables.txt` of 411dxn grew from 356 KB to 456 KB, and
+its `probes.txt` from 1.91 MB to 2.04 MB.
+
+The test of 411dxn's room `411dxnr`, which no lamp reaches: the four chests
+`plc_cht01` there hold a mean of 0.0007 to 0.0015 in the file, against 0.19
+to 0.24 in `pl6`. The game draws them as before. The shots `nf-chest-*` use
+the poses in `nf-chest-poses.txt`. The sheet `sheets-nf/chests.png` shows,
+from left to right, the old game with `pl6`, the new game with `nf2`, and
+the old game with `nf2`, which reads no fill and draws the chests black.
+
+The shots `nf-old` and `nf-new` of both areas, and `nf-old-bp` and
+`nf-new-bp` of 411dxn under `KJK_BAKED_PROBES=on`, differ by no more than
+two runs of the same game differ. The probes for the live sun and the floor
+were not run, because neither area has a sun or a floor.
+
+Other files of a set, and what they take from the stored lightmaps:
+
+- `fill.txt` gives one number for each lightmap of a room that takes the
+  fill. It is the room's fill over the mean of its stored linear light.
+  The fill is chosen so that the room's mean level reaches its target. So
+  the number comes from the stored light, as one ratio for each room.
+- `floor.txt` gives the share from `data/lights/bake.toml` and takes
+  nothing from the stored light.
+- The PNGs of `b` hold the lamps, the sun, the sky and their bounces. Each
+  room's scale comes from its target level, and the targets in the levels
+  files are a share of the room's mean stored level. With `--weigh` a texel
+  counts by its stored level in that mean. So each room's brightness is set
+  from the stored light, as one number for each room, but no texel holds
+  stored light.
+- `--stored-backdrop` (backdrop = "stored", in tar_m08aa and two other
+  modules) writes the stored lightmaps of the rooms with no walkable face
+  into `b`, at their stored light. Those PNGs are copies of the games'
+  lightmaps. This is not fixed yet.
+- Set `a` mixes the stored lightmaps with the lamps. It must not be given
+  to players.
+- `fingerprint.txt` holds digests of the game files, the stored lightmaps
+  among them. A digest cannot be turned back into a picture.
+- `detail-bake.txt` is the bake's log. It gives each room's mean stored
+  level and, with `--sun-fit`, the mean stored colour in and out of the
+  sun. These are means of a room, not texels.
+- `unlit.txt` holds the word "dark".
+
 ## Where it stands
 
 - Step 1 is the behaviour under the bake, on pull request 576.
@@ -573,6 +649,10 @@ areas are not yet.
   and the game shows a bake only over those files. This is uncommitted on
   `feat/placeable-light`. Only 101per and 105per of round `pv1` are
   stamped.
+- A bake's probes and placeables hold no light from the games' own
+  lightmaps, and the bake's format is 2. This is uncommitted on
+  `feat/placeable-light`. Every set baked before must be baked again.
+  `--stored-backdrop` still copies stored lightmaps into set `b`.
 - 411dxn's Mandalorian room is still nearly black under `pl3`, and its
   vertex-lit placeables are too bright there. danm13's terminal wedge is
   not explained.

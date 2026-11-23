@@ -52,7 +52,13 @@ pub const FILE: &str = "fingerprint.txt";
 /// The meaning of the bake's files. Raise it by hand when the baker writes
 /// something the game must read differently, so that every older bake is
 /// turned away until it is baked again.
-pub const FORMAT: u32 = 1;
+///
+/// Format 2 (23 November 2026): `placeables.txt`, `probes.txt` and
+/// `probes-sun.txt` hold their light without the fill from the stored
+/// lightmaps, and name the stored texel the game reads that fill from
+/// (`stored_fill`). They carry this number in a `format` line too, so that
+/// a set without `fingerprint.txt` is checked as well.
+pub const FORMAT: u32 = 2;
 
 /// The fingerprint of one area's files, or of the files a bake was made
 /// from. The two digests are hexadecimal.

@@ -15,7 +15,11 @@
 //! three bounces, at the scale of the room it stands in and through the
 //! same curve. The placeable's own triangles and the other still
 //! placeables block its rays. The baker writes the light into `FILE` in the
-//! bake's set, one line for each mesh.
+//! bake's set, one line for each mesh. Where a vertex's room takes its fill
+//! from its stored lightmap (`kjk detail-bake --fill-stored`), the file holds
+//! the vertex's light without that fill, and the game adds it from the
+//! player's own lightmap when it reads the file (`stored_fill`). So the file
+//! holds nothing of the games' own lightmaps.
 //!
 //! The game gives each mesh that has a line its light as a vertex colour,
 //! and the shader takes it in place of the probes' light, at the gain the
@@ -313,25 +317,44 @@ pub struct BakedPlaceable {
     pub meshes: Vec<Option<Vec<[f32; 3]>>>,
 }
 
+/// Gives a vertex's light with the fill of texel `usize` of a stored
+/// lightmap (`read`).
+pub type AddFill<'a> = dyn FnMut(&crate::stored_fill::StoredMap, usize, [f32; 3]) -> [f32; 3] + 'a;
+
 /// The placeables' light in the bake's set `folder` for area `area`, by the
 /// placeable's number among the area's instances. A line is kept only when
 /// its model is `models` names for that number. An empty map when the set
 /// has no `FILE` or holds another area's.
 ///
-/// Each line of the file is a mesh: `mesh`, the instance's number, its
-/// model's name, the mesh's number, how many vertices it has, and then the
-/// light of each vertex as r g b. The first line that is not a comment is
-/// `area` and the area's name.
+/// The first line that is not a comment is `area` and the area's name. The
+/// header follows: `format` and the bake's format
+/// (`bake_fingerprint::FORMAT`), and a line for each stored lightmap the
+/// vertices name (`stored_fill::StoredMap`). Each further line is a mesh:
+/// `mesh`, the instance's number, its model's name, the mesh's number, how
+/// many vertices it has, and then the light of each vertex as r g b. A
+/// vertex whose room takes its fill from the stored light has the word
+/// `@<map>:<texel>` after its light (`stored_fill`), or `@` alone when its
+/// texel is the one of the vertex before it on the line. `fill` gives its
+/// light with the fill from that texel.
+///
+/// A file of an older bake holds the fill from the games' own lightmaps in
+/// its light and has no `format`. The game takes none of its light, and
+/// the placeables keep the probes.
 pub fn read(
     folder: &Path,
     area: &str,
     models: &BTreeMap<u32, &str>,
+    fill: &mut AddFill<'_>,
 ) -> BTreeMap<u32, BakedPlaceable> {
     let mut found: BTreeMap<u32, BakedPlaceable> = BTreeMap::new();
-    let Ok(text) = std::fs::read_to_string(folder.join(FILE)) else {
+    let path = folder.join(FILE);
+    let Ok(text) = std::fs::read_to_string(&path) else {
         return found;
     };
-    let mut lines = text.lines().filter(|line| !line.starts_with('#'));
+    let mut lines = text
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .peekable();
     let ours = lines
         .next()
         .and_then(|line| line.strip_prefix("area "))
@@ -339,8 +362,29 @@ pub fn read(
     if !ours {
         return found;
     }
+    let mut format = None;
+    let mut maps = Vec::new();
+    while let Some(line) = lines.peek() {
+        if let Some(number) = line.strip_prefix("format ") {
+            format = number.trim().parse::<u32>().ok();
+        } else if let Some(map) = crate::stored_fill::StoredMap::parse(line) {
+            maps.push(map);
+        } else {
+            break;
+        }
+        lines.next();
+    }
+    if format != Some(crate::bake_fingerprint::FORMAT) {
+        bevy::log::warn!(
+            "{} is of an older bake (format {}, where the game reads format {}), so the placeables take their light from the light probes",
+            path.display(),
+            format.map_or("none".to_string(), |format| format.to_string()),
+            crate::bake_fingerprint::FORMAT
+        );
+        return found;
+    }
     for line in lines {
-        let mut words = line.split_whitespace();
+        let mut words = line.split_whitespace().peekable();
         if words.next() != Some("mesh") {
             continue;
         }
@@ -358,11 +402,42 @@ pub fn read(
         {
             continue;
         }
-        let numbers: Vec<f32> = words.filter_map(|word| word.parse().ok()).collect();
-        if numbers.len() != 3 * count {
+        let mut light: Vec<[f32; 3]> = Vec::with_capacity(count);
+        let mut whole = true;
+        // The stored texel of the vertex before, for the word
+        // `stored_fill::SAME`.
+        let mut before: Option<(usize, usize)> = None;
+        while let Some(word) = words.next() {
+            let number = |word: Option<&str>| word.and_then(|word| word.parse::<f32>().ok());
+            let (Some(r), Some(g), Some(b)) = (
+                number(Some(word)),
+                number(words.next()),
+                number(words.next()),
+            ) else {
+                whole = false;
+                break;
+            };
+            let mut value = [r, g, b];
+            let stored = match words.peek() {
+                Some(&word) if word == crate::stored_fill::SAME => before,
+                Some(word) => crate::stored_fill::parse_word(word),
+                None => None,
+            };
+            before = None;
+            if let Some((map, texel)) = stored {
+                words.next();
+                let Some(stored) = maps.get(map) else {
+                    whole = false;
+                    break;
+                };
+                value = fill(stored, texel, value);
+                before = Some((map, texel));
+            }
+            light.push(value);
+        }
+        if !whole || light.len() != count {
             continue;
         }
-        let light: Vec<[f32; 3]> = numbers.as_chunks::<3>().0.to_vec();
         let placeable = found.entry(object).or_default();
         if placeable.meshes.len() <= mesh {
             placeable.meshes.resize(mesh + 1, None);

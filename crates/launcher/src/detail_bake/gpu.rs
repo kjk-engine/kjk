@@ -1475,7 +1475,13 @@ pub(super) fn bake_lights(
     // `written_b` is what set `b` holds on disk, and `fills_b` is how much
     // of its stored light each room takes when the game loads it
     // (`GpuOptions::fill_stored`).
-    let (rooms_b, shown_b, written_b, fills_b, probe_light, probe_linear) = if options.old {
+    //
+    // `probe_light` and `probe_linear` are the probes' and the vertices'
+    // light as the files hold it, after and before the curve. Where a place
+    // takes its fill from the stored light, the files hold its light without
+    // that fill, and `probe_stored` names the stored texel the game reads the
+    // fill from when it loads the file.
+    let (rooms_b, shown_b, written_b, fills_b, probe_light, probe_linear, probe_stored) = if options.old {
         // The CPU bake's way: one scale for the area, so that its mean is
         // `a`'s.
         let mean_a = mean(&|i| shown_a[i]);
@@ -1502,7 +1508,7 @@ pub(super) fn bake_lights(
             &stored_level,
         );
         let shown: Vec<Vec3> = lamps_scaled.iter().map(|l| stored_level(*l)).collect();
-        (rooms, shown.clone(), shown, std::collections::BTreeMap::new(), Vec::new(), Vec::new())
+        (rooms, shown.clone(), shown, std::collections::BTreeMap::new(), Vec::new(), Vec::new(), Vec::new())
     } else {
         // Each room's target is the live formula without its stored half:
         // the room's mean level of the lights alone, without shadows. One
@@ -1746,7 +1752,34 @@ pub(super) fn bake_lights(
                 }
             }
         }
-        (rooms, shown, written, fills, probe_light, probe_linear)
+        // The files hold nothing of the stored lightmaps here either. A
+        // probe or a vertex whose room takes its fill from its stored light
+        // is written without that fill, with the place of the stored texel
+        // it was read from. The game reads that texel of the player's own
+        // lightmap and adds the fill as it adds it to the room's texels
+        // (`fill.txt`). Where the bake writes a floor (`floor.txt`), every
+        // place with a texel near gets the reference, so that the game can
+        // hold it to the floor as it holds the room's texels.
+        let probe_stored: Vec<Option<usize>> = (0..probe_range.1)
+            .map(|j| {
+                let map = probe_maps[j]?;
+                let filled = fills.contains_key(&room_name(&maps[map]));
+                nearest[j].filter(|_| filled || options.floor.is_some())
+            })
+            .collect();
+        let probe_linear: Vec<Vec3> = (0..probe_range.1)
+            .map(|j| {
+                let in_files = probe_maps[j].is_some_and(|map| fills.contains_key(&room_name(&maps[map])));
+                if in_files && probe_stored[j].is_some() {
+                    let scale = probe_maps[j].map_or(1.0, |map| even[map].map_or(rooms.scale[map], |(_, scale)| scale));
+                    probe_sky[j] + probe_lamps[j] * scale
+                } else {
+                    probe_linear[j]
+                }
+            })
+            .collect();
+        let probe_light: Vec<Vec3> = probe_linear.iter().map(|light| eased_level(*light)).collect();
+        (rooms, shown, written, fills, probe_light, probe_linear, probe_stored)
     };
     lap("levels".into(), &mut times);
 
@@ -1820,17 +1853,28 @@ pub(super) fn bake_lights(
     let placeable_count = (area.instances.iter())
         .filter(|instance| instance.kind == asset_odyssey::module::Kind::Placeable)
         .count();
+    let refs = |texels: &[Option<usize>]| stored_refs(&maps, &points, texels);
     if !probes.is_empty() && !probe_light.is_empty() {
         let light: Vec<Vec3> = probe_light[..6 * probes.len()].iter().map(|light| *light / GAIN).collect();
-        write_probes(&folder.join("b").join("probes.txt"), &probes, &light)?;
+        // A probe's six places stand at one point and share one texel.
+        let stored: Vec<Option<usize>> = (0..probes.len()).map(|k| probe_stored[6 * k]).collect();
+        write_probes(&folder.join("b").join("probes.txt"), &probes, &light, &refs(&stored))?;
         if let Some((toward, colour)) = sun_of_probes {
             let unsunned: Vec<Vec3> = (0..6 * probes.len()).map(|j| probe_linear[j] - probe_sun[j]).collect();
-            write_probes_sun(&folder.join("b").join(PROBES_SUN), &probes, &unsunned, &probe_sun, toward, colour)?;
+            write_probes_sun(
+                &folder.join("b").join(PROBES_SUN),
+                &probes,
+                (&unsunned, &probe_sun),
+                &refs(&stored),
+                toward,
+                colour,
+            )?;
         }
     }
     if !vertices.places.is_empty() && !probe_light.is_empty() {
         let mut light: Vec<Vec3> = probe_light[6 * probes.len()..].iter().map(|light| *light / GAIN).collect();
-        let filled = fill_vertices(&vertices, &vertex_counts, &mut light);
+        let mut stored: Vec<Option<usize>> = probe_stored[6 * probes.len()..].to_vec();
+        let filled = fill_vertices(&vertices, &vertex_counts, &mut light, &mut stored);
         outln!(
             "  placeables: {} of {} have a mesh the bake lights, {} of them block rays, and {} hold lights of their own",
             still.len(),
@@ -1867,7 +1911,17 @@ pub(super) fn bake_lights(
             filled.nearest,
             filled.none
         );
-        write_placeables(&folder.join("b").join(kjk_game::placeable_light::FILE), &area.resref, &vertices, &light)?;
+        outln!(
+            "  placeables: {} vertices take their room's fill or floor from a stored texel when the game loads them",
+            stored.iter().filter(|stored| stored.is_some()).count()
+        );
+        write_placeables(
+            &folder.join("b").join(kjk_game::placeable_light::FILE),
+            &area.resref,
+            &vertices,
+            &light,
+            &refs(&stored),
+        )?;
     } else if options.placeables {
         outln!(
             "  placeables: {} of {} have a mesh the bake may light, {} of them block rays",
@@ -2317,7 +2371,14 @@ struct Filled {
 /// there are any. Without it such a vertex kept the light the passes gave
 /// its place inside the surface. A vertex is left as it is only when no
 /// vertex of its placeable counts.
-fn fill_vertices(vertices: &Vertices, counts: &[bool], light: &mut [Vec3]) -> Filled {
+///
+/// A filled vertex takes the stored texel of its fill (`stored`) from the
+/// neighbour that counts most, or from the nearest vertex it took its light
+/// from. The light it takes holds no fill, so the game adds that texel's
+/// fill to the mean of its neighbours' light, where the bake had the mean
+/// of their light with the fill. The two differ a little where the
+/// neighbours' fills differ.
+fn fill_vertices(vertices: &Vertices, counts: &[bool], light: &mut [Vec3], stored: &mut [Option<usize>]) -> Filled {
     let mut filled = Filled::default();
     let mut known: Vec<bool> = counts.to_vec();
     for (m, (_, _, _, start, triangles)) in vertices.meshes.iter().enumerate() {
@@ -2356,6 +2417,15 @@ fn fill_vertices(vertices: &Vertices, counts: &[bool], light: &mut [Vec3]) -> Fi
                     .fold((Vec3::ZERO, 0.0), |(sum, total), (light, weight)| (sum + light, total + weight));
                 if weight > 0.0 {
                     light[start + k] = sum / weight;
+                    // The stored texel of the fill is the one of the
+                    // neighbour that counts most, of the nearest number
+                    // among equals.
+                    let heaviest = (next[k].iter().copied().filter(|&other| before[other]))
+                        .map(|other| (facing_weight(facing, vertices.places[start + other].1), other))
+                        .max_by(|a, b| a.0.total_cmp(&b.0).then(b.1.cmp(&a.1)));
+                    if let Some((_, other)) = heaviest {
+                        stored[start + k] = stored[start + other];
+                    }
                     known[start + k] = true;
                     filled.rings += 1;
                     any = true;
@@ -2387,6 +2457,7 @@ fn fill_vertices(vertices: &Vertices, counts: &[bool], light: &mut [Vec3]) -> Fi
             match nearest(true).or_else(|| nearest(false)) {
                 Some(other) => {
                     light[k] = light[other];
+                    stored[k] = stored[other];
                     filled.nearest += 1;
                 }
                 None => filled.none += 1,
@@ -2396,22 +2467,94 @@ fn fill_vertices(vertices: &Vertices, counts: &[bool], light: &mut [Vec3]) -> Fi
     filled
 }
 
+/// The stored texels that a bake's file names for the game to read a
+/// place's fill from (`kjk_game::stored_fill`).
+struct StoredRefs {
+    /// Each lightmap the file names, with the width and height of the
+    /// bake's grid of texels on it.
+    maps: Vec<(String, usize, usize)>,
+    /// Each place's lightmap, by its number in `maps`, and its texel in
+    /// that grid, row by row. `None` for a place that takes no fill from
+    /// the stored light.
+    at: Vec<Option<(usize, usize)>>,
+}
+
+impl StoredRefs {
+    /// The file's lines that name its lightmaps, after its format.
+    fn header(&self, text: &mut String) {
+        let _ = writeln!(text, "format {}", kjk_game::bake_fingerprint::FORMAT);
+        for (name, width, height) in &self.maps {
+            let _ = writeln!(text, "{}", kjk_game::stored_fill::map_line(name, *width, *height));
+        }
+    }
+
+    /// The word that names place `k`'s stored texel, with a space before
+    /// it, or nothing.
+    fn word(&self, k: usize) -> String {
+        self.at[k].map_or(String::new(), |(map, texel)| {
+            format!(" {}", kjk_game::stored_fill::word(map, texel))
+        })
+    }
+
+    /// `word`, or the short word `stored_fill::SAME` when place `k` names
+    /// the same texel as place `before`.
+    fn word_after(&self, k: usize, before: Option<usize>) -> String {
+        match (self.at[k], before.and_then(|before| self.at[before])) {
+            (Some(now), Some(then)) if now == then => format!(" {}", kjk_game::stored_fill::SAME),
+            _ => self.word(k),
+        }
+    }
+}
+
+/// The lightmaps and texels of `texels`, each a texel of `points` or none.
+fn stored_refs(maps: &[Stored], points: &[Point], texels: &[Option<usize>]) -> StoredRefs {
+    let mut numbers: std::collections::BTreeMap<usize, usize> = Default::default();
+    let mut refs = StoredRefs { maps: Vec::new(), at: Vec::with_capacity(texels.len()) };
+    for texel in texels {
+        refs.at.push(texel.map(|i| {
+            let map = points[i].map;
+            let number = *numbers.entry(map).or_insert_with(|| {
+                let stored = &maps[map];
+                refs.maps.push((stored.name.clone(), stored.width * stored.scale, stored.height * stored.scale));
+                refs.maps.len() - 1
+            });
+            (number, points[i].texel)
+        }));
+    }
+    refs
+}
+
 /// Writes the placeables' light to `path` (`kjk_game::placeable_light::read`
 /// reads it): a line for each mesh with its placeable's number among the
 /// area's instances, its model, the mesh's number, how many vertices it has,
 /// and the light of each vertex at the level a lightmap of set `b` stores.
-fn write_placeables(path: &Path, area: &str, vertices: &Vertices, light: &[Vec3]) -> Result<(), String> {
+/// A vertex that takes its room's fill from the stored light holds its
+/// light without it, and the word after its light names the stored texel
+/// the game reads the fill from (`stored`).
+fn write_placeables(
+    path: &Path,
+    area: &str,
+    vertices: &Vertices,
+    light: &[Vec3],
+    stored: &StoredRefs,
+) -> Result<(), String> {
     let mut text = String::from(
         "# The light on each vertex of each placeable's mesh that the bake lights (crates/game/src/placeable_light.rs):\n\
          # mesh, the placeable's number among the area's instances, its model, the mesh's number, how many\n\
-         # vertices it has, and each vertex's r g b at the level the lightmaps of this set store.\n",
+         # vertices it has, and each vertex's r g b at the level the lightmaps of this set store.\n\
+         # The light holds nothing of the game's own lightmaps. After a vertex's r g b, @<map>:<texel> names the\n\
+         # texel of a stored lightmap listed under `map` (its name, and the width and height of the bake's grid),\n\
+         # whose light the game adds as fill.txt and floor.txt ask (crates/game/src/stored_fill.rs). A lone @\n\
+         # names the texel of the vertex before it on the line.\n",
     );
     let _ = writeln!(text, "area {area}");
+    stored.header(&mut text);
     for (k, (object, model, number, start, _)) in vertices.meshes.iter().enumerate() {
         let end = vertices.meshes.get(k + 1).map_or(light.len(), |(_, _, _, next, _)| *next);
         let _ = write!(text, "mesh {object} {model} {number} {}", end - start);
-        for value in &light[*start..end] {
-            let _ = write!(text, " {:.4} {:.4} {:.4}", value.x, value.y, value.z);
+        for (offset, value) in light[*start..end].iter().enumerate() {
+            let word = stored.word_after(start + offset, offset.checked_sub(1).map(|before| start + before));
+            let _ = write!(text, " {:.4} {:.4} {:.4}{word}", value.x, value.y, value.z);
         }
         text.push('\n');
     }
@@ -2481,18 +2624,26 @@ fn height_at([a, b, c]: [Vec3; 3], x: f32, y: f32) -> Option<f32> {
 
 /// Writes the probes' light to `path`: a line for each probe with its
 /// room, its place and the light on each of its six sides, in the order of
-/// `PROBE_AXES`, at the level a lightmap of set `b` stores.
-fn write_probes(path: &Path, probes: &[(String, Vec3)], light: &[Vec3]) -> Result<(), String> {
+/// `PROBE_AXES`, at the level a lightmap of set `b` stores. A probe that
+/// takes its room's fill from the stored light holds its light without it,
+/// and the line ends with the stored texel the game reads the fill from
+/// (`stored`).
+fn write_probes(path: &Path, probes: &[(String, Vec3)], light: &[Vec3], stored: &StoredRefs) -> Result<(), String> {
     let mut text = String::from(
         "# The light on each probe, as the game's probes hold it (crates/game/src/light_probes.rs):\n\
          # its room, its place (x y z), and the light on a surface facing east, west, up, down,\n\
-         # south and north, each r g b at the level the lightmaps of this set store.\n",
+         # south and north, each r g b at the level the lightmaps of this set store.\n\
+         # The light holds nothing of the game's own lightmaps. A last word @<map>:<texel> names the texel\n\
+         # of a stored lightmap listed under `map`, whose light the game adds to the six sides as fill.txt\n\
+         # and floor.txt ask (crates/game/src/stored_fill.rs).\n",
     );
+    stored.header(&mut text);
     for (k, (room, at)) in probes.iter().enumerate() {
         let _ = write!(text, "{room} {:.3} {:.3} {:.3}", at.x, at.y, at.z);
         for side in &light[6 * k..6 * k + 6] {
             let _ = write!(text, " {:.4} {:.4} {:.4}", side.x, side.y, side.z);
         }
+        text.push_str(&stored.word(k));
         text.push('\n');
     }
     std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
@@ -2522,11 +2673,15 @@ const PROBES_SUN: &str = "probes-sun.txt";
 /// side the share of `SUN_RAYS` rays that reach the sun times how squarely
 /// it faces it, so the sum over the sides is a mean of their shares weighed
 /// by how squarely each faces the sun.
+///
+/// A probe that takes its room's fill from the stored light holds its light
+/// without it, and the line ends with the stored texel the game reads the
+/// fill from (`stored`), as in `write_probes`.
 fn write_probes_sun(
     path: &Path,
     probes: &[(String, Vec3)],
-    light: &[Vec3],
-    sun: &[Vec3],
+    (light, sun): (&[Vec3], &[Vec3]),
+    stored: &StoredRefs,
     toward: Vec3,
     colour: Vec3,
 ) -> Result<(), String> {
@@ -2535,12 +2690,19 @@ fn write_probes_sun(
     let way = Vec3::new(toward.x, toward.z, -toward.y);
     let facing: f32 = PROBE_AXES.iter().map(|axis| axis.dot(toward).max(0.0)).sum();
     let strength = luma(colour).max(1e-6);
-    let mut text = format!(
+    let mut text = String::from(
         "# The probes for the live sun (crates/launcher/src/detail_bake/gpu.rs, write_probes_sun).\n\
          # sun: its way in Bevy's space (x y z), its linear colour (r g b), and the curve's gamma, knee and most over the knee.\n\
          # Then each probe: its room, its place (x y z), the share of the sun that reaches it, and the\n\
          # linear light without the sun on a surface facing east, west, up, down, south and north.\n\
-         sun {:.5} {:.5} {:.5} {:.5} {:.5} {:.5} {GAMMA} {B_KNEE} {B_OVER}\n",
+         # The light holds nothing of the game's own lightmaps. A last word @<map>:<texel> names the texel\n\
+         # of a stored lightmap listed under `map`, whose linear light the game adds as fill.txt and\n\
+         # floor.txt ask (crates/game/src/stored_fill.rs).\n",
+    );
+    stored.header(&mut text);
+    let _ = writeln!(
+        text,
+        "sun {:.5} {:.5} {:.5} {:.5} {:.5} {:.5} {GAMMA} {B_KNEE} {B_OVER}",
         way.x, way.y, way.z, colour.x, colour.y, colour.z
     );
     for (k, (room, at)) in probes.iter().enumerate() {
@@ -2551,6 +2713,7 @@ fn write_probes_sun(
             let side = side.max(Vec3::ZERO);
             let _ = write!(text, " {:.5} {:.5} {:.5}", side.x, side.y, side.z);
         }
+        text.push_str(&stored.word(k));
         text.push('\n');
     }
     std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))

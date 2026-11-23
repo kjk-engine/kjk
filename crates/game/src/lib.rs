@@ -197,6 +197,7 @@ mod stealth_view;
 #[cfg(feature = "steam")]
 mod steam_join;
 pub mod store_verbs;
+pub mod stored_fill;
 mod swallow;
 pub mod target_view;
 pub mod temporal;
