@@ -163,7 +163,7 @@ pub fn mode() -> Mode {
 /// part can be measured against the floor beside it. The parts are those of
 /// the baked trial (`KJK_FITTED_LIGHTS=baked`). Unset, the game is drawn as
 /// normal.
-fn term_mode() -> u32 {
+pub(crate) fn term_mode() -> u32 {
     static TERM: OnceLock<u32> = OnceLock::new();
     *TERM.get_or_init(|| match std::env::var("KJK_MODEL_LIGHT").as_deref() {
         Ok("whole") => 2,

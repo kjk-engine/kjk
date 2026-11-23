@@ -1843,6 +1843,11 @@ impl Material for OdysseyMaterial {
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.blend;
             }
+            // The fitted lights and their trials, only in a run that may
+            // show them (`fitted_lights::in_shaders`).
+            if crate::fitted_lights::in_shaders() {
+                fragment.shader_defs.push("FITTED_LIGHTS".into());
+            }
             // A surface of the opaque pass is in the prepass the occlusion
             // is worked out from, so it takes the occlusion. What is truly
             // see-through is not, and takes none (`ambient_occlusion`).

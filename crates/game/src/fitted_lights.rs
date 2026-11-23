@@ -95,6 +95,30 @@ pub fn baked_anywhere() -> bool {
     }
 }
 
+/// Whether this run's shaders hold the fitted lights and the trials that
+/// use them (`odyssey.wgsl`'s `FITTED_LIGHTS`). They do when
+/// `KJK_FITTED_LIGHTS` is set to anything but `off`, when the player chose
+/// Enhanced Lightmaps and a download of them is installed
+/// (`baked_anywhere`), under `KJK_SHADOW_DEBUG=7` (the light kinds' trial),
+/// and under `KJK_MODEL_LIGHT`. Otherwise the shaders leave that code out.
+///
+/// Left in, that code cost GPU time under Classic and Enhanced lighting,
+/// although none of it ran there. Under Classic on an RTX 4070 Ti SUPER, the
+/// Harbinger's medbay took 1.80 ms of GPU time against 1.41 ms without it.
+/// The crowd brawl's particles took 0.71 ms against 0.14 ms. The calls to
+/// `fitted_lights` and the trials' code each cost about as much alone.
+/// The choice is made once, as kjk starts. A change of the Lighting option
+/// takes effect at the next start in any case.
+pub fn in_shaders() -> bool {
+    static IN: OnceLock<bool> = OnceLock::new();
+    *IN.get_or_init(|| {
+        variable().is_some_and(|value| value != "off")
+            || baked_anywhere()
+            || std::env::var("KJK_SHADOW_DEBUG").is_ok_and(|value| value == "7")
+            || crate::light_probes::term_mode() != 0
+    })
+}
+
 /// The shaders' trial for area `baked` (`LoadedScene::baked`), when no
 /// variable sets it: 8 for an area under the bake of Enhanced Lightmaps, and
 /// 0 for any other. `None` when `KJK_FITTED_LIGHTS` is set, which decides
