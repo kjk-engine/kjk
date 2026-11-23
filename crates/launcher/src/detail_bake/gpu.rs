@@ -500,6 +500,7 @@ impl Passes<'_> {
     /// `run`, with the way to the sun for `MODE_SKY` and half the sun's
     /// width. A width of 0 is the shader's own, with every ray from the
     /// texel's middle.
+    #[allow(clippy::too_many_arguments)]
     fn run_toward(
         &self,
         mode: u32,
@@ -1692,6 +1693,7 @@ pub(super) fn bake_lights(
                 let low = mine.iter().fold(Vec3::splat(f32::MAX), |low, &k| low.min(vertices.places[k].0));
                 let high = mine.iter().fold(Vec3::splat(f32::MIN), |high, &k| high.max(vertices.places[k].0));
                 outln!("  parts of {} at {} (the vertices that count): box {} to {}", placeable.name, v3(placeable.at), v3(low), v3(high));
+                #[allow(clippy::needless_range_loop)]
                 for axis in 0..6 {
                     let group: Vec<usize> = mine.iter().copied().filter(|&k| axis_of(vertices.places[k].1) == axis).collect();
                     if group.is_empty() {
@@ -1722,6 +1724,7 @@ pub(super) fn bake_lights(
                 let near: Vec<usize> = (counted.iter().copied())
                     .filter(|&i| points[i].at.clamp(low, high).distance(points[i].at) < 1.5)
                     .collect();
+                #[allow(clippy::needless_range_loop)]
                 for axis in 0..6 {
                     let group: Vec<usize> = near.iter().copied().filter(|&i| axis_of(points[i].normal) == axis).collect();
                     if group.is_empty() {
@@ -2584,9 +2587,7 @@ fn nearest_texels(
     }
     (at.iter().zip(map_of))
         .map(|(at, map)| {
-            let Some(map) = *map else {
-                return None;
-            };
+            let map = (*map)?;
             let room = &rooms[map];
             let key = (*at / CELL).floor().as_ivec3();
             let mut best: Option<(f32, usize)> = None;

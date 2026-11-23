@@ -885,18 +885,30 @@ fn dark_unlit(name: &str) -> bool {
 /// part is the sun (`light_probes::ProbeSun`).
 fn baked_probes(
     rooms: &[RoomView],
-) -> (Option<Vec<crate::light_probes::BakedProbe>>, Option<crate::light_probes::ProbeSun>) {
+) -> (
+    Option<Vec<crate::light_probes::BakedProbe>>,
+    Option<crate::light_probes::ProbeSun>,
+) {
     // The owner preferred the probes made from the lightmaps, so the bake's
     // probes are read only under `KJK_BAKED_PROBES=on`.
-    if !crate::fitted_lights::baked() || std::env::var("KJK_BAKED_PROBES").map_or(true, |value| value != "on") {
+    if !crate::fitted_lights::baked()
+        || std::env::var("KJK_BAKED_PROBES").map_or(true, |value| value != "on")
+    {
         return (None, None);
     }
     let live_sun = std::env::var("KJK_PROBE_SUN").is_ok_and(|value| value == "on");
-    let names: std::collections::HashSet<String> = rooms.iter().map(|room| room.name.to_ascii_lowercase()).collect();
+    let names: std::collections::HashSet<String> = rooms
+        .iter()
+        .map(|room| room.name.to_ascii_lowercase())
+        .collect();
     let mut probes = Vec::new();
     let mut sun = None;
     for folder in baked_folders() {
-        let file = if live_sun { "probes-sun.txt" } else { "probes.txt" };
+        let file = if live_sun {
+            "probes-sun.txt"
+        } else {
+            "probes.txt"
+        };
         let Ok(text) = std::fs::read_to_string(folder.join(file)) else {
             continue;
         };
@@ -927,8 +939,15 @@ fn baked_probes(
                 _ => continue,
             };
             let at = bevy::math::Vec3::from_slice(&numbers[..3]);
-            let light = std::array::from_fn(|side| bevy::math::Vec3::from_slice(&light[3 * side..3 * side + 3]));
-            probes.push(crate::light_probes::BakedProbe { room, at, light, sun: share });
+            let light = std::array::from_fn(|side| {
+                bevy::math::Vec3::from_slice(&light[3 * side..3 * side + 3])
+            });
+            probes.push(crate::light_probes::BakedProbe {
+                room,
+                at,
+                light,
+                sun: share,
+            });
         }
     }
     if probes.is_empty() {
@@ -951,7 +970,10 @@ fn baked_placeables(
     if !crate::fitted_lights::baked() || !crate::placeable_light::baked_light() || lit.is_empty() {
         return found;
     }
-    let names: BTreeMap<u32, &str> = lit.iter().map(|(object, (_, name, _))| (*object, name.as_str())).collect();
+    let names: BTreeMap<u32, &str> = lit
+        .iter()
+        .map(|(object, (_, name, _))| (*object, name.as_str()))
+        .collect();
     for folder in baked_folders() {
         for (object, mut light) in crate::placeable_light::read(&folder, area, &names) {
             if let Some((model, _, meshes)) = lit.get(&object) {
@@ -1640,7 +1662,10 @@ pub fn module_scene(
                 );
                 fx_of.insert(name.clone(), own);
                 if crate::fitted_lights::baked() && crate::placeable_light::baked_light() {
-                    lit_of.insert(name.clone(), Arc::new(crate::placeable_light::lit_meshes(ir)));
+                    lit_of.insert(
+                        name.clone(),
+                        Arc::new(crate::placeable_light::lit_meshes(ir)),
+                    );
                 }
             }
             if instance.kind == Kind::Door
@@ -1681,7 +1706,9 @@ pub fn module_scene(
         match &loaded[name] {
             Some(ir) => {
                 if instance.kind == Kind::Placeable
-                    && let Some(meshes) = lit_of.get(name).filter(|meshes| meshes.iter().any(|lit| *lit))
+                    && let Some(meshes) = lit_of
+                        .get(name)
+                        .filter(|meshes| meshes.iter().any(|lit| *lit))
                 {
                     lit.insert(object as u32, (models.len(), name.clone(), meshes.clone()));
                 }

@@ -692,6 +692,7 @@ fn texels(
     // Each lightmap's surface in square metres and in stored texels, and the
     // triangles to give texels once its scale is known.
     let mut densities: Vec<(f32, f32)> = Vec::new();
+    #[allow(clippy::type_complexity)]
     let mut pending: Vec<(usize, [Vec3; 3], [[f32; 2]; 3], Option<[Vec3; 3]>)> = Vec::new();
     let mut surfaces: Vec<Surface> = Vec::new();
     let mut facts: Vec<Facts> = Vec::new();

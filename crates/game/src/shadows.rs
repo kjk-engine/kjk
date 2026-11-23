@@ -1130,7 +1130,12 @@ pub(crate) fn world_box(shadow: &ShadowBox, placed: &GlobalTransform) -> GpuBox 
         y: (turn * Vec3::Y).extend(half.y),
         z: (turn * Vec3::Z).extend(half.z),
         unseen: UVec4::ZERO,
-        tiles: UVec4::new(0, 0, BOX_CASTS | if shadow.round { BOX_ROUND } else { 0 }, 0),
+        tiles: UVec4::new(
+            0,
+            0,
+            BOX_CASTS | if shadow.round { BOX_ROUND } else { 0 },
+            0,
+        ),
     }
 }
 

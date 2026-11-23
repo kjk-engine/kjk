@@ -737,7 +737,7 @@ pub fn lights(loaded: &LoadedScene) -> Vec<Light> {
                     && (door || fitting[6] <= UNNAMED_SMALL)
             };
             let dim = fittings.iter().any(small);
-            let whole = (dim.then(|| mesh.texture.as_ref()).flatten())
+            let whole = (dim.then_some(mesh.texture.as_ref()).flatten())
                 .and_then(|name| texels(loaded.textures.get(name)?, BRIGHTNESS_SIDE))
                 .map(|(_, _, texels)| {
                     let sum: Vec3 = texels.iter().map(|texel| Vec3::from_array(*texel)).sum();
@@ -1047,7 +1047,8 @@ fn dump(
         // the lamp stands, its colour, its radius, its multiplier, and
         // whether it only brightens the ambient.
         for light in &placed.ir.lights {
-            let at = (frame * to_mat4(&placed.ir.nodes[light.node].world)).transform_point3(Vec3::ZERO);
+            let at =
+                (frame * to_mat4(&placed.ir.nodes[light.node].world)).transform_point3(Vec3::ZERO);
             let _ = writeln!(
                 text,
                 "lamp {} {} {} {} {} {} {} {} {} {}",

@@ -1287,8 +1287,14 @@ impl<'t> Spawner<'t> {
             let light = (self.vertex_light.as_ref())
                 .and_then(|light| light.meshes.get(index)?.clone())
                 .filter(|_| !is_room);
-            let divided = light.as_ref().map(|_| crate::placeable_light::subdivide(part));
-            let light = light.filter(|light| divided.as_ref().is_some_and(|divided| light.len() == divided.positions.len()));
+            let divided = light
+                .as_ref()
+                .map(|_| crate::placeable_light::subdivide(part));
+            let light = light.filter(|light| {
+                divided
+                    .as_ref()
+                    .is_some_and(|divided| light.len() == divided.positions.len())
+            });
             let part = match (&light, &divided) {
                 (Some(_), Some(divided)) => divided,
                 _ => part,

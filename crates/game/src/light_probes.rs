@@ -1041,7 +1041,10 @@ pub fn bake(
         // of unk_m44ac was 0.50 of its floor under the bake and 0.69 today.
         let mut probes: Vec<Vec<Probe>> = vec![Vec::new(); rooms.len()];
         for probe in baked {
-            if let Some(room) = rooms.iter().position(|room| room.name.eq_ignore_ascii_case(&probe.room)) {
+            if let Some(room) = rooms
+                .iter()
+                .position(|room| room.name.eq_ignore_ascii_case(&probe.room))
+            {
                 probes[room].push(Probe {
                     at: probe.at,
                     light: probe.light,
@@ -1397,7 +1400,12 @@ fn light_objects(
                     entry.target = if crate::fitted_lights::baked() {
                         light
                     } else {
-                        without_lamps(light, &state.lamps, (origin, sample), model_placed.is_static)
+                        without_lamps(
+                            light,
+                            &state.lamps,
+                            (origin, sample),
+                            model_placed.is_static,
+                        )
                     };
                     entry.room_target = match room_shadow() {
                         RoomShadow::Probes => room_light(&entry.raw),
@@ -1428,7 +1436,9 @@ fn light_objects(
                 continue;
             }
             if !entry.valid
-                || (entry.now == entry.target && entry.room_now == entry.room_target && entry.sun_now == entry.sun_target)
+                || (entry.now == entry.target
+                    && entry.room_now == entry.room_target
+                    && entry.sun_now == entry.sun_target)
             {
                 continue;
             }
@@ -1459,9 +1469,18 @@ fn light_objects(
         let mut list = Box::new(ProbeList {
             mode: if mode == Mode::Only { 1 } else { term_mode() },
             lamps_off: u32::from(lamps_off()),
-            sun_way: loaded.probes.sun.map_or(Vec4::ZERO, |sun| sun.way.extend(1.0)),
-            sun_colour: loaded.probes.sun.map_or(Vec4::ZERO, |sun| sun.colour.extend(0.0)),
-            sun_curve: loaded.probes.sun.map_or(Vec4::ZERO, |sun| sun.curve.extend(0.0)),
+            sun_way: loaded
+                .probes
+                .sun
+                .map_or(Vec4::ZERO, |sun| sun.way.extend(1.0)),
+            sun_colour: loaded
+                .probes
+                .sun
+                .map_or(Vec4::ZERO, |sun| sun.colour.extend(0.0)),
+            sun_curve: loaded
+                .probes
+                .sun
+                .map_or(Vec4::ZERO, |sun| sun.curve.extend(0.0)),
             ..default()
         });
         for ((slot, room), entry) in list

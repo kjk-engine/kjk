@@ -173,7 +173,9 @@ pub fn motions(ir: &ModelIr, clips: &BTreeMap<String, Arc<AnimationIr>>) -> Vec<
                 cosine.abs() < STILL_TURN
             });
             if shifted || turned {
-                moved.entry(node).or_insert_with(|| format!("its clip {name} moves {}", track.node));
+                moved
+                    .entry(node)
+                    .or_insert_with(|| format!("its clip {name} moves {}", track.node));
             }
         }
     }
@@ -234,20 +236,32 @@ pub fn subdivide(mesh: &MeshIr) -> MeshIr {
             .filter(|triangle| triangle.iter().all(|&i| (i as usize) < out.positions.len()))
             .copied()
             .collect();
-        if !triangles.iter().any(|&[a, b, c]| long(&out, a, b) || long(&out, b, c) || long(&out, c, a)) {
+        if !triangles
+            .iter()
+            .any(|&[a, b, c]| long(&out, a, b) || long(&out, b, c) || long(&out, c, a))
+        {
             break;
         }
         let mut middles: BTreeMap<(u32, u32), u32> = BTreeMap::new();
         let mut middle = |out: &mut MeshIr, a: u32, b: u32| -> u32 {
             *middles.entry((a.min(b), a.max(b))).or_insert_with(|| {
                 let (a, b) = (a as usize, b as usize);
-                let mean3 = |p: [f32; 3], q: [f32; 3]| -> [f32; 3] { std::array::from_fn(|k| (p[k] + q[k]) / 2.0) };
-                let mean2 = |p: [f32; 2], q: [f32; 2]| -> [f32; 2] { std::array::from_fn(|k| (p[k] + q[k]) / 2.0) };
-                out.positions.push(mean3(out.positions[a], out.positions[b]));
+                let mean3 = |p: [f32; 3], q: [f32; 3]| -> [f32; 3] {
+                    std::array::from_fn(|k| (p[k] + q[k]) / 2.0)
+                };
+                let mean2 = |p: [f32; 2], q: [f32; 2]| -> [f32; 2] {
+                    std::array::from_fn(|k| (p[k] + q[k]) / 2.0)
+                };
+                out.positions
+                    .push(mean3(out.positions[a], out.positions[b]));
                 if has_normals {
                     let n = mean3(out.normals[a], out.normals[b]);
                     let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-                    let n = if length > 1e-6 { n.map(|v| v / length) } else { out.normals[a] };
+                    let n = if length > 1e-6 {
+                        n.map(|v| v / length)
+                    } else {
+                        out.normals[a]
+                    };
                     out.normals.push(n);
                 }
                 if has_uv1 {
@@ -262,12 +276,14 @@ pub fn subdivide(mesh: &MeshIr) -> MeshIr {
         let mut indices: Vec<u32> = Vec::with_capacity(out.indices.len() * 2);
         for v in triangles {
             let split: [bool; 3] = [0, 1, 2].map(|i| long(&out, v[i], v[(i + 1) % 3]));
-            let m: [Option<u32>; 3] = [0, 1, 2].map(|i| split[i].then(|| middle(&mut out, v[i], v[(i + 1) % 3])));
+            let m: [Option<u32>; 3] =
+                [0, 1, 2].map(|i| split[i].then(|| middle(&mut out, v[i], v[(i + 1) % 3])));
             match split.iter().filter(|split| **split).count() {
                 0 => indices.extend(v),
                 1 => {
                     let i = (0..3).find(|&i| split[i]).unwrap_or(0);
-                    let (a, b, c, mid) = (v[i], v[(i + 1) % 3], v[(i + 2) % 3], m[i].unwrap_or(v[i]));
+                    let (a, b, c, mid) =
+                        (v[i], v[(i + 1) % 3], v[(i + 2) % 3], m[i].unwrap_or(v[i]));
                     indices.extend([a, mid, c, mid, b, c]);
                 }
                 2 => {
@@ -306,7 +322,11 @@ pub struct BakedPlaceable {
 /// model's name, the mesh's number, how many vertices it has, and then the
 /// light of each vertex as r g b. The first line that is not a comment is
 /// `area` and the area's name.
-pub fn read(folder: &Path, area: &str, models: &BTreeMap<u32, &str>) -> BTreeMap<u32, BakedPlaceable> {
+pub fn read(
+    folder: &Path,
+    area: &str,
+    models: &BTreeMap<u32, &str>,
+) -> BTreeMap<u32, BakedPlaceable> {
     let mut found: BTreeMap<u32, BakedPlaceable> = BTreeMap::new();
     let Ok(text) = std::fs::read_to_string(folder.join(FILE)) else {
         return found;
@@ -332,7 +352,10 @@ pub fn read(folder: &Path, area: &str, models: &BTreeMap<u32, &str>) -> BTreeMap
         ) else {
             continue;
         };
-        if !models.get(&object).is_some_and(|name| name.eq_ignore_ascii_case(model)) {
+        if !models
+            .get(&object)
+            .is_some_and(|name| name.eq_ignore_ascii_case(model))
+        {
             continue;
         }
         let numbers: Vec<f32> = words.filter_map(|word| word.parse().ok()).collect();
