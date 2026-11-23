@@ -506,8 +506,8 @@ fn strongest(texel: &[f32; 3]) -> f32 {
     texel[0].max(texel[1]).max(texel[2])
 }
 
-/// The lights of one kind's fittings (`tools/light-kinds/shine.py`,
-/// `lights_of`). A fitting is as `parts` gives a lamp.
+/// The lights of one kind's fittings. A fitting is as `parts` gives a
+/// lamp.
 fn lights_of(kind: &Kind, fittings: &[[f32; 14]], cut: &[bool], out: &mut Vec<Light>) {
     let colour = kind.colour * kind.strength;
     if let Some(lift) = kind.lift {
@@ -1188,9 +1188,9 @@ fn room_over(loaded: &LoadedScene, at: Vec3) -> Option<usize> {
     })
 }
 
-/// The rooms' hidden lamps as lights that reach the rooms
-/// (`tools/light-kinds/fill.py`). Each room has its own strength, which
-/// puts back the half of that room's baked light. One strength for the
+/// The rooms' hidden lamps as lights that reach the rooms. Each room has
+/// its own strength, which puts back the half of that room's baked light.
+/// One strength for the
 /// whole area made a room with many far-reaching lamps, the Harbinger's
 /// medical bay, twice as bright as it is today (the owner, 17 November
 /// 2026: "this area is too bright").

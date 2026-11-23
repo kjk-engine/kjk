@@ -9,3 +9,4 @@
 /design/promo/
 /.claude/launch.json
 THIRD-PARTY-LICENSES.html
+__pycache__/

@@ -1,20 +1,16 @@
 """propose.py: what each kind of light is proposed to do, from its facts.
 
 `propose(kind)` gives the proposal's key, one plain sentence, a colour (0 to
-1), a reach in metres, a strength and how narrow its cone is. The owner
-checks these on the page; nobody has to fill them in.
+1), a reach in metres, a strength and how narrow its cone is. `kinds.py`
+writes the proposals into `data/lights/<game>.toml`.
 
 The rules are the game's rule data, `data/lights/fittings.toml`: the
 general rules' numbers (`[rules]`), the kinds that differ from them, each
 with why (`[[fitting]]`), and the lights placed by hand in one area
 (`[[placed]]`). `by_rule(kind)` is the general rules alone. This file holds
 how they are applied and nothing the owner decided.
-
-`pictures.json` beside this file says where a kind's pictures are taken
-when the survey's first example does not show it: a kind's slug to
-`example`, `view` and `dim` (`place`, `shine.py`).
 """
-import json, os, re, tomllib
+import os, tomllib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -26,11 +22,6 @@ ON = {'glowing surface of a room': 'room', 'glowing surface of a placeable': 'pl
 FIELDS = {'form': 'key', 'says': 'text'}
 # The fields of a `[[fitting]]` that say which kind it is and why.
 NAMING = ('game', 'texture', 'on', 'reason', 'lamp')
-PICTURES = json.load(open(os.path.join(HERE, 'pictures.json')))
-
-
-def slug(kind):
-    return kind['game'] + '-' + re.sub(r'[^a-z0-9]+', '_', (kind['group'] + ' ' + kind['name']).lower()).strip('_')
 
 
 def named(entry, kind):
@@ -87,7 +78,7 @@ def override(kind):
     `[[fitting]]` entries in the rule data, a later one over an earlier
     one, and the lights placed by hand for it (`extra`). `lamp = false`
     says it is no lamp, so it has no colour. Three fields choose the
-    kind's fittings (`fittings`):
+    kind's fittings, which the game finds as an area loads (`fitted_lights.rs`):
     - `lamps = "bright"` takes them from the survey's `bright_mates`, the
       lamps the texture shows, in place of `mates`, the welded pieces of
       the mesh;
@@ -105,8 +96,6 @@ def override(kind):
               'rooms': True} for light in DATA.get('placed', []) if named(light, kind)]
     if extra:
         fields['extra'] = extra
-    if 'dim' in PICTURES.get(slug(kind), {}):
-        fields['dim'] = PICTURES[slug(kind)]['dim']
     return fields
 
 
@@ -119,23 +108,3 @@ def propose(kind):
     found = {'tint': True} if kind.get('by_colour') else {}
     return {**by_rule(kind), **found, **override(kind)}
 
-
-def fittings(kind, example):
-    """A kind's fittings in an example's area, from the survey. `None`
-    where there is no example."""
-    fields = override(kind)
-    if not example:
-        return None
-    found = example['bright_mates'] if fields.get('lamps') == 'bright' else example['mates']
-    if 'longest' in fields:
-        found = [mate for mate in found if 2 * mate[10] <= fields['longest']]
-    return found
-
-
-def place(kind, chosen):
-    """Where a kind's pictures are taken: `chosen` (its entry in shots.json),
-    or the example and the camera `pictures.json` names."""
-    fields = PICTURES.get(slug(kind), {})
-    if 'example' in fields:
-        chosen = kind['examples'][fields['example']]
-    return {**chosen, 'view': fields.get('view', chosen['view'])}
