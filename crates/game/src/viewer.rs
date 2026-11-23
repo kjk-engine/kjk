@@ -928,8 +928,10 @@ fn baked_numbers(
 
 /// Whether scene `name` is of an area whose bake asks for its rooms'
 /// surfaces with no lightmap to be dark: a bake's folder (`bake_folders`)
-/// that holds `unlit.txt`, under a folder of the area's name. `bake.sh`
-/// writes the file for a module whose entry in `data/lights/bake.toml` has
+/// that holds `unlit.txt`. A bake made by `bake.sh` lies under a folder
+/// of the area's name. A bake a project keeps lies in a folder of the
+/// module's name (`kjk-bake/<module>`). `bake.sh` and the level editor
+/// write the file for a module whose entry in `data/lights/bake.toml` has
 /// `dark_unlit = true`. Nar Shaddaa's tunnels (305nar) have no lightmap,
 /// and the game showed them at half of full light, which the owner called
 /// too bright (21 November 2026). A module's scene is named "<label> in
@@ -940,10 +942,12 @@ fn dark_unlit(name: &str) -> bool {
     let module = name.rsplit(' ').next().unwrap_or(&name);
     (bake_folders().into_iter())
         .filter(|folder| folder.join("unlit.txt").is_file())
-        .filter_map(|folder| {
-            let area = folder.parent()?.file_name()?.to_str()?;
-            Some(area.to_ascii_lowercase())
+        .flat_map(|folder| {
+            let name =
+                |path: &std::path::Path| Some(path.file_name()?.to_str()?.to_ascii_lowercase());
+            [folder.parent().and_then(name), name(&folder)]
         })
+        .flatten()
         .any(|area| module == area || module.ends_with(&format!("_{area}")))
 }
 

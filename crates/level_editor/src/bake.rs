@@ -183,6 +183,15 @@ fn detail_bake(
         if let Some(most) = plan.entry.most {
             bake.arg("--most").arg(most.to_string());
         }
+        if let Some(floor) = plan.entry.floor {
+            bake.arg("--floor").arg(floor.to_string());
+        }
+        if plan.entry.every_room {
+            bake.arg("--every-room");
+        }
+        if plan.entry.stored_backdrop {
+            bake.arg("--stored-backdrop");
+        }
     }
     if let Some(levels) = levels {
         bake.arg("--levels").arg(levels);
@@ -237,9 +246,31 @@ fn run(plan: &Plan, send: &Sender<Step>) -> Result<PathBuf, String> {
             ));
         }
         (Some(file), _) => {
+            // Each level of the file times the entry's `scale`, as
+            // `bake.sh` writes them.
             let source = plan.light_data.join(file);
-            std::fs::copy(&source, &levels_path)
+            let scale = plan.entry.scale.unwrap_or(1.0);
+            let text = std::fs::read_to_string(&source)
                 .map_err(|error| format!("{}: {error}", source.display()))?;
+            let mut scaled = String::new();
+            for line in text.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                let level = match parts.as_slice() {
+                    [_, level] if !line.starts_with('#') => level.parse::<f32>().ok(),
+                    _ => None,
+                };
+                match level {
+                    Some(level) => {
+                        scaled.push_str(&format!("{} {:.4}\n", parts[0], level * scale));
+                    }
+                    None => {
+                        scaled.push_str(line);
+                        scaled.push('\n');
+                    }
+                }
+            }
+            std::fs::write(&levels_path, scaled)
+                .map_err(|error| format!("{}: {error}", levels_path.display()))?;
             say(format!("baking, held to {file}"));
         }
         (None, Some(share)) => {
@@ -311,5 +342,12 @@ fn run(plan: &Plan, send: &Sender<Step>) -> Result<PathBuf, String> {
         .map(|entry| entry.path())
         .find(|path| path.join("b").is_dir())
         .ok_or_else(|| format!("{} holds no baked set b", out.display()))?;
-    Ok(area.join("b"))
+    let set = area.join("b");
+    // A level whose entry asks for dark surfaces with no lightmap gets
+    // `unlit.txt` in its set, as `bake.sh` writes it.
+    if plan.entry.dark_unlit {
+        let note = set.join(level_edit::lighting::UNLIT);
+        std::fs::write(&note, "dark\n").map_err(|error| format!("{}: {error}", note.display()))?;
+    }
+    Ok(set)
 }

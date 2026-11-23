@@ -32,6 +32,14 @@ pub const FILE: &str = "kjk-lighting.toml";
 /// baked lightmap takes when the game loads it (`game::viewer`).
 pub const FILL: &str = "fill.txt";
 
+/// The file of a bake's folder that says the least share of its stored
+/// light each texel of a baked lightmap shows (`game::viewer`).
+pub const FLOOR: &str = "floor.txt";
+
+/// The file of a bake's folder that asks the game to show the rooms'
+/// surfaces with no lightmap dark (`game::viewer`).
+pub const UNLIT: &str = "unlit.txt";
+
 /// The folder in a project's folder that holds its kept bakes, one
 /// folder a module.
 pub const BAKES: &str = "kjk-bake";
@@ -90,16 +98,14 @@ pub fn keep_bake(folder: &Path, module: &str, from: &Path) -> Result<usize, Stri
         let name = picture.file_name().ok_or("a lightmap has no name")?;
         std::fs::copy(picture, fresh.join(name.to_ascii_lowercase())).map_err(failed)?;
     }
-    // How much of its stored light each lightmap takes when the game loads
-    // it (`kjk detail-bake --fill-stored`), where the bake has it.
-    let fill = from.join(FILL);
-    if fill.is_file() {
-        std::fs::copy(&fill, fresh.join(FILL)).map_err(failed)?;
-    }
-    // What the bake was made from (`MADE_FROM`), where the bake says it.
-    let made_from = from.join(MADE_FROM);
-    if made_from.is_file() {
-        std::fs::copy(&made_from, fresh.join(MADE_FROM)).map_err(failed)?;
+    // The notes the game reads beside the lightmaps (`FILL`, `FLOOR`,
+    // `UNLIT`) and what the bake was made from (`MADE_FROM`), where the
+    // bake has them.
+    for note in [FILL, FLOOR, UNLIT, MADE_FROM] {
+        let had = from.join(note);
+        if had.is_file() {
+            std::fs::copy(&had, fresh.join(note)).map_err(failed)?;
+        }
     }
     if bake.exists() {
         std::fs::remove_dir_all(&bake).map_err(failed)?;

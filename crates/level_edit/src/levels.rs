@@ -85,6 +85,22 @@ pub struct BakeEntry {
     /// `--most`), where the entry sets them.
     pub least: Option<f32>,
     pub most: Option<f32>,
+    /// The least share of its stored linear light each texel of a baked
+    /// lightmap shows in the game (`floor`, `--floor`). The bake then
+    /// writes `floor.txt` beside its lightmaps.
+    pub floor: Option<f32>,
+    /// Whether every room with a lightmapped mesh is baked
+    /// (`every_room = true`, `--every-room`).
+    pub every_room: bool,
+    /// Whether the backdrop keeps its stored light
+    /// (`backdrop = "stored"`, `--stored-backdrop`).
+    pub stored_backdrop: bool,
+    /// What every level of the entry's levels file is times (`scale`).
+    pub scale: Option<f32>,
+    /// Whether the game shows the rooms' surfaces with no lightmap dark
+    /// under the bake (`dark_unlit = true`). The bake's folder then holds
+    /// `unlit.txt`.
+    pub dark_unlit: bool,
     pub sun: bool,
     /// The sun and sky as `kjk detail-bake --sun` takes them: the numbers
     /// of `toward`, `colour`, `sky`, `toward2` and `colour2`, then `width`,
@@ -111,6 +127,12 @@ pub fn bake_entry(text: &str, module: &str) -> BakeEntry {
             .map(|value| value as f32)
     };
     let text = |key: &str| table?.get(key)?.as_str().map(str::to_string);
+    let flag = |key: &str| {
+        table
+            .and_then(|table| table.get(key))
+            .and_then(Item::as_bool)
+            .unwrap_or(false)
+    };
     BakeEntry {
         own: own.is_some(),
         share: number("share"),
@@ -124,6 +146,11 @@ pub fn bake_entry(text: &str, module: &str) -> BakeEntry {
         fill_stored: text("fill").as_deref() == Some("stored"),
         least: number("least"),
         most: number("most"),
+        floor: number("floor"),
+        every_room: flag("every_room"),
+        stored_backdrop: text("backdrop").as_deref() == Some("stored"),
+        scale: number("scale"),
+        dark_unlit: flag("dark_unlit"),
         sun: table.is_some_and(|table| table.get("sun").is_some()),
         sun_args: table.and_then(|table| sun_args(table.get("sun")?)),
         skylights: table
