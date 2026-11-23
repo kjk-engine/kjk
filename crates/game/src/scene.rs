@@ -2141,10 +2141,11 @@ pub(crate) fn spawn_scene(
                 UVec4::from_array(bits)
             })
             .collect();
-        if let Some(mut buffer) = stores.buffers.get_mut(&crate::fitted_lights::GRID) {
-            buffer.data = Some(crate::fitted_lights::grid(&placed, &linked));
-            crate::fitted_lights::note_grid(true);
-        }
+        crate::fitted_lights::fill_grid(
+            stores.buffers,
+            crate::fitted_lights::grid(&placed, &linked),
+        );
+        crate::fitted_lights::note_grid(true);
     } else if crate::fitted_lights::note_grid(false)
         && let Some(mut buffer) = stores.buffers.get_mut(&crate::fitted_lights::GRID)
     {

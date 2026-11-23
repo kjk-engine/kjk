@@ -1904,8 +1904,19 @@ fn find(parent: &mut [usize], mut at: usize) -> usize {
 /// cell lists the lights that reach it, so a surface reads only the lights
 /// near it, every light of the area is always lit, and nothing depends on
 /// where the camera is.
+///
+/// The grid's buffer is made when the first area with fitted lights
+/// spawns (`fill_grid`), and kept at its size for the rest of the run.
+/// Until then the materials bind `NO_GRID` (`grid_handle`).
 pub const GRID: bevy::asset::Handle<bevy::render::storage::ShaderBuffer> =
     bevy::asset::uuid_handle!("7b1e4c92-3a6d-4f58-9c07-d2e5a8f1b634");
+/// The grid with no light, one `vec4<u32>` of zeros, which the materials
+/// bind until an area has fitted lights. A player who never sees fitted
+/// lights holds 16 bytes for them in place of the 8 MB of `GRID`.
+pub const NO_GRID: bevy::asset::Handle<bevy::render::storage::ShaderBuffer> =
+    bevy::asset::uuid_handle!("4ead95fc-2172-45fe-850e-c18e0992c9fb");
+/// Whether `GRID` is made (`fill_grid`).
+static GRID_MADE: AtomicBool = AtomicBool::new(false);
 /// How many 32-bit words the grid's buffer holds. `odyssey.wgsl`'s
 /// `fitted` is a quarter as many `vec4<u32>`.
 pub const GRID_WORDS: usize = 1 << 21;
@@ -1943,6 +1954,49 @@ pub struct GridLight {
 /// The grid with no light in it.
 pub fn no_grid() -> Vec<u8> {
     vec![0; GRID_WORDS * 4]
+}
+
+/// `NO_GRID`'s buffer: the grid's heads read as no light.
+pub fn empty_grid() -> Vec<u8> {
+    vec![0; 16]
+}
+
+/// The grid a material binds when it is prepared: `GRID` once it is made,
+/// else `NO_GRID`.
+///
+/// A material keeps the buffer it was prepared with. Bevy prepares a
+/// material's bind group once, and does not prepare it again when a buffer
+/// it binds is made anew at another size. So `GRID` is never resized, and
+/// a material made before `GRID` binds `NO_GRID` and shows no fitted light
+/// until it is made again. Every area's scene makes its materials anew as
+/// it spawns, after `fill_grid`. A material prepared in the frame that
+/// makes `GRID`, before its buffer is on the card, is prepared again in the
+/// next frame.
+pub fn grid_handle() -> bevy::asset::Handle<bevy::render::storage::ShaderBuffer> {
+    if GRID_MADE.load(Ordering::Relaxed) {
+        GRID
+    } else {
+        NO_GRID
+    }
+}
+
+/// Puts `grid` (`grid`) in `GRID`, and makes `GRID` the first time.
+pub fn fill_grid(
+    buffers: &mut bevy::asset::Assets<bevy::render::storage::ShaderBuffer>,
+    grid: Vec<u8>,
+) {
+    if let Some(mut buffer) = buffers.get_mut(&GRID) {
+        buffer.data = Some(grid);
+    } else {
+        let _ = buffers.insert(
+            &GRID,
+            bevy::render::storage::ShaderBuffer::new(
+                &grid,
+                bevy::asset::RenderAssetUsages::default(),
+            ),
+        );
+        GRID_MADE.store(true, Ordering::Relaxed);
+    }
 }
 
 /// How far from a light it still gives a surface `FAINT` or more.

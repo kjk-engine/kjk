@@ -543,9 +543,9 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(
-                &crate::fitted_lights::GRID,
+                &crate::fitted_lights::NO_GRID,
                 ShaderBuffer::new(
-                    &crate::fitted_lights::no_grid(),
+                    &crate::fitted_lights::empty_grid(),
                     bevy::asset::RenderAssetUsages::default(),
                 ),
             );
@@ -1008,7 +1008,7 @@ pub struct OdysseyBound {
     probes: Handle<ShaderBuffer>,
     #[storage(19, read_only, visibility(vertex))]
     sway: Handle<ShaderBuffer>,
-    /// The fitted lights' grid (`fitted_lights::GRID`). Only the fragment
+    /// The fitted lights' grid (`fitted_lights::grid_handle`). Only the fragment
     /// stage reads it. Metal gives a vertex stage 31 buffer slots, and one
     /// more buffer seen by the vertex stage left the prepass's vertex
     /// buffers no slot, so no pipeline built on a Mac.
@@ -1040,7 +1040,7 @@ impl OdysseyMaterial {
             shadow_tiles: self.shadow_tiles.clone(),
             probes: self.probes.clone(),
             sway: crate::dangly::SWAY,
-            fitted: crate::fitted_lights::GRID,
+            fitted: crate::fitted_lights::grid_handle(),
         }
     }
 }

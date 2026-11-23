@@ -313,8 +313,11 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(14) var tile_atlas: texture_depth_2d_array;
 @group(#{MATERIAL_BIND_GROUP}) @binding(15) var tile_sampler: sampler_comparison;
 @group(#{MATERIAL_BIND_GROUP}) @binding(16) var<storage, read> probe_list: ProbeList;
-// The fitted lights' grid (`fitted_lights::grid`, `GRID_WORDS` / 4 long).
-@group(#{MATERIAL_BIND_GROUP}) @binding(20) var<storage, read> fitted: array<vec4<u32>, 524288>;
+// The fitted lights' grid (`fitted_lights::grid`, `GRID_WORDS` / 4 long),
+// or one `vec4` of zeros where no area has had fitted lights yet
+// (`fitted_lights::NO_GRID`). A grid whose first word is 0 holds no light,
+// and nothing past it is read.
+@group(#{MATERIAL_BIND_GROUP}) @binding(20) var<storage, read> fitted: array<vec4<u32>>;
 #ifdef RAY_QUERIES
 // The scene's acceleration structure: the casting characters, placeables
 // and doors with the mask 1, and the rooms with the mask 2
