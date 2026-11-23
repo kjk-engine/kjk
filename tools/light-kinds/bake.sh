@@ -15,7 +15,10 @@
 # in the area's folder, and levels-<label>.txt there holds the levels used.
 # A module with a sun in data/lights/bake.toml is baked with it.
 # Its `even`, `fill`, `least`, `most` and `floor` there become detail-bake's flags.
-[ $# -ge 2 ] && [ $# -le 4 ] || { sed -n '2,15p' "$0"; exit 2; }
+# The bake has the placeables block rays and lights them at their vertices,
+# as the shipped bakes are made. canon/canon.sh bakes every module of a game
+# for the lighting download, with the same flags.
+[ $# -ge 2 ] && [ $# -le 4 ] || { sed -n '2,21p' "$0"; exit 2; }
 module=$1 game=$2 label=${3:-$(date +%m%d-%H%M)} folder=${4:-bake-$1}
 . "$(dirname "$0")/bake-env.sh" "$folder"
 set -- $(python -I - "$ROOT/data/lights/bake.toml" "$module" <<'PY'

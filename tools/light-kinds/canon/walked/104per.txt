@@ -1,0 +1,6 @@
+# 1.0 of the lit level of each room.
+104pera 0.7555
+104perc 0.7796
+104perd 0.8727
+104pere 0.7987
+104perg 0.6219

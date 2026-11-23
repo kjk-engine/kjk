@@ -1,0 +1,19 @@
+# 1.0 of the lit level of each room.
+153haraa 0.2056
+153harbb 0.0599
+153harcc 0.0628
+153hardd 0.1172
+153haree 0.0593
+153harff 0.1765
+153hargg 0.1450
+153harhh 0.1537
+153harii 0.1626
+153harjj 0.1847
+153harkk 0.1610
+153harll 0.1265
+153harmm 0.2355
+153haroo 0.3293
+153harpp 0.2291
+153harqq 0.1825
+153harrr 0.1862
+153hartt 0.2180

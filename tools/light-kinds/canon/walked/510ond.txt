@@ -1,0 +1,18 @@
+# 1.0 of the lit level of each room.
+510onda 0.7184
+510ondb 0.4047
+510ondc 0.8267
+510ondd 0.4521
+510onde 0.3797
+510ondf 0.7640
+510ondg 0.4888
+510ondh 0.5364
+510ondi 0.5313
+510ondj 0.3947
+510ondk 0.3627
+510ondl 0.7286
+510ondm 0.6090
+510ondn 0.8470
+510ondo 0.8117
+510ondp 0.7549
+510ondr 0.6025

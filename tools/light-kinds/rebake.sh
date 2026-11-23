@@ -18,7 +18,9 @@
 # and KJK_BAKE_SKYLIGHTS its skylights for --skylights. KJK_BAKE_EVEN is
 # the module's other flags: --no-even, --fill-stored, --least and --most.
 # bake.sh sets it from data/lights/bake.toml.
-[ $# -eq 6 ] || [ $# -eq 7 ] || { sed -n '2,20p' "$0"; exit 2; }
+# The bake has the placeables block rays and lights them at their vertices
+# (--placeables --placeable-light), as canon/canon.sh does.
+[ $# -eq 6 ] || [ $# -eq 7 ] || { sed -n '2,22p' "$0"; exit 2; }
 . "$(dirname "$0")/bake-env.sh" "$1"
 module=$2 game=$3 label=$4
 cd "$HERE" || exit 1
@@ -46,7 +48,7 @@ if len(lines) == 1:
 open(out, 'w').write('\n'.join(lines) + '\n')
 print('rooms:', len(lines) - 1)
 PY
-"$KJK" detail-bake "$module" --game "$game" --lights "lights-$label.txt" --gpu ${KJK_BAKE_SUN:+--sun "$KJK_BAKE_SUN"} ${KJK_BAKE_SKYLIGHTS:+--skylights "$KJK_BAKE_SKYLIGHTS"} $KJK_BAKE_EVEN $weigh --levels "levels-$label.txt" --out "bake/$label" > "bake-$label.log" 2>&1 || { tail -5 "bake-$label.log"; exit 1; }
+"$KJK" detail-bake "$module" --game "$game" --lights "lights-$label.txt" --gpu ${KJK_BAKE_SUN:+--sun "$KJK_BAKE_SUN"} ${KJK_BAKE_SKYLIGHTS:+--skylights "$KJK_BAKE_SKYLIGHTS"} $KJK_BAKE_EVEN $weigh --levels "levels-$label.txt" --placeables --placeable-light --out "bake/$label" > "bake-$label.log" 2>&1 || { tail -5 "bake-$label.log"; exit 1; }
 echo "rooms on even light: $(grep -c 'even light' "bake-$label.log")"
 grep "mean stored level" "bake-$label.log"
 echo "show it with KJK_FITTED_LIGHTS=baked KJK_DETAIL_BAKE=bake/$label/$(ls "bake/$label")/b"

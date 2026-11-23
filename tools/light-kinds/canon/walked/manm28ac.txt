@@ -1,0 +1,10 @@
+# 1.0 of the lit level of each room.
+m28ac_22a 0.2510
+m28ac_22c 0.2964
+m28ac_22e 0.3091
+m28ac_22f 0.3599
+m28ac_22g 0.2688
+m28ac_22h 0.1136
+m28ac_22i 0.2498
+m28ac_23a 0.2626
+m28ac_23c 0.2669

@@ -19,5 +19,7 @@ export KJK_SAVES=$ROOT/target/detail-bake/saves
 export KJK_SETTINGS=$ROOT/target/detail-bake/shots/enhanced.json
 export KJK_MUTE=1
 export APPDATA=$HERE/appdata
-[ -f "$KJK_SETTINGS" ] || { echo "no settings file $KJK_SETTINGS (see handover.md)"; exit 1; }
-[ -d "$KJK_SAVES" ] || { echo "no saves folder $KJK_SAVES (see handover.md)"; exit 1; }
+# The settings are Enhanced lighting with the other options as a player
+# leaves them (enhanced.json beside this file), copied on the first run.
+mkdir -p "$KJK_SAVES" "$(dirname "$KJK_SETTINGS")" || exit 1
+[ -f "$KJK_SETTINGS" ] || cp "$BIN/enhanced.json" "$KJK_SETTINGS" || exit 1

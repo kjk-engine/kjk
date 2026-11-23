@@ -1,0 +1,2 @@
+# 1.0 of the lit level of each room.
+m33ab_01 0.5645

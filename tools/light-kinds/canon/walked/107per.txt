@@ -1,0 +1,3 @@
+# 1.0 of the lit level of each room of module 107per, and at most none.
+107perb 0.5637
+107perg 0.3355
