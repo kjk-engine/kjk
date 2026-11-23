@@ -64,7 +64,8 @@ pub enum LightingMode {
     /// Enhanced, with kjk's baked lightmaps from the lighting download
     /// (`lighting_bakes`). The options call it Enhanced Lightmaps. The bake
     /// itself is taken when kjk starts (`lighting_bakes::chosen`), so a
-    /// change shows the bake only from the next start.
+    /// change to or from it takes effect at the next start
+    /// (`settings::Settings::lighting`).
     Baked,
 }
 

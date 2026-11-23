@@ -774,7 +774,9 @@ pub fn folders() -> Vec<PathBuf> {
 
 /// Whether the player chose the baked lightmaps (the options' Lighting at
 /// Enhanced Lightmaps) and a download is installed, as this run started. A
-/// change in the options takes effect the next time kjk starts.
+/// change in the options takes effect the next time kjk starts, in both
+/// directions (`settings::Settings::lighting`, which asks this first as
+/// the settings load).
 pub fn chosen() -> bool {
     static CHOSEN: OnceLock<bool> = OnceLock::new();
     *CHOSEN.get_or_init(|| {
