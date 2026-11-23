@@ -20,11 +20,15 @@
 //!   of 1, so kjk's collision leaves it out as it leaves out a KOTOR room's
 //!   see-through meshes.
 //! - Its walkmesh. The walkmesh is the level's floor
-//!   (`asset_ja::level_collision`) cut to the room, all of it walkable
-//!   stone. It is in the level's own coordinates, as a KOTOR room's
-//!   walkmesh is in its own area's.
-//! - Its textures as TGA pictures, each named `jt` and 14 letters and
-//!   digits of a digest of its shader. A shader that adds its colour to
+//!   (`asset_ja::level_collision`) cut to the room, all of it walkable.
+//!   Each face takes the KOTOR material closest to its Jedi Academy
+//!   ground (`material_of`): Hoth's snow is stone with a snowy texture,
+//!   which KOTOR's ground rule hears as snow. It is in the level's own
+//!   coordinates, as a KOTOR room's walkmesh is in its own area's.
+//! - Its textures as TGA pictures, each named after a digest of its
+//!   shader. The name starts with the word KOTOR's ground rule hears for
+//!   the shader's ground (`texture_name`): `jsnw` for snow, `jsand` for
+//!   sand, and `jt` where the material says enough. A shader that adds its colour to
 //!   what lies behind it gets a TXI that says so. A shader drawn from both
 //!   sides has its triangles drawn twice, once each way, since a KOTOR
 //!   room's meshes are drawn from the front only. An animated shader shows
@@ -56,6 +60,7 @@ use asset_ja::level::Paint;
 use asset_ja::level_rooms::{Cut, RoomCuts, Shape};
 use asset_odyssey::model::ModelIr;
 use asset_odyssey::texture::{Encoding, TextureIr};
+use collision::Ground;
 use fmt_odyssey::ResType;
 use fmt_odyssey::bwm::{WalkFace, Walkmesh};
 use fmt_odyssey::mdl::WrittenMesh;
@@ -65,8 +70,45 @@ use vfs::{Discovery, Game};
 
 use crate::viewer_ja::{Files, additive_shaders, level_path, stack, textures};
 
-/// The walk material of a built room's floor: stone (`surfacemat.2da`).
+/// The walk material of a built room's drawn meshes: stone
+/// (`surfacemat.2da`). The walkmesh's faces have their own
+/// (`material_of`).
 const FLOOR: u32 = 4;
+
+/// The KOTOR walk material (`surfacemat.2da`'s row) closest to a Jedi
+/// Academy floor's ground. KOTOR has no snow, sand or gravel: those are
+/// stone and dirt, and their textures' names say the rest
+/// (`texture_name`, `collision_odyssey::ground`).
+fn material_of(ground: Ground) -> u32 {
+    match ground {
+        Ground::Dirt | Ground::Sand | Ground::Gravel => 1,
+        Ground::Grass => 3,
+        Ground::Wood => 5,
+        Ground::Water => 6,
+        Ground::Rug => 9,
+        Ground::Metal => 10,
+        Ground::Mud => 13,
+        Ground::Unknown | Ground::Snow | Ground::Stone => FLOOR,
+    }
+}
+
+/// The name of the texture of the shader `shader` whose ground is
+/// `ground`: a word KOTOR's ground rule reads in a texture's name
+/// (`collision_odyssey::ground`), where the ground needs one, then letters
+/// and digits of a digest of the shader, 16 characters in all.
+fn texture_name(shader: &str, ground: Ground) -> String {
+    let word = match ground {
+        Ground::Snow => "jsnw",
+        Ground::Sand => "jsand",
+        Ground::Gravel => "jgravel",
+        Ground::Mud => "jmud",
+        Ground::Water => "jwater",
+        Ground::Metal => "j_met",
+        _ => "jt",
+    };
+    let digest = level_edit::ja_rooms::digest(shader.as_bytes());
+    format!("{word}{}", &digest[..16 - word.len()])
+}
 
 /// The most vertices a mesh of a model may have: a face numbers its
 /// vertices with 16 bits.
@@ -294,7 +336,14 @@ pub fn build_level(
     let cuts = room_cuts(&kept);
     let cutter = cuts.cutter();
     let md3 = |model: &str| fmt_ja::md3::parse(&files.read(model)?).ok();
-    let floor = asset_ja::level_collision::collision(&bsp).floor;
+    let collision = asset_ja::level_collision::collision(&bsp);
+    // Each shader's ground, by the material the compiler keeps for it.
+    let grounds: BTreeMap<String, Ground> = (bsp.shaders.iter())
+        .map(|shader| {
+            let ground = asset_ja::level_collision::ground_of(shader.surface_flags);
+            (fmt_ja::game_path(&shader.name), ground)
+        })
+        .collect();
     // Whether each shader stops a body. A shader the level names twice
     // stops one when either does.
     let mut stops: BTreeMap<String, bool> = BTreeMap::new();
@@ -317,7 +366,7 @@ pub fn build_level(
             continue;
         }
         let drawn = asset_ja::level::level(&path, &bsp, &md3, &Paint::Room(&cutter, index));
-        let room_floor = cutter.room_part(&floor, index);
+        let room_floor = cutter.room_part(&collision.floor, &collision.floor_ground, index);
         rooms.push((name.clone(), drawn, room_floor));
     }
     let shaders: Vec<String> = (rooms.iter())
@@ -337,7 +386,8 @@ pub fn build_level(
     let additive = additive_shaders(&files, &shaders);
     let mut texture_names = BTreeMap::new();
     for shader in &shaders {
-        let resref = named("jt", shader.as_bytes());
+        let ground = grounds.get(shader).copied().unwrap_or(Ground::Stone);
+        let resref = texture_name(shader, ground);
         if let Some(texture) = decoded.get(shader)
             && !vfs::made::holds(game, &resref, ResType::TGA)
         {
@@ -588,13 +638,13 @@ pub fn make_project(discovery: &Discovery, project: &level_edit::Project) -> Vec
 /// Where a built room's origin lies in the level: the middle of its floor
 /// seen from above, at the floor's lowest point. A room with no floor
 /// takes its drawn part's middle and lowest point.
-fn origin(model: &ModelIr, floor: &[[[f32; 3]; 3]]) -> [f32; 3] {
+fn origin(model: &ModelIr, floor: &[([[f32; 3]; 3], Ground)]) -> [f32; 3] {
     let corners: Vec<[f32; 3]> = if floor.is_empty() {
         (model.meshes.iter())
             .flat_map(|mesh| mesh.positions.iter().copied())
             .collect()
     } else {
-        floor.iter().flatten().copied().collect()
+        floor.iter().flat_map(|(corners, _)| *corners).collect()
     };
     if corners.is_empty() {
         return [0.0; 3];
@@ -682,15 +732,16 @@ fn written_meshes(
 }
 
 /// A walkmesh of the triangles `floor` (metres, wound counter-clockwise
-/// seen from above), every face walkable. Corners closer than a tenth of a
+/// seen from above), every face walkable, of the material its ground
+/// gives (`material_of`). Corners closer than a tenth of a
 /// millimetre are one vertex. Each face's neighbours are the faces that
 /// share an edge with it, and the outline is every edge that no other face
 /// shares. The walkmesh has no search tree: kjk does not read one.
-fn walkmesh(floor: &[[[f32; 3]; 3]]) -> Walkmesh {
+fn walkmesh(floor: &[([[f32; 3]; 3], Ground)]) -> Walkmesh {
     let mut vertices: Vec<[f32; 3]> = Vec::new();
     let mut by_place: HashMap<[i64; 3], u32> = HashMap::new();
     let mut faces = Vec::new();
-    for corners in floor {
+    for &(corners, ground) in floor {
         let numbers = corners.map(|corner| {
             let key = corner.map(|part| (f64::from(part) * 10_000.0).round() as i64);
             *by_place.entry(key).or_insert_with(|| {
@@ -717,7 +768,7 @@ fn walkmesh(floor: &[[[f32; 3]; 3]]) -> Walkmesh {
         let distance = -(normal[0] * a[0] + normal[1] * a[1] + normal[2] * a[2]);
         faces.push(WalkFace {
             vertices: numbers,
-            material: FLOOR,
+            material: material_of(ground),
             normal: normal.map(|part| part as f32),
             distance: distance as f32,
         });

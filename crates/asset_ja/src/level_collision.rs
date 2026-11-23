@@ -41,18 +41,57 @@
 //! tried as floor too: on `t1_sour`, `kor1`, `vjun2` and `mp/ffa3` they
 //! joined no waypoint more, and made the floor up to 17 times larger.
 //!
+//! A level's terrain is often drawn as triangles of any shape too: Hoth's
+//! snow is a shader the compiler turns into such triangles
+//! (`q3map_forcemeta`), and its collision is the brushes it was made from.
+//! So a triangle of that kind is floor where a solid brush lies right under
+//! it (`ON_SOLID`). A model the compiler put into the level stands on the
+//! floor, and its top is not over a brush, so it stays out.
+//!
+//! **The ground.** What a surface looks like underfoot (`collision::Ground`,
+//! which footsteps sound by) comes from the material the compiler keeps
+//! in each shader's surface flags (`ground_of`). A brush takes the ground
+//! of its top side, and a curve or a floor triangle the ground of its own
+//! shader.
+//!
 //! The level's compiler does not cut a floor where a detail brush stands
 //! on it, so a stair's lowest edge lies on the floor, which runs on under
 //! the stair. A level also draws some places twice, a step's tread and a
 //! slope over it. The mesh joins such floors where a body steps across
 //! (`NavMesh::bridge`).
 
-use collision::{Contents, Level, LevelBuilder, Tag, UNIT};
+use collision::{CollisionWorld, Contents, Extents, Ground, Level, LevelBuilder, Tag, UNIT};
 use fmt_ja::bsp::{Bsp, CONTENTS_PLAYER_CLIP, CONTENTS_SOLID, SURFACE_SKY, SurfaceKind};
 
 /// The widest gap between two floors (metres) that the navigation mesh
 /// joins across, where a body steps over it.
 pub const BRIDGE: f32 = 0.3;
+
+/// How far over and under a triangle of any shape (metres) a solid brush
+/// is looked for, for the triangle to count as floor.
+const ON_SOLID: f32 = 0.1;
+
+/// The ground that a surface whose shader has the surface flags `flags`
+/// looks like underfoot. The compiler keeps the shader's material
+/// (`q3map_material`) as a number in the flags' lowest five bits: 14 for
+/// Hoth's snow, 23 for its rock, 3 and 4 for solid and hollow metal. A
+/// shader with no material, as most are, steps as stone. Glass, concrete,
+/// marble, rock, tiles, plaster, rubber and plastic step as stone too.
+pub fn ground_of(flags: u32) -> Ground {
+    match flags & 0x1f {
+        1 | 2 => Ground::Wood,
+        3 | 4 | 30 | 31 => Ground::Metal,
+        5 | 6 | 19 | 20 => Ground::Grass,
+        7 => Ground::Dirt,
+        8 => Ground::Sand,
+        9 => Ground::Gravel,
+        13 => Ground::Water,
+        14 | 15 => Ground::Snow,
+        16 | 17 => Ground::Mud,
+        21 | 22 | 27 => Ground::Rug,
+        _ => Ground::Stone,
+    }
+}
 
 /// How far (units) a corner may lie outside a plane and still be the
 /// brush's. The file's planes are single floats, and corners far from the
@@ -70,6 +109,8 @@ pub struct LevelCollision {
     /// The floor's triangles, wound counter-clockwise seen from above:
     /// every one that faces up at all.
     pub floor: Vec<[[f32; 3]; 3]>,
+    /// Each floor triangle's ground (`ground_of`), in the floor's order.
+    pub floor_ground: Vec<Ground>,
     pub tally: Tally,
 }
 
@@ -88,6 +129,9 @@ pub struct Tally {
     pub no_solid: usize,
     /// Triangles of curved surfaces added as solids.
     pub curve_triangles: usize,
+    /// Triangles of any shape that are floor: a solid brush lies under
+    /// them.
+    pub loose_floor: usize,
 }
 
 type V = [f64; 3];
@@ -266,12 +310,22 @@ pub fn collision(bsp: &Bsp) -> LevelCollision {
                     })
                     .collect()
             };
+            // The brush's ground: its top side's, the side that faces up
+            // the most.
+            let ground = (bsp.brush_sides[first as usize..(first + count) as usize].iter())
+                .max_by(|a, b| {
+                    let up =
+                        |side: &&fmt_ja::bsp::BrushSide| bsp.planes[side.plane as usize].normal[2];
+                    up(a).total_cmp(&up(b))
+                })
+                .and_then(|side| bsp.shaders.get(side.shader as usize))
+                .map_or(Ground::Stone, |shader| ground_of(shader.surface_flags));
             let added = match door {
                 Some((door, moves)) => {
                     let owned = |states: u8| Tag {
                         entity: Some(door),
                         states,
-                        ..Tag::level(contents, 0)
+                        ..Tag::level(contents, 0).on(ground)
                     };
                     let closed = builder.convex(&at([0.0; 3]), &faces, &edges, owned(1));
                     let open = builder.convex(&at(moves), &faces, &edges, owned(0b110));
@@ -279,8 +333,12 @@ pub fn collision(bsp: &Bsp) -> LevelCollision {
                     closed && open
                 }
                 None => {
-                    let added =
-                        builder.convex(&at([0.0; 3]), &faces, &edges, Tag::level(contents, 0));
+                    let added = builder.convex(
+                        &at([0.0; 3]),
+                        &faces,
+                        &edges,
+                        Tag::level(contents, 0).on(ground),
+                    );
                     match (added, contents) {
                         (true, Contents::SOLID) => tally.solid += 1,
                         (true, _) => tally.player_clip += 1,
@@ -296,23 +354,30 @@ pub fn collision(bsp: &Bsp) -> LevelCollision {
     }
 
     let mut floor = Vec::new();
+    let mut floor_ground = Vec::new();
+    // Triangles of any shape that face up, with their ground: floor where
+    // a solid brush lies under them, once the brushes are built.
+    let mut loose: Vec<([[f32; 3]; 3], Ground)> = Vec::new();
     for surface in bsp.model_surfaces(0) {
         let shader = &bsp.shaders[surface.shader as usize];
         let Some(contents) = contents(shader.content_flags) else {
             continue;
         };
-        if !matches!(surface.kind, SurfaceKind::Planar | SurfaceKind::Patch)
-            || shader.surface_flags & SURFACE_SKY != 0
+        if !matches!(
+            surface.kind,
+            SurfaceKind::Planar | SurfaceKind::Patch | SurfaceKind::Triangles
+        ) || shader.surface_flags & SURFACE_SKY != 0
         {
             continue;
         }
+        let ground = ground_of(shader.surface_flags);
         let (vertices, triangles) = crate::level::triangles(bsp, surface);
         for triangle in triangles {
             let corners = triangle
                 .map(|index| metres(vertices[index as usize].position.map(f64::from), [0.0; 3]));
             if surface.kind == SurfaceKind::Patch
                 && contents == Contents::SOLID
-                && builder.triangle(corners, Tag::level(contents, 0))
+                && builder.triangle(corners, Tag::level(contents, 0).on(ground))
             {
                 tally.curve_triangles += 1;
             }
@@ -323,14 +388,36 @@ pub fn collision(bsp: &Bsp) -> LevelCollision {
             );
             let length = dot(normal, normal).sqrt();
             if length > 0.0 && normal[2] / length > UPRIGHT {
-                floor.push(corners);
+                if surface.kind == SurfaceKind::Triangles {
+                    loose.push((corners, ground));
+                } else {
+                    floor.push(corners);
+                    floor_ground.push(ground);
+                }
             }
+        }
+    }
+    let level = builder.build();
+    for (corners, ground) in loose {
+        let middle: [f32; 3] = std::array::from_fn(|axis| {
+            (corners[0][axis] + corners[1][axis] + corners[2][axis]) / 3.0
+        });
+        let over = [middle[0], middle[1], middle[2] + ON_SOLID];
+        let under = [middle[0], middle[1], middle[2] - ON_SOLID];
+        let on_solid = [Contents::SOLID, Contents::PLAYER_CLIP]
+            .into_iter()
+            .any(|mask| level.trace(over, under, &Extents::POINT, mask).fraction < 1.0);
+        if on_solid {
+            tally.loose_floor += 1;
+            floor.push(corners);
+            floor_ground.push(ground);
         }
     }
 
     LevelCollision {
-        level: builder.build(),
+        level,
         floor,
+        floor_ground,
         tally,
     }
 }

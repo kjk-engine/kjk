@@ -593,6 +593,20 @@ worked out from what is drawn, as it is for a KOTOR area.
   those where walls stand on them. Two steps of a stair meet as edges
   along one line, which the mesh joins up to a step's height apart
   (`NavMesh::build_stepped`).
+- **Terrain drawn as loose triangles.** Some shaders make the compiler
+  draw a surface as triangles of any shape (`q3map_forcemeta`). Hoth's
+  snow and rock are drawn so, and their collision is the brushes they
+  were made from. Such a triangle that faces up is floor where a solid
+  brush lies within 10 cm under or over its middle. A model the compiler
+  put into the level has no brush under its top, so it stays out. On Hoth
+  2 this put 499 of its 532 waypoints on the mesh, up from 169, and 200 in
+  one piece, up from 31. t1_sour and kor1 did not change.
+- **The ground underfoot.** The compiler keeps each shader's material
+  (`q3map_material`) as a number in its surface flags, and kjk's
+  footsteps sound by it (`level_collision::ground_of`). Hoth's snow is
+  14, its rock 23, solid metal 3 and hollow metal 4. A brush takes the
+  ground of its side that faces up the most. A shader with no material,
+  as most are, steps as stone.
 - **Floors that meet without sharing an edge** (`NavMesh::bridge`). The
   compiler does not cut a floor where a detail brush, such as a stair,
   stands on it. So a stair's lowest edge lies on the floor, and the floor

@@ -1996,8 +1996,12 @@ written. The room is built as follows.
   surface that a body passes through in Jedi Academy, such as water or a
   hanging cloth, is left out of the collision.
 - Its walkmesh is the level's floor inside the room. The level's floor is
-  every surface that faces up and stops a body. All of it is walkable, and
-  the game plays its footsteps as stone.
+  every surface that faces up and stops a body (`docs/COLLISION.md`). All
+  of it is walkable. Footsteps sound as the level's own material for each
+  surface says: snow on Hoth's snow, metal on its walkways. Each face of
+  the walkmesh takes the KOTOR material closest to that ground. KOTOR has
+  no snow, sand or gravel, so the texture's name carries the word KOTOR's
+  ground rule listens for, such as `jsnw` for snow.
 - Its navigation mesh joins its floors as the level's own navigation mesh
   does. Floors whose edges meet within a step's height are joined, and so
   are floors that a gap of 30 centimetres or less parts. An area holding

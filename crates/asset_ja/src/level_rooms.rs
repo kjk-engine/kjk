@@ -409,21 +409,28 @@ impl Cutter {
     }
 
     /// The parts of the triangles `triangles` (metres) that lie in room
-    /// `room`, each wound as its triangle is.
-    pub fn room_part(&self, triangles: &[[[f32; 3]; 3]], room: usize) -> Vec<[[f32; 3]; 3]> {
+    /// `room`, each wound as its triangle is, with its triangle's tag
+    /// (`tags`, in the triangles' order).
+    pub fn room_part<T: Copy>(
+        &self,
+        triangles: &[[[f32; 3]; 3]],
+        tags: &[T],
+        room: usize,
+    ) -> Vec<([[f32; 3]; 3], T)> {
         let mut kept = Vec::new();
-        for corners in triangles {
+        for (corners, tag) in triangles.iter().zip(tags) {
             for (piece_room, shares) in self.pieces(*corners) {
                 if piece_room != room {
                     continue;
                 }
-                kept.push(shares.map(|share| {
+                let piece = shares.map(|share| {
                     std::array::from_fn(|axis| {
                         share[0] * corners[0][axis]
                             + share[1] * corners[1][axis]
                             + share[2] * corners[2][axis]
                     })
-                }));
+                });
+                kept.push((piece, *tag));
             }
         }
         kept
