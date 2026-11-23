@@ -161,10 +161,10 @@ pub struct TextureIr {
 /// with neither gets 1.
 fn sort_key(texture: &Texture, txi_key: Option<f32>) -> f32 {
     let usable = |key: f32| key.is_finite().then_some(key);
-    if let Some(key) = txi_key.and_then(usable) {
-        return key;
-    }
-    if let Some(key) = texture.header_key.and_then(usable) {
+    if let Some(key) = txi_key
+        .and_then(usable)
+        .or_else(|| texture.header_key.and_then(usable))
+    {
         return key;
     }
     let level = texture.layers.first().and_then(|chain| chain.first());

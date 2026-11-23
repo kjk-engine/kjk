@@ -1598,8 +1598,8 @@ pub const OPAQUE_FIRST: f32 = -1.0e5;
 /// How far apart the ranks 0 and 1 of blended opaque surfaces sort
 /// (`OdysseyMaterial::rank`): more than any distance in view.
 pub const RANK_STEP: f32 = 1.0e4;
-/// `depth_bias` of the grass: after every blended opaque surface of a
-/// mesh, a rank of 1 or less.
+/// `depth_bias` of the grass. It sorts after every blended opaque surface of
+/// a room, whose ranks run from 0 to 1.
 pub const GRASS_AFTER_MESHES: f32 = OPAQUE_FIRST + RANK_STEP;
 
 /// `depth_bias` of an emitter's particles: nearer than anything in view,
