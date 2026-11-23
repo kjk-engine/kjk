@@ -638,17 +638,102 @@ pub struct Exported {
     /// How many files of other mods the mod was built on
     /// (`Manifest::needs`).
     pub needs: usize,
+    /// How many files the folder held that no export made there before
+    /// had written. They are left as they are.
+    pub left: usize,
 }
 
 fn failed(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
     move |error| format!("{}: {error}", path.display())
 }
 
+/// Every file under `folder`, by its lowercase path inside it (`/` between
+/// folders).
+fn files_under(folder: &Path) -> Vec<(String, PathBuf)> {
+    let mut found = Vec::new();
+    let mut folders = vec![(String::new(), folder.to_path_buf())];
+    while let Some((inside, at)) = folders.pop() {
+        for entry in std::fs::read_dir(&at).into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            let inside = if inside.is_empty() {
+                name
+            } else {
+                format!("{inside}/{name}")
+            };
+            let path = entry.path();
+            if path.is_dir() {
+                folders.push((inside, path));
+            } else {
+                found.push((inside, path));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Removes what the exports made in `to` before wrote there: every file
+/// that a mod's list (`manifest_file`) in its `override/` names, then the
+/// lists and the readme, then each folder that is left empty. Any other
+/// file stays where it is: one the person put there, or one of an export
+/// older than the lists. How many such files are left.
+///
+/// The folder is not removed whole. It is one the person named, and a
+/// readme in it does not make everything in it the export's.
+fn remove_exported(to: &Path) -> Result<usize, String> {
+    let before = files_under(to);
+    let mut gone: Vec<&Path> = Vec::new();
+    for (inside, path) in &before {
+        let listed = (inside.strip_prefix("override/"))
+            .is_some_and(|name| name.starts_with("kjk-mod-") && name.ends_with(".toml"));
+        if !listed {
+            continue;
+        }
+        let manifest = std::fs::read_to_string(path)
+            .map_err(failed(path))
+            .and_then(|text| Manifest::parse(&text).map_err(|why| format!("{inside}: {why}")));
+        // A list that does not read names nothing: its files stay.
+        if let Ok(manifest) = manifest {
+            for (listed, ..) in &manifest.files {
+                gone.extend(
+                    (before.iter())
+                        .filter(|(had, _)| had == listed)
+                        .map(|(_, path)| path.as_path()),
+                );
+            }
+        }
+        gone.push(path);
+    }
+    gone.extend(
+        (before.iter())
+            .filter(|(inside, _)| inside == README)
+            .map(|(_, path)| path.as_path()),
+    );
+    for path in &gone {
+        if path.is_file() {
+            std::fs::remove_file(path).map_err(failed(path))?;
+        }
+    }
+    // The folders left empty, the deepest first. One that still holds a
+    // file is not removed, and that is no fault.
+    let mut folders: Vec<PathBuf> = (before.iter())
+        .flat_map(|(_, path)| path.ancestors().skip(1).take_while(|folder| *folder != to))
+        .map(Path::to_path_buf)
+        .collect();
+    folders.sort_by_key(|folder| std::cmp::Reverse(folder.components().count()));
+    folders.dedup();
+    for folder in folders {
+        let _ = std::fs::remove_dir(folder);
+    }
+    Ok(files_under(to).len())
+}
+
 /// Exports `project`, as its folder holds it (saved), as a mod in the
-/// folder `to`, in place of an export made there before. A folder that
-/// holds something else is refused. `needs` is every file of another mod
-/// the project's levels name (`Manifest::needs`): its path from the game's
-/// folder and where it is on this machine.
+/// folder `to`, in place of an export made there before
+/// (`remove_exported`). A folder that holds files and no export is
+/// refused. `needs` is every file of another mod the project's levels name
+/// (`Manifest::needs`): its path from the game's folder and where it is on
+/// this machine.
 pub fn export(
     project: &Project,
     to: &Path,
@@ -661,16 +746,17 @@ pub fn export(
             to.display()
         ));
     }
-    if to.exists() {
-        std::fs::remove_dir_all(to).map_err(failed(to))?;
-    }
+    let left = if empty { 0 } else { remove_exported(to)? };
     let overrides = to.join("override");
     std::fs::create_dir_all(&overrides).map_err(failed(&overrides))?;
     let mut exported = Exported {
         game_files: 0,
         kjk_files: 0,
         needs: needs.len(),
+        left,
     };
+    // Every file this export writes, for the mod's list of its files.
+    let mut written: Vec<PathBuf> = Vec::new();
 
     // What the games read: every file at the top of the project's folder
     // but the project's own notes (its `.toml` files, the scripts' debug
@@ -698,6 +784,7 @@ pub fn export(
         let target = overrides.join(name.to_ascii_lowercase());
         std::fs::copy(&path, &target).map_err(failed(&target))?;
         exported.game_files += 1;
+        written.push(target);
     }
     let quests = (project.templates.get(crate::journal::NAME))
         .and_then(|made| crate::journal::own_quests(&made.gff));
@@ -706,6 +793,7 @@ pub fn export(
         let target = overrides.join(journal_file(&project.name));
         std::fs::write(&target, quests.write()).map_err(failed(&target))?;
         exported.kjk_files += 1;
+        written.push(target);
     }
     // A new map's module.
     let modules = project.folder.join("modules");
@@ -724,6 +812,7 @@ pub fn export(
         let target = folder.join(name.to_ascii_lowercase());
         std::fs::copy(&path, &target).map_err(failed(&target))?;
         exported.game_files += 1;
+        written.push(target);
     }
 
     // What only kjk reads.
@@ -753,6 +842,7 @@ pub fn export(
         let target = overrides.join(area_file(&area));
         std::fs::write(&target, text).map_err(failed(&target))?;
         exported.kjk_files += 1;
+        written.push(target);
         if let Some(bake) = crate::lighting::kept_bake(&project.folder, &module) {
             let folder = overrides.join(crate::lighting::BAKES).join(&module);
             std::fs::create_dir_all(&folder).map_err(failed(&folder))?;
@@ -764,6 +854,7 @@ pub fn export(
                 let target = folder.join(name.to_ascii_lowercase());
                 std::fs::copy(&path, &target).map_err(failed(&target))?;
                 exported.kjk_files += 1;
+                written.push(target);
             }
         }
     }
@@ -785,11 +876,13 @@ pub fn export(
         let target = folder.join(JA_ROOMS);
         std::fs::write(&target, ja.write_rooms()).map_err(failed(&target))?;
         exported.kjk_files += 1;
+        written.push(target);
         for kept in &ja.cuts {
             let name = crate::ja_rooms::short(&kept.level).replace('/', "-");
             let target = folder.join(format!("{name}.toml"));
             std::fs::write(&target, kept.write()).map_err(failed(&target))?;
             exported.kjk_files += 1;
+            written.push(target);
         }
     }
     let own = OwnLighting::read(&project.folder)?;
@@ -797,6 +890,7 @@ pub fn export(
         let target = overrides.join(lighting_file(&project.name));
         std::fs::write(&target, own.write()).map_err(failed(&target))?;
         exported.kjk_files += 1;
+        written.push(target);
     }
 
     // What the mod is and every file it brings, for telling two mods apart
@@ -822,28 +916,24 @@ pub fn export(
     }
     manifest.needs.sort();
     manifest.needs.dedup();
-    let mut folders = vec![(String::new(), to.to_path_buf())];
-    while let Some((inside, at)) = folders.pop() {
-        for entry in std::fs::read_dir(&at).map_err(failed(&at))?.flatten() {
-            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            let inside = if inside.is_empty() {
-                name
-            } else {
-                format!("{inside}/{name}")
-            };
-            let path = entry.path();
-            if path.is_dir() {
-                folders.push((inside, path));
-            } else {
-                let size = std::fs::metadata(&path).map_err(failed(&path))?.len();
-                manifest.files.push((inside, size, digest_of(&path)?));
-            }
-        }
+    for path in &written {
+        let inside = (path.strip_prefix(to).ok())
+            .map(|inside| {
+                inside
+                    .to_string_lossy()
+                    .replace('\\', "/")
+                    .to_ascii_lowercase()
+            })
+            .ok_or(format!("{} is not in the export", path.display()))?;
+        let size = std::fs::metadata(path).map_err(failed(path))?.len();
+        manifest.files.push((inside, size, digest_of(path)?));
     }
     manifest.files.sort();
+    manifest.files.dedup();
     let target = overrides.join(manifest_file(&project.name));
     std::fs::write(&target, manifest.write()).map_err(failed(&target))?;
     exported.kjk_files += 1;
+    written.push(target);
 
     let game = match project.game.as_str() {
         "tsl" => "Knights of the Old Republic II",

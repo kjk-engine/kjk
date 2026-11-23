@@ -2814,8 +2814,13 @@ fn command_words(
                     ". It was built on {count} files of other mods, which a player must install first"
                 ),
             };
+            let left = match exported.left {
+                0 => String::new(),
+                1 => ". 1 other file in that folder was left as it is".to_string(),
+                count => format!(". {count} other files in that folder were left as they are"),
+            };
             let said = format!(
-                "exported {} as a mod to {}: {} files the games read and {} that only kjk reads{built_on}",
+                "exported {} as a mod to {}: {} files the games read and {} that only kjk reads{built_on}{left}",
                 project.name,
                 to.display(),
                 exported.game_files,

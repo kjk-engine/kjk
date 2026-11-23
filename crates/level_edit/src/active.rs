@@ -54,9 +54,13 @@ pub struct Active {
     /// maps, and has none here.
     pub ja_maps: Vec<crate::mods::JaMap>,
     /// A digest of what this changes of the world beyond the games' own
-    /// files, which two machines that play together compare: the mods'
-    /// kjk-only content and quests, or a project's digest.
+    /// files: the mods' kjk-only content and quests, or a project's digest.
+    /// It is part of the key of every area's bake (`world_digest`).
     pub world: Option<[u8; 32]>,
+    /// What two machines that play together compare (`compared_digest`):
+    /// `world`, and for a project its compiled scripts too
+    /// (`with_scripts`).
+    pub compared: Option<[u8; 32]>,
 }
 
 /// The run's active projects: the one `--project` names, or one for each
@@ -122,6 +126,46 @@ pub fn merged_journal(
 /// beyond the games' own files (`Active::world`).
 pub fn world_digest(game: &str) -> Option<[u8; 32]> {
     of_game(game)?.world
+}
+
+/// What two machines that play `game` together compare of the active
+/// project or the mods (`Active::compared`).
+pub fn compared_digest(game: &str) -> Option<[u8; 32]> {
+    of_game(game)?.compared
+}
+
+/// `digest` (a project's, `Project::digest`) with the project's compiled
+/// scripts: each `NAME.ncs` at the top of its `folder`, by name. Two
+/// machines that play a project together compare this. The install's
+/// fingerprint does not cover the project's folder, and the project's own
+/// digest leaves its scripts out. That digest is part of the key of every
+/// area's baked collision, which a changed script does not change.
+pub fn with_scripts(digest: &[u8; 32], folder: &Path) -> [u8; 32] {
+    let mut scripts: Vec<(String, std::path::PathBuf)> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && (path.extension().and_then(|extension| extension.to_str()))
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("ncs"))
+        })
+        .filter_map(|path| Some((path.file_stem()?.to_str()?.to_ascii_lowercase(), path)))
+        .collect();
+    scripts.sort();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(digest);
+    for (name, path) in scripts {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        for part in [name.as_bytes(), &bytes] {
+            hasher.update(&(part.len() as u64).to_le_bytes());
+            hasher.update(part);
+        }
+    }
+    *hasher.finalize().as_bytes()
 }
 
 /// The active project's digest, for `game`'s `module`.
@@ -244,6 +288,7 @@ pub fn activate(discovery: &Discovery, folder: &Path) -> Result<&'static Active,
     vfs::project::activate(game, folder)?;
     let mut active = made(discovery, project, lighting, bakes, notes);
     active.world = Some(active.digest);
+    active.compared = Some(with_scripts(&active.digest, folder));
     ACTIVE
         .set(vec![active])
         .map_err(|_| "a project is already active".to_string())?;
@@ -335,6 +380,9 @@ pub fn activate_mods(discovery: &Discovery) -> &'static [Active] {
         active.mods = found.mods;
         active.ja_maps = found.ja_maps;
         active.world = found.world;
+        // A mod's scripts are files of `override/`, which the install's
+        // fingerprint covers.
+        active.compared = found.world;
         actives.push(active);
     }
     let _ = ACTIVE.set(actives);
@@ -385,6 +433,7 @@ fn made(
         mods: Vec::new(),
         ja_maps: Vec::new(),
         world: None,
+        compared: None,
     }
 }
 

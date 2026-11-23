@@ -1690,8 +1690,11 @@ files to copy into the game's own folder. A player needs the game to use
 it, as for any mod of KOTOR.
 
 The folder is `exports/<project>` in kjk's own folder, or the one `edit
-export FOLDER` names. An export replaces the one made there before. A
-folder that holds other files is refused. The export has two parts.
+export FOLDER` names. An export replaces the one made there before. It
+removes only the files that the last export's `kjk-mod-<project>.toml`
+lists, then that list and the readme. Any other file in the folder is
+left as it is, and the editor says how many there are. A folder that
+holds files and no export is refused. The export has two parts.
 
 - **Files the games read.** `override/` holds each level's object list
   (`<area>.git`), the templates, conversations and scripts the project
@@ -2059,9 +2062,14 @@ match the KOTOR rooms' light yet.
 - **Everything but a lamp turns about Z only.** A box has a yaw but no
   pitch or roll, so a ramp is built from boxes laid as steps. A Jedi
   Academy prop has a yaw alone too.
-- **Co-op does not check projects.** The co-op fingerprint does not cover
-  a project's folder. A host and a guest must play the same project by
-  hand, or their worlds differ.
+- **Co-op compares a project by its digest.** The fingerprint of the
+  game's data does not cover a project's folder. A host and a guest that
+  both play with `--project` compare the project instead: its levels'
+  object lists and kjk-only content, its templates, items, quests,
+  conversations, new maps and compiled scripts. A guest whose project
+  differs is refused, and the refusal names the group `kjk mods`. The
+  project's kept bake and lighting rules are not compared. They change
+  only what is drawn.
 - **Saves made in an edited area** hold the edited area's objects. Loading
   such a save without the project, or with a changed project, may move or
   lose objects. kjk does not warn about this yet.
