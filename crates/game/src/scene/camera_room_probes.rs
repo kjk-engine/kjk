@@ -65,7 +65,7 @@ fn rooms() -> (Vec<RoomView>, Culling) {
     (rooms, culling)
 }
 
-/// The rooms that show to an eye at `eye`, without fog, with no player room.
+/// The rooms that show to an eye at `eye`, without fog, from the rooms `culling` remembers the player in.
 fn shown(rooms: &[RoomView], culling: &Culling, eye: Vec3) -> Vec<usize> {
     let here = culling.shown_from(culling.eye_rooms(rooms, eye));
     (0..rooms.len())
@@ -148,13 +148,17 @@ fn player_in_another_room() -> Result<String, String> {
     let (rooms, mut culling) = rooms();
     let eye = Vec3::new(5.0, 5.0, 1.6);
     let camera_only = shown(&rooms, &culling, eye);
-    culling.player_room = Some(2);
+    culling.see_player(Some(2), rooms.len());
     let with_player = shown(&rooms, &culling, eye);
+    let off_floor = culling.see_player(None, rooms.len());
+    let stale = culling.see_player(Some(9), rooms.len());
     let kept = shown(&rooms, &culling, eye);
     let outside = shown(&rooms, &culling, Vec3::new(-900.0, 0.0, 0.0));
     check(
         camera_only == [0, 1, 3]
             && with_player == [0, 1, 2, 3]
+            && !off_floor
+            && !stale
             && kept == [0, 1, 2, 3]
             && outside == [0, 1, 2, 3],
         format!(
