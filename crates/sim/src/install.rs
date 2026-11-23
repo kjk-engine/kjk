@@ -1131,11 +1131,14 @@ pub(crate) const ARENA: Reach = Reach {
     ..JUMP
 };
 /// The party's members around their leader as they arrive, with no walk
-/// back.
+/// back, each with room for its whole body: an arrival next to a door
+/// (the elevator into Gadon's room in Taris's hidden Bek base) put a
+/// companion's box half inside the shut door, and the push out of it sent
+/// the companion back into the elevator.
 pub(crate) const PARTY: Reach = Reach {
     metres: rules::scripts::jumps::PARTY_M,
     walks_back: false,
-    whole_body: false,
+    whole_body: true,
 };
 /// The half width (metres) of a search's first ring.
 const JUMP_FIRST_RING_M: f32 = rules::scripts::jumps::RING_M;

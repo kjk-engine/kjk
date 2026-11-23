@@ -225,6 +225,25 @@ source = "ours (beyond a walk's own arrival, {walking.route.arrived:bare} × {wa
 see = "sim::target::Walk::near"
 applies = ["kind:mine", "skill:Demolitions"]
 
+[walk.round_rings]
+name = "Stands Around a Target"
+value = [0.5, 0.75, 1.0]
+unit = "×"
+labels = ["nearest", "middle", "farthest"]
+range = [0.0, 1.0]
+summary = "Sometimes no path leads to the spot in front of a target, for example when a bartender stands deep behind a long counter. The character then walks to the place around the target that is nearest to the character and that a path leads to. The places tried lie {targeting.walk.round_rings[0]:bare}, {targeting.walk.round_rings[1]:bare} and {targeting.walk.round_rings[2]:bare} times the action's arrival distance from the target, which is {targeting.walk.arrive:bare} times the action's reach. Only talking to a character and using an object look for such a place."
+source = "ours (KOTOR's player talks to Mika Dorin in Dreshdae's cantina from beside the bar)"
+see = "sim::target::Walk::round_stand"
+
+[walk.round_directions]
+name = "Directions Around a Target"
+type = "u8"
+value = 16
+range = [4, 64]
+summary = "A character looking for a place around a target tries {targeting.walk.round_directions:bare} places, evenly spaced, at each distance."
+source = "ours"
+see = "sim::target::Walk::round_stand"
+
 [walk.walk_ms]
 name = "Walk Time Limit"
 type = "u64"

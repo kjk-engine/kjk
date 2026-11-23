@@ -1529,6 +1529,14 @@ impl Client {
         }
     }
 
+    /// Whether an install the host announced waits for its level here
+    /// (`provide_level`): the client heard of it, and was given no level
+    /// for it yet.
+    pub fn awaits_level(&self) -> bool {
+        matches!(&self.state, State::Connected(session)
+            if session.install.as_ref().is_some_and(|install| install.level.is_none()))
+    }
+
     /// Sends an action of this player's to the host (reliably, in order);
     /// nothing before the session is up.
     pub fn act(&mut self, action: sim::action::Action) {

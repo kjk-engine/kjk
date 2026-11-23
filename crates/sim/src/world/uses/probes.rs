@@ -2123,7 +2123,7 @@ pub(crate) fn floor_nav(strips: &[[f32; 2]]) -> collision::nav::NavMesh {
 /// it chooses), then `choice` on object `object` of `kind`: asked at once
 /// where it stands near enough, else walked to and asked on arriving; with
 /// `cancel_at`, its own forward key that step of the walk cancels it.
-pub(crate) struct Choosing {
+pub struct Choosing {
     pub stand: Option<[f32; 2]>,
     pub run_in: usize,
     pub object: u32,
@@ -2135,7 +2135,7 @@ pub(crate) struct Choosing {
 /// A walk probe's run: the step the choice was asked (none if it was not),
 /// whether the player's own command cancelled the walk, the step the run
 /// ended on (`WALK_STEPS` if it never did), the last snapshot.
-pub(crate) struct Walked {
+pub struct Walked {
     pub asked: Option<usize>,
     pub cancelled: bool,
     pub ended: usize,
@@ -2149,19 +2149,31 @@ pub(crate) fn walk_and_choose(
     kept: &super::super::Level,
     world: &mut super::super::SimWorld,
     how: &Choosing,
+    done: impl FnMut(bool, &crate::Snapshot, &[(Seat, crate::notice::Notice)]) -> bool,
+) -> Result<Walked, String> {
+    walk_and_choose_from(kept, world, how.stand.map(floor_at), how, done)
+}
+
+/// `walk_and_choose` with seat 0's player put at `from` first (its soles,
+/// metres, in the level's own axes; `None`, where it stands), its
+/// `Choosing::stand` unread: a walk in one of the games' own levels.
+pub fn walk_and_choose_from(
+    kept: &super::super::Level,
+    world: &mut super::super::SimWorld,
+    from: Option<[f32; 3]>,
+    how: &Choosing,
     mut done: impl FnMut(bool, &crate::Snapshot, &[(Seat, crate::notice::Notice)]) -> bool,
 ) -> Result<Walked, String> {
     use crate::target::{Stride, Walk};
     use crate::{StepReason, TickInput};
 
-    if let Some(stand) = how.stand {
-        let at = floor_at(stand);
+    if let Some(at) = from {
         let mut players = world
             .world
             .query::<(&super::super::Avatar, &mut super::super::Player)>();
         for (_, mut player) in players.iter_mut(&mut world.world) {
-            player.0.origin[0] = at[0] / collision::UNIT;
-            player.0.origin[1] = at[1] / collision::UNIT;
+            player.0.origin = crate::math::scale(at, 1.0 / collision::UNIT);
+            player.0.origin[2] -= crate::motion::SOLE_Z;
         }
     }
     // A walk after another goes on from the world's tick.

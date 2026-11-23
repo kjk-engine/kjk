@@ -353,4 +353,7 @@ pub(super) fn use_object(
 )]
 pub(crate) mod probes;
 #[cfg(feature = "probes")]
-pub use probes::{probes, script_probes, security_walk_probes, walk_probes};
+pub use probes::{
+    Choosing, Walked, probes, script_probes, security_walk_probes, walk_and_choose_from,
+    walk_probes,
+};

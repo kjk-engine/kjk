@@ -559,6 +559,20 @@ fn loading_hold() {
     );
 }
 
+/// A save loaded in place while a menu or the lost box holds the world
+/// (`kjk_game::solo_reload_probes`, also `kjk sim probes --only "solo
+/// reload"`). The install's message reaches the host's own client after
+/// the host committed it. The client still gets the level, loads, and the
+/// world goes on. Needs `--features rig`; no installs (proposed
+/// 2026-11-22, issue 643, not yet approved).
+#[test]
+fn reload_while_held() {
+    #[cfg(not(feature = "rig"))]
+    println!("reload_while_held skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("solo reload", &kjk_game::solo_reload_probes(), 1);
+}
+
 /// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
 /// that sets `UnequipHItem` hides each line's speaker's and listener's head
 /// item until the conversation ends, as KOTOR 2's executable does; one
@@ -4608,12 +4622,16 @@ fn dialogue_coop() {
 /// The check that a door a script closes waits for a body walking through
 /// its doorway but shuts on one standing still there
 /// (`door_shuts_on_one_standing`, the apartment door on Citadel Station)
-/// awaits approval. The check that a looping animation played until stopped
-/// outlives a `ClearAllActions` on its body (`loop_outlives_a_clear`, the
-/// broken droid 3CFD on Peragus) awaits approval.
+/// awaits approval. The checks that a conversation with no entry to start
+/// from lets go of the module's fade in held for one
+/// (`empty_talk_lifts_held_fade`), and that a loaded game's area fades in
+/// (`load_fades_in`), both issue 645, await approval. The check that a
+/// looping animation played until stopped outlives a `ClearAllActions` on
+/// its body (`loop_outlives_a_clear`, the broken droid 3CFD on Peragus)
+/// awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 79);
+    probed("scene", &sim::scene_probes::all(), 81);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,

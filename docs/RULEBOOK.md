@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `99e4a0aff324c12e`.
+Edition `2bd309d59cea8eeb`.
 
 ## Contents
 
@@ -11328,6 +11328,20 @@ A character walking to a mine counts as arrived once it is within 0.7 meters of 
 
 <sub>Source: ours (beyond a walk's own arrival, {walking.route.arrived:bare} × {walking.route.reached:m}, so a short walk arrives too). Code: `sim::target::Walk::near`.</sub>
 
+<a id="targeting-walk-round-rings"></a>**Stands Around a Target** = **×0.5 / ×0.75 / ×1** (`×0.5 / 0.75 / 1`) · `targeting.walk.round_rings`
+
+nearest **×0.5** · middle **×0.75** · farthest **×1**
+
+Sometimes no path leads to the spot in front of a target, for example when a bartender stands deep behind a long counter. The character then walks to the place around the target that is nearest to the character and that a path leads to. The places tried lie 0.5, 0.75 and 1 times the action's arrival distance from the target, which is 0.8 times the action's reach. Only talking to a character and using an object look for such a place.
+
+<sub>Source: ours (KOTOR's player talks to Mika Dorin in Dreshdae's cantina from beside the bar). Code: `sim::target::Walk::round_stand`.</sub>
+
+<a id="targeting-walk-round-directions"></a>**Directions Around a Target** = **16** · `targeting.walk.round_directions`
+
+A character looking for a place around a target tries 16 places, evenly spaced, at each distance.
+
+<sub>Source: ours. Code: `sim::target::Walk::round_stand`.</sub>
+
 <a id="targeting-walk-walk-ms"></a>**Walk Time Limit** = **10 seconds** (`10000 ms`) · `targeting.walk.walk_ms`
 
 A walk to a target is canceled if it lasts longer than 10 seconds.
@@ -13402,7 +13416,7 @@ A character that jumps, or that an area places or a script creates, finds a free
 
 <a id="scripts-jumps-party-m"></a>**Party Arrival Search** = **10 m** · `scripts.jumps.party_m`
 
-Companions arriving in an area stand within 10 meters of the arrival point. Their place does not need a straight walk back to that point.
+Companions arriving in an area stand within 10 meters of the arrival point. Their place does not need a straight walk back to that point. Each companion's place has room for its whole body, so a companion never arrives half inside a wall or a closed door.
 
 <sub>Source: ours [verify in K1's executable]. Code: `sim::install::stand_among`.</sub>
 

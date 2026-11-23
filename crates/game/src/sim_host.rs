@@ -603,6 +603,8 @@ struct Installed {
     scene_ms: f64,
     /// The area came from the installer's level cache.
     area_cached: bool,
+    /// A save loaded in place, not a module entered: it owes no autosave.
+    reload: bool,
     commit_ms: f64,
     live: usize,
     left_behind: usize,
@@ -1695,17 +1697,19 @@ fn store(
     Ok((id, meta, world))
 }
 
-/// A session a save's story restored (`SessionIntent::Restore`): its first
-/// module owes no autosave, which would rotate the autosaves and so move or
-/// remove the slot restored from when it is one of them (the restore never
-/// writes over its slot). Taken by the autosave once seen.
+/// A session started from a save, or from a save's story
+/// (`SessionIntent::Restore`). Its first module owes no autosave, as
+/// KOTOR writes none when a game is loaded. One would rotate the autosaves
+/// and so move or remove the slot loaded from when it is one of them.
+/// Taken by the autosave once seen.
 #[derive(Resource)]
-pub struct FromStory;
+pub struct FromSave;
 
 /// An autosave owed since a module was installed (`installs` counts them;
-/// none counted yet: the first module the game starts in is owed one too,
-/// but for a game a story restored): tried each second until nothing
-/// refuses it.
+/// none counted yet: the first module the game starts in is owed one too).
+/// A module that came from a save owes none: a game loaded from the menu,
+/// or a save loaded in place (issue 643). The autosave is tried each second
+/// until nothing refuses it.
 #[derive(Default)]
 struct AutosaveDue {
     installs: Option<usize>,
@@ -1715,19 +1719,18 @@ struct AutosaveDue {
 
 impl AutosaveDue {
     /// The authority's `installs` seen (`fresh` when it was just made: a
-    /// game started or loaded, `restored` from a story); whether an
-    /// autosave became owed, which only a player's game with `eligible`
-    /// (live, Autosave on) owes.
-    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool, restored: bool) -> bool {
+    /// game started or loaded; `loaded` when the newest module came from a
+    /// save); whether an autosave became owed, which only a player's game
+    /// with `eligible` (live, Autosave on) owes.
+    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool, loaded: bool) -> bool {
         if fresh {
             *self = AutosaveDue::default();
         }
         if Some(installs) == self.installs {
             return false;
         }
-        let first = self.installs.is_none();
         self.installs = Some(installs);
-        self.owed = eligible && !(first && restored);
+        self.owed = eligible && !loaded;
         self.owed
     }
 }
@@ -1806,7 +1809,9 @@ pub fn autosave_probes() -> sim::probe::Checks {
     let off = AutosaveDue::default().observe(0, true, false, false);
     let mut restored = AutosaveDue::default();
     let restored_first = restored.observe(0, true, true, true);
-    let restored_entered = restored.observe(1, false, true, true);
+    let restored_entered = restored.observe(1, false, true, false);
+    let reloaded = restored.observe(2, false, true, true);
+    let entered_after = restored.observe(3, false, true, false);
     vec![
         (
             "autosave_owed_each_game",
@@ -1818,18 +1823,28 @@ pub fn autosave_probes() -> sim::probe::Checks {
             ),
         ),
         (
-            "autosave_not_owed_on_restore",
+            "autosave_not_owed_on_load",
             sim::probe::check(
                 !restored_first && restored_entered,
                 format!("first module {restored_first}, the next entered {restored_entered}"),
             ),
         ),
+        (
+            "autosave_not_owed_on_reload",
+            sim::probe::check(
+                !reloaded && entered_after,
+                format!(
+                    "a save loaded in place {reloaded}, the next module entered {entered_after}"
+                ),
+            ),
+        ),
     ]
 }
 
-/// The autosave owed after each module installed (KOTOR's rule) and when a
-/// script asks for one, once a second until nothing refuses it: a player's game, solo or hosting (the
-/// host's world is the authority), live, not an arena, with Autosave on.
+/// The autosave owed after each module entered (KOTOR's rule, not after a
+/// save loaded) and when a script asks for one, once a second until
+/// nothing refuses it: a player's game, solo or hosting (the host's world
+/// is the authority), live, not an arena, with Autosave on.
 fn autosave(
     mut authority: ResMut<Authority>,
     mut due: Local<AutosaveDue>,
@@ -1842,16 +1857,19 @@ fn autosave(
         Option<Res<SceneSwap>>,
     ),
     (own, mut autosaved): (Option<Res<OwnSeat>>, ResMut<crate::save_view::Autosaved>),
-    (made, from_story, mut commands): (
+    (made, from_save, mut commands): (
         Option<Res<crate::character::Made>>,
-        Option<Res<FromStory>>,
+        Option<Res<FromSave>>,
         Commands,
     ),
 ) {
-    let restored = from_story.is_some();
-    if restored {
-        commands.remove_resource::<FromStory>();
+    // The newest module came from a save: the game's first, loaded from
+    // the menu, or a save loaded in place.
+    let from_save = from_save.is_some();
+    if from_save {
+        commands.remove_resource::<FromSave>();
     }
+    let loaded = from_save || authority.installs.last().is_some_and(|last| last.reload);
     // An arena's level is never saved (`saves::refusal`): none owed there.
     // Read from the scene's level: the world itself may be away, being
     // stepped (`sim_worker`), until `settle` below brings it home.
@@ -1864,7 +1882,7 @@ fn autosave(
         authority.installs.len(),
         authority.is_added(),
         eligible,
-        restored,
+        loaded,
     ) {
         info!(target: "saves", installs = authority.installs.len(), "autosave owed");
     }
@@ -2259,6 +2277,7 @@ fn advance(
                     plan_ms: prepared.plan_ms,
                     scene_ms: prepared.scene_ms,
                     area_cached: prepared.plan.facts.cached,
+                    reload: was_reload,
                     commit_ms,
                     live: census.live_total(),
                     left_behind: census.stashed_total(),
