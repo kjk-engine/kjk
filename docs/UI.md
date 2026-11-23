@@ -480,7 +480,9 @@ art, not KOTOR 2's, whose buttons are KOTOR 2's planets (`skin::OWN`).
 The planets the scripts made available stand on their buttons
 (`planetary.2da`'s `guitag`; the rest hidden), those not selectable
 greyed. It opens on the planet the script named (where the party is):
-chosen, its name and description (`planetary.2da`), and its model
+chosen, its name and description (`planetary.2da`: a strref's text, or
+the cell as written where it is no number, which is how a mod names a
+planet of its own, `GuiAssets::cell_text_or_written`), and its model
 turning in the 3D view (`planetary.2da`'s `model`, seen from its
 `camerahook`, lit by its own aurora light). A selectable planet pressed is
 chosen; Accept travels there (`GameAction::Travel` → `Action::Travel`);

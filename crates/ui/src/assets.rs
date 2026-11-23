@@ -556,6 +556,23 @@ impl GuiAssets {
         self.text(Source::Campaign, strref)
     }
 
+    /// A 2DA cell that is a strref, as its text, or the cell as written
+    /// where it is no number. No talk table has the words of a mod's own
+    /// row (a new planet's name on the galaxy map), so a mod writes them
+    /// into the cell itself.
+    pub fn cell_text_or_written(
+        &mut self,
+        table: &str,
+        row: usize,
+        column: &str,
+    ) -> Option<Vec<u8>> {
+        let read = self.table(table)?;
+        match read.int(row, column) {
+            Some(strref) => self.text(Source::Campaign, u32::try_from(strref).ok()?),
+            None => read.text(row, column).map(String::into_bytes),
+        }
+    }
+
     /// Every layout's name, after precedence.
     pub fn layouts(&self) -> Vec<String> {
         let gui = ResType::GUI;
