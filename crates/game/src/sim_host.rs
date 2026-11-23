@@ -367,6 +367,27 @@ impl Look {
         let most = pitch_limit();
         self.pitch = (self.pitch + degrees.y).clamp(-most - held, most - held);
     }
+
+    /// The look that sends the angles the body of `seat` last took in
+    /// `snapshot` (`command_angles`). The sim adds the body's `view_offset`
+    /// to them, so the view after a load is the view the save holds. A save
+    /// keeps the angles and the offset apart, and the offset is often large:
+    /// a look started at a level pitch with that offset added turned the
+    /// view up to its limit, with the camera on the ground. `yaw` is the
+    /// look's yaw when the seat plays no body with a view.
+    pub fn resumed(snapshot: &Snapshot, seat: Seat, yaw: f32) -> Look {
+        let angles = snapshot
+            .body(seat)
+            .and_then(|body| body.player.as_ref())
+            .map(|player| player.command_angles);
+        match angles {
+            Some([pitch, yaw, _]) => Look {
+                pitch: sim::math::short_to_degrees(pitch),
+                yaw: sim::math::short_to_degrees(yaw),
+            },
+            None => Look { pitch: 0.0, yaw },
+        }
+    }
 }
 
 /// Says in the log which globals the module's scripts set that
@@ -479,7 +500,7 @@ pub fn look_probes() -> sim::probe::Checks {
         (view(&look), down)
     };
     let reaches = |(up, down): (f32, f32)| (up + limit).abs() < 0.5 && (down - limit).abs() < 0.5;
-    [
+    let mut checks: sim::probe::Checks = [
         ("a guest's look reaches the view's limit both ways", Seat(1)),
         (
             "the host's look through the companion it leads reaches the limit both ways",
@@ -491,7 +512,41 @@ pub fn look_probes() -> sim::probe::Checks {
         let told = format!("a {DELTA}° delta: up to {up:.1}°, down to {down:.1}° of ±{limit:.1}°");
         (name, check(reaches((up, down)), told))
     })
-    .into()
+    .into();
+    checks.push((
+        "a look resumed from a save keeps the save's view",
+        resumed_view(world.snapshot()),
+    ));
+    checks
+}
+
+/// A save from Hrakert Station on Manaan holds a level view as a command
+/// pitch of about 95° and a delta of about -95°, and a yaw delta of about
+/// -103°. The look resumed from it (`Look::resumed`) must give the sim the
+/// save's own view back.
+#[cfg(feature = "probes")]
+fn resumed_view(mut snapshot: Snapshot) -> Result<String, String> {
+    const ANGLES: [i16; 3] = [17317, 8509, 0];
+    const OFFSET: [i16; 3] = [-17317, -18748, 0];
+    let host = snapshot
+        .entities
+        .iter_mut()
+        .find(|entity| entity.kind == sim::Kind::Avatar(Seat(0)))
+        .and_then(|entity| entity.player.as_mut())
+        .ok_or("no host")?;
+    host.command_angles = ANGLES;
+    host.view_offset = OFFSET;
+    let saved = sim::motion::view_of(ANGLES, OFFSET);
+    let look = Look::resumed(&snapshot, Seat(0), 0.0);
+    let view = sim::motion::view_of(view_angles(look.pitch, look.yaw), OFFSET);
+    let kept = (0..2).all(|axis| (view[axis] - saved[axis]).abs() < 0.1);
+    sim::probe::check(
+        kept,
+        format!(
+            "saved view {:.1}° pitch, {:.1}° yaw; resumed {:.1}° pitch, {:.1}° yaw",
+            saved[0], saved[1], view[0], view[1]
+        ),
+    )
 }
 
 /// What a planning thread sends back.
@@ -975,10 +1030,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             setup: Setup { rate, ..setup },
             driver,
             aim,
-            look: Look {
-                pitch: 0.0,
-                yaw: setup.world.yaw,
-            },
+            look: Look::resumed(&last, seat, setup.world.yaw),
             controls: Controls::default(),
             last,
             frames: 0,

@@ -536,7 +536,7 @@ fn coop_look() {
     #[cfg(not(feature = "rig"))]
     println!("coop_look skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("look", &kjk_game::sim_host::look_probes(), 2);
+    probed("look", &kjk_game::sim_host::look_probes(), 3);
 }
 
 /// The world held after an install until its area can be drawn
