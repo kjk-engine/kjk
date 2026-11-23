@@ -63,7 +63,7 @@ use level_edit::ja_rooms::JaRooms;
 use level_edit::map::{JaRoom, NewMap};
 use vfs::{Discovery, Game};
 
-use crate::viewer_ja::{Files, blend_funcs, level_path, stack, textures};
+use crate::viewer_ja::{Files, additive_shaders, level_path, stack, textures};
 
 /// The walk material of a built room's floor: stone (`surfacemat.2da`).
 const FLOOR: u32 = 4;
@@ -250,10 +250,7 @@ pub fn build_level(
             missing.join(", ")
         ));
     }
-    let additive: BTreeSet<String> = (blend_funcs(&files, &shaders).into_iter())
-        .filter(|(_, (source, target))| source == "gl_one" && target == "gl_one")
-        .map(|(shader, _)| shader)
-        .collect();
+    let additive = additive_shaders(&files, &shaders);
     let mut texture_names = BTreeMap::new();
     for shader in &shaders {
         let resref = named("jt", shader.as_bytes());
