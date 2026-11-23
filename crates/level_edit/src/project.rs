@@ -64,7 +64,9 @@ pub struct Project {
     /// the light data, never to the project's folder.
     pub kinds: Vec<crate::kinds::KindEdit>,
     /// The level each room of the bake aims at (`levels`), as the editor
-    /// has it; saved to the light data's levels file.
+    /// has it. The editor keeps a level's changed ones in the project's
+    /// `kjk-lighting.toml` (`lighting`), and Publish writes them to the
+    /// light data's levels file.
     pub levels: BTreeMap<String, f32>,
     /// Other areas of the install whose doors and triggers the project
     /// leads elsewhere (into its own new map, most often), by area resref:

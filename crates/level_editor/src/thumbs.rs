@@ -210,7 +210,7 @@ fn draw_from(faces: &[Face], textures: &[Texels], eye: Vec3) -> Option<Picture> 
     )?;
     let centre = (low + high) * 0.5;
     let radius = ((high - low).length() * 0.5).max(0.01);
-    // Looking from +X+Y and above, toward the centre.
+    // Looking from `eye`'s side, toward the centre.
     let eye_direction = eye.normalize();
     let view = Mat4::look_at_rh(centre + eye_direction * radius * 4.0, centre, Vec3::Z);
     let light = Vec3::new(0.4, -0.7, 1.0).normalize();

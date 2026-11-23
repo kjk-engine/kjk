@@ -5235,7 +5235,9 @@ fn assets(
                 );
                 ui.checkbox(&mut ui_state.assets_elsewhere, "Other levels")
                     .on_hover_text(
-                        "Also lists the templates only the game's other levels have, each with its                          level. Placing one copies it into the project with the items, the                          conversation and the scripts it names.",
+                        "Also lists the templates only the game's other levels have, each with its \
+                         level. Placing one copies it into the project with the items, the \
+                         conversation and the scripts it names.",
                     );
                 ui.label("Drag into the view, or double-click to place at the view's centre.");
                 if ui_state.tab == Tab::Lamps
@@ -7091,7 +7093,7 @@ fn lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
         ui.label(
             egui::RichText::new(match &state.setup.light_data {
                 Some(folder) => format!(
-                    "Placed lights are saved to {}",
+                    "Publish writes the project's own lights to {}",
                     folder.join("fittings.toml").display()
                 ),
                 None => "No light data folder found (set KJK_LIGHT_DATA)".to_string(),

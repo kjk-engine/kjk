@@ -724,7 +724,9 @@ fn mod_gone(why: String) -> String {
         .map(|(level, _)| level.trim().to_string());
     match level {
         Some(level) => format!(
-            "This save was made in the level {level}, which is not one of the game's own levels.              A mod added that level, and the mod is not installed now.              Install the mod again to load this save."
+            "This save was made in the level {level}, which is not one of the game's own levels. \
+             A mod added that level, and the mod is not installed now. \
+             Install the mod again to load this save."
         ),
         None => why,
     }

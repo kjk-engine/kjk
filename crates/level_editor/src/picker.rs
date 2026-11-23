@@ -431,10 +431,7 @@ fn window(
                         },
                     );
                     text.append(
-                        &format!(
-                            "
-{under}"
-                        ),
+                        &format!("\n{under}"),
                         0.0,
                         egui::TextFormat {
                             font_id: egui::FontId::proportional(12.0),
@@ -486,8 +483,8 @@ fn window(
                     .hint_text("my_map")
                     .desired_width(140.0),
             );
-            let kotor = (picker.picked.as_ref())
-                .is_some_and(|(game, _)| *game != Game::JediAcademy);
+            let kotor =
+                (picker.picked.as_ref()).is_some_and(|(game, _)| *game != Game::JediAcademy);
             let problem = level_edit::map::name_problem(&picker.new_map);
             let ready = kotor && problem.is_none();
             // Why Make cannot be pressed yet, said beside it.
@@ -504,13 +501,19 @@ fn window(
             let make = ui
                 .add_enabled(ready, egui::Button::new("Make"))
                 .on_hover_text(
-                    "Makes a map of your own, built from the game's rooms. Its light,                      fog and sound start as the picked level's.",
+                    "Makes a map of your own, built from the game's rooms. Its light, \
+                     fog and sound start as the picked level's.",
                 )
                 .on_disabled_hover_text(why.clone().unwrap_or_else(|| {
-                    "Name the map first. A name has lowercase letters, digits and _, up to 12.".into()
+                    "Name the map first. A name has lowercase letters, digits and _, up to 12."
+                        .into()
                 }));
             if let Some(why) = &why {
-                ui.label(egui::RichText::new(why).small().color(ui.visuals().warn_fg_color));
+                ui.label(
+                    egui::RichText::new(why)
+                        .small()
+                        .color(ui.visuals().warn_fg_color),
+                );
             }
             if make.clicked()
                 && let Some((game, module)) = picker.picked.clone()

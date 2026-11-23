@@ -32,9 +32,11 @@ use level_edit::Project;
 use vfs::Game;
 use vfs::resolver::{Resolver, TextureQuality};
 
-/// kjk's level editor: a KOTOR area's objects shown, moved, turned, copied
-/// and deleted; templates, Jedi Academy props and collision boxes added;
-/// saved into a project, never into the game
+/// kjk's level editor. It changes a KOTOR level, or makes a new map from
+/// the games' rooms. It places objects, lights, collision boxes and Jedi
+/// Academy props and rooms, and it writes conversations, scripts, quests
+/// and items. The work is saved into a project and exported as a mod.
+/// Nothing is written into the game
 #[derive(Parser)]
 #[command(name = "kjk-level-editor")]
 struct Cli {
@@ -258,10 +260,10 @@ fn make_map(
     Ok(project)
 }
 
-/// The fitted lights' rule data (`data/lights`) that lights placed by hand
-/// are saved to: the folder `KJK_LIGHT_DATA` names, else the one of the
-/// kjk checkout this program was built in (`target/<profile>/` lies in
-/// it).
+/// The fitted lights' rule data (`data/lights`), which an installed level's
+/// lights placed by hand are read from and Publish writes to: the folder
+/// `KJK_LIGHT_DATA` names, else the one of the kjk checkout this program
+/// was built in (`target/<profile>/` lies in it).
 fn light_data() -> Option<PathBuf> {
     if let Some(folder) = std::env::var_os("KJK_LIGHT_DATA").filter(|folder| !folder.is_empty()) {
         return Some(PathBuf::from(folder));

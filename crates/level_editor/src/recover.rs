@@ -5,8 +5,8 @@
 //! copy of it every `EVERY` to `<kjk's folder>/recovery/<project>`: the
 //! project as a save would write it, the edited level's kjk-only content
 //! whole (`FULL_KJK`, with an installed level's lights and lamps placed by
-//! hand, which a save keeps in the light data), and each script changed in
-//! the viewer. A save removes the copy, and so does leaving the level by
+//! hand, which a save leaves out while they are the ones kjk's light data
+//! holds), and each script changed in the viewer. A save removes the copy, and so does leaving the level by
 //! choice. A copy that is there when the editor opens the project was left
 //! by an editor that did not close: the window offers to take it
 //! (`take`), as one edit that undo takes back, or to discard it.

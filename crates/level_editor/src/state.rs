@@ -85,10 +85,10 @@ pub struct EditSetup {
     pub encounters: Vec<String>,
     /// The install's rooms, for a new map (`LibraryRoom`).
     pub rooms: Vec<LibraryRoom>,
-    /// The folder of the fitted lights' rule data (`data/lights`) that an
-    /// installed level's lights placed by hand are saved to: the one
-    /// `KJK_LIGHT_DATA` names, else the kjk checkout's this program was
-    /// built in. `None` when neither is found.
+    /// The folder of the fitted lights' rule data (`data/lights`), which an
+    /// installed level's lights placed by hand are read from and `publish`
+    /// writes to: the one `KJK_LIGHT_DATA` names, else the kjk checkout's
+    /// this program was built in. `None` when neither is found.
     pub light_data: Option<PathBuf>,
     /// The bakes of the fitted lights found for this area (`kjk
     /// detail-bake`): each folder of baked lightmaps, for the Baked view.
@@ -528,8 +528,6 @@ impl EditorState {
     }
 }
 
-/// Turns the editor on: `setup`'s scene is drawn, and the keys, clicks and
-/// `edit` commands edit it.
 impl EditorState {
     /// Whether anything is not saved: the project's edits, or a script
     /// written in the viewer.
@@ -5412,10 +5410,6 @@ fn compile_scripts(state: &mut EditorState) {
     }
 }
 
-/// Saves the project (`Editor::save_with`), saying its warnings and what
-/// was written, then the light data's part (`save_light_data`). When the
-/// light data does not save, the project's own files are saved all the
-/// same, and the error says so.
 /// Copies into the project the cuts of each Jedi Academy level that its
 /// map places rooms of and that it does not keep itself: the file of
 /// the other project the rooms were built from (`LibraryRoom::ja_from`).
@@ -5454,6 +5448,8 @@ fn copy_cuts(state: &mut EditorState) -> Result<(), String> {
     Ok(())
 }
 
+/// Saves the project (`save_timed`) and keeps how long the save took
+/// (`Timings::save_ms`).
 pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
     let started = std::time::Instant::now();
     let saved = save_timed(state);
@@ -5461,6 +5457,11 @@ pub(crate) fn save(state: &mut EditorState) -> Result<(), String> {
     saved
 }
 
+/// Saves the project (`Editor::save_with`), saying its warnings and what
+/// was written. It then writes the scripts changed in the viewer, compiles
+/// the project's scripts, and saves the project's own lighting rules
+/// (`save_own_rules`). When the rules do not save, the project's other
+/// files are saved all the same, and the error says so.
 fn save_timed(state: &mut EditorState) -> Result<(), String> {
     let made_by = format!("kjk {}", kjk_game::GIT_SHA);
     let warnings: Vec<String> = state

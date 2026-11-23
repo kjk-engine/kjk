@@ -7,12 +7,15 @@
 //! selection as the details panel describes it, the camera, the last
 //! messages, and the answers to the agent's commands. And it runs each line
 //! an agent writes to `inbox.txt` there as a command, as `--cmds` runs
-//! them: an `edit` command (`docs/LEVEL-EDIT.md`, "Commands"), `camera X Y
-//! Z YAW PITCH`, `frame`, `list`, which writes the level's objects to
-//! `objects.json`, `shot`, which writes a picture of the window to
-//! `view.png`, or `ground X Y`, which answers how high the level's surfaces
-//! are there. Only programs that can write to the user's
-//! own folder can reach it; nothing listens on the network.
+//! them. A line is an `edit` command (`docs/LEVEL-EDIT.md`, "Commands"), a
+//! `ui` command, or one of the link's own, which `run_inbox` matches and
+//! `docs/LEVEL-EDIT-AGENT.md` describes. Those are `camera`, `frame` and
+//! `pick` for the view, `begin` and `end` for a batch that is one undo
+//! step, `ground` and `floor` for heights, and the ones that write a file
+//! of the folder (`list`, `level`, `details`, `catalog`, `properties`,
+//! `floormap`, `conversation NAME show` and `shot`). Only programs that
+//! can write to the user's own folder can reach it. Nothing listens on the
+//! network.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;

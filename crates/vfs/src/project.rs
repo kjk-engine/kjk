@@ -15,8 +15,10 @@
 //! active (`DirIndex`), so the module is opened and listed as the install's
 //! own are.
 //!
-//! The folder is never written by a resolver. The co-op fingerprint does
-//! not cover it: two machines must play the same project by hand.
+//! The folder is never written by a resolver. The install's fingerprint
+//! does not cover it. Two machines that play together compare the project
+//! by its own digest instead (`level_edit::active::world_digest`, the world
+//! data's group `fingerprint::KJK_GROUP`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

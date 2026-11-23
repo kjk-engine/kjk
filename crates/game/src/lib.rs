@@ -699,14 +699,14 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
     k1_index().and_then(|index| k1_open(&index, None).ok())
 }
 
-/// The installs this machine has. Variables come from the environment first,
-/// then the folders the player chose in the setup (`setup`, kept in the
-/// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
-/// directory, then `default_var`.
 /// The commit this game was built from (`stamp.rs`), for programs built on
 /// it (the level editor's projects say which kjk wrote them).
 pub const GIT_SHA: &str = env!("KJK_GIT_SHA");
 
+/// The installs this machine has. Variables come from the environment first,
+/// then the folders the player chose in the setup (`setup`, kept in the
+/// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
+/// directory, then `default_var`.
 pub fn discover() -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));
