@@ -3196,6 +3196,44 @@ fn lightmapped_cut_out_by_diffuse() {
     }
 }
 
+/// A transparency hint above 1 blends a mesh only when its texture has
+/// alpha (`kjk_game::material::surface`). KOTOR's executable blends every
+/// mesh by its texture's alpha and writes depth, so TSL's Dantooine slab
+/// (`brok04`, hint 4, a texture with no alpha) is solid and the ivy over it
+/// (`brok05`) shows. A skinned mesh keeps blending with the depth kept.
+/// Needs `--features rig`; no installs (proposed 2026-11-23, not yet
+/// approved).
+#[test]
+fn hint_blends_only_with_alpha() {
+    #[cfg(not(feature = "rig"))]
+    println!("hint_blends_only_with_alpha skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureFacts;
+        use kjk_game::material::{Surface, surface};
+
+        let with_alpha = TextureFacts {
+            alpha: true,
+            ..TextureFacts::default()
+        };
+        let without = TextureFacts::default();
+        for (hint, skinned, facts, expected) in [
+            (4, false, &without, Surface::Opaque),
+            (4, false, &with_alpha, Surface::Blend),
+            (4, true, &without, Surface::OpaqueAlpha),
+            (4, true, &with_alpha, Surface::OpaqueAlpha),
+            (0, false, &without, Surface::Opaque),
+        ] {
+            assert_eq!(
+                surface((hint, skinned), 1.0, (Some(facts), &[facts])),
+                expected,
+                "hint {hint}, skinned {skinned}, alpha {}",
+                facts.alpha
+            );
+        }
+    }
+}
+
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
 /// table in `Override/` over the global RIM's (proposed and approved 2026-11-12), a

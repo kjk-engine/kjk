@@ -676,8 +676,9 @@ impl Surface {
 /// cards, `m02aa_10b`, lightmapped planes whose DXT5 hides a black field and
 /// the author's mark). Decal only when every texture is one; additive when any texture says so, with
 /// alpha or without, as KOTOR's executable reads a texture's TXI (xoreos
-/// only without). KOTOR meshes always carry a hint, so a hint above 1 or a
-/// decal makes a mesh transparent, but not a skinned one (`skinned`): a
+/// only without). KOTOR meshes always carry a hint, so a hint above 1 with a
+/// texture that has alpha, or a decal, makes a mesh transparent, but not a
+/// skinned one (`skinned`): a
 /// character's skin is one closed mesh that a draw without depth shows
 /// through itself (TSL's `pfhc06` carries 2 on its whole head, and its mouth
 /// and nose showed through its face), so it blends with the depth kept
@@ -690,6 +691,11 @@ impl Surface {
 /// is its bump's mask, not coverage: opaque, as reone has it (xoreos ignores the bump map and
 /// blends by it, so the Hutts and the rancor showed through); reone still
 /// discards its alpha-0 texels, which would leave pinholes, so none are.
+/// A hint above 1 does not blend a mesh whose texture has no alpha. KOTOR's
+/// executable never reads the hint to blend: it blends every mesh by its
+/// texture's alpha and writes depth, so such a mesh is solid. TSL's
+/// Dantooine slab (`brok04` of `605dank`, hint 4) drawn without depth hid
+/// the ivy (`brok05`) that grows on it.
 /// A punch-through diffuse with alpha is cut out (`Cutout`), as KOTOR's
 /// executable draws it: the Wookiees' fur. Blended, its faint edges wrote
 /// depth and hid the parts of the body drawn after them.
@@ -716,13 +722,13 @@ pub fn surface(
     let bumpmap = loaded.iter().any(|facts| facts.bumpmap.is_some());
     if additive {
         Surface::Additive
-    } else if decal || mesh_alpha < 1.0 || (hint > 1 && !skinned) {
+    } else if decal || mesh_alpha < 1.0 || (hint > 1 && !skinned && alpha) {
         Surface::Blend
     } else if alpha && envmap {
         Surface::OpaqueEnvMasked
     } else if alpha && punch_through {
         Surface::Cutout
-    } else if hint > 1 || (alpha && !bumpmap) {
+    } else if (hint > 1 && skinned) || (alpha && !bumpmap) {
         Surface::OpaqueAlpha
     } else {
         Surface::Opaque
