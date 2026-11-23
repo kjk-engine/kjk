@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1d14d52ee34cbdce`.
+Edition `9abbfd56af570d50`.
 
 ## Contents
 
@@ -12767,9 +12767,15 @@ The grab's clip is held 200 ms past its end. The grab reaches for the victim, an
 
 <a id="duel-grab-height-units"></a>**Grab Height** = **0.2 meters** (`8 units`) · `duel.grab.height_units`
 
-A grab takes only a victim standing on the ground within 8 units of the grabber's height, in front of the grabber and within the reach of a punch.
+A grab takes only a victim standing on the ground within 8 units of the grabber's height, in front of the grabber and within the reach of a punch. On a slope the victim may stand higher or lower by what the slope rises over the distance between them (Grab Slope).
 
 <sub>Source: G_GrabClient in code/game/g_active.cpp:2286. Code: `sim::world::grapples`.</sub>
+
+<a id="duel-grab-slope-deg"></a>**Grab Slope** = **25°** · `duel.grab.slope_deg`
+
+A grab takes a victim on a hillside. The victim may stand higher or lower than the grabber by 8 units, plus what a slope of 25 degrees rises over the distance between the two characters. Jedi Academy's maps are flat where its characters fight, but KOTOR's outdoor areas, such as the plains of Dantooine, are hilly.
+
+<sub>Source: kjk, for KOTOR's hilly ground (a grab on a Mandalorian on Dantooine's plains failed, reported on 22 November 2026). Code: `sim::world::grapples`.</sub>
 
 <a id="duel-grab-victim-extra-ms"></a>**Victim Held Longer** = **0.2 seconds** (`200 ms`) · `duel.grab.victim_extra_ms`
 

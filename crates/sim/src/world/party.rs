@@ -47,6 +47,9 @@ use crate::world::Level;
 pub(super) struct PartyState {
     pub(super) paused_by: Option<Seat>,
     pub(super) ready: Option<ReadyCheck>,
+    /// This step runs whole although a break holds, because it carries a
+    /// leader or solo mode change (`passes_break`). Set by `breaks` each step.
+    pub(super) through: bool,
 }
 
 /// A character as the in-combat test sees it.
@@ -283,9 +286,19 @@ pub fn may_resume(by: Seat, seat: Seat) -> bool {
     seat == by || seat == Seat(0)
 }
 
-/// The step runs: no break holds.
+/// Whether `seat`'s `action` is taken while a break holds, as KOTOR lets
+/// the player change the party leader and solo mode while the game is
+/// paused: the first seat's leader change (`Action::Lead`, the leader key
+/// and the portrait clicks) and solo mode (`Action::Solo`). The step that
+/// carries one runs whole (`breaks`), and the break holds again after it.
+pub fn passes_break(seat: Seat, action: &Action) -> bool {
+    seat == super::LEADER_SEAT && matches!(action, Action::Lead(_) | Action::Solo(_))
+}
+
+/// The step runs: no break holds, or the step carries an action that
+/// passes one (`passes_break`).
 pub(super) fn running(party: Res<PartyState>) -> bool {
-    party.paused_by.is_none()
+    party.paused_by.is_none() || party.through
 }
 
 /// Breaks called and ended (the authority's actions, in seat order), as
@@ -304,6 +317,7 @@ pub(super) fn breaks(
     mut notices: ResMut<crate::notice::Notices>,
 ) {
     let held = party.paused_by.is_some();
+    party.through = false;
     if clock.reason != StepReason::Predict {
         for (seat, action) in inputs.0.actions() {
             let seat = *seat;
@@ -316,8 +330,14 @@ pub(super) fn breaks(
                 _ => {}
             }
         }
+        party.through = party.paused_by.is_some()
+            && inputs
+                .0
+                .actions()
+                .iter()
+                .any(|(seat, action)| passes_break(*seat, action));
     }
-    if party.paused_by.is_some() {
+    if party.paused_by.is_some() && !party.through {
         clock.time_ms -= u64::from(clock.msec);
         clock.msec = 0;
         module.pending = None;

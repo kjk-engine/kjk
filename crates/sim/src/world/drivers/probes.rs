@@ -75,6 +75,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         leader_blows_on_a_tank_count(),
     ));
     checks.push(("leader_by_body_seat_0s_only", leader_by_body()));
+    checks.push(("leader_while_paused", leader_while_paused()));
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
     checks.push(("leader_walks_out", leader_walks_out()));
@@ -1432,6 +1433,51 @@ fn leader_by_body() -> Result<String, String> {
         format!(
             "seat 0 picked {b:?}: leading {:?}; a guest's picks of {a:?} and {own:?}: {guest:?}; seat 0 its own again: {back:?}",
             picked.leading
+        ),
+    )
+}
+
+/// The leader changed while the game is paused, as KOTOR allows: with a
+/// guest's break holding, seat 0 makes the second companion lead, and the
+/// break still holds after it. A guest's pick changes nothing then either,
+/// and the steps without a pick move no time.
+fn leader_while_paused() -> Result<String, String> {
+    let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
+    let mut step = |actions: &[(u8, crate::action::Action)]| {
+        let mut input = TickInput::default();
+        for seat in 0..2 {
+            input.insert(Seat(seat), command(0));
+        }
+        for (seat, action) in actions {
+            input.act(Seat(*seat), action.clone());
+        }
+        let tick = world.tick() + 1;
+        crate::step(&mut world, tick, &input, 8, StepReason::Authority)
+    };
+    use crate::action::Action::{Break, Lead};
+    let paused = step(&[(1, Break)]);
+    let guest = step(&[(1, Lead(a))]);
+    let picked = step(&[(0, Lead(b))]);
+    let held = step(&[]);
+    let after = step(&[]);
+    check(
+        paused.paused_by == Some(Seat(1))
+            && guest.leading.is_none()
+            && guest.time_ms == paused.time_ms
+            && picked.leading == Some(b)
+            && picked.paused_by == Some(Seat(1))
+            && held.paused_by == Some(Seat(1))
+            && after.time_ms == held.time_ms,
+        format!(
+            "paused by {:?}; a guest's pick: leading {:?}; seat 0's pick of {b:?}: leading {:?}, paused by {:?}; time {} → {} → {} → {}",
+            paused.paused_by,
+            guest.leading,
+            picked.leading,
+            picked.paused_by,
+            paused.time_ms,
+            picked.time_ms,
+            held.time_ms,
+            after.time_ms
         ),
     )
 }
