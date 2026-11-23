@@ -344,7 +344,7 @@ pub fn try_conversation(
         let mut called = Vec::new();
         let mut own = false;
         for line in report.trace_lines() {
-            if let Some(script) = crate::script_try::run_of(&line) {
+            if let Some((script, _)) = crate::script_try::run_of(&line) {
                 own = scripts.contains(&script.to_ascii_lowercase());
             }
             if own {

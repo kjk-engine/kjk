@@ -14,7 +14,7 @@
 //! The module's own scripts go on running while the world is stepped: its
 //! creatures' heartbeats alone write thousands of lines in two seconds. So
 //! the trace printed is the tried script's own (`own_lines`): its runs, the
-//! code it deferred, and the scripts it started with `ExecuteScript`. One
+//! code it deferred, and the scripts it starts with `ExecuteScript`. One
 //! line says how much of the other scripts' trace was left out, and
 //! `--all` prints the whole trace.
 //!
@@ -263,42 +263,90 @@ fn tried(
     Ok(ran > 0 && !bad)
 }
 
-/// The script a line of the trace starts a run of: `run NAME for #7`, or
-/// `deferred NAME for #7` for code the script deferred, after the line's
-/// time. `None` for the lines of a run, which are its calls.
-pub(crate) fn run_of(line: &str) -> Option<&str> {
+/// The run a line of the trace starts: its script and the object it runs
+/// for, from `run NAME for #7`, or `deferred NAME for #7` for code the
+/// script deferred, after the line's time. `None` for the lines of a run,
+/// which are its calls.
+pub(crate) fn run_of(line: &str) -> Option<(&str, &str)> {
     let (_, said) = line.trim_start().split_once(' ')?;
     let mut words = said.split(' ');
-    match (words.next(), words.next(), words.next()) {
-        (Some("run" | "deferred"), Some(name), Some("for")) => Some(name),
+    match (words.next(), words.next(), words.next(), words.next()) {
+        (Some("run" | "deferred"), Some(name), Some("for"), Some(object)) => Some((name, object)),
         _ => None,
     }
 }
 
+/// The script and the object of an `ExecuteScript("NAME", #7, ...)` call
+/// that a line of the trace writes.
+fn started(line: &str) -> Option<(&str, &str)> {
+    let (_, rest) = line.split_once("ExecuteScript(\"")?;
+    let (name, rest) = rest.split_once("\", ")?;
+    let object = rest.split([',', ')']).next()?;
+    Some((name, object))
+}
+
 /// The lines of `trace` that are `script`'s own, and how many lines and
 /// runs of other scripts were left out. A script's own lines are its runs,
-/// the code it deferred, and the runs of each script that one of those
-/// starts with `ExecuteScript`. The lines before the first run are kept.
+/// the code it deferred, and the runs of the scripts it starts with
+/// `ExecuteScript`.
+///
+/// The trace writes a call when it returns. So a script started with
+/// `ExecuteScript` writes its run before the call that started it, and
+/// nothing marks where a run ends. A run that follows one of the script's
+/// own lines is therefore kept waiting. It is the script's own once the
+/// call that started it is written, by the script's name and its object.
+/// Runs started inside it close in turn, the last one first. A run that no
+/// such call closes is another script's, with everything after it up to
+/// the script's next run.
 fn own_lines<'a>(trace: &'a [String], script: &str) -> (Vec<&'a str>, (usize, usize)) {
-    let mut own_scripts = std::collections::BTreeSet::from([script.to_ascii_lowercase()]);
-    let (mut kept, mut left, mut runs) = (Vec::new(), 0, 0);
-    let mut own = true;
+    let mut kept: Vec<&str> = Vec::new();
+    let (mut left, mut runs) = (0, 0);
+    // The lines waiting, the runs open among them (the last started
+    // last), and how many runs wait.
+    let mut waiting: Vec<&str> = Vec::new();
+    let mut open: Vec<(&str, &str)> = Vec::new();
+    let mut waiting_runs = 0;
+    let mut inside = false;
     for line in trace {
-        if let Some(name) = run_of(line) {
-            own = own_scripts.contains(&name.to_ascii_lowercase());
-            runs += usize::from(!own);
-        } else if own
-            && let Some((_, rest)) = line.split_once("ExecuteScript(\"")
-            && let Some((started, _)) = rest.split_once('"')
-        {
-            own_scripts.insert(started.to_ascii_lowercase());
-        }
-        if own {
-            kept.push(line.as_str());
-        } else {
-            left += 1;
+        match run_of(line) {
+            Some((name, _)) if name.eq_ignore_ascii_case(script) => {
+                left += waiting.len();
+                runs += waiting_runs;
+                waiting.clear();
+                open.clear();
+                waiting_runs = 0;
+                inside = true;
+                kept.push(line);
+            }
+            Some(run) if inside => {
+                waiting.push(line);
+                open.push(run);
+                waiting_runs += 1;
+            }
+            Some(_) => {
+                left += 1;
+                runs += 1;
+            }
+            None if !inside => left += 1,
+            None if open.is_empty() => kept.push(line),
+            None => {
+                waiting.push(line);
+                let closes = started(line).is_some_and(|(name, object)| {
+                    (open.last())
+                        .is_some_and(|(run, of)| run.eq_ignore_ascii_case(name) && *of == object)
+                });
+                if closes {
+                    open.pop();
+                    if open.is_empty() {
+                        kept.append(&mut waiting);
+                        waiting_runs = 0;
+                    }
+                }
+            }
         }
     }
+    left += waiting.len();
+    runs += waiting_runs;
     (kept, (left, runs))
 }
 
