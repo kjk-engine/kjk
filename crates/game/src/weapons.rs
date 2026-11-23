@@ -837,7 +837,7 @@ pub fn shaders() -> Vec<String> {
         .flat_map(|color| [color.glow(), color.core()])
         .chain([
             SaberColor::TRAIL.to_string(),
-            format!("{}{}", SaberColor::TRAIL, crate::viewer_ja::SECOND_STAGE),
+            crate::viewer_ja::second_stage(SaberColor::TRAIL),
         ])
         .collect()
 }

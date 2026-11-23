@@ -50,12 +50,17 @@ struct ShaderLook {
     anim: Option<AnimMap>,
     /// The texture of the shader's second stage, when that stage has a
     /// `map` or `clampmap` that names a file. The saber trail's core is
-    /// drawn with it (`SECOND_STAGE`).
+    /// drawn with it (`second_stage`).
     second: Option<String>,
 }
 
 /// Added to a shader's name to ask for the texture of its second stage.
-pub(crate) const SECOND_STAGE: &str = "#2";
+const SECOND_STAGE: &str = "#2";
+
+/// The name that asks for the texture of `shader`'s second stage.
+pub(crate) fn second_stage(shader: &str) -> String {
+    format!("{shader}{SECOND_STAGE}")
+}
 
 /// A stage's animated map (`animMap`, `clampAnimMap`, `oneShotAnimMap`):
 /// its frames a second, whether it plays once, and its frames' files (at
@@ -790,7 +795,7 @@ pub(crate) fn scene_textures<'m>(
                 b.glow.clone(),
                 b.core.clone(),
                 b.trail_texture.clone(),
-                format!("{}{SECOND_STAGE}", b.trail_texture),
+                second_stage(&b.trail_texture),
             ]
         }))
         .collect()

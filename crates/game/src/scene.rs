@@ -1830,7 +1830,7 @@ impl<'t> Spawner<'t> {
         let glow = list(material(&spec.glow, true, 1.0), false);
         let core = list(material(&spec.core, true, BLADE_CORE_GLOW), false);
         let trail_quads = list(material(&spec.trail_texture, false, 1.0), true);
-        let trail_core_name = format!("{}{}", spec.trail_texture, crate::viewer_ja::SECOND_STAGE);
+        let trail_core_name = crate::viewer_ja::second_stage(&spec.trail_texture);
         let trail_core = self
             .textures
             .contains_key(trail_core_name.as_str())
@@ -3377,6 +3377,18 @@ fn trail_core_quads(keys: &[crate::viewer::TrailKey], at: f32) -> Option<Quads> 
     trail_quads_of(keys, at, |_| [1.0; 4])
 }
 
+/// The trail's quads and, when the blade draws one (`with_core`), those of
+/// its core over the same segments.
+fn trail_and_core(
+    keys: &[crate::viewer::TrailKey],
+    at: f32,
+    color: [f32; 3],
+    with_core: bool,
+) -> (Option<Quads>, Option<Quads>) {
+    let core = with_core.then(|| trail_core_quads(keys, at)).flatten();
+    (trail_quads(keys, at, color), core)
+}
+
 fn trail_quads_of(
     keys: &[crate::viewer::TrailKey],
     at: f32,
@@ -3535,12 +3547,9 @@ fn draw_blades(
                     life_ms: if current >= 0.5 { wanted.trail_ms } else { 0.0 },
                 });
                 let keys = live.recent.make_contiguous();
-                let trail = trail_quads(keys, seconds, blade.trail_color);
-                let core = blade
-                    .trail_core
-                    .is_some()
-                    .then(|| trail_core_quads(keys, seconds));
-                (current, Some((trail, core.flatten())))
+                let trail =
+                    trail_and_core(keys, seconds, blade.trail_color, blade.trail_core.is_some());
+                (current, Some(trail))
             }
             None => {
                 let hidden = !blade.shown.is_empty()
@@ -3552,12 +3561,12 @@ fn draw_blades(
                         .map_or(blade.length, |extent| extent[0])
                 };
                 let trail = (!blade.trail.is_empty()).then(|| {
-                    let core = blade
-                        .trail_core
-                        .is_some()
-                        .then(|| trail_core_quads(&blade.trail, at))
-                        .flatten();
-                    (trail_quads(&blade.trail, at, blade.trail_color), core)
+                    trail_and_core(
+                        &blade.trail,
+                        at,
+                        blade.trail_color,
+                        blade.trail_core.is_some(),
+                    )
                 });
                 (length, trail)
             }
@@ -3568,7 +3577,7 @@ fn draw_blades(
                 let trail = trail.unwrap_or_else(Quads::default);
                 blade.trail_quads.write(&trail, stores.assets());
                 if let Some(list) = &mut blade.trail_core {
-                    list.write(&core.unwrap_or_default(), stores.assets());
+                    list.write(&core.unwrap_or_else(Quads::default), stores.assets());
                 }
             }
             blade.trail_empty = empty;
