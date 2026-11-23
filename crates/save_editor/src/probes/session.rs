@@ -8,7 +8,11 @@ const SABER: &str = "g_w_lghtsbr01";
 
 /// The kitchen sink as opened, in a session.
 fn sink() -> Session {
-    let save = sim::fixtures::kitchen_sink().1;
+    sink_of(sim::fixtures::kitchen_sink().1)
+}
+
+/// `save` as opened, in a session.
+fn sink_of(save: sim::Save) -> Session {
     Session::new(edit::Opened {
         id: "0001".into(),
         meta: saves::Meta::default(),
@@ -218,11 +222,7 @@ pub fn flags_read_without_case() -> Result<String, String> {
     save.script
         .strings
         .insert("K_Fixture_Words".into(), "hello".into());
-    let mut session = Session::new(edit::Opened {
-        id: "0001".into(),
-        meta: saves::Meta::default(),
-        save,
-    });
+    let mut session = sink_of(save);
     let number = Global {
         name: "000_hand_finale".into(),
         kind: Kind::Number,

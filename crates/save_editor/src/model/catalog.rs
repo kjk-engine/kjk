@@ -394,27 +394,28 @@ pub enum Kind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Global {
     /// Lowercase, for searching and sorting. The save may keep the flag
-    /// under another case, so read it with `Global::number` and the others.
+    /// under another case, so read it with `Global::number`, `Global::boolean` or `Global::text`.
     pub name: String,
     pub kind: Kind,
 }
 
 impl Global {
-    /// A number flag's value in `save`, 0 when the save has none.
+    /// A number flag's value in `save`, read whatever its case, as the game's
+    /// scripts do.
     pub fn number(&self, save: &sim::Save) -> i32 {
         global(&save.script.numbers, &self.name)
             .copied()
             .unwrap_or(0)
     }
 
-    /// A boolean flag's value in `save`, false when the save has none.
+    /// A boolean flag's value in `save`, read whatever its case.
     pub fn boolean(&self, save: &sim::Save) -> bool {
         global(&save.script.booleans, &self.name)
             .copied()
             .unwrap_or(false)
     }
 
-    /// A text flag's value in `save`, if the save has one.
+    /// A text flag's value in `save`, read whatever its case.
     pub fn text<'s>(&self, save: &'s sim::Save) -> Option<&'s str> {
         global(&save.script.strings, &self.name).map(String::as_str)
     }
