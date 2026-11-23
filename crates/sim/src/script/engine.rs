@@ -1769,7 +1769,8 @@ impl Engine<'_> {
 
     /// `ClearAllActions` on `who` (unless it is not commandable): its queue
     /// cleared, and what it plays stops too, even a clip that outlasts its
-    /// queued time.
+    /// queued time. A loop played on until stopped is kept
+    /// (`Acting::outlives_a_clear`).
     fn clear_all(&mut self, who: ObjectId) {
         if !self.state.uncommandable.contains(&who.0) {
             clear_queue(self.state, self.view, who);

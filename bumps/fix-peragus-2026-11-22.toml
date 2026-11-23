@@ -1,0 +1,4 @@
+# A looping animation played until stopped outlives a clear of its body's
+# actions and the module left behind, and a minigame's gun fires once a
+# press of its key.
+sim = "a loop played until stopped outlives ClearAllActions and a module left; a minigame gun fires once a press"
