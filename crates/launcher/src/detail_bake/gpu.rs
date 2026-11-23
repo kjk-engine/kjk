@@ -632,10 +632,19 @@ pub(super) fn bake_lights(
         names,
         grass,
     } = texels(reader, resolver, area, options.sun.is_some() || options.every_room, &occluders)?;
+    let reach = if options.probe.is_some() {
+        bounds(&surfaces)
+    } else {
+        rays_reach(&claims, lights)
+    };
     if std::env::var_os("KJK_BAKE_LAPS").is_some() {
-        eprintln!("{} triangles, bounds {:?}", surfaces.len(), bounds(&surfaces));
+        eprintln!(
+            "{} triangles, bounds {:?}, the rays' box {reach:?}",
+            surfaces.len(),
+            bounds(&surfaces)
+        );
     }
-    let level = Level::new(&surfaces, bounds(&surfaces));
+    let level = Level::new(&surfaces, reach);
     let points = points(claims, &level);
     let grid = LightGrid::new(lights);
     lap("texels on the CPU".into(), &mut times);
@@ -3171,6 +3180,29 @@ struct Losses {
 
 /// Measures `Losses` on every 64th texel, on the CPU, with one ray to each
 /// light's nearest place as the CPU bake casts it.
+/// The box that the rays this bake casts on the CPU stay inside, with a
+/// metre to spare. `points` casts from each new texel's place on its
+/// triangle to its place on the triangle's plane. `losses` casts from a
+/// texel toward a place on a light. So the box holds the texels' places and
+/// the lights' ends.
+///
+/// The grid of `Level` covers only this box. Inside it, the grid's cells
+/// list the same triangles as a grid over every triangle, so each ray meets
+/// what it met before. The grid over every triangle was too large for
+/// 201tel. Its triangles span a box 3.4 km wide, and the bake filled 15 GB
+/// of memory with cells of 2 metres in its first minutes and never
+/// finished (23 November 2026). Its texels and lights span 1.9 km.
+fn rays_reach(claims: &[Vec<Option<super::Claim>>], lights: &[Fitted]) -> (Vec3, Vec3) {
+    let spare = Vec3::ONE;
+    let texels = (claims.iter().flatten().flatten()).flat_map(|claim| [claim.at, claim.anchor]);
+    let ends = (lights.iter()).flat_map(|light| [light.at - light.way * light.half, light.at + light.way * light.half]);
+    let (least, most) = (texels.chain(ends))
+        .fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(least, most), p| {
+            (least.min(p), most.max(p))
+        });
+    (least - spare, most + spare)
+}
+
 fn losses(facts: &[super::Facts], level: &Level, points: &[Point], grid: &LightGrid) -> Losses {
     let sample: Vec<usize> = (0..points.len()).step_by(64).filter(|&i| points[i].inside).collect();
     let each: Vec<[f32; 4]> = super::parallel(sample.len(), |k| {
