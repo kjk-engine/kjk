@@ -3830,9 +3830,9 @@ fn start_bake(
     let project = &state.editor.project;
     let light_data = (state.setup.light_data.clone())
         .ok_or("no light data folder was found (set KJK_LIGHT_DATA)")?;
-    let root = crate::checkout_of(&state.setup.program)
-        .ok_or("the kjk checkout this editor was built in was not found")?;
-    let folder = crate::bake::folder_of(&root, &project.module);
+    let light_kinds = crate::light_kinds_of(&state.setup.program)
+        .ok_or("no folder for bakes was found: set KJK_HOME")?;
+    let folder = crate::bake::folder_of(&light_kinds, &project.module);
     std::fs::create_dir_all(&folder).map_err(|error| format!("{}: {error}", folder.display()))?;
     let dump = folder.join(format!("lights-{label}.txt"));
     kjk_game::fitted_lights::dump_lights(scene, &dump.to_string_lossy());

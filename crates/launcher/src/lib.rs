@@ -33,6 +33,30 @@ mod show;
 mod talk_run;
 mod texture_export;
 
+/// Declares modules built with the `editor_tools` feature, which the
+/// `probes` feature takes in: the two verbs the level editor runs
+/// (`editor_tools`) and what they use.
+/// A build without `probes` uses only the two verbs of these modules, and
+/// not what they share with the other checking verbs.
+macro_rules! tools {
+    ($($name:ident),* $(,)?) => {
+        $(
+            #[cfg(feature = "editor_tools")]
+            #[cfg_attr(not(feature = "probes"), allow(dead_code))]
+            mod $name;
+        )*
+    };
+}
+
+tools!(
+    collision_audit,
+    collision_verbs,
+    detail_bake,
+    editor_tools,
+    room_light_fit,
+    room_lights,
+);
+
 /// Declares modules built only with the `probes` feature.
 macro_rules! probes {
     ($($name:ident),* $(,)?) => {
@@ -50,10 +74,8 @@ probes!(
     chain,
     check,
     clips,
-    collision_audit,
     collision_ja,
     collision_probes,
-    collision_verbs,
     combat_verbs,
     coop_fight_verbs,
     creation_probes,
@@ -106,10 +128,7 @@ probes!(
     probe,
     real_mods_probes,
     remote_census,
-    detail_bake,
     light_kinds,
-    room_light_fit,
-    room_lights,
     routines_verbs,
     rows_by_label_probes,
     saber_verbs,
@@ -148,10 +167,14 @@ use kjk_game::{
 };
 #[cfg(feature = "probes")]
 use kjk_game::{
-    acting, alignment_look, cast, character, dangly, fight_rooms, grass, light_probes, material,
-    minigame_bot, model_fx, net_feel, own_fx, pazaak_view, shadows, sim_host, skeleton, sound,
-    stage, transcript, weapons, weather, workbench_view,
+    acting, alignment_look, cast, character, dangly, fight_rooms, grass, material, minigame_bot,
+    model_fx, net_feel, own_fx, pazaak_view, shadows, sim_host, skeleton, sound, stage, transcript,
+    weapons, weather, workbench_view,
 };
+
+// The game's light probes, which the bake reads (`detail_bake`).
+#[cfg(feature = "editor_tools")]
+use kjk_game::light_probes;
 
 // What the verbs share with `kjk play` (they take the root's names).
 #[cfg(feature = "probes")]
@@ -470,6 +493,17 @@ enum Command {
     #[cfg(feature = "probes")]
     #[command(flatten)]
     Verb(verbs::Verb),
+    /// An area's lightmaps made four times larger, with the detail the
+    /// stored size cannot hold. The level editor's Bake buttons run it.
+    #[cfg(all(feature = "editor_tools", not(feature = "probes")))]
+    DetailBake(editor_tools::DetailBakeArgs),
+    /// A module's collision: the containment audit, which the level
+    /// editor's Audit button runs.
+    #[cfg(all(feature = "editor_tools", not(feature = "probes")))]
+    Collision {
+        #[command(subcommand)]
+        verb: editor_tools::CollisionTools,
+    },
     /// Run one compiled script once in a module installed headless (with
     /// --project, the project's own script, as the level editor's Try does)
     /// for an object or the player, then step on: the trace of what it and
@@ -756,6 +790,12 @@ pub fn run() -> ExitCode {
     match cli.command {
         #[cfg(feature = "probes")]
         Some(Command::Verb(verb)) => verbs::run(verb, cli.size),
+        #[cfg(all(feature = "editor_tools", not(feature = "probes")))]
+        Some(Command::DetailBake(args)) => editor_tools::detail_bake(args),
+        #[cfg(all(feature = "editor_tools", not(feature = "probes")))]
+        Some(Command::Collision {
+            verb: editor_tools::CollisionTools::Audit(args),
+        }) => editor_tools::audit(args),
         // A plain start (no script, no save, not back from a game) whose
         // games are not all found, or that never had its setup, opens on
         // the setup.

@@ -301,12 +301,24 @@ pub(crate) fn checkout_of(program: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// The bakes of `area` made in the kjk checkout at `root`, by
-/// `tools/light-kinds` or the editor
-/// (`target/light-kinds/game/<folder>/bake/<label>/<area>/b`), the newest
-/// first.
-pub(crate) fn bakes_of(root: &Path, area: &str) -> Vec<PathBuf> {
-    let games = root.join("target").join("light-kinds").join("game");
+/// The folder bakes are made in (`light-kinds`): `target/light-kinds` of
+/// the kjk checkout `program` was built in, where `tools/light-kinds` puts
+/// its bakes too, else `light-kinds` in kjk's own folder, beside its
+/// projects (`store::kjk_folder`), for a release package. `None` without
+/// a home folder to tell it by.
+pub(crate) fn light_kinds_of(program: &Path) -> Option<PathBuf> {
+    match checkout_of(program) {
+        Some(root) => Some(root.join("target").join("light-kinds")),
+        None => store::kjk_folder(|var| std::env::var(var).ok())
+            .map(|folder| folder.join("light-kinds")),
+    }
+}
+
+/// The bakes of `area` in the bakes' folder `light_kinds`
+/// (`light_kinds_of`), made by `tools/light-kinds` or the editor
+/// (`game/<folder>/bake/<label>/<area>/b`), the newest first.
+pub(crate) fn bakes_of(light_kinds: &Path, area: &str) -> Vec<PathBuf> {
+    let games = light_kinds.join("game");
     let mut found: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
     for folder in std::fs::read_dir(games).into_iter().flatten().flatten() {
         for label in std::fs::read_dir(folder.path().join("bake"))
@@ -508,7 +520,8 @@ fn setup(
     project.switch_to(&module, || {
         Err(format!("project {name} has no level {module}"))
     })?;
-    let bakes = checkout_of(&program).map_or_else(Vec::new, |root| bakes_of(&root, &project.area));
+    let bakes =
+        light_kinds_of(&program).map_or_else(Vec::new, |folder| bakes_of(&folder, &project.area));
     let ja = level_edit::active::ja_stack(&discovery);
     let models = ja.as_ref().map_or_else(Vec::new, |stack| {
         level_edit::active::models_under(stack, "models/map_objects/")

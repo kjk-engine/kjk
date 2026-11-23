@@ -20,9 +20,14 @@ cargo xtask dist --dlss          # Windows and Linux: with DLSS (below)
 
 `dist` builds `kjk` with the `dist` profile (`Cargo.toml`: release with
 fat LTO in one codegen unit, no incremental state, no symbols) and
-`--no-default-features`:
+`--no-default-features --features editor_tools`:
 no verbs that check and measure, no probes and no Steam, the game alone
-with co-op by address. A release ships MIT code and the crates' own
+with co-op by address. The one exception is `editor_tools`, the two
+verbs the level editor runs: `detail-bake` for its Bake buttons and
+`collision audit` for its Audit button. With them, the editor of a
+release does what an editor built from source does. The package also
+holds `data/lights`, the light rule data the editor's bake reads, beside
+the programs. A release ships MIT code and the crates' own
 licences only: Steam would bring Valve's library (`libsteam_api`, under
 the Steamworks SDK's terms) and an app id kjk does not have yet (it opens
 as Valve's test app 480), so Steam co-op is for builds made from source

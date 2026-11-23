@@ -1,9 +1,12 @@
 //! `cargo xtask dist`: the player's build of this machine's OS, packed
 //! (docs/RELEASE.md). `kjk` built with the `dist` profile and without the
 //! verbs that check and measure or Steam (`--no-default-features`: nothing
-//! but MIT code and the crates' own licences ships), then staged with the
-//! player's readme, the licences and the crates' licences (`cargo about`,
-//! `about.toml`) and packed:
+//! but MIT code and the crates' own licences ships), but with the two the
+//! level editor runs (`editor_tools`: `detail-bake` and `collision
+//! audit`), so a release's editor bakes and audits as a build from source
+//! does. It is staged with the player's readme, the licences, the crates'
+//! licences (`cargo about`, `about.toml`) and the light rule data the
+//! editor's bake reads (`data/lights`, `LIGHT_DATA`), and packed:
 //! - Windows: `kjk-<version>-windows-<arch>.zip`, the folder inside;
 //! - macOS: `kjk.app` with its icon (unsigned: the readme says how to
 //!   open it), in
@@ -104,8 +107,10 @@ the game: objects, Jedi Academy props, collision boxes, the navigation mesh,
 lights placed by hand, and scripts written, compiled and tried in it. Play
 starts kjk on the project. Started with nothing, it lists the projects and
 the levels to pick from. Projects are kept in the projects folder beside
-the saves (Windows %APPDATA%\\kjk\\projects). The containment audit and
-the light bake come with kjk built from source.
+the saves (Windows %APPDATA%\\kjk\\projects). Its containment audit and
+its light bake work as in kjk built from source. A bake is made in the
+light-kinds folder beside the projects, and the bake reads the light rules
+in data/lights beside the programs.
 
 Movies need ffmpeg on the PATH; without it they are skipped.
 
@@ -180,9 +185,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // The SDK's folder, checked before a build that would need it.
     let dlss_sdk = dlss.then(Dlss::from_env).transpose()?;
     let kjk_features: &[&str] = if dlss {
-        &["--no-default-features", "--features", "dlss"]
+        &["--no-default-features", "--features", "editor_tools,dlss"]
     } else {
-        &["--no-default-features"]
+        &["--no-default-features", "--features", "editor_tools"]
     };
     // Each program and the features it is built (and its licences read) with.
     let programs = [(KJK, kjk_features), (EDITOR, &[]), (LEVEL_EDITOR, &[])];
@@ -286,6 +291,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         None => format!("{PLAYERS_README}{LEGAL_README}"),
     };
     write(&stage.join("README.txt"), &readme)?;
+    copy_folder(&root.join(LIGHT_DATA), &stage.join(LIGHT_DATA))?;
     copy(&root.join("LICENSE"), &stage.join("LICENSE.txt"))?;
     copy(&root.join("NOTICE"), &stage.join("NOTICE.txt"))?;
     for ((program, _), (mut writing, page)) in programs.into_iter().zip(licences) {
@@ -703,6 +709,29 @@ fn create(dir: &Path) -> Result<(), String> {
 
 fn write(path: &Path, text: &str) -> Result<(), String> {
     std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// The light rule data, beside the programs in a package as in the
+/// checkout, where the level editor finds it (`light_data`): the bake
+/// reads its `bake.toml` and its rooms' levels.
+const LIGHT_DATA: &str = "data/lights";
+
+/// `from` and everything in it copied to `to`.
+fn copy_folder(from: &Path, to: &Path) -> Result<(), String> {
+    create(to)?;
+    let entries =
+        std::fs::read_dir(from).map_err(|error| format!("{}: {error}", from.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("{}: {error}", from.display()))?;
+        let path = entry.path();
+        let target = to.join(entry.file_name());
+        if path.is_dir() {
+            copy_folder(&path, &target)?;
+        } else {
+            copy(&path, &target)?;
+        }
+    }
+    Ok(())
 }
 
 fn copy(from: &Path, to: &Path) -> Result<(), String> {

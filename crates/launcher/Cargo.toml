@@ -69,7 +69,11 @@ default = ["probes", "steam"]
 # collision`, `kjk combat`, ...; `src/verbs.rs`) and the probes they run,
 # the game's and the layers' (`game/probes`). `--no-default-features`
 # builds the game alone.
-probes = ["game/probes", "dep:original_hook"]
+probes = ["editor_tools", "game/probes", "dep:original_hook"]
+# The two checking verbs the level editor runs: `detail-bake` (its Bake
+# buttons) and `collision audit` (its Audit button). A release builds kjk
+# with it alone, so its editor bakes and audits (`src/editor_tools.rs`).
+editor_tools = ["collision/audit"]
 # Hosting and joining through Steam (`game/steam`); off, by address only.
 steam = ["game/steam"]
 # DLSS as an anti-aliasing choice (`game/dlss`); needs NVIDIA's SDK to build.

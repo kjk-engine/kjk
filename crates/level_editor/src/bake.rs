@@ -14,7 +14,9 @@
 //!
 //! The bake lands where the scripts put theirs,
 //! `target/light-kinds/game/bake-<module>/bake/<label>`, with its dump,
-//! levels and logs beside it, so the Baked view lists it with theirs.
+//! levels and logs beside it, so the Baked view lists it with theirs. An
+//! editor of a release package, which has no checkout, bakes into
+//! `light-kinds/game/...` in kjk's own folder (`light_kinds_of`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -58,12 +60,9 @@ pub struct Plan {
     pub dump: PathBuf,
 }
 
-/// The folder of a module's bakes in the kjk checkout at `root`.
-pub fn folder_of(root: &Path, module: &str) -> PathBuf {
-    root.join("target")
-        .join("light-kinds")
-        .join("game")
-        .join(format!("bake-{module}"))
+/// The folder of a module's bakes in the bakes' folder `light_kinds` (`light_kinds_of`).
+pub fn folder_of(light_kinds: &Path, module: &str) -> PathBuf {
+    light_kinds.join("game").join(format!("bake-{module}"))
 }
 
 /// A label for a bake made now: the month, day and time, as `bake.sh`

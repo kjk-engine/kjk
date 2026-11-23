@@ -75,9 +75,16 @@ The Play and Audit buttons start the `kjk` program that lies beside
 
 A release package (`cargo xtask dist`, `docs/RELEASE.md`) holds
 `kjk-level-editor` beside `kjk`. Its `kjk` is a player's build, without the
-verbs that check and measure, so the editor greys out Audit and Bake there
-(it asks `kjk --help` once as it starts). Everything else works, Try
-included.
+verbs that check and measure, except the two the editor runs:
+`detail-bake` for its Bake buttons and `collision audit` for its Audit
+button (the `editor_tools` feature). So the editor of a release does all
+that the editor of a build from source does, Bake, Audit and Try
+included. The package also holds the light rule data, `data/lights`,
+beside the programs, which the bake reads. A bake made without a kjk
+checkout goes to the `light-kinds` folder in kjk's own folder, beside the
+projects (Windows `%APPDATA%\kjk\light-kinds`). The editor asks `kjk
+--help` once as it starts, and greys out Bake and Audit only when the
+`kjk` beside it lacks the two verbs.
 
 `--project NAME` works with every `kjk` verb that loads a module: `kjk
 play`, `kjk host`, the collision verbs and the scripted runs. It is one of
@@ -416,9 +423,8 @@ bake kept before this version has no note and is never marked.
   chooses the lighting when it is set, and a bake `KJK_DETAIL_BAKE` names
   is still used in place of the project's.
 - **It travels with the project.** A copy of the project's folder has
-  the bake, so a player with a release package sees it. Such a player
-  cannot make a bake, because a bake needs the `kjk` that has
-  `detail-bake`.
+  the bake, so a player with a release package sees it. Such a player can
+  also make a bake, because a release's `kjk` has `detail-bake`.
 - **It is kept at once**, not at the next save, as a bake itself is made
   at once. It is not part of undo.
 - **The editor offers it first.** The Baked view of a level whose project
@@ -2092,11 +2098,6 @@ match the KOTOR rooms' light yet.
   which the original game needs. Every room sees every room.
 - **KOTOR 2's rooms are not listed yet.** Its layouts are in its modules'
   archives, which the Rooms tab does not read.
-- **Making a bake needs kjk built from source.** A project keeps its
-  own lights, lamps, kinds of fitting, room levels and a bake, and play
-  with the project uses them. But a bake is made by the `kjk` that has
-  `detail-bake`, in the kjk checkout, so an editor from a release package
-  cannot make one.
 - **Lights without a bake do not show in play by themselves.** A level
   whose project has its own lights or kinds but keeps no bake is lit as
   the game stores it, unless `KJK_FITTED_LIGHTS` is set. The live fitted

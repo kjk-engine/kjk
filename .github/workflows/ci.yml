@@ -123,6 +123,11 @@ jobs:
       - name: clippy (no probes)
         run: cargo clippy -p launcher --all-targets --no-default-features -- -D warnings
 
+      # The release's kjk: the game with the two verbs the level editor runs
+      # (`editor_tools`), as `cargo xtask dist` builds it.
+      - name: clippy (release features)
+        run: cargo clippy -p launcher --all-targets --no-default-features --features editor_tools -- -D warnings
+
   # kjk itself (the launcher, which links Bevy), so a change that only
   # breaks the link or the binary is caught; it starts and prints its help.
   # On main alone: a Bevy build costs ~20 minutes cold.
