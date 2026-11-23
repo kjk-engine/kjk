@@ -1,7 +1,7 @@
 //! A session starting: KOTOR's loading screen (`loadscreen`), its image
-//! the module's when known, its hint line what is happening, its bar how
-//! far it is (hidden while that is not known), the campaign's logo over
-//! KOTOR 2's.
+//! the module's when known, its hint line what is happening or a hint, its
+//! bar how far it is (hidden while that is not known). The layout is the
+//! campaign's own, so its logo is the campaign's.
 
 use fmt_odyssey::gui::Control;
 
@@ -34,10 +34,6 @@ impl Screen for Loading {
             },
             "LBL_HINT" => ControlState {
                 text: Some(strings::bytes(&vm.session.status)),
-                ..ControlState::default()
-            },
-            "LBL_LOGO" => ControlState {
-                fill: Some(crate::skin::CAMPAIGN_LOGO.into()),
                 ..ControlState::default()
             },
             "PB_PROGRESS" => ControlState {

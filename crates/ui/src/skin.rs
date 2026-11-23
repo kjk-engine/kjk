@@ -27,10 +27,12 @@ const RENAMED: &[(&str, &str)] = &[
     ("areatransition", "areatrans_p"),
 ];
 
-/// Layouts that hold the campaign's own world, read from the campaign and
-/// drawn with its art: the galaxy map's buttons are its planets (KOTOR 2's
-/// layout holds KOTOR 2's).
-const OWN: &[&str] = &["galaxymap"];
+/// Layouts the campaign draws itself, read from the campaign and drawn
+/// with its art. The galaxy map's buttons are its planets (KOTOR 2's layout
+/// holds KOTOR 2's). The loading screen's pictures have a slot in the art
+/// for the progress bar and KOTOR 2's layout does not put the bar there.
+/// KOTOR 2 has no `loadscreen`, so its campaign reads its own `loadscreen_p`.
+const OWN: &[&str] = &["galaxymap", "loadscreen"];
 
 /// The campaign's own layout is drawn for `name` (`OWN`).
 pub fn own(name: &str) -> bool {

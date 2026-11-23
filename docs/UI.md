@@ -60,7 +60,8 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`skin::RENAMED`: the main menu, the party selection, the advanced
   graphics options). Screens are written for KOTOR 2's controls. A layout of the
   campaign's own world stays the campaign's, drawn with its art
-  (`skin::own`: the galaxy map, whose buttons are its planets). A layout drawn under
+  (`skin::own`: the galaxy map, whose buttons are its planets, and the
+  loading screen, whose bar sits in a slot of KOTOR 1's pictures). A layout drawn under
   a screen's (the bar) is read from where the screen's came from.
 - A layout from an override folder (the game's own or a Workshop item's)
   is a mod's, unless it is one of the files Aspyr's update ships there
@@ -103,8 +104,9 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
 - The inventory's and the store's filters sort items by kind
   (`vm::ItemKind`, from the template). An item row shows its icon in a
   square beside its name, as in KOTOR 2.
-- The main menu and loading screen show KOTOR 1's logos (the main menu
-  KOTOR 2's own in a KOTOR 2 campaign).
+- The main menu shows KOTOR 1's logo (KOTOR 2's own in a KOTOR 2
+  campaign). The loading screen is the campaign's own layout, so it shows
+  the campaign's own logo.
 - The main menu is in the game played last (`game::menu_figure`): the
   newer of the newest save (one's own or a copy of a host's) and the note
   every machine keeps beside the saves of the module it last played and

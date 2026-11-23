@@ -4,8 +4,9 @@
 //! title; the hosts (`sim_host`, `kjk move run`, the `kjk lifecycle`
 //! verbs) commit what it prepared. Nothing here touches a running world.
 
-use std::sync::Arc;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use asset_odyssey::module::ModuleIr;
@@ -50,6 +51,17 @@ pub struct Installer {
     /// Its plans open the sealed ways whatever the process does
     /// (`playtest_links`).
     links: bool,
+    hints: Mutex<Hints>,
+}
+
+/// Where the loading screen's hints stand, as KOTOR 1 keeps them: the next
+/// row of `loadscreenhints.2da` for each kind of hint, and the modules the
+/// party has been to.
+#[derive(Default)]
+struct Hints {
+    gameplay: usize,
+    story: usize,
+    visited: HashSet<String>,
 }
 
 /// What a loading screen shows: the module's image, the progress bar's
@@ -302,6 +314,7 @@ impl Installer {
             anims,
             areas,
             links: false,
+            hints: Mutex::default(),
         })
     }
 
@@ -535,9 +548,33 @@ impl Installer {
             })
     }
 
+    /// The hint the loading screen shows for `module`. A module the party
+    /// has been to shows the next story hint (KOTOR 1 only, as KOTOR 2's
+    /// table has none) and any other the next gameplay hint. Each kind goes
+    /// down its column of `loadscreenhints.2da` one row for each loading
+    /// screen and starts over after the last row.
+    fn hint(&self, module: &str) -> Option<String> {
+        let table = self.install.base().ok()?.two_da("loadscreenhints")?;
+        let mut guard = self.hints.lock().ok()?;
+        let hints = &mut *guard;
+        let story = !hints.visited.insert(module.to_string()) && table.column("storyhint").is_some();
+        let (next, column) = if story {
+            (&mut hints.story, "storyhint")
+        } else {
+            (&mut hints.gameplay, "gameplayhint")
+        };
+        let strref = table.int(*next, column).or_else(|| {
+            *next = 0;
+            table.int(0, column)
+        })?;
+        *next += 1;
+        self.text(u32::try_from(strref).ok()?)
+    }
+
     /// What the loading screen shows for `module`: its image (reone's
     /// `load_<module>`, else the area's `loadscreens.2da` row), the bar's
-    /// fill (`loadscreen.gui`'s `bluefill`), the area's name.
+    /// fill (`loadscreen.gui`'s `bluefill`), and under "Loading" the hint, else
+    /// the area's name.
     pub fn loading_screen(&self, module: &str) -> LoadingScreen {
         let global = self.install.base().ok();
         let bar = global.and_then(|resolver| viewer::texture(resolver, "bluefill"));
@@ -547,7 +584,7 @@ impl Installer {
                 image: Some(image),
                 name: Some(name),
                 bar,
-                title: None,
+                title: self.hint(module),
             };
         }
         let Ok(resolver) = self.resolver(module) else {
@@ -571,9 +608,10 @@ impl Installer {
                 .resref(row as usize, "bmpresref")?;
             Some((viewer::texture(&resolver, &name)?, name))
         });
-        let title = area
-            .and_then(|area| area.name_strref)
-            .and_then(|strref| self.text(strref));
+        let title = self.hint(module).or_else(|| {
+            area.and_then(|area| area.name_strref)
+                .and_then(|strref| self.text(strref))
+        });
         let (image, name) = found.unzip();
         LoadingScreen {
             image,
