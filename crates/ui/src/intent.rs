@@ -194,6 +194,8 @@ pub enum BarContent {
     Mine,
     Feat(u8),
     Stealth,
+    /// A device the party carries, by the `spells.2da` row it casts.
+    Device(u16),
 }
 
 /// One change to an action bar (`sim::action::BarEdit`).

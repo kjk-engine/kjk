@@ -4216,7 +4216,7 @@ fn feat_picks() {
 /// alone. [approved on 2026-11-16]
 #[test]
 fn action_bar_state() {
-    probed("action bar", &sim::combat::bar_probes::probes(), 22);
+    probed("action bar", &sim::combat::bar_probes::probes(), 24);
 }
 
 /// The Force powers and feat attacks that the action bar and the power

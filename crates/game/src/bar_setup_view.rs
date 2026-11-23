@@ -40,6 +40,7 @@ fn named(content: Content) -> BarContent {
         Content::Mine => BarContent::Mine,
         Content::Feat(line) => BarContent::Feat(line as u8),
         Content::Stealth => BarContent::Stealth,
+        Content::Device(row) => BarContent::Device(row),
     }
 }
 
@@ -52,6 +53,7 @@ fn content_of(content: BarContent) -> Option<Content> {
         BarContent::Mine => Content::Mine,
         BarContent::Feat(at) => Content::Feat(*FeatLine::ALL.get(usize::from(at))?),
         BarContent::Stealth => Content::Stealth,
+        BarContent::Device(row) => Content::Device(row),
     })
 }
 
@@ -117,6 +119,11 @@ fn view(
     let identity = (means.me, &means.sheet, means.fighter);
     let (chosen, counts) = crate::hud::chosen_items(snapshot, identity, library, picking);
     let mine = library.and_then(|library| sim::traps::laid_kit(&snapshot.goods, library.items()));
+    let stock = crate::hud::Stock {
+        chosen: &chosen,
+        mine: mine.as_ref(),
+        devices: &means.devices,
+    };
     let labels = BAR
         .iter()
         .map(|key| {
@@ -127,7 +134,7 @@ fn view(
         .collect();
     let mut view = BarSetupView {
         who: means.me.0,
-        slots: crate::hud::setup_slots(ui, means, (&chosen, &counts, mine.as_ref()), labels),
+        slots: crate::hud::setup_slots(ui, means, (stock, &counts), labels),
         keys: BAR.iter().map(|key| prompts.raw_key(*key)).collect(),
         contents: (means.sheet.bar.slots().iter())
             .map(|content| content.map(named))
@@ -135,8 +142,8 @@ fn view(
         ..BarSetupView::default()
     };
     for content in &means.assignable {
-        let mut entry = crate::hud::bar_entry(ui, *content, means, &chosen, mine.as_ref());
-        entry.description = crate::hud::bar_description(ui, *content, &means.sheet, &chosen);
+        let mut entry = crate::hud::bar_entry(ui, *content, means, stock);
+        entry.description = crate::hud::bar_description(ui, *content, &means.sheet, stock);
         if let Content::Item(shelf) = content {
             let several = counts[*shelf as usize] >= 2;
             told_as_kind(&mut entry, *shelf, several);

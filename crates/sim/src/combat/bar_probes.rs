@@ -22,6 +22,10 @@
 //!   the item kinds, then mines, leaves out what
 //!   is on the bar, what is hidden and lower tiers not shown, and lists
 //!   mines only for a character with a rank in Demolitions;
+//! - a device the party carries is offered for the bar but never shown on
+//!   the wheel, goes in the first empty slot once, stays off after the
+//!   player takes it off, and is left off a full bar;
+//! - a bar from a snapshot older than devices on the bar reads no device;
 //! - a player's bar is filled by the host's first step, and a client's
 //!   predicted step leaves it unfilled;
 //! - with no game data, the fill and the wheel go by Jedi Academy's own
@@ -100,8 +104,10 @@ fn others() -> Vec<Content> {
 
 fn content_bits() -> Result<String, String> {
     let mut seen = Contents::default();
+    // A device is kept apart from a power of the same row.
     let shared: Vec<Content> = others()
         .into_iter()
+        .chain([Content::Power(SONIC), Content::Device(SONIC)])
         .filter(|content| {
             let had = seen.has(*content);
             seen.insert(*content);
@@ -141,7 +147,7 @@ fn full_bar() -> Bar {
 
 /// Both the full bar and an empty one come back from their bytes.
 fn round_trip() -> Result<String, String> {
-    let empty_size = SLOTS + 4 * 2 + 1;
+    let empty_size = SLOTS + 5 * 2 + 1;
     let mut sizes = Vec::new();
     for bar in [full_bar(), Bar::default()] {
         let mut out = Writer::default();
@@ -200,7 +206,9 @@ fn six_slot_snapshot() -> Result<String, String> {
     bar.encode(&mut now);
     bar.encode_as(&mut old, versions);
     // An empty slot takes one byte, and the old bar has four slots fewer.
-    if now.0.len() != old.0.len() + (SLOTS - KEPT) {
+    // The old bar also has no set of devices seen, which takes two bytes
+    // when it is empty.
+    if now.0.len() != old.0.len() + (SLOTS - KEPT) + 2 {
         return Err(format!("{} bytes now, {} before", now.0.len(), old.0.len()));
     }
     let mut input = Reader::new("probe", &old.0).with_versions(versions);
@@ -238,11 +246,89 @@ fn shown_slots() -> Result<String, String> {
 /// A medpac's and a fragmentation grenade's `spells.2da` rows.
 const MEDPAC: u16 = 64;
 const GRENADE: u16 = 87;
+/// The Sonic Emitter's `spells.2da` row in K1.
+const SONIC: u16 = 68;
+
+/// A device the party carries (the Sonic Emitter) is offered for the bar
+/// but never shown on the wheel. The bar's placement puts it in the first
+/// empty slot once. After the player takes it off the bar, it stays off.
+/// A full bar only marks it as seen.
+fn devices_placed() -> Result<String, String> {
+    let sheet = soldier();
+    let (offered, on_wheel) = with_rules((false, &[SONIC]), |rules| {
+        let offered = crate::combat::bar::assignable(&sheet, rules);
+        let on_wheel = wheel(&sheet, rules, 0, &|_| false);
+        let device = Content::Device(SONIC);
+        (offered.contains(&device), on_wheel.contains(&device))
+    });
+    let mut bar = Bar::default();
+    for slot in 0..4 {
+        bar.put(slot, Content::Power(slot as u16));
+    }
+    let placed = bar.place_devices(&[SONIC]);
+    let slot = bar.slot_of(Content::Device(SONIC));
+    let again = bar.place_devices(&[SONIC]);
+    bar.clear(4);
+    let after_clear = bar.place_devices(&[SONIC]);
+    let mut full = Bar::default();
+    for slot in 0..SLOTS {
+        full.put(slot, Content::Power(slot as u16));
+    }
+    let full_placed = full.place_devices(&[SONIC]);
+    let full_seen = full.seen.has(Content::Device(SONIC));
+    let full_has = full.slot_of(Content::Device(SONIC)).is_some();
+    check(
+        offered
+            && !on_wheel
+            && placed
+            && slot == Some(4)
+            && !again
+            && !after_clear
+            && bar.slot_of(Content::Device(SONIC)).is_none()
+            && full_placed
+            && full_seen
+            && !full_has,
+        format!(
+            "offered {offered}, on the wheel {on_wheel}, placed {placed} in {slot:?}, \
+             placed again {again}, placed after clearing {after_clear}, \
+             a full bar changed {full_placed}, seen {full_seen}, holds it {full_has}"
+        ),
+    )
+}
+
+/// A bar with a device comes back whole from its bytes. A snapshot older
+/// than devices on the bar writes the device's slot as an empty one and
+/// leaves out the devices seen, so the next step places the device again.
+fn device_snapshot() -> Result<String, String> {
+    let mut bar = Bar::default();
+    bar.put(0, Content::Power(10));
+    bar.place_devices(&[SONIC]);
+    let mut now = Writer::default();
+    bar.encode(&mut now);
+    let read_now = Bar::decode(&mut Reader::new("probe", &now.0));
+    let versions = Versions {
+        snapshot: crate::since::snapshot::FIX_SONIC_EMITTER_BAR.1 - 1,
+        ..Versions::THIS_BUILD
+    };
+    let mut old = Writer::default();
+    bar.encode_as(&mut old, versions);
+    let mut input = Reader::new("probe", &old.0).with_versions(versions);
+    let read_old = Bar::decode(&mut input);
+    let whole = input.finish();
+    let mut want_old = Bar::default();
+    want_old.put(0, Content::Power(10));
+    check(
+        read_now == Ok(bar) && read_old == Ok(want_old) && whole.is_ok(),
+        format!("now reads {read_now:?}, old reads {read_old:?} ({whole:?})"),
+    )
+}
 
 /// Runs `run` with the probes' own game data: Stun and the powers of
 /// Shock's, Push's and Wound's chains are used on enemies, and each tier
-/// of Shock's, Wound's and Cure's chains needs the one below it. `mines` says whether the party carries a mine kit.
-fn with_rules<R>(mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
+/// of Shock's, Wound's and Cure's chains needs the one below it. `mines`
+/// says whether the party carries a mine kit, and `devices` which devices
+/// it carries.
+fn with_rules<R>((mines, devices): (bool, &[u16]), run: impl FnOnce(&Rules) -> R) -> R {
     let hostile = |row: u16| [SHOCK, LIGHTNING, STORM, PUSH, WOUND, CHOKE, STUN].contains(&row);
     let prerequisites = BTreeMap::from(
         [
@@ -258,6 +344,7 @@ fn with_rules<R>(mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
         prerequisites: &prerequisites,
         library: None,
         mines,
+        devices,
     })
 }
 
@@ -308,7 +395,7 @@ fn droid() -> Sheet {
 /// Settles `sheet`'s bar with the right hand's weapon, as the world does.
 fn settled(sheet: &mut Sheet) -> bool {
     let mut bar = sheet.bar;
-    let changed = with_rules(false, |rules| bar.settle(sheet, rules, 0));
+    let changed = with_rules((false, &[]), |rules| bar.settle(sheet, rules, 0));
     sheet.bar = bar;
     changed
 }
@@ -449,7 +536,7 @@ fn wheel_groups() -> Result<String, String> {
     let mut sheet = jedi();
     sheet.powers = sheet.powers.with(SPEED);
     sheet.skills[skills::DEMOLITIONS] = 1;
-    let (listed, groups): (Vec<Content>, Vec<_>) = with_rules(true, |rules| {
+    let (listed, groups): (Vec<Content>, Vec<_>) = with_rules((true, &[]), |rules| {
         let listed = wheel(&sheet, rules, 0, &|_| false);
         let groups = listed.iter().map(|content| rules.group(*content)).collect();
         (listed, groups)
@@ -474,7 +561,7 @@ fn wheel_lists() -> Result<String, String> {
     let mut sheet = jedi();
     sheet.bar.put(0, Content::Power(LIGHTNING));
     sheet.bar.filled = true;
-    with_rules(false, |rules| {
+    with_rules((false, &[]), |rules| {
         let listed = |sheet: &Sheet| wheel(sheet, rules, 0, &|_| false);
         let first = listed(&sheet);
         let at = |content| {
@@ -504,7 +591,7 @@ fn wheel_mines_need_demolitions() -> Result<String, String> {
         .map(|ranks| {
             let mut sheet = soldier();
             sheet.skills[skills::DEMOLITIONS] = ranks;
-            let listed = with_rules(true, |rules| wheel(&sheet, rules, 0, &|_| false));
+            let listed = with_rules((true, &[]), |rules| wheel(&sheet, rules, 0, &|_| false));
             (ranks, listed.contains(&Content::Mine))
         })
         .collect();
@@ -524,7 +611,7 @@ fn item_feat_listed() -> Result<String, String> {
     let mut visored = plain;
     visored.gear.feats.insert(feats::POWER_BLAST[1]);
     let listed = |sheet: &Sheet| {
-        with_rules(false, |rules| {
+        with_rules((false, &[]), |rules| {
             crate::combat::bar::assignable(sheet, rules)
                 .contains(&Content::Feat(FeatLine::PowerBlast))
         })
@@ -543,7 +630,7 @@ fn item_feat_listed() -> Result<String, String> {
 fn wheel_empty() -> Result<String, String> {
     let mut sheet = droid();
     settled(&mut sheet);
-    let listed = with_rules(true, |rules| wheel(&sheet, rules, 0, &|_| false));
+    let listed = with_rules((true, &[]), |rules| wheel(&sheet, rules, 0, &|_| false));
     check(listed.is_empty(), format!("listed {listed:?}"))
 }
 
@@ -586,7 +673,7 @@ fn filled_in_the_world() -> Result<String, String> {
 /// the wheel lists Pull before Heal.
 fn no_library() -> Result<String, String> {
     let mut sheet = jedi();
-    let (bar, listed) = Rules::with(None, false, |rules| {
+    let (bar, listed) = Rules::with(None, (false, &[]), |rules| {
         let mut bar = sheet.bar;
         bar.settle(&sheet, rules, 0);
         sheet.bar = bar;
@@ -945,7 +1032,9 @@ fn edit_refused() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 20] = [
+    let cases: [(&'static str, Case); 22] = [
+        ("bar_devices_placed", devices_placed),
+        ("bar_device_snapshot", device_snapshot),
         ("bar_put_and_swap", put_and_swap),
         ("bar_put_out_of_range", put_out_of_range),
         ("bar_clear_empties", clear_empties),

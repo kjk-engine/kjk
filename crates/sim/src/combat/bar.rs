@@ -21,6 +21,9 @@
 //!   Otherwise it takes the first empty slot of the four. A new feat attack
 //!   takes the first empty slot of the four only when the character knows
 //!   no Force powers. Nothing else changes a slot.
+//! - A device the party carries, such as the Sonic Emitter, goes in the
+//!   first empty slot of the whole bar the first time the party carries it
+//!   (`Bar::place_devices`).
 //! - The wheel lists offensive powers, defensive powers (`Group`),
 //!   medpacs, grenades, stims, energy shields, mines, stealth mode and the
 //!   feat attacks that fit the weapon in hand, in that order. It leaves out
@@ -128,6 +131,9 @@ pub struct Rules<'a> {
     pub library: Option<&'a Library>,
     /// Whether the party carries a mine kit.
     pub mines: bool,
+    /// The `spells.2da` rows of the devices the party carries
+    /// (`inventory::devices`), lowest first.
+    pub devices: &'a [u16],
 }
 
 impl Rules<'_> {
@@ -136,8 +142,14 @@ impl Rules<'_> {
     /// scripted power too. Without a library (the combat arena, the proving
     /// ground) the powers are Jedi Academy's. A power is then used on an
     /// enemy unless `force::on_own_side` says otherwise, and each tier of a
-    /// chain needs the tier below it (`force::of_row`).
-    pub fn with<R>(library: Option<&Library>, mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
+    /// chain needs the tier below it (`force::of_row`). `mines` and
+    /// `devices` say what the party carries (`Rules::mines`,
+    /// `Rules::devices`).
+    pub fn with<R>(
+        library: Option<&Library>,
+        (mines, devices): (bool, &[u16]),
+        run: impl FnOnce(&Rules) -> R,
+    ) -> R {
         let hostile = |row: u16| match library {
             Some(library) => library.spell(row).hostile,
             None => force::of_row(row).is_some_and(|(power, _)| !force::on_own_side(power)),
@@ -150,6 +162,7 @@ impl Rules<'_> {
             },
             library,
             mines,
+            devices,
         })
     }
 
@@ -164,7 +177,7 @@ impl Rules<'_> {
         match content {
             Content::Power(row) if self.hostile(row) => Group::Offensive,
             Content::Power(_) => Group::Defensive,
-            Content::Item(_) => Group::Items,
+            Content::Item(_) | Content::Device(_) => Group::Items,
             Content::Mine | Content::Stealth | Content::Feat(_) => Group::Other,
         }
     }
@@ -248,13 +261,16 @@ fn others<'a>(sheet: &'a Sheet, rules: &Rules) -> impl Iterator<Item = Content> 
 
 /// Everything the character could put on the bar, in the setup screen's
 /// order: every power it can cast, the feat attacks it knows, the item
-/// kinds it carries, mines and stealth mode.
+/// kinds it carries, mines, stealth mode and the devices the party carries.
+/// Only the bar takes a device. The power wheel never lists one, because a
+/// device such as the Sonic Emitter is used in one place of the game only.
 pub fn assignable(sheet: &Sheet, rules: &Rules) -> Vec<Content> {
     powers(sheet, rules)
         .into_iter()
         .map(Content::Power)
         .chain(FeatLine::known_by(sheet).map(Content::Feat))
         .chain(others(sheet, rules))
+        .chain(rules.devices.iter().copied().map(Content::Device))
         .collect()
 }
 
@@ -299,6 +315,9 @@ pub enum Content {
     Mine,
     Feat(FeatLine),
     Stealth,
+    /// A device the party carries (`inventory::device_row`), by the
+    /// `spells.2da` row it casts.
+    Device(u16),
 }
 
 /// How many bits `Contents::others` uses: one for each item kind, one for
@@ -307,11 +326,18 @@ const OTHER_BITS: usize = Shelf::ALL.len() + 1 + FeatLine::ALL.len() + 1;
 
 /// The tag a slot's bytes start with when the slot is empty.
 const EMPTY: u8 = 0;
+/// The tag of a device (`Content::Device`).
+const DEVICE: u8 = 6;
+
+/// Whether a snapshot of `versions` holds devices on the bar.
+fn holds_devices(versions: crate::wire::Versions) -> bool {
+    versions.snapshot >= crate::since::snapshot::FIX_SONIC_EMITTER_BAR.1
+}
 
 impl Content {
-    /// Its bytes: a tag (1 to 5, by kind) and a value (the power's row,
-    /// the item kind's or feat line's place in its list, or 0). An empty
-    /// slot is the tag `EMPTY` alone.
+    /// Its bytes: a tag (1 to 6, by kind) and a value (the power's or the
+    /// device's row, the item kind's or feat line's place in its list, or
+    /// 0). An empty slot is the tag `EMPTY` alone.
     pub(crate) fn code(self) -> (u8, u16) {
         match self {
             Content::Power(row) => (1, row),
@@ -319,6 +345,7 @@ impl Content {
             Content::Mine => (3, 0),
             Content::Feat(line) => (4, line as u16),
             Content::Stealth => (5, 0),
+            Content::Device(row) => (DEVICE, row),
         }
     }
 
@@ -330,17 +357,20 @@ impl Content {
             (3, 0) => Some(Content::Mine),
             (4, _) => FeatLine::ALL.get(at).copied().map(Content::Feat),
             (5, 0) => Some(Content::Stealth),
+            (DEVICE, row) => Some(Content::Device(row)),
             _ => None,
         }
     }
 
-    /// Where a `Contents` keeps it. A power is kept by its row. Anything
-    /// else is kept by its bit among the others, where the item kinds come
-    /// first, then mines, the feat lines and stealth mode.
+    /// Where a `Contents` keeps it. A power and a device are kept by their
+    /// rows, each in a set of its own. Anything else is kept by its bit
+    /// among the others, where the item kinds come first, then mines, the
+    /// feat lines and stealth mode.
     fn bit(self) -> Bit {
         const MINE: u16 = Shelf::ALL.len() as u16;
         match self {
             Content::Power(row) => Bit::Power(row),
+            Content::Device(row) => Bit::Device(row),
             Content::Item(shelf) => Bit::Other(shelf as u16),
             Content::Mine => Bit::Other(MINE),
             Content::Feat(line) => Bit::Other(MINE + 1 + line as u16),
@@ -352,21 +382,25 @@ impl Content {
 /// Where a `Contents` keeps a content (`Content::bit`).
 enum Bit {
     Power(u16),
+    Device(u16),
     Other(u16),
 }
 
-/// A set of bar contents, as bits. A power past the last row the sheet
-/// can know is never in it.
+/// A set of bar contents, as bits. A power or a device past the last row
+/// the sheet can know is never in it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Contents {
     powers: Powers,
     others: Rows<1>,
+    /// The devices, by their `spells.2da` rows.
+    devices: Powers,
 }
 
 impl Contents {
     pub fn insert(&mut self, content: Content) {
         match content.bit() {
             Bit::Power(row) => self.powers.insert(row),
+            Bit::Device(row) => self.devices.insert(row),
             Bit::Other(bit) => self.others.insert(bit),
         }
     }
@@ -374,13 +408,19 @@ impl Contents {
     pub fn has(&self, content: Content) -> bool {
         match content.bit() {
             Bit::Power(row) => self.powers.has(row),
+            Bit::Device(row) => self.devices.has(row),
             Bit::Other(bit) => self.others.has(bit),
         }
     }
 
-    fn encode(&self, out: &mut Writer) {
+    /// Writes the set as a snapshot of `versions` holds it. A snapshot
+    /// older than devices on the bar holds no devices.
+    fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
         write_rows(&self.powers, out);
         write_rows(&self.others, out);
+        if holds_devices(versions) {
+            write_rows(&self.devices, out);
+        }
     }
 
     fn decode(input: &mut Reader) -> Result<Contents, DecodeError> {
@@ -390,7 +430,16 @@ impl Contents {
         if others.rows().any(|bit| usize::from(bit) >= OTHER_BITS) {
             return Err(input.invalid("action bar content seen", at));
         }
-        Ok(Contents { powers, others })
+        let devices = if input.since(crate::since::snapshot::FIX_SONIC_EMITTER_BAR) {
+            read_rows(input, "action bar device seen")?
+        } else {
+            Powers::default()
+        };
+        Ok(Contents {
+            powers,
+            others,
+            devices,
+        })
     }
 }
 
@@ -477,6 +526,28 @@ impl Bar {
             self.first_fill(sheet, rules, hand);
         } else if self.learned(sheet) {
             self.place_learned(sheet, rules);
+        }
+        *self != before
+    }
+
+    /// Puts each of `devices` (`spells.2da` rows) that the bar has not seen
+    /// before in the first empty slot of the whole bar, and marks it as
+    /// seen. A device the player later takes off the bar stays off. When
+    /// every slot is full, the device is only marked as seen, and the
+    /// player can still put it on the bar from the setup screen. Whether
+    /// the bar changed.
+    pub fn place_devices(&mut self, devices: &[u16]) -> bool {
+        let before = *self;
+        for row in devices.iter().copied().filter(|row| *row < Powers::ROWS) {
+            let content = Content::Device(row);
+            if self.seen.has(content) {
+                continue;
+            }
+            self.seen.insert(content);
+            let empty = self.slots.iter().position(Option::is_none);
+            if let Some(slot) = empty.filter(|_| self.slot_of(content).is_none()) {
+                self.slots[slot] = Some(content);
+            }
         }
         *self != before
     }
@@ -568,7 +639,11 @@ impl Bar {
     pub(crate) fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
         let ten = versions.snapshot >= crate::since::snapshot::FEAT_ACTION_BAR_TEN_SLOTS.1;
         let stored = if ten { SLOTS } else { KEPT };
+        // A snapshot older than devices on the bar holds a device's slot
+        // as an empty one.
+        let devices = holds_devices(versions);
         for slot in &self.slots[..stored] {
+            let slot = slot.filter(|content| devices || !matches!(content, Content::Device(_)));
             match slot.map(Content::code) {
                 None => out.u8(EMPTY),
                 Some((tag, value)) => {
@@ -579,7 +654,7 @@ impl Bar {
         }
         write_rows(&self.hidden, out);
         write_rows(&self.unhidden, out);
-        self.seen.encode(out);
+        self.seen.encode_as(out, versions);
         out.u8(u8::from(self.filled));
     }
 
