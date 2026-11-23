@@ -1,0 +1,4 @@
+# The sim's hash moves on purpose: a scripted walk to an object no longer
+# fails when no way leads there. It walks up to a door that will not open
+# for it and waits there, or stands and looks again, until a way opens.
+sim = "a scripted move to an object waits at a locked door until it opens, instead of failing after half a second"

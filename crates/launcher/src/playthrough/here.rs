@@ -260,7 +260,7 @@ impl<'a> Here<'a> {
             now,
             &|index| self.to_try(index),
             &|face| round && self.walls(face),
-            false,
+            (false, false),
         )
     }
 

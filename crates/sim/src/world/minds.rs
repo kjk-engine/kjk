@@ -410,7 +410,9 @@ pub(super) fn think(
         if let Some(walker) = mind.walker.as_mut().filter(|_| carried(&player.0)) {
             walker.keep_headway(now, &player.0);
         }
-        let command = scripted_walk(mind, &level.0, &player.0, goal, now, &party_ways);
+        let waits = crate::script::actions::waits_at_doors(scripts.state.actions.get(&id.0.0));
+        let ways = crate::walk::ThroughShut(&party_ways, waits);
+        let command = scripted_walk(mind, &level.0, &player.0, goal, now, &ways);
         fighting.0.last_command = command;
         driven.0.push(id.0);
     }
@@ -821,7 +823,12 @@ pub(super) fn think(
         let mut paced_fight = false;
         let mut out_of_reach = false;
         let mut command = match mind.task {
-            _ if let Some(goal) = scripted => scripted_walk(mind, &level.0, ps, goal, now, opening),
+            _ if let Some(goal) = scripted => {
+                let waits =
+                    crate::script::actions::waits_at_doors(scripts.state.actions.get(&id.0.0));
+                let ways = crate::walk::ThroughShut(opening, waits);
+                scripted_walk(mind, &level.0, ps, goal, now, &ways)
+            }
             Task::Engage => {
                 let entry = target.expect("engaging a target");
                 let weapon = in_hand;

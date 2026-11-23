@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2bd309d59cea8eeb`.
+Edition `ba2035cbbd36bd76`.
 
 ## Contents
 
@@ -13189,7 +13189,14 @@ character opens or uses a door or an object from within
 2 meters.
 
 If a script orders a move to a place that cannot be reached, the move fails
-after 0.5 seconds. If a character's movement stalls
+after 0.5 seconds. A move to an object never fails this way.
+When the only way to the object leads through a door that will not open for
+the character, such as a locked door, the character walks up to that door
+and waits in front of it. It never passes the door while the door stays
+shut, and walks on once the door opens. When no way leads to the object at
+all, the character stands still and looks for a way again every
+2 seconds or a little more. If a
+character's movement stalls
 6 times in a row, its scripted move ends
 where the character stands.
 
@@ -13207,9 +13214,9 @@ A scripted move ends when the character is within 0.1 meters of its destination,
 
 <a id="scripts-moves-grace-ms"></a>**Failed Move** = **0.5 seconds** (`500 ms`) · `scripts.moves.grace_ms`
 
-A scripted move to a place that cannot be reached fails after 0.5 seconds.
+A scripted move to a place that cannot be reached fails after 0.5 seconds. A scripted move to an object does not fail this way. The character waits, in front of a locked door when one is in the way, until a way to the object opens.
 
-<sub>Source: ours. Code: `sim::script::MOVE_GRACE_MS`.</sub>
+<sub>Source: ours (TSL's executable keeps a move to an object going: `ActionMoveToObject` queues a check that queues the move again until the mover is in range). Code: `sim::script::MOVE_GRACE_MS`.</sub>
 
 <a id="scripts-moves-check-ms"></a>**Path Check** = **0.25 seconds** (`250 ms`) · `scripts.moves.check_ms`
 

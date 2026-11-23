@@ -70,6 +70,14 @@ pub fn passable(level: &Level, index: u32, state: ObjectState) -> bool {
     })
 }
 
+/// Whether the level's entity `index` is a door.
+fn is_door(level: &Level, index: u32) -> bool {
+    level
+        .placed()
+        .get(index as usize)
+        .is_some_and(|object| object.kind == ObjectKind::Door)
+}
+
 /// The corners of a route from a character standing at `from` to one
 /// standing at `to` (origins, units), where a standing character's origin
 /// would be at each; the goal last; through the objects `state` says
@@ -374,6 +382,36 @@ pub trait Ways {
     /// in a way out the walk is not to take.
     fn leads_out(&self, _body: Vec3) -> bool {
         false
+    }
+    /// Whether a walk that finds no way plans through the doors that will
+    /// not open for it, walks up to the first and waits there until it
+    /// opens (`ThroughShut`).
+    fn waits_at_shut(&self) -> bool {
+        false
+    }
+}
+
+/// `ways`, and whether the walk waits at a shut door: true for a script's
+/// move to an object (`script::actions::waits_at_doors`). Such a walk with
+/// no way past the doors as they stand plans through those that will not
+/// open for it (a locked door), walks up to the door and waits there, never
+/// passing it, and walks on once it opens. TSL's `ActionMoveToObject` keeps
+/// its move going until the mover is in range. TSLRCM sends Atris to her
+/// meditation chamber at the Telos academy so, before its locked door opens.
+pub struct ThroughShut<'a>(pub &'a dyn Ways, pub bool);
+
+impl Ways for ThroughShut<'_> {
+    fn door(&self, index: u32) -> ObjectState {
+        self.0.door(index)
+    }
+    fn walls(&self, face: u32) -> bool {
+        self.0.walls(face)
+    }
+    fn leads_out(&self, body: Vec3) -> bool {
+        self.0.leads_out(body)
+    }
+    fn waits_at_shut(&self) -> bool {
+        self.1
     }
 }
 
@@ -1051,7 +1089,7 @@ impl Walker {
             now_ms,
             &|index| ways.door(index),
             &|face| ways.walls(face),
-            true,
+            (true, ways.waits_at_shut()),
         )
     }
 
@@ -1071,13 +1109,15 @@ impl Walker {
             now_ms,
             &|index| ways.door(index),
             &|face| ways.walls(face),
-            false,
+            (false, false),
         )
     }
 
     /// `command`, planning off the faces `walled` names (`route_round`);
     /// with `waits`, a walk that finds no way waits KOTOR's pathfinding wait
-    /// before it looks again (`pathfind_wait_ms`).
+    /// before it looks again (`pathfind_wait_ms`); with `through_shut`, one
+    /// with no way plans through the doors that will not open for it
+    /// (`ThroughShut`).
     pub fn command_round(
         &mut self,
         level: &Level,
@@ -1085,7 +1125,7 @@ impl Walker {
         now_ms: u64,
         state: &dyn Fn(u32) -> ObjectState,
         walled: &dyn Fn(u32) -> bool,
-        waits: bool,
+        (waits, through_shut): (bool, bool),
     ) -> Command {
         let idle = mind::looking(player, player.view[0], player.view[1]);
         if self.arrived(player) {
@@ -1114,7 +1154,7 @@ impl Walker {
         // a moment later is walked through (a_903kreia's d_entrance).
         let waiting = self.waypoint.is_none() && now_ms < self.since_ms;
         if !waiting && (self.waypoint.is_none() || reached || stalled) {
-            self.plan(level, player.origin, state, walled, stalled);
+            self.plan(level, player.origin, (state, through_shut), walled, stalled);
             self.since_ms = match self.waypoint {
                 None if waits => now_ms + pathfind_wait_ms(now_ms, self.goal),
                 _ => now_ms,
@@ -1138,12 +1178,14 @@ impl Walker {
     /// The corner to make for next from `at` (`route_round` through the
     /// objects `state` says, off the faces `walled` names; with `skip`, past
     /// one it stands beside, `next_corner`), or back onto the mesh; its
-    /// headway counted afresh.
+    /// headway counted afresh. With `through_shut` and no way through the
+    /// doors as they stand, the way through the doors that will not open
+    /// for it, as if open (`ThroughShut`).
     fn plan(
         &mut self,
         level: &Level,
         at: Vec3,
-        state: &dyn Fn(u32) -> ObjectState,
+        (state, through_shut): (&dyn Fn(u32) -> ObjectState, bool),
         walled: &dyn Fn(u32) -> bool,
         skip: bool,
     ) {
@@ -1155,8 +1197,19 @@ impl Walker {
         // against the South Apartments' wall by the raid).
         let back = back_on(level, at);
         let under = back.filter(|on| math::flat_distance(*on, at) <= REACHED);
-        self.waypoint = route_round(level, at, self.goal, state, walled)
-            .or_else(|| route_round(level, under?, self.goal, state, walled))
+        let route = |state: &dyn Fn(u32) -> ObjectState| {
+            route_round(level, at, self.goal, state, walled)
+                .or_else(|| route_round(level, under?, self.goal, state, walled))
+        };
+        // A door that will not open, as if open one way (`ObjectState::state`).
+        let opened = |index: u32| match state(index) {
+            shut if !passable(level, index, shut) && is_door(level, index) => {
+                ObjectState { state: 1, ..shut }
+            }
+            stands => stands,
+        };
+        self.waypoint = route(state)
+            .or_else(|| route(&opened).filter(|_| through_shut))
             .and_then(|corners| next_corner(&corners, at, skip, self.since_ms == 0))
             .or(back.filter(|_| under.is_none()));
         self.best = f32::MAX;
@@ -1644,9 +1697,15 @@ pub fn kotor_step(
         .find(|&index| ways.door(index).state == 0 && !touches(at, index));
     if let Some(door) = shut {
         // One it may not open (locked, scenery, or the held party's: `state`
-        // shuts it, `opening_none`) is no way: the walk is given up.
+        // shuts it, `opening_none`) is no way: the walk is given up, but
+        // for a walk that waits at such a door (`ThroughShut`), which stands
+        // before it, its stalls not counted, until it opens.
         if !passable(level, door, ways.door(door)) {
-            route.give_up();
+            if ways.waits_at_shut() {
+                route.stalls = 0;
+            } else {
+                route.give_up();
+            }
         }
         return Some(stand(None, shut));
     }
@@ -1662,7 +1721,7 @@ pub fn kotor_step(
         route.plan(
             level,
             origin,
-            &|index| ways.door(index),
+            (&|index| ways.door(index), ways.waits_at_shut()),
             &|face| ways.walls(face),
             false,
         );
