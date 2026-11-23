@@ -1683,7 +1683,9 @@ folder that holds other files is refused. The export has two parts.
   - `kjk-journal-<project>.jrl`: the project's own quests. kjk adds them
     to the game's journal when it loads.
   - `kjk-mod-<project>.toml`: the mod's name, its version, its levels, its
-    quests, and every file it brings with its size and its digest.
+    quests, and every file it brings with its size and its digest. It
+    also lists the files of other mods the project was built on (see
+    "A project built on another mod" below).
 
 `kjk-mod-readme.txt` beside the two folders says how to install the mod,
 and how many of its files the original game reads.
@@ -1691,6 +1693,39 @@ and how many of its files the original game reads.
 **A mod's version.** `edit mod version TEXT` sets the version the mod says
 it is, and saves the project. It is 1 until it is set. `edit mod version`
 says it. The version is kept in `project.toml`.
+
+**A project built on another mod.** The editor reads the game as kjk
+does, with the mods installed in it. A mod's loose file in the game's
+override folder wins over the game's own file. A module's mod file
+(`modules/<module>.mod`) wins over the module's own archives. A community
+patch and a restored content mod install both kinds of file. So the
+levels, templates, conversations and scripts the editor shows are the
+installed mods' versions.
+
+The asset picker tags what another mod brings. A tile with the tag
+**override** is read from the override folder. A tile with the tag **mod**
+is read from the level's mod file. The game's own files and the project's
+own files have no tag. In `catalog.json` the same templates have the field
+`from`, which is `override` or `mod`. A template of another level (the
+**Other levels** check box) has no tag.
+
+When a project is exported, the editor looks through every level of the
+project. A level names its templates, and a template names its items, its
+conversations and its scripts. Each of these files that the game reads
+from the override folder or from a mod file, and that the project does not
+bring itself, is listed in `kjk-mod-<project>.toml` under `[[needs]]`,
+with its size and its digest. A file larger than 1 MB is listed with its
+size alone. The answer to `export` says how many files are listed.
+
+The listed files are not copied into the mod. A player installs the other
+mod first. kjk reads the list at its start. It says when a listed file is
+missing, and when a listed file differs from the one the project was
+built on, which means the other mod is installed in another version. The
+original game gives no such warning.
+
+Two things are not looked for. A mod's models and textures are not listed,
+because a level names them through the game's tables. A line of text that
+only a mod's `dialog.tlk` has is not listed either.
 
 **Removing a mod.** A mod is removed by deleting the files that its
 `kjk-mod-<project>.toml` lists, and then that file.
@@ -1703,6 +1738,8 @@ says:
 - when two mods list a file of the same name. The game reads the copy
   that was installed last, so one of the two mods is not whole;
 - when a file of a mod is missing, or is not the one the mod brought;
+- when a file of another mod that a mod was built on is missing, or is
+  not the one it was built on;
 - when two mods bring a quest of the same tag. The first one read is
   kept.
 

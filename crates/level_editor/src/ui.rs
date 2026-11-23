@@ -5395,7 +5395,8 @@ fn assets(
                         ui.horizontal(|ui| {
                             for (asset, label) in items.iter().skip(row * per_row).take(per_row) {
                                 let picked = ui_state.picked.as_ref() == Some(asset);
-                                let response = tile(ui, ctx, ui_state, asset, label, picked);
+                                let tag = asset_tag(state, asset);
+                                let response = tile(ui, ctx, ui_state, asset, label, picked, tag);
                                 if response.drag_started() {
                                     ui_state.picked = Some(asset.clone());
                                     egui::DragAndDrop::set_payload(ctx, asset.clone());
@@ -5422,8 +5423,23 @@ fn assets(
         });
 }
 
+/// The tag of an asset that another mod brings (`state::mod_tag`): a
+/// template or a room's model the game reads from an override folder or
+/// from a module's mod file.
+fn asset_tag(state: &EditorState, asset: &Asset) -> Option<&'static str> {
+    let (name, restype) = match asset {
+        Asset::Template(AssetKind::Placeable, name) => (name, ResType::UTP),
+        Asset::Template(AssetKind::Creature, name) => (name, ResType::UTC),
+        Asset::Template(AssetKind::Door, name) => (name, ResType::UTD),
+        Asset::Template(AssetKind::Room, name) => (name, ResType::MDL),
+        Asset::Object(kind, name) => (name, kind.list_and_type().1),
+        _ => return None,
+    };
+    state::mod_tag(state, name, restype)
+}
+
 /// One asset's tile: its thumbnail (or its kind while it is drawn) and its
-/// name.
+/// name. `tag` says that another mod brings the asset (`asset_tag`).
 fn tile(
     ui: &mut egui::Ui,
     ctx: &egui::Context,
@@ -5431,6 +5447,7 @@ fn tile(
     asset: &Asset,
     label: &str,
     picked: bool,
+    tag: Option<&'static str>,
 ) -> egui::Response {
     let frame = egui::Frame::group(ui.style()).fill(if picked {
         ui.visuals().selection.bg_fill
@@ -5528,8 +5545,26 @@ fn tile(
         });
     });
     let id = egui::Id::new(("asset", format!("{asset:?}")));
-    ui.interact(shown.response.rect, id, egui::Sense::click_and_drag())
-        .on_hover_text(label)
+    let response = ui.interact(shown.response.rect, id, egui::Sense::click_and_drag());
+    let Some(tag) = tag else {
+        return response.on_hover_text(label);
+    };
+    // The tag, in the tile's top left corner.
+    let font = egui::FontId::proportional(10.0);
+    let text = ui
+        .painter()
+        .layout_no_wrap(tag.to_string(), font, egui::Color32::BLACK);
+    let corner = shown.response.rect.left_top() + egui::vec2(3.0, 3.0);
+    let back = egui::Rect::from_min_size(corner, text.size() + egui::vec2(6.0, 2.0));
+    ui.painter()
+        .rect_filled(back, 3.0, egui::Color32::from_rgb(240, 190, 80));
+    ui.painter()
+        .galley(corner + egui::vec2(3.0, 1.0), text, egui::Color32::BLACK);
+    let from = match tag {
+        "override" => "A mod brings it: the game reads it from its override folder.",
+        _ => "A mod brings it: the game reads it from the level's mod file.",
+    };
+    response.on_hover_text(format!("{label}\n{from}"))
 }
 
 fn viewport(

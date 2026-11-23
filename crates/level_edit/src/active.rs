@@ -296,7 +296,31 @@ pub fn activate_mods(discovery: &Discovery) -> &'static [Active] {
             }
         }
         files.sort();
-        let found = crate::mods::read(&files);
+        let mut found = crate::mods::read(&files);
+        // What the mods were built on: a file of the override folder, or
+        // a mod file of the game's `modules/` folder.
+        if found.mods.iter().any(|manifest| !manifest.needs.is_empty()) {
+            let modules: Vec<(String, std::path::PathBuf)> = std::fs::read_dir(&install.data_root)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.is_dir()
+                        && (path.file_name().and_then(|name| name.to_str()))
+                            .is_some_and(|name| name.eq_ignore_ascii_case("modules"))
+                })
+                .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
+                .map(|entry| {
+                    (
+                        entry.file_name().to_string_lossy().to_ascii_lowercase(),
+                        entry.path(),
+                    )
+                })
+                .collect();
+            let notes = crate::mods::needs_notes(&found.mods, &files, &modules);
+            found.notes.extend(notes);
+        }
         if found.is_empty() && found.notes.is_empty() {
             continue;
         }

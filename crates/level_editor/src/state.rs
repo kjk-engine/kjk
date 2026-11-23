@@ -1979,6 +1979,19 @@ pub(crate) fn light_digest(state: &EditorState) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
+/// The tag of a file that another mod brings: `override` when the game
+/// reads it from an override folder, `mod` when it reads it from the
+/// level's mod file. None for the game's own files, for the project's and
+/// for a file the edited level does not have.
+pub(crate) fn mod_tag(state: &EditorState, name: &str, restype: ResType) -> Option<&'static str> {
+    use vfs::resolver::Origin;
+    match state.setup.resolver.find(name, restype)?.origin() {
+        Origin::Override => Some("override"),
+        Origin::ModFile => Some("mod"),
+        Origin::Game | Origin::Project => None,
+    }
+}
+
 /// Whether the bake the project keeps of this level is stale: it says what
 /// it was made from (`level_edit::lighting::MADE_FROM`), and the level's
 /// lights are no longer that. A kept bake that does not say is not marked.
@@ -2708,9 +2721,18 @@ fn command_words(
                     .join(&project.name),
                 words => PathBuf::from(words.join(" ")),
             };
-            let exported = level_edit::mods::export(project, &to)?;
+            let needs = crate::elsewhere::needs(state);
+            let exported = level_edit::mods::export(project, &to, &needs)?;
+            let built_on = match exported.needs {
+                0 => String::new(),
+                1 => ". It was built on 1 file of another mod, which a player must install first"
+                    .to_string(),
+                count => format!(
+                    ". It was built on {count} files of other mods, which a player must install first"
+                ),
+            };
             let said = format!(
-                "exported {} as a mod to {}: {} files the games read and {} that only kjk reads",
+                "exported {} as a mod to {}: {} files the games read and {} that only kjk reads{built_on}",
                 project.name,
                 to.display(),
                 exported.game_files,

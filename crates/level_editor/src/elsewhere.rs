@@ -122,6 +122,95 @@ fn names_in(item: &GffStruct, found: &mut BTreeSet<String>) {
     }
 }
 
+/// The kinds of file a level's files name by a resource's name.
+const NAMED: [ResType; 11] = [
+    ResType::UTC,
+    ResType::UTP,
+    ResType::UTD,
+    ResType::UTT,
+    ResType::UTS,
+    ResType::UTM,
+    ResType::UTE,
+    ResType::UTW,
+    ResType::UTI,
+    ResType::DLG,
+    ResType::NCS,
+];
+
+/// A file of another mod by its path from the game's folder, lowercase:
+/// `override/<its path inside the override folder>` or
+/// `modules/<the mod file>`.
+fn mod_path(found: &vfs::resolver::Resolved<'_>) -> Option<String> {
+    let path = &found.location.path;
+    let name = path.file_name()?.to_string_lossy().to_ascii_lowercase();
+    match found.origin() {
+        vfs::resolver::Origin::ModFile => Some(format!("modules/{name}")),
+        vfs::resolver::Origin::Override => {
+            // The file's path below the override folder: TSL reads its
+            // subfolders too.
+            let parts: Vec<String> = path
+                .iter()
+                .map(|part| part.to_string_lossy().to_ascii_lowercase())
+                .collect();
+            let inside = match parts.iter().rposition(|part| part == "override") {
+                Some(at) => parts[at + 1..].join("/"),
+                None => name,
+            };
+            Some(format!("override/{inside}"))
+        }
+        _ => None,
+    }
+}
+
+/// Every file of another mod the project's levels are built on
+/// (`level_edit::mods::Manifest::needs`): its path from the game's folder
+/// and where it is. A level names its templates, which name their items,
+/// conversations and scripts. A file counts when the game reads it from an
+/// override folder or from a module's mod file, and the project does not
+/// bring its own. The project is read as its folder holds it, so it is
+/// saved first.
+pub(crate) fn needs(state: &EditorState) -> Vec<(String, std::path::PathBuf)> {
+    let project = &state.editor.project;
+    let discovery = kjk_game::discover();
+    let mut needs = BTreeMap::new();
+    for (module, area) in project.level_list() {
+        let Ok(source) = kjk_game::viewer::resolver(&discovery, state.setup.game, Some(&module))
+        else {
+            continue;
+        };
+        let mut seen = BTreeSet::new();
+        let mut queue = vec![
+            (area.to_ascii_lowercase(), ResType::GIT),
+            (area.to_ascii_lowercase(), ResType::ARE),
+            ("module".to_string(), ResType::IFO),
+        ];
+        while let Some((name, restype)) = queue.pop() {
+            if !seen.insert((name.clone(), restype)) {
+                continue;
+            }
+            let Some(found) = source.find(&name, restype) else {
+                continue;
+            };
+            if let Some(path) = mod_path(&found) {
+                needs.insert(path, found.location.path.clone());
+            }
+            if restype == ResType::NCS {
+                continue;
+            }
+            let Some(gff) = (found.location.read().ok()).and_then(|bytes| Gff::parse(&bytes).ok())
+            else {
+                continue;
+            };
+            let mut named = BTreeSet::new();
+            names_in(&gff.root, &mut named);
+            for name in named {
+                queue.extend(NAMED.iter().map(|kind| (name.clone(), *kind)));
+            }
+        }
+    }
+    needs.into_iter().collect()
+}
+
 /// Reads the template `name` of `restype` from the other level that has it,
 /// with what it names. `None` when no other level has it. `as_template` is
 /// whether the template itself becomes one of the project's (a door and a

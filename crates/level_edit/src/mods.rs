@@ -75,6 +75,13 @@ pub struct Manifest {
     /// (`override/kje_item.uti`), its size in bytes and its BLAKE3 digest
     /// in hex.
     pub files: Vec<(String, u64, String)>,
+    /// Every file of another mod it was built on, as `files` lists its
+    /// own: a loose file of the game's override folder
+    /// (`override/k_patched.utc`) or a module's mod file
+    /// (`modules/danm13.mod`). The mod's levels name these files and the
+    /// game alone does not have them. A file larger than `CHECKED_BYTES`
+    /// has no digest.
+    pub needs: Vec<(String, u64, String)>,
 }
 
 impl Manifest {
@@ -98,6 +105,17 @@ impl Manifest {
                 "\n[[file]]\npath = {path:?}\nsize = {size}\nhash = {hash:?}\n"
             ));
         }
+        if !self.needs.is_empty() {
+            text.push_str(
+                "\n# The files of other mods this mod was built on. They are not part of\n\
+                 # this mod. Install the mods that bring them first.\n",
+            );
+        }
+        for (path, size, hash) in &self.needs {
+            text.push_str(&format!(
+                "\n[[needs]]\npath = {path:?}\nsize = {size}\nhash = {hash:?}\n"
+            ));
+        }
         text
     }
 
@@ -118,25 +136,30 @@ impl Manifest {
         if name.is_empty() {
             return Err("it names no mod".into());
         }
-        let files = (document.get("file"))
-            .and_then(toml_edit::Item::as_array_of_tables)
-            .map_or_else(Vec::new, |tables| {
-                tables
-                    .iter()
-                    .filter_map(|table| {
-                        let path = table.get("path")?.as_str()?.to_ascii_lowercase();
-                        let size = table.get("size")?.as_integer()?;
-                        let hash = table.get("hash")?.as_str()?.to_string();
-                        Some((path, u64::try_from(size).ok()?, hash))
-                    })
-                    .collect()
-            });
+        let listed = |key: &str| {
+            (document.get(key))
+                .and_then(toml_edit::Item::as_array_of_tables)
+                .map_or_else(Vec::new, |tables| {
+                    tables
+                        .iter()
+                        .filter_map(|table| {
+                            let path = table.get("path")?.as_str()?.to_ascii_lowercase();
+                            let size = table.get("size")?.as_integer()?;
+                            let hash = table.get("hash")?.as_str()?.to_string();
+                            Some((path, u64::try_from(size).ok()?, hash))
+                        })
+                        .collect()
+                })
+        };
+        let files = listed("file");
+        let needs = listed("needs");
         Ok(Manifest {
             name,
             version: word("version"),
             levels: words("levels"),
             quests: words("quests"),
             files,
+            needs,
         })
     }
 }
@@ -266,6 +289,67 @@ pub fn read(files: &[(String, PathBuf)]) -> Found {
     found
 }
 
+/// What the mods were built on that is not installed, or is another
+/// version, as notes for the person (`Manifest::needs`). `files` is every
+/// file of the game's override folder by its lowercase path inside it, and
+/// `modules` every file of the game's `modules/` folder by its lowercase
+/// name.
+pub fn needs_notes(
+    mods: &[Manifest],
+    files: &[(String, PathBuf)],
+    modules: &[(String, PathBuf)],
+) -> Vec<String> {
+    let mut notes = Vec::new();
+    for manifest in mods {
+        let (mut missing, mut other) = (Vec::new(), Vec::new());
+        for (path, size, hash) in &manifest.needs {
+            let on_disk = match path.split_once('/') {
+                Some(("override", inside)) => files.iter().find(|(had, _)| had == inside),
+                Some(("modules", name)) => modules.iter().find(|(had, _)| had == name),
+                _ => None,
+            };
+            let Some((_, on_disk)) = on_disk else {
+                missing.push(path.as_str());
+                continue;
+            };
+            let length = std::fs::metadata(on_disk).map_or(0, |meta| meta.len());
+            let same = length == *size
+                && (hash.is_empty()
+                    || length > CHECKED_BYTES
+                    || digest_of(on_disk).is_ok_and(|now| now == *hash));
+            if !same {
+                other.push(path.as_str());
+            }
+        }
+        for (what, paths) in [
+            (
+                "These files of that mod are missing, so install that mod first",
+                missing,
+            ),
+            (
+                "These files of that mod differ from the ones it was built on, so that mod is installed in another version",
+                other,
+            ),
+        ] {
+            if paths.is_empty() {
+                continue;
+            }
+            let shown: Vec<&str> = paths.iter().take(6).copied().collect();
+            let more = match paths.len().saturating_sub(shown.len()) {
+                0 => String::new(),
+                more => format!(" and {more} more"),
+            };
+            notes.push(format!(
+                "the mod {} {} was built on another mod, such as a community patch or a restored content mod. {what}: {}{more}",
+                manifest.name,
+                manifest.version,
+                shown.join(", ")
+            ));
+        }
+    }
+    notes
+}
+
 /// What the mods found both change, and what of a mod is missing or was
 /// replaced, as notes for the person: the games read one file of a name,
 /// so the mod copied last wins without a word.
@@ -372,6 +456,9 @@ pub struct Exported {
     pub game_files: usize,
     /// How many files only kjk reads.
     pub kjk_files: usize,
+    /// How many files of other mods the mod was built on
+    /// (`Manifest::needs`).
+    pub needs: usize,
 }
 
 fn failed(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
@@ -380,8 +467,14 @@ fn failed(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
 
 /// Exports `project`, as its folder holds it (saved), as a mod in the
 /// folder `to`, in place of an export made there before. A folder that
-/// holds something else is refused.
-pub fn export(project: &Project, to: &Path) -> Result<Exported, String> {
+/// holds something else is refused. `needs` is every file of another mod
+/// the project's levels name (`Manifest::needs`): its path from the game's
+/// folder and where it is on this machine.
+pub fn export(
+    project: &Project,
+    to: &Path,
+    needs: &[(String, PathBuf)],
+) -> Result<Exported, String> {
     let empty = std::fs::read_dir(to).map_or(true, |mut entries| entries.next().is_none());
     if !empty && !to.join(README).is_file() {
         return Err(format!(
@@ -397,6 +490,7 @@ pub fn export(project: &Project, to: &Path) -> Result<Exported, String> {
     let mut exported = Exported {
         game_files: 0,
         kjk_files: 0,
+        needs: needs.len(),
     };
 
     // What the games read: every file at the top of the project's folder
@@ -511,7 +605,19 @@ pub fn export(project: &Project, to: &Path) -> Result<Exported, String> {
             .collect(),
         quests: quest_tags,
         files: Vec::new(),
+        needs: Vec::new(),
     };
+    for (path, on_disk) in needs {
+        let size = std::fs::metadata(on_disk).map_err(failed(on_disk))?.len();
+        let hash = if size > CHECKED_BYTES {
+            String::new()
+        } else {
+            digest_of(on_disk)?
+        };
+        manifest.needs.push((path.to_ascii_lowercase(), size, hash));
+    }
+    manifest.needs.sort();
+    manifest.needs.dedup();
     let mut folders = vec![(String::new(), to.to_path_buf())];
     while let Some((inside, at)) = folders.pop() {
         for entry in std::fs::read_dir(&at).map_err(failed(&at))?.flatten() {

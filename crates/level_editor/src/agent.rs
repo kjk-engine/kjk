@@ -778,6 +778,8 @@ fn template_entry(
     }
     if let Some(module) = module {
         entry.insert("level".into(), serde_json::json!(module));
+    } else if let Some(from) = state::mod_tag(state, name, restype) {
+        entry.insert("from".into(), serde_json::json!(from));
     }
     serde_json::Value::Object(entry)
 }

@@ -160,7 +160,11 @@ words, it says so among `messages`.
   the lamps found so far. Each template and each item is an object with
   `name`, which a command takes, and `shown`, the name the game shows
   for it. A creature also has `creature_level`, the sum of its class
-  levels. A template with `level` is in that level's files only. Adding
+  levels. A template with `from` is another installed mod's: `override`
+  when the game reads it from its override folder, `mod` when it reads
+  it from the level's mod file. A project that uses it needs that mod
+  (`docs/LEVEL-EDIT.md`, "A project built on another mod"). A template
+  with `level` is in that level's files only. Adding
   it copies it into the project (`docs/LEVEL-EDIT.md`, "Templates of the
   game's other levels"). The first `catalog` of a session looks through
   every level of the game and takes a few seconds.

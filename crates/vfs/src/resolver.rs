@@ -352,7 +352,49 @@ pub struct Resolved<'a> {
     pub shadowed: Vec<(&'a Layer, &'a Location)>,
 }
 
+/// Where a resource comes from, as a person who installs mods sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Origin {
+    /// The game's own archives.
+    Game,
+    /// A mod's loose file in an override folder (`Resolved::is_mod`).
+    Override,
+    /// A module's `.mod` file, which a mod puts in the game's `modules/`
+    /// folder in place of the module's own archives. Neither game ships
+    /// one.
+    ModFile,
+    /// The active level editor project's own file (`crate::project`).
+    Project,
+}
+
+impl Origin {
+    /// Whether the resource is another mod's: not the game's and not the
+    /// project's.
+    pub fn is_mod(self) -> bool {
+        matches!(self, Origin::Override | Origin::ModFile)
+    }
+}
+
 impl Resolved<'_> {
+    /// Where the resource comes from (`Origin`).
+    pub fn origin(&self) -> Origin {
+        let own = self.layer.name == crate::project::LAYER
+            || crate::project::active()
+                .is_some_and(|(_, folder)| self.location.path.starts_with(folder));
+        if own {
+            Origin::Project
+        } else if self.is_mod() {
+            Origin::Override
+        } else if in_folder(&self.layer.name)
+            .to_ascii_lowercase()
+            .ends_with(".mod")
+        {
+            Origin::ModFile
+        } else {
+            Origin::Game
+        }
+    }
+
     /// Whether the resource is a mod's. A mod's file is read from an
     /// override folder (the game's own or a Workshop item's), and it is
     /// not one of the files Aspyr's KOTOR 2 ships there itself
