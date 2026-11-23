@@ -3196,12 +3196,13 @@ fn lightmapped_cut_out_by_diffuse() {
     }
 }
 
-/// A texture's mean alpha (`TextureIr::alpha_mean`), the number KOTOR sorts
-/// its textures by when it draws them, the ones with the least alpha last:
-/// RGBA8 averages its alpha bytes, a DXT5 block reads its alpha palette, and
-/// DXT1 has none. No installs (proposed 2026-11-23, not yet approved).
+/// A texture's mean alpha (`TextureIr::image_alpha_mean`) is the number KOTOR
+/// draws its textures in the order of, the ones with the least alpha last.
+/// An RGBA8 texture averages its alpha bytes. A DXT5 texture reads the alpha
+/// palette of each block. A DXT1 texture has no alpha, so its mean is 1. No
+/// installs (proposed 2026-11-23, not yet approved).
 #[test]
-fn texture_alpha_mean() {
+fn texture_image_alpha_mean() {
     use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
 
     let texture = |encoding: Encoding, level: Vec<u8>| TextureIr {
@@ -3218,7 +3219,7 @@ fn texture_alpha_mean() {
     let half: Vec<u8> = (0..16)
         .flat_map(|texel| [10, 20, 30, if texel < 8 { 255 } else { 0 }])
         .collect();
-    assert_eq!(texture(Encoding::Rgba8, half).alpha_mean(), 0.5);
+    assert_eq!(texture(Encoding::Rgba8, half).image_alpha_mean(), 0.5);
     // One DXT5 block: alpha 255 for index 0 and 0 for index 1, the first
     // eight texels the first and the last eight the second.
     let mut block = vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -3227,8 +3228,8 @@ fn texture_alpha_mean() {
         bits |= 1 << (3 * texel);
     }
     block[2..8].copy_from_slice(&bits.to_le_bytes()[..6]);
-    assert_eq!(texture(Encoding::Bc3, block).alpha_mean(), 0.5);
-    assert_eq!(texture(Encoding::Bc1, vec![0; 8]).alpha_mean(), 1.0);
+    assert_eq!(texture(Encoding::Bc3, block).image_alpha_mean(), 0.5);
+    assert_eq!(texture(Encoding::Bc1, vec![0; 8]).image_alpha_mean(), 1.0);
 }
 
 /// A transparency hint above 1 blends a mesh only when its texture has

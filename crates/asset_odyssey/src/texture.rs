@@ -233,59 +233,24 @@ impl TextureIr {
         })
     }
 
-    /// The mean alpha of its largest level, from 0 to 1: the number KOTOR's
-    /// executable sorts its textures by when it draws them, the ones with
-    /// the least alpha last. A texture with no alpha at all is 1.
-    pub fn alpha_mean(&self) -> f32 {
+    /// The mean alpha of its largest level, from 0 to 1. A texture with no
+    /// alpha at all is 1. KOTOR's executable draws its textures in the
+    /// order of this number, the ones with the least alpha last.
+    pub fn image_alpha_mean(&self) -> f32 {
         let Some(level) = self.mips.first() else {
             return 1.0;
         };
-        let (sum, count) = match self.encoding {
-            Encoding::Bc1 | Encoding::Bc1Holes => return 1.0,
-            Encoding::Rgba8 => (
-                level
-                    .as_chunks::<4>()
-                    .0
-                    .iter()
-                    .map(|pixel| f64::from(pixel[3]) / 255.0)
-                    .sum::<f64>(),
-                level.len() / 4,
-            ),
-            Encoding::Bc3 => {
-                let mut sum = 0.0;
-                let blocks = level.as_chunks::<16>().0;
-                for block in blocks {
-                    let (a0, a1) = (f64::from(block[0]), f64::from(block[1]));
-                    let palette: [f64; 8] = if block[0] > block[1] {
-                        std::array::from_fn(|i| match i {
-                            0 => a0,
-                            1 => a1,
-                            _ => ((8 - i) as f64 * a0 + (i - 1) as f64 * a1) / 7.0,
-                        })
-                    } else {
-                        std::array::from_fn(|i| match i {
-                            0 => a0,
-                            1 => a1,
-                            6 => 0.0,
-                            7 => 255.0,
-                            _ => ((6 - i) as f64 * a0 + (i - 1) as f64 * a1) / 5.0,
-                        })
-                    };
-                    let mut bits = 0u64;
-                    for (i, byte) in block[2..8].iter().enumerate() {
-                        bits |= u64::from(*byte) << (8 * i);
-                    }
-                    for texel in 0..16 {
-                        sum += palette[((bits >> (3 * texel)) & 7) as usize] / 255.0;
-                    }
+        match self.encoding {
+            Encoding::Bc1 | Encoding::Bc1Holes => 1.0,
+            Encoding::Bc3 => dxt::dxt5_alpha_mean(level),
+            Encoding::Rgba8 => {
+                let pixels = level.as_chunks::<4>().0;
+                if pixels.is_empty() {
+                    return 1.0;
                 }
-                (sum, blocks.len() * 16)
+                let sum: u64 = pixels.iter().map(|pixel| u64::from(pixel[3])).sum();
+                sum as f32 / (pixels.len() * 255) as f32
             }
-        };
-        if count == 0 {
-            1.0
-        } else {
-            (sum / count as f64) as f32
         }
     }
 

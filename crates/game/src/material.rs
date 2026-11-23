@@ -676,9 +676,9 @@ impl Surface {
 /// cards, `m02aa_10b`, lightmapped planes whose DXT5 hides a black field and
 /// the author's mark). Decal only when every texture is one; additive when any texture says so, with
 /// alpha or without, as KOTOR's executable reads a texture's TXI (xoreos
-/// only without). KOTOR meshes always carry a hint, so a hint above 1 with a
-/// texture that has alpha, or a decal, makes a mesh transparent, but not a
-/// skinned one (`skinned`): a
+/// only without). KOTOR meshes always carry a hint. A hint above 1 makes a
+/// mesh transparent when its texture has alpha, and so does a decal. A
+/// skinned mesh (`skinned`) is not made transparent by its hint. A
 /// character's skin is one closed mesh that a draw without depth shows
 /// through itself (TSL's `pfhc06` carries 2 on its whole head, and its mouth
 /// and nose showed through its face), so it blends with the depth kept
@@ -691,11 +691,12 @@ impl Surface {
 /// is its bump's mask, not coverage: opaque, as reone has it (xoreos ignores the bump map and
 /// blends by it, so the Hutts and the rancor showed through); reone still
 /// discards its alpha-0 texels, which would leave pinholes, so none are.
-/// A hint above 1 does not blend a mesh whose texture has no alpha. KOTOR's
-/// executable never reads the hint to blend: it blends every mesh by its
-/// texture's alpha and writes depth, so such a mesh is solid. TSL's
-/// Dantooine slab (`brok04` of `605dank`, hint 4) drawn without depth hid
-/// the ivy (`brok05`) that grows on it.
+/// A hint above 1 does not blend a mesh whose texture has no alpha.
+/// KOTOR's executable never reads the hint to blend. It blends every mesh
+/// by its texture's alpha and writes depth, so a mesh with a texture that
+/// has no alpha is solid. TSL's Dantooine slab (`brok04` of `605dank`,
+/// hint 4) was drawn blended and without depth, and it hid the ivy
+/// (`brok05`) that grows on it.
 /// A punch-through diffuse with alpha is cut out (`Cutout`), as KOTOR's
 /// executable draws it: the Wookiees' fur. Blended, its faint edges wrote
 /// depth and hid the parts of the body drawn after them.
@@ -1436,13 +1437,13 @@ impl OdysseyMaterial {
         self.culled = true;
     }
 
-    /// Its back faces culled (`culled`), or not.
     /// Its sort rank (`rank`).
     pub fn ranked(mut self, rank: f32) -> OdysseyMaterial {
         self.rank = rank;
         self
     }
 
+    /// Its back faces culled (`culled`), or not.
     pub fn culled(mut self, culled: bool) -> OdysseyMaterial {
         self.culled = culled;
         self
@@ -1524,7 +1525,7 @@ fn prepass_reads_as_main() -> Result<String, String> {
 pub const OPAQUE_FIRST: f32 = -1.0e5;
 /// How far apart the ranks 0 and 1 of blended opaque surfaces sort
 /// (`OdysseyMaterial::rank`): more than any distance in view.
-const RANK_STEP: f32 = 1.0e3;
+pub const RANK_STEP: f32 = 1.0e4;
 
 /// `depth_bias` of an emitter's particles: nearer than anything in view,
 /// so they are drawn after the meshes, as KOTOR draws its emitters after
