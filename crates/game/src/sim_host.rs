@@ -635,7 +635,9 @@ impl Job {
                     loading.screen = true;
                     loading.progress = loading.progress.max(0.1);
                 }
-                Ok(JobMessage::Progress(progress)) => loading.progress = progress,
+                Ok(JobMessage::Progress(progress)) => {
+                    loading.progress = loading.progress.max(progress);
+                }
                 Ok(JobMessage::Prepared(prepared)) => return Some(*prepared),
                 Err(TryRecvError::Empty) => return None,
                 Err(TryRecvError::Disconnected) => {

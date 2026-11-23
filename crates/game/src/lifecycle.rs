@@ -20,6 +20,12 @@ use crate::installs::{self, Install};
 use crate::modules::ResolverSource;
 use crate::viewer::{self, LoadedScene};
 
+/// How far a module's preparation has got (0 to 1, the loading screen's
+/// bar) once its archives are open, and once its plan and scene are done.
+/// The plan fills what lies between.
+const OPENED: f32 = 0.25;
+const PLANNED: f32 = 0.9;
+
 /// Whether this process's plans open the ways the games keep sealed
 /// (`data/links`, `session::Overrides::playtest_links`): set once at start
 /// by `--playtest-links`, so every module a session goes to plans alike.
@@ -381,6 +387,7 @@ impl Installer {
             self.anims.clone(),
             self.overrides(false),
             Some(&self.areas),
+            &|_| {},
         )
         .map_err(|error| error.to_string())
     }
@@ -405,7 +412,7 @@ impl Installer {
         let started = Instant::now();
         let resolver = self.resolver(&request.module)?;
         let open_ms = started.elapsed().as_secs_f64() * 1000.0;
-        progress(0.25);
+        progress(OPENED);
         // The scene needs only the module's IR, read again for it (a few
         // milliseconds): it is built beside the plan rather than after.
         let ((plan, plan_ms), scene) = std::thread::scope(|scope| {
@@ -417,6 +424,7 @@ impl Installer {
                 self.anims.clone(),
                 self.overrides(true),
                 Some(&self.areas),
+                &|done| progress(OPENED + done * (PLANNED - OPENED)),
             );
             let plan_ms = started.elapsed().as_secs_f64() * 1000.0;
             let scene =
@@ -432,7 +440,7 @@ impl Installer {
             }
             None => (None, 0.0),
         };
-        progress(0.9);
+        progress(PLANNED);
         Ok(Prepared {
             plan,
             scene,
