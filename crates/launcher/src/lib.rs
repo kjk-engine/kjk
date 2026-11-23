@@ -674,6 +674,30 @@ fn linux_environment() {
     }
 }
 
+/// Whether `command` reads a game's data, and with it the mods for kjk in
+/// the games' override folders (`cli_project::activate_mods`). Reading them
+/// lists each override folder, digests the mods' files and builds their
+/// Jedi Academy rooms. The commands that only find the installs, look at
+/// the store or open a report need none of that, so they start without
+/// it. `kjk installs` is one of them, and the launcher runs it at every
+/// start.
+fn reads_mods(command: Option<&Command>) -> bool {
+    !matches!(
+        command,
+        Some(
+            Command::Games
+                | Command::Installs { .. }
+                | Command::Store { .. }
+                | Command::Report {
+                    verb: ReportVerb::Show { .. }
+                }
+                | Command::Movie {
+                    verb: MovieVerb::Check
+                }
+        )
+    )
+}
+
 /// Parses the command line and runs what it asks for.
 pub fn run() -> ExitCode {
     launch_times::start();
@@ -701,8 +725,9 @@ pub fn run() -> ExitCode {
         eprintln!("--project {name}: {error}");
         return ExitCode::from(2);
     }
-    // Without one, the mods in the games' override folders give theirs.
-    if cli.project.is_none() {
+    // Without one, the mods in the games' override folders give theirs,
+    // to a command that reads a game's data.
+    if cli.project.is_none() && reads_mods(cli.command.as_ref()) {
         cli_project::activate_mods();
     }
     // The runs that play (a module, the menu, a session) read the installs:

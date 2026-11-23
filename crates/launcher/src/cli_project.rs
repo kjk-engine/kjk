@@ -8,7 +8,8 @@ use crate::discover;
 
 /// Takes what the mods in the games' `override/` hold for kjk as this
 /// run's (`level_edit::active::activate_mods`), when no project was named:
-/// a mod the level editor exported plays without `--project`.
+/// a mod the level editor exported plays without `--project`. A command
+/// that reads no game data does not call it (`reads_mods`).
 pub(crate) fn activate_mods() {
     for active in level_edit::active::activate_mods(&discover()) {
         let levels: Vec<String> = (active.project.level_list().into_iter())

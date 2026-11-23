@@ -1782,7 +1782,9 @@ as the editor does. Building t1_sour's hangar took 0.6 seconds.
 `kjk-mod-<project>.toml` lists, and then that file.
 
 **Two mods together.** kjk reads the list of every mod at its start, and
-says:
+says what follows. The commands that read no game data skip this, so they
+start at once: `kjk installs`, `kjk games`, `kjk store`, `kjk report show`
+and `kjk movie check`.
 
 - which mods it found, each with its version and how many files and
   quests it brings;
