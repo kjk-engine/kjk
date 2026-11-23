@@ -41,9 +41,7 @@ pub fn is_item(id: ObjectId) -> bool {
 }
 
 /// Whether `item` is a stack that `holder` carries and that an item of
-/// `kind` may join (not one that never runs out). As both games compare
-/// two items before stacking them (`Kind`), the upgrades must match too:
-/// K1's rows fitted and TSL's upgrade items by slot.
+/// `kind` may join. A stack that never runs out is not one.
 fn joinable(item: &Item, kind: Kind, holder: u32) -> bool {
     item.holder == holder
         && item.slot.is_none()
@@ -55,10 +53,10 @@ fn joinable(item: &Item, kind: Kind, holder: u32) -> bool {
         && item.charges == kind.charges
 }
 
-/// What makes items stack, as both games compare two items: the template,
-/// K1's upgrades, TSL's fitted parts, the plot flag and the charges. The
-/// games also compare an item's tag, name and stolen flag, which an item
-/// here has no copy of.
+/// What makes items stack, as both games compare two items before stacking
+/// them. The upgrades are K1's rows fitted and TSL's upgrade items by slot.
+/// The games also compare an item's tag, name and stolen flag, which an
+/// item here has no copy of.
 #[derive(Clone, Copy)]
 struct Kind<'a> {
     template: &'a str,

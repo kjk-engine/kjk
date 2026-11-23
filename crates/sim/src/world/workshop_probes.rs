@@ -625,6 +625,7 @@ fn assembled(world: &mut SimWorld, me: u32) -> Checks {
     checks.extend(stacks_upgraded(world));
     checks.extend(lone_unscoped(&mut self::world()));
     checks.extend(plot_pistol_unscoped(&mut self::world()));
+    checks.extend(charged_pistol_unscoped(&mut self::world()));
     checks
 }
 
@@ -740,8 +741,8 @@ fn lone_unscoped(world: &mut SimWorld) -> Checks {
 }
 
 /// A scoped pistol that is a plot item loses its scope next to a plain
-/// pistol: the two stay apart, as the games refuse to stack items whose
-/// plot flags differ, and a pistol made afterwards joins the plain one.
+/// pistol. The two stay apart, as the games refuse to stack items whose
+/// plot flags differ. A pistol given afterwards joins the plain one.
 fn plot_pistol_unscoped(world: &mut SimWorld) -> Checks {
     let scoped = give(world, "survivor", PARTY, None);
     let scope = give(world, "scope", PARTY, None);
@@ -781,5 +782,41 @@ fn plot_pistol_unscoped(world: &mut SimWorld) -> Checks {
             now == [(1, vec![]), (2, vec![])] && plot,
             format!("{now:?}, plot {plot}"),
         ),
+    )]
+}
+
+/// A scoped pistol with 3 charges loses its scope next to a plain pistol
+/// with none. The two stay apart, as the games refuse to stack items whose
+/// charges differ.
+fn charged_pistol_unscoped(world: &mut SimWorld) -> Checks {
+    let scoped = give(world, "survivor", PARTY, None);
+    let scope = give(world, "scope", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::In {
+                upgrade: scope,
+                replace: None,
+            }],
+        }],
+    );
+    let mut state = world.script_state().clone();
+    if let Some(mut held) = state.items.get_mut(&scoped) {
+        held.charges = 3;
+    }
+    world.set_script_state(state);
+    give(world, "survivor", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::Out(0)],
+        }],
+    );
+    let now = survivors(world);
+    vec![(
+        "a pistol with 3 charges unscoped: stays its own stack beside the plain pistol",
+        check(now == [(1, vec![]), (1, vec![])], format!("{now:?}")),
     )]
 }

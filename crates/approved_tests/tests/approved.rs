@@ -4536,7 +4536,7 @@ fn real_mods() {
 /// Assemble. The sim alone (proposed 2026-11-17, awaiting approval).
 #[test]
 fn workbench() {
-    probed("workbench", &sim::workshop_probes::probes(), 17);
+    probed("workbench", &sim::workshop_probes::probes(), 18);
 }
 
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
