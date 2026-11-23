@@ -101,6 +101,10 @@ This document defines how player-facing descriptions in `kjk` (`data/rules/*.tom
 - **No-no:** Using `{...:bare} ms` in player-facing text (*"plus 1500 ms"*).
 - **Instead:** Use `{...:s}` (*"plus 1.5 seconds"*).
 
+### 18. Writing a vague overview with no numbers
+- **No-no:** Saying *"grants Force points"* or *"adds a bonus to hit"* in a section `summary` when the child rule holding the number has no `applies` tag — leaving the in-game tooltip with no numbers at all.
+- **Instead:** Include the actual `{placeholders}` directly in the section `summary` (*"Grants +40 Force points once when learned."*, *"Grants +2 / +4 / +6 to hit an enemy an ally is attacking."*).
+
 ---
 
 ## Quick Checklist Before Saving Any `summary`

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5f916e34486213e6`.
+Edition `8b10f20ca06f252e`.
 
 ## Contents
 
@@ -1878,49 +1878,50 @@ Sense and the droid Logic Upgrades add to Defense as class bonuses.
 
 ### <a id="feats-weapon"></a>Weapon Training
 
-A character needs a weapon's proficiency feat to equip it. Weapon Focus
-adds a bonus to hit with that type of weapon. Weapon Specialization adds a
-bonus to its damage.
+You need a weapon's proficiency feat to equip it. Weapon Focus grants
++1 to hit with that weapon type; Weapon
+Specialization grants +2 to damage.
 
 <a id="feats-weapon-focus"></a>**Weapon Focus** = **1 points** · `feats.weapon.focus`
 
-Weapon Focus adds a +1 bonus to hit with weapons of the feat's type.
+Grants +1 to hit with this weapon type.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::damage::attack_bonus`.</sub>
 
 <a id="feats-weapon-not-proficient"></a>**Nonproficiency Penalty** = **4 points** · `feats.weapon.not_proficient`
 
-A character using a weapon without the matching proficiency feat suffers a -4 penalty to hit. The Proficiency All feat counts as every proficiency.
+Lets you equip this weapon type (fighting without proficiency inflicts -4 to hit). Proficiency All covers every weapon.
 
-A player character cannot equip such a weapon. A creature that already has one equipped fights with it at this penalty.
+Player characters cannot equip a weapon without its proficiency. Creatures that spawn with one equipped fight with it at this penalty.
 
 <sub>Source: KOTOR's d20 rules (reone). Code: `sim::combat::damage::attack_bonus`.</sub>
 
 <a id="feats-weapon-specialization"></a>**Weapon Specialization** = **2 points** · `feats.weapon.specialization`
 
-Weapon Specialization adds a +2 bonus to damage with weapons of the feat's type.
+Grants +2 damage with this weapon type.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::damage::weapon_roll`.</sub>
 
 ### <a id="feats-two-weapon"></a>Two-Weapon Fighting and Dueling
 
-A character fighting with a double weapon, or with a weapon in each hand,
-suffers a penalty to hit with both hands. Two-Weapon Fighting, Improved
-Two-Weapon Fighting and Master Two-Weapon Fighting reduce this penalty. A
-balanced weapon in the off hand further reduces the main hand's penalty. A
-small weapon, such as a short sword or a short lightsaber, is balanced. A
-double weapon counts as its own balanced off-hand weapon. A character
-fighting with a single one-handed weapon and nothing in the other hand
-gains the Dueling bonus instead. The three tiers of Dueling add +1, +2 and
-+3 to hit and to Defense.
+Dual-wielding or using a double weapon inflicts a hit penalty
+(-6/-10
+untrained, -6/-6
+with Two-Weapon Fighting, -4/-4
+Improved, -2/-2
+Master). A balanced off-hand weapon (such as a short sword or short
+lightsaber) or a double weapon reduces the main-hand penalty by
+2. Fighting with a single one-handed weapon
+and an empty off hand gains Dueling instead: +1 / +2 / +3 to hit and
+Defense.
 
-The double weapons are the double-bladed sword, the double-bladed vibroblade, the double-bladed lightsaber, the quarterstaff, the gaffi stick, the Wookiee warblade and the force pike. The equip page shows the main-hand numbers for one end of a double weapon and the off-hand numbers for the other end. In a real-time fight, every swing with a double weapon counts as a main-hand attack.
+Double weapons: double-bladed sword, double-bladed vibroblade, double-bladed lightsaber, quarterstaff, gaffi stick, Wookiee warblade, and force pike. The equip page shows main-hand numbers for one end and off-hand for the other; in real-time combat, every swing counts as a main-hand attack.
 
 <a id="feats-two-weapon-main-hand"></a>**Main Hand Penalty** = **-6 points / -6 points / -4 points / -2 points** (`-6 / -6 / -4 / -2 points`) · `feats.two_weapon.main_hand`
 
 untrained **-6 points** · Two-Weapon Fighting **-6 points** · Improved **-4 points** · Master **-2 points**
 
-The main hand suffers a -6 penalty to hit without training, -6 with Two-Weapon Fighting, -4 with Improved Two-Weapon Fighting and -2 with Master Two-Weapon Fighting.
+Main-hand hit penalty: -6 (untrained), -6 (Two-Weapon Fighting), -4 (Improved), -2 (Master).
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1928,13 +1929,13 @@ The main hand suffers a -6 penalty to hit without training, -6 with Two-Weapon F
 
 untrained **-10 points** · Two-Weapon Fighting **-6 points** · Improved **-4 points** · Master **-2 points**
 
-The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon Fighting, -4 with Improved Two-Weapon Fighting and -2 with Master Two-Weapon Fighting.
+Off-hand hit penalty: -10 (untrained), -6 (Two-Weapon Fighting), -4 (Improved), -2 (Master).
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
 <a id="feats-two-weapon-balanced"></a>**Balanced Weapon** = **2 points** · `feats.two_weapon.balanced`
 
-A balanced weapon in the off hand, or a double weapon, reduces the main hand's penalty by 2.
+A balanced off-hand weapon or a double weapon reduces the main-hand penalty by 2.
 
 <sub>Source: the feats' descriptions (the game's "Balanced"); both games' attack rolls count a weapon with weaponwield 3 as its own balanced off-hand weapon. Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1942,9 +1943,9 @@ A balanced weapon in the off hand, or a double weapon, reduces the main hand's p
 
 I **1 points** · II **2 points** · III **2 points**
 
-In KOTOR 2, Superior Two-Weapon Fighting I reduces the main hand's penalty by 1 more. Superior Two-Weapon Fighting II and III reduce it by 2 more.
+Reduces the main-hand dual-wield penalty by 1 (rank I) or 2 (ranks II and III). Rank III also reduces the off-hand penalty by 1.
 
-These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply to blasters as well as to melee weapons and lightsabers.
+KOTOR 2 Jedi Weapon Master / Sith Marauder feats. Applies to blasters as well as melee weapons and lightsabers.
 
 <sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 with the first feat, +2 with the second or third) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1952,81 +1953,86 @@ These feats belong to the Jedi Weapon Master and the Sith Marauder. They apply t
 
 I **0 points** · II **0 points** · III **1 points**
 
-In KOTOR 2, Superior Two-Weapon Fighting III reduces the off hand's penalty by 1. The first two ranks leave the off hand's penalty as it is.
+Superior Two-Weapon Fighting III reduces the off-hand penalty by 1.
 
 <sub>Source: TSL's executable (its melee and ranged attack bonuses: +1 to the off hand with the third feat only) and the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
 ### <a id="feats-saves"></a>Saving Throws
 
-Conditioning, Improved Conditioning and Master Conditioning add +1, +2 and
-+3 to all saving throws. Uncanny Dodge 1 and Uncanny Dodge 2 add a bonus to
-saving throws against grenades.
+Conditioning, Improved Conditioning, and Master Conditioning grant +1 / +2
+/ +3 to all saving throws.
 
 <a id="feats-saves-uncanny-dodge"></a>**Uncanny Dodge Grenade Bonus** = **2 points** · `feats.saves.uncanny_dodge`
 
-Uncanny Dodge 1 and Uncanny Dodge 2 each add +2 to Reflex saves against grenades.
+Grants +2 to Reflex saves against grenades (for both Uncanny Dodge 1 and 2).
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::grenade_save_bonus`.</sub>
 
 ### <a id="feats-skills"></a>Skill Feats
 
-Caution adds to Demolitions and Stealth. Empathy adds to Persuade,
-Awareness and Treat Injury. Gear Head adds to Repair, Security and Computer
-Use. Each tier of these feats adds its bonus again. Perceptive adds to
-Stealth and Awareness, and each Skill Focus feat adds to its own skill. A
-skill feat adds to a skill even when the character has no ranks in it.
-Demolitions, Stealth and Security are the exception. Only a character who
-has ranks in these skills can use them, so without ranks their total is 0.
-Both games' executables work this way.
+Caution boosts Demolitions and Stealth; Empathy boosts Persuade, Awareness,
+and Treat Injury; Gear Head boosts Repair, Security, and Computer Use;
+Perceptive boosts Stealth and Awareness; Skill Focus boosts its named
+skill. Skill bonuses apply even with 0 ranks, except for trained-only
+skills (Demolitions, Stealth, and Security).
 
 <a id="feats-skills-line-per-tier"></a>**Skill Feat Bonus** = **1 points / 1 points / 1 points / 2 points** (`1 / 1 / 1 / 2 points`) · `feats.skills.line_per_tier`
 
 Caution **1 points** · Empathy **1 points** · Gear Head **1 points** · Perceptive **2 points**
 
-Each tier of Caution adds +1 to each of its skills. Each tier of Empathy adds +1, and each tier of Gear Head adds +1. Perceptive adds +2.
+Grants +1 per tier (Caution), +1 per tier (Empathy), +1 per tier (Gear Head), or +2 (Perceptive) to each of its skills.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::skill_bonus`.</sub>
 
 <a id="feats-skills-skill-focus"></a>**Skill Focus** = **2 points** · `feats.skills.skill_focus`
 
-Skill Focus adds a +2 bonus to its skill.
+Grants +2 to this skill.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::skill_bonus`.</sub>
 
 ### <a id="feats-toughness"></a>Toughness
 
-Toughness and Master Toughness each add +1 vitality point per level. This
-includes the levels the character gained before learning the feat. Wookiee
-Toughness adds more vitality points per level. Improved Toughness and
-Wookiee Toughness also reduce the damage of every hit.
+Toughness and Master Toughness each add +1 Vitality per level
+(retroactively). Improved Toughness reduces incoming damage by
+2 (physical hits in KOTOR 1) or by 1 per
+10 damage above
+20 (KOTOR 2). Wookiee Toughness I /
+II / III adds +2 /
++3 /
++4 Vitality per level and reduces every
+hit by 2 /
+5 /
+8 (plus 1 per
+20 /
+10 remaining damage at ranks II /
+III).
 
-In KOTOR, Improved Toughness reduces only physical damage, which is
-bludgeoning, piercing and slashing damage. Damage reduction never removes
-more damage than the hit deals.
+In KOTOR 1, Improved Toughness reduces only physical damage (bludgeoning,
+piercing, and slashing). Damage reduction never lowers a hit below 0.
 
 <a id="feats-toughness-wookiee-hp"></a>**Wookiee Toughness Vitality** = **0 HP / 2 HP / 3 HP / 4 HP** (`0 / 2 / 3 / 4 HP`) · `feats.toughness.wookiee_hp`
 
 none **0 HP** · Wookiee Toughness **2 HP** · II **3 HP** · III **4 HP**
 
-Wookiee Toughness adds +2 vitality points per level. Wookiee Toughness II adds +3 and Wookiee Toughness III adds +4.
+Adds +2 (rank I), +3 (rank II), or +4 (rank III) Vitality per level.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hp_per_level`.</sub>
 
 <a id="feats-toughness-improved-k1"></a>**Improved Toughness (KOTOR)** = **2 points** · `feats.toughness.improved_k1`
 
-In KOTOR, Improved Toughness reduces the physical damage of every hit by 2 points.
+In KOTOR 1, reduces physical damage from every hit by 2.
 
 <sub>Source: K1's description. Code: `sim::combat::passive::toughness`.</sub>
 
 <a id="feats-toughness-improved-tsl-over"></a>**Improved Toughness Threshold (KOTOR 2)** = **20 points** · `feats.toughness.improved_tsl_over`
 
-In KOTOR 2, Improved Toughness reduces every hit by 1 point for every 10 points of damage above 20.
+In KOTOR 2, reduces every hit by 1 per 10 damage above 20.
 
 <sub>Source: TSL's description. Code: `sim::combat::passive::toughness`.</sub>
 
 <a id="feats-toughness-improved-tsl-share"></a>**Improved Toughness Reduction (KOTOR 2)** = **10** · `feats.toughness.improved_tsl_share`
 
-In KOTOR 2, Improved Toughness reduces every hit by 1 point for every 10 points of damage above 20.
+In KOTOR 2, reduces every hit by 1 per 10 damage above 20.
 
 <sub>Source: TSL's description. Code: `sim::combat::passive::toughness`.</sub>
 
@@ -2034,7 +2040,7 @@ In KOTOR 2, Improved Toughness reduces every hit by 1 point for every 10 points 
 
 Wookiee Toughness **2 points** · II **5 points** · III **8 points**
 
-Wookiee Toughness reduces the damage of every hit by 2 points. Wookiee Toughness II reduces it by 5 points and Wookiee Toughness III by 8 points.
+Reduces every hit by 2 (rank I), 5 (rank II), or 8 (rank III).
 
 <sub>Source: the feats' descriptions (K1's; TSL's II and III). Code: `sim::combat::passive::toughness`.</sub>
 
@@ -2042,61 +2048,61 @@ Wookiee Toughness reduces the damage of every hit by 2 points. Wookiee Toughness
 
 II **20** · III **10**
 
-Wookiee Toughness II also reduces the damage that remains by 1 point for every 20 points. Wookiee Toughness III reduces it by 1 point for every 10 points.
+Reduces remaining damage by 1 per 20 (rank II) or 1 per 10 (rank III).
 
 <sub>Source: TSL's descriptions. Code: `sim::combat::passive::toughness`.</sub>
 
 ### <a id="feats-force-sensitive"></a>Force Sensitive
 
-Force Sensitive grants Force points once, when the character learns the feat.
+Grants +40 Force points once when learned.
 
 <a id="feats-force-sensitive-points"></a>**Force Sensitive Points** = **40 FP** · `feats.force_sensitive.points`
 
-Force Sensitive grants 40 Force points.
+Grants +40 Force points.
 
 <sub>Source: TSL's description. Code: `sim::combat::passive::learn`.</sub>
 
 ### <a id="feats-force-focus"></a>Force Focus
 
-Force Focus, Advanced Force Focus and Force Focus Mastery make a character's Force powers harder to resist. Only the highest of these feats counts.
+Adds +1 (Force Focus), +2 (Advanced), or +4 (Mastery) to your Force power save DCs. Only your highest rank applies.
 
 <a id="feats-force-focus-dc"></a>**Force Focus DC Bonus** = **1 points / 2 points / 4 points** (`1 / 2 / 4 points`) · `feats.force_focus.dc`
 
 Force Focus **1 points** · Advanced **2 points** · Mastery **4 points**
 
-Force Focus adds +1 to the DC of the character's Force powers. Advanced Force Focus adds +2 and Force Focus Mastery adds +4. Only the highest of these bonuses counts.
+Adds +1 (Force Focus), +2 (Advanced), or +4 (Mastery) to Force power save DCs.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::force`.</sub>
 
 ### <a id="feats-specials"></a>Feat Attacks for Ranged Weapons
 
-With a ranged weapon in hand, [Saber throw/kata/ranged feat] fires a feat
-attack that the character knows. The feat attacks are Power Blast, Rapid
-Shot and Sniper Shot. The type of gun does not decide which one is used.
-[Next feat attack] switches between the feat attacks the character knows,
-and each type of gun remembers its own choice. Until the character makes a
-choice, the first feat attack the character knows is used, in the order
-Power Blast, Rapid Shot, Sniper Shot. While [Saber throw/kata/ranged feat]
-is held, [Attack] does nothing. A character without any of these feats, or
-without enough stamina, fires normally with [Saber throw/kata/ranged feat].
-The penalties of a feat attack last for one round
-(3 seconds).
+Press [Saber throw/kata/ranged feat] with a ranged weapon to use your
+selected feat attack (Power Blast, Rapid Shot, or Sniper Shot), regardless
+of gun type. Press [Next feat attack] to switch (remembered per gun type;
+defaults to the first you know in that order). Feat attack penalties last
+one round (3 seconds). If you lack stamina or any ranged
+feat, it fires normally.
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
-A feat attack uses up 15% of the character's maximum stamina. It never uses Force points. Under the Advanced rules every character has Stamina and pays it. Under Jedi Academy's rules only a character who does not use the Force has stamina, so a Force user's feat attacks cost nothing there.
+Costs 15% of your max Stamina (never Force points). Under Jedi Academy rules, Force users pay nothing.
 
 <sub>Source: ours; Force users pay nothing under Jedi Academy's rules since Discord 2026-11-17 (feat attacks took Force points). Code: `sim::combat::specials::cost`.</sub>
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
-Keep [Saber throw/kata/ranged feat] pressed to charge a Power Blast, and
-release it to fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
-the charge, the stronger the shot.
+Hold [Saber throw/kata/ranged feat] to charge (up to
+5 steps of
+0.2 seconds; auto-fires at
+5 seconds), then release to fire a single
+charged shot. Grants +5 (Power
+Blast), +8 (Improved), or
++10 (Master) damage at a
+-3 penalty to hit.
 
 <a id="feats-specials-power-blast-step-ms"></a>**Charge Step** = **0.2 seconds** (`200 ms`) · `feats.specials.power_blast.step_ms`
 
-A Power Blast charges in steps of 0.2 seconds.
+Charges in steps of 0.2 seconds.
 
 The shot's damage counts the charge's whole steps as part of the attack's time, along with the weapon's time between shots. A shot let go before the first step ends counts no charge time, so tapping [Saber throw/kata/ranged feat] deals no more damage per second than holding it.
 
@@ -2104,13 +2110,13 @@ The shot's damage counts the charge's whole steps as part of the attack's time, 
 
 <a id="feats-specials-power-blast-steps"></a>**Charge Steps** = **5** · `feats.specials.power_blast.steps`
 
-A Power Blast charges for up to 5 steps.
+Charges for up to 5 steps.
 
 <sub>Source: JA (the Bryar's charge). Code: `sim::combat::specials::pull`.</sub>
 
 <a id="feats-specials-power-blast-limit-ms"></a>**Maximum Charge** = **5 seconds** (`5000 ms`) · `feats.specials.power_blast.limit_ms`
 
-A Power Blast that is charged for 5 seconds fires by itself.
+Auto-fires after 5 seconds of charging.
 
 <sub>Source: JA: weapon charge. Code: `sim::combat::specials::pull`.</sub>
 
@@ -2118,34 +2124,36 @@ A Power Blast that is charged for 5 seconds fires by itself.
 
 Power Blast **5 points** · Improved **8 points** · Master **10 points**
 
-Power Blast adds +5 damage. Improved Power Blast adds +8 and Master Power Blast adds +10.
++5 (Power Blast), +8 (Improved), or +10 (Master) damage.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
 <a id="feats-specials-power-blast-attack-penalty"></a>**Power Blast Penalty** = **3 points** · `feats.specials.power_blast.attack_penalty`
 
-A Power Blast suffers a -3 penalty to hit.
+Inflicts -3 to hit.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
 #### <a id="feats-specials-rapid-shot"></a>Rapid Shot
 
-[Saber throw/kata/ranged feat] shoots a burst of shots as soon as the
-weapon is ready.
-The weapon is ready to fire again one normal shot's time after the first
-shot of the burst, or when the burst ends if that is later. Every shot
-after the first is therefore an extra attack. For the round after the
-burst, the character suffers a penalty to attacks and Defense.
+Press [Saber throw/kata/ranged feat] to fire a burst of
+3 shots (Rapid Shot / Improved) or
+4 shots (Master), spaced
+0.15 seconds apart. For one round afterward, you
+take -4 (Rapid Shot),
+-2 (Improved), or
+-1 (Master) to attack and Defense
+(reduced by 1 per equipped item with a Rapid Shot bonus).
 
 <a id="feats-specials-rapid-shot-gap-ms"></a>**Burst Interval** = **0.15 seconds** (`150 ms`) · `feats.specials.rapid_shot.gap_ms`
 
-The shots of a burst are 0.15 seconds apart. They are closer together if the weapon's own rate of fire is faster.
+Shots in a burst fire 0.15 seconds apart (or faster if the weapon's own fire rate is faster).
 
 <sub>Source: JA (the E-11's alternate refire). Code: `sim::combat::specials::pull`.</sub>
 
 <a id="feats-specials-rapid-shot-shots"></a>**Rapid Shot Burst** = **3** · `feats.specials.rapid_shot.shots`
 
-Rapid Shot and Improved Rapid Shot fire a burst of 3 shots.
+Rapid Shot and Improved Rapid Shot fire 3 shots.
 
 In KOTOR, these feats allow one extra attack. The owner asked for more shots on 2 November 2026, because a single extra shot was worth little after its penalty to hit (`kjk combat duel --only gun_worth`).
 
@@ -2153,7 +2161,7 @@ In KOTOR, these feats allow one extra attack. The owner asked for more shots on 
 
 <a id="feats-specials-rapid-shot-multi-shots"></a>**Master Rapid Shot Burst** = **4** · `feats.specials.rapid_shot.multi_shots`
 
-Master Rapid Shot fires a burst of 4 shots.
+Master Rapid Shot fires 4 shots.
 
 In KOTOR, this feat allows two extra attacks. kjk adds one more shot, as it does for Rapid Shot (2 November 2026).
 
@@ -2163,30 +2171,31 @@ In KOTOR, this feat allows two extra attacks. kjk adds one more shot, as it does
 
 Rapid Shot **-4 points** · Improved **-2 points** · Master **-1 points**
 
-For the round after a burst, the character suffers a -4 penalty to attacks and Defense with Rapid Shot, -2 with Improved Rapid Shot and -1 with Master Rapid Shot. Each equipped item with a Rapid Shot bonus reduces these penalties by 1.
+For one round after a burst, inflicts -4 (Rapid Shot), -2 (Improved), or -1 (Master) to attack and Defense.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 
 #### <a id="feats-specials-sniper-shot"></a>Sniper Shot
 
-Hold [Saber throw/kata/ranged feat] to steady the gun, then let go to fire
-one shot. A
-character with a pistol in each hand fires both pistols at once. The shot
-has no spread. It gets a bonus to hit, and its critical threat range is
-multiplied. The critical threat range is the set of d20 rolls that can
-score a critical hit. The character can start to steady the gun while it
-is still cooling down after the last shot. If the character lets go once
-the gun is steady but before it is ready to fire again, the shot leaves as
-soon as the gun is ready. Until the shot leaves, the character moves at
-walking speed and cannot jump. Letting go before the gun is steady fires
-nothing and uses nothing. For the round after the shot, the character suffers a
-penalty to Defense. In kjk, Sniper Shot does not stun.
+Hold [Saber throw/kata/ranged feat] for
+0.5 seconds
+(0.25 seconds while aiming) to steady your
+shot, then release to fire with no spread (fires both pistols if
+dual-wielding). Grants +4 /
++6 /
++8 to hit and
+2× /
+3× /
+4× critical threat range
+(Sniper / Improved / Master). While steadying, you walk and cannot jump;
+for one round after firing, you take
+-5 Defense. Does not stun.
 
 <a id="feats-specials-sniper-shot-steady-ms"></a>**Sniper Shot Steadying** = **0.5 seconds / 0.25 seconds** (`500 / 250 ms`) · `feats.specials.sniper_shot.steady_ms`
 
 from the hip **0.5 seconds** · while aiming **0.25 seconds**
 
-A character steadies a Sniper Shot for 0.5 seconds before it can fire. A character who is already aiming steadies it for 0.25 seconds.
+Steadies in 0.5 seconds from the hip, or 0.25 seconds while aiming.
 
 <sub>Source: the owner's design, 2026-11-17. Code: `sim::combat::specials::pull, sim::combat::ai::choose_special`.</sub>
 
@@ -2194,7 +2203,7 @@ A character steadies a Sniper Shot for 0.5 seconds before it can fire. A charact
 
 Sniper Shot **×2** · Improved **×3** · Master **×4**
 
-Sniper Shot multiplies the critical threat range by 2. Improved Sniper Shot multiplies it by 3 and Master Sniper Shot by 4.
+Multiplies critical threat range by 2× (Sniper), 3× (Improved), or 4× (Master).
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
@@ -2202,7 +2211,7 @@ Sniper Shot multiplies the critical threat range by 2. Improved Sniper Shot mult
 
 Sniper Shot **4 points** · Improved **6 points** · Master **8 points**
 
-A Sniper Shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
+Grants +4 (Sniper), +6 (Improved), or +8 (Master) to hit.
 
 The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, a Sniper Shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
 
@@ -2210,76 +2219,74 @@ The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. Wit
 
 <a id="feats-specials-sniper-shot-defence-penalty"></a>**Sniper Shot Penalty** = **-5 points** · `feats.specials.sniper_shot.defence_penalty`
 
-For the round after a Sniper Shot, the character suffers a -5 penalty to Defense.
+Inflicts -5 Defense for one round after firing.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 
 ### <a id="feats-sneak-attack"></a>Sneak Attack
 
-Each Sneak Attack feat adds 1-6 points of extra
-damage when the target cannot defend itself against the attacker. This
-applies to attacks from behind, unless the target has Uncanny Dodge. It
-also applies to attacks against targets that are stunned, knocked down or
-choked, and to attacks against targets that are not yet in combat or have
-not yet noticed the attacker. Sneak Attack works only if the target is
-within 10 meters. A critical hit does not
-multiply the extra damage. A target that is immune to critical hits or to
-sneak attacks takes no extra damage.
+Each rank adds 1–6 extra damage within
+10 m when the target cannot defend itself:
+from behind (unless they have Uncanny Dodge), while stunned, knocked down,
+or choked, or before they notice you. Not multiplied on critical hits, and
+blocked by immunity to critical hits or sneak attacks.
 
-An attack counts as coming from behind if the attacker stands within the rear 90 degrees of the target. The first attack a character makes out of Stealth Mode also receives the bonus.
+Counts as behind when within the target's rear 90° arc. Your first attack out of Stealth Mode also triggers Sneak Attack.
 
 <a id="feats-sneak-attack-die"></a>**Sneak Attack Die** = **6** · `feats.sneak_attack.die`
 
-Each Sneak Attack feat adds 1-6 points of extra damage.
+Each Sneak Attack rank adds 1–6 extra damage.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::damage::weapon_damage`.</sub>
 
 <a id="feats-sneak-attack-reach-m"></a>**Sneak Attack Range** = **10 m** · `feats.sneak_attack.reach_m`
 
-Sneak Attack works only if the target is within 10 meters.
+Only triggers within 10 m.
 
 <sub>Source: the feats' descriptions (KOTOR's 10 m). Code: `sim::combat::specials::sneak_dice`.</sub>
 
 ### <a id="feats-targeting"></a>Targeting
 
-Targeting adds a bonus to hit with ranged weapons. Targeting I adds
-+1, and each tier after it adds 1 more, up
-to +8 with Targeting VIII. Each tier
-replaces the one before it.
+Grants +1 (Targeting I) up to
++8 (Targeting VIII) to hit with ranged
+weapons (+1 per rank; highest rank applies).
 
-A Scout is granted the tiers of Targeting at its class levels, as the feats' table says.
+Granted automatically to Scouts at class levels.
 
 <a id="feats-targeting-attack"></a>**Targeting Bonus** = **1 points / 2 points / 3 points / 4 points / 5 points / 6 points / 7 points / 8 points** (`1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 points`) · `feats.targeting.attack`
 
 Targeting I **1 points** · Targeting II **2 points** · Targeting III **3 points** · Targeting IV **4 points** · Targeting V **5 points** · Targeting VI **6 points** · Targeting VII **7 points** · Targeting VIII **8 points**
 
-Targeting I to VIII add +1 to +8 to hit with ranged weapons, one more for each tier.
+Grants +1 to +8 to hit with ranged weapons (Targeting I–VIII).
 
 <sub>Source: KOTOR 2's feat descriptions ("Level 1 scouts have a +1 attack bonus with ranged weapons", up to +8 at level 29). Code: `sim::combat::damage::attack_bonus`.</sub>
 
 ### <a id="feats-finesse"></a>Finesse
 
-Finesse: Lightsabers and Finesse: Melee Weapons let a character use the
-Dexterity modifier instead of the Strength modifier to hit, whichever is
-higher. Finesse: Lightsabers applies to lightsabers. Finesse: Melee Weapons
-applies to every other melee weapon, but not to unarmed attacks. The
-Strength modifier still adds to the damage.
+Uses your Dexterity modifier instead of Strength to hit if it is higher
+(Strength still sets damage). Finesse: Lightsabers applies to lightsabers;
+Finesse: Melee Weapons applies to all other melee weapons (not unarmed).
 
 ### <a id="feats-precise-shot"></a>Precise Shot
 
-Precise Shot adds to the damage of every ranged weapon attack. It also
-makes the attack's blaster bolts harder to deflect: the deflection bonus
-of the lightsaber or Force power that tries to turn a bolt suffers a
-penalty. Each tier replaces the one before it. Grenades and thrown
-lightsabers get neither bonus.
+Adds +1 /
++2 / +4
+/ +6 /
++8 ranged weapon damage (ranks I–V) and
+inflicts -2 /
+-4 /
+-6 /
+-8 /
+-10 to enemy blaster deflection.
+Does not apply to grenades or thrown lightsabers.
 
-A bolt that a character turned counts as that character's own from then on. The penalty against turning it again is that character's Precise Shot's.
+A deflected bolt becomes the deflector's own, using their Precise Shot penalty if deflected again.
 
 <a id="feats-precise-shot-damage"></a>**Precise Shot Damage** = **1 points / 2 points / 4 points / 6 points / 8 points** (`1 / 2 / 4 / 6 / 8 points`) · `feats.precise_shot.damage`
 
 Precise Shot I **1 points** · Precise Shot II **2 points** · Precise Shot III **4 points** · Precise Shot IV **6 points** · Precise Shot V **8 points**
 
-Precise Shot I to V add +1, +2, +4, +6 and +8 to the damage of ranged weapons.
+Adds +1 / +2 / +4 / +6 / +8 ranged damage (ranks I–V).
 
 <sub>Source: KOTOR 2's feat descriptions ("increases the damage done with ranged weapons by +1", +2, +4, +6 and +8). Code: `sim::combat::damage::weapon_roll`.</sub>
 
@@ -2287,95 +2294,92 @@ Precise Shot I to V add +1, +2, +4, +6 and +8 to the damage of ranged weapons.
 
 Precise Shot I **2 points** · Precise Shot II **4 points** · Precise Shot III **6 points** · Precise Shot IV **8 points** · Precise Shot V **10 points**
 
-Precise Shot I to V take 2, 4, 6, 8 and 10 points off the deflection bonus of anyone who tries to turn the character's blaster bolts.
+Inflicts -2 / -4 / -6 / -8 / -10 to enemy blaster deflection (ranks I–V).
 
 <sub>Source: KOTOR 2's feat descriptions ("applies a -2 penalty to any attempt to deflect the blaster bolt", up to -10). Code: `sim::combat::passive::deflect_penalty`.</sub>
 
 ### <a id="feats-close-combat"></a>Close Combat
 
-Close Combat and Improved Close Combat train a character to fight with a
-ranged weapon at close quarters. The character gains a bonus to hit with a
-ranged weapon when the target is at short range. Improved Close Combat
-replaces Close Combat.
+Grants +1 (Close Combat) or
++2 (Improved) to hit with ranged weapons
+against targets within 10 m.
 
-In KOTOR 2 the feats also lower a bonus that melee attackers have against
-a character who fights with a ranged weapon. This game gives melee
-attackers no such bonus, so that part of the feats does nothing here.
+In KOTOR 2 these feats also lower a melee-vs-ranged attacker bonus; kjk has
+no such bonus, so only the short-range attack bonus applies.
 
 <a id="feats-close-combat-attack"></a>**Close Combat Bonus** = **1 points / 2 points** (`1 / 2 points`) · `feats.close_combat.attack`
 
 Close Combat **1 points** · Improved Close Combat **2 points**
 
-Close Combat adds +1 and Improved Close Combat +2 to hit with a ranged weapon at a target at short range.
+Grants +1 (Close Combat) or +2 (Improved) to hit at short range.
 
 <sub>Source: KOTOR 2's feat descriptions ("When the character's target is at short range, they receive a +1 attack bonus", +2 with Improved Close Combat). Code: `sim::combat::passive::close_combat`.</sub>
 
 <a id="feats-close-combat-short-range-m"></a>**Short Range** = **10 m** · `feats.close_combat.short_range_m`
 
-A target counts as at short range for Close Combat when it is within 10 meters.
+Short range for Close Combat is within 10 m.
 
 <sub>Source: both games' ranges.2da (row WeaponRngShrt). Code: `sim::combat::passive::close_combat`.</sub>
 
 ### <a id="feats-dual-strike"></a>Dual Strike
 
-Dual Strike, Improved Dual Strike and Master Dual Strike add a bonus to
-hit an enemy that another member of the character's side is also
-attacking. Each tier replaces the one before it.
+Grants +2 (Dual Strike),
++4 (Improved), or
++6 (Master) to hit an enemy that an ally
+is already attacking.
 
-Another member of the side attacks an enemy when that enemy is its target. For the player's party, the side is the party.
+Counts when another member of your party (or side) is targeting the same enemy.
 
 <a id="feats-dual-strike-attack"></a>**Dual Strike Bonus** = **2 points / 4 points / 6 points** (`2 / 4 / 6 points`) · `feats.dual_strike.attack`
 
 Dual Strike **2 points** · Improved Dual Strike **4 points** · Master Dual Strike **6 points**
 
-Dual Strike adds +2, Improved Dual Strike +4 and Master Dual Strike +6 to hit an enemy that another member of the character's side is attacking.
+Grants +2 / +4 / +6 to hit an enemy an ally is attacking.
 
 <sub>Source: KOTOR 2's feat descriptions ("the character gets a +2 bonus to hit", +4 and +6). Code: `sim::combat::passive::dual_strike`.</sub>
 
 ### <a id="feats-unarmed-specialist"></a>Unarmed Specialist
 
-Unarmed Specialist adds extra damage to every unarmed attack. Unarmed
-Specialist I adds 1 die of
-1-4, and each tier after it adds one die
-more, up to 8 dice with Unarmed
-Specialist VIII. Each tier replaces the one before it.
+Adds 1d4
+(rank I) up to
+8d4
+(rank VIII) extra damage to unarmed attacks (+1 die per rank; highest rank
+applies).
 
-The Jedi classes are granted the tiers of Unarmed Specialist at their class levels, as the feats' table says.
+Granted automatically to Jedi classes at class levels.
 
 <a id="feats-unarmed-specialist-dice"></a>**Unarmed Specialist Dice** = **1 dice / 2 dice / 3 dice / 4 dice / 5 dice / 6 dice / 7 dice / 8 dice** (`1 / 2 / 3 / 4 / 5 / 6 / 7 / 8 dice`) · `feats.unarmed_specialist.dice`
 
 Unarmed Specialist I **1 dice** · Unarmed Specialist II **2 dice** · Unarmed Specialist III **3 dice** · Unarmed Specialist IV **4 dice** · Unarmed Specialist V **5 dice** · Unarmed Specialist VI **6 dice** · Unarmed Specialist VII **7 dice** · Unarmed Specialist VIII **8 dice**
 
-Unarmed Specialist I to VIII add 1 to 8 dice of extra damage to unarmed attacks.
+Adds 1 to 8 extra damage dice to unarmed attacks (ranks I–VIII).
 
 <sub>Source: KOTOR 2's feat descriptions ("adding 1-4 to damage to all unarmed attacks", then 2-8, 3-12 and so on up to 8-32). Code: `sim::combat::damage::weapon_roll`.</sub>
 
 <a id="feats-unarmed-specialist-die"></a>**Unarmed Specialist Die** = **4** · `feats.unarmed_specialist.die`
 
-Each die of Unarmed Specialist adds 1-4 points of damage.
+Each die adds 1–4 damage.
 
 <sub>Source: KOTOR 2's feat descriptions ("adding 1-4 to damage"). Code: `sim::combat::damage::weapon_roll`.</sub>
 
 ### <a id="feats-evasion"></a>Evasion
 
-A character with Evasion takes no damage from a grenade's blast when the
-Reflex save succeeds, where a character without it takes half.
+You take no damage from grenades on a successful Reflex save (instead of
+half).
 
-The games' own scripts decide the damage of mines and Force powers, and
-they check for Evasion themselves where they do. The engine applies
-Evasion only to the blasts it sizes itself.
+Mines and Force powers are handled by the games' own scripts, which check
+Evasion themselves. The engine applies Evasion to grenade blasts it
+resolves directly.
 
 ### <a id="feats-class-skill"></a>Class Skill Feats
 
-A Class Skill feat makes its skill a class skill for the character. A rank
-in the skill then takes 1 skill
-point instead of 2, and the skill may
-have as many ranks as any class skill.
+Turns this skill into a class skill: ranks cost
+1 skill point instead of
+2, with the full class-skill rank
+cap.
 
-In KOTOR 1 a class may pick a Class Skill feat only when the skill is not
-one of its own class skills. KOTOR 1 and KOTOR 2 give their classes
-different class skills, so KOTOR 1's own skills table decides which
-classes may pick which feats.
+In KOTOR 1, a class can only pick a Class Skill feat for a skill that is
+not already a class skill.
 
 ## <a id="items"></a>Items
 
