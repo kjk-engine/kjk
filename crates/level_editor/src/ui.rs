@@ -5541,7 +5541,7 @@ fn tile(
                     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
                     let icon = match kind {
                         Kind::Sound => crate::markers::Icon::Sound,
-                        Kind::Waypoint if crate::markers::is_post(name) => {
+                        Kind::Waypoint if level_edit::git::is_post(name) => {
                             crate::markers::Icon::Post
                         }
                         Kind::Waypoint => crate::markers::Icon::Waypoint,

@@ -9679,3 +9679,370 @@ fn level_edit_levels() {
     assert!(map.is_map("kje_yard") && !map.is_map("danm13"));
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// Lamps placed by hand in the level editor (`level_edit::lamps`, proposed
+/// 2026-11-23, awaiting approval; moved here from the crate's own unit
+/// tests). A lamp reads back from the light data's text as it was written,
+/// for its game and its area alone, and a lamp that is not tipped says
+/// nothing of its pitch. An area's lamps and its lights placed by hand are
+/// written to one text and keep each other. The editor places, moves,
+/// turns, copies, changes and deletes lamps, refuses a lamp without a model
+/// and a move of a lamp that is not there, and undoes each step. A level's
+/// kjk-only content reads back with its lamps, and an installed level's
+/// lamps are left out of what its project writes. A whole model is a
+/// placeable's kind of fitting, and one mesh of a room's model is not. No
+/// installs.
+#[test]
+fn level_edit_lamps() {
+    use level_edit::lamps::{read_lamps, write_lamps};
+    use level_edit::lights::{read_placed, write_placed};
+    use level_edit::{Edit, Editor, KjkArea, PlacedLamp, PlacedLight, Project, Target, git};
+
+    // A lamp reads back as written.
+    let lamp = PlacedLamp {
+        yaw: 90.0,
+        pitch: -45.0,
+        roll: 12.5,
+        reason: "Dark corner.".into(),
+        ..PlacedLamp::new("M13AA_01A", "m13aa_01a_lamp2", [1.5, -2.0, 4.2])
+    };
+    let text = write_lamps("", "k1", "danm13", std::slice::from_ref(&lamp)).unwrap();
+    assert_eq!(read_lamps(&text, "k1", "danm13").unwrap(), vec![lamp]);
+    assert!(read_lamps(&text, "tsl", "danm13").unwrap().is_empty());
+    assert!(text.contains("model = \"m13aa_01a\""));
+    assert!(text.contains("on = \"room\""));
+    assert!(text.contains("pitch = -45"));
+    let flat = write_lamps(
+        "",
+        "k1",
+        "danm13",
+        &[PlacedLamp::new("plc_lamp", "", [0.0; 3])],
+    );
+    assert!(
+        !flat.unwrap().contains("pitch"),
+        "a lamp not tipped says nothing of it"
+    );
+
+    // The lamps and the lights of an area keep each other.
+    let light = PlacedLight {
+        at: [1.0, 2.0, 3.0],
+        ..Default::default()
+    };
+    let lamp = PlacedLamp::new("plc_lamp", "", [0.0; 3]);
+    let text = "# Lights.\n\n[rules]\nstrong = 1.1\n";
+    let text = write_placed(text, "k1", "danm13", std::slice::from_ref(&light)).unwrap();
+    let text = write_lamps(&text, "k1", "danm13", std::slice::from_ref(&lamp)).unwrap();
+    assert_eq!(read_placed(&text, "k1", "danm13").unwrap(), vec![light]);
+    assert_eq!(read_lamps(&text, "k1", "danm13").unwrap(), vec![lamp]);
+    assert!(text.starts_with("# Lights.\n\n[rules]\nstrong = 1.1\n"));
+    // Taking the lamps away leaves the light.
+    let text = write_lamps(&text, "k1", "danm13", &[]).unwrap();
+    assert!(!text.contains("[[lamp]]"));
+    assert!(text.contains("[[placed]]"));
+
+    // Lamps are placed, moved, turned, copied and deleted, with undo.
+    let mut editor = Editor::new(Project::new(
+        &std::env::temp_dir().join("kjk-lamps"),
+        "k1",
+        "danm13",
+        "m13aa",
+        git::empty(),
+    ));
+    let lamp = PlacedLamp::new("m13aa_01a", "lamp2", [4.0, 5.0, 2.5]);
+    editor.apply(Edit::AddLamp(lamp.clone())).unwrap();
+    assert_eq!(editor.selected, Some(Target::Lamp(0)));
+    editor
+        .apply(Edit::Move(Target::Lamp(0), [1.0, 1.0, 2.0]))
+        .unwrap();
+    editor.apply(Edit::Turn(Target::Lamp(0), 450.0)).unwrap();
+    assert_eq!(
+        editor.placement(Target::Lamp(0)),
+        Some(([1.0, 1.0, 2.0], 90.0))
+    );
+    editor.apply(Edit::Duplicate(Target::Lamp(0))).unwrap();
+    assert_eq!(editor.project.kjk.lamps.len(), 2);
+    let mut kept = editor.project.kjk.lamps[1].clone();
+    kept.reason = "The hall's far end was dark.".into();
+    editor.apply(Edit::SetLamp(1, kept)).unwrap();
+    editor.apply(Edit::Delete(Target::Lamp(0))).unwrap();
+    assert_eq!(
+        editor.project.kjk.lamps[0].reason,
+        "The hall's far end was dark."
+    );
+    assert!(
+        editor
+            .apply(Edit::AddLamp(PlacedLamp::new("", "", [0.0; 3])))
+            .is_err()
+    );
+    assert!(editor.apply(Edit::Move(Target::Lamp(5), [0.0; 3])).is_err());
+    // The delete, the change, the copy, the turn and the move undone.
+    for _ in 0..5 {
+        assert!(editor.undo());
+    }
+    assert_eq!(editor.project.kjk.lamps, vec![lamp.clone()]);
+
+    // A level's kjk-only content reads back with its lamps. An installed
+    // level's lamps are left out of what its project writes.
+    let area = KjkArea {
+        lamps: vec![lamp],
+        ..KjkArea::default()
+    };
+    assert_eq!(KjkArea::parse(&area.write()).unwrap(), area);
+    let mut installed = editor.project.clone();
+    installed.kjk = area;
+    assert!(installed.own_kjk().lamps.is_empty());
+
+    // A whole model is a placeable's kind.
+    assert!(PlacedLamp::new("plc_lamp", "", [0.0; 3]).on_placeable);
+    assert!(!PlacedLamp::new("m01aa_01a", "lamp", [0.0; 3]).on_placeable);
+}
+
+/// The waypoints that are places a character is put
+/// (`level_edit::git::is_post`, proposed 2026-11-23, awaiting approval;
+/// moved here from the level editor's own unit tests). The level editor
+/// marks such a waypoint with its own icon. A waypoint is one when a word
+/// of its tag, between `_`s and with its trailing digits left off, is a
+/// party member's name, `pc`, `party` or `post`, in capitals or not. A
+/// word that only begins with such a name is none. No installs.
+#[test]
+fn level_edit_posts() {
+    use level_edit::git::is_post;
+
+    for tag in [
+        "dan13_wp_carth_halk",
+        "POST_dan13_zzshari",
+        "K_MESSENGER_SPAWN_PC0",
+        "wp_hk47_01",
+    ] {
+        assert!(is_post(tag), "{tag} is a post");
+    }
+    for tag in ["WP_dan13_jedim_01", "wp_hkfoo"] {
+        assert!(!is_post(tag), "{tag} is no post");
+    }
+}
+
+/// A project exported as a mod into one folder again and again
+/// (`level_edit::mods::export`, `docs/LEVEL-EDIT.md`, "Sharing a level";
+/// proposed 2026-11-23, awaiting approval), on a project the test makes of
+/// one placeable, one collision box and one compiled script. The first
+/// export writes the level's object list, the script, the level's kjk-only
+/// content, the mod's list of its files and the readme. Two files of the
+/// person's own are then put into the export's folder, and the project's
+/// script is replaced by another. The second export takes the old script
+/// out, brings the new one, leaves the person's two files as they are and
+/// says that 2 files were left. The mod's list names neither of them. A
+/// third export leaves them again, so the list never took them for the
+/// mod's own. A folder that holds a file and no export is refused, and its
+/// file stays. No installs.
+#[test]
+fn level_edit_mod_export() {
+    use level_edit::{BoxRole, CollisionBox, Edit, Editor, Kind, Project, git, mods};
+
+    let root = std::env::temp_dir().join(format!("kjk-mod-export-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (folder, to) = (root.join("project"), root.join("export"));
+    let mut start = git::empty();
+    git::add(
+        &mut start,
+        Kind::Placeable,
+        "plc_footlker",
+        [3.0, 4.0, 0.0],
+        0.0,
+    );
+    let mut editor = Editor::new(Project::new(&folder, "k1", "ebo_m12aa", "m12aa", start));
+    editor
+        .apply(Edit::AddBox(CollisionBox {
+            name: "ledge".into(),
+            centre: [4.0, 4.0, 2.0],
+            size: [2.0, 1.0, 0.3],
+            yaw: 30.0,
+            role: BoxRole::Solid,
+        }))
+        .unwrap();
+    editor.project.save("kjk test").unwrap();
+    std::fs::write(folder.join("kje_door.ncs"), b"the door's script").unwrap();
+
+    let exported = mods::export(&editor.project, &to, &[]).unwrap();
+    assert_eq!(exported.left, 0);
+    let list = "override/kjk-mod-project.toml";
+    for inside in [
+        "override/m12aa.git",
+        "override/kje_door.ncs",
+        "override/kjk-area-m12aa.toml",
+        list,
+        mods::README,
+    ] {
+        assert!(to.join(inside).is_file(), "the export has {inside}");
+    }
+    let listed = std::fs::read_to_string(to.join(list)).unwrap();
+    assert!(listed.contains("override/kje_door.ncs"));
+
+    // The person's own files, and the project's script replaced.
+    std::fs::write(to.join("notes.txt"), "mine").unwrap();
+    std::fs::write(to.join("override").join("mine.txt"), "mine").unwrap();
+    std::fs::remove_file(folder.join("kje_door.ncs")).unwrap();
+    std::fs::write(folder.join("kje_gate.ncs"), b"the gate's script").unwrap();
+    let exported = mods::export(&editor.project, &to, &[]).unwrap();
+    assert_eq!(exported.left, 2);
+    assert!(!to.join("override/kje_door.ncs").exists());
+    assert!(to.join("override/kje_gate.ncs").is_file());
+    let mine = |inside: &str| std::fs::read_to_string(to.join(inside)).ok();
+    assert_eq!(mine("notes.txt").as_deref(), Some("mine"));
+    assert_eq!(mine("override/mine.txt").as_deref(), Some("mine"));
+    let listed = std::fs::read_to_string(to.join(list)).unwrap();
+    assert!(listed.contains("override/kje_gate.ncs"));
+    assert!(!listed.contains("kje_door"));
+    assert!(!listed.contains("mine.txt") && !listed.contains("notes.txt"));
+
+    // Exported again, they are left again.
+    let exported = mods::export(&editor.project, &to, &[]).unwrap();
+    assert_eq!(exported.left, 2);
+    assert_eq!(mine("notes.txt").as_deref(), Some("mine"));
+    assert_eq!(mine("override/mine.txt").as_deref(), Some("mine"));
+
+    // A folder that holds a file and no export is refused.
+    let other = root.join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("keep.txt"), "kept").unwrap();
+    assert!(mods::export(&editor.project, &other, &[]).is_err());
+    assert_eq!(
+        std::fs::read_to_string(other.join("keep.txt"))
+            .ok()
+            .as_deref(),
+        Some("kept")
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// What two machines that play a level editor project together compare
+/// (`level_edit::active::with_scripts`, `docs/LEVEL-EDIT.md`; proposed
+/// 2026-11-23, awaiting approval), in a folder the test makes. The
+/// project's digest is mixed with its compiled scripts, each `NAME.ncs` at
+/// the top of its folder. A compiled script added, a compiled script
+/// changed and another project's digest each give another value. A
+/// script's source, its debug notes and any other file of the folder give
+/// the same value. No installs.
+#[test]
+fn level_edit_compared_scripts() {
+    use level_edit::active::with_scripts;
+
+    let folder = std::env::temp_dir().join(format!("kjk-compared-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let write = |name: &str, bytes: &[u8]| std::fs::write(folder.join(name), bytes).unwrap();
+    let digest = [7u8; 32];
+    let none = with_scripts(&digest, &folder);
+    assert_eq!(with_scripts(&digest, &folder), none);
+
+    write("kje_a.ncs", b"one");
+    let one = with_scripts(&digest, &folder);
+    assert_ne!(one, none, "a compiled script is compared");
+    write("kje_a.nss", b"void main() {}");
+    write("kje_a.ndb", b"notes");
+    write("m12aa.git", b"objects");
+    assert_eq!(
+        with_scripts(&digest, &folder),
+        one,
+        "a source, debug notes and other files are not"
+    );
+    write("kje_a.ncs", b"two");
+    let two = with_scripts(&digest, &folder);
+    assert_ne!(two, one, "a changed script is told");
+    write("kje_b.ncs", b"two");
+    assert_ne!(
+        with_scripts(&digest, &folder),
+        two,
+        "a further script is told"
+    );
+    assert_ne!(
+        with_scripts(&[8u8; 32], &folder),
+        with_scripts(&digest, &folder),
+        "another project's digest is told"
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// A lamp placed by hand that is one mesh of a room's model
+/// (`kjk_game::lamps::light_mesh`; proposed 2026-11-23, awaiting approval;
+/// moved here from the game's own unit test), on a model the test makes of
+/// a floor and a lamp's mesh. The lamp is its one mesh, about its own
+/// middle, at the model's root. It is lit at runtime, glows, and casts no
+/// shadow. A node the model does not have is refused, and so is a node
+/// that has no mesh. The game is built only with `--features rig`.
+#[cfg(feature = "rig")]
+#[test]
+fn lamp_light_mesh() {
+    use asset_odyssey::model::{IDENTITY, MeshIr, ModelIr, NodeIr};
+    use kjk_game::lamps::light_mesh;
+
+    let node = |name: &str, translation: [f32; 3]| {
+        let mut world = IDENTITY;
+        // The translation is in the last column's rows.
+        world[0][3] = translation[0];
+        world[1][3] = translation[1];
+        world[2][3] = translation[2];
+        NodeIr {
+            name: name.into(),
+            parent: Some(0),
+            translation,
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            world,
+            animated: false,
+        }
+    };
+    let mesh = |node: usize, positions: Vec<[f32; 3]>| MeshIr {
+        node,
+        normals: vec![[0.0, 0.0, -1.0]; positions.len()],
+        uv1: Vec::new(),
+        uv2: vec![[0.0; 2]; positions.len()],
+        indices: vec![0, 1, 2],
+        texture: Some("lts_panel".into()),
+        lightmap: Some("room_lm0".into()),
+        transparency_hint: 0,
+        skinned: false,
+        shadow: true,
+        self_illum: [0.0; 3],
+        alpha: 1.0,
+        ambient: [1.0; 3],
+        diffuse: [1.0; 3],
+        uv_scroll: None,
+        skin: None,
+        dangly: None,
+        positions,
+    };
+    let room = ModelIr {
+        name: "m01aa_01a".into(),
+        supermodel: None,
+        nodes: vec![
+            node("m01aa_01a", [0.0; 3]),
+            node("floor", [0.0; 3]),
+            node("lamp", [10.0, 0.0, 3.0]),
+        ],
+        meshes: vec![
+            mesh(1, vec![[0.0; 3], [5.0, 0.0, 0.0], [0.0, 5.0, 0.0]]),
+            mesh(2, vec![[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.5, 0.0]]),
+        ],
+        lights: Vec::new(),
+        emitters: Vec::new(),
+        animations: Vec::new(),
+        animation_scale: 1.0,
+        affected_by_fog: true,
+        refusals: Vec::new(),
+        folded: Vec::new(),
+    };
+    let lamp = light_mesh(room.clone(), "LAMP").unwrap();
+    assert_eq!(lamp.meshes.len(), 1);
+    let mesh = &lamp.meshes[0];
+    assert_eq!(mesh.node, 0);
+    assert_eq!(
+        mesh.positions,
+        vec![[-1.0, -0.25, 0.0], [1.0, -0.25, 0.0], [1.0, 0.25, 0.0]]
+    );
+    // Lit at runtime, glowing, and casting no shadow.
+    assert_eq!(mesh.lightmap, None);
+    assert!(mesh.uv2.is_empty());
+    assert_eq!(mesh.self_illum, [1.0; 3]);
+    assert!(!mesh.shadow);
+    assert!(light_mesh(room.clone(), "nothing").is_err());
+    assert!(light_mesh(room, "m01aa_01a").is_err());
+}

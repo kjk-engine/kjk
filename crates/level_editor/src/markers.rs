@@ -122,52 +122,22 @@ fn picture(source: &str, side: u32) -> Result<egui::ColorImage, String> {
             [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
         })
         .collect();
+    // An icon that draws nothing is a fault of its source.
+    let inked = (rgba.as_chunks::<4>().0.iter())
+        .filter(|pixel| pixel[3] > 0)
+        .count();
+    if inked <= MOST_BLANK {
+        return Err(format!("it draws {inked} pixels"));
+    }
     Ok(egui::ColorImage::from_rgba_unmultiplied(
         [side as usize, side as usize],
         &rgba,
     ))
 }
 
-/// The words of a waypoint's tag that make it a place a character is put:
-/// the party members of both games, the player, and a post.
-const POST_WORDS: [&str; 26] = [
-    "carth",
-    "bastila",
-    "mission",
-    "zaalbar",
-    "canderous",
-    "juhani",
-    "jolee",
-    "hk",
-    "hk47",
-    "t3",
-    "t3m4",
-    "atton",
-    "kreia",
-    "bao",
-    "baodur",
-    "mira",
-    "hanharr",
-    "handmaiden",
-    "disciple",
-    "visas",
-    "mandalore",
-    "g0t0",
-    "goto",
-    "pc",
-    "party",
-    "post",
-];
-
-/// Whether a waypoint tagged `tag` is a place a character is put: a word of
-/// its tag (between `_`s, its trailing digits left off) is one of
-/// `POST_WORDS`.
-pub fn is_post(tag: &str) -> bool {
-    tag.to_ascii_lowercase().split('_').any(|word| {
-        let word = word.trim_end_matches(|c: char| c.is_ascii_digit());
-        POST_WORDS.contains(&word)
-    })
-}
+/// An icon that draws no more pixels than this draws nothing to see
+/// (`picture`).
+const MOST_BLANK: usize = 20;
 
 /// A creature template's icon: by its conversation, which `talks` gives
 /// (`None` for none, else whether it updates the journal).
@@ -270,7 +240,7 @@ pub fn layout(state: &EditorState, camera: &Camera, eye: &GlobalTransform) -> Ve
         let icon = match entry.kind {
             Kind::Placeable => Icon::Square,
             Kind::Sound => Icon::Sound,
-            Kind::Waypoint if is_post(&entry.tag) => Icon::Post,
+            Kind::Waypoint if level_edit::git::is_post(&entry.tag) => Icon::Post,
             Kind::Waypoint => Icon::Waypoint,
             Kind::Trigger | Kind::Encounter => Icon::Alert,
             // A creature added since the scene was drawn is a dot until it
@@ -410,28 +380,4 @@ pub fn under(shown: &[Shown], point: egui::Pos2) -> Option<Target> {
         .filter(|marker| marker.at.distance(point) <= marker.side * 0.62)
         .min_by(|a, b| a.distance.total_cmp(&b.distance))
         .map(|marker| marker.target)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_icon_draws() {
-        for (icon, source) in SOURCES {
-            let image = picture(source, 32).unwrap_or_else(|why| panic!("{icon:?}: {why}"));
-            let inked = image.pixels.iter().filter(|pixel| pixel.a() > 0).count();
-            assert!(inked > 20, "{icon:?} draws {inked} pixels");
-        }
-    }
-
-    #[test]
-    fn posts_are_told_by_their_tags() {
-        assert!(is_post("dan13_wp_carth_halk"));
-        assert!(is_post("POST_dan13_zzshari"));
-        assert!(is_post("K_MESSENGER_SPAWN_PC0"));
-        assert!(is_post("wp_hk47_01"));
-        assert!(!is_post("WP_dan13_jedim_01"));
-        assert!(!is_post("wp_hkfoo"));
-    }
 }

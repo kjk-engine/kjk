@@ -537,3 +537,44 @@ pub fn set_template(git: &mut Gff, kind: Kind, index: usize, template: &str) -> 
     );
     true
 }
+
+/// The words of a waypoint's tag that make it a place a character is put:
+/// the party members of both games, the player, and a post.
+const POST_WORDS: [&str; 26] = [
+    "carth",
+    "bastila",
+    "mission",
+    "zaalbar",
+    "canderous",
+    "juhani",
+    "jolee",
+    "hk",
+    "hk47",
+    "t3",
+    "t3m4",
+    "atton",
+    "kreia",
+    "bao",
+    "baodur",
+    "mira",
+    "hanharr",
+    "handmaiden",
+    "disciple",
+    "visas",
+    "mandalore",
+    "g0t0",
+    "goto",
+    "pc",
+    "party",
+    "post",
+];
+
+/// Whether a waypoint tagged `tag` is a place a character is put: a word of
+/// its tag (between `_`s, its trailing digits left off) is one of
+/// `POST_WORDS`.
+pub fn is_post(tag: &str) -> bool {
+    tag.to_ascii_lowercase().split('_').any(|word| {
+        let word = word.trim_end_matches(|c: char| c.is_ascii_digit());
+        POST_WORDS.contains(&word)
+    })
+}
