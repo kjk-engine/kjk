@@ -1558,7 +1558,12 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
         if radius >= SUN_RADIUS {
             weights = weights + weight * SKY_FILL;
         }
+        // Only the baked trial knows a share below 1 (`FITTED_LIGHTS`).
+#ifdef FITTED_LIGHTS
         let reaches = select(1.0, sunlit, radius >= SUN_RADIUS);
+#else
+        let reaches = 1.0;
+#endif
         blocked = blocked + weight * reaches * (1.0 - light_visibility(i, light, position, normal, near));
     }
     // The room's light, kept off a surface that faces up. Its weight is
@@ -1621,14 +1626,17 @@ fn fight_light(light: GpuLight, position: vec3<f32>, normal: vec3<f32>, has_norm
         let lambert = max(0.0, dot(normal, to_light / max(1e-4, distance)));
         facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * lambert;
     }
-    // A light fitting's trial light shines mostly out of its fitting.
+    // A light fitting's trial light shines mostly out of its fitting. Only
+    // `KJK_FOUND_LIGHTS` gives a light a cone (`FITTED_LIGHTS`).
     var cone = 1.0;
+#ifdef FITTED_LIGHTS
     if light.aim.w > 0.0 {
         let out = dot(light.aim.xyz, -to_light / max(1e-4, distance));
         // What is beside or behind it keeps a third, so the panel a lamp
         // sits in does not go black.
         cone = 0.33 + 0.67 * smoothstep(light.aim.w - 0.5, light.aim.w + 0.1, out);
     }
+#endif
     return light.color_multiplier.rgb * (light.color_multiplier.w * fight_falloff(distance, radius) * facing * cone);
 }
 

@@ -100,7 +100,8 @@ pub fn baked_anywhere() -> bool {
 /// `KJK_FITTED_LIGHTS` is set to anything but `off`, when the player chose
 /// Enhanced Lightmaps and a download of them is installed
 /// (`baked_anywhere`), under `KJK_SHADOW_DEBUG=7` (the light kinds' trial),
-/// and under `KJK_MODEL_LIGHT`. Otherwise the shaders leave that code out.
+/// under `KJK_FOUND_LIGHTS` (whose lights may shine in a cone), and under
+/// `KJK_MODEL_LIGHT`. Otherwise the shaders leave that code out.
 ///
 /// Left in, that code cost GPU time under Classic and Enhanced lighting,
 /// although none of it ran there. Under Classic on an RTX 4070 Ti SUPER, the
@@ -115,6 +116,7 @@ pub fn in_shaders() -> bool {
         variable().is_some_and(|value| value != "off")
             || baked_anywhere()
             || std::env::var("KJK_SHADOW_DEBUG").is_ok_and(|value| value == "7")
+            || std::env::var_os("KJK_FOUND_LIGHTS").is_some()
             || crate::light_probes::term_mode() != 0
     })
 }

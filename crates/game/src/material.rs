@@ -1844,8 +1844,13 @@ impl Material for OdysseyMaterial {
                 target.blend = key.blend;
             }
             // The fitted lights and their trials, only in a run that may
-            // show them (`fitted_lights::in_shaders`).
-            if crate::fitted_lights::in_shaders() {
+            // show them (`fitted_lights::in_shaders`). An emitter's
+            // particles never take them. Every particle is unlit (`new`,
+            // `punch_through`), and the trials change nothing on an unlit
+            // surface that is not a room's. Their code still made the
+            // particles cost more: under Enhanced Lightmaps the crowd
+            // brawl's 930 particles took 0.75 ms of GPU time against 0.15 ms.
+            if crate::fitted_lights::in_shaders() && !key.particles {
                 fragment.shader_defs.push("FITTED_LIGHTS".into());
             }
             // A surface of the opaque pass is in the prepass the occlusion
