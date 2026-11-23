@@ -319,44 +319,5 @@ fn parse(text: &str) -> Option<Fingerprint> {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_text_reads_back() {
-        let print = Fingerprint {
-            area: "101per".into(),
-            format: FORMAT,
-            rooms: "0123456789abcdef0123456789abcdef".into(),
-            placeables: "fedcba9876543210fedcba9876543210".into(),
-        };
-        assert_eq!(parse(&text(&print)), Some(print));
-    }
-
-    #[test]
-    fn a_verdict_follows_the_parts() {
-        let stamp = Fingerprint {
-            area: "a".into(),
-            format: FORMAT,
-            rooms: "r".into(),
-            placeables: "p".into(),
-        };
-        assert_eq!(verdict(&stamp, &stamp), Verdict::Whole);
-        let moved = Fingerprint {
-            placeables: "q".into(),
-            ..stamp.clone()
-        };
-        assert_eq!(verdict(&stamp, &moved), Verdict::LightmapsOnly);
-        let rebuilt = Fingerprint {
-            rooms: "s".into(),
-            ..stamp.clone()
-        };
-        assert!(matches!(verdict(&stamp, &rebuilt), Verdict::Refused(_)));
-        let older = Fingerprint {
-            format: FORMAT + 1,
-            ..stamp.clone()
-        };
-        assert!(matches!(verdict(&stamp, &older), Verdict::Refused(_)));
-    }
-}
+#[cfg(feature = "probes")]
+pub mod probes;

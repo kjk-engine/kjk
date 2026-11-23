@@ -2225,6 +2225,8 @@ pub(crate) fn retexture_head(head: &mut ModelIr, texture: Option<&str>) {
 }
 
 #[cfg(feature = "probes")]
+pub mod bake_probes;
+#[cfg(feature = "probes")]
 pub mod kept_probes;
 #[cfg(feature = "probes")]
 pub mod undrawn_probes;
@@ -3003,101 +3005,4 @@ fn next_supermodel(model: &ModelIr, seen: &mut Vec<String>) -> Option<String> {
     }
     seen.push(name.clone());
     Some(name)
-}
-
-#[cfg(test)]
-mod bake_tests {
-    use super::*;
-    use crate::bake_fingerprint::Verdict;
-
-    #[test]
-    fn a_whole_bake_wins_over_lightmaps_only_and_the_later_wins() {
-        let refused = || Verdict::Refused("the rooms differ".into());
-        assert_eq!(chosen_bake(&[]), None);
-        assert_eq!(chosen_bake(&[(0, refused()), (1, refused())]), None);
-        assert_eq!(
-            chosen_bake(&[(0, Verdict::Whole), (1, Verdict::LightmapsOnly)]),
-            Some(0)
-        );
-        assert_eq!(
-            chosen_bake(&[(2, Verdict::LightmapsOnly), (5, Verdict::LightmapsOnly)]),
-            Some(5)
-        );
-        assert_eq!(
-            chosen_bake(&[(1, Verdict::Whole), (3, refused()), (4, Verdict::Whole)]),
-            Some(4)
-        );
-    }
-
-    /// A lightmap of one texel of grey `level` (0 to 255).
-    fn one_texel(level: u8) -> TextureIr {
-        TextureIr {
-            width: 1,
-            height: 1,
-            encoding: asset_odyssey::texture::Encoding::Rgba8,
-            mips: vec![vec![level, level, level, 255]],
-            cube: false,
-            frames: 1,
-            facts: Default::default(),
-            faces: Vec::new(),
-            frame_mips: Vec::new(),
-        }
-    }
-
-    /// The baked level `baked` (0 to 255) after `add_stored_fill` with the
-    /// stored grey `stored`.
-    fn filled(baked: u8, stored: u8, fill: f32, floor: bool) -> u8 {
-        let mut picture =
-            image::RgbaImage::from_pixel(1, 1, image::Rgba([baked, baked, baked, 77]));
-        add_stored_fill(&mut picture, &one_texel(stored), fill, floor);
-        let pixel = picture.get_pixel(0, 0);
-        assert_eq!(pixel[0], pixel[1]);
-        assert_eq!(pixel[3], 77, "the sun's share in the alpha is kept");
-        pixel[0]
-    }
-
-    /// The byte the bake writes for linear light `light` (`level_of`, at
-    /// half its level).
-    fn byte_of(light: f32) -> u8 {
-        let level = crate::stored_fill::level_of(Vec3::splat(light)).x;
-        (level / crate::stored_fill::GAIN * 255.0)
-            .clamp(0.0, 255.0)
-            .round() as u8
-    }
-
-    /// The linear light of a stored grey (0 to 255), as `add_stored_fill`
-    /// reads it.
-    fn stored_light(stored: u8) -> f32 {
-        let texels = crate::stored_fill::StoredTexels::of(&one_texel(stored)).unwrap();
-        texels.at(0.5, 0.5).x.powf(crate::stored_fill::GAMMA)
-    }
-
-    /// The linear light of a baked byte.
-    fn baked_light(baked: u8) -> f32 {
-        let level = f32::from(baked) / 255.0 * crate::stored_fill::GAIN;
-        crate::stored_fill::linear_of(Vec3::splat(level)).x
-    }
-
-    #[test]
-    fn the_stored_fill_adds_to_the_lamps_light() {
-        // No fill, or a black stored texel, leaves the lamps' light.
-        assert_eq!(filled(60, 200, 0.0, false), 60);
-        assert_eq!(filled(60, 0, 0.5, false), 60);
-        // A room with no lamp light takes the stored light times the fill.
-        assert_eq!(filled(0, 120, 0.5, false), byte_of(stored_light(120) * 0.5));
-        // The two add in linear light.
-        let both = filled(60, 120, 0.5, false);
-        assert_eq!(both, byte_of(baked_light(60) + stored_light(120) * 0.5));
-        assert!(both > 60 && both > filled(0, 120, 0.5, false));
-    }
-
-    #[test]
-    fn the_floor_is_the_least_a_texel_shows() {
-        // A texel brighter than its floor keeps its own light.
-        assert_eq!(filled(120, 60, 0.2, true), 120);
-        // A darker one is raised to the floor, and nothing is added.
-        let raised = filled(0, 120, 0.2, true);
-        assert_eq!(raised, byte_of(stored_light(120) * 0.2));
-        assert_eq!(filled(1, 120, 0.2, true), raised);
-    }
 }
