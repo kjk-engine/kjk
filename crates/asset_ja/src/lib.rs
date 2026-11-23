@@ -28,9 +28,15 @@ pub mod events;
 pub mod fx;
 pub mod g2;
 pub mod grapple;
+pub mod level;
+pub mod level_collision;
+pub mod level_rooms;
+pub mod light_grid;
+pub mod movers;
 mod playback;
 pub mod rig;
 mod rules;
+pub mod sky;
 
 pub use bolt::{Bolt, blade_tags, bolt};
 pub use playback::{chain, playback};

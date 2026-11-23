@@ -567,9 +567,66 @@ same on any number of threads. A grid of more than 4 194 304 columns
 TSL 421dxn is audited at 3.5 m, K1 m12ab at 2 m, TSL 510ond, 231tel and
 501ond and K1 manm26mg at 1 m (`facts.json` names the cell).
 
+## Jedi Academy levels (`asset_ja::level_collision`)
+
+A Jedi Academy level (`fmt_ja::bsp`) keeps its own collision, so nothing is
+worked out from what is drawn, as it is for a KOTOR area.
+
+- **Brushes.** The level stores each solid as the planes that bound it.
+  The level builder takes a solid as corners, faces and edges, so each
+  brush is worked back into them. A brush whose shader is solid is level
+  geometry. A brush whose shader is the player clip blocks players and
+  creatures only. Brushes of water, fog and triggers are left out.
+- **Curved surfaces.** The level stores no brush for a curved surface.
+  Each triangle the surface is drawn with becomes a thin solid.
+- **Doors** (`asset_ja::movers`). A door's brushes belong to the door,
+  as a KOTOR door's walkmesh does. They are solid where the door is
+  closed while it is closed, and solid where it has moved to once it is
+  open. In play a door is a module's door: a character opens it with the
+  use key, from within reach, and it stays open. Doors of one `team` move
+  as one. Jedi Academy's own doors open by themselves as a character
+  comes near, which kjk's door rules have no way to do.
+- **Lifts and other moving parts** are solid where they rest. kjk's
+  movement has no ground that moves, so a lift does not carry anyone.
+- **The floor.** The navigation mesh is baked from the world's drawn flat
+  and curved surfaces that face up. The level's compiler has already cut
+  those where walls stand on them. Two steps of a stair meet as edges
+  along one line, which the mesh joins up to a step's height apart
+  (`NavMesh::build_stepped`).
+- **Floors that meet without sharing an edge** (`NavMesh::bridge`). The
+  compiler does not cut a floor where a detail brush, such as a stair,
+  stands on it. So a stair's lowest edge lies on the floor, and the floor
+  runs on under it. A level also draws some places twice, such as a
+  step's tread with a slope over it, and the two share their edges on the
+  same side. The mesh joins an edge that rests on another face, and two
+  edges that lie side by side up to 30 cm apart, each at most a step apart
+  in height, where a standing body steps across. An edge counts as open
+  when no face lies on its other side. KOTOR's meshes are baked as before.
+
+`kjk play --stage ja:t1_sour` walks a level, and `--at X,Y,Z,FACING`
+arrives elsewhere in it. `kjk collision ja t1_sour` tests the collision and
+floor against the level's own start points and waypoints, which its makers
+put where characters stand. For one level it also says where the mesh's
+pieces come close, and how each piece that holds waypoints sits against
+the main one: within a step, above or below it, or further away, with any
+lift or door beside. It writes `mesh.json` beside `facts.json`, which
+`tools/nav-picture.py` draws as seen from above, each piece in its own
+colour:
+
+```bash
+kjk collision ja t1_sour
+python tools/nav-picture.py kjk-artifacts/runs/<run>/mesh.json nav.png --box 94,-96,108,-70
+```
+
+In `t1_sour` 410 of the 456 waypoints are in one piece of the mesh. In
+`kor1` it is 74 of 255, and in `vjun2` 77 of 274. The pieces left are
+joined in the game by lifts, elevators that scripts move, and jumps, which
+the mesh does not join.
+
 ## Commands
 ```bash
 kjk collision build k1 end_m01aa        # what went in; `all`: every module
+kjk collision ja t1_sour                # a Jedi Academy level's collision and floor, tested against its starts and waypoints; `all`: every level
 kjk collision probes [k1 end_m01aa]     # known answers, differentials, cost (collision::probes, collision_odyssey::probes)
 kjk collision trace k1 end_m01aa 15,20,0 15,30,0 [--shape capsule]
     [--doors openable|closed|all] [--repeat dx,dy,dz,N] [--no-clip|--clip F]

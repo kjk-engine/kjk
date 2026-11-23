@@ -1442,6 +1442,12 @@ pub(crate) enum CollisionVerb {
         #[command(flatten)]
         module: CollisionModule,
     },
+    /// A Jedi Academy level's collision and floor, tested against the
+    /// level's own start points and waypoints.
+    Ja {
+        /// A level, e.g. t1_sour or mp/ffa3, or `all` for every level
+        level: String,
+    },
     /// Walk routes of the navigation mesh for real: a player steered
     /// by `sim::walk` through move_body, from a drawn face to another
     Walk {
@@ -2400,6 +2406,7 @@ fn collision(verb: CollisionVerb) -> ExitCode {
         CollisionVerb::Build { module } => {
             collision_verbs::build(&discover(), &module.game, &module.module, module.clip())
         }
+        CollisionVerb::Ja { level } => collision_ja::run(&discover(), &level),
         CollisionVerb::Walk {
             game,
             module,

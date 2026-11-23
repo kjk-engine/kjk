@@ -45,6 +45,8 @@ kjk movie import k1 01a               # a movie made ours by ffmpeg, in the stor
 kjk installs --json                   # one JSON line: each game's folder (found, refused or missing) and whether ffmpeg is there, for the launcher; no window
 kjk installs --json --check k1 <dir>  # the same for one folder a player picked; nothing is written
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
+kjk view ja maps/t1_sour.bsp          # a Jedi Academy level, lit by its own stored light (or the lightmaps kept beside it), with its static models, its doors and its sky, the camera at the player's start (`asset_ja::level`, `asset_ja::sky`)
+kjk play --stage ja:t1_sour           # the same level to walk in: its brushes are the collision, the player stands at its start (`asset_ja::level_collision`)
 ```
 
 `KJK_HOME` names kjk's folder for its settings, saves and logs. When the

@@ -1,6 +1,9 @@
 //! What `kjk-level-editor` shows when it is started with no module: the
 //! projects made so far, and every module of each KOTOR game installed,
-//! with its entry area's name, to pick one to edit.
+//! with its entry area's name, to pick one to edit. When Jedi Academy is
+//! installed, its levels are listed too, to cut into rooms (`ja_rooms`).
+//! A project that keeps a Jedi Academy level's rooms is listed with that
+//! level, beside its KOTOR level if it has one.
 //!
 //! A project is opened once in a process, before any install is read
 //! (`level_edit::active`), so the picker does not load the level itself. It
@@ -73,6 +76,22 @@ pub fn install(app: &mut App, headless: bool) {
             .collect();
         games.push((game, modules));
         indexes.push((game, index));
+    }
+    // Jedi Academy's levels, to cut into rooms. A level is named as the
+    // game names it: its path without `maps/` and `.bsp`.
+    if let Ok(stack) = kjk_game::viewer_ja::stack(&discovery) {
+        let files = kjk_game::viewer_ja::Files::new(&stack);
+        let mut levels: Vec<Module> = (files.names())
+            .filter_map(|name| name.strip_prefix("maps/")?.strip_suffix(".bsp"))
+            .map(|level| Module {
+                resref: level.to_string(),
+                name: None,
+            })
+            .collect();
+        levels.sort_by(|a, b| a.resref.cmp(&b.resref));
+        if !levels.is_empty() {
+            games.push((Game::JediAcademy, levels));
+        }
     }
     let (send, names) = channel();
     std::thread::Builder::new()
@@ -158,6 +177,27 @@ fn read_names(
     }
 }
 
+/// The Jedi Academy levels the projects keep rooms of
+/// (`level_edit::ja_rooms`), each as a project of the game `ja`.
+fn ja_projects(folder: &std::path::Path) -> Vec<Found> {
+    std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .flat_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            (level_edit::ja_rooms::kept(&entry.path()).into_iter()).map(move |(level, changed)| {
+                Found {
+                    name: name.clone(),
+                    game: Game::JediAcademy.key().to_string(),
+                    module: level_edit::ja_rooms::short(&level).to_string(),
+                    changed,
+                }
+            })
+        })
+        .collect()
+}
+
 /// The projects in the projects' folder, the newest first.
 pub(crate) fn projects() -> Vec<Found> {
     let Some(folder) = level_edit::projects_folder(|var| std::env::var(var).ok()) else {
@@ -193,6 +233,7 @@ pub(crate) fn projects() -> Vec<Found> {
             })
         })
         .collect();
+    found.extend(ja_projects(&folder));
     found.sort_by(|a, b| b.changed.cmp(&a.changed).then(a.name.cmp(&b.name)));
     found
 }
@@ -214,14 +255,21 @@ fn take_names(mut picker: ResMut<Picker>) {
 
 /// The editor started on `game`'s `module`, in project `project`, and the
 /// picker closed; with `base`, on a new map named `module` whose area
-/// starts from `base`'s. A headless picker (a check) names what it would
-/// start.
+/// starts from `base`'s. A Jedi Academy level is started in the rooms tool.
+/// Any project keeps its rooms, whatever game the project edits. A
+/// headless picker (a check) names what it would start.
 fn open(
     picker: &mut Picker,
     exit: &mut MessageWriter<AppExit>,
     (game, module, project): (Game, &str, &str),
     base: Option<&str>,
 ) {
+    if base.is_some() && game == Game::JediAcademy {
+        picker.message = Some(
+            "A new map starts from a level of KOTOR 1 or KOTOR 2. Pick one of those.".to_string(),
+        );
+        return;
+    }
     if base.is_some()
         && let Some(problem) = level_edit::map::name_problem(module)
     {
@@ -237,7 +285,8 @@ fn open(
     };
     // A project of another game cannot take the level. Any other project
     // takes a level of its game beside the ones it has (`main::setup`).
-    if let Ok(found) = level_edit::Project::open(&folder)
+    if game != Game::JediAcademy
+        && let Ok(found) = level_edit::Project::open(&folder)
         && found.game != game.key()
     {
         picker.message = Some(format!(
@@ -281,10 +330,11 @@ fn commands(
         match words.as_slice() {
             ["open", game, module, rest @ ..] => {
                 let Some(game) = Game::from_key(game) else {
-                    picker.message = Some(format!("{game} is not k1 or tsl"));
+                    picker.message = Some(format!("{game} is not k1, tsl or ja"));
                     continue;
                 };
-                let project = rest.first().copied().unwrap_or(module).to_string();
+                let project =
+                    (rest.first()).map_or_else(|| project_for(module), |name| name.to_string());
                 open(&mut picker, &mut exit, (game, module, &project), None);
             }
             ["new", game, base, name] => {
@@ -303,6 +353,13 @@ fn commands(
             _ => picker.message = Some(format!("edit {}: not a picker command", words.join(" "))),
         }
     }
+}
+
+/// The project's name a level starts with: the level's own, a folder in
+/// it joined by `-` (`mp/ffa3` is `mp-ffa3`), since a project's name is a
+/// folder's name.
+fn project_for(level: &str) -> String {
+    level.replace('/', "-")
 }
 
 fn game_label(game: Game) -> &'static str {
@@ -429,8 +486,9 @@ fn window(
                     .hint_text("my_map")
                     .desired_width(140.0),
             );
-            let ready = picker.picked.is_some()
-                && level_edit::map::name_problem(&picker.new_map).is_none();
+            let kotor = (picker.picked.as_ref())
+                .is_some_and(|(game, _)| *game != Game::JediAcademy);
+            let ready = kotor && level_edit::map::name_problem(&picker.new_map).is_none();
             let make = ui
                 .add_enabled(ready, egui::Button::new("Make"))
                 .on_hover_text(
@@ -463,7 +521,7 @@ fn window(
             );
         });
         let Some((game, modules)) = picker.games.get(picker.tab) else {
-            ui.label("Neither KOTOR 1 nor KOTOR 2 is installed.");
+            ui.label("Neither KOTOR 1, KOTOR 2 nor Jedi Academy is installed.");
             return;
         };
         let game = *game;
@@ -501,10 +559,10 @@ fn window(
             },
         );
         if let Some((resref, now)) = clicked {
-            picker.project = resref.clone();
+            picker.project = project_for(&resref);
             picker.picked = Some((game, resref.clone()));
             if now {
-                opening = Some((game, resref.clone(), resref));
+                opening = Some((game, resref.clone(), project_for(&resref)));
             }
         }
     });

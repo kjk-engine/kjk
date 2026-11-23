@@ -236,6 +236,15 @@ impl NavMesh {
     /// Bakes the mesh from walkable triangles (world space, metres) for
     /// bodies `radius` metres wide either side.
     pub fn build(triangles: &[[Vec3; 3]], radius: f32) -> NavMesh {
+        NavMesh::build_stepped(triangles, radius, SEAM_RISE)
+    }
+
+    /// As `build`, with seams joined up to `seam_rise` metres apart in
+    /// height in place of `SEAM_RISE`. A Jedi Academy level's stairs have
+    /// no slope between their steps, as KOTOR's walkmeshes have: two steps
+    /// meet only as edges along one line, up to a step's height apart
+    /// (`player::STEP_HEIGHT`).
+    pub fn build_stepped(triangles: &[[Vec3; 3]], radius: f32, seam_rise: f32) -> NavMesh {
         // Welded vertices, faces wound counter-clockwise seen from above,
         // without the flat and the repeated.
         let mut vertices: BTreeMap<[i32; 3], u32> = BTreeMap::new();
@@ -335,7 +344,7 @@ impl NavMesh {
                 }
             }
         }
-        let stitched = mesh.stitch(&boundary);
+        let stitched = mesh.stitch(&boundary, seam_rise);
         mesh.seams = stitched.iter().filter(|seamed| **seamed).count();
         let walls: Vec<Edge> = boundary
             .iter()
@@ -344,7 +353,7 @@ impl NavMesh {
             .map(|(edge, _)| *edge)
             .collect();
         mesh.index();
-        mesh.step_off(&walls);
+        mesh.step_off(&walls, seam_rise);
         mesh.islands = mesh.label();
         mesh
     }
@@ -380,7 +389,7 @@ impl NavMesh {
     /// it reaches further than across one along an axis (√2 as far at
     /// 45°), and a disc's clearance let a route along Manaan's slanted
     /// corridor walls graze them.
-    fn step_off(&mut self, walls: &[Edge]) {
+    fn step_off(&mut self, walls: &[Edge], seam_rise: f32) {
         let reach = |n: Vec3| self.radius * (n[0].abs() + n[1].abs());
         let mut normals: BTreeMap<[i32; 3], Vec<Vec3>> = BTreeMap::new();
         for &(_, a, b) in walls {
@@ -447,7 +456,7 @@ impl NavMesh {
                     let gap = (away[0] * away[0] + away[1] * away[1]).sqrt();
                     let way = [away[0] / gap, away[1] / gap, 0.0];
                     let clear = reach(way);
-                    (gap < clear && gap > 1e-4 && away[2].abs() <= SEAM_RISE)
+                    (gap < clear && gap > 1e-4 && away[2].abs() <= seam_rise)
                         .then(|| (gap, [way[0] * (clear - gap), way[1] * (clear - gap), 0.0]))
                 })
                 .min_by(|x, y| x.0.total_cmp(&y.0))
@@ -486,7 +495,7 @@ impl NavMesh {
 
     /// Joins boundary edges that lie along each other (seams between
     /// rooms), over the stretch they share: which of them joined.
-    fn stitch(&mut self, boundary: &[Edge]) -> Vec<bool> {
+    fn stitch(&mut self, boundary: &[Edge], seam_rise: f32) -> Vec<bool> {
         let mut cells: BTreeMap<(i32, i32), Vec<usize>> = BTreeMap::new();
         for (at, (_, a, b)) in boundary.iter().enumerate() {
             let (low, high) = (
@@ -514,7 +523,7 @@ impl NavMesh {
             if face == theirs {
                 continue;
             }
-            if let Some((from, to)) = overlap(a, b, c, d) {
+            if let Some((from, to)) = overlap(a, b, c, d, seam_rise) {
                 self.link(face, theirs, from, to);
                 stitched[one] = true;
                 stitched[other] = true;
@@ -678,6 +687,182 @@ impl NavMesh {
             .iter()
             .filter(|face| face.entity.is_some() || face.covered)
             .count()
+    }
+
+    /// Joins islands where the mesh's faces meet without sharing an edge,
+    /// as a Jedi Academy level's floors do. KOTOR's walkmeshes never need
+    /// it. Only edges that lead to no other face are looked at, and only
+    /// pairs of different islands. Two ways are joined:
+    ///
+    /// - **Side by side.** An edge of each lies along the other, at most
+    ///   `across` metres apart seen from above and `rise` metres apart in
+    ///   height, along at least a body's width: a narrow trim or groove
+    ///   between two floors left no floor of its own.
+    /// - **Resting on a face** (`resting`). An edge lies over another
+    ///   face, at most `rise` above or below it, along at least a body's
+    ///   width. The level's compiler does not cut a floor where a detail
+    ///   brush, such as a stair, stands on it, so the stair's lowest edge
+    ///   lies on the floor, and the floor runs on under it.
+    ///
+    /// Each join is made only where a standing body steps from one to the
+    /// other in `level` (`stepped_over`). Gives how many it joined, and
+    /// numbers the islands anew.
+    pub fn bridge(&mut self, level: &crate::Level, across: f32, rise: f32) -> usize {
+        // The mesh's edges: a face's edge that portals to faces on its
+        // other side cover less than half of. A level drawn with two faces
+        // over one place (a step's tread and a slope over it) shares their
+        // edges between faces on the same side, which leaves the edge open.
+        let on = |a: Vec3, b: Vec3, p: Vec3| {
+            let length = flat_length(a, b).max(1e-6);
+            cross_z(sub(b, a), sub(p, a)).abs() / length < 0.01
+        };
+        let mut edges: Vec<Edge> = Vec::new();
+        for (index, face) in self.faces.iter().enumerate() {
+            for side in 0..3 {
+                let (a, b) = (face.corners[side], face.corners[(side + 1) % 3]);
+                let length = flat_length(a, b);
+                if length < 2.0 * self.radius {
+                    continue;
+                }
+                let own_side = cross_z(sub(b, a), sub(face.centre, a));
+                let covered: f32 = (face.portals.iter())
+                    .filter(|portal| on(a, b, portal.a) && on(a, b, portal.b))
+                    .filter(|portal| {
+                        let theirs =
+                            cross_z(sub(b, a), sub(self.faces[portal.to as usize].centre, a));
+                        theirs * own_side < 0.0
+                    })
+                    .map(|portal| flat_length(portal.a, portal.b))
+                    .sum();
+                if covered < length / 2.0 {
+                    edges.push((index as u32, a, b));
+                }
+            }
+        }
+        let low = |edge: &Edge| edge.1[0].min(edge.2[0]);
+        edges.sort_by(|x, y| low(x).total_cmp(&low(y)).then(x.0.cmp(&y.0)));
+        let mut joined = 0;
+        for at in 0..edges.len() {
+            let (one, a, b) = edges[at];
+            let reach = a[0].max(b[0]) + across;
+            for &(other, c, d) in &edges[at + 1..] {
+                if low(&(other, c, d)) > reach {
+                    break;
+                }
+                if self.faces[one as usize].island == self.faces[other as usize].island {
+                    continue;
+                }
+                let Some((from, to, onto)) = alongside((a, b), (c, d), across, rise, self.radius)
+                else {
+                    continue;
+                };
+                // A body crosses at the middle of the stretch the edges
+                // share.
+                let middle = lerp(from, to, 0.5);
+                let there = onto(middle);
+                if !stepped_over(level, middle, there, self.radius, rise) {
+                    continue;
+                }
+                self.link(one, other, from, to);
+                joined += 1;
+            }
+        }
+        joined += self.resting(level, &edges, rise);
+        if joined > 0 {
+            self.islands = self.label();
+        }
+        joined
+    }
+
+    /// The second way of `bridge`: each of `edges` that lies over a face of
+    /// another island, at most `rise` above or below it at points along it,
+    /// joined to that face along the stretch that does. The stretch must be
+    /// a body's width long, and a body must step across it from the edge's
+    /// face onto the other.
+    fn resting(&mut self, level: &crate::Level, edges: &[Edge], rise: f32) -> usize {
+        // How high the face is at a point seen from above, where the point
+        // lies over it.
+        let height_on = |face: &Face, p: Vec3| -> Option<f32> {
+            let [a, b, c] = face.corners;
+            let area = cross_z(sub(b, a), sub(c, a));
+            if area.abs() < 1e-9 {
+                return None;
+            }
+            let u = cross_z(sub(c, b), sub(p, b)) / area;
+            let v = cross_z(sub(a, c), sub(p, c)) / area;
+            let w = 1.0 - u - v;
+            let margin = -1e-4;
+            (u >= margin && v >= margin && w >= margin).then(|| u * a[2] + v * b[2] + w * c[2])
+        };
+        const SAMPLES: usize = 16;
+        let mut joins: Vec<(u32, u32, Vec3, Vec3)> = Vec::new();
+        for &(own, a, b) in edges {
+            let island = self.faces[own as usize].island;
+            // The faces near the edge, of other islands.
+            let (low, high) = (
+                cell(a[0].min(b[0]), a[1].min(b[1])),
+                cell(a[0].max(b[0]), a[1].max(b[1])),
+            );
+            let mut near: Vec<u32> = Vec::new();
+            for x in low.0..=high.0 {
+                for y in low.1..=high.1 {
+                    for &face in self.grid.get(&(x, y)).into_iter().flatten() {
+                        if self.faces[face as usize].island != island && !near.contains(&face) {
+                            near.push(face);
+                        }
+                    }
+                }
+            }
+            for other in near {
+                let face = &self.faces[other as usize];
+                // The share of the edge, from its start, that lies over the
+                // face within `rise`.
+                let over: Vec<f32> = (0..=SAMPLES)
+                    .map(|step| step as f32 / SAMPLES as f32)
+                    .filter(|&t| {
+                        let p = lerp(a, b, t);
+                        height_on(face, p).is_some_and(|z| (z - p[2]).abs() <= rise)
+                    })
+                    .collect();
+                let (Some(&first), Some(&last)) = (over.first(), over.last()) else {
+                    continue;
+                };
+                let (from, to) = (lerp(a, b, first), lerp(a, b, last));
+                if flat_length(from, to) < 2.0 * self.radius {
+                    continue;
+                }
+                // A body steps from the edge's face, across the middle of
+                // the stretch, onto the other face beyond.
+                let middle = lerp(from, to, 0.5);
+                let own_centre = self.faces[own as usize].centre;
+                let (x, y) = (middle[0] - own_centre[0], middle[1] - own_centre[1]);
+                let length = (x * x + y * y).sqrt().max(1e-6);
+                let reach = self.radius + 0.1;
+                let inside = [
+                    middle[0] - x / length * reach,
+                    middle[1] - y / length * reach,
+                    middle[2],
+                ];
+                let mut beyond = [
+                    middle[0] + x / length * reach,
+                    middle[1] + y / length * reach,
+                    0.0,
+                ];
+                let Some(z) = height_on(face, beyond) else {
+                    continue;
+                };
+                beyond[2] = z;
+                if !stepped_over(level, inside, beyond, self.radius, rise) {
+                    continue;
+                }
+                joins.push((own, other, from, to));
+            }
+        }
+        let count = joins.len();
+        for (own, other, from, to) in joins {
+            self.link(own, other, from, to);
+        }
+        count
     }
 
     /// Numbers the islands; how many.
@@ -1662,10 +1847,83 @@ impl Face {
     }
 }
 
+/// Where two edges lie along each other for `bridge`: nearly the same way
+/// (within about 10 degrees), the second at most `across` from the first's
+/// line seen from above, sharing a stretch at least a body's width long
+/// (`radius` either side), at most `rise` apart in height along it. Gives
+/// the stretch on the first edge (as it runs) and a way to find the point
+/// of the second edge across from a point of the first.
+#[allow(clippy::type_complexity)]
+fn alongside(
+    (a, b): (Vec3, Vec3),
+    (c, d): (Vec3, Vec3),
+    across: f32,
+    rise: f32,
+    radius: f32,
+) -> Option<(Vec3, Vec3, impl Fn(Vec3) -> Vec3)> {
+    let length = flat_length(a, b);
+    let (ab, cd) = (sub(b, a), sub(d, c));
+    let other = flat_length(c, d);
+    if length <= 0.0 || other <= 0.0 {
+        return None;
+    }
+    // Nearly parallel, either way round.
+    if cross_z(ab, cd).abs() > 0.17 * length * other {
+        return None;
+    }
+    let off = |p: Vec3| cross_z(ab, sub(p, a)) / length;
+    let (oc, od) = (off(c), off(d));
+    if oc.abs() > across || od.abs() > across || oc * od < -1e-6 {
+        return None;
+    }
+    let along = move |p: Vec3| (ab[0] * (p[0] - a[0]) + ab[1] * (p[1] - a[1])) / length;
+    let (tc, td) = (along(c), along(d));
+    let (start, end) = (tc.min(td).max(0.0), tc.max(td).min(length));
+    if end - start < 2.0 * radius {
+        return None;
+    }
+    let (from, to) = (lerp(a, b, start / length), lerp(a, b, end / length));
+    // The second edge's point across from a point of the first.
+    let onto = move |p: Vec3| {
+        let t = ((along(p) - tc) / (td - tc)).clamp(0.0, 1.0);
+        lerp(c, d, t)
+    };
+    let higher = [from, to].map(|p| (onto(p)[2] - p[2]).abs());
+    if higher.iter().any(|gap| *gap > rise) {
+        return None;
+    }
+    Some((from, to, onto))
+}
+
+/// Whether a standing body steps from the floor at `from` to the floor at
+/// `to` (metres) in `level`: a body's box (`radius` either side), from a
+/// step (`rise`) over the higher floor to a head's height, moves from a
+/// little before `from` to a little past `to` without meeting anything
+/// solid. Where the two points are one, the body moves a little either
+/// way across the line they lie on.
+fn stepped_over(level: &crate::Level, from: Vec3, to: Vec3, radius: f32, rise: f32) -> bool {
+    use crate::CollisionWorld;
+    let floor = from[2].max(to[2]) + 0.01;
+    let body = crate::Extents {
+        mins: [-radius + 0.01, -radius + 0.01, rise],
+        maxs: [radius - 0.01, radius - 0.01, 1.6],
+    };
+    let (x, y) = (to[0] - from[0], to[1] - from[1]);
+    let length = (x * x + y * y).sqrt();
+    if length < 0.01 {
+        return false;
+    }
+    let (x, y) = (x / length, y / length);
+    let start = [from[0] - x * 0.1, from[1] - y * 0.1, floor];
+    let end = [to[0] + x * 0.1, to[1] + y * 0.1, floor];
+    let trace = level.trace(start, end, &body, crate::Contents::PLAYER_SOLID);
+    trace.fraction >= 1.0 && !trace.start_solid
+}
+
 /// The stretch two segments share when they lie along one line (within
 /// `SEAM_OFF` of it), overlap by `SEAM_OVERLAP` or more and are at most
-/// `SEAM_RISE` apart in height there: its ends, as `a`–`b` runs.
-fn overlap(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> Option<(Vec3, Vec3)> {
+/// `seam_rise` apart in height there: its ends, as `a`–`b` runs.
+fn overlap(a: Vec3, b: Vec3, c: Vec3, d: Vec3, seam_rise: f32) -> Option<(Vec3, Vec3)> {
     let length = flat_length(a, b);
     if length < SEAM_OVERLAP {
         return None;
@@ -1693,5 +1951,5 @@ fn overlap(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> Option<(Vec3, Vec3)> {
     let rise = (height(from) - from[2])
         .abs()
         .max((height(to) - to[2]).abs());
-    (rise <= SEAM_RISE).then_some((from, to))
+    (rise <= seam_rise).then_some((from, to))
 }

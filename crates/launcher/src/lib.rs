@@ -51,6 +51,7 @@ probes!(
     check,
     clips,
     collision_audit,
+    collision_ja,
     collision_probes,
     collision_verbs,
     combat_verbs,
@@ -316,7 +317,8 @@ enum Command {
         /// k1, tsl or ja
         game: String,
         /// Model resref, without extension (for ja: a path such as
-        /// models/players/kyle/model.glm)
+        /// models/players/kyle/model.glm, or a level such as
+        /// maps/t1_sour.bsp)
         model: String,
         #[arg(long)]
         module: Option<String>,
@@ -773,10 +775,12 @@ pub fn run() -> ExitCode {
             saber,
             cmds,
             headless,
-        }) => match if game.eq_ignore_ascii_case("ja") {
-            viewer_ja::load(&discover(), &model, clip.as_deref(), saber.as_deref())
-        } else {
+        }) => match if !game.eq_ignore_ascii_case("ja") {
             viewer::load_model(&discover(), &game, &model, module.as_deref())
+        } else if model.to_ascii_lowercase().ends_with(".bsp") {
+            viewer_ja::load_level(&discover(), &model)
+        } else {
+            viewer_ja::load(&discover(), &model, clip.as_deref(), saber.as_deref())
         } {
             Ok(loaded) => play(
                 cmds.as_deref().unwrap_or(""),

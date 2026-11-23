@@ -733,6 +733,251 @@ pub fn load(
     })
 }
 
+/// The path of a level in Jedi Academy's archives: `t1_sour`,
+/// `maps/t1_sour` and `maps/t1_sour.bsp` all name `maps/t1_sour.bsp`, and
+/// `mp/ffa3` names `maps/mp/ffa3.bsp`.
+pub fn level_path(name: &str) -> String {
+    let path = fmt_ja::game_path(name);
+    let path = if path.starts_with("maps/") {
+        path
+    } else {
+        format!("maps/{path}")
+    };
+    if path.ends_with(".bsp") {
+        path
+    } else {
+        format!("{path}.bsp")
+    }
+}
+
+/// A Jedi Academy level for the viewer (`kjk view ja maps/t1_sour.bsp`):
+/// its surfaces and its static models as one model, lit by the level's own
+/// stored light (`asset_ja::level`), with the camera at the player's start. A shader
+/// whose first blend adds its colour to what is behind it (a glow, a
+/// light's halo) is drawn additive. The scene's notes say what was drawn
+/// and what was left out.
+pub fn load_level(discovery: &Discovery, name: &str) -> Result<LoadedScene, String> {
+    let parts = level_parts(discovery, name)?;
+    let tally = &parts.tally;
+    let notes = vec![
+        format!(
+            "{} triangles in {} meshes, {} lightmaps",
+            tally.triangles,
+            parts.model.meshes.len(),
+            parts.bsp.lightmaps.len(),
+        ),
+        format!(
+            "surfaces: {} with a lightmap in the level, {} with a lightmap kept beside it, {} lit by their vertices, {} curved",
+            tally.lightmapped, tally.kept_beside, tally.vertex_lit, tally.patches,
+        ),
+        format!(
+            "static models: {} placed with {} triangles, {} left out",
+            tally.static_models, tally.static_triangles, tally.static_missing,
+        ),
+        format!(
+            "left out: {} sky surfaces, {} never drawn, {} of fog, {} flares, {} of a kind not known",
+            tally.sky, tally.not_drawn, tally.fog, tally.flares, tally.unknown,
+        ),
+    ];
+    let mut scene = level_scene(
+        parts.path,
+        parts.model,
+        parts.sky,
+        parts.doors,
+        parts.textures,
+        parts.start,
+        notes,
+    );
+    scene.missing = parts.missing;
+    Ok(scene)
+}
+
+/// The scene of a level: its model, lit by its own stored light through
+/// `textures`, its sky's box when it has one, and its doors, the camera at
+/// the player's start. Door `n` is the scene's door of object `n`, as a
+/// level's module numbers them (`stage::ja_module`), and its model is among
+/// the last of the scene's.
+pub fn level_scene(
+    name: String,
+    model: ModelIr,
+    sky: Option<ModelIr>,
+    doors: Vec<asset_ja::level::DoorModel>,
+    textures: BTreeMap<String, TextureIr>,
+    start: Option<([f32; 3], [f32; 2])>,
+    notes: Vec<String>,
+) -> LoadedScene {
+    let placed = |ir: ModelIr| Placed {
+        ir,
+        offset: [0.0; 3],
+        facing: 0.0,
+        is_static: true,
+        attach: None,
+        hook: None,
+        hook_local: None,
+        clip: None,
+        envmap: None,
+        room_glow: false,
+    };
+    let mut models: Vec<Placed> = std::iter::once(model).chain(sky).map(placed).collect();
+    let first_door = models.len();
+    let door_views = (doors.into_iter().enumerate())
+        .map(|(number, door)| {
+            models.push(placed(door.model));
+            crate::viewer::DoorView {
+                object: number as u32,
+                model: first_door + number,
+                opening: [Some(Arc::new(door.opening)), None],
+                closing: [Some(Arc::new(door.closing)), None],
+                busted: None,
+                fx: None,
+            }
+        })
+        .collect::<Vec<_>>();
+    LoadedScene {
+        name,
+        instances: door_views.len(),
+        doors: door_views,
+        models,
+        textures,
+        entry: start,
+        creature_notes: notes,
+        ambient: [0.2; 3],
+        lit: false,
+        ..LoadedScene::default()
+    }
+}
+
+/// A level read from Jedi Academy's archives: its file as parsed, the
+/// model the scene draws of it, and that model's textures with the level's
+/// light atlas among them.
+pub struct LevelParts {
+    /// The level's path in the archives (`maps/t1_sour.bsp`).
+    pub path: String,
+    /// The digest of the level's file (`level_edit::ja_rooms::digest`).
+    pub digest: String,
+    pub bsp: fmt_ja::bsp::Bsp,
+    pub model: ModelIr,
+    pub textures: BTreeMap<String, TextureIr>,
+    /// Shaders the model names whose texture was not found.
+    pub missing: Vec<String>,
+    /// Where a player starts (metres, at the feet) and the way they face.
+    pub start: Option<([f32; 3], [f32; 2])>,
+    /// The sky's box (`asset_ja::sky`), when the level's sky shader names
+    /// pictures the game's files hold.
+    pub sky: Option<ModelIr>,
+    /// The level's doors, each a model of its own.
+    pub doors: Vec<asset_ja::level::DoorModel>,
+    pub tally: asset_ja::level::Tally,
+}
+
+/// The six pictures of the sky shader `shader`, as the scene names
+/// textures: the box its `skyParms` names (`env/desert` gives
+/// `env/desert_rt` and the others). A shader whose box is `-` draws only
+/// clouds, which are not drawn here: its first stage's picture stands on
+/// every side instead.
+fn sky_pictures(files: &Files, shader: &str) -> Option<[String; 6]> {
+    let shader_files: Vec<&str> = (files.all.keys().copied())
+        .filter(|name| name.starts_with("shaders/") && name.ends_with(".shader"))
+        .collect();
+    for file in shader_files {
+        let Some(parsed) = files
+            .read(file)
+            .and_then(|bytes| fmt_ja::shader::parse(&bytes).ok())
+        else {
+            continue;
+        };
+        let Some(found) = parsed
+            .shaders
+            .into_iter()
+            .find(|found| found.name == shader)
+        else {
+            continue;
+        };
+        let word =
+            |line: &Vec<String>, at: usize| line.get(at).map(|word| word.to_ascii_lowercase());
+        let farbox = (found.directives.iter())
+            .find(|line| word(line, 0).as_deref() == Some("skyparms"))
+            .and_then(|line| word(line, 1));
+        if let Some(farbox) = farbox.filter(|farbox| farbox != "-") {
+            let base = fmt_ja::game_path(&farbox);
+            return Some(asset_ja::sky::SIDES.map(|side| format!("{base}_{side}")));
+        }
+        let first = (found.stages.iter().flatten()).find_map(|line| {
+            matches!(word(line, 0).as_deref(), Some("map" | "clampmap"))
+                .then(|| word(line, 1))
+                .flatten()
+        })?;
+        return Some(std::array::from_fn(|_| fmt_ja::game_path(&first)));
+    }
+    None
+}
+
+/// The level `name` (`level_path`), read and made ready to draw.
+pub fn level_parts(discovery: &Discovery, name: &str) -> Result<LevelParts, String> {
+    let stack = stack(discovery)?;
+    let files = Files::new(&stack);
+    let path = level_path(name);
+    let bytes = files
+        .read(&path)
+        .ok_or(format!("{path}: not in Jedi Academy's archives"))?;
+    let bsp = fmt_ja::bsp::parse(&bytes).map_err(|error| format!("{path}: {error}"))?;
+    let md3 = |model: &str| fmt_ja::md3::parse(&files.read(model)?).ok();
+    let level = asset_ja::level::level(&path, &bsp, &md3, &asset_ja::level::Paint::Shaders);
+
+    let names: Vec<String> = (level.model.meshes.iter())
+        .chain(level.doors.iter().flat_map(|door| &door.model.meshes))
+        .filter_map(|mesh| mesh.texture.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let (mut textures, missing) = textures(&files, &names);
+    for (shader, (source, target)) in blend_funcs(&files, &names) {
+        if let Some(texture) = textures.get_mut(&shader)
+            && source == "gl_one"
+            && target == "gl_one"
+        {
+            texture.facts.blending = asset_odyssey::texture::Blending::Additive;
+        }
+    }
+    textures.insert(asset_ja::level::light_name(&path), level.light);
+    let mut missing = missing;
+    let pictures = level
+        .sky
+        .first()
+        .and_then(|shader| sky_pictures(&files, shader));
+    let sky = pictures.map(|pictures| {
+        let (mut loaded, lacking) = self::textures(&files, pictures.iter());
+        // Clamped, so no side shows a seam of the side across from it.
+        for texture in loaded.values_mut() {
+            texture.facts.clamp = true;
+        }
+        missing.extend(lacking);
+        textures.extend(loaded);
+        asset_ja::sky::model(&path, pictures, asset_ja::sky::reach(&bsp))
+    });
+    for page in &level.beside {
+        let picture = asset_ja::level::beside_path(&path, *page);
+        match texture(&files, &picture) {
+            Some(light) => {
+                textures.insert(asset_ja::level::beside_name(&path, *page), light);
+            }
+            None => missing.push(picture),
+        }
+    }
+    Ok(LevelParts {
+        path,
+        digest: level_edit::ja_rooms::digest(&bytes),
+        bsp,
+        model: level.model,
+        textures,
+        missing,
+        start: level.start,
+        sky,
+        doors: level.doors,
+        tally: level.tally,
+    })
+}
+
 /// Every texture the models' meshes and the blades name.
 pub(crate) fn scene_textures<'m>(
     models: impl IntoIterator<Item = &'m Placed>,

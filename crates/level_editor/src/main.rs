@@ -9,6 +9,7 @@ mod agent;
 mod bake;
 mod elsewhere;
 mod file;
+mod ja_rooms;
 mod lamps;
 mod markers;
 mod picker;
@@ -38,9 +39,9 @@ use vfs::resolver::{Resolver, TextureQuality};
 #[command(name = "kjk-level-editor")]
 struct Cli {
     /// k1 or tsl; with no game and module, the editor lists the levels to
-    /// pick from
+    /// pick from. `ja` opens a Jedi Academy level to divide it into rooms
     game: Option<String>,
-    /// The module, e.g. ebo_m12aa
+    /// The module, e.g. ebo_m12aa; for `ja`, a level such as t1_sour
     module: Option<String>,
     /// The project's name: the module's when left out. A project that does
     /// not exist is made from the module's area as the install has it
@@ -109,6 +110,26 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // A Jedi Academy level is opened to be divided into rooms.
+    if game.eq_ignore_ascii_case("ja") {
+        let (rooms, scene) = match ja_rooms::Rooms::open(&module, cli.project.as_deref()) {
+            Ok(opened) => opened,
+            Err(error) => {
+                eprintln!("kjk-level-editor: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
+        return run(runtime::RunOptions {
+            commands,
+            script,
+            headless: cli.headless,
+            size,
+            games: Box::new(|| serde_json::Value::Null),
+            scene: runtime::Scene::Loaded(Box::new(scene)),
+            plugins: Some(Box::new(move |app| ja_rooms::install(app, rooms))),
+            asks_before_closing: false,
+        });
+    }
     let new_map = cli
         .new_map
         .as_deref()

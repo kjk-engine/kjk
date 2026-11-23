@@ -304,6 +304,7 @@ impl Plugin for ScenePlugin {
         // still hold the world as drawn, and resolving them over the frame
         // undid every pass between whenever it drew anything.
         app.add_plugins(bevy_post_process::msaa_writeback::MsaaWritebackPlugin);
+        app.add_plugins(crate::sky_box::SkyBoxPlugin);
         app.add_plugins((
             OdysseyMaterialPlugin,
             crate::shell::ShellPlugin,
@@ -1151,6 +1152,24 @@ pub(crate) struct Spawner<'t> {
 pub struct SharedImages(std::sync::Mutex<BTreeMap<String, AssetId<Image>>>);
 
 impl SharedImages {
+    /// Puts `texture` in the place of the image uploaded as `name`, so
+    /// every mesh drawn with that image shows the new one. False when no
+    /// image of that name is loaded.
+    pub fn replace(&self, name: &str, texture: &TextureIr, images: &mut Assets<Image>) -> bool {
+        let known = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(id) = known.get(name).copied() else {
+            return false;
+        };
+        if images.get_strong_handle(id).is_none() {
+            return false;
+        }
+        let _ = images.insert(id, material_image(texture));
+        true
+    }
+
     /// The image of the texture `name`: the one uploaded before when it is
     /// still loaded, else `texture` uploaded now.
     fn image(&self, name: &str, texture: &TextureIr, images: &mut Assets<Image>) -> Handle<Image> {
@@ -3387,6 +3406,13 @@ fn follow_paths(
         transform.translation = position;
         transform.rotation = rotation;
     }
+}
+
+/// `part` as the scene draws a lightmapped mesh of a level, for a program
+/// that changes such a mesh while it is shown (the level editor's rooms
+/// tool) to put in the old one's place.
+pub fn level_mesh(part: &asset_odyssey::model::MeshIr) -> Mesh {
+    odyssey_mesh(part, RenderAssetUsages::RENDER_WORLD, true, None)
 }
 
 /// `part` as a Bevy mesh: its positions, normals and diffuse UVs, the

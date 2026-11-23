@@ -188,6 +188,7 @@ mod sim_view;
 mod sim_worker;
 pub mod skeleton;
 mod skin_once;
+mod sky_box;
 mod solo;
 pub mod sound;
 mod speed_blur;

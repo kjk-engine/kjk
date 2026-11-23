@@ -25,6 +25,7 @@ pub mod fields;
 pub mod git;
 pub mod item_props;
 pub mod items;
+pub mod ja_rooms;
 pub mod journal;
 pub mod kinds;
 pub mod lamps;

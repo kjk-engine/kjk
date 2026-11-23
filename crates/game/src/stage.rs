@@ -111,6 +111,56 @@ impl Stage {
         }
     }
 
+    /// A Jedi Academy level (`ja:t1_sour`) for `seats` players: its
+    /// collision and its floor's navigation mesh
+    /// (`asset_ja::level_collision`), drawn as the viewer draws it
+    /// (`viewer_ja::level_parts`), the player at the level's start. Its
+    /// doors are a module's doors (`ja_module`), which a character opens
+    /// by using them. Its lifts stay where they rest.
+    pub fn ja_level(
+        discovery: &Discovery,
+        name: &str,
+        anims: Arc<AnimTable>,
+        seats: u8,
+    ) -> Result<Stage, String> {
+        let parts = crate::viewer_ja::level_parts(discovery, name)?;
+        let (spawn, facing) = parts
+            .start
+            .ok_or(format!("{}: the level has no player start", parts.path))?;
+        let built = asset_ja::level_collision::collision(&parts.bsp);
+        let nav = built.nav(sim::walk::CLEARANCE * collision::UNIT);
+        let name = format!("ja:{name}");
+        let movers = asset_ja::movers::movers(&parts.bsp);
+        let module = ja_module(&name, &movers, (spawn, facing), seats);
+        // The level and its sky are drawn as the viewer draws them: the
+        // stage's scene, as a module's is.
+        let scene = crate::viewer_ja::level_scene(
+            parts.path,
+            parts.model,
+            parts.sky,
+            parts.doors,
+            parts.textures,
+            parts.start,
+            Vec::new(),
+        );
+        Ok(Stage {
+            level: sim::Level::new(&name, Arc::new(built.level), anims)
+                .with_nav(nav)
+                .with_module(module),
+            name,
+            spawn,
+            yaw: facing[1].atan2(facing[0]).to_degrees(),
+            model: None,
+            scene: Some(Box::new(scene)),
+            plan: None,
+            installer: None,
+            seats,
+            sheet: sim::combat::Sheet::dev_soldier(),
+            guests: sim::Guests::Avatars,
+            face_off: None,
+        })
+    }
+
     /// The probes' ring (`stage::ring`) for `seats` players: what
     /// `kjk play --replay` draws a probe's bout on.
     pub fn ring(anims: Arc<AnimTable>, seats: u8) -> Stage {
@@ -283,7 +333,8 @@ impl Stage {
         Ok(stage)
     }
 
-    /// `course`, `duel`, or a KOTOR 1 module (e.g. `end_m01aa`), for
+    /// `course`, `duel`, a Jedi Academy level (`ja:t1_sour`), or a KOTOR 1
+    /// module (e.g. `end_m01aa`), for
     /// `seats` players; a module's encounters are planned for `players`
     /// (the stages without a module have none).
     pub fn named(
@@ -310,6 +361,9 @@ impl Stage {
                 seats,
             )
             .map(Stage::without_creatures),
+            _ if let Some(level) = name.strip_prefix("ja:") => {
+                Stage::ja_level(discovery, level, anims, seats)
+            }
             _ if let Some(base) = name.strip_prefix("arena:") => {
                 Stage::arena(discovery, base, anims, seats)
             }
@@ -382,6 +436,14 @@ impl Stage {
             guests: self.guests,
         };
         match &self.plan {
+            // A Jedi Academy level's doors are a module's objects: the world
+            // installs the module, as a plan's commit would.
+            None if self.level.module().is_some() => {
+                let mut world =
+                    SimWorld::new(config, sim::Level::arena()).map_err(|e| e.to_string())?;
+                (world.install(self.level.clone(), None)).map_err(|e| e.to_string())?;
+                Ok((world, None))
+            }
             None => {
                 let mut world =
                     SimWorld::new(config, self.level.clone()).map_err(|e| e.to_string())?;
@@ -397,6 +459,73 @@ impl Stage {
                 Ok((world, Some(announcement)))
             }
         }
+    }
+}
+
+/// A Jedi Academy level's module, named `name`: its doors as door objects,
+/// object `n` door `n` (`asset_ja::movers::doors`, whose brushes the
+/// level's collision gives entity `n`), each opened by using it. A door
+/// stands at the middle of its foot where it is closed, with a place to
+/// use it from a metre out from each face (`Mover::sides`), and starts
+/// open when the level says so. A door with a name (`targetname`) is
+/// tagged with it, and any other `door` and its number. The module's entry
+/// is the level's start: its place (metres, at the feet) and the way it
+/// faces.
+pub fn ja_module(
+    name: &str,
+    movers: &[asset_ja::movers::Mover],
+    (start, facing): ([f32; 3], [f32; 2]),
+    players: u8,
+) -> sim::module::ModuleData {
+    use sim::module::{ModuleData, ObjectData, ObjectKind, Opens, Placement, Spot};
+    let placements = (asset_ja::movers::doors(movers).into_iter().enumerate())
+        .map(|(number, door)| {
+            let tag = match door.name.is_empty() {
+                true => format!("door{number}"),
+                false => door.name.to_ascii_lowercase(),
+            };
+            let metres = |point: [f32; 3]| point.map(|part| part * collision::UNIT);
+            let away = 1.0 / collision::UNIT;
+            Placement::Own(ObjectData {
+                kind: ObjectKind::Door,
+                tag,
+                opens: Opens::Yes,
+                state: u8::from(door.starts_open),
+                use_points: door.sides(away).map(metres).to_vec(),
+                ..ObjectData::unknown("", metres(door.foot()), 0.0)
+            })
+        })
+        .collect();
+    ModuleData {
+        minutes_per_hour: 0,
+        game: "kjk".to_string(),
+        name: name.to_string(),
+        title: String::new(),
+        area: name.to_string(),
+        area_title: String::new(),
+        area_tag: String::new(),
+        entry: Spot {
+            position: start,
+            yaw: facing[1].atan2(facing[0]).to_degrees(),
+        },
+        placements,
+        templates: Default::default(),
+        repute: Default::default(),
+        force_costs: Vec::new(),
+        force_items: Vec::new(),
+        globals: Default::default(),
+        module_scripts: Vec::new(),
+        area_scripts: Vec::new(),
+        players,
+        map: None,
+        traps: Vec::new(),
+        bags: Vec::new(),
+        area_stealth: Default::default(),
+        ranges: Default::default(),
+        force: Default::default(),
+        disable_transit: false,
+        unescapable: false,
+        encounter_tables: Default::default(),
     }
 }
 

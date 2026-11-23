@@ -4099,6 +4099,7 @@ dependencies = [
 name = "level_editor"
 version = "0.0.0"
 dependencies = [
+ "asset_ja",
  "asset_odyssey",
  "bevy",
  "bevy_egui",

@@ -784,6 +784,24 @@ pub fn load_for(
             (world, Some(first))
         }
         (None, None, None) => {
+            // A stage whose module no plan installs (a Jedi Academy
+            // level's) arrives at the place asked for: its module's entry
+            // is moved there.
+            let at_entry = (options.at)
+                .filter(|_| stage.plan.is_none())
+                .and_then(|at| Some((at, stage.level.module()?.as_ref().clone())));
+            if let Some((at, module)) = at_entry {
+                let entry = sim::module::Spot {
+                    position: at.soles,
+                    yaw: at.facing,
+                };
+                stage.level = stage
+                    .level
+                    .clone()
+                    .with_module(sim::module::ModuleData { entry, ..module });
+            }
+            let at_entry =
+                (options.at).is_some() && stage.plan.is_none() && stage.level.module().is_some();
             let (world, first) = stage.world(1)?;
             let mut world =
                 stage::with_followers(world, options.followers, stage.installer.as_deref())?;
@@ -836,7 +854,7 @@ pub fn load_for(
             // A companion talked to (`--party`) is there once it joins; any
             // other is talked to first, as before.
             let talk_later = !options.party.is_empty();
-            if let Some(at) = options.at {
+            if let Some(at) = options.at.filter(|_| !at_entry) {
                 crate::by_hand::place(&mut world, at)?;
             }
             if let Some(talk) = options.talk.as_ref().filter(|_| !talk_later) {

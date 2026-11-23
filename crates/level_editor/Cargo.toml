@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 blake3.workspace = true
+asset_ja.workspace = true
 asset_odyssey.workspace = true
 bevy.workspace = true
 clap.workspace = true

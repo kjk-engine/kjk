@@ -51,6 +51,16 @@ fog and sound start as the picked level's. A project is opened once in a process
 so the picker starts the editor again as a program of its own on what was
 picked, and closes.
 
+When Jedi Academy is installed, the picker has a third tab, Jedi Academy,
+with every level of the game by its name (`t1_sour`, `mp/ffa3`). A level
+picked there opens in the rooms tool, to be cut into rooms ("Jedi Academy
+levels", below). Its project's name starts as the level's, with `-` where
+the level's name has a `/`. Any project can keep a Jedi Academy level's
+rooms, a project of KOTOR 1 or KOTOR 2 too. A project that keeps such
+rooms is listed on the left once for each level, as "Jedi Academy" and the
+level, beside its KOTOR level if it has one. A new map cannot start from a
+Jedi Academy level.
+
 `kjk-level-editor GAME MODULE` opens the module's entry area at once. `--project
 NAME` names the project. Without it, the project is named after the
 module. When the project does not exist yet, the editor makes it first: it
@@ -1561,7 +1571,8 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit ui tab rooms` | shows the Rooms tab of a new map |
 
 The picker takes `edit open GAME MODULE [PROJECT]`, `edit new GAME BASE
-NAME` (a new map), `edit search TEXT` and `edit tab k1` or `tsl`.
+NAME` (a new map), `edit search TEXT` and `edit tab k1`, `tsl` or `ja`.
+`edit open ja t1_sour` opens a Jedi Academy level in the rooms tool.
 
 A dump (`dump NAME`) has an `editor` fact: the project, the counts of each
 kind of object, every object with its template, tag, position and facing,
@@ -1779,6 +1790,132 @@ What to know:
   kjk.
 - **The project's folder is not the mod.** It also holds the project's
   own notes, which the export leaves out.
+
+## Jedi Academy levels
+
+A KOTOR area is made of rooms. A Jedi Academy level is one piece. Before a
+Jedi Academy level can be used as rooms of a map, it has to be cut into
+rooms. `kjk-level-editor ja LEVEL` opens a level for that, and so does
+picking the level in the Jedi Academy tab of the editor's start screen.
+
+```bash
+kjk-level-editor                               # pick a level in the Jedi Academy tab
+kjk-level-editor ja t1_sour                    # the project is named after the level
+kjk-level-editor ja mp/ffa3 --project town     # the rooms are kept in the project "town"
+```
+
+The level opens as one room, called the rest of the level. It is shown lit
+by its own stored light. The rest of the level is grey, and every room cut
+from it has a colour of its own. The panel on the left has the tool and
+lists the rooms, each with the triangles drawn in it.
+
+**Cutting a room.**
+
+1. Click the view. Each click places a point where it meets the level. A
+   shape takes up to 32 points.
+2. The points make a shape, drawn in the view in yellow as they are
+   placed. The shape is the smallest solid without a dent that holds every
+   point.
+3. **Cut a new room** gives everything inside the shape to a new room.
+   **Add to the selected room** gives it to the room selected in the list.
+
+A shape has no dent, so a room with a bend is made of two shapes: cut the
+first, then add the second to it.
+
+**Adjusting a shape.** Until a shape is cut, its points can be moved and
+added to. The point or the line under the pointer is drawn stronger.
+
+- **Drag a point** to move it. The point stays at its own height and
+  follows the pointer over that height.
+- **With Shift held**, the drag moves the point up and down. A point can
+  so be put in the air, where no click lands.
+- **With Alt held**, the dragged point sticks to the level: it goes where
+  the pointer meets a surface, as a click does.
+- **Click a line of the shape** to place a new point on it. A drag that
+  starts on a line places the point and moves it at once. The new point
+  lies between the two points the line joins, so the shape stays as it is
+  until the point is moved. A line of a shape that reaches up or down
+  joins the raised or lowered copies of two points, and the new point is
+  placed between those two points themselves. A line that stands on one
+  point, from its lowered to its raised copy, takes no new point.
+
+Points placed at different heights give a shape whose top and bottom are
+not flat. They are made of triangles, and the lines between those
+triangles are drawn faintly. Such a line is one where the two faces it
+joins lie within 25 degrees of one plane. It is part of the shape like any
+other line, but it takes no new point.
+
+**How far a shape reaches.** A click lands on a surface. Points clicked on
+a floor lie in one plane and have no inside, and a hall under an open sky
+has no ceiling to click. So the shape also reaches from each point.
+
+- **Reach up** is how far the shape reaches above each point. It starts
+  at 8 metres.
+- **Reach down** is how far it reaches below each point. It starts at 1
+  metre.
+- **Margin** moves every face of the shape out. It starts at 10
+  centimetres, so that a wall the points were clicked on is inside.
+
+With all three at 0 the shape is exactly the points, in any direction.
+
+**What a cut takes.** A triangle that a shape's face crosses is cut there,
+and each part goes to its own side. A hangar's floor may be one triangle
+50 metres long, so without this a room's edge would follow the level's
+triangles and not the shape. A static model is cut the same way.
+
+**Later cuts take from earlier ones.** The cuts are kept in the order they
+were made. A place belongs to the room of the last cut that holds it, and
+to the rest of the level when no cut holds it. A small room can therefore
+be cut out of the middle of a large one.
+
+**The other buttons.**
+
+- **Remove the last point** and **Clear the points** change the shape
+  being placed.
+- **Delete the room** takes the selected room out. Its space goes back to
+  what it was cut from.
+- The **Name** field names the selected room. Enter sets the name.
+- **Undo** takes the last change back.
+- A click on a row of the list selects a room, and the other rooms are
+  dimmed. Ctrl and a click on the view selects the room there.
+
+**Adjusting a room after it is cut.** The selected room lists its shapes,
+in the order they were made, each with two buttons.
+
+- **Adjust** places the shape's points again, with its reach, to be
+  dragged and added to as before it was cut. The room keeps its old shape
+  until **Apply to the shape** gives it the new one. **Cancel** leaves the
+  shape as it was. While a shape is adjusted, no new room can be cut.
+- **Take out** removes the shape. What it held goes back to what it was
+  cut from. The room stays, with its other shapes.
+
+**Seeing the level's textures.** The **Show** switch under the list picks
+how the level is drawn. **Rooms in colour** colours everything by its room,
+as above. **Textures** draws the level as the game draws it, with its
+textures, its own light, its sky and its doors. Every room's shapes are
+then drawn as outlines in the room's colour, the selected room's stronger.
+
+**Where the rooms are kept.** Every change is saved at once, as
+`ja-rooms/<level>.toml` in the project's folder. The file holds the rooms'
+names, each cut's points and reach, the level's path, and the digest of
+the level's file. It holds nothing of the level itself, which stays in
+Jedi Academy's install. A point is a place in the file it was placed in,
+so rooms made for another file of the same name are refused.
+
+**Commands.** `edit point X Y Z` (metres), `edit move POINT X Y Z`,
+`edit edge POINT POINT [SHARE]` (a new point between two, half way
+unless a share from 0 to 1 is given), `edit points undo`,
+`edit points clear`, `edit up METRES`, `edit down METRES`,
+`edit margin METRES`, `edit cut [NAME]`, `edit add ROOM`,
+`edit delete ROOM`, `edit rename ROOM NAME`, `edit select [ROOM]`,
+`edit adjust ROOM N` (the room's Nth shape), `edit apply`, `edit cancel`,
+`edit unshape ROOM N`, `edit view textures` or `edit view rooms`, and
+`edit undo`. A room is named by its number in the list or by its name. A
+point is named by its number, from 1, in the order the points were
+placed. `dump` writes the rooms as the fact `ja_rooms`.
+
+What this does not do yet: the rooms cannot be placed in a map, and
+nothing plays them.
 
 ## Limits of the prototype
 
