@@ -1196,6 +1196,14 @@ impl Editor {
                         map.module_scripts
                             .insert(label, script.to_ascii_lowercase());
                     }
+                    AreaChange::JaSky(sky) => {
+                        let map = self
+                            .project
+                            .map
+                            .as_mut()
+                            .ok_or("only a new map has a Jedi Academy sky")?;
+                        map.ja_sky = sky.map(|sky| sky.to_ascii_lowercase());
+                    }
                 }
                 Ok(self.selected)
             }

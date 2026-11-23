@@ -535,6 +535,7 @@ fn setup(
         stores,
         encounters,
         rooms,
+        ja_skies: kjk_game::ja_made::sky_boxes(&discovery),
         light_data,
         bakes,
         program,

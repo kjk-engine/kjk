@@ -1573,6 +1573,24 @@ pub fn module_scene(
             floor_error,
         });
     }
+    // A new map's Jedi Academy sky box, which the scene keeps round the
+    // camera (`sky_box`). It is not a room: it has no floor, and nothing
+    // stands in it.
+    let sky = crate::ja_made::sky_of(module);
+    if let Some(sky) = &sky {
+        models.push(Placed {
+            ir: sky.model.clone(),
+            offset: [0.0; 3],
+            facing: 0.0,
+            is_static: false,
+            attach: None,
+            hook: None,
+            hook_local: None,
+            clip: None,
+            envmap: None,
+            room_glow: false,
+        });
+    }
     laps.lap("rooms");
     // Doors and placeables at their GIT position and bearing (as xoreos places them): doors in their rest pose, placeables posed by
     // their state's clip with their emitters (`own_fx`).
@@ -1688,6 +1706,10 @@ pub fn module_scene(
     let lamps = crate::lamps::place(resolver, game, module, &mut models);
     laps.lap("lamps");
     let (mut textures, mut missing) = textures(resolver, &models);
+    if let Some(sky) = &sky {
+        textures.extend(sky.textures.clone());
+        missing.retain(|name| !sky.textures.contains_key(name));
+    }
     for room in &own_fx {
         crate::model_fx::add_textures(resolver, (&room.fx, &room.chunks), &mut textures);
     }

@@ -82,11 +82,14 @@ pub struct JaMap {
     pub rooms: Vec<(String, crate::map::Room)>,
     /// The cuts of each level the rooms come from.
     pub cuts: Vec<crate::ja_rooms::JaRooms>,
+    /// The Jedi Academy sky box drawn round the map (`map::NewMap::ja_sky`).
+    pub sky: Option<String>,
 }
 
 impl JaMap {
-    /// The map `map` of the module `module`'s Jedi Academy rooms, with
-    /// the cuts that `cuts` gives for a level. `None` when it places none.
+    /// The map `map` of the module `module`'s Jedi Academy rooms and sky,
+    /// with the cuts that `cuts` gives for a level. `None` when it places
+    /// no such room and has no such sky.
     pub fn of(
         module: &str,
         map: &crate::map::NewMap,
@@ -96,7 +99,7 @@ impl JaMap {
             .filter(|(_, room)| room.ja.is_some())
             .map(|(index, room)| (crate::map::room_name(module, index), room.clone()))
             .collect();
-        if rooms.is_empty() {
+        if rooms.is_empty() && map.ja_sky.is_none() {
             return Ok(None);
         }
         let levels: std::collections::BTreeSet<&str> = (rooms.iter())
@@ -112,6 +115,7 @@ impl JaMap {
             module: module.to_string(),
             rooms,
             cuts: kept,
+            sky: map.ja_sky.clone(),
         }))
     }
 
@@ -125,6 +129,9 @@ impl JaMap {
              module = {:?}\n",
             self.module, self.module
         );
+        if let Some(sky) = &self.sky {
+            out.push_str(&format!("sky = {sky:?}\n"));
+        }
         for (copy, room) in &self.rooms {
             let Some(ja) = &room.ja else {
                 continue;
@@ -141,8 +148,11 @@ impl JaMap {
         out
     }
 
-    /// Reads the module and the rooms of `rooms.toml`.
-    pub fn parse_rooms(text: &str) -> Result<(String, Vec<(String, crate::map::Room)>), String> {
+    /// Reads the module, the rooms and the sky of `rooms.toml`.
+    #[allow(clippy::type_complexity)]
+    pub fn parse_rooms(
+        text: &str,
+    ) -> Result<(String, Vec<(String, crate::map::Room)>, Option<String>), String> {
         let document: toml_edit::DocumentMut = text.parse().map_err(|error| format!("{error}"))?;
         let words = |item: Option<&toml_edit::Item>, what: &str| {
             (item.and_then(toml_edit::Item::as_str))
@@ -186,7 +196,10 @@ impl JaMap {
             let copy = words(table.get("copy"), "a room's copy")?.to_ascii_lowercase();
             rooms.push((copy, room));
         }
-        Ok((module, rooms))
+        let sky = (document.get("sky").and_then(toml_edit::Item::as_str))
+            .map(str::to_ascii_lowercase)
+            .filter(|sky| !sky.is_empty());
+        Ok((module, rooms, sky))
     }
 }
 
@@ -439,7 +452,7 @@ pub fn read(files: &[(String, PathBuf)]) -> Found {
         let read = std::fs::read_to_string(&path)
             .map_err(|error| error.to_string())
             .and_then(|text| JaMap::parse_rooms(&text));
-        let (module, rooms) = match read {
+        let (module, rooms, sky) = match read {
             Ok(read) => read,
             Err(why) => {
                 found.notes.push(format!("{inside}: {why}"));
@@ -460,6 +473,7 @@ pub fn read(files: &[(String, PathBuf)]) -> Found {
             module,
             rooms,
             cuts,
+            sky,
         });
     }
     found.world = of_world.then(|| *world.finalize().as_bytes());

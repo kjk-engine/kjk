@@ -2022,12 +2022,34 @@ test, the hangar moved 67 centimetres off its home place met a seam 44
 centimetres from home. Rooms of one level are therefore best placed at
 their home places.
 
+**A Jedi Academy sky.** A new map can show one of Jedi Academy's sky
+boxes round it. **Sky** in the details panel's "This level" lists every
+sky box whose six pictures Jedi Academy's archives hold, and **none**.
+The base game has 17 such boxes. Some boxes that Jedi Academy's shaders
+name have no pictures, such as `textures/skies/hoth`, and are not
+listed. Hoth's siege level uses `textures/skies/hevil`, a grey sky over
+snow and sea.
+
+- The map keeps the box's name (`ja_sky` in `kjk-map.toml`), and none of
+  its pictures. kjk reads the six pictures from the player's own Jedi
+  Academy install when the map is drawn.
+- The box is drawn 2 kilometres from the viewer, round the camera, as
+  the Jedi Academy viewer draws a level's sky. It is not a room. It has
+  no floor, nothing collides with it, and a click into the sky selects
+  nothing.
+- `edit area sky NAME` gives the map that box, and `edit area sky none`
+  takes it away. The agent link's `catalog.json` lists the boxes as
+  `ja_skies`.
+- An exported mod carries the box's name in `kjk-ja/<map>/rooms.toml`.
+
 **Sharing the map.** **Export as a mod** takes the map's Jedi Academy
-rooms with it, as their places and their cuts, and none of Jedi
-Academy's files ("Sharing a level", "A map with Jedi Academy rooms").
+rooms and sky with it, as their places, their cuts and the sky's name,
+and none of Jedi Academy's files ("Sharing a level", "A map with Jedi
+Academy rooms").
 
 **What a Jedi Academy room does not have yet.** Its doors and lifts are
-drawn shut and do not move, and they block the way. Its sky is not drawn.
+drawn shut and do not move, and they block the way. Its level's own sky is not taken with it, but a map can show any of Jedi
+Academy's sky boxes ("A Jedi Academy sky" above).
 Its walkmesh's outline gets KOTOR's walls, so a character cannot jump
 onto a ledge higher than a step, except onto furniture under a roof
 (`collision_odyssey::edges`). Its light is Jedi Academy's own and does not

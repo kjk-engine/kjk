@@ -1071,6 +1071,47 @@ fn sky_pictures(files: &Files, shader: &str) -> Option<[String; 6]> {
     None
 }
 
+/// Every sky box Jedi Academy's shaders name (`skyParms`) whose six
+/// pictures the archives hold: the name the pictures share
+/// (`textures/skies/hoth`), sorted.
+pub(crate) fn sky_box_names(files: &Files) -> Vec<String> {
+    let mut boxes = std::collections::BTreeSet::new();
+    let shader_files: Vec<&str> = (files.all.keys().copied())
+        .filter(|name| name.starts_with("shaders/") && name.ends_with(".shader"))
+        .collect();
+    for file in shader_files {
+        let Some(parsed) = files
+            .read(file)
+            .and_then(|bytes| fmt_ja::shader::parse(&bytes).ok())
+        else {
+            continue;
+        };
+        for shader in parsed.shaders {
+            for line in &shader.directives {
+                if line
+                    .first()
+                    .is_some_and(|word| word.eq_ignore_ascii_case("skyparms"))
+                    && let Some(farbox) = line.get(1).filter(|farbox| *farbox != "-")
+                {
+                    boxes.insert(fmt_ja::game_path(farbox));
+                }
+            }
+        }
+    }
+    let has_picture = |name: &str| {
+        ["tga", "jpg", "png"].iter().any(|extension| {
+            files
+                .all
+                .contains_key(format!("{name}.{extension}").as_str())
+        })
+    };
+    (boxes.into_iter())
+        .filter(|farbox| {
+            (asset_ja::sky::SIDES.iter()).all(|side| has_picture(&format!("{farbox}_{side}")))
+        })
+        .collect()
+}
+
 /// The level `name` (`level_path`), read and made ready to draw.
 pub fn level_parts(discovery: &Discovery, name: &str) -> Result<LevelParts, String> {
     let stack = stack(discovery)?;

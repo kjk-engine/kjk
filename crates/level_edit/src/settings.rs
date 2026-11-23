@@ -41,6 +41,8 @@ pub enum AreaChange {
     /// A new map's module script: the `module.ifo` label and the script,
     /// empty for none.
     ModuleScript(String, String),
+    /// A new map's Jedi Academy sky box (`map::NewMap::ja_sky`), or none.
+    JaSky(Option<String>),
 }
 
 /// The fields of the ARE the editor changes, and the value each has when

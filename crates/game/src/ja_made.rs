@@ -90,6 +90,90 @@ pub struct Built {
     pub folder: Option<PathBuf>,
 }
 
+/// How far a new map's Jedi Academy sky box's sides are from the viewer,
+/// in metres. The box moves with the camera (`sky_box`), so it only has to
+/// lie past every room.
+const SKY_REACH: f32 = 2000.0;
+
+/// A sky box built to draw: its model and its six pictures.
+pub struct Sky {
+    pub model: ModelIr,
+    pub textures: BTreeMap<String, TextureIr>,
+}
+
+/// The sky box each new map shows, by module (`set_sky`).
+static SKIES: std::sync::Mutex<BTreeMap<String, String>> = std::sync::Mutex::new(BTreeMap::new());
+
+/// The sky boxes built so far, by box and module; `None` for one whose
+/// pictures did not read.
+type BuiltSkies = BTreeMap<(String, String), Option<std::sync::Arc<Sky>>>;
+static BUILT_SKIES: std::sync::Mutex<BuiltSkies> = std::sync::Mutex::new(BTreeMap::new());
+
+/// Makes `sky` (a box's name, `textures/skies/hoth`) the Jedi Academy sky
+/// box drawn round the new map `module`, or none.
+pub fn set_sky(module: &str, sky: Option<&str>) {
+    let mut skies = SKIES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match sky {
+        Some(sky) => skies.insert(module.to_ascii_lowercase(), sky.to_ascii_lowercase()),
+        None => skies.remove(&module.to_ascii_lowercase()),
+    };
+}
+
+/// The Jedi Academy sky box drawn round the new map `module`, built from
+/// the player's Jedi Academy install the first time it is asked for. A box
+/// asked for (`set_sky`) whose pictures do not read is drawn as no sky,
+/// and said once.
+pub fn sky_of(module: &str) -> Option<std::sync::Arc<Sky>> {
+    let module = module.to_ascii_lowercase();
+    let farbox = (SKIES.lock())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&module)?
+        .clone();
+    let mut built = BUILT_SKIES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    built
+        .entry((farbox.clone(), module.clone()))
+        .or_insert_with(|| match build_sky(&crate::discover(), &module, &farbox) {
+            Ok(sky) => Some(std::sync::Arc::new(sky)),
+            Err(why) => {
+                bevy::log::warn!("the sky {farbox} of {module} is not drawn: {why}");
+                None
+            }
+        })
+        .clone()
+}
+
+/// The sky box `farbox` built for the new map `module`: its model, named
+/// as the scene keeps sky boxes round the camera (`asset_ja::sky`), and
+/// its six pictures, which clamp at their edges.
+fn build_sky(discovery: &Discovery, module: &str, farbox: &str) -> Result<Sky, String> {
+    let stack = stack(discovery)?;
+    let files = Files::new(&stack);
+    let pictures = asset_ja::sky::SIDES.map(|side| format!("{farbox}_{side}"));
+    let (mut loaded, missing) = textures(&files, pictures.iter());
+    if !missing.is_empty() {
+        return Err(format!("Jedi Academy has no {}", missing.join(", ")));
+    }
+    for texture in loaded.values_mut() {
+        texture.facts.clamp = true;
+    }
+    Ok(Sky {
+        model: asset_ja::sky::model(module, pictures, SKY_REACH),
+        textures: loaded,
+    })
+}
+
+/// Every Jedi Academy sky box a new map can show (`viewer_ja::sky_box_names`).
+pub fn sky_boxes(discovery: &Discovery) -> Vec<String> {
+    match stack(discovery) {
+        Ok(stack) => crate::viewer_ja::sky_box_names(&Files::new(&stack)),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Where the cuts a level's rooms are built from are.
 #[derive(Debug, Clone, Copy)]
 pub enum Cuts<'a> {
@@ -414,6 +498,7 @@ pub fn make_mods(discovery: &Discovery, active: &level_edit::active::Active) -> 
     };
     let mut notes = Vec::new();
     for map in &active.ja_maps {
+        set_sky(&map.module, map.sky.as_deref());
         // The levels whose rooms were not built: their rooms get no copy.
         let mut failed = BTreeSet::new();
         for kept in &map.cuts {
@@ -470,6 +555,9 @@ pub fn make_project(discovery: &Discovery, project: &level_edit::Project) -> Vec
             )
             .filter_map(|(module, map)| Some((module, map?)))
             .collect();
+    for (module, map) in &maps {
+        set_sky(module, map.ja_sky.as_deref());
+    }
     let mut wanted: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     for (_, map) in &maps {
         for ja in map.rooms.iter().filter_map(|room| room.ja.as_ref()) {

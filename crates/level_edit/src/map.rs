@@ -60,6 +60,10 @@ pub struct NewMap {
     /// The module's scripts (`module.ifo`'s `Mod_OnModLoad` and the like),
     /// by label; a label not here has none.
     pub module_scripts: std::collections::BTreeMap<String, String>,
+    /// The Jedi Academy sky box drawn round the map, by the name its six
+    /// pictures share (`textures/skies/hoth`). kjk reads the pictures from
+    /// the player's Jedi Academy install (`kjk_game::ja_made::sky_of`).
+    pub ja_sky: Option<String>,
 }
 
 /// One room of a new map.
@@ -187,6 +191,7 @@ impl NewMap {
             entry_facing: 0.0,
             are,
             module_scripts: std::collections::BTreeMap::new(),
+            ja_sky: None,
         }
     }
 
@@ -244,6 +249,9 @@ impl NewMap {
                         .collect()
                 })
                 .unwrap_or_else(std::collections::BTreeMap::new),
+            ja_sky: (document.get("ja_sky").and_then(toml_edit::Item::as_str))
+                .map(str::to_ascii_lowercase)
+                .filter(|sky| !sky.is_empty()),
         })
     }
 
@@ -261,6 +269,11 @@ impl NewMap {
             triple(self.entry),
             self.entry_facing
         );
+        if let Some(sky) = &self.ja_sky {
+            out.push_str(&format!(
+                "# The Jedi Academy sky box drawn round the map.\nja_sky = {sky:?}\n"
+            ));
+        }
         let scripts: Vec<_> = self
             .module_scripts
             .iter()

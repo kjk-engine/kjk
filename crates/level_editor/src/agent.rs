@@ -637,6 +637,7 @@ impl Link {
             ),
         );
         catalog.insert("rooms".into(), serde_json::json!(rooms));
+        catalog.insert("ja_skies".into(), serde_json::json!(setup.ja_skies));
         catalog.insert("lamps".into(), serde_json::json!(lamps));
         catalog.insert(
             "lamps_note".into(),

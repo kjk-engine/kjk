@@ -3077,6 +3077,35 @@ fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
                 }
             });
     }
+    // A new map's sky: one of Jedi Academy's sky boxes, or none.
+    if let Some(map) = &state.editor.project.map
+        && !state.setup.ja_skies.is_empty()
+    {
+        let now = map.ja_sky.clone();
+        let shown = |sky: &str| sky.trim_start_matches("textures/").to_string();
+        egui::Grid::new("map sky").num_columns(2).show(ui, |ui| {
+            ui.label("Sky");
+            egui::ComboBox::from_id_salt("ja sky")
+                .selected_text(now.as_deref().map_or_else(|| "none".to_string(), shown))
+                .height(320.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(now.is_none(), "none").clicked() && now.is_some() {
+                        asked.push(AreaChange::JaSky(None));
+                    }
+                    for sky in &state.setup.ja_skies {
+                        let chosen = now.as_deref() == Some(sky.as_str());
+                        if ui.selectable_label(chosen, shown(sky)).clicked() && !chosen {
+                            asked.push(AreaChange::JaSky(Some(sky.clone())));
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "A sky box of Jedi Academy, drawn round the map. kjk reads its six pictures from the player's own Jedi Academy.",
+                );
+            ui.end_row();
+        });
+    }
     if let Some(map) = &state.editor.project.map {
         let scripts = map.module_scripts.clone();
         ui.label(egui::RichText::new("The module's scripts").small());

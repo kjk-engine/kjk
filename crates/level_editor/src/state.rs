@@ -85,6 +85,9 @@ pub struct EditSetup {
     pub encounters: Vec<String>,
     /// The install's rooms, for a new map (`LibraryRoom`).
     pub rooms: Vec<LibraryRoom>,
+    /// The Jedi Academy sky boxes a new map can show
+    /// (`kjk_game::ja_made::sky_boxes`); none without Jedi Academy.
+    pub ja_skies: Vec<String>,
     /// The folder of the fitted lights' rule data (`data/lights`), which an
     /// installed level's lights placed by hand are read from and `publish`
     /// writes to: the one `KJK_LIGHT_DATA` names, else the kjk checkout's
@@ -1128,6 +1131,9 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     );
     kjk_game::lamps::set_lamps(&module, Some(state.editor.project.kjk.lamps.clone()));
     kjk_game::sun::set_sun(&module, Some(state.editor.project.kjk.sun));
+    // A new map's Jedi Academy sky, as the project has it now.
+    let sky = (state.editor.project.map.as_ref()).and_then(|map| map.ja_sky.clone());
+    kjk_game::ja_made::set_sky(&module, sky.as_deref());
     // The kinds of fitting changed, and the ones changed back.
     let mut kinds = String::new();
     for (key, original) in &state.kind_originals {
@@ -4766,9 +4772,19 @@ fn area_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
         ["module", "script", label, name] => {
             AreaChange::ModuleScript((*label).to_string(), script(name))
         }
+        ["sky", "none"] => AreaChange::JaSky(None),
+        ["sky", name] => {
+            let name = name.to_ascii_lowercase();
+            if !state.setup.ja_skies.contains(&name) {
+                return Err(format!(
+                    "Jedi Academy has no sky box {name}: the catalog's ja_skies lists them"
+                ));
+            }
+            AreaChange::JaSky(Some(name))
+        }
         _ => {
             return Err(
-                "edit area takes music, ambience, volume, fog, ambient, script or module script"
+                "edit area takes music, ambience, volume, fog, ambient, script, module script or sky"
                     .into(),
             );
         }
