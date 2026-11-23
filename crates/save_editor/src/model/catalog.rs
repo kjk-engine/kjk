@@ -7,6 +7,7 @@ use fmt_odyssey::ResType;
 use fmt_odyssey::gff::Gff;
 use fmt_odyssey::texture::Texture;
 use fmt_odyssey::twoda::TwoDa;
+use sim::script::global;
 use vfs::Game;
 
 /// One row of a list: an item, feat, power, class, skill or quest.
@@ -392,9 +393,31 @@ pub enum Kind {
 /// A story flag the game declares (`globalcat.2da`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Global {
-    /// Lowercase, as the save keys it.
+    /// Lowercase, for searching and sorting. The save may keep the flag
+    /// under another case, so read it with `Global::number` and the others.
     pub name: String,
     pub kind: Kind,
+}
+
+impl Global {
+    /// A number flag's value in `save`, 0 when the save has none.
+    pub fn number(&self, save: &sim::Save) -> i32 {
+        global(&save.script.numbers, &self.name)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// A boolean flag's value in `save`, false when the save has none.
+    pub fn boolean(&self, save: &sim::Save) -> bool {
+        global(&save.script.booleans, &self.name)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// A text flag's value in `save`, if the save has one.
+    pub fn text<'s>(&self, save: &'s sim::Save) -> Option<&'s str> {
+        global(&save.script.strings, &self.name).map(String::as_str)
+    }
 }
 
 /// The flags `globalcat.2da` declares, by name.
