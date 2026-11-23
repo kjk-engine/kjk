@@ -184,7 +184,7 @@ impl Pictures {
         due: usize,
         shown: Option<usize>,
         wait: bool,
-    ) -> Result<Option<(usize, Vec<u8>)>, String> {
+    ) -> Result<Option<movie::player::Picture>, String> {
         match self {
             Pictures::Bink(player) => player.picture(due, wait),
             Pictures::Stored(_) if shown == Some(due) => Ok(None),

@@ -2,12 +2,17 @@
 //! frames in order, a few ahead of the one shown, and turns each into RGBA.
 
 use std::sync::Mutex;
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::mpsc::{self, Receiver};
 
 use bink::{Bink, Sound, Video};
 
 /// How many decoded frames may wait for the screen.
 const AHEAD: usize = 3;
+
+/// A frame's number and its picture as RGBA.
+pub type Picture = (usize, Vec<u8>);
+/// What the decoder's thread sends: a picture, or why a frame did not decode.
+type Decoded = Result<Picture, String>;
 
 /// A movie being decoded for the screen.
 pub struct Player {
@@ -16,9 +21,9 @@ pub struct Player {
     rate: (u32, u32),
     frames: usize,
     /// Locked only so that a player can be shared, as a resource is.
-    decoded: Mutex<Receiver<Result<(usize, Vec<u8>), String>>>,
+    decoded: Mutex<Receiver<Decoded>>,
     /// A frame decoded but not yet due.
-    waiting: Option<(usize, Vec<u8>)>,
+    waiting: Option<Picture>,
 }
 
 impl Player {
@@ -76,7 +81,7 @@ impl Player {
     /// came since the last call. `wait` waits for frame `due` itself, which a
     /// recording does so that its frames do not depend on the decoder's
     /// speed. An error is a frame that did not decode.
-    pub fn picture(&mut self, due: usize, wait: bool) -> Result<Option<(usize, Vec<u8>)>, String> {
+    pub fn picture(&mut self, due: usize, wait: bool) -> Result<Option<Picture>, String> {
         let decoded = self.decoded.get_mut().expect("the decoder's channel");
         let mut newest = None;
         loop {
@@ -84,10 +89,7 @@ impl Player {
                 let next = if wait && newest.as_ref().is_none_or(|(frame, _)| *frame < due) {
                     decoded.recv().ok()
                 } else {
-                    match decoded.try_recv() {
-                        Ok(next) => Some(next),
-                        Err(TryRecvError::Empty | TryRecvError::Disconnected) => None,
-                    }
+                    decoded.try_recv().ok()
                 };
                 self.waiting = next.transpose()?;
             }

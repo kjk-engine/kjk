@@ -89,8 +89,10 @@ pub fn audio(movie: &Path, bink: &Bink) -> Result<Option<f32>, String> {
         movie,
         &["-vn", "-map", "0:a:0", "-f", "f32le", "-c:a", "pcm_f32le"],
     )?
-    .chunks_exact(4)
-    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    .as_chunks::<4>()
+    .0
+    .iter()
+    .map(|&bytes| f32::from_le_bytes(bytes))
     .collect();
     if ours.len() != theirs.len() {
         return Err(format!(
