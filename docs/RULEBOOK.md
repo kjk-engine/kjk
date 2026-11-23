@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `99e4a0aff324c12e`.
+Edition `5f916e34486213e6`.
 
 ## Contents
 
@@ -5183,19 +5183,17 @@ The power strikes at once, and then once every
 
 <a id="force-channel-tick-ms"></a>**Strike Interval** = **0.05 seconds** (`50 ms`) · `force.channel.tick_ms`
 
-Lightning and drain powers strike once every 0.05 seconds while they are active.
+Hits every 0.05 seconds while active.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::run`.</sub>
 
 <a id="force-channel-run-ms"></a>**Lightning and Drain Duration** = **0.5 seconds** (`500 ms`) · `force.channel.run_ms`
 
-One use of a lightning or drain power lasts 0.5 seconds. A
-power that the Jedi keeps going by keeping its key pressed, Choke
-included, costs its Force points once for the first
-0.5 seconds. After that, it costs the same amount again for
-every second it continues.
+A tap lasts 0.5 seconds. Hold the key to keep channeling — you
+pay the Force cost up front for the first 0.5 seconds, then
+again for each second you hold it.
 
-If the target resists a Choke, the Choke ends after this time.
+Applies to lightning, drain, and grip powers. If a target resists Choke, it ends after this time.
 
 <sub>Source: JA. Code: `sim::combat::force::channel_cost`.</sub>
 
@@ -5203,60 +5201,56 @@ If the target resists a Choke, the Choke ends after this time.
 
 rank 1 **3 seconds** · ranks 2 and 3 **1.5 seconds**
 
-After a lightning or drain power ends, the Jedi cannot use it again for
-3 seconds at rank 1, or for
-1.5 seconds at ranks 2 and 3.
+Cooldown after ending: 3 seconds (rank 1) or
+1.5 seconds (ranks 2 and 3).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::end`.</sub>
 
 <a id="force-channel-line-range"></a>**Lightning and Drain Range** = **52 meters** (`2048 units`) · `force.channel.line_range`
 
-At ranks 1 and 2, lightning and drain powers reach a target up to 52 meters away in the Jedi's line of sight.
+Reaches up to 52 meters in line of sight (ranks 1 and 2).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::caught`.</sub>
 
 <a id="force-channel-cone-dot"></a>**Rank 3 Cone Width** = **0.5** · `force.channel.cone_dot`
 
-At rank 3, lightning and drain powers strike everyone in a cone in front
-of the Jedi. The number 0.5 sets the cone's width. A
-value of 1 is a straight line, and a value of 0 covers everything in front
-of the Jedi.
+Rank 3 lightning and drain hit enemies in a front cone (dot-product threshold 0.5; 1 is a line, 0 is the full front hemisphere).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::caught`.</sub>
 
 <a id="force-channel-impact-every-ms"></a>**Scripted Strike Interval** = **1 second** (`1000 ms`) · `force.channel.impact_every_ms`
 
-When the power's script runs, a lightning or drain power strikes at once, and then once every 1 second while the key stays pressed.
+Deals its scripted hit immediately, then once every 1 second while held.
 
 <sub>Source: ours. Code: `sim::world::powers::Cast::run`.</sub>
 
 ### <a id="force-push"></a>Force Push, Force Whirlwind and Force Wave
 
-Force Push (rank 1) throws one target up to 13 meters
-away. Force Whirlwind (rank 2) and Force Wave (rank 3) throw every enemy in front of the Jedi up to 26 meters
-away. Each rank of the power throws the target at 6.5 meters per second.
-The throw is 0.7 meters per second slower for every
-meter between the Jedi and the target, but never slower than
-0.41 meters per second. A thrown target leaves the ground. Force Pull
-throws the target toward the Jedi in the same way. A character knows Force
-Pull at the same rank as Force Push, and it costs the same Force points.
+Throws enemies backward and off their feet; closer targets are thrown
+harder. Force Push hits one target up to 13 meters away.
+Force Whirlwind and Force Wave hit every enemy in front of you up to
+26 meters away. Force Pull works the same way in reverse,
+sharing your Force Push rank and Force cost.
 
-A target that knows Force Push and stands on the ground with a free hand
-pushes back. It resists a throw of its own rank or lower completely. A
-target that is moving counts as one rank lower. A target that is already
-knocked down is not thrown. A Jedi seized by an enemy's grip breaks free
-by pushing that enemy with a Force Push of the grip's rank or higher.
+Each rank pushes at 6.5 meters per second, losing 0.7
+m/s per meter of distance (minimum 0.41 meters per second). A target
+that knows Force Push and stands on the ground with a free hand pushes back
+and resists any throw of its own rank or lower (moving targets count as one
+rank lower). Already knocked-down targets are not thrown. You can break free
+from an enemy's grip by pushing them with a Force Push of the grip's rank or
+higher.
 
 <a id="force-push-aimed-reach"></a>**Force Push Range** = **13 meters** (`512 units`) · `force.push.aimed_reach`
 
-Force Push and Force Pull reach a target up to 13 meters away in the Jedi's line of sight.
+Force Push and Force Pull reach a single target up to 13 meters away in line of sight.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-area-reach"></a>**Area Throw Range** = **26 meters** (`1024 units`) · `force.push.area_reach`
 
-Force Whirlwind and Force Wave reach 26 meters around the Jedi. When their scripts run, Force
-Push and Force Whirlwind pick their target within the same range.
+Force Whirlwind and Force Wave hit enemies up to 26 meters away.
+
+When their impact scripts run, Force Push and Force Whirlwind also pick targets within this range.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
@@ -5264,42 +5258,38 @@ Push and Force Whirlwind pick their target within the same range.
 
 rank 2 **30°** · rank 3 **90°**
 
-An area throw reaches targets up to 30° (rank 2) or
-90° (rank 3) to either side of the Jedi's aim. It reaches
-the same angle above and below the aim.
+Hits enemies within 30° (Force Whirlwind) or
+90° (Force Wave) of where you aim.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-front-dot"></a>**Front Arc** = **0.6** · `force.push.front_dot`
 
-Area throws, and stun and fear powers that affect an area, affect only
-targets in front of the Jedi. The number 0.6 sets how
-wide that area is. A value of 1 is a straight line, and a value of 0
-covers everything in front of the Jedi.
+Area throws, stuns, and fear powers hit enemies in a front arc (dot-product threshold 0.6; 1 is a line, 0 is the full front hemisphere).
 
 <sub>Source: JA. Code: `sim::world::powers::Scene::around`.</sub>
 
 <a id="force-push-strength"></a>**Throw Speed** = **6.5 meters per second** (`256 units/s`) · `force.push.strength`
 
-Each rank of a throw pushes the target at 6.5 meters per second, before the reduction for distance.
+Base throw speed is 6.5 meters per second per rank before distance falloff.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-falloff"></a>**Throw Loss with Distance** = **0.7** · `force.push.falloff`
 
-A throw is 0.7 meters per second slower for every meter between the Jedi and the target.
+Throw speed drops by 0.7 m/s for every meter between you and the target.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-least-shove"></a>**Minimum Throw Speed** = **0.41 meters per second** (`16 units/s`) · `force.push.least_shove`
 
-A throw that reaches a target always pushes it at 0.41 meters per second or faster, however far away the target stands.
+A throw always pushes at least 0.41 meters per second, regardless of distance.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-least-lift"></a>**Throw Lift** = **3.3 meters per second** (`128 units/s`) · `force.push.least_lift`
 
-A thrown target leaves the ground and rises at 3.3 meters per second or faster.
+Thrown targets are lifted upward at 3.3 meters per second or faster.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
@@ -5377,54 +5367,53 @@ Force Whirlwind always deals at least 1 point of damage.
 
 ### <a id="force-lightning"></a>Shock, Force Lightning and Force Storm
 
-Each of these powers strikes over and over while it is active. Each strike
-deals 1% of the target's maximum vitality
-points, plus up to 1% more, and pushes the
-target back. Force Storm strikes everyone within
-7.6 meters in a cone in front of the Jedi. The damage is
-electrical, so energy shields absorb it.
+Repeatedly zaps enemies while active, dealing 1%
+(plus up to 1% extra) of the target's max
+Vitality as electrical damage per tick and pushing them back. Energy shields
+absorb this damage. Force Storm hits every enemy in a
+7.6 meters cone in front of you.
 
-Force Resistance of a lower rank than the power reduces each strike to
+Force Resistance of a lower rank than the power reduces each tick to
 1%, with no extra damage. Force Resistance of
 the same rank or higher stops the damage completely. In both cases the
-target regains Force points from each strike. When the power's script
-runs, the script sets the damage.
+target regains Force points from each tick. When the power's script runs,
+the script sets the damage.
 
 <a id="force-lightning-radius"></a>**Force Storm Range** = **7.6 meters** (`300 units`) · `force.lightning.radius`
 
-Force Storm reaches 7.6 meters around the Jedi, within its cone.
+Force Storm reaches 7.6 meters in a cone in front of you.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
 
 <a id="force-lightning-points"></a>**Lightning Damage** = **1 points** · `force.lightning.points`
 
-Each lightning strike deals 1% of the target's maximum vitality points.
+Base damage per tick is 1% of the target's max Vitality.
 
 <sub>Source: JA (a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
 
 <a id="force-lightning-extra"></a>**Lightning Bonus Damage** = **1 points** · `force.lightning.extra`
 
-Each lightning strike can deal up to 1% more of the target's maximum vitality points.
+Each tick can deal up to 1% extra of the target's max Vitality.
 
 <sub>Source: JA (a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
 
 ### <a id="force-drain"></a>Drain Life, Death Field and Drain Force
 
-Each of these powers strikes over and over while it is active. Each strike
-takes a percentage of the maximum Force points of every target that has
-Force points. The Jedi regains the same percentage of his or her own
-maximum vitality points. These powers take only Force points from the
-target, never vitality points. Death Field and Master Drain Force strike
-everyone within 13 meters in a cone in front of the Jedi.
+Repeatedly drains 2% (rank 1),
+3% (rank 2), or 4%
+(rank 3) of the target's max Force per tick and heals you for that same
+percentage of your max Vitality. Only drains Force points (never Vitality).
+Death Field and Master Drain Force hit every enemy in a
+13 meters cone in front of you.
 
-Against Force Resistance, each strike takes 1% for each rank by which the
-drain power is higher than the Force Resistance. The target also regains
-Force points from each strike. When the power's script runs, the script
-sets the damage and healing.
+Against Force Resistance, each tick drains 1% per rank by which the drain
+power exceeds the target's Force Resistance, and the target also regains
+Force points from each tick. When the power's script runs, the script sets
+the damage and healing.
 
 <a id="force-drain-radius"></a>**Rank 3 Drain Range** = **13 meters** (`512 units`) · `force.drain.radius`
 
-Death Field and Master Drain Force reach 13 meters around the Jedi, within their cone.
+Death Field and Master Drain Force reach 13 meters in a cone in front of you.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
@@ -5432,62 +5421,56 @@ Death Field and Master Drain Force reach 13 meters around the Jedi, within their
 
 rank 1 **2 points** · rank 2 **3 points** · rank 3 **4 points**
 
-Each strike takes 2% of the target's maximum
-Force points at rank 1, 3% at rank 2 and
-4% at rank 3. The Jedi regains the same
-percentage of his or her own maximum vitality points.
+Drains 2% (rank 1), 3%
+(rank 2), or 4% (rank 3) of the target's max
+Force per tick and heals you for the same share of your max Vitality.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 <a id="force-drain-caster-wait-ms"></a>**Drain Regeneration Pause** = **0.5 seconds** (`500 ms`) · `force.drain.caster_wait_ms`
 
-Each drain strike stops the Jedi's own Force point regeneration for 0.5 seconds.
+Pauses your Force regeneration for 0.5 seconds on each tick.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 <a id="force-drain-victim-wait-ms"></a>**Drained Regeneration Pause** = **0.8 seconds** (`800 ms`) · `force.drain.victim_wait_ms`
 
-Each strike that takes Force points stops the target's Force point regeneration for 0.8 seconds.
+Pauses the target's Force regeneration for 0.8 seconds on each tick.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 ### <a id="force-grip"></a>Wound, Choke, Kill and Force Crush
 
-The Jedi keeps these powers going by keeping the key pressed. The Jedi
-seizes one target up to 6.5 meters away, unless the target is
-under Force Resistance or is already seized. The target suffers
-2% of its maximum vitality points as damage every
-1 second. At rank 1 the target stays on the ground.
-At rank 2 the target is also lifted into the air. At rank 3 the Jedi moves
-the target to a point in front of him or her. At ranks 2 and 3 the grip
-also crushes the target once, 3 seconds after it begins.
-While gripping, the Jedi moves at 0.4 times
-normal speed. The seized target moves at
-0.2 times normal speed, or
-0.8 times if it is under a speed power.
+Hold the key to grip one target up to 6.5 meters away (does not
+work on targets under Force Resistance or already gripped), dealing
+2% of their max Vitality every
+1 second. Rank 1 holds them on the ground; rank 2
+lifts them into the air; rank 3 lets you move them around in front of you.
+While gripping, you move at 0.4× speed and the
+target moves at 0.2× speed
+(0.8× under a speed power).
 
-The grip ends when the target dies, moves out of range, or moves out of
-the Jedi's line of sight. At ranks 1 and 2, it also ends when the target
-leaves the area in front of the Jedi. It also ends when the target's Force
-Resistance cancels it completely. When the power's script runs, the grip
-lasts until the script deals its last damage. If the Jedi lets go early,
-the target does not suffer the rest of that damage.
+The grip ends when the target dies, moves out of range, or leaves your line
+of sight (and at ranks 1–2, if they leave your front arc). It also ends if
+the target's Force Resistance cancels it. When the power's script runs, the
+grip lasts until the script deals its last damage; letting go early cancels
+the remaining damage.
 
 <a id="force-grip-range"></a>**Grip Range** = **6.5 meters** (`256 units`) · `force.grip.range`
 
-The grip seizes a target up to 6.5 meters away in line of sight. It lets go when the target moves farther away than that.
+Reaches up to 6.5 meters in line of sight and breaks if the target moves farther away.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-points"></a>**Grip Damage** = **2 points** · `force.grip.points`
 
-Each squeeze deals 2% of the target's maximum vitality points.
+Deals 2% of the target's max Vitality per squeeze.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-squeeze-every-ms"></a>**Squeeze Interval** = **1 second** (`1000 ms`) · `force.grip.squeeze_every_ms`
 
-The grip squeezes the target as soon as it begins, and then once every 1 second.
+Squeezes immediately, then every 1 second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5495,9 +5478,8 @@ The grip squeezes the target as soon as it begins, and then once every 1 second.
 
 rank 1 **5 seconds** · rank 2 **4 seconds** · rank 3 **4 seconds**
 
-The grip lasts at most 5 seconds at rank 1,
-4 seconds at rank 2 and 4 seconds at rank
-3.
+Lasts up to 5 seconds (rank 1) or 4 seconds
+(ranks 2 and 3).
 
 When the power's script runs, the grip lasts until the script deals its last damage.
 
@@ -5505,7 +5487,7 @@ When the power's script runs, the grip lasts until the script deals its last dam
 
 <a id="force-grip-crush-ms"></a>**Crush Time** = **3 seconds** (`3000 ms`) · `force.grip.crush_ms`
 
-At ranks 2 and 3, the grip crushes the target once, 3 seconds after the grip begins.
+At ranks 2 and 3, crushes the target 3 seconds after the grip begins.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5513,11 +5495,11 @@ At ranks 2 and 3, the grip crushes the target once, 3 seconds after the grip beg
 
 rank 1 **0 points** · rank 2 **20 points** · rank 3 **40 points**
 
-The crush deals 20% of the target's maximum
-vitality points at rank 2 and 40% at rank 3. The
-value for rank 1 is 0%, because a rank 1 grip does
-not crush. The crushed target chokes, and any grip the target itself was
-using ends.
+After 3 seconds, crushes the target for
+20% (rank 2) or 40% (rank 3)
+of their max Vitality, leaving them choking for
+2 seconds (unable to use their hands) and breaking any
+grip they were using.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5529,34 +5511,31 @@ After the crush, the target clutches its throat for 2 seconds and cannot use its
 
 <a id="force-grip-front-dot"></a>**Grip Arc** = **0.9** · `force.grip.front_dot`
 
-At ranks 1 and 2, the grip ends when the target leaves the area in front
-of the Jedi. The number 0.9 sets how wide that area is.
-A value of 1 is a straight line, and a value of 0 covers everything in
-front of the Jedi. A rank 3 grip has no such limit.
+At ranks 1 and 2, the grip breaks if the target leaves your front arc (dot-product threshold 0.9; no limit at rank 3).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-lift-every-ms"></a>**Lift Interval** = **0.3 seconds** (`300 ms`) · `force.grip.lift_every_ms`
 
-A rank 2 grip lifts the target, and a rank 3 grip moves the target, once every 0.3 seconds.
+Updates the target's lift (rank 2) or carry position (rank 3) every 0.3 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-lift"></a>**Lift Speed** = **0.76 meters per second** (`30 units/s`) · `force.grip.lift`
 
-Each lift raises the target of a rank 2 grip at 0.76 meters per second. The target floats and does not fall while it is lifted.
+A rank 2 grip lifts the target at 0.76 meters per second and holds them afloat.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-ahead"></a>**Rank 3 Grip Distance** = **3.3 meters** (`128 units`) · `force.grip.carry_ahead`
 
-A rank 3 grip moves its target to a point 3.3 meters in front of the Jedi.
+A rank 3 grip holds the target 3.3 meters in front of you.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-up"></a>**Rank 3 Grip Height** = **0.41 meters** (`16 units`) · `force.grip.carry_up`
 
-The point that a rank 3 grip moves its target to is 0.41 meters above the middle of the Jedi's body.
+The rank 3 hold point is 0.41 meters above the middle of your body.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5564,10 +5543,7 @@ The point that a rank 3 grip moves its target to is 0.41 meters above the middle
 
 slowest **0.41 meters** · slow **1.6 meters** · fast **3.3 meters** · faster **5.1 meters**
 
-A rank 3 grip moves its target faster the farther the target is from the
-point. A target closer to the point than each of these distances,
-0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters, moves at the slowest, slow, fast and faster
-speed in turn.
+Distance bands (0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters) that step up how fast a rank 3 grip pulls its target toward the hold point.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -5575,31 +5551,31 @@ speed in turn.
 
 slowest **0.2 meters per second** · slow **3.3 meters per second** · fast **6.5 meters per second** · faster **13 meters per second**
 
-A rank 3 grip moves its target toward the point at 0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second, from the slowest speed to the fastest, depending on the target's distance from the point.
+Pull speeds (0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second) for each rank 3 grip distance band.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-carry-beyond"></a>**Rank 3 Grip Speed, Far** = **17.8 meters per second** (`700 units/s`) · `force.grip.carry_beyond`
 
-A target farther from the point than every one of those distances moves toward it at 17.8 meters per second.
+Beyond all distance bands, a rank 3 grip pulls the target at 17.8 meters per second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-cooldown-ms"></a>**Grip Delay** = **3 seconds** (`3000 ms`) · `force.grip.cooldown_ms`
 
-After a grip ends, the Jedi cannot use a grip again for 3 seconds.
+Cooldown after ending: 3 seconds (1 second if the target breaks free with Force Push).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::end`.</sub>
 
 <a id="force-grip-broken-ms"></a>**Broken Grip Delay** = **1 second** (`1000 ms`) · `force.grip.broken_ms`
 
-When the target breaks free of a grip with Force Push, the Jedi cannot use a grip again for 1 second.
+If the target breaks free with Force Push, the grip cooldown is 1 second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-grip-gripping-scale"></a>**Gripping Speed** = **×0.4** · `force.grip.gripping_scale`
 
-The Jedi moves at 0.4 times normal speed while gripping a target.
+You move at 0.4× normal speed while gripping.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -5607,33 +5583,28 @@ The Jedi moves at 0.4 times normal speed while gripping a target.
 
 seized **×0.2** · seized under a speed power **×0.8**
 
-A seized target moves at 0.2 times normal
-speed, or 0.8 times if it is under a speed
-power.
+A gripped target moves at 0.2× speed (0.8× under a speed power).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 ### <a id="force-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-These are toggled powers. In combat, the Jedi moves
-1.15 times as fast. Out of combat, the Jedi moves
-1.5 times as fast. Burst of Speed lasts
-10 seconds, Knight Speed lasts
-15 seconds and Master Speed lasts
-20 seconds. Force points do not regenerate while a speed
-power is active. The power's description lists its Defense bonus and its
-extra attacks.
+Lasts 10 seconds (Burst of Speed),
+15 seconds (Knight Speed), or
+20 seconds (Master Speed). Increases your movement speed
+to 1.15× in combat and
+1.5× out of combat. Force points do not
+regenerate while active.
 
-In combat, this speed replaces the movement bonus in the power's
-description. Out of combat, the Jedi moves by that bonus instead, as in
-KOTOR. That bonus is the fastest movement in the game,
-1.5 times the character's normal walk and
-run. Force Suppression ends Burst of Speed and Knight Speed. Force Breach
-ends all three speed powers.
+In combat, this speed replaces the movement bonus in the original game's
+description. Out of combat, you move at the full KOTOR bonus
+(1.5× normal walk and run). Force
+Suppression ends Burst of Speed and Knight Speed; Force Breach ends all
+three.
 
 <a id="force-speed-scale"></a>**Speed Bonus** = **×1.15** · `force.speed.scale`
 
-In combat, every rank of the speed powers makes the Jedi move 1.15 times as fast.
+All three ranks increase combat movement speed to 1.15×.
 
 <sub>Source: the owner's call, over JA's 1.7. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -5641,30 +5612,28 @@ In combat, every rank of the speed powers makes the Jedi move 1.15 times as fast
 
 Burst of Speed **10 seconds** · Knight Speed **15 seconds** · Master Speed **20 seconds**
 
-Burst of Speed lasts 10 seconds, Knight Speed lasts
-15 seconds and Master Speed lasts
-20 seconds.
+Lasts 10 seconds (Burst of Speed),
+15 seconds (Knight Speed), or
+20 seconds (Master Speed).
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 ### <a id="force-protect"></a>Force Aura, Force Shield and Force Armor
 
-These are toggled powers that last 20 seconds. Each time
-the Jedi takes damage to vitality points, the power prevents part of it.
-In exchange, the Jedi loses Force points. The power counts only damage up
-to a limit for each hit. Force Aura, Force Shield, Force Armor, Force
-Resistance and Fury cannot be active at the same time. The power's
-description lists its bonus to Defense and saving throws.
+Lasts 20 seconds. Absorbs part of incoming damage at the
+cost of Force points. Cannot be active at the same time as Force Resistance
+or Fury.
 
-Damage above the limit for one hit is not reduced. If the Jedi runs short
-of Force points, the damage that the missing Force points would have
-prevented is not reduced either.
+Damage above the per-hit cap is not reduced. If you run out of Force points,
+you take the remaining damage as normal.
 
 <a id="force-protect-length-ms"></a>**Protection Duration** = **20 seconds** (`20000 ms`) · `force.protect.length_ms`
 
-Force Aura, Force Shield, Force Armor, Force Resistance and Force Immunity
-last 20 seconds. Any other toggled power without a
-duration of its own lasts as long.
+Lasts 20 seconds.
+
+Applies to Force Aura, Force Shield, Force Armor, Force Resistance, and
+Force Immunity. Toggled powers with no duration of their own use this same
+default.
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
@@ -5672,9 +5641,9 @@ duration of its own lasts as long.
 
 Force Aura **40%** · Force Shield **60%** · Force Armor **80%**
 
-Force Aura prevents 40% of the damage it counts.
-Force Shield prevents 60%, and Force Armor
-prevents 80%.
+Reduces incoming damage by 40% (Force Aura),
+60% (Force Shield), or 80%
+(Force Armor).
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
@@ -5682,11 +5651,10 @@ prevents 80%.
 
 Force Aura **100%** · Force Shield **50%** · Force Armor **25%**
 
-For each 1% of maximum vitality points that the power counts, the Jedi
-loses part of 1% of maximum Force points. Force Aura uses up
-100% of that 1%, Force Shield uses up
-50%, and Force Armor uses up
-25%.
+Blocking a hit drains your Force bar in proportion to the hit's share of
+your max Vitality: 100% of that share with Force
+Aura, 50% with Force Shield, and
+25% with Force Armor.
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
@@ -5694,75 +5662,68 @@ loses part of 1% of maximum Force points. Force Aura uses up
 
 Force Aura **100 points** · Force Shield **200 points** · Force Armor **400 points**
 
-From a single hit, Force Aura counts at most 100%
-of the Jedi's maximum vitality points. Force Shield counts at most
-200%, and Force Armor at most
-400%.
+On a single hit, protection only applies to damage up to
+100% of your max Vitality (Force Aura),
+200% (Force Shield), or 400%
+(Force Armor). Any damage beyond that goes straight through.
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
 ### <a id="force-absorb"></a>Force Resistance and Force Immunity
 
-These are toggled powers that last 20 seconds. Force
-Resistance counts as rank 1 and Force Immunity as rank 2. They weaken
-Force Push, Force Pull, grips, lightning and drain powers used against the
-Jedi. Such a power works as if its rank were lower by the rank of the
-Jedi's Force Resistance or Force Immunity. The Jedi regains Force points
-from each of these attacks. No grip can seize the Jedi. The Jedi also has
-Force resistance against other powers, as described under Saving Throws
-and Force Resistance.
+Lasts 20 seconds. Weakens incoming Force Push, Pull, grip,
+lightning, and drain powers by 1 rank (Force Resistance) or 2 ranks (Force
+Immunity), and restores Force points when they hit you. You cannot be
+gripped while active. Also grants Force resistance against other powers.
 
 <a id="force-absorb-throw-gain"></a>**Force Regained from Throws** = **6 points** · `force.absorb.throw_gain`
 
-The Jedi regains 6% of his or her maximum Force points from each push or pull, for each rank of the power.
+Restores 6% of your max Force when hit by a push or pull (doubled with Force Immunity).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-absorb-tick-gain"></a>**Force Regained from Strikes** = **1 points** · `force.absorb.tick_gain`
 
-The Jedi regains 1% of his or her maximum Force points from each lightning or drain strike.
+Restores 1% of your max Force on each lightning or drain tick.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
 
 ### <a id="force-deflection"></a>Force Deflection and Force Redirection
 
-These two powers of KOTOR 2 are always in effect, and a character never
-uses them. A character who knows one of them blocks blaster bolts without a
-lightsaber. The character can have empty hands or hold any other weapon.
-The character blocks only bolts that come from in front. A character with
-Force Deflection sends a blocked bolt off in the direction he or she is
-looking. A character with Force Redirection sends it back at the shooter.
+Passive. Lets you deflect incoming blaster bolts from the front without a
+lightsaber (empty-handed or holding any other weapon). Force Deflection
+sends blocked bolts where you are aiming; Force Redirection sends them back
+at the shooter.
 
-The character blocks a bolt the way a lightsaber does, at a bolt level, as
-described under Deflecting Blaster Bolts. The character cannot block while
-knocked down, while holding the attack key, while holding out a hand for
-another power, or during the delay after the last bolt he or she blocked.
-A character holding a lit lightsaber blocks with the lightsaber instead.
+Blocks bolts the same way a lightsaber does (at the bolt level below). You
+cannot deflect while knocked down, holding attack, holding out a hand for
+another power, or during the post-block delay. If you hold a lit
+lightsaber, you deflect with the lightsaber instead.
 
 <a id="force-deflection-level"></a>**Bolt Level Without a Lightsaber** = **2 / 3** · `force.deflection.level`
 
 Force Deflection **2** · Force Redirection **3**
 
-A character with Force Deflection blocks bolts at bolt level
-2, and never higher. A character with Force
-Redirection blocks bolts at bolt level 3. A
-deflection bonus raises or lowers the level as it does for a lightsaber.
+Deflects bolts at level 2 (Force Deflection,
+capped there) or level 3 (Force Redirection),
+modified by your deflection bonus.
 
 <sub>Source: TSL's executable, in JA's bolt levels. Code: `sim::combat::force::deflection::bolt_level`.</sub>
 
 <a id="force-deflection-redirection-bonus"></a>**Force Redirection Deflection Bonus** = **3 points** · `force.deflection.redirection_bonus`
 
-Force Redirection adds 3 to the character's deflection bonus with every weapon, a lightsaber too.
+Grants +3 to deflection with any weapon, including a lightsaber.
 
 <sub>Source: TSL's executable. Code: `sim::combat::force::deflection::bonus`.</sub>
 
 ### <a id="force-heal"></a>Cure, Heal and Master Heal
 
-Every wounded party member near the Jedi regains a percentage of his or her
-maximum vitality points. The Jedi is healed too if wounded. The range is
-6.5 meters / 9.8 meters / 13 meters, by rank. The percentage depends on how many
-characters are healed. The power costs no Force points if no one in range
-is wounded.
+Heals you and every wounded party member within 6.5 meters
+(Cure), 9.8 meters (Heal), or 13 meters (Master
+Heal). Restores 50% of max Vitality if 1 character
+is healed, 33% if 2 are healed, or
+25% if 3 or more are healed. Costs no Force points
+if no one in range is wounded.
 
 When the power's script runs, the script sets the amount healed.
 
@@ -5770,8 +5731,7 @@ When the power's script runs, the script sets the amount healed.
 
 Cure **6.5 meters** · Heal **9.8 meters** · Master Heal **13 meters**
 
-Cure reaches 6.5 meters around the Jedi, Heal reaches
-9.8 meters and Master Heal reaches 13 meters.
+Reaches 6.5 meters (Cure), 9.8 meters (Heal), or 13 meters (Master Heal).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
@@ -5779,41 +5739,41 @@ Cure reaches 6.5 meters around the Jedi, Heal reaches
 
 one **50 points** · two **33 points** · three or more **25 points**
 
-Each character healed regains 50% of maximum
-vitality points when one character is healed,
-33% when two are healed and
-25% when three or more are healed.
+Restores 50% of max Vitality (1 target), 33% (2 targets), or 25% (3+ targets).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
 ### <a id="force-mind-trick"></a>Affect Mind and Dominate Mind
 
-Affect Mind and Dominate Mind are toggled powers. Rank 1 affects one
-target up to 6.5 meters away. Rank 2 affects every
-enemy up to 13 meters away and within
-90° of the Jedi's aim. Affected players cannot
-see the Jedi while the power lasts. An affected creature that is not a
-Force user loses track of the character it was fighting.
+Lasts 20 seconds (rank 1),
+25 seconds (rank 2), or
+30 seconds (rank 3). Hides you from affected players
+and confuses non-Force-using enemies for 5 seconds
+/ 10 seconds / 15 seconds
+so they lose track of their target. Affect Mind hits one target up to
+6.5 meters away; Dominate Mind hits every enemy
+within 13 meters and 90° of
+your aim.
 
-The effect ends when the Jedi attacks, or when a player uses Force Sight.
-Mind Trick and Force Confusion work as their own descriptions say. They
-affect one target up to 26 meters away.
+Ends early if you attack or if a player uses Force Sight. Mind Trick and
+Force Confusion work as their own descriptions say, reaching one target up
+to 26 meters away.
 
 <a id="force-mind-trick-aimed-reach"></a>**Affect Mind Range** = **6.5 meters** (`256 units`) · `force.mind_trick.aimed_reach`
 
-Rank 1 reaches one target up to 6.5 meters away in the Jedi's line of sight.
+Reaches one target up to 6.5 meters away in line of sight.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 <a id="force-mind-trick-area-reach"></a>**Dominate Mind Range** = **13 meters** (`512 units`) · `force.mind_trick.area_reach`
 
-Rank 2 reaches 13 meters around the Jedi.
+Reaches 13 meters around you.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 <a id="force-mind-trick-area-field"></a>**Dominate Mind Arc** = **90°** · `force.mind_trick.area_field`
 
-Rank 2 affects targets up to 90° to either side of the Jedi's aim. It reaches the same angle above and below the aim.
+Affects enemies within 90° of where you aim.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
@@ -5821,10 +5781,7 @@ Rank 2 affects targets up to 90° to either side of the Jedi's aim. It reaches t
 
 rank 1 **20 seconds** · rank 2 **25 seconds** · rank 3 **30 seconds**
 
-The power lasts 20 seconds at rank 1,
-25 seconds at rank 2 and
-30 seconds at rank 3. Affected players cannot see
-the Jedi for that time.
+Lasts 20 seconds (rank 1), 25 seconds (rank 2), or 30 seconds (rank 3).
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
@@ -5832,189 +5789,150 @@ the Jedi for that time.
 
 rank 1 **5 seconds** · rank 2 **10 seconds** · rank 3 **15 seconds**
 
-An affected creature that is not a Force user loses track of the character
-it was fighting for 5 seconds at rank 1,
-10 seconds at rank 2 and
-15 seconds at rank 3.
+Confuses non-Force-using enemies for 5 seconds (rank 1), 10 seconds (rank 2), or 15 seconds (rank 3).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
 ### <a id="force-crowd"></a>Stun, Stasis, Fear and the Droid Powers
 
-A single-target power affects one target up to 26 meters away.
-An area power affects every enemy within that range, within
-90° of the Jedi's aim and in front of the Jedi. A
-target is affected only if it is not immune, does not resist the Force and
-fails its saving throw. A stun, paralysis, fear, sleep or Force Whirlwind
-effect lasts as long as the power's description says, but never longer than
-30 seconds. Every 3 seconds, a held target
-rolls its saving throw again, and it breaks free if the save succeeds.
-Each new roll of the same hold gets 5 more
-than the roll before it. A target that was held several times in a short
-while is held for a shorter time, and after
-3 such holds it cannot be held for a while.
-After a hold ends, the target cannot be affected again for
-1 second. Fear ends when the frightened target takes
-damage.
+Reaches up to 26 meters (area powers hit enemies within
+90° in front of you). Holds last up to
+30 seconds, and targets roll a new saving throw every
+3 seconds to break free (+5
+per previous roll). Repeated holds within 10 seconds have
+reduced duration (50%, then
+25%), and after 3
+recent holds the target is immune until 10 seconds pass.
+Targets also gain 1 second of immunity after any hold
+ends. Fear ends when the target takes damage.
 
-Fear powers and Force Scream allow a Will save. The other powers allow a
+Fear powers and Force Scream allow a Will save; the others allow a
 Fortitude save. A target that fails its save against Force Scream covers
-its ears instead of being stunned. Disable Droid also affects all droids within
-5 meters of the target droid. Destroy
-Droid also affects all droids within 6
-meters of the target droid. The saving throw each round uses the same save
-and the same difficulty as the save that the hold first allowed. A hold
-that allowed no save, such as the adhesive grenade's, lasts its whole time.
-A hold that a story script applies, and a hold that never ends, work as in
-KOTOR and roll no saves.
+its ears instead of being stunned. Disable Droid splashes to droids within
+5 m; Destroy Droid splashes within
+6 m. Each round's escape save uses the
+original save type and DC. Holds that allow no save (such as adhesive
+grenades) or come from story scripts roll no escape saves.
 
 <a id="force-crowd-reach"></a>**Force Power Range** = **26 meters** (`1024 units`) · `force.crowd.reach`
 
-Stun, fear and droid powers reach 26 meters. So do Slow,
-Affliction, Plague, Force Suppression, Force Breach, Mind Trick and Force
-Confusion.
+Reaches up to 26 meters.
 
 <sub>Source: ours (push's area reach). Code: `sim::world::powers::Cast::crowd_caught`.</sub>
 
 <a id="force-crowd-hold-ms"></a>**Hold Without a Duration** = **3 seconds** (`3000 ms`) · `force.crowd.hold_ms`
 
-A stun, fear or droid power that kjk's own combat casts, where no script
-of the game runs, keeps its target held for 3 seconds. A hold that
-a story script applies, or that a friendly character applies, also lasts at
-most 3 seconds.
+Default hold duration when no script sets one: 3 seconds.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-round-ms"></a>**Saving Throw Each Round** = **3 seconds** (`3000 ms`) · `force.crowd.round_ms`
 
-A held target rolls a new saving throw every 3 seconds,
-which is one round of KOTOR's combat. If the save succeeds, the hold ends
-at once. The first roll comes 3 seconds after the hold
-starts.
+Held targets roll a new saving throw every 3 seconds to break free.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
 
 <a id="force-crowd-struggle-bonus"></a>**Struggle Bonus** = **5 points** · `force.crowd.struggle_bonus`
 
-Each saving throw to break free of a hold gets a bonus of
-5 for every earlier roll against the same
-hold. The second roll gets 5, and the third
-gets twice that.
+Each repeat save against the same hold gains +5.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::roll_free`.</sub>
 
 <a id="force-crowd-longest-ms"></a>**Longest Hold** = **30 seconds** (`30000 ms`) · `force.crowd.longest_ms`
 
-No stun, paralysis, fear, sleep or Force Whirlwind effect keeps its target
-held for longer than 30 seconds, whatever duration the script or
-the item asks for.
+No stun, paralysis, fear, sleep, or Force Whirlwind hold can last longer than 30 seconds.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-recent-ms"></a>**Recent Hold** = **10 seconds** (`10000 ms`) · `force.crowd.recent_ms`
 
-A hold counts as recent until 10 seconds after it ends.
-The more recent holds a character had, the shorter its next hold is.
+A hold counts as recent for 10 seconds after it ends, shortening follow-up holds.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-second-percent"></a>**Second Recent Hold** = **50%** · `force.crowd.second_percent`
 
-A character's second recent hold lasts 50% of its
-duration. A shortened hold lasts at least 3 seconds, unless
-its full duration is shorter than that.
+A second recent hold lasts 50% of its normal duration (minimum 3 seconds).
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-third-percent"></a>**Third Recent Hold** = **25%** · `force.crowd.third_percent`
 
-A character's third recent hold lasts 25% of its
-duration. A shortened hold lasts at least 3 seconds, unless
-its full duration is shorter than that.
+A third recent hold lasts 25% of its normal duration (minimum 3 seconds).
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-most-recent"></a>**Recent Holds Before Immunity** = **3 count** · `force.crowd.most_recent`
 
-A character that already had 3 recent holds
-cannot be held again. It becomes immune until 10 seconds have
-passed since its last hold ended.
+After 3 recent holds, the target is immune to holds for 10 seconds.
 
 <sub>Source: the owner's decision, 2026-11-19. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-immune-ms"></a>**Stun Immunity** = **1 second** (`1000 ms`) · `force.crowd.immune_ms`
 
-After a stun, paralysis, fear, sleep or Force Whirlwind effect ends, the target cannot be affected by another one for 1 second.
+After a hold ends, the target is immune to another hold for 1 second.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-ears-ms"></a>**Ear Covering Time** = **2 seconds** (`2000 ms`) · `force.crowd.ears_ms`
 
-A target that fails its saving throw against Force Scream covers its ears
-for 2 seconds. During that time it cannot move, attack, block
-or use a Force power. A target that makes the saving throw does not cover
-its ears. Droids never cover their ears.
+Targets that fail their save cover their ears for 2 seconds
+(unable to move, attack, block, or use Force powers), then cannot be
+affected again for 4 seconds. Droids are immune.
 
-The same applies to Improved Force Scream and Master Force Scream, whoever
-casts them. A character with a Jedi Academy body plays Jedi Academy's own
-clip of a character covering its ears. A creature with its own animations
-looks stunned instead.
+Applies to Force Scream, Improved Force Scream, and Master Force Scream.
+Characters with a Jedi Academy body play the ear-covering animation;
+other creatures play their stunned animation instead.
 
 <sub>Source: the owner's decision, 2026-11-17 (Jedi Academy's howler). Code: `sim::combat::force::ForceState::cover_ears`.</sub>
 
 <a id="force-crowd-ears-immune-ms"></a>**Ear Covering Immunity** = **4 seconds** (`4000 ms`) · `force.crowd.ears_immune_ms`
 
-After a target uncovers its ears, another Force Scream cannot make it cover
-them again for 4 seconds. The scream still damages the
-target in that time.
+After covering its ears, a target cannot be forced to cover them again for 4 seconds (damage still applies).
 
 <sub>Source: the owner's decision, 2026-11-17. Code: `sim::combat::force::ForceState::cover_ears`.</sub>
 
 <a id="force-crowd-area-field"></a>**Area Power Arc** = **90°** · `force.crowd.area_field`
 
-Area stun and fear powers affect targets up to 90° to either side of the Jedi's aim. They reach the same angle above and below the aim.
+Area stun and fear powers hit enemies within 90° of where you aim.
 
 <sub>Source: ours (push's level 3). Code: `sim::world::powers::Cast::crowd_caught`.</sub>
 
 <a id="force-crowd-disable-splash-m"></a>**Disable Droid Radius** = **5 m** · `force.crowd.disable_splash_m`
 
-Disable Droid also affects all droids within 5 meters of the target droid.
+Also hits all droids within 5 m of the target.
 
 <sub>Source: K1's `k_sp1_generic`. Code: `sim::combat::force::crowd::splash`.</sub>
 
 <a id="force-crowd-destroy-splash-m"></a>**Destroy Droid Radius** = **6 m** · `force.crowd.destroy_splash_m`
 
-Destroy Droid also affects all droids within 6 meters of the target droid.
+Also hits all droids within 6 m of the target.
 
 <sub>Source: K1's `k_sp1_generic`. Code: `sim::combat::force::crowd::splash`.</sub>
 
 ### <a id="force-rage"></a>Fury
 
-Fury is a toggled power. While Fury is active, the character moves
-1.3 times as fast. The character's attacks and shots
-take 0.75 times the normal time. Damage dealt to the
-character by another character is divided by the power's rank plus 1. Fury
-takes 2% of the character's maximum vitality points at
-regular intervals. Fury ends when the character's vitality points fall to
-1. The character cannot activate Fury with less
-than 10% of maximum vitality points. After Fury ends,
-the character recovers for 10 seconds. During that time the
-character moves at 0.75 times normal speed,
-attacks and fires in 1.5 times the normal
-time, and cannot use Fury.
+Lasts 8 seconds (Fury), 14 seconds
+(Improved Fury), or 20 seconds (Master Fury). Increases
+your movement speed to 1.3×, speeds up attacks to
+0.75× normal time, and cuts incoming damage (divided by
+rank + 1). Drains 2% of your max Vitality every
+0.15 seconds / 0.3 seconds /
+0.45 seconds down to 1 HP
+(requires at least 10% Vitality to activate). When
+Fury ends, you recover for 10 seconds at
+0.75× move speed and
+1.5× attack time, and cannot reactivate Fury.
 
-A hit can still kill the character while Fury is active. When the power's
-script runs, Fury works as its description says. Each kill the character
-makes under Fury then adds to the character's damage, up to
+Enemy hits can still kill you while Fury is active. When the power's script
+runs, each kill under Fury adds +1 weapon damage up to
 +6.
 
 <a id="force-rage-length-ms"></a>**Fury Duration** = **8 seconds / 14 seconds / 20 seconds** (`8000 / 14000 / 20000 ms`) · `force.rage.length_ms`
 
 Fury **8 seconds** · Improved Fury **14 seconds** · Master Fury **20 seconds**
 
-Fury lasts 8 seconds, Improved Fury lasts
-14 seconds and Master Fury lasts
-20 seconds.
+Lasts 8 seconds (Fury), 14 seconds (Improved Fury), or 20 seconds (Master Fury).
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
@@ -6022,117 +5940,103 @@ Fury lasts 8 seconds, Improved Fury lasts
 
 Fury **0.15 seconds** · Improved Fury **0.3 seconds** · Master Fury **0.45 seconds**
 
-Fury takes vitality points every 0.15 seconds. Improved
-Fury takes them every 0.3 seconds, and Master Fury every
-0.45 seconds.
+Drains Vitality every 0.15 seconds (Fury), 0.3 seconds (Improved Fury), or 0.45 seconds (Master Fury).
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-hp"></a>**Fury Vitality Loss** = **2 points** · `force.rage.hp`
 
-Each time, Fury takes 2% of the character's maximum vitality points.
+Drains 2% of your max Vitality per tick.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-least"></a>**Fury Minimum Vitality** = **10 points** · `force.rage.least`
 
-The character cannot activate Fury with less than 10% of maximum vitality points.
+Requires at least 10% of your max Vitality to activate.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::toggle`.</sub>
 
 <a id="force-rage-floor-hp"></a>**Fury Vitality Floor** = **1 HP** · `force.rage.floor_hp`
 
-If Fury would take the character below 1 vitality point, the character is left at that amount and Fury ends.
+Fury's own drain stops at 1 Vitality and ends Fury.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-recover-ms"></a>**Fury Recovery** = **10 seconds** (`10000 ms`) · `force.rage.recover_ms`
 
-After Fury ends, the character recovers for 10 seconds.
+After Fury ends, you recover for 10 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-speed"></a>**Fury Speed** = **×1.3** · `force.rage.speed`
 
-While Fury is active, the character moves 1.3 times as fast.
+Moves at 1.3× normal speed while Fury is active.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 <a id="force-rage-recover-speed"></a>**Recovery Speed** = **×0.75** · `force.rage.recover_speed`
 
-While recovering from Fury, the character moves at 0.75 times normal speed.
+Moves at 0.75× normal speed while recovering from Fury.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 <a id="force-rage-refire"></a>**Fury Attack Speed** = **×0.75** · `force.rage.refire`
 
-While Fury is active, the character's attacks and shots take 0.75 times the normal time.
+Attacks and shots take 0.75× normal time while Fury is active.
 
 <sub>Source: JA: weapon timing. Code: `sim::combat::force::ForceState::refire`.</sub>
 
 <a id="force-rage-recover-refire"></a>**Recovery Attack Speed** = **×1.5** · `force.rage.recover_refire`
 
-While recovering from Fury, the character's attacks and shots take 1.5 times the normal time.
+Attacks and shots take 1.5× normal time while recovering from Fury.
 
 <sub>Source: JA: weapon timing. Code: `sim::combat::force::ForceState::refire`.</sub>
 
 ### <a id="force-sight"></a>Force Sight
 
-Force Sight is a toggled power. The Jedi sees other characters through
-walls. Affect Mind cannot hide anyone from the Jedi.
+Lasts 10 seconds (rank 1), 20 seconds
+(rank 2), or 30 seconds (rank 3). Lets you see characters
+through walls and see through Affect Mind.
 
-When the power's script runs, the Jedi's screen also shows Force Sight's visual effect.
+When the power's script runs, your screen also shows Force Sight's visual effect.
 
 <a id="force-sight-length-ms"></a>**Force Sight Duration** = **10 seconds / 20 seconds / 30 seconds** (`10000 / 20000 / 30000 ms`) · `force.sight.length_ms`
 
 rank 1 **10 seconds** · rank 2 **20 seconds** · rank 3 **30 seconds**
 
-Force Sight lasts 10 seconds at rank 1,
-20 seconds at rank 2 and 30 seconds at
-rank 3.
+Lasts 10 seconds (rank 1), 20 seconds (rank 2), or 30 seconds (rank 3).
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 ### <a id="force-rolls"></a>Saving Throws and Force Resistance
 
-A Force power that allows a saving throw has a difficulty (DC) of
-5 + the Jedi's level + the Jedi's Wisdom modifier
-+ the Jedi's Charisma modifier + the bonus from Force Focus. Before the
-saving throw, a target under Force Resistance or Force Immunity may resist
-the power completely. The target's Force resistance is
-5 + 5
-for each rank of its Force Resistance or Force Immunity + its character
-level. An item or effect can set a higher Force resistance instead. The
-power affects the target only if the Jedi's d20 roll + the Jedi's level
-equals or exceeds the target's Force resistance.
+Save DC: 5 + level + Wisdom mod + Charisma mod +
+Force Focus bonus. Before a save, Force Resistance or Force Immunity can
+block the power outright if your d20 + level is below the target's Force
+resistance (5 +
+5 per rank + level, or higher from
+gear).
 
-Force resistance protects against stun, fear and droid powers, Slow,
-Affliction, Plague and Force Whirlwind. Force Suppression and Force Breach
-cannot be resisted. A saving throw roll of 1 always fails, and a roll of 20
-always succeeds.
+Force resistance protects against stun, fear, and droid powers, Slow,
+Affliction, Plague, and Force Whirlwind. Force Suppression and Force Breach
+cannot be resisted. A natural 1 always fails and a natural 20 always
+succeeds.
 
 <a id="force-rolls-dc-base"></a>**Force Power DC** = **5** · `force.rolls.dc_base`
 
-A Force power's saving throw DC is 5 + the Jedi's
-level + the Jedi's Wisdom modifier + the Jedi's Charisma modifier + the
-bonus from Force Focus.
+Force power save DC is 5 + level + Wisdom mod + Charisma mod + Force Focus.
 
 <sub>Source: KOTOR's engine (`GetSpellSaveDC`; StrategyWiki's K1 rule). Code: `sim::combat::force::save_dc`.</sub>
 
 <a id="force-rolls-resistance-base"></a>**Force Resistance Base** = **5** · `force.rolls.resistance_base`
 
-A character under Force Resistance or Force Immunity has a Force
-resistance of 5 +
-5 for each rank of the power + the
-character's level.
+Force resistance is 5 + 5 per rank + character level.
 
 <sub>Source: K1's descriptions of Resist Force and Force Immunity. Code: `sim::combat::force::resistance`.</sub>
 
 <a id="force-rolls-resistance-per-tier"></a>**Force Resistance per Rank** = **5** · `force.rolls.resistance_per_tier`
 
-Each rank of Force Resistance and Force Immunity adds
-5 to the character's Force
-resistance.
+Each rank of Force Resistance / Immunity adds +5 to Force resistance.
 
 <sub>Source: K1's descriptions of Resist Force and Force Immunity. Code: `sim::combat::force::resistance`.</sub>
 
@@ -6333,20 +6237,20 @@ script's values instead of these. The same bonus never counts twice.
 
 ### <a id="force-effects-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-While a speed power is active, the Jedi gains a bonus to Defense. Knight
-Speed and Master Speed also grant extra attacks each round. Burst of
-Speed, Knight Speed and Master Speed grant
-0 / 1 / 2 extra attacks, in that order.
+Grants +2 Defense (Burst of Speed) or
++4 Defense (Knight and Master Speed).
+Knight Speed adds 1 extra attack per
+round, and Master Speed adds 2.
 
-Each extra attack adds the full damage of one more attack to every hit with a weapon.
+Each extra attack adds a full extra attack's damage to every weapon hit.
 
 <a id="force-effects-speed-defence"></a>**Speed Defense Bonus** = **2 / 4 / 4** · `force_effects.speed.defence`
 
 Burst of Speed **2** · Knight Speed **4** · Master Speed **4**
 
-Burst of Speed grants a +2 bonus to
-Defense. Knight Speed grants +4 and
-Master Speed grants +4.
++2 Defense (Burst of Speed),
++4 (Knight Speed), and
++4 (Master Speed).
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
@@ -6354,124 +6258,118 @@ Master Speed grants +4.
 
 Burst of Speed **0** · Knight Speed **1** · Master Speed **2**
 
-Knight Speed grants 1 extra attack each
-round, and Master Speed grants 2. Burst
-of Speed grants 0.
+Knight Speed adds 1 extra attack per
+round, and Master Speed adds 2.
 
-Each extra attack adds the full damage of one more attack to every hit with a weapon.
+Each extra attack adds a full extra attack's damage to every weapon hit.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::extra_attacks`.</sub>
 
 ### <a id="force-effects-protect"></a>Force Aura, Force Shield and Force Armor
 
-When this power is activated, the Jedi gains a bonus to Defense and to all
-saving throws. Force Aura, Force Shield and Force Armor grant bonuses of
-2 / 4 / 6, in that order.
+Grants +2 (Force Aura),
++4 (Force Shield), or
++6 (Force Armor) to Defense and all
+saving throws.
 
 <a id="force-effects-protect-bonus"></a>**Defense and Save Bonus** = **2 / 4 / 6** · `force_effects.protect.bonus`
 
 Force Aura **2** · Force Shield **4** · Force Armor **6**
 
-Force Aura grants +2 to Defense and all
-saving throws. Force Shield grants +4
-and Force Armor grants +6.
++2 (Force Aura),
++4 (Force Shield), or
++6 (Force Armor) to Defense and all
+saving throws.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 ### <a id="force-effects-valor"></a>Force Valor, Knight Valor and Master Valor
 
-This power increases the Strength, Dexterity, Constitution and all saving
-throws of the Jedi and of every party member within
-20 meters. The effect lasts for
-20 seconds. Knight Valor and Master Valor also grant
-immunity to poison. A Valor power does not replace a stronger Valor that is
-already active.
+Lasts 20 seconds. Grants
++2 (Force Valor),
++3 (Knight Valor), or
++5 (Master Valor) to Strength, Dexterity,
+Constitution, and all saving throws for you and every party member within
+20 m. Knight Valor and Master Valor
+also grant poison immunity. Will not overwrite a stronger Valor.
 
-Force Suppression ends Force Valor and Knight Valor. Force Breach ends all
-three. Jedi controlled by the computer keep Valor active.
+Force Suppression ends Force Valor and Knight Valor; Force Breach ends all
+three. Computer-controlled Jedi keep Valor active.
 
 <a id="force-effects-valor-bonus"></a>**Valor Bonus** = **2 / 3 / 5** · `force_effects.valor.bonus`
 
 Force Valor **2** · Knight Valor **3** · Master Valor **5**
 
-Force Valor grants +2 to Strength,
-Dexterity, Constitution and all saving throws. Knight Valor grants
-+3 and Master Valor grants
-+5.
++2 (Force Valor), +3 (Knight Valor), or +5 (Master Valor) to Strength, Dexterity, Constitution, and all saving throws.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 <a id="force-effects-valor-length-ms"></a>**Valor Duration** = **20 seconds** (`20000 ms`) · `force_effects.valor.length_ms`
 
-Valor lasts for 20 seconds.
+Lasts 20 seconds.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::bless`.</sub>
 
 <a id="force-effects-valor-party-reach-m"></a>**Party Power Radius** = **20 m** · `force_effects.valor.party_reach_m`
 
-Valor and Improved Energy Resistance affect every party member within 20 meters of the Jedi.
+Valor and Improved Energy Resistance reach party members within 20 m.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::bless`.</sub>
 
 ### <a id="force-effects-energy-resistance"></a>Energy Resistance and Improved Energy Resistance
 
-This power surrounds the Jedi with the Force. It absorbs the first
+Lasts 120 seconds. Absorbs the first
 15 points of sonic, fire,
-cold and electrical damage from each attack. The effect lasts for
-120 seconds. Improved Energy Resistance
-protects every party member within 20
-meters, and also grants immunity to poison.
+cold, and electrical damage from every attack. Improved Energy Resistance
+affects every party member within 20
+m and also grants poison immunity.
 
-When the power's own script runs, the power protects against the five damage types that the script names.
+When the power's own script runs, it protects against the five damage types named by the script.
 
 <a id="force-effects-energy-resistance-resistance"></a>**Damage Absorbed** = **15 HP** · `force_effects.energy_resistance.resistance`
 
-Energy Resistance absorbs the first 15 points of each damage type from every attack.
+Absorbs the first 15 points of each damage type from every attack.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 <a id="force-effects-energy-resistance-length-ms"></a>**Energy Resistance Duration** = **120 seconds** (`120000 ms`) · `force_effects.energy_resistance.length_ms`
 
-Energy Resistance lasts for 120 seconds.
+Lasts 120 seconds.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::bless`.</sub>
 
 ### <a id="force-effects-slow"></a>Slow, Affliction and Plague
 
-These powers affect a single target. They do not affect droids or a target
-that resists the Force. Slow inflicts a -2
-penalty to Defense, Reflex saves and attack rolls for
-30 seconds. A target that makes a Will save is not
-affected by Slow. Affliction drains 1 point of Strength, Dexterity and
-Constitution every 3 seconds, up to a total of
-7 points. The target of Affliction also
-moves at 0.5 times normal speed. A target
-that makes a Fortitude save against DC 20
-is not affected by Affliction. Plague drains 1 point every
-1 second, up to a total of
-12 points, and slows the target in the
-same way. Plague allows no saving throw. The drained points return when the
-effect ends.
+Single target; does not affect droids or targets that resist the Force.
+Slow inflicts -2 to Defense, Reflex saves,
+and attack rolls for 30 seconds (Will save negates).
+Affliction (Fortitude save DC 20) and
+Plague (no save) cut movement speed to 0.5×
+and drain 1 Strength, Dexterity, and Constitution every
+3 seconds up to
+7 (Affliction) or every
+1 second up to
+12 (Plague); lost attributes return when
+the effect ends.
 
-Affliction and Plague count as poisons. Knight Valor, Master Valor and
-Improved Energy Resistance grant immunity to them. Jedi controlled by the
-computer use Slow on their enemies.
+Affliction and Plague count as poisons (blocked by Knight/Master Valor and
+Improved Energy Resistance). Computer-controlled Jedi use Slow on enemies.
 
 <a id="force-effects-slow-penalty"></a>**Slow Penalty** = **2** · `force_effects.slow.penalty`
 
-Slow inflicts a -2 penalty to Defense, Reflex saves and attack rolls.
+Inflicts -2 to Defense, Reflex saves, and attack rolls.
 
 <sub>Source: K1's description (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 <a id="force-effects-slow-length-ms"></a>**Slow Duration** = **30 seconds** (`30000 ms`) · `force_effects.slow.length_ms`
 
-Slow lasts for 30 seconds.
+Lasts 30 seconds.
 
 <sub>Source: K1's description (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::slow`.</sub>
 
 <a id="force-effects-slow-movement"></a>**Slowed Movement** = **×0.5** · `force_effects.slow.movement`
 
-A target of Affliction or Plague moves at 0.5 times normal speed.
+Cuts the target's movement speed to 0.5×.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -6479,9 +6377,7 @@ A target of Affliction or Plague moves at 0.5 times normal speed.
 
 Affliction **7** · Plague **12**
 
-Affliction drains up to 7 points from
-each of Strength, Dexterity and Constitution. Plague drains up to
-12 points from each.
+Drains up to 7 (Affliction) or 12 (Plague) from Strength, Dexterity, and Constitution.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::Effects::sap`.</sub>
 
@@ -6489,98 +6385,81 @@ each of Strength, Dexterity and Constitution. Plague drains up to
 
 Affliction **3 seconds** · Plague **1 second**
 
-Affliction drains 1 point every 3 seconds, and
-Plague drains 1 point every 1 second. The
-first point is drained at once.
+Drains 1 point immediately, then every 3 seconds (Affliction) or 1 second (Plague).
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::Effects::sap`.</sub>
 
 <a id="force-effects-slow-affliction-dc"></a>**Affliction DC** = **20** · `force_effects.slow.affliction_dc`
 
-A target that makes a Fortitude save against DC 20 is not affected by Affliction.
+Fortitude save DC 20 negates Affliction.
 
 <sub>Source: K1's description (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::slow`.</sub>
 
 ### <a id="force-effects-dispel"></a>Force Suppression and Force Breach
 
-These powers affect a single target and cannot be resisted. Force
-Suppression ends the target's active Force powers of the first and second
-rank. Force Breach ends all of them, whatever their rank. The powers they
-end are the speed powers, Force Aura, Force Shield, Force Armor, Force
-Resistance, Force Immunity, Valor and Energy Resistance.
+Single target; cannot be resisted. Force Suppression cancels rank 1 and 2
+buffs; Force Breach cancels buffs of any rank. Affects Force Speed, Force
+Aura/Shield/Armor, Force Resistance/Immunity, Valor, and Energy Resistance.
 
-Jedi controlled by the computer use these powers on enemies who have active Force powers.
+Computer-controlled Jedi use these powers on enemies with active Force buffs.
 
 ### <a id="force-effects-fury"></a>Fury
 
-Every creature the character kills while Fury is active adds +1 to the
-damage of the character's weapons. This bonus can reach at most
-+6. The bonus starts at 0 when Fury is
-activated, and it is lost when Fury ends. The bonus is added on top of any
-damage bonus from items, and the limit on item bonuses does not apply to
-it.
+Each kill while Fury is active adds +1 weapon damage (up to
++6), stacking above item bonus caps. Resets
+when Fury ends.
 
 <a id="force-effects-fury-most"></a>**Fury Maximum Bonus** = **6 HP** · `force_effects.fury.most`
 
-The damage bonus from kills made while Fury is active is at most +6.
+Kill damage bonus caps at +6.
 
 <sub>Source: TSL's executable. Code: `sim::combat::effects::sheet_now`.</sub>
 
 ### <a id="force-effects-force-body"></a>Force Body
 
-While Force Body is active, a Force power takes only part of its cost from
-Force points, rounded down. Force Body, Improved Force Body and Master
-Force Body take 50% / 40% / 30% of the cost, in that
-order. The same number of points is also taken from vitality points, and
-temporary vitality points are used first. A Force power cannot be used if
-it would leave the character with
-1 vitality point or fewer.
+Splits Force power costs between Force points and Vitality (using temporary
+Vitality first): 50% each with Force Body,
+40% each with Improved Force Body, or
+30% each with Master Force Body (rounded
+down). Cannot cast a power that would leave you at
+1 Vitality or less.
 
 <a id="force-effects-force-body-share"></a>**Force Body Cost** = **50% / 40% / 30%** (`50 / 40 / 30%`) · `force_effects.force_body.share`
 
 Force Body **50%** · Improved Force Body **40%** · Master Force Body **30%**
 
-Force Body takes 50% of a power's cost
-from Force points, and the same number of points from vitality points.
-Improved Force Body takes 40% from each,
-and Master Force Body takes 30% from each.
+Takes 50% (Force Body), 40% (Improved), or 30% (Master) of a power's cost from Force and the same amount from Vitality.
 
 <sub>Source: TSL's executable. Code: `sim::combat::effects::force_body_share`.</sub>
 
 <a id="force-effects-force-body-least-hp-left"></a>**Force Body Minimum Vitality** = **1 HP** · `force_effects.force_body.least_hp_left`
 
-While Force Body is active, a power cannot be used if it would leave the character with 1 vitality point or fewer.
+Cannot cast a power that would leave you with 1 Vitality or less.
 
 <sub>Source: TSL's executable (`HasSpell`). Code: `sim::combat::effects::can_pay`.</sub>
 
 ### <a id="force-effects-states"></a>Stun, Paralysis and Mind Trick
 
-Stun, paralysis, horror, Force Crush, Mind Trick, Droid Trick and the
-freezes that cutscenes use last as long as their effects. When several of
-them are active at once, only one of them takes effect. Mind Trick takes
-effect before horror, and horror takes effect before stun. Mind Trick and
-Droid Trick end when the target is damaged or attacked. They also end when
-the target sees an enemy within the square root of
-10 meters.
+Mind Trick and Droid Trick end immediately if the target is attacked,
+damaged, or spots an enemy within about 3.2 m. When multiple hold effects
+overlap, Mind Trick takes priority over horror, and horror over stun.
+
+The proximity check compares squared distance against 10 m² (√10 ≈ 3.2 m).
 
 <a id="force-effects-states-fragile-reach-squared"></a>**Mind Trick Range** = **10 m²** · `force_effects.states.fragile_reach_squared`
 
-Mind Trick and Droid Trick end when the target sees an enemy close by. The game compares the square of the distance to the enemy with 10 m². The standard value of 10 m² is a distance of about 3.2 metres.
+Mind Trick and Droid Trick end if the target spots an enemy within about 3.2 m (squared distance 10 m²).
 
 <sub>Source: TSL's executable (it compares the squared distance). Code: `sim::combat::effects::state::fragile`.</sub>
 
 ### <a id="force-effects-lasting"></a>Lasting Effects
 
-A lasting effect on a character lasts for its duration. Lasting effects can
-change attributes, Defense, saving throws, attack, damage, damage
-resistance, immunities, skills, movement speed, attacks per round and Force
-resistance. Bonuses or penalties from the same source to the same value do
-not stack, and only the strongest one counts. Effects from different
-sources stack. Movement speed effects cannot slow a character below
-10% of normal speed, or raise it above
-300%.
+Bonuses or penalties from the same source do not stack (only the strongest
+applies); effects from different sources stack. Movement speed effects
+cannot drop you below 10% or raise you
+above 300% of normal speed.
 
-The movement bonus from a speed power's own script does not stack with the speed bonus the power grants while it is active.
+The movement bonus from a speed power's own script does not stack with the speed bonus the power grants while active.
 
 <a id="force-effects-lasting-speed-least"></a>**Minimum Movement Speed** = **10%** · `force_effects.lasting.speed_least`
 
@@ -6596,10 +6475,10 @@ Movement speed effects cannot raise a character above 300% of normal speed.
 
 ### <a id="force-effects-haste"></a>Haste
 
-When a script applies haste (`EffectHaste`), the target moves
-50% faster and gains
-+4 Defense while the effect lasts. Haste
-does not grant extra attacks.
+Increases movement speed by 50% and grants
++4 Defense (no extra attacks).
+
+Applied by scripts via `EffectHaste`.
 
 <a id="force-effects-haste-speed"></a>**Haste Movement Bonus** = **50%** · `force_effects.haste.speed`
 
@@ -6615,26 +6494,23 @@ Haste grants a +4 dodge bonus to Defense.
 
 ### <a id="force-effects-knockdown"></a>Knockdown
 
-When a script applies a knockdown (`EffectKnockdown`), the target is
-knocked to the ground for the effect's duration plus
-1500 ms. A target that is immune to
-knockdown is not affected.
+Knocks the target to the ground for the effect's duration plus
+1.5 seconds (unless immune to knockdown).
+
+Applied by scripts via `EffectKnockdown`.
 
 <a id="force-effects-knockdown-extra-ms"></a>**Knockdown Extra Time** = **1.5 seconds** (`1500 ms`) · `force_effects.knockdown.extra_ms`
 
-A knockdown lasts 1500 ms longer than its effect's duration.
+A knockdown lasts 1.5 seconds longer than its effect's duration.
 
 <sub>Source: TSL's executable (`OnApplyKnockdown`: the hold lasts the duration plus 1.5 s). Code: `sim::world::harm`.</sub>
 
 ### <a id="force-effects-damage-shield"></a>Damage Shield
 
-When a script applies a damage shield (`EffectDamageShield`), the shield
-strikes back at every melee attacker that hits the target. The attacker
-takes the shield's base damage plus its damage bonus, as the shield's
-damage type. A damage bonus from 1 to 5 adds that many points. A damage
-bonus from 6 to 10 rolls dice instead. The dice for these bonuses come in
-pairs, the number of dice followed by the die size:
-1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6.
+Strikes back at every melee attacker with the shield's base damage plus its
+damage bonus.
+
+Applied by scripts via `EffectDamageShield`. Bonuses 1–5 add flat points; 6–10 roll dice in (count, size) pairs: 1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6.
 
 <a id="force-effects-damage-shield-bonus-dice"></a>**Shield Bonus Dice** = **1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6** · `force_effects.damage_shield.bonus_dice`
 
