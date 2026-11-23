@@ -15,8 +15,9 @@
 //!   (`bake_fingerprint`). The install is allowed when at least `MATCH_SHARE`
 //!   of the areas match. An area whose rooms match but whose placeables do
 //!   not counts as a match, as the game then shows its lightmaps. The answer
-//!   is kept in the store, keyed by the install's digest and the manifest, so
-//!   a second check is instant.
+//!   is kept in the store, keyed by the names, sizes and times of the files
+//!   a bake reads (`files_key`) and the manifest, so a second check is
+//!   instant.
 //! - `install` puts the zip's area folders under
 //!   `<store>/lighting/<k1|tsl>/<area>/`, with the manifest beside them in
 //!   `MANIFEST`. The store's gc never removes them (`store::KEPT`).
@@ -53,18 +54,24 @@ pub const SETTING_VALUE: &str = "baked";
 
 /// The store's kind for the answers of `check`. Raise its number when the
 /// answer for the same files and manifest would change.
-const CHECKS: &str = "lighting-check-v1";
+const CHECKS: &str = "lighting-check-v2";
 
 /// The files of a bake's set that the game loads, and so the files a
 /// download holds: the lightmaps (PNG), `fill.txt`, `floor.txt`,
-/// `unlit.txt`, `placeables.txt` and `fingerprint.txt`. The probe files are
-/// read only by trial switches, and `detail-bake.txt` is the bake's log.
+/// `unlit.txt`, `stored.txt`, `placeables.txt` and `fingerprint.txt`. The
+/// probe files are read only by trial switches, and `detail-bake.txt` is
+/// the bake's log.
 pub fn shipped(file: &str) -> bool {
     let file = file.to_ascii_lowercase();
     file.ends_with(".png")
         || matches!(
             file.as_str(),
-            "fill.txt" | "floor.txt" | "unlit.txt" | "placeables.txt" | bake_fingerprint::FILE
+            "fill.txt"
+                | "floor.txt"
+                | "unlit.txt"
+                | "placeables.txt"
+                | crate::stored_fill::STORED_FILE
+                | bake_fingerprint::FILE
         )
 }
 
@@ -321,9 +328,66 @@ pub struct Progress<'a> {
     pub area: &'a str,
 }
 
+/// The groups of an install's files that a bake reads: the rooms, the
+/// placeables and their models, the lightmaps, the layouts and the tables.
+/// The music, sounds, voices and movies are left out.
+const BAKE_GROUPS: &[&str] = &[
+    "chitin.key",
+    "patch.erf",
+    "data",
+    "modules",
+    "override",
+    "rims",
+    "texturepacks",
+];
+
+/// The groups of a Steam Workshop item's files that a bake reads.
+const BAKE_ITEM_GROUPS: &[&str] = &["modules", "override"];
+
+/// A digest of the names, sizes and modification times of the files of
+/// `index` that a bake may read (`BAKE_GROUPS`), with the Workshop items in
+/// their load order. It reads no file's contents, so it takes about as long
+/// as listing the files. Adding, removing or changing a mod's file changes
+/// it. The full digest of the install (`kjk fingerprint`) took 94.5 seconds
+/// on its first run, for a check that takes about 0.1 seconds an area.
+pub fn files_key(game: Game, index: &vfs::DirIndex) -> String {
+    let mut hasher = blake3::Hasher::new();
+    let add = |hasher: &mut blake3::Hasher, name: &str, path: &Path| {
+        let (bytes, time) = std::fs::metadata(path).map_or((0, 0), |meta| {
+            let time = (meta.modified().ok())
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |since| since.as_nanos());
+            (meta.len(), time)
+        });
+        hasher.update(format!("{name} {bytes} {time}\n").as_bytes());
+    };
+    let group = |key: &str| {
+        key.split_once('/')
+            .map_or(key, |(first, _)| first)
+            .to_string()
+    };
+    for (key, path) in index.iter() {
+        if BAKE_GROUPS.contains(&group(key).as_str()) && vfs::fingerprint::covered(game, key) {
+            add(&mut hasher, key, path);
+        }
+    }
+    for item in index.workshop() {
+        let label = item.label();
+        hasher.update(format!("item {label}\n").as_bytes());
+        for (key, path) in item.files.iter() {
+            if BAKE_ITEM_GROUPS.contains(&group(key).as_str())
+                && vfs::fingerprint::covered_in_item(key)
+            {
+                add(&mut hasher, &format!("{label}/{key}"), path);
+            }
+        }
+    }
+    hasher.finalize().to_hex().to_string()
+}
+
 /// Compares `manifest` with the files of the player's install of its game,
-/// as the game reads them. `store` keeps the answer, keyed by the install's
-/// digest (`vfs::fingerprint`, as `kjk fingerprint` gives it) and the
+/// as the game reads them. `store` keeps the answer, keyed by the names,
+/// sizes and times of the files a bake reads (`files_key`) and the
 /// manifest, so a second check of the same files is instant. `progress`
 /// hears each area as it is compared.
 pub fn check(
@@ -333,15 +397,12 @@ pub fn check(
 ) -> Result<Report, String> {
     let game = manifest.game;
     let install = crate::installs::open(&crate::discover(), game)?;
-    let digest =
-        vfs::fingerprint::fingerprint(game, &install.index, Some(&crate::fingerprint_cache(game)))
-            .map_err(|error| format!("{}: {error}", game.key()))?
-            .digest;
+    let files = files_key(game, &install.index);
     let key = store::Key::of(
         CHECKS,
         &[
             game.key().as_bytes(),
-            digest.as_bytes(),
+            files.as_bytes(),
             &bake_fingerprint::FORMAT.to_le_bytes(),
             manifest.text().as_bytes(),
         ],
@@ -832,6 +893,30 @@ mod tests {
         };
         let refusal = refused.refusal().unwrap();
         assert!(refusal.contains("KOTOR 2 with TSLRCM"), "{refusal}");
+    }
+
+    #[test]
+    fn the_checks_key_follows_the_mods_and_not_the_voices() {
+        let root = scratch("files-key");
+        std::fs::create_dir_all(root.join("override")).unwrap();
+        std::fs::create_dir_all(root.join("streamvoice")).unwrap();
+        std::fs::write(root.join("chitin.key"), b"key").unwrap();
+        let key = || files_key(Game::Kotor1, &vfs::DirIndex::build(&root).unwrap());
+        let before = key();
+        assert_eq!(key(), before);
+        // A voice line is no file a bake reads.
+        std::fs::write(root.join("streamvoice").join("line.wav"), b"voice").unwrap();
+        assert_eq!(key(), before);
+        // A mod's texture is.
+        let texture = root.join("override").join("m13aa_01a_lm0.tga");
+        std::fs::write(&texture, b"tga").unwrap();
+        let added = key();
+        assert_ne!(added, before);
+        std::fs::write(&texture, b"a longer tga").unwrap();
+        assert_ne!(key(), added);
+        std::fs::remove_file(&texture).unwrap();
+        assert_eq!(key(), before);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A zip of `entries` (name and bytes) at `path`.

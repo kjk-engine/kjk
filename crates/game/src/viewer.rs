@@ -293,6 +293,13 @@ pub struct LoadedScene {
     /// The area's light probes (`light_probes`), made as it loads. Empty
     /// outside a module, and for an area with no lightmapped room mesh.
     pub probes: Arc<crate::light_probes::AreaProbes>,
+    /// Whether the area is drawn under the baked trial
+    /// (`fitted_lights::baked` as it loaded). Under the options' Enhanced
+    /// Lightmaps this is only an area with a bake the game accepted.
+    pub baked: bool,
+    /// Whether a used bake of the area asks for its rooms' surfaces with no
+    /// lightmap to be dark (`dark_unlit`).
+    pub dark_unlit: bool,
 }
 
 /// What an area's weather goes by (`weather`).
@@ -403,7 +410,7 @@ impl LoadedScene {
             fog: self.fog,
             shadowed: self.lit,
             probed: self.lit,
-            dark_unlit: crate::fitted_lights::baked() && dark_unlit(&self.name),
+            dark_unlit: self.baked && self.dark_unlit,
         }
     }
 }
@@ -848,6 +855,10 @@ struct BakeFolder {
     /// Whether the bake asks for its rooms' surfaces with no lightmap to be
     /// dark (`unlit.txt`, `dark_unlit`).
     unlit: bool,
+    /// The lightmaps the set shows from the player's own stored lightmaps
+    /// at their stored light, by name in lower case
+    /// (`stored_fill::STORED_FILE`). It holds no PNG of them.
+    stored: BTreeSet<String>,
     /// Its fingerprint (`bake_fingerprint::FILE`). `None` for a set baked
     /// before the baker wrote one, which the game shows as it is. The reason
     /// for a file that does not read, and the game then shows none of it.
@@ -888,6 +899,7 @@ static BAKE_FOLDERS: std::sync::LazyLock<Vec<BakeFolder>> = std::sync::LazyLock:
             fills: baked_numbers(&path, "fill.txt"),
             floors: baked_numbers(&path, "floor.txt"),
             unlit: path.join("unlit.txt").is_file(),
+            stored: crate::stored_fill::stored_names(&path),
             stamp,
             path,
         });
@@ -1014,28 +1026,47 @@ fn choose_bakes(resolver: &Resolver, area: &asset_odyssey::module::AreaIr) {
     }
 }
 
-/// Whether scene `name` is of an area whose bake asks for its rooms'
-/// surfaces with no lightmap to be dark: the name of the folder over a used
-/// bake's set that holds `unlit.txt`. `bake.sh` writes the file for a module
-/// whose entry in `data/lights/bake.toml` has `dark_unlit = true`. Nar
-/// Shaddaa's tunnels (305nar) have no lightmap, and the game showed them at
-/// half of full light, which the owner called too bright (21 November
-/// 2026). A module's scene is named "<label> in <module>". A KOTOR 1
-/// module's folder has the area's name without its planet, `m01aa` for
-/// `end_m01aa`. An installed download's set is the area's folder itself
-/// (`lighting_bakes`), so the set's own name counts too.
-fn dark_unlit(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    let module = name.rsplit(' ').next().unwrap_or(&name);
-    (used_folders().into_iter())
-        .filter(|(folder, _)| folder.unlit)
-        .flat_map(|(folder, _)| {
-            [folder.path.parent(), Some(folder.path.as_path())]
-                .into_iter()
-                .flatten()
-                .filter_map(|path| Some(path.file_name()?.to_str()?.to_ascii_lowercase()))
-        })
-        .any(|area| module == area || module.ends_with(&format!("_{area}")))
+/// Whether the used folder `folder` holds a bake of area `area` (its
+/// resref) of module `module`. A folder with a fingerprint names its area
+/// there. A folder without one, which only a developer's variable lists, is
+/// known by its own name or the name of the folder over it, which the bake
+/// names after the area (`bake/<round>/<area>/b`). An installed download's
+/// set is the area's folder itself. The module's name counts too, for a
+/// folder named after it.
+fn holds_area(folder: &BakeFolder, area: &str, module: &str) -> bool {
+    match &folder.stamp {
+        Some(Ok(stamp)) => stamp.area.eq_ignore_ascii_case(area),
+        Some(Err(_)) => false,
+        None => [folder.path.parent(), Some(folder.path.as_path())]
+            .into_iter()
+            .flatten()
+            .filter_map(|path| path.file_name()?.to_str())
+            .any(|name| name.eq_ignore_ascii_case(area) || name.eq_ignore_ascii_case(module)),
+    }
+}
+
+/// Whether area `area` (its resref) has a bake the game shows: a used folder
+/// holds one (`choose_bakes`). A folder without a fingerprint counts for
+/// every area, as it is shown whole wherever its lightmaps' names match,
+/// and only a developer's variable lists one.
+fn takes_bake(area: &str) -> bool {
+    (used_folders().into_iter()).any(|(folder, _)| match &folder.stamp {
+        None => true,
+        Some(Ok(stamp)) => stamp.area.eq_ignore_ascii_case(area),
+        Some(Err(_)) => false,
+    })
+}
+
+/// Whether area `area` of module `module` has a used bake that asks for its
+/// rooms' surfaces with no lightmap to be dark: the bake's set holds
+/// `unlit.txt`. `bake.sh` writes the file for a module whose entry in
+/// `data/lights/bake.toml` has `dark_unlit = true`. Nar Shaddaa's tunnels
+/// (305nar) have no lightmap, and the game showed them at half of full
+/// light, which the owner called too bright (21 November 2026). The area is
+/// matched by its resref (`holds_area`), so a KOTOR 1 area such as `m13aa`
+/// of module `danm13` is found too.
+fn dark_unlit(area: &str, module: &str) -> bool {
+    (used_folders().into_iter()).any(|(folder, _)| folder.unlit && holds_area(folder, area, module))
 }
 
 /// Under the baked trial, the probes the bake wrote for the rooms of
@@ -1310,7 +1341,7 @@ fn baked_placeables(
 /// with `#` is a comment. The variables' folders come later in the list,
 /// so they win over the download's for an area both hold (`choose_bakes`).
 fn baked_folders() -> Vec<std::path::PathBuf> {
-    let mut folders = if crate::lighting_bakes::chosen() && crate::fitted_lights::baked() {
+    let mut folders = if crate::lighting_bakes::chosen() && crate::fitted_lights::baked_anywhere() {
         crate::lighting_bakes::folders()
     } else {
         Vec::new()
@@ -1386,23 +1417,42 @@ fn add_stored_fill(picture: &mut image::RgbaImage, stored: &TextureIr, fill: f32
 }
 
 /// `texture`, or the baked lightmap of that name in the last used folder of
-/// `BAKE_FOLDERS` that holds one, with that folder's fill and floor.
+/// `BAKE_FOLDERS` that holds one, with that folder's fill and floor. A
+/// lightmap the folder names in `stored.txt` is made from `texture` itself,
+/// at its stored light (`stored_fill::backdrop`).
 fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
     let key = name.to_ascii_lowercase();
     if BAKE_FOLDERS.is_empty() {
         return texture;
     }
-    let Some((folder, path)) = (used_folders().into_iter().rev())
-        .find_map(|(folder, _)| Some((folder, folder.lightmaps.get(&key)?)))
-    else {
+    // The folder, and the PNG it holds. `None` for a lightmap it names in
+    // `stored.txt`.
+    let Some((folder, path)) = (used_folders().into_iter().rev()).find_map(|(folder, _)| {
+        match folder.lightmaps.get(&key) {
+            Some(path) => Some((folder, Some(path))),
+            None => folder.stored.contains(&key).then_some((folder, None)),
+        }
+    }) else {
         return texture;
     };
     if texture.cube || texture.frames > 1 {
         return texture;
     }
-    match image::open(path) {
-        Ok(picture) => {
-            let mut picture = picture.into_rgba8();
+    let picture = match path {
+        Some(path) => image::open(path)
+            .map(image::DynamicImage::into_rgba8)
+            .map_err(|error| format!("baked lightmap {} does not read: {error}", path.display())),
+        None => crate::stored_fill::backdrop(&texture)
+            .and_then(|bytes| image::RgbaImage::from_raw(texture.width, texture.height, bytes))
+            .ok_or_else(|| {
+                format!(
+                    "stored lightmap {name} does not decode for the bake in {}",
+                    folder.path.display()
+                )
+            }),
+    };
+    match picture {
+        Ok(mut picture) => {
             if let Some(fill) = folder.fills.get(&key) {
                 add_stored_fill(&mut picture, &texture, *fill, false);
             }
@@ -1421,8 +1471,8 @@ fn detail_baked(name: &str, texture: TextureIr) -> TextureIr {
                 ..texture
             }
         }
-        Err(error) => {
-            warn!("baked lightmap {} does not read: {error}", path.display());
+        Err(why) => {
+            warn!("{why}");
             texture
         }
     }
@@ -1813,6 +1863,11 @@ pub fn module_scene(
     // reads, before its lightmaps load (`detail_baked`).
     crate::lighting_bakes::note_played(game);
     choose_bakes(resolver, area);
+    // Under Enhanced Lightmaps an area with no accepted bake is drawn as
+    // under Enhanced (`fitted_lights::set_area_baked`).
+    crate::fitted_lights::set_area_baked(takes_bake(&area.resref));
+    let area_baked = crate::fitted_lights::baked();
+    let dark = dark_unlit(&area.resref, module);
     let walkable = walkable_surfaces(resolver);
     let mut models = Vec::new();
     let mut missing_models = Vec::new();
@@ -2039,6 +2094,8 @@ pub fn module_scene(
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
         probes: Arc::new(probes),
+        baked: area_baked,
+        dark_unlit: dark,
         default_envmap: creatures.default_envmap,
         missing_body_textures: creatures.missing_body_textures,
         instances,

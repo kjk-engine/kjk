@@ -17,9 +17,13 @@
 //!   It is left out and listed.
 //! - A set whose fingerprint does not read, or is of another format than
 //!   this build's (`bake_fingerprint::FORMAT`), stops the pack.
-//! - A module baked with `--stored-backdrop` is left out and listed. Its
-//!   backdrop PNGs are copies of the games' own lightmaps. The bake's log
-//!   (`detail-bake.txt`, beside the set) says so in its second line, and
+//! - A module baked with `--stored-backdrop` names its backdrop's
+//!   lightmaps in `stored.txt` and holds no picture of them, so it is packed
+//!   like any other. A PNG that `stored.txt` names is left out all the same.
+//!   A set baked with `--stored-backdrop` before the bake wrote `stored.txt`
+//!   holds copies of the games' own lightmaps. It is left out and listed.
+//!   The bake's log (`detail-bake.txt`, beside the set) says that a bake
+//!   kept its backdrop as stored in its second line, and
 //!   `data/lights/bake.toml` gives such a module `backdrop = "stored"`.
 //!
 //! The zip holds `<area>/<file>`. PNGs are stored as they are, and the text
@@ -110,8 +114,14 @@ fn stored_backdrop_listed(module: &str) -> bool {
 }
 
 /// Whether the set `set` of module `module` was baked with
-/// `--stored-backdrop`: its bake's log says so, or `bake.toml` asks for it.
-fn stored_backdrop(module: &str, set: &Path) -> bool {
+/// `--stored-backdrop` before the bake wrote `stored.txt`, so that its
+/// backdrop's PNGs copy the games' own lightmaps: its bake's log says it
+/// kept the backdrop as stored, or `bake.toml` asks for that, and the set
+/// has no `stored.txt`.
+fn copied_backdrop(module: &str, set: &Path) -> bool {
+    if set.join(kjk_game::stored_fill::STORED_FILE).is_file() {
+        return false;
+    }
     let logged = set
         .parent()
         .map(|area| area.join("detail-bake.txt"))
@@ -162,7 +172,7 @@ fn pack(
                 bake_fingerprint::FORMAT
             ));
         }
-        if stored_backdrop(&module, &path) {
+        if copied_backdrop(&module, &path) {
             backdrops.push(path);
             continue;
         }
@@ -183,7 +193,7 @@ fn pack(
         }
     }
     if !backdrops.is_empty() {
-        outln!("left out, baked with --stored-backdrop (its PNGs copy the games' own lightmaps):");
+        outln!("left out, baked with --stored-backdrop before stored.txt (its PNGs copy the games' own lightmaps):");
         for path in &backdrops {
             outln!("  {}", path.display());
         }
@@ -241,12 +251,20 @@ fn write_zip(path: &Path, sets: &[Set]) -> Result<(usize, u64), String> {
         .compression_method(::zip::CompressionMethod::Deflated);
     let (mut files, mut bytes_in) = (0, 0);
     for set in sets {
+        let backdrop = kjk_game::stored_fill::stored_names(&set.path);
         let mut names: Vec<String> = std::fs::read_dir(&set.path)
             .map_err(|error| format!("{}: {error}", set.path.display()))?
             .flatten()
             .filter(|entry| entry.path().is_file())
             .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
             .filter(|name| lighting_bakes::shipped(name))
+            .filter(|name| {
+                // A backdrop's lightmap the game makes from the player's own.
+                let lower = name.to_ascii_lowercase();
+                !lower
+                    .strip_suffix(".png")
+                    .is_some_and(|stem| backdrop.contains(stem))
+            })
             .collect();
         names.sort();
         for name in names {

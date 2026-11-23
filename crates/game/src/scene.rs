@@ -2135,7 +2135,15 @@ pub(crate) fn spawn_scene(
             .collect();
         if let Some(mut buffer) = stores.buffers.get_mut(&crate::fitted_lights::GRID) {
             buffer.data = Some(crate::fitted_lights::grid(&placed, &linked));
+            crate::fitted_lights::note_grid(true);
         }
+    } else if crate::fitted_lights::note_grid(false)
+        && let Some(mut buffer) = stores.buffers.get_mut(&crate::fitted_lights::GRID)
+    {
+        // An area under Enhanced Lightmaps with no bake the game shows,
+        // after one with a bake: its rooms take no fitted light, as under
+        // Enhanced.
+        buffer.data = Some(crate::fitted_lights::no_grid());
     }
     let root = commands
         .spawn((

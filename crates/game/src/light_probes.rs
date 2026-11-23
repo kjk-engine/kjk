@@ -1397,7 +1397,7 @@ fn light_objects(
                     // from above of every model, so a model in the floor's
                     // shade stayed bright. The owner said on 21 November
                     // 2026: "plasteel cylinder in the shade is too bright".
-                    entry.target = if crate::fitted_lights::baked() {
+                    entry.target = if loaded.baked {
                         light
                     } else {
                         without_lamps(

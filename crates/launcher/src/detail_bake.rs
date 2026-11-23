@@ -2186,21 +2186,40 @@ fn write_sets(
         // trees glared at twice their light while the walkway, lit by its
         // lamps alone, stayed dark. Elsewhere the owner walked the brighter
         // backdrop, and it stays.
-        let backdrop = if keep_stored { 2.0 } else { 1.0 };
-        for name in unwalked.iter().filter(|_| keep_stored || stored_backdrop) {
+        //
+        // The lamps' set holds no picture of such a lightmap, because it
+        // would be a copy of the game's own. It names the lightmap in
+        // `stored.txt`, and the game makes the same picture from the
+        // player's stored lightmap (`stored_fill::backdrop`).
+        if !keep_stored {
+            let stored_file = out.join(kjk_game::stored_fill::STORED_FILE);
+            let _ = std::fs::remove_file(&stored_file);
+            if stored_backdrop {
+                let named: Vec<&str> = (unwalked.iter())
+                    .filter(|name| read_stored(resolver, name).is_some())
+                    .map(String::as_str)
+                    .collect();
+                // A set baked earlier into the same folder may hold their
+                // pictures.
+                for name in &named {
+                    let _ = std::fs::remove_file(out.join(format!("{name}.png")));
+                }
+                std::fs::write(&stored_file, kjk_game::stored_fill::stored_text(named))
+                    .map_err(|error| format!("{}: {error}", stored_file.display()))?;
+            }
+            continue;
+        }
+        for name in unwalked {
             let Some(stored) = read_stored(resolver, name) else {
                 continue;
             };
             let mut picture = image::RgbaImage::new(stored.width as u32, stored.height as u32);
             for (i, [r, g, b, a]) in stored.texels.iter().enumerate() {
-                let [r, g, b] = [r, g, b].map(|v| to_byte(v / backdrop / GAIN));
-                // The lamps' set holds the suns' share in its alpha. A room
-                // the bake did not read takes no sun's shadow.
-                let a = if keep_stored { to_byte(*a) } else { 255 };
+                let [r, g, b] = [r, g, b].map(|v| to_byte(v / 2.0 / GAIN));
                 picture.put_pixel(
                     (i % stored.width) as u32,
                     (i / stored.width) as u32,
-                    image::Rgba([r, g, b, a]),
+                    image::Rgba([r, g, b, to_byte(*a)]),
                 );
             }
             let path = out.join(format!("{name}.png"));

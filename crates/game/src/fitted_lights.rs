@@ -25,6 +25,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use asset_odyssey::texture::{Encoding, TextureIr};
 use bevy::math::{Mat4, Vec2, Vec3};
@@ -33,16 +34,36 @@ use fmt_odyssey::dxt;
 use crate::scene::{placement, to_mat4};
 use crate::viewer::LoadedScene;
 
+/// `KJK_FITTED_LIGHTS`, when it is set.
+fn variable() -> Option<&'static str> {
+    static VALUE: OnceLock<Option<String>> = OnceLock::new();
+    VALUE
+        .get_or_init(|| std::env::var("KJK_FITTED_LIGHTS").ok())
+        .as_deref()
+}
+
+/// Whether the area loaded last has a bake the game shows
+/// (`set_area_baked`).
+static AREA_BAKED: AtomicBool = AtomicBool::new(false);
+
+/// Notes, as an area loads, whether it has a bake the game shows. Under the
+/// options' Enhanced Lightmaps only such an area takes the trial. Any other
+/// area, one the download lacks, one of the other game, or one whose files
+/// differ from the bake's, is drawn as under Enhanced.
+pub fn set_area_baked(baked: bool) {
+    AREA_BAKED.store(baked, Ordering::Relaxed);
+}
+
 /// Whether the trial is on (`KJK_FITTED_LIGHTS` set to anything but `off`).
 /// Without the variable, it is on when the player chose the baked lightmaps
-/// in the options and a download of them is installed
-/// (`lighting_bakes::chosen`).
+/// in the options, a download of them is installed
+/// (`lighting_bakes::chosen`), and the area loaded last has a bake the game
+/// shows (`set_area_baked`). Under plain Enhanced the trial is off.
 pub fn wanted() -> bool {
-    static WANTED: OnceLock<bool> = OnceLock::new();
-    *WANTED.get_or_init(|| match std::env::var("KJK_FITTED_LIGHTS") {
-        Ok(value) => value != "off",
-        Err(_) => crate::lighting_bakes::chosen(),
-    })
+    match variable() {
+        Some(value) => value != "off",
+        None => crate::lighting_bakes::chosen() && AREA_BAKED.load(Ordering::Relaxed),
+    }
 }
 
 /// Whether the rooms show a bake of the fitted lights in place of their
@@ -52,13 +73,41 @@ pub fn wanted() -> bool {
 /// fitted light. Doors, placeables and characters are lit as under `on`.
 /// Without the variable, the rooms show the installed download of baked
 /// lightmaps when the player chose it in the options (Enhanced Lightmaps,
-/// `lighting_bakes::chosen`). A variable that is set wins over the setting.
+/// `lighting_bakes::chosen`) and the area loaded last has a bake the game
+/// shows. A variable that is set wins over the setting, for every area.
 pub fn baked() -> bool {
-    static BAKED: OnceLock<bool> = OnceLock::new();
-    *BAKED.get_or_init(|| match std::env::var("KJK_FITTED_LIGHTS") {
-        Ok(value) => value == "baked",
-        Err(_) => crate::lighting_bakes::chosen(),
-    })
+    match variable() {
+        Some(value) => value == "baked",
+        None => crate::lighting_bakes::chosen() && AREA_BAKED.load(Ordering::Relaxed),
+    }
+}
+
+/// Whether any area of this run may show a bake: `KJK_FITTED_LIGHTS=baked`,
+/// or the options' Enhanced Lightmaps without the variable. The bakes'
+/// folders are read then (`viewer::baked_folders`).
+pub fn baked_anywhere() -> bool {
+    match variable() {
+        Some(value) => value == "baked",
+        None => crate::lighting_bakes::chosen(),
+    }
+}
+
+/// The shaders' trial for area `baked` (`LoadedScene::baked`), when no
+/// variable sets it: 8 for an area under the bake of Enhanced Lightmaps, and
+/// 0 for any other. `None` when `KJK_FITTED_LIGHTS` is set, which decides
+/// for every area (`shadows::ShadowDebug`).
+pub fn trial_of_area(baked: bool) -> Option<u32> {
+    variable().is_none().then_some(if baked { 8 } else { 0 })
+}
+
+/// Whether the fitted lights' grid holds lights (`note_grid`).
+static GRID_FILLED: AtomicBool = AtomicBool::new(false);
+
+/// Notes whether the grid now holds lights, and says whether it held them
+/// before. An area with no fitted lights after one with them empties the
+/// grid again (`scene`).
+pub fn note_grid(filled: bool) -> bool {
+    GRID_FILLED.swap(filled, Ordering::Relaxed)
 }
 
 /// A light of a fitting, in game space.

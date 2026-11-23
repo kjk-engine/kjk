@@ -618,9 +618,13 @@ Other files of a set, and what they take from the stored lightmaps:
   from the stored light, as one number for each room, but no texel holds
   stored light.
 - `--stored-backdrop` (backdrop = "stored", in tar_m08aa and two other
-  modules) writes the stored lightmaps of the rooms with no walkable face
-  into `b`, at their stored light. Those PNGs are copies of the games'
-  lightmaps. This is not fixed yet.
+  modules) no longer writes the stored lightmaps of the rooms with no
+  walkable face into `b`. The bake names them in `stored.txt`, and the game
+  makes each one's picture from the player's own stored lightmap, at half
+  its stored level as the PNG held it (`stored_fill::backdrop`). The game
+  doubles it back, so the room shows its stored light as before. A set
+  baked before this has the copied PNGs and no `stored.txt`. The format
+  stays 2.
 - Set `a` mixes the stored lightmaps with the lamps. It must not be given
   to players.
 - `fingerprint.txt` holds digests of the game files, the stored lightmaps
@@ -667,19 +671,25 @@ The commands, with the store and the settings pointed at scratch folders by
   `kjk-lighting-<game>-<label>.zip` and `.txt`. A set without
   `fingerprint.txt` is left out and listed as not finished. A set of
   another format stops the pack. A module baked with `--stored-backdrop`
-  is left out and listed, because its backdrop PNGs copy the games'
-  lightmaps. The pack tells it by the second line of `detail-bake.txt`
-  ("kept as stored") or by `backdrop = "stored"` in
-  `data/lights/bake.toml`. Two sets of one area stop the pack unless
+  is packed when its set holds `stored.txt`, and a PNG that file names is
+  left out of the zip. Such a set baked before `stored.txt` existed is left
+  out and listed, because its backdrop PNGs copy the games' lightmaps. The
+  pack tells such a module by the second line of `detail-bake.txt` ("kept
+  as stored") or by `backdrop = "stored"` in `data/lights/bake.toml`. Two sets of one area stop the pack unless
   `--round` names the round to take.
 - `kjk lighting check <manifest> [--game tsl] [--json]` compares each area's
   fingerprint with the player's files. The install is allowed when at least
   90% of the areas match (`MATCH_SHARE`). An area whose rooms match and
   whose placeables differ counts as a match. Below that the player is told
   that the lighting needs TSLRCM or the K1 Community Patch. The answer is
-  kept in the store (`lighting-check-v1`), keyed by the install's digest
-  (`kjk fingerprint`) and the manifest, so a second check takes about a
-  second.
+  kept in the store (`lighting-check-v2`), keyed by the manifest and by a
+  digest of the names, sizes and modification times of the files a bake
+  reads (`files_key`: the game folder's `chitin.key`, `patch.erf`, `data`,
+  `modules`, `override`, `rims` and `texturepacks`, and the Workshop items'
+  `modules` and `override`, in their load order). No file is read, so the
+  first check of the 35 finished K1 areas against the K1 Community Patch
+  copy took 2.5 to 5.2 seconds, and a second one 0.45 seconds. The digest
+  of the whole install took 94.5 seconds before.
 - `kjk lighting install <manifest> <zip> [--json]` checks, then compares
   the zip's size and BLAKE3 with the manifest. It unpacks into
   `<store>/lighting/<game>.partial`, compares each area's
@@ -707,6 +717,28 @@ and the folders of `KJK_DETAIL_BAKE` and `KJK_DETAIL_BAKES` come after the
 download's, so they win for an area both hold. A change in the options
 takes effect the next time kjk starts. The check of each area's
 fingerprint when it loads stays as it was.
+
+Under the setting, the trial is decided for each area as it loads
+(`fitted_lights::set_area_baked`). Only an area with a bake the game
+accepted takes it. Any other area is drawn as under plain Enhanced: an area
+of the game with no download, an area the download lacks, and an area whose
+fingerprint was turned away. Plain Enhanced has no fitted lights unless
+`KJK_FITTED_LIGHTS=on` is set. So such an area has no fitted lights, no
+lamps switched on, an empty grid of fitted lights, shader trial 0, the
+probes with the lamps taken out, and no dark unlit surfaces. Before this,
+the whole run took the trial, and such an area showed its stored
+lightmaps at twice their light, under live fitted lights. In 101per (the
+TSLRCM copy, three poses) the shots under Enhanced differed from the
+setting with only a KOTOR 1 download by a mean of 0.65 to 1.9 of 255, and
+from the setting with a TSL download whose fingerprint was edited by 0.07
+to 3.4. Two runs of one setup differed by 0.8 to 3.4. The old game with
+only a KOTOR 1 download differed by 41 to 71, and the accepted bake by 23
+to 52. `KJK_FITTED_LIGHTS` still decides for every area when it is set.
+
+`unlit.txt` is now matched by the area's resref, from the set's
+fingerprint, or from the folder's name for a set without one. KOTOR 1
+areas such as `m13aa` of module `danm13` were missed before. Only 305nar
+has `dark_unlit = true` in `bake.toml`, so no bake was affected.
 
 The trials of 23 November, with the canon bakes finished at the time and
 the sets `nf2` of 411dxn and 101per:
@@ -768,7 +800,11 @@ the sets `nf2` of 411dxn and 101per:
 - A bake's probes and placeables hold no light from the games' own
   lightmaps, and the bake's format is 2. This is uncommitted on
   `feat/placeable-light`. Every set baked before must be baked again.
-  `--stored-backdrop` still copies stored lightmaps into set `b`.
+  `--stored-backdrop` now names the backdrop's lightmaps in `stored.txt`
+  and copies none of them. In tar_m02ab the shots of the old and the new
+  set differed by a mean of 0.87 and 0.43 of 255, and two runs of the new
+  set by 0.78 and 0.38. The canon kas_m22ab of round c1 still holds copies
+  and is left out of a pack until it is baked again.
 - 411dxn's Mandalorian room is still nearly black under `pl3`, and its
   vertex-lit placeables are too bright there. danm13's terminal wedge is
   not explained.

@@ -18,6 +18,12 @@
 //!   there and adds the fill and the floor of that lightmap, as it does for
 //!   the room's texels (`with_fill`, `with_fill_linear`).
 //!
+//! - A room with no walkable face, in a module baked with
+//!   `--stored-backdrop`, shows its stored light as the game shows it
+//!   today. The bake writes no PNG for its lightmaps. It names them in
+//!   `stored.txt` (`STORED_FILE`), and the game makes their picture from
+//!   the player's own stored lightmap (`backdrop`).
+//!
 //! The numbers are the bake's (`crates/launcher/src/detail_bake.rs` and
 //! `detail_bake/gpu.rs`). A baked level is stored at 1 / `GAIN`. A level is
 //! linear light to the power 1 / `GAMMA`, and a level above `KNEE` is eased
@@ -30,6 +36,55 @@ pub const GAIN: f32 = 2.0;
 pub const GAMMA: f32 = 2.2;
 pub const KNEE: f32 = 0.8;
 pub const OVER: f32 = 0.45;
+
+/// The file of a bake's set `b` that names the lightmaps the game shows from
+/// the player's own stored lightmaps at their stored light, one a line
+/// (`backdrop`). A set without it has none.
+pub const STORED_FILE: &str = "stored.txt";
+
+/// The text of `STORED_FILE` for the lightmaps `names`.
+pub fn stored_text<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
+    let mut text = String::from(
+        "# The lightmaps of rooms with no walkable face. The game shows each one from the\n\
+         # player's own stored lightmap at its stored light, and the bake holds no picture of it.\n",
+    );
+    for name in names {
+        text.push_str(&name.to_ascii_lowercase());
+        text.push('\n');
+    }
+    text
+}
+
+/// The lightmaps that `STORED_FILE` in the set `folder` names, in lower
+/// case. Empty where the set has no such file.
+pub fn stored_names(folder: &std::path::Path) -> std::collections::BTreeSet<String> {
+    let Ok(text) = std::fs::read_to_string(folder.join(STORED_FILE)) else {
+        return std::collections::BTreeSet::new();
+    };
+    (text.lines())
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+/// The picture a set's lightmap named in `STORED_FILE` stands for: the
+/// stored lightmap's texels at 1 / `GAIN`, which the game multiplies back,
+/// with an alpha of 1 (no share of a sun). These are the bytes the bake
+/// wrote as a PNG before `STORED_FILE`, to the last bit, so the picture is
+/// the same. Rows are in the stored order. `None` for a lightmap that does
+/// not decode.
+pub fn backdrop(stored: &TextureIr) -> Option<Vec<u8>> {
+    let texels = StoredTexels::of(stored)?;
+    let byte =
+        |value: u8| ((f32::from(value) / 255.0 / GAIN).clamp(0.0, 1.0) * 255.0).round() as u8;
+    Some(
+        (texels.rgba.as_chunks::<4>().0.iter())
+            .take(texels.width * texels.height)
+            .flat_map(|[r, g, b, _]| [byte(*r), byte(*g), byte(*b), 255])
+            .collect(),
+    )
+}
 
 /// The word that names the same stored texel as the vertex before it on a
 /// line of `placeables.txt`. Half of 411dxn's vertices name the same texel
@@ -218,6 +273,38 @@ mod tests {
         assert_eq!(
             map.and_then(|map| map.uv(513)),
             Some((1.5 / 512.0, 1.5 / 256.0))
+        );
+    }
+
+    #[test]
+    fn a_stored_backdrop_is_named_and_halved() {
+        let folder = std::env::temp_dir().join(format!("kjk-stored-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join(STORED_FILE),
+            stored_text(["M02AB_05a_lm0", "m02ab_06b_lm1"]),
+        )
+        .unwrap();
+        let names: Vec<String> = stored_names(&folder).into_iter().collect();
+        assert_eq!(names, ["m02ab_05a_lm0", "m02ab_06b_lm1"]);
+        assert!(stored_names(&folder.join("none")).is_empty());
+        let _ = std::fs::remove_dir_all(&folder);
+        // The bytes the bake wrote as a PNG: each colour at half, rounded,
+        // and an alpha of 255.
+        let stored = TextureIr {
+            width: 2,
+            height: 1,
+            encoding: Encoding::Rgba8,
+            mips: vec![vec![0, 2, 4, 9, 254, 200, 128, 0]],
+            cube: false,
+            frames: 1,
+            facts: Default::default(),
+            faces: Vec::new(),
+            frame_mips: Vec::new(),
+        };
+        assert_eq!(
+            backdrop(&stored),
+            Some(vec![0, 1, 2, 255, 127, 100, 64, 255])
         );
     }
 
