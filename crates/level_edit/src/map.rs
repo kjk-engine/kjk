@@ -512,6 +512,16 @@ pub fn room_copy(
         .ok_or_else(|| format!("the room {} has no model in the install", room.model))?;
     let mdl = fmt_odyssey::mdl::renamed(&mdl, name)
         .map_err(|error| format!("{}.mdl: {error}", room.model))?;
+    // A room cut from a Jedi Academy level is built in the level's own
+    // coordinates. Its copy is moved so that the room's `from`, the place
+    // the map keeps for it, is the copy's origin, as a KOTOR room's model
+    // is made round its own place. Its walkmesh is moved from that same
+    // place, so the two stay together even when the room's cuts change.
+    let mdl = match room.ja {
+        Some(_) => fmt_odyssey::mdl::shifted(&mdl, room.from.map(|part| -part))
+            .map_err(|error| format!("{}.mdl moved: {error}", room.model))?,
+        None => mdl,
+    };
     let mut lights = Vec::new();
     let mdl = if own_light {
         let (relit, names) =

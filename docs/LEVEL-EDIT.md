@@ -2013,6 +2013,15 @@ such as `ja8c722675cf2396`, are made from the level's path and the
 room's name. Renaming a room in the rooms tool therefore takes it out of
 every map that placed it.
 
+A room is built in the level's own coordinates. The map keeps the place
+in the level that it moves the room from (`from` in `kjk-map.toml`), and
+moves both the room's model and its walkmesh from that same place. So a
+room placed in a map stays on its walkmesh when its cuts change later.
+Before this was so, the model was built round the middle of the room's
+floor, which moves when the cuts or the floor change. A room placed away
+from its home place then drew apart from its walkmesh and its navigation
+mesh.
+
 **Seams.** A Jedi Academy room meets another room as a KOTOR room does.
 Two rooms cut from one level and both placed at their home places
 (`edit add room MODEL home`) meet along their cut, and a character walks

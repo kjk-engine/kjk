@@ -1145,6 +1145,106 @@ fn fmt_is_null(name: &str) -> bool {
     name.eq_ignore_ascii_case("null")
 }
 
+/// A copy of the model file `mdl` moved by `by`: each child of the root
+/// node is moved, its place in its node header and in its position
+/// controllers, and so are the same nodes in each animation. Everything
+/// under them moves with them, so no vertex changes and the MDX stays as
+/// it is. The model's bounding box moves too. A room cut from a Jedi
+/// Academy level is built in the level's own coordinates, and its copy in
+/// a map is moved so that the map's place for it is its origin
+/// (`level_edit::map::room_copy`). Refused when a node or a controller
+/// lies outside the file.
+pub fn shifted(mdl: &[u8], by: [f32; 3]) -> Result<Vec<u8>, FormatError> {
+    if mdl.len() < DATA + 196 {
+        return Err(truncated(DATA + 196, mdl.len()));
+    }
+    let mut copy = mdl.to_vec();
+    let get = |copy: &[u8], at: usize| -> Result<u32, FormatError> {
+        copy.get(DATA + at..DATA + at + 4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("4 bytes")))
+            .ok_or(truncated(DATA + at + 4, copy.len()))
+    };
+    let float = |copy: &[u8], at: usize| get(copy, at).map(f32::from_bits);
+    let add = |copy: &mut [u8], at: usize, value: f32| -> Result<(), FormatError> {
+        let len = copy.len();
+        let now = float(copy, at)?;
+        copy.get_mut(DATA + at..DATA + at + 4)
+            .ok_or(truncated(DATA + at + 4, len))?
+            .copy_from_slice(&(now + value).to_bits().to_le_bytes());
+        Ok(())
+    };
+    // One node: its header's place (x, y, z at 16), then its position
+    // controller's rows.
+    let move_node = |copy: &mut Vec<u8>, at: usize| -> Result<(), FormatError> {
+        for (axis, part) in by.iter().enumerate() {
+            add(copy, at + 16 + axis * 4, *part)?;
+        }
+        let (keys_at, keys) = (get(copy, at + 56)? as usize, get(copy, at + 60)? as usize);
+        let data_at = get(copy, at + 68)? as usize;
+        for k in 0..keys.min(256) {
+            let key = keys_at + k * 16;
+            let kind = get(copy, key)?;
+            let rows = (get(copy, key + 4)? >> 16) as usize;
+            let values = (get(copy, key + 8)? >> 16) as usize;
+            let raw = copy
+                .get(DATA + key + 12)
+                .copied()
+                .ok_or(truncated(DATA + key + 13, copy.len()))?;
+            let (columns, bezier) = (raw & !BEZIER, raw & BEZIER != 0);
+            if (kind, columns) != (CONTROLLER_POSITION, 3) {
+                continue;
+            }
+            // How a Bézier row's control points move with it is not known
+            // here, so such a model is not moved.
+            if bezier {
+                return Err(unsupported(
+                    "a node's position is a Bézier curve, which is not moved".to_string(),
+                ));
+            }
+            let start = data_at + values * 4;
+            for row in 0..rows {
+                let at = start + row * 12;
+                for (axis, part) in by.iter().enumerate() {
+                    add(copy, at + axis * 4, *part)?;
+                }
+            }
+        }
+        Ok(())
+    };
+    let children = |copy: &[u8], root: usize| -> Result<Vec<usize>, FormatError> {
+        let (at, count) = (
+            get(copy, root + 44)? as usize,
+            get(copy, root + 48)? as usize,
+        );
+        (0..count.min(4096))
+            .map(|i| get(copy, at + i * 4).map(|offset| offset as usize))
+            .collect()
+    };
+    let root = get(&copy, 40)? as usize;
+    for child in children(&copy, root)? {
+        move_node(&mut copy, child)?;
+    }
+    let header = 80;
+    let (animations_at, animations) = (
+        get(&copy, header + 8)? as usize,
+        get(&copy, header + 12)? as usize,
+    );
+    for i in 0..animations.min(1024) {
+        let animation = get(&copy, animations_at + i * 4)? as usize;
+        let animation_root = get(&copy, animation + 40)? as usize;
+        for child in children(&copy, animation_root)? {
+            move_node(&mut copy, child)?;
+        }
+    }
+    // The bounding box.
+    for corner in 0..2 {
+        for (axis, part) in by.iter().enumerate() {
+            add(&mut copy, header + 24 + corner * 12 + axis * 4, *part)?;
+        }
+    }
+    Ok(copy)
+}
+
 /// A packed orientation word (`unpack_quaternion`) of a unit quaternion
 /// (x, y, z, w). The word keeps no sign for w, which it reads as negative
 /// or zero, so a quaternion with w above zero is packed as its negative,

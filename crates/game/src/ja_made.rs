@@ -14,8 +14,13 @@
 //! - Its model and the model's MDX (`fmt_odyssey::mdl::written`). The model
 //!   holds the room's part of the level as the converter draws it
 //!   (`asset_ja::level`, `Paint::Room`), with each surface's own shader and
-//!   the level's light. Its origin is the middle of the room's floor, seen
-//!   from above, at the floor's lowest point. A mesh whose shader does not
+//!   the level's light, in the level's own coordinates. A map's copy of
+//!   it is moved so that the place the map keeps for the room (its
+//!   `from`) is its origin (`level_edit::map::room_copy`). A room offered
+//!   to a map is offered with the middle of its floor, seen from above, at
+//!   the floor's lowest point, as that place (`Built::from`). A copy so
+//!   stays on its walkmesh when the room's cuts or its floor change after
+//!   the map placed it. A mesh whose shader does not
 //!   stop a body (water, fog, a hanging banner) gets a transparency hint
 //!   of 1, so kjk's collision leaves it out as it leaves out a KOTOR room's
 //!   see-through meshes.
@@ -442,7 +447,6 @@ pub fn build_level(
         let meshes = written_meshes(
             &resref,
             &drawn.model,
-            from,
             (&texture_names, &light_names),
             (&two_sided, &stops),
         );
@@ -659,8 +663,8 @@ fn origin(model: &ModelIr, floor: &[([[f32; 3]; 3], Ground)]) -> [f32; 3] {
     [(low[0] + high[0]) / 2.0, (low[1] + high[1]) / 2.0, low[2]]
 }
 
-/// The meshes of a built room's model: each mesh of `model` moved so that
-/// `from` is the origin, named after the room, with its texture and its
+/// The meshes of a built room's model: each mesh of `model`, in the
+/// level's own coordinates, named after the room, with its texture and its
 /// lightmap named as the room's files name them (`names`: by shader, and
 /// by the converter's lightmap name). A mesh of more vertices than a mesh
 /// may have is split. A mesh drawn from both sides (`two_sided`) has each
@@ -669,7 +673,6 @@ fn origin(model: &ModelIr, floor: &[([[f32; 3]; 3], Ground)]) -> [f32; 3] {
 fn written_meshes(
     resref: &str,
     model: &ModelIr,
-    from: [f32; 3],
     (textures, lights): (&BTreeMap<String, String>, &BTreeMap<String, String>),
     (two_sided, stops): (&BTreeSet<&String>, &BTreeMap<String, bool>),
 ) -> Vec<WrittenMesh> {
@@ -710,9 +713,7 @@ fn written_meshes(
                 *slot = *numbers.entry(vertex).or_insert_with(|| {
                     let at = vertex as usize;
                     let position = mesh.positions[at];
-                    piece
-                        .positions
-                        .push(std::array::from_fn(|axis| position[axis] - from[axis]));
+                    piece.positions.push(position);
                     piece.normals.push(mesh.normals[at]);
                     piece.uv1.push(mesh.uv1[at]);
                     piece.uv2.push(mesh.uv2[at]);
