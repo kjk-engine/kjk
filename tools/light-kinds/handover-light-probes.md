@@ -630,6 +630,118 @@ Other files of a set, and what they take from the stored lightmaps:
   sun. These are means of a room, not texels.
 - `unlit.txt` holds the word "dark".
 
+### The lighting as a download (23 November 2026)
+
+Players get the bakes as a download. The launcher downloads one zip for a
+game, with a manifest beside it, and kjk installs it into the store. kjk
+itself downloads nothing. The code is `crates/game/src/lighting_bakes.rs`,
+which builds without the `probes` feature, `crates/launcher/src/lighting_verbs.rs`
+for the commands, and `crates/launcher/src/lighting_pack.rs` for the
+developer's pack command. This is uncommitted on `feat/placeable-light`.
+
+The bakes are made only for KOTOR 1 with the K1 Community Patch and for
+KOTOR 2 with TSLRCM.
+
+The manifest is plain text, like `fingerprint.txt`.
+
+```
+# (five lines of comment)
+game tsl
+format 2
+needs TSLRCM
+archive kjk-lighting-tsl-c1.zip blake3 <64 hexadecimal digits> bytes 3964098
+area 101per module 101per rooms <32 hexadecimal digits> placeables <32 hexadecimal digits>
+```
+
+The zip holds `<area>/<file>` for each area. It holds only what the game
+loads from a set `b`: the PNGs, `fill.txt`, `floor.txt`, `unlit.txt`,
+`placeables.txt` and `fingerprint.txt`. The PNGs are stored as they are, and
+the text files are deflated. The probe files, `detail-bake.txt` and set `a`
+stay out.
+
+The commands, with the store and the settings pointed at scratch folders by
+`KJK_STORE` and `KJK_SETTINGS` for trials:
+
+- `kjk lighting pack <k1|tsl> <folder> --out <dir> [--label c1] [--round c1]`
+  packs every finished set `b` under `<folder>/<module>/`. It writes
+  `kjk-lighting-<game>-<label>.zip` and `.txt`. A set without
+  `fingerprint.txt` is left out and listed as not finished. A set of
+  another format stops the pack. A module baked with `--stored-backdrop`
+  is left out and listed, because its backdrop PNGs copy the games'
+  lightmaps. The pack tells it by the second line of `detail-bake.txt`
+  ("kept as stored") or by `backdrop = "stored"` in
+  `data/lights/bake.toml`. Two sets of one area stop the pack unless
+  `--round` names the round to take.
+- `kjk lighting check <manifest> [--game tsl] [--json]` compares each area's
+  fingerprint with the player's files. The install is allowed when at least
+  90% of the areas match (`MATCH_SHARE`). An area whose rooms match and
+  whose placeables differ counts as a match. Below that the player is told
+  that the lighting needs TSLRCM or the K1 Community Patch. The answer is
+  kept in the store (`lighting-check-v1`), keyed by the install's digest
+  (`kjk fingerprint`) and the manifest, so a second check takes about a
+  second.
+- `kjk lighting install <manifest> <zip> [--json]` checks, then compares
+  the zip's size and BLAKE3 with the manifest. It unpacks into
+  `<store>/lighting/<game>.partial`, compares each area's
+  `fingerprint.txt` with the manifest, and renames the folder to
+  `<store>/lighting/<game>`, in place of an older install. The manifest is
+  kept there as `manifest.txt`. `kjk store gc` never removes anything under
+  `lighting`.
+- `kjk lighting status [--json]` and `kjk lighting remove <game>`.
+
+With `--json`, a check or an install prints one line
+`{"progress": {"step", "done", "total", "area"}}` for each area, and then
+the answer: `{"check": {...}}`, or `{"games": [...], "check": {...}}` for an
+install. Status prints `{"games": [{"game", "status", ...}]}`, as
+`kjk installs --json` does.
+
+The options' Lighting has a third value, Enhanced Lightmaps
+(`display.lighting = "baked"`, `LightingMode::Baked`). It is Enhanced with
+the download's lightmaps. The options offer it only when a download is
+installed for the game whose area loaded last, or for either game before
+any area has loaded. When kjk starts with that setting and a download
+installed, `fitted_lights::wanted()` and `baked()` are on, as under
+`KJK_FITTED_LIGHTS=baked`, and the download's area folders start the list
+of bake folders. `KJK_FITTED_LIGHTS` wins over the setting when it is set,
+and the folders of `KJK_DETAIL_BAKE` and `KJK_DETAIL_BAKES` come after the
+download's, so they win for an area both hold. A change in the options
+takes effect the next time kjk starts. The check of each area's
+fingerprint when it loads stays as it was.
+
+The trials of 23 November, with the canon bakes finished at the time and
+the sets `nf2` of 411dxn and 101per:
+
+- The pack of `nf2` (made from the Steam KOTOR 2 without TSLRCM) took 234
+  files, 8.8 MB, into a zip of 7.8 MB. The six finished K1 areas of
+  `target/canon-bakes/k1` took 365 files into 23.4 MB. TSL's 101per needed
+  `--round c1`, because `c1-first` holds it too.
+- `nf2` against the Steam KOTOR 2 (a developer's build, so without the
+  Workshop items): 2 of 2 areas match. The first check took 94.5 seconds,
+  most of it hashing the install for its digest. With the digest cached it
+  took 1.1 seconds, and the answer from the store came at once.
+- `nf2` against the TSLRCM copy: both areas keep their lightmaps and their
+  placeables differ, so the check allows the install. The canon 101per
+  (made with TSLRCM) against the Steam KOTOR 2 does the same. The rooms of
+  101per and 411dxn are the same with and without TSLRCM, so the check
+  cannot tell an unpatched KOTOR 2 apart from these areas alone.
+- The six K1 areas against the K1 Community Patch copy: 6 of 6 match (63
+  seconds, with the install's first hashing). Against the Steam KOTOR 1
+  without the patch: 1 matches, 1 matches with other placeables, and 4
+  fall back. The install is refused with: "The new lighting needs KOTOR 1
+  with the K1 Community Patch installed. Only 2 of the 6 areas in this
+  game's files match the files the lighting was made from, and at least 90%
+  must match. Nothing was installed."
+- A zip of the wrong size is refused before anything is written.
+- 411dxn, headless at 960x540, two poses. With the setting at Enhanced
+  Lightmaps and no variables, the log shows the bake in
+  `<store>/lighting/tsl/411dxn` accepted whole. Against the same area run
+  the old way (`KJK_FITTED_LIGHTS=baked`, `KJK_DETAIL_BAKE` on the set),
+  the mean difference of a channel was 0.38 and 0.24 of 255. With the
+  setting at Enhanced and the download installed, against a run with no
+  download at all, it was 0.25 and 0.02. Those two are the noise between
+  runs, since the pose v000 sees things that move. The setting against the
+  plain run differs by 2.6 and 4.4, which is the bake.
+
 ## Where it stands
 
 - Step 1 is the behaviour under the bake, on pull request 576.
@@ -645,6 +757,10 @@ Other files of a set, and what they take from the stored lightmaps:
   the bake had placeables, so it does not come from the placeables blocking
   rays.
 - The baked probes stay shelved on `feat/baked-probes`.
+- The bakes can be packed into a download, checked against a player's
+  files, installed into the store and turned on by the options' Lighting
+  (Enhanced Lightmaps). This is uncommitted on `feat/placeable-light`. The
+  launcher's side comes later.
 - Each bake now carries a fingerprint of the game files it was made from,
   and the game shows a bake only over those files. This is uncommitted on
   `feat/placeable-light`. Only 101per and 105per of round `pv1` are

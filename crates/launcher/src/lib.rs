@@ -20,6 +20,7 @@ mod cli_join;
 mod cli_play;
 mod installs_report;
 mod levels;
+mod lighting_verbs;
 #[cfg(feature = "probes")]
 pub mod probes;
 mod report_verbs;
@@ -103,6 +104,7 @@ probes!(
     remote_census,
     detail_bake,
     light_kinds,
+    lighting_pack,
     room_light_fit,
     room_lights,
     routines_verbs,
@@ -437,6 +439,13 @@ enum Command {
         #[command(subcommand)]
         verb: MovieVerb,
     },
+    /// The new lighting as a download (`kjk_game::lighting_bakes`): a
+    /// game's baked lightmaps checked against its files, installed into the
+    /// store, listed and removed. The launcher downloads the files.
+    Lighting {
+        #[command(subcommand)]
+        verb: LightingVerb,
+    },
     /// The store every worktree shares (docs/IMPORT.md): imported game data
     /// and other derived files
     Store {
@@ -553,6 +562,65 @@ enum SavesVerb {
     Check {
         /// The corpus's folder; `kjk-artifacts/save-corpus` without it
         corpus: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum LightingVerb {
+    /// Compare a lighting download's manifest with this game's files, and
+    /// say whether it may be installed
+    Check {
+        /// The manifest, `kjk-lighting-<game>-<label>.txt`
+        manifest: std::path::PathBuf,
+        /// k1 or tsl: refuse a manifest for the other game
+        #[arg(long)]
+        game: Option<String>,
+        /// Print JSON objects, one a line, the answer last
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check, then install a lighting download into the store, in place of
+    /// an earlier one of its game
+    Install {
+        /// The manifest, `kjk-lighting-<game>-<label>.txt`
+        manifest: std::path::PathBuf,
+        /// The zip the manifest names
+        zip: std::path::PathBuf,
+        /// Print JSON objects, one a line, the answer last
+        #[arg(long)]
+        json: bool,
+    },
+    /// What lighting download is installed for each game
+    Status {
+        /// Print one JSON object on one line
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove a game's lighting download
+    Remove {
+        /// k1 or tsl
+        game: String,
+        /// Print one JSON object on one line
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pack a game's finished bakes into a lighting download: a zip and its
+    /// manifest (`lighting_pack`)
+    #[cfg(feature = "probes")]
+    Pack {
+        /// k1 or tsl
+        game: String,
+        /// The folder of the game's bakes, one folder for each module
+        folder: std::path::PathBuf,
+        /// The folder to write the zip and the manifest into
+        #[arg(long)]
+        out: std::path::PathBuf,
+        /// The download's label, in its file names
+        #[arg(long, default_value = "1")]
+        label: String,
+        /// Only the sets under a folder of this name, e.g. the round c1
+        #[arg(long)]
+        round: Option<String>,
     },
 }
 
@@ -834,6 +902,28 @@ pub fn run() -> ExitCode {
                 saves_verbs::capture(&discover(), &tag, &game, &from)
             }
             SavesVerb::Check { corpus } => saves_verbs::check(&discover(), corpus.as_deref()),
+        },
+        Some(Command::Lighting { verb }) => match verb {
+            LightingVerb::Check {
+                manifest,
+                game,
+                json,
+            } => lighting_verbs::check(&manifest, game.as_deref(), json),
+            LightingVerb::Install {
+                manifest,
+                zip,
+                json,
+            } => lighting_verbs::install(&manifest, &zip, json),
+            LightingVerb::Status { json } => lighting_verbs::status(json),
+            LightingVerb::Remove { game, json } => lighting_verbs::remove(&game, json),
+            #[cfg(feature = "probes")]
+            LightingVerb::Pack {
+                game,
+                folder,
+                out,
+                label,
+                round,
+            } => lighting_pack::run(&game, &folder, &out, &label, round.as_deref()),
         },
         Some(Command::Store { verb }) => match verb {
             StoreVerb::Path => store_verbs::path(),

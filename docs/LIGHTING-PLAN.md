@@ -124,7 +124,11 @@ at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
 4. **HDR belongs to the renderer, not to the anti-aliasing choice.** One
    "Classic" switch turns the new lighting off; MSAA, TAA and DLSS show the
    same lighting. The switch is the options' Lighting (`display.lighting`),
-   with the values Classic and Enhanced.
+   with the values Classic and Enhanced. A third value, Enhanced Lightmaps
+   (`baked`), is Enhanced with the baked lightmaps of step 10 from the
+   lighting download. The options offer it only when the download is
+   installed for the game (`crates/game/src/lighting_bakes.rs`), and it
+   takes effect the next time kjk starts.
 5. **The upscaler is a slot.** It takes depth, motion vectors, jitter and HDR
    colour. DLSS is the first thing in it.
 6. **The HDR frame stays gamma-encoded.** Decided with the owner on

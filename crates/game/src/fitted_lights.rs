@@ -34,9 +34,15 @@ use crate::scene::{placement, to_mat4};
 use crate::viewer::LoadedScene;
 
 /// Whether the trial is on (`KJK_FITTED_LIGHTS` set to anything but `off`).
+/// Without the variable, it is on when the player chose the baked lightmaps
+/// in the options and a download of them is installed
+/// (`lighting_bakes::chosen`).
 pub fn wanted() -> bool {
     static WANTED: OnceLock<bool> = OnceLock::new();
-    *WANTED.get_or_init(|| std::env::var("KJK_FITTED_LIGHTS").is_ok_and(|value| value != "off"))
+    *WANTED.get_or_init(|| match std::env::var("KJK_FITTED_LIGHTS") {
+        Ok(value) => value != "off",
+        Err(_) => crate::lighting_bakes::chosen(),
+    })
 }
 
 /// Whether the rooms show a bake of the fitted lights in place of their
@@ -44,9 +50,15 @@ pub fn wanted() -> bool {
 /// `KJK_DETAIL_BAKE` names, made by `kjk detail-bake --lights`. The rooms'
 /// lightmapped surfaces then show the baked lightmap whole and take no
 /// fitted light. Doors, placeables and characters are lit as under `on`.
+/// Without the variable, the rooms show the installed download of baked
+/// lightmaps when the player chose it in the options (Enhanced Lightmaps,
+/// `lighting_bakes::chosen`). A variable that is set wins over the setting.
 pub fn baked() -> bool {
     static BAKED: OnceLock<bool> = OnceLock::new();
-    *BAKED.get_or_init(|| std::env::var("KJK_FITTED_LIGHTS").is_ok_and(|value| value == "baked"))
+    *BAKED.get_or_init(|| match std::env::var("KJK_FITTED_LIGHTS") {
+        Ok(value) => value == "baked",
+        Err(_) => crate::lighting_bakes::chosen(),
+    })
 }
 
 /// A light of a fitting, in game space.

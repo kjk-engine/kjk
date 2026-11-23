@@ -99,6 +99,7 @@ mod leader_view;
 pub mod lifecycle;
 mod lifecycle_view;
 pub mod light_probes;
+pub mod lighting_bakes;
 pub mod linear_frame;
 pub mod lobby_guest;
 pub mod lobby_host;

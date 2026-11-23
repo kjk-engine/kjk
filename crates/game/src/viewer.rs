@@ -1022,15 +1022,18 @@ fn choose_bakes(resolver: &Resolver, area: &asset_odyssey::module::AreaIr) {
 /// half of full light, which the owner called too bright (21 November
 /// 2026). A module's scene is named "<label> in <module>". A KOTOR 1
 /// module's folder has the area's name without its planet, `m01aa` for
-/// `end_m01aa`.
+/// `end_m01aa`. An installed download's set is the area's folder itself
+/// (`lighting_bakes`), so the set's own name counts too.
 fn dark_unlit(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     let module = name.rsplit(' ').next().unwrap_or(&name);
     (used_folders().into_iter())
         .filter(|(folder, _)| folder.unlit)
-        .filter_map(|(folder, _)| {
-            let area = folder.path.parent()?.file_name()?.to_str()?;
-            Some(area.to_ascii_lowercase())
+        .flat_map(|(folder, _)| {
+            [folder.path.parent(), Some(folder.path.as_path())]
+                .into_iter()
+                .flatten()
+                .filter_map(|path| Some(path.file_name()?.to_str()?.to_ascii_lowercase()))
         })
         .any(|area| module == area || module.ends_with(&format!("_{area}")))
 }
@@ -1298,16 +1301,31 @@ fn baked_placeables(
     found
 }
 
-/// The folders of baked lightmaps. `KJK_DETAIL_BAKE` names one area's
+/// The folders of baked lightmaps. When the player chose the baked
+/// lightmaps in the options and `KJK_FITTED_LIGHTS` does not say otherwise,
+/// the list starts with the installed download's area folders
+/// (`lighting_bakes::folders`). `KJK_DETAIL_BAKE` names one area's
 /// folder. `KJK_DETAIL_BAKES` names a file with one folder a line, for a
 /// run that goes through many areas (`walk::step`). A line that starts
-/// with `#` is a comment.
+/// with `#` is a comment. The variables' folders come later in the list,
+/// so they win over the download's for an area both hold (`choose_bakes`).
 fn baked_folders() -> Vec<std::path::PathBuf> {
-    let mut folders: Vec<std::path::PathBuf> = std::env::var_os("KJK_DETAIL_BAKE")
-        .filter(|folder| !folder.is_empty())
-        .map(std::path::PathBuf::from)
-        .into_iter()
-        .collect();
+    let mut folders = if crate::lighting_bakes::chosen() && crate::fitted_lights::baked() {
+        crate::lighting_bakes::folders()
+    } else {
+        Vec::new()
+    };
+    if !folders.is_empty() {
+        bevy::log::info!(
+            "the baked lightmaps of the lighting download: {} areas",
+            folders.len()
+        );
+    }
+    folders.extend(
+        std::env::var_os("KJK_DETAIL_BAKE")
+            .filter(|folder| !folder.is_empty())
+            .map(std::path::PathBuf::from),
+    );
     if let Some(list) = std::env::var_os("KJK_DETAIL_BAKES").filter(|list| !list.is_empty()) {
         match std::fs::read_to_string(&list) {
             Ok(text) => folders.extend(
@@ -1793,6 +1811,7 @@ pub fn module_scene(
     let mut laps = crate::launch_times::Laps::new("kotor stage/scene");
     // Which bake of this area, if any, was made from the files the game
     // reads, before its lightmaps load (`detail_baked`).
+    crate::lighting_bakes::note_played(game);
     choose_bakes(resolver, area);
     let walkable = walkable_surfaces(resolver);
     let mut models = Vec::new();

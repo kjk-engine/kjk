@@ -1036,7 +1036,8 @@ fn choices(monitor: &Monitor, window: &Window, exclusive: bool) -> Vec<DisplayCh
 }
 
 /// The resolution page's choices, for the screen the window is on now. Also
-/// the anti-aliasing choices and Shadows at Ultra this machine offers.
+/// the anti-aliasing choices and Shadows at Ultra this machine offers, and
+/// Lighting at Enhanced Lightmaps where the lighting download is installed.
 fn offer(
     windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindow>>,
     monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
@@ -1052,6 +1053,12 @@ fn offer(
     let ultra = rays.is_some_and(|rays| rays.available);
     if ui.vm.ultra_shadows != ultra {
         ui.vm.ultra_shadows = ultra;
+    }
+    // Lighting at Enhanced Lightmaps, where the lighting download is
+    // installed for the game being played.
+    let baked = crate::lighting_bakes::offered();
+    if ui.vm.baked_lighting != baked {
+        ui.vm.baked_lighting = baked;
     }
     // The anti-aliasing choices, when what the machine offers is first known
     // or changes.

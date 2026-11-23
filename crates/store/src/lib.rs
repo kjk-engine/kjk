@@ -20,12 +20,22 @@
 //!   one is there.
 //! - **Cap:** a kind keyed by data that keeps changing (a bake per rulebook
 //!   edition) is held to a size with `cap`, the least recently used going.
+//! - **Kept:** the folders of `KEPT` hold what the player installed (the
+//!   lighting download, `LIGHTING`). `gc` never removes anything in them.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
+
+/// The folder of the installed lighting downloads (`kjk lighting install`).
+pub const LIGHTING: &str = "lighting";
+
+/// The folders under the root that hold what the player installed rather
+/// than what kjk made. `gc` and `superseded` leave everything in them alone,
+/// however long it goes unused.
+pub const KEPT: &[&str] = &[LIGHTING];
 
 /// A file's key: the hex BLAKE3 of what made it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -223,7 +233,8 @@ impl Store {
 
     /// Removes every kind a newer format supersedes (`superseded`), then
     /// every file not used for `unused` (by its modified time), or only
-    /// counts them with `dry_run`; what it removed (or would).
+    /// counts them with `dry_run`; what it removed (or would). Nothing in
+    /// the `KEPT` folders is removed.
     pub fn gc(&self, unused: Duration, dry_run: bool) -> io::Result<Collected> {
         let mut collected = Collected {
             folders: self.superseded()?,
@@ -243,10 +254,11 @@ impl Store {
         let now = SystemTime::now();
         for (path, meta) in files(&self.root)? {
             let used = meta.modified().unwrap_or(now);
-            if collected
-                .folders
-                .iter()
-                .any(|folder| path.starts_with(folder))
+            if self.kept(&path)
+                || collected
+                    .folders
+                    .iter()
+                    .any(|folder| path.starts_with(folder))
                 || now.duration_since(used).unwrap_or(Duration::ZERO) < unused
             {
                 continue;
@@ -279,9 +291,16 @@ impl Store {
         Ok(removed)
     }
 
+    /// Whether `path` lies in one of the `KEPT` folders.
+    fn kept(&self, path: &Path) -> bool {
+        KEPT.iter()
+            .any(|kept| path.starts_with(self.root.join(kept)))
+    }
+
     /// The kind folders a newer format of theirs supersedes: `<name>-v<N>`
     /// beside a `<name>-v<M>` with M greater, and a plain `<name>` (kept
-    /// before kinds named their format) beside any `<name>-v<M>`. A store
+    /// before kinds named their format) beside any `<name>-v<M>`. The `KEPT`
+    /// folders are not looked into. A store
     /// a newer build wrote loses nothing to an older one's gc: only lower
     /// versions than the highest there go. Only kind folders count (their
     /// folders all key folders, `<xx>`), so a root shared with other
@@ -290,6 +309,9 @@ impl Store {
         let mut found = Vec::new();
         let mut folders = vec![self.root.clone()];
         while let Some(folder) = folders.pop() {
+            if self.kept(&folder) {
+                continue;
+            }
             let entries = match fs::read_dir(&folder) {
                 Ok(entries) => entries,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -452,5 +474,48 @@ pub fn set_aside(path: &Path) -> io::Result<PathBuf> {
 fn mark_used(path: &Path) {
     if let Ok(file) = fs::File::options().append(true).open(path) {
         let _ = file.set_modified(SystemTime::now());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A scratch folder of its own under the system's temporary folder.
+    fn scratch(name: &str) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("kjk-store-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    #[test]
+    fn gc_leaves_the_installed_lighting_alone() {
+        let root = scratch("gc-lighting");
+        let store = Store::at(&root);
+        let key = Key::of("test", &[b"bytes"]);
+        // An old format of a kind, superseded by a newer one.
+        store.put("bake-v1", &key, b"old").unwrap();
+        store.put("bake-v2", &key, b"new").unwrap();
+        // The lighting download, with folders that look like kinds and
+        // like formats, and a file of every age.
+        let installed = root.join(LIGHTING).join("tsl").join("411dxn");
+        fs::create_dir_all(&installed).unwrap();
+        fs::write(installed.join("fingerprint.txt"), "area 411dxn").unwrap();
+        let keyed = root.join(LIGHTING).join("ab-v1").join("cd");
+        fs::create_dir_all(&keyed).unwrap();
+        fs::write(keyed.join("x"), "kept").unwrap();
+        fs::create_dir_all(root.join(LIGHTING).join("ab-v2").join("ef")).unwrap();
+        let collected = store.gc(Duration::ZERO, false).unwrap();
+        assert!(installed.join("fingerprint.txt").is_file());
+        assert!(keyed.join("x").is_file());
+        assert!(!store.path("bake-v1", &key).exists());
+        assert!(
+            collected
+                .folders
+                .iter()
+                .all(|folder| !folder.starts_with(root.join(LIGHTING)))
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 }
