@@ -1318,6 +1318,64 @@ pub fn kinds<'a>(
     kinds
 }
 
+/// The `spells.2da` row an item casts when it is a device. A device is an
+/// item that a character carries and uses on itself, whose row no item key
+/// takes (`items::use_of`), such as K1's Sonic Emitter on the Manaan sea
+/// floor. The item must not be one that is worn in a slot to be used, it
+/// must be for race `race`, and `rows` must say that the row has an impact
+/// script and is used on the item's own user. The player can put a device
+/// on the action bar (`combat::bar::Content::Device`). The power wheel
+/// never lists one.
+pub fn device_row(facts: &ItemFacts, race: u8, rows: impl Fn(u16) -> RowUse) -> Option<u16> {
+    let row = facts.spell?.row;
+    let data = rows(row);
+    let device = facts.slots == 0
+        && items::use_of(row).is_none()
+        && facts.fits(race)
+        && data.scripted
+        && data.on_user;
+    device.then_some(row)
+}
+
+/// A device the party carries (`device_row`): the `spells.2da` row it
+/// casts, and the first item of the party's goods that casts it, by its id
+/// and its template.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Device {
+    pub row: u16,
+    pub item: u32,
+    pub template: String,
+}
+
+/// The devices the party carries in `goods` that a character of race `race`
+/// may use, one for each `spells.2da` row, the lowest row first. `catalog`
+/// is the module's.
+pub fn devices(
+    goods: &Goods,
+    catalog: &Catalog,
+    race: u8,
+    rows: impl Fn(u16) -> RowUse,
+) -> Vec<Device> {
+    let mut devices: Vec<Device> = Vec::new();
+    for (item, held) in goods.carried(PARTY) {
+        let Some(facts) = goods.facts(catalog, &held.template) else {
+            continue;
+        };
+        let Some(row) = device_row(facts, race, &rows) else {
+            continue;
+        };
+        if devices.iter().all(|known| known.row != row) {
+            devices.push(Device {
+                row,
+                item,
+                template: held.template.clone(),
+            });
+        }
+    }
+    devices.sort_by_key(|device| device.row);
+    devices
+}
+
 /// The `kinds` that fit a sheet's `items::KINDS` slots: the first, or those a
 /// party member's `picks` keep where it carries more (`Picks::slotted`).
 pub fn usable<'a>(

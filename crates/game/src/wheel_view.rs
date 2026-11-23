@@ -437,13 +437,13 @@ impl Wheel {
 }
 
 /// Whether the character can start `content` now, so a use in the queue
-/// may go ahead. A Force power, an item other than a grenade, and a mine
+/// may go ahead. A Force power, an item other than a grenade, a device and a mine
 /// wait until the character has a free hand (`Fighter::hand_free`): no
 /// power cast is still under way, and no item is in use. A feat attack,
 /// stealth mode and the grenades go ahead at once.
 pub(crate) fn ready(content: Content, fighter: &Fighter, now_ms: u64) -> bool {
     match content {
-        Content::Power(_) | Content::Mine => fighter.hand_free(now_ms, false),
+        Content::Power(_) | Content::Mine | Content::Device(_) => fighter.hand_free(now_ms, false),
         Content::Item(shelf) if shelf != Shelf::Grenade => fighter.hand_free(now_ms, false),
         Content::Item(_) | Content::Feat(_) | Content::Stealth => true,
     }
@@ -854,6 +854,11 @@ fn entries(
         listed.chosen[at].and_then(|chosen| listed.kinds[at].get(chosen).cloned())
     });
     let mine = library.and_then(|library| sim::traps::laid_kit(&snapshot.goods, library.items()));
+    let stock = crate::hud::Stock {
+        chosen: &chosen,
+        mine: mine.as_ref(),
+        devices: &means.devices,
+    };
     let shown = listed
         .list
         .iter()
@@ -866,7 +871,7 @@ fn entries(
             ui::vm::WheelEntry {
                 group: *group,
                 kinds: kinds.min(usize::from(u8::MAX)) as u8,
-                ..crate::hud::bar_entry(ui, *content, means, &chosen, mine.as_ref())
+                ..crate::hud::bar_entry(ui, *content, means, stock)
             }
         })
         .collect();
