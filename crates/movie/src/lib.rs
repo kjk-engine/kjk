@@ -9,7 +9,11 @@
 //! FLAC), offset and length, then each frame's offset and length, then the
 //! bytes. Numbers are little-endian `u32`s, offsets and lengths `u64`s.
 
+pub mod compare;
 pub mod ffmpeg;
+pub mod player;
+
+pub use bink::Bink;
 
 use std::ops::Range;
 

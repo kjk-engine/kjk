@@ -431,7 +431,8 @@ enum Command {
         #[arg(long, default_value = "end_m01aa")]
         module: String,
     },
-    /// The games' movies: Binks made ours by ffmpeg into the store
+    /// The games' movies: kjk's Bink decoder checked against ffmpeg, and
+    /// movies made by ffmpeg into the store
     Movie {
         #[command(subcommand)]
         verb: MovieVerb,
@@ -484,6 +485,17 @@ enum AnimVerb {
 enum MovieVerb {
     /// The movie container's checks, on frames made here
     Check,
+    /// kjk's Bink decoder compared with ffmpeg on the install's movies
+    /// (every one by default): each picture must match exactly
+    Compare {
+        /// k1 or tsl
+        game: String,
+        /// The movies, e.g. 01a legal; all of them when left out
+        names: Vec<String>,
+        /// Compare only each movie's first frames
+        #[arg(long)]
+        frames: Option<usize>,
+    },
     /// Make movies ours now (every one by default), kept in the store
     Import {
         /// k1 or tsl
@@ -812,6 +824,11 @@ pub fn run() -> ExitCode {
         }) => import_verbs::import(&discover(), &game, force, &module),
         Some(Command::Movie { verb }) => match verb {
             MovieVerb::Check => movie_verbs::check(),
+            MovieVerb::Compare {
+                game,
+                names,
+                frames,
+            } => movie_verbs::compare(&discover(), &game, &names, frames),
             MovieVerb::Import { game, names } => movie_verbs::import(&discover(), &game, &names),
         },
         Some(Command::Report { verb }) => match verb {

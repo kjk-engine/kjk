@@ -357,14 +357,26 @@ stops is logged (`sound: plays` / `stops`), so a run's log and trace
 
 ## Movies
 
-KOTOR's movies are Bink. `ffmpeg` (with `ffprobe`, from the `PATH`) makes
-each one ours once (`movie`, `kjk movie import`): its frames as JPEGs
-(`-q:v 6`, about 370 KB a second at 640 wide) and its sound as one MP3
-(FLAC where `ffmpeg` has no MP3 encoder), in the store, keyed by the Bink's
-bytes (`import/<game>/movies`). A movie not there yet is made when first
-played (the 2-minute crawl in about 3 s); `kjk movie import k1` makes
-every one up front (about 600 MB for K1's 27 minutes). Without `ffmpeg`
-a movie is skipped, with a warning.
+KOTOR's and TSL's movies are Bink 1, revision "i". This includes the
+high-resolution movies that mods ship, such as TSL movies at 1600 × 680 and
+1600 × 1200. kjk decodes them itself (the `bink` crate), so a player does
+not need `ffmpeg`. A thread decodes the pictures a few frames ahead of the
+one shown and turns each into RGBA (`movie::player`). The whole sound
+track is decoded when the movie starts, which takes less than a second
+for the 6-minute credits, and it plays as a 16-bit WAV. Nothing goes into
+the store. The decoder's output matches `ffmpeg`'s exactly on every frame
+of all 123 movies of both games, and its sound is within 0.00002 of
+`ffmpeg`'s. `kjk movie compare k1` (or `tsl`, with movie names or
+`--frames N` to compare less) runs that comparison on the install's
+movies. It needs `ffmpeg`.
+
+A movie that is not Bink 1 revision "i" (a Bink 2 movie, say) still goes
+through `ffmpeg` (with `ffprobe`, from the `PATH`), which makes it ours
+once (`movie`, `kjk movie import`): its frames as JPEGs (`-q:v 6`, about
+370 KB a second at 640 wide) and its sound as one MP3 (FLAC where `ffmpeg`
+has no MP3 encoder), in the store, keyed by the movie's bytes
+(`import/<game>/movies`). Without `ffmpeg`, such a movie is skipped, with a
+warning.
 
 - **What plays them**: `PlayMovie` and `StartNewModule`'s `sMovie1..6`
   (which play over the load), and TSL's `PlayMovieQueue` (the movies

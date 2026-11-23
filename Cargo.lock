@@ -1762,6 +1762,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "bink"
+version = "0.0.0"
+
+[[package]]
 name = "bit-set"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4035,6 +4039,7 @@ checksum = "e53debba6bda7a793e5f99b8dacf19e626084f525f7829104ba9898f367d85ff"
 name = "movie"
 version = "0.0.0"
 dependencies = [
+ "bink",
  "image",
 ]
 

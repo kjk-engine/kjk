@@ -6,8 +6,10 @@
 //!   end of the last one queued (nothing under it shows between them), the
 //!   picture fitted within 640 × 480 keeping its shape, its sound unplaced
 //!   at full gain;
-//! - read from the store, made there by `ffmpeg` the first time
-//!   (`movie_verbs`), on a thread of its own; black meanwhile;
+//! - a Bink 1 movie (every KOTOR and TSL movie) decoded as it plays, on a
+//!   thread of its own, a few frames ahead; any other read from the store,
+//!   made there by `ffmpeg` the first time (`movie_verbs`); black while it
+//!   loads;
 //! - Escape, Space, Enter, a click or a pad's A, B or Start skips it, unless TSL's `QueueMovie`
 //!   queued it unskippable; a skip of a queued one drops the rest of its
 //!   queue run (`Queued`);
@@ -20,7 +22,8 @@
 //!   sound (`audio.wav`) keep in step while its world waits too.
 //!
 //! The menu starts with K1's logos (`leclogo`, `biologo`, `legal`).
-//! Without `ffmpeg` (or the movie) it is skipped, with a warning. A
+//! A movie that is missing, or not Bink 1 when there is no `ffmpeg`, is
+//! skipped, with a warning. A
 //! headless run skips every one unless `KJK_MOVIES=1`; `KJK_MOVIES=0`
 //! skips them in a window too (as xoreos's option to skip videos does; `played`).
 
@@ -36,7 +39,10 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use movie::Movie;
+use movie::player::Player;
 use vfs::Game;
+
+use crate::movie_verbs::Film;
 
 use crate::lifecycle_view::{OverlayCamera, gui_quad, unlit};
 use crate::material::OdysseyMaterial;
@@ -135,8 +141,62 @@ impl Plugin for MovieViewPlugin {
     }
 }
 
+/// A movie's pictures: a Bink decoded as it plays, or a movie `ffmpeg` made.
+enum Pictures {
+    Bink(Player),
+    Stored(Movie),
+}
+
+impl Pictures {
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Pictures::Bink(player) => (player.width, player.height),
+            Pictures::Stored(movie) => (movie.width, movie.height),
+        }
+    }
+
+    fn seconds(&self) -> f64 {
+        match self {
+            Pictures::Bink(player) => player.seconds(),
+            Pictures::Stored(movie) => movie.seconds(),
+        }
+    }
+
+    fn frames(&self) -> usize {
+        match self {
+            Pictures::Bink(player) => player.frames(),
+            Pictures::Stored(movie) => movie.frames(),
+        }
+    }
+
+    fn frame_at(&self, seconds: f64) -> usize {
+        match self {
+            Pictures::Bink(player) => player.frame_at(seconds),
+            Pictures::Stored(movie) => movie.frame_at(seconds),
+        }
+    }
+
+    /// The newest picture at or before frame `due` that is not shown yet, as
+    /// RGBA, and its frame. `wait` waits for frame `due` itself (`Player`).
+    fn picture(
+        &mut self,
+        due: usize,
+        shown: Option<usize>,
+        wait: bool,
+    ) -> Result<Option<(usize, Vec<u8>)>, String> {
+        match self {
+            Pictures::Bink(player) => player.picture(due, wait),
+            Pictures::Stored(_) if shown == Some(due) => Ok(None),
+            Pictures::Stored(movie) => {
+                let jpeg = movie.frame(due).ok_or(format!("no frame {due}"))?;
+                movie::picture(jpeg).map(|(_, _, rgba)| Some((due, rgba)))
+            }
+        }
+    }
+}
+
 /// A movie read, and its sound (streamed as it plays).
-type Loaded = Result<(Movie, Option<Stream>), String>;
+type Loaded = Result<(Pictures, Option<Stream>), String>;
 
 /// Quads on the movies' layer, and what they are drawn with.
 #[derive(Default)]
@@ -160,7 +220,7 @@ struct Screening {
     /// Whether a skip ends it, and its queue run (`Queued`).
     skippable: bool,
     run: u16,
-    movie: Option<Movie>,
+    pictures: Option<Pictures>,
     sound: Option<Stream>,
     /// Locked only to share the view.
     loading: Option<Mutex<Receiver<Loaded>>>,
@@ -188,20 +248,31 @@ fn sound_name(movie: &str) -> String {
     format!("movie/{movie}")
 }
 
-/// Reads `name` (making it with `ffmpeg` if the store has not got it) and
-/// its sound, on a thread.
+/// Reads `name` and its sound, on a thread. A Bink 1 movie starts decoding
+/// there. Any other is made with `ffmpeg` if the store has not got it.
 fn load(name: String, game: Game) -> Receiver<Loaded> {
     let (told, read) = mpsc::channel();
     std::thread::spawn(move || {
         let loaded = (|| {
             let resolver = crate::viewer::resolver(&crate::discover(), game, None)?;
             let store = store::Store::open();
-            let (movie, _) = crate::movie_verbs::movie(store.as_ref(), game, &resolver, &name)?;
-            let sound = movie
-                .sound()
-                .map(|(_, bytes)| Stream::file(bytes))
-                .transpose()?;
-            Ok((movie, sound))
+            Ok(
+                match crate::movie_verbs::film(store.as_ref(), game, &resolver, &name)? {
+                    Film::Bink(bink) => {
+                        let sound = movie::player::sound(&bink)?
+                            .map(|wav| Stream::file(&wav))
+                            .transpose()?;
+                        (Pictures::Bink(Player::start(bink)), sound)
+                    }
+                    Film::Stored(movie) => {
+                        let sound = movie
+                            .sound()
+                            .map(|(_, bytes)| Stream::file(bytes))
+                            .transpose()?;
+                        (Pictures::Stored(movie), sound)
+                    }
+                },
+            )
         })();
         let _ = told.send(loaded);
     });
@@ -300,7 +371,7 @@ fn show(
             name,
             skippable,
             run,
-            movie: None,
+            pictures: None,
             sound: None,
             failed: false,
             quads: Quads::default(),
@@ -324,11 +395,12 @@ fn show(
     if let Some(loaded) = received {
         screening.loading = None;
         match loaded {
-            Ok((movie, sound)) => {
+            Ok((pictures, sound)) => {
+                let (width, height) = pictures.size();
                 let image = images.add(Image::new_fill(
                     Extent3d {
-                        width: movie.width,
-                        height: movie.height,
+                        width,
+                        height,
                         depth_or_array_layers: 1,
                     },
                     TextureDimension::D2,
@@ -337,8 +409,8 @@ fn show(
                     RenderAssetUsages::default(),
                 ));
                 // Fitted within 640 × 480, its shape kept, centred.
-                let scale = (640.0 / movie.width as f32).min(480.0 / movie.height as f32);
-                let (width, height) = (movie.width as f32 * scale, movie.height as f32 * scale);
+                let scale = (640.0 / width as f32).min(480.0 / height as f32);
+                let (width, height) = (width as f32 * scale, height as f32 * scale);
                 let place = gui_quad(
                     [(640.0 - width) / 2.0, (480.0 - height) / 2.0, width, height],
                     1.0,
@@ -350,7 +422,7 @@ fn show(
                     place,
                 );
                 screening.picture = Some(image);
-                screening.movie = Some(movie);
+                screening.pictures = Some(pictures);
                 screening.sound = sound;
             }
             Err(why) => {
@@ -388,19 +460,28 @@ fn show(
         movies.0.retain(|queued| queued.run != run);
     }
     let mut over = skipped || screening.failed;
-    if let Some(movie) = &screening.movie {
+    if let Some(pictures) = &mut screening.pictures {
         let started = *screening.started.get_or_insert(clock);
         let seconds = (clock - started) / 1000.0;
-        over |= seconds >= movie.seconds();
-        let frame = movie.frame_at(seconds);
-        if !over && screening.shown != Some(frame) {
-            screening.shown = Some(frame);
-            let picture = movie.frame(frame).map(movie::picture);
-            if let (Some(Ok((_, _, pixels))), Some(mut image)) = (
-                picture,
-                screening.picture.as_ref().and_then(|h| images.get_mut(h)),
-            ) {
-                image.data = Some(pixels);
+        over |= seconds >= pictures.seconds();
+        let frame = pictures.frame_at(seconds);
+        if !over {
+            // A recording waits for each frame, so that its frames are the
+            // same however fast the decoder is.
+            match pictures.picture(frame, screening.shown, held) {
+                Ok(Some((shown, pixels))) => {
+                    screening.shown = Some(shown);
+                    if let Some(mut image) =
+                        screening.picture.as_ref().and_then(|h| images.get_mut(h))
+                    {
+                        image.data = Some(pixels);
+                    }
+                }
+                Ok(None) => {}
+                Err(why) => {
+                    warn!(target: "movie", name = %screening.name, %why, "stops");
+                    over = true;
+                }
             }
         }
         if !over && let Some(sound) = &screening.sound {
@@ -420,8 +501,8 @@ fn show(
                 "movie".into(),
                 serde_json::json!({
                     "name": screening.name,
-                    "size": [movie.width, movie.height],
-                    "frames": movie.frames(),
+                    "size": pictures.size(),
+                    "frames": pictures.frames(),
                     "frame": screening.shown,
                     "seconds": seconds,
                 }),
