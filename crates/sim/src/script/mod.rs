@@ -3839,6 +3839,13 @@ impl Step<'_> {
                         dialogue::bark(self.library, self.state, self.report, now, (who, strref));
                         true
                     }
+                    Action::Sound { resref } => {
+                        let sound = crate::notice::Sound::new(id, resref);
+                        self.out
+                            .notices
+                            .push((None, crate::notice::Notice::Sound(sound)));
+                        true
+                    }
                 };
                 if !done {
                     break;
