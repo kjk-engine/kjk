@@ -611,6 +611,19 @@ A prop where no probe with light is near, such as one in an area whose
 rooms have no lightmaps, keeps the old fixed glow of 0.45 of its
 texture's colour.
 
+The light is read a metre over the floor under the prop, where the
+probes stand, however high the prop is. A rock stacked on others used to
+be read at its own height, found no probe that high, and glowed with the
+fixed 0.45, much brighter than the rocks round it.
+
+In a room cut from a Jedi Academy level, the probes read the room's
+lightmap at its full size. That lightmap is one atlas of the level, and
+most of Hoth's snow has a block of only 2 by 2 texels in it. Read smaller,
+as a KOTOR room's lightmap is read, the blocks blurred together, and
+rocks on snow lit at 0.8 to 1.0 read about 0.1 and looked black. A prop
+can still be dark where the level itself is: the snow under a large rock
+may hold a corner that Jedi Academy lit in shadow.
+
 ## Several levels in one project
 
 Every module of KOTOR holds one area, so a level is a module and its area.

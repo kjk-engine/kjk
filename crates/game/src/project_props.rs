@@ -25,6 +25,10 @@ use crate::viewer_ja::Files;
 /// ambient light alone leaves a prop nearly black.
 const PROP_GLOW: f32 = 0.45;
 
+/// How far over the floor (metres) a prop's light is read: where the light
+/// probes stand (`light_probes`).
+const PROBE_RISE: f32 = 1.0;
+
 /// How far (metres) under and over a prop its room's floor is looked for.
 const FLOOR_BELOW: f32 = 3.0;
 const FLOOR_ABOVE: f32 = 0.5;
@@ -32,9 +36,13 @@ const FLOOR_ABOVE: f32 = 0.5;
 /// The room's light at a prop standing at `at` (game space), as a glow:
 /// the light from above that the area's light probes read off the floor's
 /// lightmap round it (`light_probes`), in the room whose floor lies under
-/// it, times the share of a room's stored light the view keeps (all of it
-/// with the game's lighting, half with the live fitted lights, none with
-/// the lamps alone). `None` where no probe with light is near.
+/// it, read where the probes are, a metre over that floor (`PROBE_RISE`).
+/// A prop stacked on another stands higher than the probes reach, and
+/// read at its own height it found none and glowed with `PROP_GLOW`, much
+/// brighter than the props round it. The light is then taken times the
+/// share of a room's stored light the view keeps (all of it with the
+/// game's lighting, half with the live fitted lights, none with the lamps
+/// alone). `None` where no probe with light is near.
 fn room_glow(scene: &LoadedScene, at: [f32; 3]) -> Option<[f32; 3]> {
     let mut under: Option<(usize, f32)> = None;
     for (index, room) in scene.rooms.iter().enumerate() {
@@ -50,7 +58,8 @@ fn room_glow(scene: &LoadedScene, at: [f32; 3]) -> Option<[f32; 3]> {
             }
         }
     }
-    let sample = bevy::math::Vec3::new(at[0], at[1], at[2] + 1.0);
+    let height = under.map_or(at[2], |(_, floor)| floor);
+    let sample = bevy::math::Vec3::new(at[0], at[1], height + PROBE_RISE);
     let light = scene
         .probes
         .light_at(&scene.rooms, under.map(|(room, _)| room), sample)

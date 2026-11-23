@@ -475,6 +475,18 @@ pub fn build_level(
     Ok((built, notes))
 }
 
+/// Whether `name` is a lightmap a Jedi Academy room is built with: its
+/// light atlas (`jl`), a lightmap kept beside its level (`jb`), or a copy
+/// of either for a room placed twice in a map (`lm`,
+/// `level_edit::map::own_lightmap`), each 16 characters. The light probes
+/// read such a lightmap whole (`light_probes`). A copy of a KOTOR room's
+/// lightmap is read whole too, which costs only time.
+pub fn whole_lightmap(name: &str) -> bool {
+    name.len() == 16
+        && ["jl", "jb", "lm"].iter().any(|kind| name.starts_with(kind))
+        && name[2..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 /// Builds every room of every level of `sources` into memory for `game`,
 /// each from the cuts of its project. Gives the rooms built, and what went
 /// wrong.
