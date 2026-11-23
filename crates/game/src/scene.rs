@@ -282,12 +282,12 @@ pub fn local_triangles(ir: &asset_odyssey::model::ModelIr) -> Vec<[Vec3; 3]> {
         .collect()
 }
 
-/// The room the player stands in (`room_at` under its feet), found each
-/// frame; `None` off every floor.
+/// The room the controlled character stands in (`room_at` under its
+/// feet), found each frame; `None` off every floor.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct PlayerRoom(pub Option<usize>);
 
-/// Where the player stands (game space, metres): its feet as the sim
+/// Where the controlled character stands (game space, metres): its feet as the sim
 /// presents them, else (the viewers, no sim) on the floor under the
 /// camera (the eye height under it off every floor).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
@@ -2300,7 +2300,7 @@ fn floor_at(rooms: &[RoomView], x: f32, y: f32) -> Option<(usize, f32)> {
     best
 }
 
-/// Where the player stands and the room it stands in: its body's feet in
+/// Where the controlled character stands and the room it stands in: its body's feet in
 /// the presented snapshot (the own seat's, seat 0's without one), else the
 /// floor under the camera.
 fn find_player(

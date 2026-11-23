@@ -843,8 +843,8 @@ impl Talk {
     }
 
     /// The conversations under way and asked for with `from` as their
-    /// `GetPCSpeaker` go on with `to` (`SwitchPlayerCharacter`): its seat answers them, and it is
-    /// their `GetPCSpeaker`.
+    /// `GetPCSpeaker` go on with `to` (`SwitchPlayerCharacter`). The seat
+    /// of `to` answers them, and `to` is now their `GetPCSpeaker`.
     pub(super) fn retarget(&mut self, from: ObjectId, to: ObjectId) {
         let speakers = self
             .conversations
@@ -1130,8 +1130,8 @@ pub fn story_abort(library: &super::Library, dlg: &Dlg) -> bool {
 /// Whether a conversation with the character `id` is the party's. It is when
 /// `id` is one of the main characters (`View::main_characters`), or the
 /// companion leading the party (`lent`).
-fn party_pc(pcs: &[ObjectId], lent: Option<ObjectId>, id: ObjectId) -> bool {
-    pcs.contains(&id) || lent == Some(id)
+fn party_pc(mains: &[ObjectId], lent: Option<ObjectId>, id: ObjectId) -> bool {
+    mains.contains(&id) || lent == Some(id)
 }
 
 /// Who a DLG names by `tag` (a line's `AnimList`, an animated cutscene's
@@ -1166,8 +1166,8 @@ impl View<'_> {
 
     /// The PC of a conversation that `user` starts by using something
     /// (I30 P8). It is `user` itself when that is a PC. Otherwise `user`
-    /// is a companion a guest drives, and the PC is the first one: the
-    /// host's character. The scripts see one PC.
+    /// is a companion a guest drives, and the PC is the host's main
+    /// character. The scripts see one PC.
     pub(crate) fn pc_for(&self, table: &Party, user: ObjectId) -> ObjectId {
         if self.is_main_character(table, user) {
             user
@@ -1232,13 +1232,14 @@ impl View<'_> {
     /// The host's main character (the first of the main characters), and
     /// the body its seat acts through: the companion leading, while one
     /// does (`world::lent`). Both are read off the party table as it
-    /// stands, as `main_characters` reads a switch, not off the step's `seats`: a script's `SetPartyLeader`
-    /// earlier in the step leaves those behind. A companion's own talk
-    /// trigger (K1's `k_trg_partyinit`) hands the lead back to the PC,
-    /// then has the companion start its conversation with `GetFirstPC()`:
-    /// the companion, still the seat's body, was taken for the player's
-    /// side and the PC made the owner, who then said the companion's lines
-    /// (#147, Bastila's on Taris).
+    /// stands, as `main_characters` reads a switch, not off the step's
+    /// `seats`: a script's `SetPartyLeader` earlier in the step leaves
+    /// those behind. A companion's own talk trigger (K1's
+    /// `k_trg_partyinit`) hands the lead back to the main character, then
+    /// has the companion start its conversation with `GetFirstPC()`: the
+    /// companion, still the seat's body, was taken for the main
+    /// character's side and the main character made the owner, who then
+    /// said the companion's lines (#147, Bastila's on Taris).
     pub(crate) fn host(&self, table: &Party) -> [ObjectId; 2] {
         let pc = self.first_main_character(table);
         let seated = (self.seats.iter()).any(|(seat, _)| *seat == crate::world::LEADER_SEAT.0);

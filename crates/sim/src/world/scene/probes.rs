@@ -1729,7 +1729,7 @@ fn hostile_held_companion_leads() -> Found {
     let speaker = ground.last.talk.party().map(|c| c.pc);
     if speaker != Some(ObjectId(main.0)) {
         return Err(format!(
-            "the conversation's character is {speaker:?}, not the main character {main:?}"
+            "the conversation's `GetPCSpeaker` is {speaker:?}, not the main character {main:?}"
         ));
     }
     let held = charge(&mut ground, "probe_attack_buddy", buddy)?;

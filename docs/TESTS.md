@@ -103,6 +103,11 @@ The probe group "cut-out surfaces" (issues 443 and 515) was also proposed
 2026-11-16 and awaits approval. It checks that the depth prepass reads a
 cut-out texture's alpha in the same way as the main pass. It is not an
 approved test, and it runs only through `kjk sim probes`.
+The probe group "transparency hints" (issue 669) was proposed 2026-11-23 and
+awaits approval. It checks that a mesh with a transparency hint above 1 is
+blended only when its texture has alpha, and that a skinned mesh keeps
+blending with the depth kept. It is not an approved test, and it runs only
+through `kjk sim probes`.
 `bink_decoder_parts` was approved 2026-11-23.
 `untextured_mesh_drawn` (issue 441) was proposed 2026-11-16 and awaits
 approval. `stance_sets_sim` was changed 2026-11-16 for issue 514, and the

@@ -42,8 +42,8 @@ pub(in crate::script) fn advance(step: &mut Step) {
             step.mark(seat, answer.by, nth);
         }
     }
-    let (pcs, lent) = (view.main_characters(&step.state.party), step.lent());
-    let pc = |id: ObjectId| party_pc(&pcs, lent, id);
+    let (mains, lent) = (view.main_characters(&step.state.party), step.lent());
+    let pc = |id: ObjectId| party_pc(&mains, lent, id);
     // The first answer wins: in seat order, one a conversation a step. A
     // leave is each seat's own, whoever answered.
     let mut answered = Vec::new();
@@ -195,11 +195,11 @@ impl Step<'_> {
         if !view.held {
             return;
         }
-        let pcs = view.main_characters(&self.state.party);
+        let mains = view.main_characters(&self.state.party);
         let led = crate::world::lent(&self.state.party).map(|body| ObjectId(body.0));
-        let Some(player) = (self.state.talk.conversations.iter())
+        let Some(speaker_faction) = (self.state.talk.conversations.iter())
             .map(|c| c.pc)
-            .find(|pc| pcs.contains(pc) || led == Some(*pc))
+            .find(|pc| mains.contains(pc) || led == Some(*pc))
             .and_then(|pc| self.out.faction(view, pc))
         else {
             return;
@@ -209,12 +209,12 @@ impl Step<'_> {
         // A line that turns a creature hostile holds it in the same step
         // (`Out::faction`), before its first blow.
         let hostiles: Vec<ObjectId> = (view.things.iter())
-            .filter(|thing| !pcs.contains(&thing.id) && !party.contains(&thing.id.0))
+            .filter(|thing| !mains.contains(&thing.id) && !party.contains(&thing.id.0))
             .filter(|thing| !self.state.uncommandable.contains(&thing.id.0))
             .filter(|thing| {
                 self.out
                     .faction(view, thing.id)
-                    .is_some_and(|faction| repute.hostile(faction, player))
+                    .is_some_and(|faction| repute.hostile(faction, speaker_faction))
             })
             .map(|thing| thing.id)
             .collect();
@@ -487,7 +487,8 @@ impl Step<'_> {
     /// (an invisible placeable a scene speaks through: Taris's raid, the
     /// swoop pits' Brejik). reone keeps the asker's DLG [verify in the
     /// game]. A companion in the party is not such a one: the script
-    /// passes it as the one conversed with, and the asker's DLG plays (the Endar Spire's room-3 door opened by Trask).
+    /// passes it as the one conversed with, and the asker's DLG plays
+    /// (the Endar Spire's room-3 door opened by Trask).
     pub(in crate::script) fn converse(
         &mut self,
         who: ObjectId,

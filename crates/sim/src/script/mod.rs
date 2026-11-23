@@ -4685,13 +4685,13 @@ pub fn run_due(
 /// then the module's `Mod_OnClientLeav`, the PC their exiting object
 /// (`GetExitingObject`).
 pub(crate) fn leaving(view: &View, party: &party::Party) -> Vec<Pending> {
-    let pcs = view.main_characters(party);
+    let mains = view.main_characters(party);
     [AREA, MODULE]
         .into_iter()
         .filter_map(|holder| Some((holder, view.hook(holder, Hook::Exit)?)))
         .flat_map(|(holder, script)| {
-            pcs.iter().map(move |pc| Pending {
-                entering: Some(*pc),
+            mains.iter().map(move |main| Pending {
+                entering: Some(*main),
                 ..Pending::new(&script, holder)
             })
         })

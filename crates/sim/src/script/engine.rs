@@ -5405,7 +5405,7 @@ impl Engine<'_> {
                     caller
                 };
                 // Whoever asked for it plays, alone: the guest whose pick
-                // or use led here, else the PC speaker (I30 P8).
+                // or use led here, else the main character (I30 P8).
                 let pc = self.state.talk.running.unwrap_or_else(|| {
                     self.main_characters()
                         .first()

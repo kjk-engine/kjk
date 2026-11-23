@@ -19,7 +19,7 @@ use std::sync::Arc;
 const COMPANIONS: [&str; 2] = ["probe_comp_a", "probe_comp_b"];
 
 /// The party check's script (`party_script`).
-const PCS: &str = "probe_pcs";
+const PARTY: &str = "probe_party";
 /// The first companion's end-of-round hook, and a story's script: each
 /// moves the first companion to the second (`party_script`).
 const AI: &str = "probe_ai";
@@ -123,7 +123,7 @@ fn companion(template: &str, at: [f32; 3]) -> ObjectData {
     ObjectData::creature(template, template, at, Sheet::dev_soldier())
 }
 
-/// The probes' scripts (the party check, `PCS`) and the companions'
+/// The probes' scripts (the party check, `PARTY`) and the companions'
 /// templates (what an install makes them again from).
 fn library() -> crate::script::Library {
     let creatures = COMPANIONS
@@ -138,7 +138,7 @@ fn library() -> crate::script::Library {
     party_script().with_creatures(creatures)
 }
 
-/// The party check, run by the module (`PCS`): three message boxes for
+/// The party check, run by the module (`PARTY`): three message boxes for
 /// every seat, numbered `GetIsPC(GetPartyMemberByIndex(1))`,
 /// `GetPartyMemberCount()` and `GetIsObjectValid(GetNextPC())` after
 /// `GetFirstPC()`: 0, 3 and 0 when the scripts see one main character
@@ -298,7 +298,7 @@ int RemovePartyMember(int nNPC);
     crate::probe::library(
         CATALOG,
         [
-            (PCS, asm.build()),
+            (PARTY, asm.build()),
             (ENTERED_SCRIPT, entered.build()),
             (CAME_SCRIPT, comings(13, CAME)),
             (WENT_SCRIPT, comings(14, WENT)),
@@ -1723,7 +1723,7 @@ fn drive(snapshot: &mut Snapshot, id: SimId, seat: Seat) {
 struct Ran {
     /// The snapshot after each tick, the first after tick 1.
     snapshots: Vec<Snapshot>,
-    /// The message boxes the party check (`PCS`) showed seat 0.
+    /// The message boxes the party check (`PARTY`) showed seat 0.
     boxes: Vec<i32>,
     /// Whether seat 2's companion still carried `Avatar` after tick 52.
     kept_avatar: bool,
@@ -1806,7 +1806,7 @@ fn right_of_entry(level: &Level) -> [f32; 3] {
 /// cases name the ticks):
 /// - tick 1: seat 0 alone;
 /// - ticks 2–31: seats 1 and 2 too, seat 1 running; the party check
-///   (`PCS`) runs at tick 30;
+///   (`PARTY`) runs at tick 30;
 /// - ticks 32–51: the same, with a scripted move on seat 1's companion (no
 ///   route on the ground: its mind stands it still, and it slows to a stop
 ///   while seat 1 runs);
@@ -1822,7 +1822,7 @@ fn scenario() -> Result<Ran, String> {
     let mut boxes = Vec::new();
     for tick in 2..=51 {
         if tick == 30 {
-            let check = Pending::new(PCS, MODULE);
+            let check = Pending::new(PARTY, MODULE);
             scripts_of(&mut world).state.pending.push(check);
         }
         if tick >= 32 {
