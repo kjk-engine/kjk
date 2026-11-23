@@ -3759,7 +3759,14 @@ that were never shipped.
    writes `check.txt` with the modules that failed, the sizes, and the sets
    that lack `placeables.txt` or have an old format.
 4. Run `kjk lighting pack k1 target/canon-bakes/k1 --out <dir> --round c1`
-   and the same for `tsl`. Each writes the game's zip and manifest.
+   and the same for `tsl`. Each writes the game's zip and manifest. The
+   download holds one set for each area. Some modules share their area
+   with another module and are baked with that module's settings, as the
+   second column of `tools/light-kinds/canon/modules-<game>.txt` says.
+   These are 11 modules of KOTOR 1 and 14 of KOTOR 2. For such an area the
+   pack ships the set of the module that gives the settings, and it lists
+   the other sets as left out. The game shows the shipped set in every
+   module of that area.
 
 A module takes its settings from `data/lights/bake.toml`. A module with no
 entry there takes the levels and flags the owner walked in rounds r1 and

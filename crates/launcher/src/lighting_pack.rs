@@ -11,8 +11,12 @@
 //! bake's log and the set `a` stay out.
 //!
 //! - `--round <name>` takes only the sets under a folder of that name, such
-//!   as the round `c1` in `<module>/bake/c1/<area>/b`. Without it, two sets
-//!   of one area stop the pack.
+//!   as the round `c1` in `<module>/bake/c1/<area>/b`.
+//! - Some modules share their area with another module and are baked with
+//!   that module's settings (`tools/light-kinds/canon/modules-<game>.txt`).
+//!   The store holds one set for each area, so the pack ships the set of
+//!   the module that gives its settings, and lists the other sets as left
+//!   out (`choose_sets`). Any other two sets of one area stop the pack.
 //! - A set without `fingerprint.txt` is not finished, or was never stamped.
 //!   It is left out and listed.
 //! - A set whose fingerprint does not read, or is of another format than
@@ -41,6 +45,11 @@ use vfs::Game;
 /// The modules `data/lights/bake.toml` bakes with their backdrop at its
 /// stored light.
 const BAKE_TOML: &str = include_str!("../../../data/lights/bake.toml");
+
+/// The canon round's modules of each game. A line names a module and the
+/// module whose settings it is baked with (`tools/light-kinds/canon`).
+const MODULES_K1: &str = include_str!("../../../tools/light-kinds/canon/modules-k1.txt");
+const MODULES_TSL: &str = include_str!("../../../tools/light-kinds/canon/modules-tsl.txt");
 
 /// The words the bake's log writes in its second line for a bake with
 /// `--stored-backdrop` (`detail_bake::gpu`).
@@ -130,6 +139,65 @@ fn copied_backdrop(module: &str, set: &Path) -> bool {
     logged || stored_backdrop_listed(module)
 }
 
+/// The module whose settings `module` is baked with in the canon round, as
+/// the list `modules` gives it. A module not listed takes its own settings.
+fn settings_from<'a>(modules: &'a str, module: &'a str) -> &'a str {
+    (modules.lines())
+        .filter_map(|line| line.split_once(char::is_whitespace))
+        .find(|(name, _)| name.eq_ignore_ascii_case(module))
+        .map_or(module, |(_, from)| from.trim())
+}
+
+/// A set left out, and the module whose set of the same area is packed.
+type LeftOut = (Set, String);
+
+/// One set for each area of `sets`, and the sets left out with the module
+/// whose set was shipped in their place.
+///
+/// The canon driver bakes a module that shares another module's area with
+/// that module's settings, and its list of modules names that module on
+/// the sharing module's line. The pack keeps the set of the module whose
+/// settings the others take. The list is the rule because it is the record
+/// the bakes were made from, and it is in the repository. A guess from the
+/// names would fail, since a module's name does not always hold its area's
+/// name (`danm13` holds `m13aa`). A set is left out only when the module it
+/// takes its settings from has a set of the same area. Two sets of one area
+/// that the list does not tie together stop the pack.
+fn choose_sets(modules: &str, sets: Vec<Set>) -> Result<(Vec<Set>, Vec<LeftOut>), String> {
+    let (mut kept, mut left): (Vec<Set>, Vec<LeftOut>) = (Vec::new(), Vec::new());
+    let giver = |set: &Set| settings_from(modules, &set.module).to_ascii_lowercase();
+    let (takers, givers): (Vec<Set>, Vec<Set>) = sets.into_iter().partition(|set| {
+        giver(set) != set.module
+    });
+    for set in givers {
+        if let Some(other) = kept.iter().find(|other| other.print.area == set.print.area) {
+            return Err(format!(
+                "{} and {} both hold a bake of area {}. Name the round to pack with --round.",
+                other.path.display(),
+                set.path.display(),
+                set.print.area
+            ));
+        }
+        kept.push(set);
+    }
+    for set in takers {
+        let from = giver(&set);
+        if kept.iter().any(|other| other.print.area == set.print.area && other.module == from) {
+            left.push((set, from));
+        } else if let Some(other) = kept.iter().find(|other| other.print.area == set.print.area) {
+            return Err(format!(
+                "{} and {} both hold a bake of area {}. Name the round to pack with --round.",
+                other.path.display(),
+                set.path.display(),
+                set.print.area
+            ));
+        } else {
+            kept.push(set);
+        }
+    }
+    Ok((kept, left))
+}
+
 fn pack(
     game: &str,
     folder: &Path,
@@ -176,16 +244,10 @@ fn pack(
             backdrops.push(path);
             continue;
         }
-        if let Some(other) = sets.iter().find(|set| set.print.area == print.area) {
-            return Err(format!(
-                "{} and {} both hold a bake of area {}. Name the round to pack with --round.",
-                other.path.display(),
-                path.display(),
-                print.area
-            ));
-        }
         sets.push(Set { module, path, print });
     }
+    let modules = if game == Game::Kotor1 { MODULES_K1 } else { MODULES_TSL };
+    let (mut sets, shared) = choose_sets(modules, sets)?;
     if !unfinished.is_empty() {
         outln!("left out, with no {} (not finished or not stamped):", bake_fingerprint::FILE);
         for path in &unfinished {
@@ -196,6 +258,12 @@ fn pack(
         outln!("left out, baked with --stored-backdrop before stored.txt (its PNGs copy the games' own lightmaps):");
         for path in &backdrops {
             outln!("  {}", path.display());
+        }
+    }
+    if !shared.is_empty() {
+        outln!("left out, of a module baked with the settings of another module of the same area, whose set is packed:");
+        for (set, from) in &shared {
+            outln!("  {} (area {}, packed from {from})", set.path.display(), set.print.area);
         }
     }
     if sets.is_empty() {
@@ -387,6 +455,35 @@ mod tests {
         let manifest = std::fs::read_to_string(out.join("kjk-lighting-k1-t.txt")).unwrap();
         assert!(manifest.contains("m13aa") && manifest.contains("tar_m08aa"));
         assert!(!manifest.contains("m14aa") && !manifest.contains("tar_m02ab"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_pack_ships_the_set_of_the_module_that_gives_its_settings() {
+        let root = scratch("shared");
+        let bakes = root.join("bakes");
+        let format = Some(bake_fingerprint::FORMAT);
+        // modules-k1.txt bakes ebo_m40aa and ebo_m41aa with the settings of
+        // ebo_m12aa, whose area they share.
+        for module in ["ebo_m40aa", "ebo_m12aa", "ebo_m41aa"] {
+            set(&bakes, (module, "m12aa", "b"), format, &["m12aa_lm0.png"]);
+        }
+        let mut sets = Vec::new();
+        for module in ["ebo_m40aa", "ebo_m12aa", "ebo_m41aa"] {
+            let path = bakes.join(module).join("bake").join("c1").join("m12aa").join("b");
+            let print = bake_fingerprint::read(&path).unwrap().unwrap();
+            sets.push(Set { module: module.to_string(), path, print });
+        }
+        let (kept, left) = choose_sets(MODULES_K1, sets).unwrap();
+        assert_eq!(kept.iter().map(|set| set.module.as_str()).collect::<Vec<_>>(), ["ebo_m12aa"]);
+        assert_eq!(
+            left.iter().map(|(set, from)| (set.module.as_str(), from.as_str())).collect::<Vec<_>>(),
+            [("ebo_m40aa", "ebo_m12aa"), ("ebo_m41aa", "ebo_m12aa")]
+        );
+        // Two modules the list does not tie together still stop the pack.
+        set(&bakes, ("danm13", "m12aa", "b"), format, &["m12aa_lm0.png"]);
+        let refused = pack("k1", &bakes, &root.join("out"), "t", Some("c1")).unwrap_err();
+        assert!(refused.contains("area m12aa"), "{refused}");
         let _ = std::fs::remove_dir_all(root);
     }
 
