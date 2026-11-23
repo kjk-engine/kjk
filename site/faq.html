@@ -269,7 +269,15 @@
       <details id="reshade">
         <summary>Does ReShade work?</summary>
         <div class="a">
-          <p>Some players have run ReShade 5.8 with kjk's Vulkan renderer. Newer ReShade versions have crashed kjk. Tools that change the original game's program do not work, because kjk does not run that program.</p>
+          <p>Yes, on Windows, with launcher 0.3.1 or newer. ReShade 5.8.0 and 6.8.0 both work. You set ReShade up once, and it stays set up when kjk updates.</p>
+          <ol>
+            <li>Run ReShade's setup.</li>
+            <li>When it asks for a game, choose <code>kjk-launcher.exe</code>, not <code>kjk.exe</code>.</li>
+            <li>When it asks for the rendering API, choose Vulkan. kjk draws with Vulkan, so the other choices do nothing.</li>
+            <li>Start kjk with the launcher's Play button.</li>
+          </ol>
+          <p>If you set ReShade up on <code>kjk.exe</code> instead, ReShade 6 stops kjk from starting.</p>
+          <p>Tools that change the original game's program do not work, because kjk does not run that program.</p>
         </div>
       </details>
     </section>
