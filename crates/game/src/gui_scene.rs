@@ -21,7 +21,8 @@
 //!   off the frame; seen across its longest side.
 //! - A party selection's companion: its `appearance.2da` body dressed by the
 //!   item in its body slot, as a creature in the world is
-//!   (`CreatureLoad::place_appearance`), whole, standing at rest.
+//!   (`CreatureLoad::place_appearance`), standing at rest. In KOTOR 2 it
+//!   stands on the character sheet's stage with its alignment's cloud.
 //! - Character creation's class tiles: the body the tile's player portrait
 //!   gives its class (`portraits.2da`, reone's columns) in plain clothes,
 //!   idling on KOTOR 2's class selection stage with its smoke and lights
@@ -633,8 +634,12 @@ fn class_figure(
 
 /// A creature of `appearance.2da` row `appearance` dressed in `armour` (its
 /// body slot's item; none: nothing) and for its alignment `good_evil` as
-/// the world dresses one, facing +Y as a model does at rest, framed whole,
-/// read on the task pool (the party selection's companion).
+/// the world dresses one, read on the task pool (the party selection's
+/// companion). In KOTOR 2 the companion stands on the character sheet's
+/// stage, facing its camera, with the cloud of its alignment behind it
+/// (`on_stage`). In KOTOR 1 the original shows a flat portrait there, so
+/// the companion faces +Y as a model does at rest, is framed whole, and
+/// has no stage and no cloud.
 fn creature_figure(
     resolver: Resolver,
     game: Game,
@@ -643,20 +648,37 @@ fn creature_figure(
 ) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
         let mut models = Vec::new();
+        let on_the_stage = game == Game::Kotor2;
+        // The stage's camera looks from +X.
+        let facing = if on_the_stage {
+            0.0
+        } else {
+            std::f32::consts::FRAC_PI_2
+        };
         placed_body(
             (&resolver, game),
             (appearance, armour.as_deref(), good_evil),
-            ([0.0; 3], std::f32::consts::FRAC_PI_2),
+            ([0.0; 3], facing),
             &mut models,
         )?;
         let (textures, _) = viewer::textures(&resolver, &models);
         let frame = framed((&models, &textures), Vec3::Y, Vec3::Z, aspect);
-        Ok(Ready {
+        let ready = Ready {
             models,
             textures,
             frame,
             stage: None,
-        })
+        };
+        if on_the_stage {
+            on_stage(
+                &resolver,
+                game,
+                (ready, hooks::CAMERA_HOOK),
+                good_evil.unwrap_or(sim::combat::sheet::NEUTRAL),
+            )
+        } else {
+            Ok(ready)
+        }
     })
 }
 
@@ -783,37 +805,47 @@ fn stance(alignment: u8) -> &'static str {
 fn staged(
     resolver: Resolver,
     game: Game,
-    (mut ready, own_hook): (Ready, &'static str),
+    (ready, own_hook): (Ready, &'static str),
     alignment: u8,
 ) -> Task<Result<Ready, String>> {
-    AsyncComputeTaskPool::get().spawn(async move {
-        let mut cache = BTreeMap::new();
-        for (at, model) in ready.models.iter_mut().enumerate() {
-            let side = viewer::clip(&mut cache, &resolver, game, &model.ir, stance(alignment))?;
-            model.clip = match side {
-                Some(clip) => Some(clip),
-                None if at == 0 && model.clip.is_none() => {
-                    viewer::clip(&mut cache, &resolver, game, &model.ir, "pause1")?
-                }
-                None => model.clip.take(),
-            };
-        }
-        let stage = viewer::model(&resolver, STAGE)?.ok_or(format!("{STAGE}.mdl: not found"))?;
-        let hook = stage
-            .node(own_hook)
-            .or_else(|| stage.node(hooks::CAMERA_HOOK))
-            .ok_or(format!("{STAGE}.mdl: no camerahook"))?;
-        let at = |world: &Matrix| to_mat4(world).transform_point3(Vec3::ZERO);
-        let raised = (ready.models.first())
-            .and_then(|body| body.ir.node(hooks::CAMERA_HOOK))
-            .map_or(STAGE_RAISE, |own| at(&own.world).z);
-        let eye = Mat4::from_translation(Vec3::Z * raised) * to_mat4(&hook.world);
-        ready.frame = through_lens(eye);
-        let pose = pose(alignment);
-        let clip = stage.animations.iter().find(|clip| clip.name == pose);
-        ready.stage = Some(stage_of(&resolver, &stage, clip));
-        Ok(ready)
-    })
+    AsyncComputeTaskPool::get()
+        .spawn(async move { on_stage(&resolver, game, (ready, own_hook), alignment) })
+}
+
+/// What `staged` does, for a caller that is already on the task pool's
+/// thread: `ready` on the character sheet's stage in `alignment`'s pose.
+fn on_stage(
+    resolver: &Resolver,
+    game: Game,
+    (mut ready, own_hook): (Ready, &'static str),
+    alignment: u8,
+) -> Result<Ready, String> {
+    let mut cache = BTreeMap::new();
+    for (at, model) in ready.models.iter_mut().enumerate() {
+        let side = viewer::clip(&mut cache, resolver, game, &model.ir, stance(alignment))?;
+        model.clip = match side {
+            Some(clip) => Some(clip),
+            None if at == 0 && model.clip.is_none() => {
+                viewer::clip(&mut cache, resolver, game, &model.ir, "pause1")?
+            }
+            None => model.clip.take(),
+        };
+    }
+    let stage = viewer::model(resolver, STAGE)?.ok_or(format!("{STAGE}.mdl: not found"))?;
+    let hook = stage
+        .node(own_hook)
+        .or_else(|| stage.node(hooks::CAMERA_HOOK))
+        .ok_or(format!("{STAGE}.mdl: no camerahook"))?;
+    let at = |world: &Matrix| to_mat4(world).transform_point3(Vec3::ZERO);
+    let raised = (ready.models.first())
+        .and_then(|body| body.ir.node(hooks::CAMERA_HOOK))
+        .map_or(STAGE_RAISE, |own| at(&own.world).z);
+    let eye = Mat4::from_translation(Vec3::Z * raised) * to_mat4(&hook.world);
+    ready.frame = through_lens(eye);
+    let pose = pose(alignment);
+    let clip = stage.animations.iter().find(|clip| clip.name == pose);
+    ready.stage = Some(stage_of(resolver, &stage, clip));
+    Ok(ready)
 }
 
 /// `stage`'s emitters and lights in the pose of `clip` (its rows set an
