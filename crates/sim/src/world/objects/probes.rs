@@ -30,12 +30,15 @@ object GetLastAttacker(object oAttackee = OBJECT_SELF);
 void ActionAttack(object oAttackee, int bPassive = FALSE);
 // 7
 object GetLastOpenedBy();
+// 8
+object GetLastUsedBy();
 "#;
-const SAYS: [(&str, u16, &str); 4] = [
+const SAYS: [(&str, u16, &str); 5] = [
     ("probe_damaged", 1, "damaged"),
     ("probe_broke", 2, "broke"),
     ("probe_attacked", 1, "attacked"),
     ("probe_opened", 7, "opened"),
+    ("probe_used", 8, "used"),
 ];
 
 fn library() -> crate::script::Library {
@@ -748,6 +751,109 @@ fn told_strike(within: [f32; 2]) -> Result<String, String> {
     }
 }
 
+/// The panel the use probe's player uses, after the chest: useable, its
+/// `OnUsed` telling its user "used".
+const PANEL: u32 = 3;
+
+/// A use while a script has the player attacking waits behind the attack,
+/// as KOTOR queues a click behind the character's actions, and a script
+/// clearing the player's actions drops it. Peragus's turbolift console is
+/// destroyed by an attack on a hidden object beside it. The blow's script
+/// clears the player's actions and starts the conversation that unlocks the
+/// door. A use of the console during the attack opened its menu at once,
+/// which refused that conversation, and the door stayed locked for good.
+/// Each run gives whether the panel was used in the first second, whether a
+/// use then waited in the player's queue, and whether the panel was used in
+/// the 2 s after the queue was cleared.
+fn use_waits_behind_attack() -> Result<String, String> {
+    use crate::script::actions::Action as Queued;
+    let run = |attacking: bool| -> Result<(bool, bool, bool), String> {
+        let mut world = world(|data| {
+            let panel = ObjectData {
+                kind: ObjectKind::Placeable,
+                tag: "panel".into(),
+                useable: true,
+                scripts: vec![("OnUsed".into(), "probe_used".into())],
+                ..ObjectData::unknown("panel", floor_at([-1.2, 1.0]), 0.0)
+            };
+            data.placements
+                .extend([chest([-6.5, 3.5]), panel].map(Placement::Own));
+            Ok(())
+        })?;
+        let mut ids = world.world.query::<(
+            &super::super::Id,
+            Option<&super::super::Avatar>,
+            Option<&super::super::Object>,
+        )>();
+        let player = ids
+            .iter(&world.world)
+            .find(|(_, avatar, _)| avatar.is_some())
+            .map(|(id, ..)| id.0)
+            .ok_or("no player")?;
+        let chest = ids
+            .iter(&world.world)
+            .find(|(_, _, object)| object.is_some_and(|object| object.index == CHEST))
+            .map(|(id, ..)| id.0)
+            .ok_or("no chest")?;
+        stand(&mut world, NEAR);
+        let who = script_ncs::vm::ObjectId(player.0);
+        type Scripts = super::super::scripts::Scripts;
+        if attacking {
+            world.world.resource_mut::<Scripts>().state.queue(
+                who,
+                Queued::Attack {
+                    target: script_ncs::vm::ObjectId(chest.0),
+                    passive: false,
+                },
+            );
+        }
+        let mut ticks = 0;
+        let mut used = |world: &mut super::super::SimWorld, ms: u64, using: bool| {
+            let mut said = false;
+            for n in 0..ms / 100 {
+                ticks += 1;
+                let mut input = crate::TickInput::default();
+                if using && n == 0 {
+                    input.act(
+                        Seat(0),
+                        Action::Use {
+                            object: PANEL,
+                            verb: Verb::Use,
+                        },
+                    );
+                }
+                crate::step(world, ticks, &input, 100, crate::StepReason::Authority);
+                said |= (world.take_notices().into_iter())
+                    .any(|(_, notice)| notice == Notice::Said("used".into()));
+            }
+            said
+        };
+        let at_once = used(&mut world, 1000, true);
+        let waiting =
+            (world.world.resource::<Scripts>().state.actions.get(&who.0)).is_some_and(|queue| {
+                (queue.iter()).any(|q| matches!(q.action, Queued::UseObject { .. }))
+            });
+        // As a script's `ClearAllActions` on the player clears it.
+        world
+            .world
+            .resource_mut::<Scripts>()
+            .state
+            .actions
+            .remove(&who.0);
+        let after = used(&mut world, 2000, false);
+        Ok((at_once, waiting, after))
+    };
+    let (free, told) = (run(false)?, run(true)?);
+    let what = format!(
+        "(used in the first second, a use waiting, used after the queue was cleared): free {free:?}, attacking {told:?}"
+    );
+    if free.0 && !told.0 && told.1 && !told.2 {
+        Ok(what)
+    } else {
+        Err(what)
+    }
+}
+
 /// An object's state after `step`.
 fn state(snapshots: &[crate::Snapshot], step: usize, index: u32) -> Option<ObjectState> {
     snapshots
@@ -933,6 +1039,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             "player_strikes_from_where_it_talked",
             told_strike([-3.0, 3.5]),
         ),
+        ("use_waits_behind_attack", use_waits_behind_attack()),
         (
             "shots_bash",
             match by_hand(crate::combat::Sheet::dev_soldier(), 0).map(|gate| gate.damage) {

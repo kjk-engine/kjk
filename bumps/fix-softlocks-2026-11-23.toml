@@ -1,0 +1,3 @@
+# A player's use while a script has the player attacking waits in the
+# player's action queue behind the attack, as KOTOR queues a click.
+sim = "a use during a script's attack is queued behind it (`Action::UseObject`)"
