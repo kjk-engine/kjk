@@ -69,6 +69,48 @@ fn scale_for(metres: f32, side: usize) -> usize {
     }
     scale
 }
+/// The most bytes the graphics card's bake binds of one buffer: wgpu's
+/// largest storage binding on the RTX 4070 Ti SUPER that bakes the
+/// download, under 2 GiB.
+const BINDING_MOST: usize = 2_147_483_644;
+/// The bytes of one new texel in the bake's buffer of light (`field_a` and
+/// `field_b` in `gpu.rs`), and of one place in its buffers of places and of
+/// results.
+const FIELD_BYTES: usize = 16;
+const PLACE_BYTES: usize = 48;
+
+/// Lowers the scale of an area's largest lightmaps when its new texels do
+/// not fit one buffer of the graphics card (`BINDING_MOST`). The scale of
+/// every lightmap with the most new texels to a side is halved, again and
+/// again, until each new texel could be a place and the places would still
+/// fit one buffer. Lightmaps of one size keep one scale, so the walls of a
+/// room are not sharper on one lightmap than on the next. An area whose
+/// texels fit keeps every scale, so no other area's bake changes.
+/// The K1 Community Patch gives room m44ad_01a 16 lightmaps, 15 of them
+/// 1024 texels to a side. At `SCALE` they took 4.1 GB of new texels, and
+/// the bake failed (23 November 2026). Halved once, they would still be 62
+/// million texels, so they take one new texel to each stored texel.
+fn fit_field(area: &str, maps: &mut [Stored]) {
+    let texels = |maps: &[Stored]| -> usize { (maps.iter()).map(|map| map.width * map.height * map.scale * map.scale).sum() };
+    let before = texels(maps);
+    if before * FIELD_BYTES <= BINDING_MOST {
+        return;
+    }
+    let side = |map: &Stored| map.width.max(map.height) * map.scale;
+    while texels(maps) * PLACE_BYTES > BINDING_MOST {
+        let Some(longest) = maps.iter().filter(|map| map.scale > 1).map(side).max() else {
+            break;
+        };
+        for map in maps.iter_mut().filter(|map| map.scale > 1 && side(map) == longest) {
+            map.scale /= 2;
+        }
+    }
+    eprintln!(
+        "{area}: the lightmaps' {before} new texels do not fit one buffer of the graphics card, so the largest lightmaps take fewer, {} in all",
+        texels(maps)
+    );
+}
+
 /// How far outside its triangle (in new texels) a texel still belongs to
 /// it. The sampler reads the four texels around a point, so a point on a
 /// triangle's edge reads texels whose centres lie up to one texel outside.
@@ -937,6 +979,9 @@ fn texels(
         let (world, texels) = densities.get(map).copied().unwrap_or((0.0, 0.0));
         let metres = if texels > 0.0 { (world / texels).sqrt() } else { 0.0 };
         stored.scale = scale_for(metres, stored.width.max(stored.height));
+    }
+    fit_field(&area.resref, &mut maps);
+    for (map, stored) in maps.iter().enumerate() {
         claims[map] = vec![None; stored.width * stored.height * stored.scale * stored.scale];
     }
     for (map, corners, uv, normals) in pending {
