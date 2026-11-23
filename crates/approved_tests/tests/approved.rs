@@ -7547,6 +7547,42 @@ fn level_edit_new_map() {
 /// again; its model turned in a copy (`fmt_odyssey::mdl::turned`), on a
 /// model the test makes; a packed orientation that reads back; and the
 /// room's yaw kept by the map's file. No installs.
+/// A `--cmds` script's `edit` command keeps a part in double quotes as one
+/// word, spaces and all, and a `;` inside quotes does not end the
+/// command. A reply "Who are you?" used to come out as three replies.
+/// The parser's crate builds Bevy, so the test needs `--features rig`.
+#[cfg(feature = "rig")]
+#[test]
+fn console_edit_quoted_words() {
+    let script = r#"wait 2f; edit conversation tst replies line 2 "Who are you?" "Leave; now." ""; screenshot"#;
+    let commands = console::parse(script).unwrap();
+    assert_eq!(commands.len(), 3, "{commands:?}");
+    let words = [
+        "conversation",
+        "tst",
+        "replies",
+        "line",
+        "2",
+        "Who are you?",
+        "Leave; now.",
+        "",
+    ]
+    .map(String::from)
+    .to_vec();
+    assert_eq!(commands[1], console::Command::Edit(words));
+    // Shown as written, with the quotes back.
+    assert_eq!(
+        commands[1].to_string(),
+        r#"edit conversation tst replies line 2 "Who are you?" "Leave; now." """#
+    );
+    // A command with no quotes reads as before.
+    let plain = console::parse("edit select creature 0").unwrap();
+    assert_eq!(
+        plain[0],
+        console::Command::Edit(["select", "creature", "0"].map(String::from).to_vec())
+    );
+}
+
 #[test]
 fn level_edit_turned_rooms() {
     use fmt_odyssey::bwm::{AabbEntry, WalkFace, Walkmesh};

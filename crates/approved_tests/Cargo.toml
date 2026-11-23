@@ -13,6 +13,9 @@ asset_odyssey.workspace = true
 audio = { workspace = true, features = ["probes"] }
 bumps.workspace = true
 collision = { workspace = true, features = ["probes"] }
+# The `--cmds` script parser (`console::parse`), which builds Bevy: only
+# with `--features rig`.
+console = { workspace = true, optional = true }
 collision_odyssey = { workspace = true, features = ["probes"] }
 fmt_odyssey.workspace = true
 level_edit.workspace = true
@@ -38,7 +41,7 @@ edit = { workspace = true, features = ["probes"], optional = true }
 save_editor = { workspace = true, features = ["probes"], optional = true }
 
 [features]
-rig = ["dep:launcher", "dep:game"]
+rig = ["dep:launcher", "dep:game", "dep:console"]
 editor = ["dep:edit", "dep:save_editor"]
 
 [lints]

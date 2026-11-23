@@ -156,7 +156,20 @@ impl fmt::Display for Command {
             Command::Ui(words) => write!(f, "ui {}", words.join(" ")),
             Command::Vfx(words) => write!(f, "vfx {}", words.join(" ")),
             Command::Arena(words) => write!(f, "arena {}", words.join(" ")),
-            Command::Edit(words) => write!(f, "edit {}", words.join(" ")),
+            Command::Edit(words) => {
+                // A word with a space in it is shown in quotes, as it was
+                // written.
+                let shown: Vec<String> = (words.iter())
+                    .map(|word| {
+                        if word.is_empty() || word.contains(char::is_whitespace) {
+                            format!("\"{word}\"")
+                        } else {
+                            word.clone()
+                        }
+                    })
+                    .collect();
+                write!(f, "edit {}", shown.join(" "))
+            }
             Command::Video(Video {
                 name,
                 frames: Frames::Even { from, fps, count },
@@ -197,16 +210,69 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+/// A script's commands: its text cut at each `;` and each line's end that
+/// is not inside double quotes, so a conversation's line can hold a `;`.
+fn commands_of(script: &str) -> Vec<&str> {
+    let mut pieces = Vec::new();
+    let (mut start, mut quoted) = (0, false);
+    for (at, c) in script.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            ';' | '\n' if !quoted => {
+                pieces.push(&script[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    pieces.push(&script[start..]);
+    pieces
+        .into_iter()
+        .map(str::trim)
+        .filter(|piece| !piece.is_empty())
+        .collect()
+}
+
+/// An `edit` command's words. A part between double quotes is one word,
+/// spaces and all, as the level editor's agent link reads a line
+/// (`level_editor::agent`): `edit conversation NAME replies line 2 "Who
+/// are you?" "Leave me."` gives two replies, not five. `""` is an empty
+/// word.
+fn edit_words(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let (mut quoted, mut any) = (false, false);
+    for c in text.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                any = true;
+            }
+            c if c.is_whitespace() && !quoted => {
+                if any {
+                    words.push(std::mem::take(&mut word));
+                    any = false;
+                }
+            }
+            c => {
+                word.push(c);
+                any = true;
+            }
+        }
+    }
+    if any {
+        words.push(word);
+    }
+    words
+}
+
 /// Parses a whole script. Names default to a counter per verb so that two
 /// screenshots in one script never overwrite each other.
 pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
     let mut commands = Vec::new();
     let (mut screenshots, mut dumps, mut films) = (0, 0, 0);
-    let pieces = script
-        .split([';', '\n'])
-        .map(str::trim)
-        .filter(|piece| !piece.is_empty());
-    for (index, text) in pieces.enumerate() {
+    let pieces = commands_of(script);
+    for (index, text) in pieces.into_iter().enumerate() {
         let error = |reason: &str| ParseError {
             index: index + 1,
             text: text.to_string(),
@@ -301,7 +367,7 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                 Command::Arena(vec!["down".into(), n.to_string()])
             }
             ("edit", words) if !words.is_empty() => {
-                Command::Edit(words.iter().map(|word| word.to_string()).collect())
+                Command::Edit(edit_words(text["edit".len()..].trim_start()))
             }
             ("edit", _) => return Err(error("edit takes a command, e.g. edit select TAG")),
             ("arena", _) => {
