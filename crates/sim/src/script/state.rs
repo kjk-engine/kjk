@@ -1711,6 +1711,10 @@ fn encode_action(out: &mut Writer, action: &Action) {
             out.u8(BARK);
             out.u32(*strref);
         }
+        Action::Sound { resref } => {
+            out.u8(SOUND);
+            out.string(resref);
+        }
         Action::FollowOwner { range } => {
             out.u8(FOLLOW_OWNER);
             out.f32(*range);
@@ -1743,6 +1747,8 @@ const PAUSE: u8 = 58;
 const FOLLOW: u8 = 59;
 const PICK_UP: u8 = 60;
 const PUT_DOWN: u8 = 61;
+/// A queued `PlaySound`'s code in a save.
+const SOUND: u8 = 62;
 
 fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
     let at = input.at();
@@ -1833,6 +1839,9 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
         46 => Action::Surrender,
         BARK => Action::Bark {
             strref: input.u32()?,
+        },
+        SOUND => Action::Sound {
+            resref: input.string()?,
         },
         FOLLOW_OWNER => Action::FollowOwner {
             range: input.f32()?,

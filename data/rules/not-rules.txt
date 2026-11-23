@@ -736,6 +736,7 @@ crates/sim/src/script/engine.rs METAMAGIC  # a `last` kind id
 crates/sim/src/script/state.rs FOLLOW  # save tag
 crates/sim/src/script/state.rs PICK_UP  # save tag
 crates/sim/src/script/state.rs PUT_DOWN  # save tag
+crates/sim/src/script/state.rs SOUND  # save tag
 crates/sim/src/script/minigame.rs ANSWERED  # the minigames' routines' names, a list
 crates/sim/src/script/rare.rs NO_METAMAGIC  # the executables' metamagic byte before a cast
 crates/sim/src/script/rare.rs TABLE_SLOTS  # the party table's size

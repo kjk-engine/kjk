@@ -4342,10 +4342,21 @@ impl Engine<'_> {
                 });
                 Value::Int(0)
             }
-            // Heard at the caller by every player (`Notice::Sound`).
+            // Heard at the caller by every player (`Notice::Sound`), when
+            // its turn in the caller's queue comes, as TSL's executable
+            // queues it (`Action::Sound`). The module, the area and a dead
+            // character have no queue that runs, so theirs plays at once
+            // [verify a dead one's in the exes].
             PlaySound => {
-                let sound = crate::notice::Sound::new(caller.0, text(args, 0));
-                self.tell(None, Notice::Sound(sound))
+                let resref = text(args, 0);
+                let queues = view.thing(caller).is_some_and(|thing| !thing.dead());
+                if queues {
+                    let resref = resref.to_string();
+                    self.queue(caller, Action::Sound { resref })
+                } else {
+                    let sound = crate::notice::Sound::new(caller.0, resref);
+                    self.tell(None, Notice::Sound(sound))
+                }
             }
             SoundObjectGetVolume => Value::Int(
                 view.thing(object(args, 0))
