@@ -1522,10 +1522,10 @@ impl<'t> Spawner<'t> {
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
                     .culled(culled)
-                    .ranked(if surface == Surface::OpaqueAlpha {
+                    .ranked(if is_room && surface == Surface::OpaqueAlpha {
                         texture
                             .and_then(|name| self.irs.get(name))
-                            .map_or(0.0, |texture| 1.0 - texture.image_alpha_mean())
+                            .map_or(0.0, |texture| 1.0 - texture.sort_key().clamp(0.0, 1.0))
                     } else {
                         0.0
                     })

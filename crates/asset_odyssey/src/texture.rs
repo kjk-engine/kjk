@@ -33,6 +33,10 @@ pub struct TextureFacts {
     /// none`); KOTOR's TXI has no such word.
     pub two_sided: bool,
     pub alpha_mean: Option<f32>,
+    /// The number KOTOR's executable sorts its textures by (`sort_key`), as
+    /// `TextureIr::from_texture` works it out. `None` for a texture made by
+    /// hand, which sorts as 1.
+    pub sort_key: Option<f32>,
     /// `envmaptexture`, else `bumpyshinytexture` (xoreos reads both and the
     /// env map wins).
     pub envmap: Option<String>,
@@ -104,6 +108,7 @@ impl TextureFacts {
             decal,
             two_sided: false,
             alpha_mean: txi.number("alphamean"),
+            sort_key: None,
             envmap: name("envmaptexture").or_else(|| name("bumpyshinytexture")),
             bumpmap: name("bumpmaptexture"),
             odd_blending,
@@ -149,6 +154,33 @@ pub struct TextureIr {
     pub frame_mips: Vec<Vec<Vec<u8>>>,
 }
 
+/// The number KOTOR's executable sorts a texture by when it draws a room's
+/// meshes, the highest first. It is the TXI's `alphamean`, else the float in
+/// a TPC's header. A texture with neither, and stored uncompressed, gets the
+/// mean alpha of its pixels, 1 when they have no alpha. A compressed texture
+/// with neither gets 1.
+fn sort_key(texture: &Texture, txi_key: Option<f32>) -> f32 {
+    let usable = |key: f32| key.is_finite().then_some(key);
+    if let Some(key) = txi_key.and_then(usable) {
+        return key;
+    }
+    if let Some(key) = texture.header_key.and_then(usable) {
+        return key;
+    }
+    let level = texture.layers.first().and_then(|chain| chain.first());
+    match (texture.format, level) {
+        (PixelFormat::Rgba8, Some(level)) => {
+            let pixels = level.data.as_chunks::<4>().0;
+            if pixels.is_empty() {
+                return 1.0;
+            }
+            let sum: u64 = pixels.iter().map(|pixel| u64::from(pixel[3])).sum();
+            sum as f32 / (pixels.len() * 255) as f32
+        }
+        _ => 1.0,
+    }
+}
+
 impl TextureIr {
     /// Layer 0 of a parsed texture. `None` when a level does not decode.
     /// `loose_txi`, when given, replaces the texture's own TXI. Callers pass
@@ -166,7 +198,8 @@ impl TextureIr {
         let alpha = texture.has_alpha();
         let encoding = encoding(texture);
         let txi = loose_txi.unwrap_or(&texture.txi);
-        let facts = TextureFacts::from_txi(txi, alpha);
+        let mut facts = TextureFacts::from_txi(txi, alpha);
+        facts.sort_key = Some(sort_key(texture, facts.alpha_mean));
         let make_mips = !texture.mips_stored
             && encoding == Encoding::Rgba8
             && txi.number("mipmap") != Some(0.0);
@@ -233,25 +266,10 @@ impl TextureIr {
         })
     }
 
-    /// The mean alpha of its largest level, from 0 to 1. A texture with no
-    /// alpha at all is 1. KOTOR's executable draws its textures in the
-    /// order of this number, the ones with the least alpha last.
-    pub fn image_alpha_mean(&self) -> f32 {
-        let Some(level) = self.mips.first() else {
-            return 1.0;
-        };
-        match self.encoding {
-            Encoding::Bc1 | Encoding::Bc1Holes => 1.0,
-            Encoding::Bc3 => dxt::dxt5_alpha_mean(level),
-            Encoding::Rgba8 => {
-                let pixels = level.as_chunks::<4>().0;
-                if pixels.is_empty() {
-                    return 1.0;
-                }
-                let sum: u64 = pixels.iter().map(|pixel| u64::from(pixel[3])).sum();
-                sum as f32 / (pixels.len() * 255) as f32
-            }
-        }
+    /// The number KOTOR's executable draws its textures in the order of,
+    /// the highest first (`sort_key`).
+    pub fn sort_key(&self) -> f32 {
+        self.facts.sort_key.unwrap_or(1.0)
     }
 
     /// The same texture with its levels as RGBA8, for a GPU without BC

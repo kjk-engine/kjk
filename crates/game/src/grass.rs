@@ -209,7 +209,7 @@ impl Material for GrassMaterial {
     /// Sorted by the middle of its patch, nearer than a saber's blade in the
     /// grass, it drew over the blade (issue 193).
     fn depth_bias(&self) -> f32 {
-        crate::material::OPAQUE_FIRST + crate::material::RANK_STEP
+        crate::material::GRASS_AFTER_MESHES
     }
 
     /// Only the twins reach it: Bevy's prepass leaves the blended patches

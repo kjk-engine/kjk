@@ -1494,6 +1494,78 @@ pub fn cutout_probes() -> sim::probe::Checks {
     )]
 }
 
+/// The number a texture is sorted by (`TextureIr::sort_key`), as KOTOR's
+/// executable takes it. The TXI's `alphamean` comes first, the float in a
+/// TPC's header second. Only a texture stored uncompressed, with neither,
+/// gets the mean alpha of its pixels. A compressed texture with neither
+/// gets 1 (`kjk sim probes --only "texture sort key"`; proposed 2026-11-23).
+#[cfg(feature = "probes")]
+pub fn sort_key_probes() -> sim::probe::Checks {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::texture::{Mip, PixelFormat, Texture};
+    use fmt_odyssey::txi::Txi;
+
+    let key = |format: PixelFormat, data: Vec<u8>, txi: &str, header: Option<f32>| {
+        let texture = Texture {
+            format,
+            layers: vec![vec![Mip {
+                width: 4,
+                height: 4,
+                data,
+            }]],
+            cube: false,
+            txi: Txi::parse(txi.as_bytes()),
+            bottom_up: true,
+            missing_mips: 0,
+            declared_size: None,
+            mips_stored: true,
+            header_key: header,
+        };
+        TextureIr::from_texture(&texture, None).map(|ir| ir.sort_key())
+    };
+    let half: Vec<u8> = (0..16)
+        .flat_map(|texel| [10, 20, 30, if texel < 8 { 255 } else { 0 }])
+        .collect();
+    let is = |name, got: Option<f32>, want: f32| {
+        (
+            name,
+            sim::probe::check(got == Some(want), format!("{got:?}, expected {want}")),
+        )
+    };
+    vec![
+        is(
+            "the TXI's alphamean beats the header and the pixels",
+            key(
+                PixelFormat::Rgba8,
+                half.clone(),
+                "alphamean 0.25",
+                Some(0.75),
+            ),
+            0.25,
+        ),
+        is(
+            "the header's float comes second",
+            key(PixelFormat::Rgba8, half.clone(), "", Some(0.75)),
+            0.75,
+        ),
+        is(
+            "an uncompressed texture with neither averages its alpha",
+            key(PixelFormat::Rgba8, half, "", None),
+            0.5,
+        ),
+        is(
+            "an uncompressed texture without alpha is 1",
+            key(PixelFormat::Rgb8, vec![9; 48], "", None),
+            1.0,
+        ),
+        is(
+            "a compressed texture with neither is 1, not its alpha mean",
+            key(PixelFormat::Dxt5, vec![0; 16], "", None),
+            1.0,
+        ),
+    ]
+}
+
 #[cfg(feature = "probes")]
 fn prepass_reads_as_main() -> Result<String, String> {
     // Every read of the base texture in a shader, as written.
@@ -1526,6 +1598,9 @@ pub const OPAQUE_FIRST: f32 = -1.0e5;
 /// How far apart the ranks 0 and 1 of blended opaque surfaces sort
 /// (`OdysseyMaterial::rank`): more than any distance in view.
 pub const RANK_STEP: f32 = 1.0e4;
+/// `depth_bias` of the grass: after every blended opaque surface of a
+/// mesh, a rank of 1 or less.
+pub const GRASS_AFTER_MESHES: f32 = OPAQUE_FIRST + RANK_STEP;
 
 /// `depth_bias` of an emitter's particles: nearer than anything in view,
 /// so they are drawn after the meshes, as KOTOR draws its emitters after
