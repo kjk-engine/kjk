@@ -108,6 +108,13 @@ awaits approval. It checks that a mesh with a transparency hint above 1 is
 blended only when its texture has alpha, and that a skinned mesh keeps
 blending with the depth kept. It is not an approved test, and it runs only
 through `kjk sim probes`.
+The probe `story_restores_item_fields` of the group "save story" (issue 701)
+was proposed 2026-11-24 and awaits approval. It checks that a story restore
+keeps stacks that differ in upgrades or charges apart, keeps the plot,
+droppable, identified and non-equippable flags of an item, writes the same
+items when the restored world is written again, and gives an item of an old
+story, which has no flags, its template's values. It is not an approved
+test, and it runs only through `kjk sim probes --only "save story"`.
 `bink_decoder_parts` was approved 2026-11-23.
 `untextured_mesh_drawn` (issue 441) was proposed 2026-11-16 and awaits
 approval. `stance_sets_sim` was changed 2026-11-16 for issue 514, and the

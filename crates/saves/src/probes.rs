@@ -264,6 +264,10 @@ pub fn story_probes() -> sim::probe::Checks {
             "story_restores_own_items",
             restores_own_items(&level, &save),
         ),
+        (
+            "story_restores_item_fields",
+            restores_item_fields(&level, &save),
+        ),
         ("story_restores_twins_left", restores_twins_left(&save)),
         ("story_restores_twins_here", restores_twins_here(&save)),
     ];
@@ -733,6 +737,142 @@ fn restores_items_elsewhere(level: &sim::Level, save: &sim::Save) -> Result<Stri
     )
 }
 
+/// The party's pool holds stacks of one stackable item that differ in
+/// upgrades or in charges, and an item a script made a plot item: each
+/// comes back as it was.
+fn restores_item_fields(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    use sim::inventory::{Item, ItemFacts, PARTY};
+    let mut save = save.clone();
+    let item = |template: &str, stack: u16, charges: u8, upgrades: u32| Item {
+        template: template.into(),
+        holder: PARTY,
+        slot: None,
+        stack,
+        charges,
+        droppable: true,
+        plot: false,
+        identified: true,
+        infinite: false,
+        non_equippable: false,
+        upgrades,
+        fitted: Vec::new(),
+    };
+    let mut plot = item("fixture_plain", 1, 0, 0);
+    plot.plot = true;
+    let mut stolen = item("fixture_plain", 1, 0, 0);
+    (stolen.droppable, stolen.identified, stolen.non_equippable) = (false, false, true);
+    save.script
+        .items
+        .insert(9_501, item("fixture_grenade", 3, 5, 0));
+    save.script
+        .items
+        .insert(9_502, item("fixture_grenade", 2, 5, 1));
+    save.script
+        .items
+        .insert(9_503, item("fixture_medpac", 4, 5, 0));
+    save.script
+        .items
+        .insert(9_504, item("fixture_medpac", 2, 3, 0));
+    save.script.items.insert(9_505, plot);
+    save.script.items.insert(9_506, stolen);
+    let story = Story::of(&save, level);
+    let lookup = |template: &str| match template {
+        "fixture_grenade" | "fixture_medpac" => Some(ItemFacts {
+            stacking: 20,
+            charges: 5,
+            ..ItemFacts::plain(template)
+        }),
+        "fixture_plain" => Some(ItemFacts::plain(template)),
+        _ => None,
+    };
+    let (mut world, _) = story.restore(level, 1, &lookup)?;
+    let held = |template: &str| -> Vec<(u16, u8, u32, bool, bool, bool, bool)> {
+        let mut all: Vec<_> = world
+            .script_state()
+            .items
+            .held_by(PARTY)
+            .filter(|(_, item)| item.template == template)
+            .map(|(_, item)| {
+                (
+                    item.stack,
+                    item.charges,
+                    item.upgrades,
+                    item.plot,
+                    item.droppable,
+                    item.identified,
+                    item.non_equippable,
+                )
+            })
+            .collect();
+        all.sort();
+        all
+    };
+    let grenades = held("fixture_grenade");
+    let medpacs = held("fixture_medpac");
+    let plain = held("fixture_plain");
+    let detail = format!("grenades {grenades:?}; medpacs {medpacs:?}; plain {plain:?}");
+    check(
+        grenades.len() == 2
+            && medpacs.len() == 2
+            && plain.iter().any(|item| item.3)
+            && plain.iter().any(|item| !item.4 && !item.5 && item.6),
+        detail.clone(),
+    )?;
+    let again = sim::Save {
+        hz: sim::TICK_HZ,
+        level: level.id(),
+        snapshot: world.snapshot(),
+        script: world.script_state().clone(),
+        stances: world.stance_ids(),
+    };
+    let sorted = |story: &Story| {
+        let mut items = story.items.get("party").cloned().unwrap_or_else(Vec::new);
+        items.sort_by_key(|item| format!("{item:?}"));
+        items
+    };
+    let written = sorted(&Story::of(&again, level));
+    if written != sorted(&story) {
+        return Err(format!(
+            "written again, the party's items differ: {written:?} against {:?}",
+            sorted(&story)
+        ));
+    }
+    let mut old = story.clone();
+    for item in old.items.values_mut().flatten() {
+        item.plot = None;
+        item.droppable = None;
+        item.identified = None;
+        item.non_equippable = None;
+    }
+    let (world, _) = old.restore(level, 1, &|template: &str| {
+        Some(ItemFacts {
+            plot: true,
+            ..ItemFacts::plain(template)
+        })
+    })?;
+    let flags: Vec<_> = world
+        .script_state()
+        .items
+        .held_by(PARTY)
+        .filter(|(_, item)| item.template == "fixture_plain")
+        .map(|(_, item)| {
+            (
+                item.plot,
+                item.droppable,
+                item.identified,
+                item.non_equippable,
+            )
+        })
+        .collect();
+    check(
+        !flags.is_empty()
+            && flags
+                .iter()
+                .all(|flags| *flags == (true, true, true, false)),
+        format!("{detail}; a story without the flags gives {flags:?}"),
+    )
+}
+
 /// An item of the module's own (`own_template`) in the party's pool,
 /// named in the story by its template and, as a story from before such
 /// items were named for their module has it, by its bare resref: each
@@ -763,6 +903,10 @@ fn restores_own_items(level: &sim::Level, save: &sim::Save) -> Result<String, St
             .push(story::StoryItem {
                 template: name.into(),
                 stack: 1,
+                plot: Some(false),
+                droppable: Some(true),
+                identified: Some(true),
+                non_equippable: Some(false),
                 ..story::StoryItem::default()
             });
         let named = |detail: String| format!("{name}: {detail}");

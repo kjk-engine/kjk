@@ -146,6 +146,12 @@ pub struct StoryItem {
     /// upgrade items by template.
     pub upgrades: u32,
     pub fitted: Vec<String>,
+    /// The flags scripts may have changed. A story written before they were
+    /// kept has none, and the template's value stands.
+    pub plot: Option<bool>,
+    pub droppable: Option<bool>,
+    pub identified: Option<bool>,
+    pub non_equippable: Option<bool>,
 }
 
 /// The galaxy map's planets (`planetary.2da` rows).
@@ -571,6 +577,10 @@ fn held_items(
                     charges: item.charges,
                     upgrades: item.upgrades,
                     fitted: item.fitted.clone(),
+                    plot: Some(item.plot),
+                    droppable: Some(item.droppable),
+                    identified: Some(item.identified),
+                    non_equippable: Some(item.non_equippable),
                 })
                 .collect();
             (!items.is_empty()).then_some((label, items))

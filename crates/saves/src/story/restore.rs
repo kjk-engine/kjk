@@ -545,7 +545,7 @@ impl Restore<'_> {
             for item in items {
                 let made =
                     self.state
-                        .make_item(catalog, &item.template, holder, item.stack, item.slot);
+                        .restore_item(catalog, &item.template, holder, item.stack, item.slot);
                 let Some(made) = made else {
                     self.lost.push(format!(
                         "{label}: item {}, not among this module's items or the install's",
@@ -563,6 +563,10 @@ impl Restore<'_> {
                     kept.charges = item.charges;
                     kept.upgrades = item.upgrades;
                     kept.fitted = item.fitted.clone();
+                    kept.plot = item.plot.unwrap_or(kept.plot);
+                    kept.droppable = item.droppable.unwrap_or(kept.droppable);
+                    kept.identified = item.identified.unwrap_or(kept.identified);
+                    kept.non_equippable = item.non_equippable.unwrap_or(kept.non_equippable);
                 }
             }
         }

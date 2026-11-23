@@ -261,6 +261,21 @@ impl State {
         Some(joined.unwrap_or(rest))
     }
 
+    /// A new item of `template` as a save held it, never joining a stack,
+    /// as the original games add a saved item; none if the template is not
+    /// known. The caller sets the charges, upgrades and flags the save kept.
+    pub fn restore_item(
+        &mut self,
+        catalog: &Catalog,
+        template: &str,
+        holder: u32,
+        stack: u16,
+        slot: Option<u8>,
+    ) -> Option<ObjectId> {
+        let facts = self.item_facts(catalog, &key(template))?.clone();
+        Some(self.new_item(&facts, holder, stack.max(1), slot))
+    }
+
     /// One of `item`'s stack, as its own item where the stack is more than
     /// one (the rest left where it was, one fewer), else the item itself:
     /// what equipping wears, one of a stack, as `wear` takes one for a
