@@ -130,6 +130,12 @@ def main():
 
         def clashes(said):
             marks = ("both bring", "missing", "not the ones it brought", "two mods bring a quest")
+            # A mod built on a machine that has another mod installed (a
+            # community patch) lists that mod's files as what it was built
+            # on. The stand-in has no other mod, so kjk says those files are
+            # missing. That is true of the stand-in, and no clash of the two
+            # mods.
+            said = [line for line in said if "was built on another mod" not in line]
             return [line for line in said if any(mark in line for mark in marks)]
 
         def walk():
