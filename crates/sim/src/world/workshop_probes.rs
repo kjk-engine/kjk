@@ -624,6 +624,7 @@ fn assembled(world: &mut SimWorld, me: u32) -> Checks {
     ));
     checks.extend(stacks_upgraded(world));
     checks.extend(lone_unscoped(&mut self::world()));
+    checks.extend(plot_pistol_unscoped(&mut self::world()));
     checks
 }
 
@@ -735,5 +736,50 @@ fn lone_unscoped(world: &mut SimWorld) -> Checks {
     vec![(
         "a lone scoped pistol unscoped: joins the plain pistol in one stack",
         check(now == [(2, vec![])], format!("{now:?}")),
+    )]
+}
+
+/// A scoped pistol that is a plot item loses its scope next to a plain
+/// pistol: the two stay apart, as the games refuse to stack items whose
+/// plot flags differ, and a pistol made afterwards joins the plain one.
+fn plot_pistol_unscoped(world: &mut SimWorld) -> Checks {
+    let scoped = give(world, "survivor", PARTY, None);
+    let scope = give(world, "scope", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::In {
+                upgrade: scope,
+                replace: None,
+            }],
+        }],
+    );
+    let mut state = world.script_state().clone();
+    if let Some(mut held) = state.items.get_mut(&scoped) {
+        held.plot = true;
+    }
+    world.set_script_state(state);
+    give(world, "survivor", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::Out(0)],
+        }],
+    );
+    give(world, "survivor", PARTY, None);
+    let now = survivors(world);
+    let plot = world
+        .script_state()
+        .items
+        .get(&scoped)
+        .is_some_and(|held| held.plot && held.stack == 1);
+    vec![(
+        "a plot pistol unscoped: stays its own stack beside the plain pistols, plot kept",
+        check(
+            now == [(1, vec![]), (2, vec![])] && plot,
+            format!("{now:?}, plot {plot}"),
+        ),
     )]
 }

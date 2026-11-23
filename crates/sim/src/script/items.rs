@@ -41,24 +41,42 @@ pub fn is_item(id: ObjectId) -> bool {
 }
 
 /// Whether `item` is a stack that `holder` carries and that an item of
-/// `template` with these upgrades may join (not one that never runs out).
-/// As both games compare two items before stacking them, the upgrades
-/// must match too: K1's rows fitted and TSL's upgrade items by slot.
-fn joinable(item: &Item, (template, upgrades, fitted): Kind, holder: u32) -> bool {
+/// `kind` may join (not one that never runs out). As both games compare
+/// two items before stacking them (`Kind`), the upgrades must match too:
+/// K1's rows fitted and TSL's upgrade items by slot.
+fn joinable(item: &Item, kind: Kind, holder: u32) -> bool {
     item.holder == holder
         && item.slot.is_none()
         && !item.infinite
-        && item.template == template
-        && item.upgrades == upgrades
-        && in_slots(&item.fitted) == in_slots(fitted)
+        && item.template == kind.template
+        && item.upgrades == kind.upgrades
+        && in_slots(&item.fitted) == in_slots(kind.fitted)
+        && item.plot == kind.plot
+        && item.charges == kind.charges
 }
 
-/// What makes items stack: template, K1's upgrades, TSL's fitted parts.
-type Kind<'a> = (&'a str, u32, &'a [String]);
+/// What makes items stack, as both games compare two items: the template,
+/// K1's upgrades, TSL's fitted parts, the plot flag and the charges. The
+/// games also compare an item's tag, name and stolen flag, which an item
+/// here has no copy of.
+#[derive(Clone, Copy)]
+struct Kind<'a> {
+    template: &'a str,
+    upgrades: u32,
+    fitted: &'a [String],
+    plot: bool,
+    charges: u8,
+}
 
 /// `item`'s kind (`Kind`).
 fn kind_of(item: &Item) -> Kind<'_> {
-    (&item.template, item.upgrades, &item.fitted)
+    Kind {
+        template: &item.template,
+        upgrades: item.upgrades,
+        fitted: &item.fitted,
+        plot: item.plot,
+        charges: item.charges,
+    }
 }
 
 /// TSL's slots up to the last one filled: a slot emptied on the bench
@@ -215,7 +233,13 @@ impl State {
         let mut left = stack.max(1);
         let mut joined = None;
         if slot.is_none() && facts.stacking > 1 {
-            let new = (facts.template.as_str(), 0, facts.parts.as_slice());
+            let new = Kind {
+                template: facts.template.as_str(),
+                upgrades: 0,
+                fitted: facts.parts.as_slice(),
+                plot: facts.plot,
+                charges: facts.charges,
+            };
             let stacks: Vec<u32> = self
                 .items
                 .held_by(holder)
@@ -817,7 +841,7 @@ impl State {
     /// 2's bench puts every edited item back with a merge. TSL's item (one
     /// with slots) is off its wearer while on TSL's bench: back on after
     /// only if `wearer`, who wore it, may wear it as it now is (its feats,
-    /// its limits), else it stays with the party.
+    /// its limits), else it goes back to the party with a merge too.
     pub(crate) fn assemble(
         &mut self,
         catalog: &Catalog,
@@ -854,6 +878,7 @@ impl State {
                 && properties::may_wear(&now.limits, wearer).is_ok();
             if !wears {
                 self.carry(out, ObjectId(item), PARTY);
+                self.add_to(catalog, item, PARTY);
             }
         }
         Ok(())
