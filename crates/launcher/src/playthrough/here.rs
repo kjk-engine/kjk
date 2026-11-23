@@ -1285,7 +1285,14 @@ pub(super) fn hostiles(
 }
 
 /// The foes a `fight` goal may take, out of `foes`. A foe within the goal's
-/// own `radius` of `me` may be taken. A foe farther off may be taken only if
+/// own `radius` of the player, or of where the player stood when the fight
+/// began (`around`, both places), may be taken. The second place keeps a foe
+/// in the fight when the chase of nearer foes leads the player away from it.
+/// In Dxun's camp four Sith assassins stood 60 m north of where `fight 80`
+/// began. The chase went 35 m south first, and from there they were 93 m
+/// off. The fight ended without them, and the camp's script, which waits for
+/// the last assassin to fall, never sent the party to Iziz. A foe farther
+/// off than both places may be taken only if
 /// it keeps the party in combat (`keeping`, the `keepers` the player can get
 /// at), as a player goes across the area to help a companion. A fight's reach
 /// grows to the nearest such foe, but the beasts that stand between are not
@@ -1295,12 +1302,12 @@ pub(super) fn hostiles(
 /// into the zakkeg's trigger, whose scene the route needs later.
 pub(super) fn fight_foes(
     foes: Vec<(sim::SimId, [f32; 3])>,
-    me: [f32; 3],
+    around: [[f32; 3]; 2],
     radius: f32,
     keeping: &[sim::SimId],
 ) -> Vec<(sim::SimId, [f32; 3])> {
     foes.into_iter()
-        .filter(|(id, at)| flat(*at, me) <= radius || keeping.contains(id))
+        .filter(|(id, at)| around.iter().any(|place| flat(*at, *place) <= radius) || keeping.contains(id))
         .collect()
 }
 

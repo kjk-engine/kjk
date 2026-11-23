@@ -872,6 +872,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut foe_hp: BTreeMap<sim::SimId, i32> = BTreeMap::new();
                 let mut quiet_since: Option<u64> = None;
                 let mut fought = false;
+                // Where the player stood when a `fight` began. The goal's
+                // radius is measured from there as well as from the player.
+                let mut fight_from: Option<[f32; 3]> = None;
                 // An exit's foes fought until none is in reach: then out
                 // (how many doors had stayed shut by then).
                 let mut fought_out: Option<usize> = None;
@@ -2488,7 +2491,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             }
                         }
                         Goal::Fight(radius) => {
-                            let reach_m = stretched(*radius);
+                            let from = *fight_from.get_or_insert(me.position);
+                            let reach_m = stretched(*radius).max(*radius + flat(from, me.position));
                             // The foe fought, else the nearest, the player can
                             // get at (`Reach::gettable`, `Chase::pick`), never
                             // one behind a locked door, nor one standing in a
@@ -2506,7 +2510,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             // the party in combat (`fight_foes`).
                             let keeping: Vec<sim::SimId> = at_hand.iter().map(|keeper| keeper.id).collect();
                             let foes =
-                                fight_foes(hostiles(&here, &world, me.position, reach_m), me.position, *radius, &keeping);
+                                fight_foes(hostiles(&here, &world, me.position, reach_m), [me.position, from], *radius, &keeping);
                             let foe = chase.pick(me.position, foes, |foe| {
                                 !in_way_out(foe.1)
                                     && !chase.given_up(&here, &player, foe.0)
@@ -2624,7 +2628,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         }
                     }
                     let near_m = match goal {
-                        Goal::Fight(radius) => stretched(*radius),
+                        Goal::Fight(radius) => {
+                            let from = fight_from.unwrap_or(me.position);
+                            stretched(*radius).max(*radius + flat(from, me.position))
+                        }
                         _ if fight_first => stretched(EXIT_FIGHT_M),
                         _ => BLOCKER_M,
                     };

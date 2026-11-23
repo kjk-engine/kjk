@@ -185,6 +185,8 @@ mod sim_worker;
 pub mod skeleton;
 mod skin_once;
 mod solo;
+#[cfg(feature = "probes")]
+pub use solo::reload_probes as solo_reload_probes;
 pub mod sound;
 mod speed_blur;
 pub mod stage;

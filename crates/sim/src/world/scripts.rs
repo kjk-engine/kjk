@@ -1425,7 +1425,14 @@ pub(super) fn scripts(
         // (Davik, held at 1 HP by his script, waits for the event that sees
         // him there; the blow taking him from 2 to 1 came inside the wait,
         // and none after can take more).
-        let owed = hp < was.hp && was.alive;
+        // A death effect (`EffectDeath`) raises no damaged event: TSL's
+        // death effect signals only the death [verify in K1's exe].
+        // Malachor's Sion, killed so by his last talk's `a_sion`, would
+        // otherwise run his damaged event at 1 HP or less (`k_sion_ud`)
+        // and start the talk again from his body.
+        let death_effect =
+            i64::from(was.hp) - i64::from(hp) >= i64::from(crate::combat::damage::DEATH_BLOW);
+        let owed = hp < was.hp && was.alive && !death_effect;
         let due = damaged_at.is_none_or(|at| now >= at + DAMAGED_EVERY_MS);
         if owed && due {
             damaged_at = Some(now);
@@ -1904,11 +1911,21 @@ fn door_speaks(view: &View, state: &mut State, changes: &[Change], doors: &[(Obj
 /// run all the same, for a script's attack lasts to the end of its round
 /// (`Action::Attack`): a conversation's owner told to spar while its line
 /// pauses (Garrum on Tar'eelok, a mod's `dan13_cort`) ends its attack, and
-/// the resume queued behind it comes.
+/// the resume queued behind it comes. A round a scene's blow began
+/// (`CutsceneAttack`, `script::last::SCENE_ROUND`) ends with no event
+/// either, as TSL's executable ends a cutscene round with no end-of-round
+/// script and no attack of its own queued [verify in K1's exe]: the
+/// Handmaiden, sparring in TSLRCM's `atthand` with blows the scene
+/// scripts, would otherwise turn her own AI on Atton as he stands by, and
+/// Kreia, hearing him shout, would come and kill her.
 fn rounds(view: &View, state: &mut State, life: &Life) {
     let id = life.id;
     if !(life.creature && life.alive && life.in_combat) {
-        state.rounds.remove(&id.0);
+        // A scene's blow is given before its giver is in combat (the blow
+        // lands half a round on): its mark goes only with a fight that was.
+        if state.rounds.remove(&id.0).is_some() {
+            state.last.remove(&(id.0, crate::script::last::SCENE_ROUND));
+        }
         return;
     }
     let now = view.now_ms;
@@ -1916,9 +1933,10 @@ fn rounds(view: &View, state: &mut State, life: &Life) {
     if now >= *next {
         *next = now + ROUND_MS;
         let talking = state.talk.with(id, view.host(&state.party)).is_some();
+        let scene = (state.last).contains_key(&(id.0, crate::script::last::SCENE_ROUND));
         // A character in a grapple finisher decides nothing until it is let
         // go: its AI would change its weapon or use a talent in the hold.
-        if !talking && !life.grappled {
+        if !talking && !scene && !life.grappled {
             raise(view, state, id, Hook::EndRound, None);
         }
     }
@@ -2184,14 +2202,14 @@ impl SimWorld {
         // that died in place keeps its dying clip, so it still lies as the
         // clip left it when the party comes back. Without the clip the views
         // drop it as a ragdoll again (the krayt dragon's body fell through
-        // the dunes).
+        // the dunes). A loop played until stopped loops on as well
+        // (`Acting::outlives_a_clear`).
         for mut fighting in self
             .world
             .query::<&mut Fighting>()
             .iter_mut(&mut self.world)
         {
-            let dying = |acting: Acting| acting.animation == crate::combat::death::DIE;
-            if !fighting.0.acting.is_some_and(dying) {
+            if !fighting.0.acting.is_some_and(Acting::outlives_a_clear) {
                 fighting.0.acting = None;
             }
             // The new area makes its bodies afresh: a script's lit saber

@@ -82,6 +82,7 @@ const PROBES: &[Probe] = &[
     ("talk_end_clears_video", talk_end_clears_video),
     ("load_clears_video", load_clears_video),
     ("load_plays_music_as_placed", load_plays_music_as_placed),
+    ("load_fades_in", load_fades_in),
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
@@ -124,6 +125,7 @@ const PROBES: &[Probe] = &[
     ("wait_voice_holds", wait_voice_holds),
     ("wait_fade_holds", wait_fade_holds),
     ("next_node_clears_fade", next_node_clears_fade),
+    ("empty_talk_lifts_held_fade", empty_talk_lifts_held_fade),
     ("wait_camera_clip_holds", wait_camera_clip_holds),
     ("cut_clip_outlasts_voice", cut_clip_outlasts_voice),
     ("carried_camera_clip_holds", carried_camera_clip_holds),
@@ -142,6 +144,7 @@ const PROBES: &[Probe] = &[
     ("long_animation_once", long_animation_once),
     ("loop_ends_on_walk", loop_ends_on_walk),
     ("looping_row_plays_on", looping_row_plays_on),
+    ("loop_outlives_a_clear", loop_outlives_a_clear),
     ("wait_for_gestures", wait_for_gestures),
     ("walks_at_kotor_speed", walks_at_kotor_speed),
     (
@@ -3247,6 +3250,29 @@ fn load_plays_music_as_placed() -> Found {
     )
 }
 
+/// A loaded game's area fades in (`Save::world`). A save made on a black
+/// screen, the module's fade in held for a conversation that never came,
+/// loads showing the area within `LIFT_MS` (issue 645).
+fn load_fades_in() -> Found {
+    use crate::snapshot::{Fade, LIFT_MS, WorldFadeIn};
+    let mut ground = Ground::new(1)?;
+    {
+        let mut module = ground.world.world.resource_mut::<super::super::Module>();
+        module.fade = Some(Fade::level_load(ground.last.time_ms));
+        module.world_fade_in = WorldFadeIn::AtDialog;
+    }
+    ground.idle(u64::from(LIFT_MS));
+    let covered = |last: &Snapshot| last.fade.map_or(0.0, |fade| fade.alpha(last.time_ms));
+    let before = covered(&ground.last);
+    let mut loaded = ground.reloaded()?;
+    loaded.idle(u64::from(LIFT_MS));
+    let after = (covered(&loaded.last), loaded.last.world_fade_in);
+    check(
+        before == 1.0 && after == (0.0, WorldFadeIn::Done),
+        format!("covered {before} before the load, {after:?} after it"),
+    )
+}
+
 /// A loaded game shows no video effect (`Save::world`): one a script enabled
 /// outside any conversation stays on while the run goes on, as Peragus's
 /// security cameras have it, and is gone once a save of that moment loads.
@@ -4388,6 +4414,45 @@ fn next_node_clears_fade() -> Found {
     check(got == [0.0, 1.0], format!("covered {got:?}"))
 }
 
+/// S5: a conversation with no entry to start from still lets go of the
+/// module's fade in held for a conversation (`HoldWorldFadeInForDialog`),
+/// and the area fades in, as both games do. The Ebon Hawk's vision talk
+/// after the last Star Map is such a conversation (issue 645). Without the
+/// hold, the covering fade stays.
+fn empty_talk_lifts_held_fade() -> Found {
+    use crate::snapshot::{Fade, LIFT_MS, WorldFadeIn};
+    let covered_after = |held: bool| {
+        let mut talk = crate::script::dialogue_probes::talking(2, "");
+        talk.starts.clear();
+        let mut ground = Ground::staged(
+            1,
+            Stage {
+                talk,
+                ..Stage::default()
+            },
+        )?;
+        {
+            let mut module = ground.world.world.resource_mut::<super::super::Module>();
+            module.fade = Some(Fade::level_load(ground.last.time_ms));
+            module.world_fade_in = if held {
+                WorldFadeIn::AtDialog
+            } else {
+                WorldFadeIn::Done
+            };
+        }
+        ground.run_script("probe_begin", TALKER)?;
+        ground.idle(u64::from(LIFT_MS));
+        let last = &ground.last;
+        let fade = last.fade.ok_or("no fade")?;
+        Ok::<_, String>((fade.alpha(last.time_ms), last.world_fade_in))
+    };
+    let got = [covered_after(true)?, covered_after(false)?];
+    check(
+        got == [(0.0, WorldFadeIn::Done), (1.0, WorldFadeIn::Done)],
+        format!("covered after the conversation {got:?}"),
+    )
+}
+
 /// S5: wait flag 1 holds a line for its camera model's clip, its own timer
 /// still counted, as the K1 and TSL executables end a line once its timer
 /// and every flagged wait are done: "Hi." (337 ms by its text) with a 2 s
@@ -4797,6 +4862,39 @@ fn looping_row_plays_on() -> Found {
             played.walk,
             played.ended
         ),
+    )
+}
+
+/// S7: a looping animation played on at once outlives a `ClearAllActions`
+/// on its body, as TSL's executable leaves the body in the animation while
+/// it empties the queue. The talker talks on from 1 s, its queue is cleared
+/// at 1.5 s, and it still talks on at 2.5 s. 3CFD, Peragus's broken droid,
+/// lies slumped so (`k_def_repairsp`) after every conversation's end clears
+/// its actions.
+fn loop_outlives_a_clear() -> Found {
+    let stage = Stage {
+        clips: [((0, TALK), TALK_MS)].into(),
+        ..Stage::default()
+    };
+    let mut ground = Ground::staged(1, stage)?;
+    ground.run_script("probe_talk_on", TALKER)?;
+    let talker = ground.object(TALKER)?;
+    let acting = |ground: &Ground| ground.entity(talker).and_then(|e| e.fighter?.acting);
+    for _ in 0..steps(1500) {
+        ground.step();
+    }
+    let before = acting(&ground);
+    ground.run_script("probe_clear", TALKER)?;
+    for _ in 0..steps(1000) {
+        ground.step();
+    }
+    let after = acting(&ground);
+    let looping = |acting: Option<Acting>| {
+        acting.is_some_and(|acting| acting.animation == TALK && acting.ms == u32::MAX)
+    };
+    check(
+        looping(before) && looping(after),
+        format!("before the clear {before:?}, 1 s after it {after:?}"),
     )
 }
 

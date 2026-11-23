@@ -122,6 +122,8 @@ effect EffectWhirlWind();
 effect EffectStunned();
 // 26
 int GetIsLinkImmune(object oTarget, effect eEffect);
+// 27
+void CutsceneAttack(object oTarget, int nAnimation, int nAttackResult, int nDamage);
 "#;
 
 fn call(routine: u16, args: u8) -> Op {
@@ -297,8 +299,21 @@ fn links() -> Ncs {
     asm.build()
 }
 
-/// `probe_impact` (`CAST_ROW`'s impact) and `probe_end_round` (the
-/// target's end-of-round script): tokens 30 and 31 set to 1.
+/// `probe_scene_attack`: its caller's scene blow at the other creature
+/// (`CutsceneAttack`, a miss of no animation).
+fn scene_attacks() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(int(0)).op(int(0)).op(int(0));
+    asm.op(int(0))
+        .op(Op::Const(Const::String(OTHER.as_bytes().to_vec())))
+        .op(call(2, 2));
+    asm.op(call(27, 4)).op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_impact` (`CAST_ROW`'s impact), `probe_end_round` (the target's
+/// end-of-round script) and `probe_damaged` (its damaged script): tokens
+/// 30, 31 and 32 set to 1.
 fn marks(n: i32) -> Ncs {
     let mut asm = Asm::default();
     token(&mut asm, n, &[int(1)]);
@@ -320,7 +335,10 @@ fn world(sheet: Sheet) -> Result<(SimWorld, SimId, SimId, SimId), String> {
                 sheet: Some(if target { sheet } else { Sheet::dev_soldier() }),
                 faction: 0,
                 scripts: if target {
-                    vec![("ScriptEndRound".into(), "probe_end_round".into())]
+                    vec![
+                        ("ScriptEndRound".into(), "probe_end_round".into()),
+                        ("ScriptDamaged".into(), "probe_damaged".into()),
+                    ]
                 } else {
                     Vec::new()
                 },
@@ -357,6 +375,8 @@ fn world(sheet: Sheet) -> Result<(SimWorld, SimId, SimId, SimId), String> {
             ("probe_link", links()),
             ("probe_impact", marks(30)),
             ("probe_end_round", marks(31)),
+            ("probe_damaged", marks(32)),
+            ("probe_scene_attack", scene_attacks()),
         ],
         Talents {
             spells,
@@ -537,7 +557,80 @@ pub fn probes() -> Checks {
         ("effect_icon", effect_icon()),
         ("recast_after_end", recast_after_end()),
         ("damage_taken", damage_taken()),
+        ("scene_round_unheard", scene_round_unheard()),
+        ("death_effect_not_damage", death_effect_not_damage()),
     ]
+}
+
+/// The target in a fight for the next minute.
+fn fighting(world: &mut SimWorld, who: SimId) {
+    let until = world.snapshot().time_ms + 60_000;
+    alter(world, who, |fighter| fighter.combat_until = until);
+}
+
+/// A round a scene's blow began ends with no end-of-round script, as TSL's
+/// executable's end of a cutscene round runs none (TSLRCM's Handmaiden,
+/// sparring with blows `atthand` scripts, turned her own AI on Atton):
+/// the target, in a fight, gives a `CutsceneAttack` and hears no end of its
+/// rounds over 7 s; its own attack after makes them its AI's again, and
+/// their end is heard.
+fn scene_round_unheard() -> Result<String, String> {
+    let (mut world, _, target, other) = world(soldier(&[]))?;
+    fighting(&mut world, target);
+    script(&mut world, |state| {
+        let caller = ObjectId(target.0);
+        state
+            .pending
+            .push(Pending::new("probe_scene_attack", caller));
+    });
+    let scene = tokens(&wait(&mut world, 7000), 31..=31);
+    script(&mut world, |state| {
+        let own = Action::Attack {
+            target: ObjectId(other.0),
+            passive: false,
+        };
+        state.actions.insert(
+            target.0,
+            vec![crate::script::actions::Queued {
+                action: own,
+                started_ms: None,
+            }],
+        );
+    });
+    fighting(&mut world, target);
+    let own = tokens(&wait(&mut world, 7000), 31..=31);
+    check(
+        scene == ["-"] && own == ["1"],
+        format!("end-of-round token after the scene's blow {scene:?}, after its own {own:?}"),
+    )
+}
+
+/// A death effect raises no damaged event: TSL's executable's death effect
+/// signals the death alone (Malachor's Sion, killed so by `a_sion`, would
+/// run his damaged script and start his last talk again from his body).
+/// The target, killed by `EffectDeath`, is dead and its damaged token unset.
+fn death_effect_not_damage() -> Result<String, String> {
+    let (mut world, player, target, _) = world(soldier(&[]))?;
+    script(&mut world, |state| {
+        state.applied.push(Applied {
+            target: ObjectId(target.0),
+            by: ObjectId(player.0),
+            effect: Effect::Death,
+            until: None,
+            spell: 0,
+            id: 0,
+            at: None,
+            save: None,
+            laid: false,
+        });
+    });
+    wait(&mut world, 1000);
+    let dead = fighter(&mut world, target).is_some_and(|f| !f.alive());
+    let damaged = tokens(&world.snapshot(), 32..=32);
+    check(
+        dead && damaged == ["-"],
+        format!("dead {dead}; damaged token {damaged:?}"),
+    )
 }
 
 /// The options' damage multipliers (`damage::Taken`). Three hits of 10 HP

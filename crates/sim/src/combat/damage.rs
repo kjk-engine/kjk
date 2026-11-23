@@ -604,6 +604,11 @@ fn weapon_attack(
     }
 }
 
+/// What a death effect (`EffectDeath`, `Source::Death`) takes, in
+/// hundredths of an HP: more than any body has, so it always kills. No
+/// damage roll comes near it, so an HP loss this large was a death effect's.
+pub const DEATH_BLOW: i32 = i32::MAX;
+
 /// The pace factor for an attack of `cadence_ms`, in thousandths (C2).
 pub fn pace(cadence_ms: u32) -> i64 {
     PACE * i64::from(cadence_ms) * 1000 / ROUND_MS as i64
@@ -687,7 +692,7 @@ pub fn assess(
             guarded = hurt == 0 && damage > 0;
             (hurt * 100, false)
         }
-        Source::Death => (i64::from(i32::MAX), false),
+        Source::Death => (i64::from(DEATH_BLOW), false),
         Source::Blast { row } => match grenades::effect(row) {
             Some(effect) => {
                 damage_type = Some(effect.damage_type);

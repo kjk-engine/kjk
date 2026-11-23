@@ -534,6 +534,7 @@ crates/sim/src/script/engine.rs POWER_LANDED  # a `last` kind id
 crates/sim/src/script/engine.rs PUPPETS_FACTION  # script constant: STANDARD_FACTION_PARTYPUPPET
 crates/sim/src/script/engine.rs REGARDS  # script constants: REPUTATION_TYPE_* names
 crates/sim/src/script/engine.rs SAVES  # script constants: SAVING_THROW_* names
+crates/sim/src/script/engine.rs SCENE_ROUND  # a `last` kind id
 crates/sim/src/script/engine.rs SHAPE  # iterator kind id
 crates/sim/src/script/engine.rs SPEAKER  # a `last` kind id
 crates/sim/src/script/engine.rs SPELL  # a `last` kind id

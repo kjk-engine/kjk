@@ -364,6 +364,11 @@ pub mod last {
     pub const DAMAGE_DEALT: u8 = 36;
     /// Its last cast's metamagic (`GetMetaMagicFeat`).
     pub const METAMAGIC: u8 = 37;
+    /// Set (1) while its rounds are a scene's: its last attack was a
+    /// script's `CutsceneAttack`, and no attack or talent of its own has
+    /// begun since. Such a round ends with no `OnEndCombatRound`
+    /// (`world::scripts::rounds`).
+    pub const SCENE_ROUND: u8 = 38;
 }
 
 /// The listen pattern number `who`'s last dialogue event matched, kept on
@@ -1764,7 +1769,8 @@ impl Engine<'_> {
 
     /// `ClearAllActions` on `who` (unless it is not commandable): its queue
     /// cleared, and what it plays stops too, even a clip that outlasts its
-    /// queued time.
+    /// queued time. A loop played on until stopped is kept
+    /// (`Acting::outlives_a_clear`).
     fn clear_all(&mut self, who: ObjectId) {
         if !self.state.uncommandable.contains(&who.0) {
             clear_queue(self.state, self.view, who);
@@ -3085,6 +3091,7 @@ impl Engine<'_> {
                         .map(|strike| strike.due_ms)
                         .max();
                     let begins = swung_back.filter(|_| animation != 0).unwrap_or(now);
+                    self.state.last.insert((caller.0, last::SCENE_ROUND), 1);
                     self.queue(
                         caller,
                         Action::Attack {
@@ -4606,6 +4613,15 @@ impl Engine<'_> {
                     }),
                     (_, None) => None,
                 };
+                // TSL's executable puts the companion it spawns in the
+                // player's faction, whether or not it joins the party. Its
+                // template's own faction would make it an enemy of Friendly
+                // 2: Onderon's Tobin, revived by a Kreia `a_end_game` made,
+                // fought her through `506kreia` [verify in K1's exe].
+                if let Some(who) = spawned {
+                    let faction = crate::combat::sheet::factions::PLAYER;
+                    self.out.changes.push(Change::Faction { who, faction });
+                }
                 Value::Object(spawned.unwrap_or(ObjectId::INVALID))
             }
             // The party table keeps the companion as it stands now.
