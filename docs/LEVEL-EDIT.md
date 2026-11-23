@@ -136,6 +136,13 @@ room placed anywhere else is copied: its model under the name
 moved (`level_edit::map`). The editor makes the copies in memory as rooms
 are placed, so the view and its collision show the map as it is.
 
+A room placed more than once in a map gets lightmaps of its own in each
+copy after the first. Each such lightmap is a copy of the room's own,
+named `lm` and 14 letters and digits. A bake writes one picture for each
+lightmap, so without this every copy of the room showed the light baked
+for one of them. The first copy keeps the room's own lightmaps, so a
+bake kept before stays right for it.
+
 Saving a new map writes, besides the files of every project, its
 `kjk-map.toml` (its title, base, rooms and entry), its area's `.are`, and
 its module, `modules/<name>.mod`: `module.ifo`, the area's layout and

@@ -320,6 +320,16 @@ impl NewMap {
         set(&mut self.are.root, "Rooms", GffValue::List(rooms));
     }
 
+    /// Whether the map's room `index` is not the first of the map to place
+    /// its model. Its copy then gets lightmaps of its own (`room_copy`),
+    /// so a bake lights each copy where it stands.
+    pub fn own_light(&self, index: usize) -> bool {
+        let Some(room) = self.rooms.get(index) else {
+            return false;
+        };
+        (self.rooms[..index].iter()).any(|before| before.model.eq_ignore_ascii_case(&room.model))
+    }
+
     /// The area's layout: each room's copy at its position.
     pub fn layout(&self, module: &str) -> Layout {
         Layout {
@@ -450,7 +460,7 @@ impl NewMap {
                 continue;
             }
             let name = room_name(module, index);
-            for (resref, restype, bytes) in room_copy(room, &name, read)? {
+            for (resref, restype, bytes) in room_copy(room, &name, self.own_light(index), read)? {
                 files.push((resref, restype, bytes));
             }
         }
@@ -458,17 +468,62 @@ impl NewMap {
     }
 }
 
+/// The name of the copy `name`'s own lightmap in place of `lightmap`
+/// (`room_copy`): `lm` and 14 letters and digits of a digest of the two.
+pub fn own_lightmap(name: &str, lightmap: &str) -> String {
+    let key = format!(
+        "{}#{}",
+        name.to_ascii_lowercase(),
+        lightmap.to_ascii_lowercase()
+    );
+    let digest = blake3::hash(key.as_bytes()).to_hex();
+    format!("lm{}", &digest[..14])
+}
+
 /// The copy of `room` named `name`: its model renamed, its model's MDX as
 /// it is, and its walkmesh moved to where the map places the room.
+///
+/// With `own_light`, the copy's meshes name lightmaps of its own
+/// (`own_lightmap`), each a copy of the room's lightmap with its TXI, if
+/// it has one. A room placed twice in one map would otherwise share its
+/// lightmaps between its two places. A bake writes one picture for each
+/// lightmap, so the second place showed the first one's light
+/// (`NewMap::own_light`).
 pub fn room_copy(
     room: &Room,
     name: &str,
+    own_light: bool,
     read: &dyn Fn(&str, ResType) -> Option<Vec<u8>>,
 ) -> Result<Vec<(String, ResType, Vec<u8>)>, String> {
     let mdl = read(&room.model, ResType::MDL)
         .ok_or_else(|| format!("the room {} has no model in the install", room.model))?;
     let mdl = fmt_odyssey::mdl::renamed(&mdl, name)
         .map_err(|error| format!("{}.mdl: {error}", room.model))?;
+    let mut lights = Vec::new();
+    let mdl = if own_light {
+        let (relit, names) =
+            fmt_odyssey::mdl::relit(&mdl, &|lightmap| Some(own_lightmap(name, lightmap)))
+                .map_err(|error| format!("{}.mdl: {error}", room.model))?;
+        for lightmap in names {
+            let own = own_lightmap(name, &lightmap);
+            let picture = [ResType::TPC, ResType::TGA]
+                .into_iter()
+                .find_map(|restype| Some((restype, read(&lightmap, restype)?)))
+                .ok_or_else(|| {
+                    format!(
+                        "the room {} has no lightmap {lightmap} in the install",
+                        room.model
+                    )
+                })?;
+            lights.push((own.clone(), picture.0, picture.1));
+            if let Some(txi) = read(&lightmap, ResType::TXI) {
+                lights.push((own, ResType::TXI, txi));
+            }
+        }
+        relit
+    } else {
+        mdl
+    };
     let mdl = if room.yaw == 0.0 {
         mdl
     } else {
@@ -488,6 +543,7 @@ pub fn room_copy(
             room.placed(&walkmesh).write(),
         ));
     }
+    files.extend(lights);
     Ok(files)
 }
 

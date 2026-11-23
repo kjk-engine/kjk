@@ -1081,6 +1081,70 @@ pub fn renamed(mdl: &[u8], name: &str) -> Result<Vec<u8>, FormatError> {
     Ok(copy)
 }
 
+/// A copy of the model file `mdl` whose meshes name other lightmaps:
+/// each mesh's lightmap that `rename` gives a new name for takes that
+/// name. A room placed twice in one map gets lightmaps of its own in its
+/// second copy, so a bake lights each copy where it stands. Gives the copy
+/// and every lightmap name the model had. Every node under the root is
+/// visited once. Refused when a node or a name lies outside the file, or
+/// a new name does not fit.
+pub fn relit(
+    mdl: &[u8],
+    rename: &dyn Fn(&str) -> Option<String>,
+) -> Result<(Vec<u8>, Vec<String>), FormatError> {
+    const LIGHTMAP: usize = NODE_HEADER + 120;
+    let mut copy = mdl.to_vec();
+    let get = |copy: &[u8], at: usize| -> Result<u32, FormatError> {
+        copy.get(DATA + at..DATA + at + 4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("4 bytes")))
+            .ok_or(truncated(DATA + at + 4, copy.len()))
+    };
+    let mut names = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut nodes = vec![get(&copy, 40)? as usize];
+    while let Some(at) = nodes.pop() {
+        if !seen.insert(at) {
+            continue;
+        }
+        let flags = (copy.get(DATA + at..DATA + at + 2))
+            .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+            .ok_or(truncated(DATA + at + 2, copy.len()))?;
+        if flags & FLAG_MESH != 0 {
+            let field = DATA + at + LIGHTMAP;
+            let len = copy.len();
+            let bytes = copy
+                .get_mut(field..field + 32)
+                .ok_or(truncated(field + 32, len))?;
+            let end = bytes.iter().position(|&byte| byte == 0).unwrap_or(32);
+            let name = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+            if !name.is_empty() && !fmt_is_null(&name) {
+                if let Some(new) = rename(&name) {
+                    if new.len() >= 32 || !new.is_ascii() {
+                        return Err(unsupported(format!(
+                            "{new:?} does not fit a lightmap's name"
+                        )));
+                    }
+                    bytes.fill(0);
+                    bytes[..new.len()].copy_from_slice(new.as_bytes());
+                }
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        let (children, count) = (get(&copy, at + 44)? as usize, get(&copy, at + 48)? as usize);
+        for child in 0..count {
+            nodes.push(get(&copy, children + child * 4)? as usize);
+        }
+    }
+    Ok((copy, names))
+}
+
+/// Whether a texture name is the games' word for none.
+fn fmt_is_null(name: &str) -> bool {
+    name.eq_ignore_ascii_case("null")
+}
+
 /// A packed orientation word (`unpack_quaternion`) of a unit quaternion
 /// (x, y, z, w). The word keeps no sign for w, which it reads as negative
 /// or zero, so a quaternion with w above zero is packed as its negative,

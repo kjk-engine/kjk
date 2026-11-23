@@ -382,7 +382,7 @@ pub fn place_copies(game: Game, module: &str, map: &NewMap) -> Vec<String> {
             continue;
         }
         let name = level_edit::map::room_name(module, index);
-        if let Err(why) = put_copy(game, room, &name, &read) {
+        if let Err(why) = put_copy(game, room, &name, map.own_light(index), &read) {
             notes.push(why);
         }
     }
@@ -395,9 +395,10 @@ fn put_copy(
     game: Game,
     room: &level_edit::map::Room,
     name: &str,
+    own_light: bool,
     read: &dyn Fn(&str, ResType) -> Option<Vec<u8>>,
 ) -> Result<(), String> {
-    for (resref, restype, bytes) in level_edit::map::room_copy(room, name, read)? {
+    for (resref, restype, bytes) in level_edit::map::room_copy(room, name, own_light, read)? {
         vfs::made::put(game, &resref, restype, bytes);
     }
     Ok(())
@@ -441,11 +442,14 @@ pub fn make_mods(discovery: &Discovery, active: &level_edit::active::Active) -> 
                 }
             }
         }
-        for (copy, room) in &map.rooms {
+        for (at, (copy, room)) in map.rooms.iter().enumerate() {
             if (room.ja.as_ref()).is_some_and(|ja| failed.contains(ja.level.as_str())) {
                 continue;
             }
-            if let Err(why) = put_copy(game, room, copy, &read) {
+            // A room placed again gets lightmaps of its own, as the
+            // editor gave it (`NewMap::own_light`).
+            let own_light = (map.rooms[..at].iter()).any(|(_, before)| before.model == room.model);
+            if let Err(why) = put_copy(game, room, copy, own_light, &read) {
                 notes.push(format!("the map {}: {why}", map.module));
             }
         }

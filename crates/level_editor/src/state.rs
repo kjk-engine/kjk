@@ -227,7 +227,7 @@ fn measure_rooms(scene: &LoadedScene) -> Vec<RoomMeasure> {
 
 /// The rooms' copies by their name, their model, and how far they moved
 /// and turned (each as bits).
-type MadeRooms = BTreeMap<(String, String, [u32; 4]), Vec<(String, ResType, Vec<u8>)>>;
+type MadeRooms = BTreeMap<(String, String, [u32; 4], bool), Vec<(String, ResType, Vec<u8>)>>;
 
 /// What a scene's drawing placed for each thing the project holds.
 #[derive(Default)]
@@ -751,15 +751,18 @@ impl EditorState {
         for (index, room) in rooms.iter().enumerate() {
             let name = level_edit::map::room_name(&module, index);
             let by: [f32; 3] = std::array::from_fn(|axis| room.position[axis] - room.from[axis]);
+            // A room placed again gets lightmaps of its own.
+            let own_light = map.own_light(index);
             let key = (
                 name.clone(),
                 room.model.clone(),
                 [by[0], by[1], by[2], room.yaw].map(f32::to_bits),
+                own_light,
             );
             if !self.made_rooms.contains_key(&key) {
                 let resolver = &self.setup.resolver;
                 let read = |name: &str, restype: ResType| resolver.read(name, restype);
-                match level_edit::map::room_copy(room, &name, &read) {
+                match level_edit::map::room_copy(room, &name, own_light, &read) {
                     Ok(made) => {
                         self.made_rooms.insert(key.clone(), made);
                     }
