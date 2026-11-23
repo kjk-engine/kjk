@@ -2322,6 +2322,7 @@ fn behaviour(
     {
         blocks_panel(ui, state, target, &event);
     }
+    crate::links::section(ui, state, (kind, index));
     if matches!(kind, Kind::Door | Kind::Trigger) {
         leads_to(ui, state, (kind, index));
     }
@@ -3772,14 +3773,20 @@ fn condition_checks(state: &EditorState, script: &str) -> String {
     }
 }
 
+/// What a row of the conversation's tree is read from: the conversation,
+/// what a node says, and the tags of the level's objects a script names.
+type TalkRead<'a> = (
+    &'a fmt_odyssey::dlg::Dlg,
+    &'a dyn Fn(&fmt_odyssey::dlg::Node) -> String,
+    &'a dyn Fn(&str) -> std::sync::Arc<Vec<String>>,
+);
+
 /// One node of the tree drawn: its row, clicked to select it, and below
-/// it, foldable, the nodes it leads to.
+/// it, foldable, the nodes it leads to. `names` gives the tags of the
+/// level's objects that a script names (`links::script_names`).
 fn draw_talk_node(
     ui: &mut egui::Ui,
-    (dlg, said): (
-        &fmt_odyssey::dlg::Dlg,
-        &dyn Fn(&fmt_odyssey::dlg::Node) -> String,
-    ),
+    (dlg, said, names): TalkRead,
     node: &TalkNode,
     (depth, selected): (
         usize,
@@ -3834,7 +3841,17 @@ fn draw_talk_node(
         label.push_str(&format!("  [if {}]", node.condition));
     }
     if !node.again && !found.script.script.is_empty() {
-        label.push_str(&format!("  [runs {}]", found.script.script));
+        // The objects of the level the script acts on, where it names any.
+        let named = names(&found.script.script);
+        if named.is_empty() {
+            label.push_str(&format!("  [runs {}]", found.script.script));
+        } else {
+            label.push_str(&format!(
+                "  [runs {}, which names {}]",
+                found.script.script,
+                named.join(", ")
+            ));
+        }
     }
     let colour = if node.side == Side::Entry {
         egui::Color32::from_rgb(235, 190, 140)
@@ -3866,7 +3883,7 @@ fn draw_talk_node(
         .show_header(ui, |ui| row(ui, select))
         .body(|ui| {
             for child in &node.children {
-                draw_talk_node(ui, (dlg, said), child, (depth + 1, selected), select);
+                draw_talk_node(ui, (dlg, said, names), child, (depth + 1, selected), select);
             }
         });
 }
@@ -4068,7 +4085,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                             })
                             .body(|ui| {
                                 ui.label(egui::RichText::new(format!("\"{first}\"")).small().weak());
-                                draw_talk_node(ui, (&dlg, &line_text), opening, (0, selected), &mut select);
+                                draw_talk_node(ui, (&dlg, &line_text, &|script| crate::links::script_names(state, script)), opening, (0, selected), &mut select);
                             });
                     }
                     if !lost.is_empty() {
@@ -4076,7 +4093,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                             .id_salt("talk lost")
                             .show(ui, |ui| {
                                 for node in &lost {
-                                    draw_talk_node(ui, (&dlg, &line_text), node, (1, selected), &mut select);
+                                    draw_talk_node(ui, (&dlg, &line_text, &|script| crate::links::script_names(state, script)), node, (1, selected), &mut select);
                                 }
                             });
                     }
@@ -5758,6 +5775,8 @@ fn viewport(
                 .icons
                 .get_or_insert_with(|| crate::markers::Icons::new(ctx));
             let shown = crate::markers::layout(state, camera, eye);
+            // Under the markers, so each line ends at a marker's edge.
+            crate::links::in_view(&painter, state, camera, eye);
             crate::markers::draw(&painter, icons, &shown, state.editor.selected);
             labels(&painter, state, camera, eye);
             reach_in_view(&painter, state, camera, eye);

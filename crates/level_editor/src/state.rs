@@ -380,6 +380,9 @@ pub struct EditorState {
     /// What the game's other levels have that this one does not, looked
     /// for when it is first asked for.
     elsewhere: std::sync::OnceLock<crate::elsewhere::Elsewhere>,
+    /// The links between the level's objects that their scripts make
+    /// (`links::table`), found again after a change.
+    pub(crate) links: std::sync::Mutex<crate::links::Kept>,
     /// The game's items, creatures and conversations by name, for the
     /// search-and-pick fields (`choose`), read when first asked for.
     pub(crate) names: crate::choose::Names,
@@ -515,6 +518,7 @@ impl EditorState {
             refused: None,
             install_templates: Default::default(),
             elsewhere: Default::default(),
+            links: Default::default(),
             names: Default::default(),
             keys: crate::keys::Keys::standard(),
             audit_job: None,
@@ -5963,6 +5967,7 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
                 "facing": facing,
                 "editable": EDITABLE.contains(&kind),
                 "behaviour": behaviour,
+                "links": crate::links::described(state, kind, index),
             })
         }
         Target::Prop(at) => {

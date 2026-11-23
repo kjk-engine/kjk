@@ -14,6 +14,7 @@ mod file;
 mod ja_rooms;
 mod keys;
 mod lamps;
+mod links;
 mod markers;
 mod picker;
 mod recover;

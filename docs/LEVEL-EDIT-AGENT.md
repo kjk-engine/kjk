@@ -60,7 +60,16 @@ changed. It holds these fields:
   the scripts it runs, every event it has (`events`, set or not), the
   numbers the editor changes of it (`numbers`: a door's lock, a
   creature's faction and attributes), and for a placeable whether it can
-  be used and the items it holds.
+  be used and the items it holds. `links` holds the objects of the level
+  that the object's scripts act on, and the objects whose scripts act on
+  it. `links.names` lists each object that a script of this object names
+  by its tag. `links.named_by` lists each object that has a script naming
+  this object. Each entry gives the other `object` as `select` takes it
+  (`creature 10`), its `tag`, where the script hangs (`at`: an event, or
+  a line or reply of the object's conversation) and the `script`. The
+  links are read from the compiled scripts, so send `script compile` or
+  `save` after `script text` before reading them. A script that finds
+  its objects without a tag shows no link.
 - `camera` is where the view stands in the game's space (`at`, in
   metres), the way it looks (`yaw` and `pitch`, in degrees), and the
   `camera` command that puts it back there.

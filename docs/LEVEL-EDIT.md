@@ -942,6 +942,61 @@ is. Editing a script of blocks by hand drops its header, and the editor
 then shows it as a script written by hand. `level_edit::blocks` does the
 work.
 
+### What an object's scripts name
+
+An object acts on another object through a script. A terminal's
+conversation runs a script, and the script finds the turrets by their
+tag. Nothing else ties the terminal to the turrets: the level's object
+list does not say that the one acts on the others. The editor reads the
+links out of the compiled scripts and shows them.
+
+A link runs from an object that runs a script to an object that the
+script names by its tag. The editor looks through every script an object
+runs: the script of each of its events, and the scripts of its
+conversation. A conversation's scripts are the script of each line and
+each reply, each condition, and the two scripts run as it ends. The
+editor takes every text a compiled script holds, and finds the objects of
+the level that carry that text as their tag. Tags are compared without
+case, as the games compare them.
+
+The links show in four places.
+
+- **The details panel.** Under the selected object's behaviour, **Linked
+  objects** lists the objects its scripts name, and the objects whose
+  scripts name it. Each row gives the other object's tag, its kind and
+  its number, and then where the script hangs and the script's name, such
+  as "the conversation kjd1_infoterm, reply 0 runs kjk_hoth_turrets". A
+  click on a row selects that object. Each list shows 12 rows at most and
+  says how many more there are.
+- **The view.** A line joins the selected object to each linked object,
+  and a ring stands round the other object's marker. A blue line with an
+  arrow at the far end leads to an object that the selected object's
+  scripts name. An orange line with an arrow at the selected object comes
+  from an object whose scripts name it. The lines are drawn as far as the
+  level reaches, also to an object too far away for its marker to show.
+- **The conversation window.** A row whose script names objects of the
+  level says so after the script: "runs kjk_hoth_turrets, which names
+  G_TURRETBL005, G_TURRETBL006".
+- **The agent link.** An object's details hold the same lists under
+  `links` (`docs/LEVEL-EDIT-AGENT.md`).
+
+The links are found again after every change of the project and after
+every compiling of its scripts. They are read from the compiled scripts,
+so a script that was written and not compiled yet shows the links of its
+last compiling.
+
+Three kinds of script show no link.
+
+- A script that finds its objects without a tag, such as one that goes
+  through every creature of the area.
+- A script that puts a tag together from parts as it runs.
+- A script that another script starts. Only the scripts an object runs
+  itself are read.
+
+A script that names its own object's tag makes no link from the object
+to itself. `level_edit::links` finds the links, and the editor's `links`
+shows them.
+
 ## Doors and the ways between levels
 
 The asset picker's Doors tab places doors from the install's door
@@ -1253,8 +1308,9 @@ may pick (blue), and each reply leads to the next line. Every line with
 lines under it can be folded. A line shown already above is not opened
 again; the tree says where it goes on instead. A reply with no text is
 shown as Continue, as the games show it. Each row shows the line's
-condition and the script it runs. Lines no opening reaches are listed at
-the end.
+condition and the script it runs. A script that names objects of the
+level is followed by their tags ("What an object's scripts name"). Lines
+no opening reaches are listed at the end.
 
 A line clicked in the tree is changed on the right:
 

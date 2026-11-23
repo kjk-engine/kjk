@@ -32,6 +32,7 @@ pub mod lamps;
 pub mod levels;
 pub mod lighting;
 pub mod lights;
+pub mod links;
 pub mod map;
 pub mod mods;
 pub mod nav;
