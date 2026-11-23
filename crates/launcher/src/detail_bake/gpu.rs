@@ -78,8 +78,8 @@ const BOUNCE_RINGS: i64 = 4;
 const ROOM_LEAST: f32 = 0.8;
 const ROOM_MOST: f32 = 2.0;
 /// The mean stored level `b` aims at over the whole area: the live look's
-/// mean on the Endar Spire, measured on 18 November 2026. It is a number,
-/// so `b` reads nothing of the stored lightmaps.
+/// mean on the Endar Spire, measured on 18 November 2026. It is one fixed
+/// number, not read from the stored lightmaps.
 const B_MEAN: f32 = 0.484;
 /// `b`'s stored level is eased above `B_KNEE`, and reaches `B_KNEE +
 /// B_OVER` at the most (`eased_level`).
@@ -1469,7 +1469,10 @@ pub(super) fn bake_lights(
     let shown_a: Vec<Vec3> = (0..count)
         .map(|i| stored_level(base[i] + added[i] * rooms_a.scale[points[i].map]))
         .collect();
-    // `b`: the lamps alone. It reads nothing of the stored lightmaps' texels.
+    // `b`: the lamps alone. No texel of the stored lightmaps is copied into
+    // it. Each room's scale still takes one number from them: the room's
+    // target level comes from its stored level, and with `--weigh` each
+    // texel counts in that level by its stored brightness (`lit_weights`).
     let lamps_alone: Vec<Vec3> = (0..count).map(|i| direct_light[i] + bounce_b[i]).collect();
     let nothing = vec![Vec3::ZERO; count];
     // `written_b` is what set `b` holds on disk, and `fills_b` is how much
