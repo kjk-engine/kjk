@@ -25,6 +25,22 @@ use level_edit::Target;
 
 use crate::state::{self, EditorState};
 
+/// The variable that turns the link on as the editor starts (`1`), or
+/// turns it on with a folder of its own (any other name, `Link::folder`).
+pub const VAR: &str = "KJK_EDITOR_LINK";
+
+/// What an editor this one starts is given as `VAR`, so its link is as
+/// this one's is: on with the same folder (`on`), or off (`None`). A link
+/// ticked in the toolbar would otherwise end when the editor starts again
+/// to open another level.
+pub fn carried(on: bool) -> Option<String> {
+    on.then(|| {
+        (std::env::var(VAR).ok())
+            .filter(|name| !name.is_empty() && name != "0")
+            .unwrap_or_else(|| "1".to_string())
+    })
+}
+
 /// How often the link writes the state and reads the inbox.
 const EVERY: Duration = Duration::from_millis(250);
 
@@ -152,6 +168,9 @@ pub struct Link {
     /// The command of the open batch that was refused: the commands after
     /// it are skipped until the batch ends.
     stopped: Option<String>,
+    /// A command turned the link off (`ui link off`): the window drops it
+    /// once this turn's answers are written.
+    pub(crate) off: bool,
 }
 
 /// A line's words. A part between double quotes is one word, spaces and
@@ -190,7 +209,7 @@ impl Link {
     /// digits, `-` and `_`) has `editor-link-NAME`, so two editors open at
     /// once each have a folder of their own.
     pub fn folder() -> Option<PathBuf> {
-        let named = std::env::var("KJK_EDITOR_LINK").ok().filter(|name| {
+        let named = std::env::var(VAR).ok().filter(|name| {
             !name.is_empty()
                 && name != "1"
                 && name.len() <= 32
@@ -218,6 +237,7 @@ impl Link {
             answered: 0,
             batch: None,
             stopped: None,
+            off: false,
         })
     }
 
@@ -226,6 +246,7 @@ impl Link {
     pub fn tick(
         &mut self,
         state: &mut EditorState,
+        ui: &mut crate::ui::UiState,
         cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
         camera_request: &mut console::CameraRequest,
     ) {
@@ -233,13 +254,14 @@ impl Link {
             return;
         }
         self.last = Instant::now();
-        self.run_inbox(state, cameras, camera_request);
+        self.run_inbox(state, ui, cameras, camera_request);
         self.write_state(state, cameras);
     }
 
     fn run_inbox(
         &mut self,
         state: &mut EditorState,
+        ui: &mut crate::ui::UiState,
         cameras: &Query<(&Camera, &GlobalTransform), With<FlyCamera>>,
         camera_request: &mut console::CameraRequest,
     ) {
@@ -440,13 +462,24 @@ impl Link {
                     }
                     _ => "pick takes a point of the view in pixels: X Y".to_string(),
                 },
-                // The window's own state, as `--cmds` hands it over: the
-                // panels take it on the next frame, and say so among the
-                // messages when the words are none of theirs.
+                // The window's own state, set at once, so the answer says
+                // whether the words were the window's. Refused words stop
+                // their batch as a refused edit does.
                 ["ui", rest @ ..] if !rest.is_empty() => {
-                    let words = rest.iter().map(|word| (*word).to_string()).collect();
-                    state.pending_ui.push(words);
-                    "ok".to_string()
+                    match crate::ui::ui_command(state, ui, rest) {
+                        Ok(()) => {
+                            if rest == ["link", "off"] {
+                                self.off = true;
+                            }
+                            "ok".to_string()
+                        }
+                        Err(why) => {
+                            if self.batch.is_some() {
+                                self.stopped = Some(line.to_string());
+                            }
+                            why
+                        }
+                    }
                 }
                 words => {
                     state.answer = None;

@@ -231,6 +231,13 @@ pub struct UiState {
     read_round: u32,
 }
 
+impl UiState {
+    /// Whether the agent link is on.
+    pub(crate) fn link_on(&self) -> bool {
+        self.link.is_some()
+    }
+}
+
 /// The script viewer's tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ViewTab {
@@ -295,7 +302,7 @@ impl Default for UiState {
             spawning: None,
             placing_link: None,
             boxing: None,
-            link: std::env::var("KJK_EDITOR_LINK")
+            link: std::env::var(crate::agent::VAR)
                 // `1` turns it on. Any other name turns it on with a
                 // folder of that name (`agent::Link::folder`).
                 .is_ok_and(|on| !on.is_empty() && on != "0")
@@ -863,6 +870,113 @@ fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3], snapping: bool) {
     }
 }
 
+/// `edit ui ...`: the window's own state set by words, from `--cmds` and
+/// the agent link. Words that are none of the window's, or that do not
+/// read, are refused with the reason.
+pub(crate) fn ui_command(
+    state: &mut EditorState,
+    ui: &mut UiState,
+    words: &[&str],
+) -> Result<(), String> {
+    match words {
+        ["tool", "select"] => ui.tool = Tool::Select,
+        ["tool", "move"] => ui.tool = Tool::Move,
+        ["tool", "rotate"] => ui.tool = Tool::Rotate,
+        ["tool", "scale"] => ui.tool = Tool::Scale,
+        ["tool", "measure"] => {
+            ui.tool = Tool::Measure;
+            ui.measure.clear();
+        }
+        ["tab", "rooms"] => ui.tab = Tab::Rooms,
+        ["tab", "placeables"] => ui.tab = Tab::Placeables,
+        ["tab", "creatures"] => ui.tab = Tab::Creatures,
+        ["tab", "doors"] => ui.tab = Tab::Doors,
+        ["tab", "props"] => ui.tab = Tab::Props,
+        ["tab", "shapes"] => ui.tab = Tab::Shapes,
+        ["tab", "waypoints"] => ui.tab = Tab::Waypoints,
+        ["tab", "triggers"] => ui.tab = Tab::Triggers,
+        ["tab", "sounds"] => ui.tab = Tab::Sounds,
+        ["tab", "stores"] => ui.tab = Tab::Stores,
+        ["tab", "encounters"] => ui.tab = Tab::Encounters,
+        ["tab", "lights"] => ui.tab = Tab::Lights,
+        ["tab", "lamps"] => ui.tab = Tab::Lamps,
+        ["levels", on @ ("on" | "off")] => state.show_levels = *on == "on",
+        ["search", rest @ ..] => ui.asset_search = rest.join(" "),
+        ["elsewhere", on @ ("on" | "off")] => ui.assets_elsewhere = *on == "on",
+        ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
+        ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
+        ["blocks", event] => {
+            ui.blocks_event = state
+                .editor
+                .selected
+                .map(|target| (target, event.to_string()));
+        }
+        ["blocks"] => ui.blocks_event = None,
+        ["adventure"] => ui.adventure_open = true,
+        ["adventure", "off"] => ui.adventure_open = false,
+        ["conversation"] => ui.dialog_open = None,
+        ["conversation", name] => {
+            ui.dialog_open = Some(name.to_ascii_lowercase());
+            ui.dialog_selected = None;
+        }
+        ["conversation", "select", side, n] => {
+            let side = if *side == "reply" {
+                level_edit::dialog::Side::Reply
+            } else {
+                level_edit::dialog::Side::Entry
+            };
+            let n = (n.parse::<usize>()).map_err(|_| format!("{n}: a line's number"))?;
+            ui.dialog_selected = Some((side, n, None));
+        }
+        ["link", "off"] => ui.link = None,
+        ["link", "on"] => {
+            let link = crate::agent::Link::open()
+                .map_err(|why| format!("the agent link did not open: {why}"))?;
+            ui.link = Some(link);
+        }
+        ["debug", n] => {
+            let n = (n.parse::<usize>()).map_err(|_| format!("{n}: a stop's number"))?;
+            ui.debug_at = n.saturating_sub(1);
+        }
+        ["break", script, line] => {
+            let line = (line.parse::<u32>()).map_err(|_| format!("{line}: a line's number"))?;
+            let marks = ui
+                .breakpoints
+                .entry(script.to_ascii_lowercase())
+                .or_default();
+            if !marks.remove(&line) {
+                marks.insert(line);
+            }
+        }
+        ["way_in", module] => ui.way_in_module = Some(module.to_ascii_lowercase()),
+        ["way_in", module, arrival] => {
+            ui.way_in_module = Some(module.to_ascii_lowercase());
+            ui.way_in_arrival = arrival.to_string();
+        }
+        ["view"] => ui.viewing = None,
+        ["view", script] => ui.viewing = Some(script.to_ascii_lowercase()),
+        ["view", "window", on @ ("on" | "off")] => ui.viewer_window = *on == "on",
+        ["view", "tab", tab] => {
+            ui.view_tab = match *tab {
+                "summary" => ViewTab::Summary,
+                "listing" => ViewTab::Listing,
+                "try" => ViewTab::Try,
+                "debug" => ViewTab::Debug,
+                _ => ViewTab::Source,
+            }
+        }
+        words => {
+            return crate::file::command(state, &mut ui.file, words).unwrap_or_else(|| {
+                Err(format!(
+                    "edit ui {}: takes tool, tab, search, elsewhere, find, snap, levels, view, way_in, blocks, adventure, conversation, debug, break, link, file, quit or confirm",
+                    words.join(" ")
+                ))
+            });
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn panels(
     mut contexts: EguiContexts,
@@ -887,109 +1001,8 @@ fn panels(
     }
     for words in std::mem::take(&mut state.pending_ui) {
         let words: Vec<&str> = words.iter().map(String::as_str).collect();
-        match words.as_slice() {
-            ["tool", "select"] => ui.tool = Tool::Select,
-            ["tool", "move"] => ui.tool = Tool::Move,
-            ["tool", "rotate"] => ui.tool = Tool::Rotate,
-            ["tool", "scale"] => ui.tool = Tool::Scale,
-            ["tool", "measure"] => {
-                ui.tool = Tool::Measure;
-                ui.measure.clear();
-            }
-            ["tab", "rooms"] => ui.tab = Tab::Rooms,
-            ["tab", "placeables"] => ui.tab = Tab::Placeables,
-            ["tab", "creatures"] => ui.tab = Tab::Creatures,
-            ["tab", "doors"] => ui.tab = Tab::Doors,
-            ["tab", "props"] => ui.tab = Tab::Props,
-            ["tab", "shapes"] => ui.tab = Tab::Shapes,
-            ["tab", "waypoints"] => ui.tab = Tab::Waypoints,
-            ["tab", "triggers"] => ui.tab = Tab::Triggers,
-            ["tab", "sounds"] => ui.tab = Tab::Sounds,
-            ["tab", "stores"] => ui.tab = Tab::Stores,
-            ["tab", "encounters"] => ui.tab = Tab::Encounters,
-            ["tab", "lights"] => ui.tab = Tab::Lights,
-            ["tab", "lamps"] => ui.tab = Tab::Lamps,
-            ["levels", on @ ("on" | "off")] => state.show_levels = *on == "on",
-            ["search", rest @ ..] => ui.asset_search = rest.join(" "),
-            ["elsewhere", on @ ("on" | "off")] => ui.assets_elsewhere = *on == "on",
-            ["find", rest @ ..] => ui.outliner_search = rest.join(" "),
-            ["snap", on @ ("on" | "off")] => ui.snapping = *on == "on",
-            ["blocks", event] => {
-                ui.blocks_event = state
-                    .editor
-                    .selected
-                    .map(|target| (target, event.to_string()));
-            }
-            ["blocks"] => ui.blocks_event = None,
-            ["adventure"] => ui.adventure_open = true,
-            ["adventure", "off"] => ui.adventure_open = false,
-            ["conversation"] => ui.dialog_open = None,
-            ["conversation", name] => {
-                ui.dialog_open = Some(name.to_ascii_lowercase());
-                ui.dialog_selected = None;
-            }
-            ["conversation", "select", side, n] => {
-                let side = if *side == "reply" {
-                    level_edit::dialog::Side::Reply
-                } else {
-                    level_edit::dialog::Side::Entry
-                };
-                if let Ok(n) = n.parse::<usize>() {
-                    ui.dialog_selected = Some((side, n, None));
-                }
-            }
-            ["link", on @ ("on" | "off")] => {
-                ui.link = (*on == "on")
-                    .then(crate::agent::Link::open)
-                    .and_then(|opened| match opened {
-                        Ok(link) => Some(link),
-                        Err(why) => {
-                            state.say(format!("the agent link did not open: {why}"));
-                            None
-                        }
-                    });
-            }
-            ["debug", n] => {
-                if let Ok(n) = n.parse::<usize>() {
-                    ui.debug_at = n.saturating_sub(1);
-                }
-            }
-            ["break", script, line] => {
-                if let Ok(line) = line.parse::<u32>() {
-                    let marks = ui
-                        .breakpoints
-                        .entry(script.to_ascii_lowercase())
-                        .or_default();
-                    if !marks.remove(&line) {
-                        marks.insert(line);
-                    }
-                }
-            }
-            ["way_in", module] => ui.way_in_module = Some(module.to_ascii_lowercase()),
-            ["way_in", module, arrival] => {
-                ui.way_in_module = Some(module.to_ascii_lowercase());
-                ui.way_in_arrival = arrival.to_string();
-            }
-            ["view"] => ui.viewing = None,
-            ["view", script] => ui.viewing = Some(script.to_ascii_lowercase()),
-            ["view", "window", on @ ("on" | "off")] => ui.viewer_window = *on == "on",
-            ["view", "tab", tab] => {
-                ui.view_tab = match *tab {
-                    "summary" => ViewTab::Summary,
-                    "listing" => ViewTab::Listing,
-                    "try" => ViewTab::Try,
-                    "debug" => ViewTab::Debug,
-                    _ => ViewTab::Source,
-                }
-            }
-            words => {
-                if !crate::file::command(state, &mut ui.file, words) {
-                    state.say(format!(
-                        "edit ui {}: takes tool, tab, search, find, snap, levels, view, way_in, blocks, conversation, debug, break, link, file, quit or confirm",
-                        words.join(" ")
-                    ));
-                }
-            }
+        if let Err(why) = ui_command(state, ui, &words) {
+            state.say(why);
         }
     }
     let looking = buttons
@@ -1052,8 +1065,14 @@ fn panels(
             None => "copied the level and the camera for an agent",
         });
     }
-    if let Some(link) = ui.link.as_mut() {
-        link.tick(state, &cameras, &mut camera_request);
+    // The link is taken out for its turn, so a `ui` command it runs has
+    // the window's state. It is not put back once such a command turned it
+    // off.
+    if let Some(mut link) = ui.link.take() {
+        link.tick(state, ui, &cameras, &mut camera_request);
+        if !link.off {
+            ui.link = Some(link);
+        }
     }
 
     // The keys, when no text field has them and the camera is not flying.

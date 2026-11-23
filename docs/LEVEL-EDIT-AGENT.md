@@ -21,7 +21,8 @@ Two editors open at once would share that folder and take each other's
 commands. An editor started with `KJK_EDITOR_LINK=NAME` uses a folder of
 its own, `editor-link-NAME`. `NAME` is any word of letters, digits, `-`
 and `_` but `1`. An editor that starts again to open another level keeps
-its folder.
+its link and its folder. This holds whether the link was turned on by
+the toolbar or by `KJK_EDITOR_LINK`.
 
 `KJK_HOME` moves kjk's folder, and the link's folder with it. If `live.json`
 is not in the folder, or has not changed for a while as the person works,
@@ -116,7 +117,8 @@ gets an answer in `answers` in `live.json`. The answer is `ok`, or the
 reason the command failed. A command that makes something may say what it
 made after `ok`: a conversation's `say` answers `ok: line 3`, the number
 of the line it added. The person sees each answer among the editor's
-messages too.
+messages too. A `ui` command is answered the same way: `ok` when the
+window took it, and the reason when its words are none of the window's.
 
 A line is one of these.
 

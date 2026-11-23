@@ -75,22 +75,23 @@ fn level_args(state: &EditorState, module: &str) -> Vec<String> {
 }
 
 /// Opens the project's level `module`, adding it to the project when it
-/// has no such level yet, or says why not.
-fn to_level(state: &mut EditorState, file: &mut FileState, module: &str) {
+/// has no such level yet, or why not.
+fn to_level(state: &EditorState, file: &mut FileState, module: &str) -> Result<(), String> {
     let module = module.to_ascii_lowercase();
     let project = &state.editor.project;
     if module == project.module {
-        state.say(format!("{module} is the level being edited"));
-    } else if !project
+        return Err(format!("{module} is the level being edited"));
+    }
+    if !project
         .level_list()
         .iter()
         .any(|(level, _)| *level == module)
         && state.setup.modules.binary_search(&module).is_err()
     {
-        state.say(format!("the install has no module {module}"));
-    } else {
-        want(state, file, Leave::Start(level_args(state, &module)));
+        return Err(format!("the install has no module {module}"));
     }
+    want(state, file, Leave::Start(level_args(state, &module)));
+    Ok(())
 }
 
 /// The arguments that add the new map `name` to the project being edited
@@ -121,45 +122,56 @@ fn new_map_args(state: &EditorState, name: &str) -> Result<Vec<String>, String> 
     ])
 }
 
-/// `edit ui file ...`, `edit ui quit` and `edit ui confirm ...`; false for
-/// words that are none of them.
-pub(crate) fn command(state: &mut EditorState, file: &mut FileState, words: &[&str]) -> bool {
-    match words {
-        ["file", "open"] => want(state, file, Leave::Start(Vec::new())),
-        ["file", "open", name] => {
-            let found = crate::picker::projects()
-                .into_iter()
-                .find(|found| found.name.eq_ignore_ascii_case(name));
-            match found {
-                Some(found) => want(state, file, Leave::Start(open_args(&found))),
-                None => state.say(format!("there is no project named {name}")),
-            }
+/// `edit ui file ...`, `edit ui quit` and `edit ui confirm ...`: done, or
+/// why not. `None` for words that are none of them.
+pub(crate) fn command(
+    state: &mut EditorState,
+    file: &mut FileState,
+    words: &[&str],
+) -> Option<Result<(), String>> {
+    Some(match words {
+        ["file", "open"] => {
+            want(state, file, Leave::Start(Vec::new()));
+            Ok(())
         }
+        ["file", "open", name] => crate::picker::projects()
+            .into_iter()
+            .find(|found| found.name.eq_ignore_ascii_case(name))
+            .map(|found| want(state, file, Leave::Start(open_args(&found))))
+            .ok_or(format!("there is no project named {name}")),
         ["file", "level", module] => to_level(state, file, module),
-        ["file", "new", name] => match new_map_args(state, name) {
-            Ok(args) => want(state, file, Leave::Start(args)),
-            Err(why) => state.say(why),
-        },
-        ["quit"] => want(state, file, Leave::Quit),
+        ["file", "new", name] => {
+            new_map_args(state, name).map(|args| want(state, file, Leave::Start(args)))
+        }
+        ["quit"] => {
+            want(state, file, Leave::Quit);
+            Ok(())
+        }
         ["confirm", answer @ ("save" | "discard" | "cancel")] => answer_prompt(state, file, answer),
-        _ => return false,
-    }
-    true
+        _ => return None,
+    })
 }
 
-/// The prompt answered: save and leave, leave without saving, or stay.
-fn answer_prompt(state: &mut EditorState, file: &mut FileState, answer: &str) {
+/// The prompt answered: save and leave, leave without saving, or stay. A
+/// save that fails leaves the level open, and the reason is the answer.
+fn answer_prompt(
+    state: &mut EditorState,
+    file: &mut FileState,
+    answer: &str,
+) -> Result<(), String> {
     let Some(leave) = file.asking.take() else {
-        return;
+        return Ok(());
     };
     match answer {
-        "save" => match crate::state::save(state) {
-            Ok(()) => file.leaving = Some(leave),
-            Err(why) => state.say(format!("not saved, so the level stays open: {why}")),
-        },
+        "save" => {
+            crate::state::save(state)
+                .map_err(|why| format!("not saved, so the level stays open: {why}"))?;
+            file.leaving = Some(leave);
+        }
         "discard" => file.leaving = Some(leave),
         _ => {}
     }
+    Ok(())
 }
 
 /// The File menu, at the toolbar's start.
@@ -214,7 +226,9 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
                         .on_hover_text("Opens the project on this level")
                         .clicked()
                     {
-                        to_level(state, file, &module);
+                        if let Err(why) = to_level(state, file, &module) {
+                            state.say(why);
+                        }
                         ui.close();
                     }
                 }
@@ -244,7 +258,9 @@ pub(crate) fn menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut Ui
                             }
                         });
                     if let Some(module) = picked {
-                        to_level(state, file, &module);
+                        if let Err(why) = to_level(state, file, &module) {
+                            state.say(why);
+                        }
                         ui.close();
                     }
                 });
@@ -306,8 +322,10 @@ pub(crate) fn dialogs(ctx: &egui::Context, state: &mut EditorState, file: &mut F
                 }
             });
         });
-        if let Some(answer) = answer {
-            answer_prompt(state, file, answer);
+        if let Some(answer) = answer
+            && let Err(why) = answer_prompt(state, file, answer)
+        {
+            state.say(why);
         }
     }
     let Some(name) = file.new_map.as_mut() else {
@@ -382,11 +400,17 @@ pub(crate) fn leave(
             info!(target: "editor", "would start kjk-level-editor {}", args.join(" "));
         } else {
             let me = std::env::current_exe().map_err(|error| error.to_string());
+            // The agent link stays as it is here: on in the editor that
+            // takes over when it is on in this one.
+            let link = crate::agent::carried(ui_state.link_on());
             if let Err(why) = me.and_then(|me| {
-                std::process::Command::new(me)
-                    .args(args)
-                    .spawn()
-                    .map_err(|error| error.to_string())
+                let mut start = std::process::Command::new(me);
+                start.args(args);
+                match &link {
+                    Some(name) => start.env(crate::agent::VAR, name),
+                    None => start.env_remove(crate::agent::VAR),
+                };
+                start.spawn().map_err(|error| error.to_string())
             }) {
                 // The level stays open, and the window says why.
                 error!(target: "editor", "the editor did not start again: {why}");

@@ -384,7 +384,14 @@ pub struct EditorState {
     /// How long the editor's work takes, for the agent link and the big
     /// level benchmark.
     pub(crate) timings: Timings,
+    /// The kept bake's facts as last found (`bake_facts`): when, for which
+    /// count of changes, its folder, and whether it is stale.
+    bake_seen: std::sync::Mutex<Option<BakeSeen>>,
 }
+
+/// What `bake_facts` keeps: when it looked, the editor's count of changes
+/// then, the kept bake's folder, and whether the bake is stale.
+type BakeSeen = (std::time::Instant, u64, Option<PathBuf>, bool);
 
 impl EditorState {
     /// The state `setup` starts from, with its scene drawn.
@@ -499,6 +506,7 @@ impl EditorState {
             audit_job: None,
             redraws: 0,
             timings: Timings::default(),
+            bake_seen: Default::default(),
         };
         // How the light data holds each kind the project changed: what the
         // view shows again when a change is undone, and what Publish and a
@@ -1511,6 +1519,7 @@ pub(crate) fn redraw(
                 if let Some(from) = state.bake_from.take() {
                     let _ = std::fs::write(bake.join(level_edit::lighting::MADE_FROM), from);
                 }
+                forget_bake(&state);
                 state.setup.bakes.retain(|had| *had != bake);
                 state.setup.bakes.insert(0, bake.clone());
                 state.bake = Some(bake);
@@ -2016,9 +2025,46 @@ pub(crate) fn mod_tag(state: &EditorState, name: &str, restype: ResType) -> Opti
 /// it was made from (`level_edit::lighting::MADE_FROM`), and the level's
 /// lights are no longer that. A kept bake that does not say is not marked.
 pub(crate) fn bake_stale(state: &EditorState) -> bool {
-    bake_kept(state)
+    bake_facts(state).1
+}
+
+/// How long the kept bake's facts are trusted (`bake_facts`) before the
+/// project's folder is looked at again, so a bake that another program
+/// puts there or takes out shows.
+const BAKE_SEEN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The bake the project keeps of the level being edited, and whether it is
+/// stale. The agent link and the Lighting menu ask many times a second, and
+/// the answer lists the bake's folder and digests the level's lights. So it
+/// is kept for the project as it is now (`Editor::changes`), for at most
+/// `BAKE_SEEN`, and forgotten when the editor itself changes it
+/// (`forget_bake`).
+fn bake_facts(state: &EditorState) -> (Option<PathBuf>, bool) {
+    let changes = state.editor.changes();
+    let mut seen = state.bake_seen.lock().ok();
+    if let Some((at, of, kept, stale)) = seen.as_deref().and_then(Option::as_ref)
+        && *of == changes
+        && at.elapsed() < BAKE_SEEN
+    {
+        return (kept.clone(), *stale);
+    }
+    let project = &state.editor.project;
+    let kept = level_edit::lighting::kept_bake(&project.folder, &project.module);
+    let stale = (kept.as_ref())
         .and_then(|bake| std::fs::read_to_string(bake.join(level_edit::lighting::MADE_FROM)).ok())
-        .is_some_and(|from| from.trim() != light_digest(state))
+        .is_some_and(|from| from.trim() != light_digest(state));
+    if let Some(seen) = seen.as_deref_mut() {
+        *seen = Some((std::time::Instant::now(), changes, kept.clone(), stale));
+    }
+    (kept, stale)
+}
+
+/// Forgets what `bake_facts` keeps: the editor kept a bake, took one out,
+/// finished one or saved, so the answer is found again.
+fn forget_bake(state: &EditorState) {
+    if let Ok(mut seen) = state.bake_seen.lock() {
+        *seen = None;
+    }
 }
 
 /// Keeps the bake the view shows in the project (`bake keep`).
@@ -2031,6 +2077,7 @@ fn keep_shown_bake(state: &mut EditorState) -> Result<(), String> {
         return Err("the bake shown is the one the project keeps already".into());
     }
     let count = level_edit::lighting::keep_bake(&project.folder, &project.module, &shown)?;
+    forget_bake(state);
     // The view goes on showing the same lightmaps, now the project's.
     state.setup.bakes.retain(|had| *had != kept);
     state.setup.bakes.insert(0, kept.clone());
@@ -3263,6 +3310,7 @@ fn command_words(
             if !level_edit::lighting::drop_bake(&project.folder, &project.module)? {
                 return Err("the project keeps no bake of this level".into());
             }
+            forget_bake(state);
             state.setup.bakes.retain(|had| *had != kept);
             if state.bake.as_ref() == Some(&kept) {
                 state.bake = state.setup.bakes.first().cloned();
@@ -5431,6 +5479,7 @@ fn save_timed(state: &mut EditorState) -> Result<(), String> {
     // data's, and the light data's again once they are the same.
     let own = lights_own(state);
     state.editor.project.kjk.own_lights = own;
+    forget_bake(state);
     copy_cuts(state)?;
     let resolver = state.setup.resolver.clone();
     let read = |name: &str, restype: ResType| resolver.read(name, restype);
@@ -5488,8 +5537,7 @@ fn save_own_rules(state: &mut EditorState) -> Result<(), String> {
 
 /// The bake the project keeps of the level being edited, if it keeps one.
 pub(crate) fn bake_kept(state: &EditorState) -> Option<PathBuf> {
-    let project = &state.editor.project;
-    level_edit::lighting::kept_bake(&project.folder, &project.module)
+    bake_facts(state).0
 }
 
 /// Whether an installed level's lights and lamps placed by hand are the
