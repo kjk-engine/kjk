@@ -3196,6 +3196,41 @@ fn lightmapped_cut_out_by_diffuse() {
     }
 }
 
+/// A texture's mean alpha (`TextureIr::alpha_mean`), the number KOTOR sorts
+/// its textures by when it draws them, the ones with the least alpha last:
+/// RGBA8 averages its alpha bytes, a DXT5 block reads its alpha palette, and
+/// DXT1 has none. No installs (proposed 2026-11-23, not yet approved).
+#[test]
+fn texture_alpha_mean() {
+    use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
+
+    let texture = |encoding: Encoding, level: Vec<u8>| TextureIr {
+        width: 4,
+        height: 4,
+        encoding,
+        mips: vec![level],
+        cube: false,
+        frames: 1,
+        facts: TextureFacts::default(),
+        faces: Vec::new(),
+        frame_mips: Vec::new(),
+    };
+    let half: Vec<u8> = (0..16)
+        .flat_map(|texel| [10, 20, 30, if texel < 8 { 255 } else { 0 }])
+        .collect();
+    assert_eq!(texture(Encoding::Rgba8, half).alpha_mean(), 0.5);
+    // One DXT5 block: alpha 255 for index 0 and 0 for index 1, the first
+    // eight texels the first and the last eight the second.
+    let mut block = vec![255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut bits = 0u64;
+    for texel in 8..16 {
+        bits |= 1 << (3 * texel);
+    }
+    block[2..8].copy_from_slice(&bits.to_le_bytes()[..6]);
+    assert_eq!(texture(Encoding::Bc3, block).alpha_mean(), 0.5);
+    assert_eq!(texture(Encoding::Bc1, vec![0; 8]).alpha_mean(), 1.0);
+}
+
 /// A transparency hint above 1 blends a mesh only when its texture has
 /// alpha (`kjk_game::material::surface`). KOTOR's executable blends every
 /// mesh by its texture's alpha and writes depth, so TSL's Dantooine slab

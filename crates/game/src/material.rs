@@ -891,6 +891,12 @@ pub struct OdysseyMaterial {
     /// emitters: drawn after every other surface, in that order
     /// (`EMITTERS_LAST`).
     pub emitted: Option<u32>,
+    /// Where a blended opaque surface (`OpaqueAlpha`) sorts among the
+    /// others, from 0 to 1: the share of its texture that is not opaque.
+    /// KOTOR draws the textures with the least alpha last, so a patch of
+    /// sand cut out by its alpha lies over the ground it sits on, and not
+    /// the other way round (`depth_bias`).
+    pub rank: f32,
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
     pub listed_quads: bool,
@@ -1235,6 +1241,7 @@ impl OdysseyMaterial {
             surface,
             culled: false,
             emitted: None,
+            rank: 0.0,
             motion_only: false,
             listed_quads: false,
             looks: None,
@@ -1430,6 +1437,12 @@ impl OdysseyMaterial {
     }
 
     /// Its back faces culled (`culled`), or not.
+    /// Its sort rank (`rank`).
+    pub fn ranked(mut self, rank: f32) -> OdysseyMaterial {
+        self.rank = rank;
+        self
+    }
+
     pub fn culled(mut self, culled: bool) -> OdysseyMaterial {
         self.culled = culled;
         self
@@ -1506,8 +1519,12 @@ fn prepass_reads_as_main() -> Result<String, String> {
 
 /// `depth_bias` of a blended opaque surface (one that writes depth: this
 /// material's `OpaqueAlpha`, the grass): farther than anything in view,
-/// keeping their order among themselves.
+/// keeping their order among themselves: by their texture's alpha
+/// (`OdysseyMaterial::rank`), then by distance.
 pub const OPAQUE_FIRST: f32 = -1.0e5;
+/// How far apart the ranks 0 and 1 of blended opaque surfaces sort
+/// (`OdysseyMaterial::rank`): more than any distance in view.
+const RANK_STEP: f32 = 1.0e3;
 
 /// `depth_bias` of an emitter's particles: nearer than anything in view,
 /// so they are drawn after the meshes, as KOTOR draws its emitters after
@@ -1675,7 +1692,7 @@ impl Material for OdysseyMaterial {
     /// has alpha, not Kreia's robe, which has none).
     fn depth_bias(&self) -> f32 {
         match self.surface {
-            Surface::OpaqueAlpha => OPAQUE_FIRST,
+            Surface::OpaqueAlpha => OPAQUE_FIRST + self.rank * RANK_STEP,
             _ => self
                 .emitted
                 .map_or(0.0, |rank| EMITTERS_LAST + rank as f32 * EMITTER_STEP),

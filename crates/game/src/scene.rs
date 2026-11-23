@@ -1489,6 +1489,11 @@ impl<'t> Spawner<'t> {
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
                     .culled(culled)
+                    .ranked(
+                        texture
+                            .and_then(|name| self.irs.get(name))
+                            .map_or(0.0, |texture| 1.0 - texture.alpha_mean()),
+                    )
                 };
                 let material = match whole {
                     Some(whole) => made(surface).whole_as(&made(whole)),
