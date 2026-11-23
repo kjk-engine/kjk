@@ -283,6 +283,9 @@ impl Video {
 
     /// The last frame decoded, as RGBA, `width × height × 4` bytes. The
     /// colours are converted as BT.601 with video levels (16 to 235).
+    /// Alpha is always 255: a movie's alpha plane is decoded, because the
+    /// planes after it follow it in the packet, but kjk shows every movie
+    /// over black, so it is not used.
     pub fn rgba(&self, out: &mut Vec<u8>) {
         out.clear();
         out.reserve(self.width * self.height * 4);
@@ -749,11 +752,13 @@ impl Block<'_, '_> {
                 false
             });
         }
+        // The product wraps at 32 bits, as ffmpeg's does, so that a damaged
+        // block decodes as ffmpeg decodes it and never panics.
         let quantiser = &quantisers[bits.read(4) as usize];
-        block[0] = (block[0] * quantiser[0] as i32) >> 11;
+        block[0] = block[0].wrapping_mul(quantiser[0] as i32) >> 11;
         for &at in &coded[..count] {
             let place = usize::from(SCAN[at]);
-            block[place] = (block[place] * quantiser[at] as i32) >> 11;
+            block[place] = block[place].wrapping_mul(quantiser[at] as i32) >> 11;
         }
     }
 

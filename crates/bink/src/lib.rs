@@ -120,6 +120,11 @@ impl Bink {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
+        // kjk plays the first track, so a movie whose first track is RDFT
+        // audio is refused here, and `ffmpeg` plays it instead.
+        if tracks.first().is_some_and(|track| !track.dct) {
+            return Err("RDFT audio is not decoded here".into());
+        }
         let index_at = tracks_at + 8 * track_count;
         let end = bytes.len();
         let starts = (0..count)

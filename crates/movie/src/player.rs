@@ -32,7 +32,7 @@ impl Player {
     pub fn start(bink: Bink) -> Player {
         let (send, decoded) = mpsc::sync_channel(AHEAD);
         let (width, height, rate, frames) = (bink.width, bink.height, bink.rate, bink.frames());
-        std::thread::spawn(move || {
+        let decoder = move || {
             let mut video = Video::new(&bink);
             for frame in 0..bink.frames() {
                 let picture = bink
@@ -50,7 +50,12 @@ impl Player {
                     return;
                 }
             }
-        });
+        };
+        // Named for crash reports and profilers.
+        std::thread::Builder::new()
+            .name("bink".into())
+            .spawn(decoder)
+            .expect("a thread for the movie's decoder");
         Player {
             width,
             height,
@@ -104,10 +109,12 @@ impl Player {
     }
 }
 
-/// `bink`'s first audio track as a WAV file, if it has one.
+/// `bink`'s first audio track as a WAV file, if it has one with any sound
+/// in it. A track that decodes to no samples plays the movie silent.
 pub fn sound(bink: &Bink) -> Result<Option<Vec<u8>>, String> {
     if bink.tracks.is_empty() {
         return Ok(None);
     }
-    Ok(Some(Sound::of(bink, 0)?.wav()))
+    let sound = Sound::of(bink, 0)?;
+    Ok((!sound.samples.is_empty()).then(|| sound.wav()))
 }

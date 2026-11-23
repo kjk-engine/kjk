@@ -185,9 +185,13 @@ impl Pictures {
         shown: Option<usize>,
         wait: bool,
     ) -> Result<Option<movie::player::Picture>, String> {
+        // Already up: a recording at 60 frames a second asks for each frame
+        // of a 30 fps movie twice, and must not wait for the next one.
+        if shown == Some(due) {
+            return Ok(None);
+        }
         match self {
             Pictures::Bink(player) => player.picture(due, wait),
-            Pictures::Stored(_) if shown == Some(due) => Ok(None),
             Pictures::Stored(movie) => {
                 let jpeg = movie.frame(due).ok_or(format!("no frame {due}"))?;
                 movie::picture(jpeg).map(|(_, _, rgba)| Some((due, rgba)))
