@@ -534,7 +534,7 @@ pub(super) fn fire(
                 let end = math::mad(from, weapons::HITSCAN_RANGE, forward);
                 let seen: Vec<Body> = bodies.iter().copied().chain(blades.bodies(id.0)).collect();
                 let met = level.0.with(states.as_deref(), |world| {
-                    Bodies::new(world, &seen).skipping(id.0.0 | BODY).trace(
+                    Bodies::new(world, &seen).skipping(id.0.0 | BODY).shot(
                         scale(from, UNIT),
                         scale(end, UNIT),
                         &Extents::POINT,
@@ -590,7 +590,7 @@ pub(super) fn fire(
                     None => {
                         let end = math::mad(eye, weapons::HITSCAN_RANGE, direction);
                         let trace = level.0.with(states.as_deref(), |world| {
-                            Bodies::new(world, &bodies).skipping(id.0.0 | BODY).trace(
+                            Bodies::new(world, &bodies).skipping(id.0.0 | BODY).shot(
                                 scale(eye, UNIT),
                                 scale(end, UNIT),
                                 &Extents::POINT,
@@ -642,7 +642,7 @@ pub(super) fn fire(
                             };
                             let reach = bolt.at(clock.time_ms);
                             let met = level.0.with(states.as_deref(), |world| {
-                                Bodies::new(world, &bodies).skipping(id.0.0 | BODY).trace(
+                                Bodies::new(world, &bodies).skipping(id.0.0 | BODY).shot(
                                     scale(muzzle, UNIT),
                                     scale(reach, UNIT),
                                     &extents,

@@ -638,7 +638,31 @@ pub fn synthetic() -> Probes {
 
     fits_differential(&mut probes);
     remembered_answers(&mut probes);
+    shot_from_inside(&mut probes);
     probes
+}
+
+/// A shot whose line starts inside a body's box meets that body where it
+/// starts (`Bodies::shot`); a plain trace from there passes through it.
+fn shot_from_inside(probes: &mut Probes) {
+    let level = LevelBuilder::new().build();
+    let body = crate::Body {
+        entity: 7,
+        min: [-1.5, -1.0, 0.0],
+        max: [1.5, 1.0, 2.0],
+        contents: Contents::BODY,
+    };
+    let bodies = [body];
+    let with_bodies = crate::Bodies::new(&level, &bodies);
+    let (start, end) = ([1.0, 0.0, 1.6], [10.0, 0.0, 1.6]);
+    let plain = with_bodies.trace(start, end, &Extents::POINT, Contents::BODY);
+    let shot = with_bodies.shot(start, end, &Extents::POINT, Contents::BODY);
+    probes.check(
+        "shot from inside a body",
+        "a shot starting inside a body's box meets that body at its start; a plain trace passes through",
+        Some(shot),
+        plain.entity.is_none() && shot.entity == Some(7) && shot.end == start,
+    );
 }
 
 fn fits_differential(probes: &mut Probes) {

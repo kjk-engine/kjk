@@ -463,8 +463,8 @@ pub const FORCE_BODY_SHARE: [i32; 3] = rules::force_effects::force_body::SHARE;
 /// The hit points a cast under Force Body must leave more than.
 pub const FORCE_BODY_LEAST_HP: i32 = rules::force_effects::force_body::LEAST_HP_LEFT;
 
-/// What a power's cost (whole Force points) takes under Force Body at
-/// `level`: that share of it, rounded down, from Force points and as much
+/// What a power's cost takes under Force Body at `level`, in the cost's own
+/// unit: that share of it, rounded down, from Force points and as much
 /// again from hit points.
 pub fn force_body_share(cost: i32, level: u8) -> i32 {
     cost * FORCE_BODY_SHARE[usize::from(level.min(2))] / 100
@@ -473,7 +473,10 @@ pub fn force_body_share(cost: i32, level: u8) -> i32 {
 /// What a power costing `cost` (hundredths) takes from one with `lasting`
 /// effects at `now` (hundredths): from its Force points, and from its hit
 /// points (Force Body's share of each, the first running one's level, or
-/// all of it from Force points).
+/// all of it from Force points). A cast's cost in whole points has its
+/// share rounded down to whole points, as TSL's executable does. A held
+/// power's cost for one step is a fraction of a point, and its share is
+/// kept in hundredths, so the caster keeps paying while it holds the power.
 pub fn power_cost(lasting: &[Option<Lasting>], cost: i32, now: u64) -> (i32, i32) {
     let level = lasting
         .iter()
@@ -481,8 +484,12 @@ pub fn power_cost(lasting: &[Option<Lasting>], cost: i32, now: u64) -> (i32, i32
         .find(|l| l.modifies == Modifies::ForceBody && l.until > now)
         .map(|l| l.of);
     match level {
-        Some(level) => {
+        Some(level) if cost % 100 == 0 => {
             let share = force_body_share(cost / 100, level) * 100;
+            (share, share)
+        }
+        Some(level) => {
+            let share = force_body_share(cost, level).max(1);
             (share, share)
         }
         None => (cost, 0),
