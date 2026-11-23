@@ -623,7 +623,7 @@ pub(super) fn surrender(
     else {
         return;
     };
-    if view.pcs(&state.party).contains(&caller) {
+    if view.main_characters(&state.party).contains(&caller) {
         return;
     }
     out.changes.push(Change::Faction {
@@ -695,7 +695,7 @@ mod walk {
     pub const SHAPE: u8 = 2;
     pub const EFFECTS: u8 = 3;
     pub const INVENTORY: u8 = 4;
-    pub const PCS: u8 = 5;
+    pub const MAIN_CHARACTERS: u8 = 5;
     /// Keyed by the faction (`GetFirstFactionMember`), not the caller.
     pub const FACTION: u8 = 6;
 }
@@ -925,7 +925,7 @@ pub(super) fn seconds_ms(seconds: f32) -> u32 {
 /// own, none for one on the floor or unknown.
 fn possessor(state: &State, view: &View, item: ObjectId) -> ObjectId {
     match state.items.get(&item.0) {
-        Some(held) if held.holder == inventory::PARTY => view.first_pc(&state.party),
+        Some(held) if held.holder == inventory::PARTY => view.first_main_character(&state.party),
         Some(held) if held.holder == AREA.0 => ObjectId::INVALID,
         Some(held) => ObjectId(held.holder),
         None => ObjectId::INVALID,
@@ -1045,10 +1045,10 @@ impl Engine<'_> {
             });
         // Then the items held here, as the games keep every item an object
         // (a key or a datapad in a pocket is found): the party's, at the
-        // first PC, and those of an object in this area, at it. TSL's
+        // first main character, and those of an object in this area, at it. TSL's
         // Czerka droid B-4D4 asks whether Opo Chano's credentials are
         // anywhere (`c_havecreds`: `GetObjectByTag("DroidTechCreds")`).
-        let pc = self.view.first_pc(&self.state.party);
+        let pc = self.view.first_main_character(&self.state.party);
         let held = self
             .state
             .items
@@ -1197,7 +1197,7 @@ impl Engine<'_> {
         };
         match criterion {
             Criterion::Race => thing.character.is_some_and(|c| i32::from(c.race) == value),
-            Criterion::PlayerChar => (value != 0) == self.pcs().contains(&thing.id),
+            Criterion::PlayerChar => (value != 0) == self.main_characters().contains(&thing.id),
             Criterion::Class => thing.character.is_some_and(|c| {
                 c.classes
                     .iter()
@@ -2107,9 +2107,12 @@ impl Engine<'_> {
             // No tag is the player's (its creature has none): reone's
             // `GetObjectByTag`; Trask's walk to the player at the Endar
             // Spire's start went to an untagged object elsewhere.
-            GetObjectByTag if text(args, 0).is_empty() => {
-                Value::Object(self.pcs().first().copied().unwrap_or(ObjectId::INVALID))
-            }
+            GetObjectByTag if text(args, 0).is_empty() => Value::Object(
+                self.main_characters()
+                    .first()
+                    .copied()
+                    .unwrap_or(ObjectId::INVALID),
+            ),
             GetObjectByTag => Value::Object(self.by_tag(text(args, 0), int(args, 1), None)),
             GetWaypointByTag => {
                 Value::Object(self.by_tag(text(args, 0), 0, Some(ObjectKind::Waypoint)))
@@ -2148,9 +2151,13 @@ impl Engine<'_> {
                         || self.exists(id),
                 )
             }
-            GetFirstPC => self.first(caller, walk::PCS, self.controlled_pcs()),
-            GetNextPC => self.next(caller, walk::PCS),
-            // The first seat's PC leads, or the companion made leader
+            // The original walks its list of players and gives each one's
+            // main character (`View::main_characters`). A leader change moves none of
+            // them: with a companion leading, `GetFirstPC` is still the
+            // main character, who then follows.
+            GetFirstPC => self.first(caller, walk::MAIN_CHARACTERS, self.main_characters()),
+            GetNextPC => self.next(caller, walk::MAIN_CHARACTERS),
+            // The first seat's main character leads, or the companion made leader
             // (`SetPartyLeader`, `Action::SetLeader`), which the first seat
             // then moves (`world::lent`); in a script a guest's act raised,
             // the companion it drives (`Event::leads`).
@@ -2167,9 +2174,10 @@ impl Engine<'_> {
                     .and_then(|at| self.party().get(at).copied())
                     .unwrap_or(ObjectId::INVALID),
             ),
-            // A player, the companion leading (the one KOTOR's player
-            // controls: T3-M4 at the Sith base's door), or the one the first
-            // seat is switched to in place of its own character.
+            // True for a main character. It is also true for a character a
+            // player controls, which is the companion leading (T3-M4 at the
+            // Sith base's door) or the companion a guest drives. This is
+            // wider than `GetFirstPC`, which names main characters only.
             GetIsPC => truth(self.is_pc(object(args, 0))),
             GetModule => Value::Object(MODULE),
             GetModuleName => string(view.module.title.as_str()),
@@ -2606,8 +2614,7 @@ impl Engine<'_> {
                         })
                         .1
                 } else {
-                    // While a companion leads, `controlled_pcs` puts it first.
-                    let controlled = self.controlled_pcs().first().copied();
+                    let controlled = self.first_seat_character();
                     let members: Vec<_> = members
                         .map(|thing| {
                             (
@@ -5306,7 +5313,7 @@ impl Engine<'_> {
                 let given = object(args, usize::from(!lab));
                 let maker = Some(given)
                     .filter(|given| *given != ObjectId::INVALID)
-                    .or_else(|| self.pcs().first().copied())
+                    .or_else(|| self.main_characters().first().copied())
                     .unwrap_or(ObjectId::INVALID);
                 let list = match lab {
                     true => crate::inventory::workshop::LAB.to_string(),
@@ -5399,10 +5406,12 @@ impl Engine<'_> {
                 };
                 // Whoever asked for it plays, alone: the guest whose pick
                 // or use led here, else the PC speaking (I30 P8).
-                let pc =
-                    self.state.talk.running.unwrap_or_else(|| {
-                        self.pcs().first().copied().unwrap_or(ObjectId::INVALID)
-                    });
+                let pc = self.state.talk.running.unwrap_or_else(|| {
+                    self.main_characters()
+                        .first()
+                        .copied()
+                        .unwrap_or(ObjectId::INVALID)
+                });
                 let player = self.state.talk.asker_of_running(pc).unwrap_or(pc);
                 let players = (runs_for, player);
                 if super::pazaak::start(self.library, self.state, &call, players) {
@@ -5584,7 +5593,7 @@ impl Engine<'_> {
         // (`k_ptar_larrimsto`), for the PC speaker, which is then the main
         // character, while a companion may lead.
         let [pc, acting] = self.view.host(&self.state.party);
-        let ours = asked.is_some() || player == acting || self.pcs().contains(&player);
+        let ours = asked.is_some() || player == acting || self.main_characters().contains(&player);
         let player = asked.unwrap_or(if player == pc { acting } else { player });
         let terms = self.instance(store).and_then(|facts| facts.store);
         let Some(terms) = terms.filter(|_| ours) else {
@@ -6254,28 +6263,24 @@ impl Engine<'_> {
         )
     }
 
-    /// The scripts' PCs (`View::pcs`): the creature the first seat is
-    /// switched to in its place while it is.
-    fn pcs(&self) -> Vec<ObjectId> {
-        self.view.pcs(&self.state.party)
+    /// The main characters `GetFirstPC` and `GetNextPC` walk (`View::main_characters`):
+    /// the main character of each seat, in seat order. A main character is
+    /// the character the story is about. While a script has switched the
+    /// first seat to a companion (`SwitchPlayerCharacter`), that companion is
+    /// the first seat's main character. A companion that the first seat only
+    /// leads is not a main character, and neither is a companion a guest
+    /// drives. `is_pc` is the question that includes them.
+    fn main_characters(&self) -> Vec<ObjectId> {
+        self.view.main_characters(&self.state.party)
     }
 
-    /// The PCs `GetFirstPC` walks: the creature each seat controls, the
-    /// first seat's the companion it leads while it does (`world::lent`).
-    /// KOTOR's player is the body it controls: TSL's scripts make the PC
-    /// lead again (`SetPartyLeader(NPC_PLAYER)`) before they move
-    /// `GetFirstPC()` (a_master_setup), and a trigger asking for
-    /// `GetFirstPC()` fires for the companion leading (Goto's yacht's
-    /// command centre, Mira at the head for the mines) [verify in the exe].
-    fn controlled_pcs(&self) -> Vec<ObjectId> {
-        let mut pcs = self.pcs();
-        if let Some(led) = crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)) {
-            match pcs.first_mut() {
-                Some(first) => *first = led,
-                None => pcs.push(led),
-            }
-        }
-        pcs
+    /// The character the first seat controls: the companion it leads while
+    /// one leads (`world::lent`), else its main character. While a companion
+    /// leads, this differs from the main character that `main_characters` gives.
+    fn first_seat_character(&self) -> Option<ObjectId> {
+        crate::world::lent(&self.state.party)
+            .map(|body| ObjectId(body.0))
+            .or_else(|| self.main_characters().first().copied())
     }
 
     /// The companion leading the party, if one does: the one whose guest's
@@ -6316,7 +6321,9 @@ impl Engine<'_> {
     /// out of the trigger this run is for (`Event::guest`; `GetIsPC`). What
     /// a script gives or takes from one is told in the status summary.
     pub(super) fn is_pc(&self, id: ObjectId) -> bool {
-        self.pcs().contains(&id) || self.leading() == Some(id) || self.event.guest == Some(id)
+        self.main_characters().contains(&id)
+            || self.leading() == Some(id)
+            || self.event.guest == Some(id)
     }
 
     /// Whether item `item` is a player's character's: the party's (its
@@ -6340,7 +6347,7 @@ impl Engine<'_> {
     /// then the PCs by seat and the companions in joining order (the one
     /// the first seat is switched to once, as its PC).
     fn party(&self) -> Vec<ObjectId> {
-        let mut party = self.pcs();
+        let mut party = self.main_characters();
         for id in self.state.party.creatures().map(ObjectId) {
             if !party.contains(&id) {
                 party.push(id);
@@ -6363,9 +6370,9 @@ impl Engine<'_> {
     /// held with the PC before go on with the PC after (the Leviathan's
     /// switches run in its conversations' scripts).
     fn switch_player(&mut self, npc: i32) -> Value {
-        let before = self.view.first_pc(&self.state.party);
+        let before = self.view.first_main_character(&self.state.party);
         let switched = self.switched_to(npc);
-        let after = self.view.first_pc(&self.state.party);
+        let after = self.view.first_main_character(&self.state.party);
         if after != before {
             self.state.talk.retarget(before, after);
         }
@@ -6445,7 +6452,7 @@ impl Engine<'_> {
         if self.library.creature(&slot.template).is_none() && slot.template_data.is_none() {
             return None;
         }
-        let pc = self.view.first_pc(&self.state.party);
+        let pc = self.view.first_main_character(&self.state.party);
         let (at, yaw) = match self.view.thing(pc) {
             Some(thing) => {
                 let [x, y, z] = thing.position;

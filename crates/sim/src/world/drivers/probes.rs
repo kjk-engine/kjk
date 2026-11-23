@@ -1080,12 +1080,13 @@ fn led_own_walked() -> Result<String, String> {
     )
 }
 
-/// The area's OnEnter runs for the player and for each companion the
-/// party brings in: arriving in a module whose area counts its entries,
-/// the player and the two companions make three, as the executables raise
-/// the area's entered event for every creature added to it (TSL's
-/// `k_232_enter` gives the Exile back when the one entering is the leader
-/// `GetFirstPC` names, Bao-Dur after the landing pad).
+/// The area's OnEnter runs for the main character and for each companion
+/// the party brings in. Arriving in a module whose area counts its entries,
+/// the main character and the two companions make three. The executables
+/// raise the area's entered event for every creature added to it. TSL's
+/// `k_232_enter` gives the Exile back when the creature entering is the
+/// main character that `GetFirstPC` names, whoever leads. This happens
+/// after the landing pad, where Bao-Dur leads.
 fn entered_by_the_party() -> Result<String, String> {
     let (mut world, ..) = party_world(Guests::Companions, 1)?;
     let ground = exit_ground()?;

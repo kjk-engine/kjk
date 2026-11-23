@@ -2309,7 +2309,8 @@ impl View<'_> {
     /// one's, and not that seat's own character.
     pub fn guest_companion(&self, table: &party::Party, id: ObjectId) -> bool {
         let driver = self.thing(id).and_then(|thing| thing.character?.driver);
-        driver.is_some_and(|seat| seat != crate::world::LEADER_SEAT) && !self.is_player(table, id)
+        driver.is_some_and(|seat| seat != crate::world::LEADER_SEAT)
+            && !self.is_main_character(table, id)
     }
 
     /// The bodies the seats act through (`seats`), for whether a
@@ -4684,7 +4685,7 @@ pub fn run_due(
 /// then the module's `Mod_OnClientLeav`, the PC their exiting object
 /// (`GetExitingObject`).
 pub(crate) fn leaving(view: &View, party: &party::Party) -> Vec<Pending> {
-    let pcs = view.pcs(party);
+    let pcs = view.main_characters(party);
     [AREA, MODULE]
         .into_iter()
         .filter_map(|holder| Some((holder, view.hook(holder, Hook::Exit)?)))

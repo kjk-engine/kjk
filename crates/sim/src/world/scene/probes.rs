@@ -544,9 +544,9 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
         ops.push(call(17, 11));
         ops
     };
-    let first_pc = [call(3, 0)];
+    let first_main_character = [call(3, 0)];
     // `ActionStartConversation(GetFirstPC(), dialog)`, a door's locked line.
-    let converse = converse_to(&first_pc, 0, 0);
+    let converse = converse_to(&first_main_character, 0, 0);
     let mut death = vec![Op::Const(Const::Float(0.0))];
     death.extend(tagged("dummy"));
     death.extend([0, 1, 0].map(|value| Op::Const(Const::Int(value))));
@@ -602,7 +602,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     }
     asm.op(Op::StoreState { bp: 0, sp: 0 })
         .to(Op::Jmp, "assign");
-    for op in converse_to(&first_pc, 0, 0) {
+    for op in converse_to(&first_main_character, 0, 0) {
         asm.op(op);
     }
     asm.op(Op::Retn)
@@ -662,7 +662,7 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_assign_open", assign_talker(&open)),
             (
                 "probe_assign_converse",
-                assign_talker(&converse_to(&first_pc, 0, 0)),
+                assign_talker(&converse_to(&first_main_character, 0, 0)),
             ),
             ("probe_wait_4s", program(&wait(4.0))),
             ("probe_blocked", program(&[])),
@@ -685,10 +685,13 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             ("probe_module_leave", program(&[])),
             ("probe_leave", leave),
             ("probe_converse", converse),
-            ("probe_computer", program(&converse_to(&first_pc, 1, 0))),
+            (
+                "probe_computer",
+                program(&converse_to(&first_main_character, 1, 0)),
+            ),
             (
                 "probe_converse_here",
-                program(&converse_to(&first_pc, 0, 1)),
+                program(&converse_to(&first_main_character, 0, 1)),
             ),
             (
                 "probe_converse_walker",
@@ -1709,22 +1712,24 @@ fn turned_hostile_held() -> Found {
     )
 }
 
-/// S4 while the player leads with a companion: the companion made the
-/// party's leader, the talker starts a cinematic conversation with
-/// `GetFirstPC()` (the companion then), and a creature hostile to the
-/// player told to attack the companion does nothing until the end, as with
-/// the player's own character leading (`hostile_held_in_talk`). Darth
-/// Bandon's two Dark Jedi on Manaan (`k_pman_survivex`) fought the party
-/// through his conversation when a companion led.
+/// S4 while a companion leads. The companion is made the party's leader,
+/// and the talker starts a cinematic conversation with `GetFirstPC()`,
+/// which is the main character and not the companion leading. A creature
+/// hostile to the main character is told to attack the companion. It does
+/// nothing until the conversation ends, as when the main character leads
+/// (`hostile_held_in_talk`). Darth Bandon's two Dark Jedi on Manaan
+/// (`k_pman_survivex`) once fought the party through his conversation when
+/// a companion led.
 fn hostile_held_companion_leads() -> Found {
     let (mut ground, buddy) = fight_ground(Stage::default(), Brawler::Hostile)?;
+    let main = ground.body(0)?;
     ground.lead(buddy);
     ground.run_script("probe_assign_converse", TALKER)?;
     ground.idle(1000);
     let pc = ground.last.talk.party().map(|c| c.pc);
-    if pc != Some(ObjectId(buddy.0)) {
+    if pc != Some(ObjectId(main.0)) {
         return Err(format!(
-            "the conversation's PC is {pc:?}, not the companion leading"
+            "the conversation's PC is {pc:?}, not the main character {main:?}"
         ));
     }
     let held = charge(&mut ground, "probe_attack_buddy", buddy)?;

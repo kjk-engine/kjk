@@ -184,7 +184,7 @@ pub(crate) fn wearer(
         feats: sheet.map_or_else(Default::default, |sheet| sheet.feats),
         gender: character.map_or(0, |character| character.gender),
         abilities: sheet.map_or([10; 6], |sheet| sheet.abilities),
-        player: view.pcs(&state.party).contains(&who),
+        player: view.main_characters(&state.party).contains(&who),
         tag: thing
             .and_then(|thing| thing.facts.as_ref())
             .map_or_else(String::new, |facts| facts.tag.clone()),

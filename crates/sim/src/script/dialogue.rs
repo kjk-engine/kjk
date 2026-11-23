@@ -1127,8 +1127,9 @@ pub fn story_abort(library: &super::Library, dlg: &Dlg) -> bool {
     moves(library, &dlg.on_abort)
 }
 
-/// Whether a conversation with PC `id` is the party's: `id` is one of the
-/// scripts' PCs (`View::pcs`), or the companion leading the party (`lent`).
+/// Whether a conversation with the character `id` is the party's. It is when
+/// `id` is one of the main characters (`View::main_characters`), or the
+/// companion leading the party (`lent`).
 fn party_pc(pcs: &[ObjectId], lent: Option<ObjectId>, id: ObjectId) -> bool {
     pcs.contains(&id) || lent == Some(id)
 }
@@ -1168,18 +1169,18 @@ impl View<'_> {
     /// is a companion a guest drives, and the PC is the first one: the
     /// host's character. The scripts see one PC.
     pub(crate) fn pc_for(&self, table: &Party, user: ObjectId) -> ObjectId {
-        if self.is_player(table, user) {
+        if self.is_main_character(table, user) {
             user
         } else {
-            self.first_pc(table)
+            self.first_main_character(table)
         }
     }
 
-    /// The scripts' PCs, by seat: the seats' own characters (`party`), the
-    /// first seat's the creature it is switched to while it is
-    /// (`Party::switched`, `world::switch`), from the moment a script
-    /// switches it.
-    pub(crate) fn pcs(&self, table: &Party) -> Vec<ObjectId> {
+    /// The main characters, by seat: the seats' own characters (`party`).
+    /// While the first seat is switched to a creature (`Party::switched`,
+    /// `world::switch`), that creature is the first seat's main character,
+    /// from the moment a script switches it.
+    pub(crate) fn main_characters(&self, table: &Party) -> Vec<ObjectId> {
         let mut pcs = self.party.to_vec();
         if let Some(body) = table.switched_body().map(ObjectId) {
             match pcs.first_mut() {
@@ -1190,15 +1191,16 @@ impl View<'_> {
         pcs
     }
 
-    pub(crate) fn first_pc(&self, table: &Party) -> ObjectId {
-        self.pcs(table)
+    /// The first seat's main character, which is the host's.
+    pub(crate) fn first_main_character(&self, table: &Party) -> ObjectId {
+        self.main_characters(table)
             .first()
             .copied()
             .unwrap_or(ObjectId::INVALID)
     }
 
-    pub(crate) fn is_player(&self, table: &Party, id: ObjectId) -> bool {
-        self.pcs(table).contains(&id)
+    pub(crate) fn is_main_character(&self, table: &Party, id: ObjectId) -> bool {
+        self.main_characters(table).contains(&id)
     }
 
     /// A conversation's PC and asker when a script names `named` as its
@@ -1216,8 +1218,8 @@ impl View<'_> {
         let guest = self
             .seat_of(named)
             .is_some_and(|seat| seat != crate::world::LEADER_SEAT.0);
-        let pc = if guest && !self.is_player(table, named) {
-            self.first_pc(table)
+        let pc = if guest && !self.is_main_character(table, named) {
+            self.first_main_character(table)
         } else {
             named
         };
@@ -1227,9 +1229,9 @@ impl View<'_> {
         (pc, asker)
     }
 
-    /// The host's character (the scripts' first PC), and the body its seat
+    /// The host's main character (the first of the main characters), and the body its seat
     /// acts through: the companion leading, while one does (`world::lent`).
-    /// Both are read off the party table as it stands, as `pcs` reads a
+    /// Both are read off the party table as it stands, as `main_characters` reads a
     /// switch, not off the step's `seats`: a script's `SetPartyLeader`
     /// earlier in the step leaves those behind. A companion's own talk
     /// trigger (K1's `k_trg_partyinit`) hands the lead back to the PC,
@@ -1238,7 +1240,7 @@ impl View<'_> {
     /// side and the PC made the owner, who then said the companion's lines
     /// (#147, Bastila's on Taris).
     pub(crate) fn host(&self, table: &Party) -> [ObjectId; 2] {
-        let pc = self.first_pc(table);
+        let pc = self.first_main_character(table);
         let seated = (self.seats.iter()).any(|(seat, _)| *seat == crate::world::LEADER_SEAT.0);
         let acting = crate::world::lent(table)
             .filter(|_| seated)

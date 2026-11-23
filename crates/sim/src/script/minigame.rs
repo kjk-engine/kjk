@@ -267,10 +267,10 @@ pub(super) fn call(
 /// the player's Dexterity modifier adds (its executable's constant).
 const LATERAL_PER_DEX: f32 = rules::minigames::swoop::LATERAL_PER_DEX;
 
-/// The player's Dexterity modifier, as `SWMG_SetLateralAccelerationPerSecond`
-/// reads it: the first PC's.
+/// The main character's Dexterity modifier, as
+/// `SWMG_SetLateralAccelerationPerSecond` reads it.
 fn dexterity_modifier(engine: &Engine) -> i32 {
-    let first = engine.view.first_pc(&engine.state.party);
+    let first = engine.view.first_main_character(&engine.state.party);
     engine
         .view
         .thing(first)

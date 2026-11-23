@@ -1,0 +1,1 @@
+sim = "GetFirstPC and GetNextPC name each seat's main character, never the companion the first seat leads. Scripts that ask for GetFirstPC while a companion leads now get the main character. GetIsPC still counts the leading companion."

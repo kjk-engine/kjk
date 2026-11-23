@@ -4990,7 +4990,7 @@ fn item_properties() {
 /// awaiting approval); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 27);
+    probed("switch", &sim::switch::probes(), 28);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

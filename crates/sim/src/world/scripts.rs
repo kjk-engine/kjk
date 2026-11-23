@@ -362,7 +362,9 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
     let worth = || {
         let thing = view.thing(dead)?;
         let character = thing.character?;
-        let player = view.thing(view.first_pc(&state.party))?.character?;
+        let player = view
+            .thing(view.first_main_character(&state.party))?
+            .character?;
         if character.party
             || !view
                 .module
@@ -916,10 +918,11 @@ pub(super) fn scripts(
         .filter(|thing| thing.character.is_some_and(|character| character.party))
         .map(|thing| thing.id.0)
         .collect();
-    // The seats' own characters, by seat, for the scripts' PCs
-    // (`View::pcs`: the first seat's the creature it is switched to while
-    // it is). A companion a guest drives is still the companion to them
-    // (I30 P2), never a second PC.
+    // The seats' own characters, by seat, for the main characters
+    // (`View::main_characters`). While the first seat is switched to a
+    // creature, that creature is the first seat's main character. A
+    // companion a guest drives is still the companion to the scripts
+    // (I30 P2), never a second main character.
     own.sort();
     let party: Vec<ObjectId> = own.into_iter().map(|(_, id)| id).collect();
     // Few steps' scripts ask about the doors, and no door changes during
@@ -2297,9 +2300,9 @@ impl SimWorld {
             // CSWSArea::AddObjectToArea signals script event 12 for a
             // creature, a player's or not; the module's OnClientEnter is a
             // client's alone). So a script asking whether the one entering
-            // is GetFirstPC finds the leader among them while a companion
-            // leads (232TEL's k_232_enter gives the Exile back after
-            // Bao-Dur led the party in). The order [verify in the exe].
+            // is GetFirstPC finds the main character among them, even while
+            // a companion leads (232TEL's k_232_enter gives the Exile back
+            // after Bao-Dur led the party in). The order [verify in the exe].
             let bodies: BTreeSet<u32> = self
                 .world
                 .query::<&Id>()
