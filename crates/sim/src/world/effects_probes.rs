@@ -1157,9 +1157,11 @@ fn video_rows() -> Result<String, String> {
 
 /// Force Body (level 0) and a 20-point power: 10 from FP, 10 from HP; with
 /// 5 FP, or 11 HP, not paid; Improved (1): 8 and 8. A cast landing charges
-/// whatever is left (`effects::charge`): with 5 FP, 0 FP and 10 HP off.
+/// whatever is left (`effects::charge`): with 5 FP, 0 FP and 10 HP off. A
+/// held power's step costing 0.24 points takes 0.12 from FP and 0.12 from
+/// HP, not nothing (Force Lightning held under Force Body).
 fn force_body() -> Result<String, String> {
-    let body = |level: u8, (fp, hp): (i32, i32), landing: bool| {
+    let body = |level: u8, (fp, hp): (i32, i32), cost: i32, landing: bool| {
         let mut f = crate::combat::Fighter::fresh(100, 100);
         f.effects.add(
             Lasting {
@@ -1177,29 +1179,31 @@ fn force_body() -> Result<String, String> {
         );
         (f.fp, f.hp) = (fp * 100, hp * 100);
         let paid = if landing {
-            effects::charge(&mut f, 2000, 1);
+            effects::charge(&mut f, cost, 1);
             true
         } else {
-            effects::pay(&mut f, 2000, 1)
+            effects::pay(&mut f, cost, 1)
         };
-        (paid, f.fp / 100, f.hp / 100)
+        (paid, f.fp, f.hp)
     };
     let seen = [
-        body(0, (30, 50), false),
-        body(0, (5, 50), false),
-        body(0, (30, 11), false),
-        body(1, (30, 50), false),
-        body(0, (5, 50), true),
+        body(0, (30, 50), 2000, false),
+        body(0, (5, 50), 2000, false),
+        body(0, (30, 11), 2000, false),
+        body(1, (30, 50), 2000, false),
+        body(0, (5, 50), 2000, true),
+        body(0, (30, 50), 24, false),
     ];
     check(
         seen == [
-            (true, 20, 40),
-            (false, 5, 50),
-            (false, 30, 11),
-            (true, 22, 42),
-            (true, 0, 40),
+            (true, 2000, 4000),
+            (false, 500, 5000),
+            (false, 3000, 1100),
+            (true, 2200, 4200),
+            (true, 0, 4000),
+            (true, 2988, 4988),
         ],
-        format!("(paid, FP, HP): {seen:?}"),
+        format!("(paid, FP, HP in hundredths): {seen:?}"),
     )
 }
 
