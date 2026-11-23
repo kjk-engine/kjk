@@ -348,6 +348,27 @@ fn no_grab_under_ja_rules() -> Result<String, String> {
     check(!grabbed, format!("JA's rules: the grab plays {grabbed}"))
 }
 
+/// A grab takes a victim on a hillside. The report's save from Dantooine's
+/// plains had the player 1.15 m above the Mandalorian, 4.73 m away (a
+/// 14° slope): at a punch's reach on that slope, the victim stands lower
+/// than JA's flat 8 units allow, and is taken. A victim 1 m up a ledge at
+/// that reach is not.
+fn grab_on_a_slope() -> Result<String, String> {
+    use crate::world::grapples::level_within;
+    let reach = crate::world::strikes::player_punch_reach_m() / collision::UNIT;
+    let slope = 1.15 / 4.73;
+    let below = reach * slope;
+    let ledge = 1.0 / collision::UNIT;
+    check(
+        below > grab::HEIGHT_UNITS && below <= level_within(reach) && ledge > level_within(reach),
+        format!(
+            "at a punch's reach of {reach:.1} units: the slope's drop {below:.1}, the ledge {ledge:.1}, allowed {:.1} (flat {:.1})",
+            level_within(reach),
+            grab::HEIGHT_UNITS
+        ),
+    )
+}
+
 /// With a blade in hand alt attack does not grab.
 fn no_grab_with_weapon() -> Result<String, String> {
     let ticks = grab_with("advanced", ("vibroblade", ""), HURT, "", ("", ""), 2_000)?;
@@ -966,7 +987,7 @@ fn finisher_three_throws_marked_victim_limp() -> Result<String, String> {
 type Probe = (&'static str, fn() -> Result<String, String>);
 
 pub fn probes() -> Checks {
-    let all: [Probe; 28] = [
+    let all: [Probe; 29] = [
         (
             "finisher_three_throws_marked_victim_limp",
             finisher_three_throws_marked_victim_limp,
@@ -992,6 +1013,7 @@ pub fn probes() -> Checks {
         ),
         ("no_grab_under_ja_rules", no_grab_under_ja_rules),
         ("no_grab_with_weapon", no_grab_with_weapon),
+        ("grab_on_a_slope", grab_on_a_slope),
         ("finisher_blows_full_damage", finisher_blows_full_damage),
         ("blow_count_matches_ja", blow_count_matches_ja),
         ("victim_down_at_end", victim_down_at_end),

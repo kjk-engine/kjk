@@ -592,13 +592,17 @@ impl Solo {
 
     /// Whether a resume waits for the next tick: while a break holds, the
     /// host steps for it (its caller's or the host's ends the break,
-    /// another's is told no, `Notice::NotYourBreak`).
+    /// another's is told no, `Notice::NotYourBreak`). A leader or solo mode
+    /// change from the first seat counts too (`sim::party::passes_break`):
+    /// the host steps one tick for it, and the break holds again after it.
     pub fn resume_waiting(&self) -> bool {
         lock(&self.hosted)
             .server
             .waiting()
             .iter()
-            .any(|(_, action)| *action == Action::Resume)
+            .any(|(seat, action)| {
+                *action == Action::Resume || sim::party::passes_break(*seat, action)
+            })
     }
 
     /// Whether any player's action waits for the next tick (an item
@@ -627,7 +631,8 @@ impl Solo {
     /// The commands the server has for `tick`, by seat, with the players'
     /// actions that came since the last tick. A tick the break `paused_by`
     /// holds after (no resume from its caller or the host) takes only the
-    /// resumes: the rest wait for the tick that ends it.
+    /// resumes and the first seat's leader and solo mode changes
+    /// (`sim::party::passes_break`): the rest wait for the tick that ends it.
     pub fn commands_for(&mut self, tick: u64, paused_by: Option<Seat>) -> TickInput {
         let mut hosted = lock(&self.hosted);
         let mut input = hosted.server.commands_for(tick);
@@ -639,7 +644,7 @@ impl Solo {
             })
         });
         for (seat, action) in actions {
-            if ends || action == Action::Resume {
+            if ends || action == Action::Resume || sim::party::passes_break(seat, &action) {
                 input.act(seat, action);
             } else {
                 self.after_break.push((seat, action));
