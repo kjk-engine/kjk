@@ -1702,6 +1702,11 @@ folder that holds other files is refused. The export has two parts.
     quests, and every file it brings with its size and its digest. It
     also lists the files of other mods the project was built on (see
     "A project built on another mod" below).
+  - `kjk-ja/<map>/` for each new map that places rooms cut from Jedi
+    Academy levels. `rooms.toml` says which rooms the map places and
+    where. Beside it is a copy of each level's cuts, such as
+    `t1_sour.toml`, which names the level's file by its digest. See
+    "A map with Jedi Academy rooms" below.
 
 `kjk-mod-readme.txt` beside the two folders says how to install the mod,
 and how many of its files the original game reads.
@@ -1742,6 +1747,22 @@ original game gives no such warning.
 Two things are not looked for. A mod's models and textures are not listed,
 because a level names them through the game's tables. A line of text that
 only a mod's `dialog.tlk` has is not listed either.
+
+**A map with Jedi Academy rooms.** The mod holds none of Jedi Academy's
+files. It holds only where the map places each room, and the shapes the
+rooms were cut with. When kjk starts without `--project`, it reads these
+files and builds each room from the player's own Jedi Academy install,
+as the editor does. Building t1_sour's hangar took 0.6 seconds.
+
+- A player needs Jedi Academy installed to play such a map in kjk. The
+  original game cannot play it at all, because its rooms are not in the
+  module.
+- The cuts name the level's file by its digest. A player whose file of
+  the level is different gets no rooms from it. kjk then says so at its
+  start: "the map kjk_jka_test has rooms of Jedi Academy's
+  maps/t1_sour.bsp, which kjk could not build. The installed
+  maps/t1_sour.bsp is not the file its rooms were cut from."
+- The readme beside the mod says that it needs Jedi Academy.
 
 **Removing a mod.** A mod is removed by deleting the files that its
 `kjk-mod-<project>.toml` lists, and then that file.
@@ -1984,6 +2005,10 @@ edges, so "Meet a seam" can find an edge nearer than the one meant. In a
 test, the hangar moved 67 centimetres off its home place met a seam 44
 centimetres from home. Rooms of one level are therefore best placed at
 their home places.
+
+**Sharing the map.** **Export as a mod** takes the map's Jedi Academy
+rooms with it, as their places and their cuts, and none of Jedi
+Academy's files ("Sharing a level", "A map with Jedi Academy rooms").
 
 **What a Jedi Academy room does not have yet.** Its doors and lifts are
 drawn shut and do not move, and they block the way. Its sky is not drawn.

@@ -25,6 +25,13 @@
 //!   - `kjk-mod-<project>.toml`: the mod's name, its version, its levels,
 //!     its quests and every file it brings, each with its size and its
 //!     digest (`Manifest`).
+//!   - `kjk-ja/<module>/`: a new map's rooms cut from Jedi Academy levels
+//!     (`JaMap`). `rooms.toml` says where the map places each such room,
+//!     and each level's cuts are a copy of the project's
+//!     `ja-rooms/<level>.toml`. The cuts name the level's file by its
+//!     digest. kjk builds the rooms from the player's own Jedi Academy
+//!     install (`kjk_game::ja_made`), so the mod holds nothing of Jedi
+//!     Academy's files. The map's module leaves those rooms out.
 //!
 //! kjk reads the kjk-only files of every mod in `override/` when it runs
 //! without `--project` (`active::activate_mods`). Two mods that change the
@@ -55,6 +62,132 @@ pub fn lighting_file(name: &str) -> String {
 /// The file of a mod's own quests in `override/`.
 pub fn journal_file(name: &str) -> String {
     format!("kjk-journal-{}.jrl", name.to_ascii_lowercase())
+}
+
+/// The folder of the new maps' Jedi Academy rooms in `override/`, one
+/// folder a map (`JaMap`).
+pub const JA_FOLDER: &str = "kjk-ja";
+
+/// The file of a map's Jedi Academy rooms' places, in its folder.
+pub const JA_ROOMS: &str = "rooms.toml";
+
+/// A new map's rooms cut from Jedi Academy levels, as a mod brings them:
+/// where the map places each, and the cuts of each level they come from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JaMap {
+    /// The map's module.
+    pub module: String,
+    /// Each room, with the name of its copy in the map's layout
+    /// (`map::room_name`).
+    pub rooms: Vec<(String, crate::map::Room)>,
+    /// The cuts of each level the rooms come from.
+    pub cuts: Vec<crate::ja_rooms::JaRooms>,
+}
+
+impl JaMap {
+    /// The map `map` of the module `module`'s Jedi Academy rooms, with
+    /// the cuts that `cuts` gives for a level. `None` when it places none.
+    pub fn of(
+        module: &str,
+        map: &crate::map::NewMap,
+        cuts: impl Fn(&str) -> Option<crate::ja_rooms::JaRooms>,
+    ) -> Result<Option<JaMap>, String> {
+        let rooms: Vec<(String, crate::map::Room)> = (map.rooms.iter().enumerate())
+            .filter(|(_, room)| room.ja.is_some())
+            .map(|(index, room)| (crate::map::room_name(module, index), room.clone()))
+            .collect();
+        if rooms.is_empty() {
+            return Ok(None);
+        }
+        let levels: std::collections::BTreeSet<&str> = (rooms.iter())
+            .filter_map(|(_, room)| Some(room.ja.as_ref()?.level.as_str()))
+            .collect();
+        let mut kept = Vec::new();
+        for level in levels {
+            kept.push(cuts(level).ok_or(format!(
+                "the map {module} places rooms of {level}, but the project keeps no rooms of it"
+            ))?);
+        }
+        Ok(Some(JaMap {
+            module: module.to_string(),
+            rooms,
+            cuts: kept,
+        }))
+    }
+
+    /// The text of `rooms.toml`.
+    pub fn write_rooms(&self) -> String {
+        let triple = |v: [f32; 3]| format!("[{:?}, {:?}, {:?}]", v[0], v[1], v[2]);
+        let mut out = format!(
+            "# The rooms of the new map {} that kjk builds from Jedi Academy's levels\n\
+             # (docs/LEVEL-EDIT.md, \"Sharing a level\"). Each is built from the\n\
+             # player's own install, with the cuts beside this file.\n\
+             module = {:?}\n",
+            self.module, self.module
+        );
+        for (copy, room) in &self.rooms {
+            let Some(ja) = &room.ja else {
+                continue;
+            };
+            out.push_str(&format!(
+                "\n[[room]]\ncopy = {copy:?}\nja_level = {:?}\nja_room = {:?}\nfrom = {}\nposition = {}\nyaw = {:?}\n",
+                ja.level,
+                ja.room,
+                triple(room.from),
+                triple(room.position),
+                f64::from(room.yaw)
+            ));
+        }
+        out
+    }
+
+    /// Reads the module and the rooms of `rooms.toml`.
+    pub fn parse_rooms(text: &str) -> Result<(String, Vec<(String, crate::map::Room)>), String> {
+        let document: toml_edit::DocumentMut = text.parse().map_err(|error| format!("{error}"))?;
+        let words = |item: Option<&toml_edit::Item>, what: &str| {
+            (item.and_then(toml_edit::Item::as_str))
+                .map(str::to_string)
+                .ok_or(format!("{what} is missing"))
+        };
+        let number = |value: &toml_edit::Value| {
+            (value.as_float())
+                .or_else(|| value.as_integer().map(|whole| whole as f64))
+                .map(|value| value as f32)
+                .filter(|value| value.is_finite())
+        };
+        let triple = |item: Option<&toml_edit::Item>, what: &str| -> Result<[f32; 3], String> {
+            let array = (item.and_then(toml_edit::Item::as_array))
+                .filter(|array| array.len() == 3)
+                .ok_or(format!("{what} is not three numbers"))?;
+            let parts: Vec<f32> = array.iter().filter_map(number).collect();
+            <[f32; 3]>::try_from(parts).map_err(|_| format!("{what} is not three numbers"))
+        };
+        let module = words(document.get("module"), "module")?.to_ascii_lowercase();
+        let mut rooms = Vec::new();
+        for table in (document
+            .get("room")
+            .and_then(toml_edit::Item::as_array_of_tables))
+        .into_iter()
+        .flat_map(toml_edit::ArrayOfTables::iter)
+        {
+            let ja = crate::map::JaRoom {
+                level: words(table.get("ja_level"), "a room's ja_level")?.to_ascii_lowercase(),
+                room: words(table.get("ja_room"), "a room's ja_room")?,
+            };
+            let room = crate::map::Room {
+                model: crate::ja_rooms::room_resref(&ja.level, &ja.room),
+                from: triple(table.get("from"), "a room's from")?,
+                position: triple(table.get("position"), "a room's position")?,
+                yaw: (table.get("yaw").and_then(toml_edit::Item::as_value))
+                    .and_then(number)
+                    .unwrap_or(0.0),
+                ja: Some(ja),
+            };
+            let copy = words(table.get("copy"), "a room's copy")?.to_ascii_lowercase();
+            rooms.push((copy, room));
+        }
+        Ok((module, rooms))
+    }
 }
 
 /// The file that says what a mod is and what it brings, in `override/`.
@@ -190,6 +323,8 @@ pub struct Found {
     pub journals: Vec<fmt_odyssey::gff::Gff>,
     /// What each mod says of itself (`manifest_file`).
     pub mods: Vec<Manifest>,
+    /// The new maps' rooms cut from Jedi Academy levels (`JA_FOLDER`).
+    pub ja_maps: Vec<JaMap>,
     /// A digest of what the mods change of the world that the games' own
     /// files do not hold: the levels' kjk-only content and the quests.
     /// Two machines that play together compare it.
@@ -206,6 +341,7 @@ impl Found {
             && self.bakes.is_empty()
             && self.journals.is_empty()
             && self.mods.is_empty()
+            && self.ja_maps.is_empty()
     }
 }
 
@@ -224,8 +360,24 @@ pub fn read(files: &[(String, PathBuf)]) -> Found {
             of_world = true;
         }
     };
+    // Each map's Jedi Academy rooms: its places, and its levels' cuts.
+    let mut ja_places: BTreeMap<String, (String, PathBuf)> = BTreeMap::new();
+    let mut ja_cuts: BTreeMap<String, Vec<(String, PathBuf)>> = BTreeMap::new();
     for (inside, path) in files {
         let top = !inside.contains('/');
+        if let Some(rest) = inside.strip_prefix(&format!("{JA_FOLDER}/"))
+            && let Some((map, file)) = rest.split_once('/')
+            && !file.contains('/')
+            && file.ends_with(".toml")
+        {
+            if file == JA_ROOMS {
+                ja_places.insert(map.to_string(), (inside.clone(), path.clone()));
+            } else {
+                (ja_cuts.entry(map.to_string()).or_default()).push((inside.clone(), path.clone()));
+            }
+            hash_in(inside, path);
+            continue;
+        }
         if top && inside.starts_with("kjk-area-") && inside.ends_with(".toml") {
             match read_area(path) {
                 Ok(level) => {
@@ -282,6 +434,33 @@ pub fn read(files: &[(String, PathBuf)]) -> Found {
                 .entry(module.to_string())
                 .or_insert_with(|| folder.to_path_buf());
         }
+    }
+    for (map, (inside, path)) in ja_places {
+        let read = std::fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|text| JaMap::parse_rooms(&text));
+        let (module, rooms) = match read {
+            Ok(read) => read,
+            Err(why) => {
+                found.notes.push(format!("{inside}: {why}"));
+                continue;
+            }
+        };
+        let mut cuts = Vec::new();
+        for (inside, path) in ja_cuts.remove(&map).unwrap_or_else(Vec::new) {
+            let read = std::fs::read_to_string(&path)
+                .map_err(|error| error.to_string())
+                .and_then(|text| crate::ja_rooms::JaRooms::parse(&text));
+            match read {
+                Ok(kept) => cuts.push(kept),
+                Err(why) => found.notes.push(format!("{inside}: {why}")),
+            }
+        }
+        found.ja_maps.push(JaMap {
+            module,
+            rooms,
+            cuts,
+        });
     }
     found.world = of_world.then(|| *world.finalize().as_bytes());
     let clashes = clashes(&found, files);
@@ -588,6 +767,31 @@ pub fn export(
             }
         }
     }
+    // A new map's rooms cut from Jedi Academy levels: where it places
+    // them, and the cuts they are built from.
+    for (module, _) in project.level_list() {
+        let Some(map) = project.map_of(&module) else {
+            continue;
+        };
+        let cuts = |level: &str| {
+            let path = crate::ja_rooms::path(&project.folder, level);
+            crate::ja_rooms::JaRooms::parse(&std::fs::read_to_string(path).ok()?).ok()
+        };
+        let Some(ja) = JaMap::of(&module, map, cuts)? else {
+            continue;
+        };
+        let folder = overrides.join(JA_FOLDER).join(&module);
+        std::fs::create_dir_all(&folder).map_err(failed(&folder))?;
+        let target = folder.join(JA_ROOMS);
+        std::fs::write(&target, ja.write_rooms()).map_err(failed(&target))?;
+        exported.kjk_files += 1;
+        for kept in &ja.cuts {
+            let name = crate::ja_rooms::short(&kept.level).replace('/', "-");
+            let target = folder.join(format!("{name}.toml"));
+            std::fs::write(&target, kept.write()).map_err(failed(&target))?;
+            exported.kjk_files += 1;
+        }
+    }
     let own = OwnLighting::read(&project.folder)?;
     if !own.is_empty() {
         let target = overrides.join(lighting_file(&project.name));
@@ -658,11 +862,11 @@ pub fn export(
          \n\
          The original game reads {game_files} of its files. The other {kjk_files} are for kjk\n\
          alone, and the original game ignores them: the files named kjk-area,\n\
-         kjk-lighting, kjk-journal and kjk-mod, and the folder kjk-bake. They\n\
-         hold what only kjk plays: collision boxes, Jedi Academy props, lights,\n\
-         lamps, baked light and the mod's quests. kjk reads them when it plays\n\
-         without --project. The original game does not show the mod's quests\n\
-         in its journal.\n\
+         kjk-lighting, kjk-journal and kjk-mod, and the folders kjk-bake and\n\
+         kjk-ja. They hold what only kjk plays: collision boxes, Jedi Academy\n\
+         props, lights, lamps, baked light and the mod's quests. kjk reads them\n\
+         when it plays without --project. The original game does not show the\n\
+         mod's quests in its journal.{ja}\n\
          \n\
          This is version {version}. To remove the mod, delete the files that\n\
          {manifest} in the override folder lists, then that file.\n",
@@ -676,6 +880,14 @@ pub fn export(
         },
         game_files = exported.game_files,
         kjk_files = exported.kjk_files,
+        ja = if overrides.join(JA_FOLDER).is_dir() {
+            "\n\nA new map of the mod has rooms of Jedi Academy's levels. The mod holds\n\
+             none of Jedi Academy's files: kjk builds those rooms from your own\n\
+             copy of Jedi Academy, which must be installed. The original game\n\
+             cannot play that map."
+        } else {
+            ""
+        },
     );
     let target = to.join(README);
     std::fs::write(&target, readme).map_err(failed(&target))?;

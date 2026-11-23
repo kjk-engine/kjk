@@ -48,6 +48,11 @@ pub struct Active {
     pub journals: Vec<fmt_odyssey::gff::Gff>,
     /// What each mod says of itself (`mods::Manifest`).
     pub mods: Vec<crate::mods::Manifest>,
+    /// The mods' new maps' rooms cut from Jedi Academy levels
+    /// (`mods::JaMap`), which the run builds before it opens a resolver
+    /// (`kjk_game::ja_made::make_mods`). A project keeps its own in its
+    /// maps, and has none here.
+    pub ja_maps: Vec<crate::mods::JaMap>,
     /// A digest of what this changes of the world beyond the games' own
     /// files, which two machines that play together compare: the mods'
     /// kjk-only content and quests, or a project's digest.
@@ -328,6 +333,7 @@ pub fn activate_mods(discovery: &Discovery) -> &'static [Active] {
         let mut active = made(discovery, project, found.lighting, found.bakes, found.notes);
         active.journals = found.journals;
         active.mods = found.mods;
+        active.ja_maps = found.ja_maps;
         active.world = found.world;
         actives.push(active);
     }
@@ -377,6 +383,7 @@ fn made(
         notes,
         journals: Vec::new(),
         mods: Vec::new(),
+        ja_maps: Vec::new(),
         world: None,
     }
 }

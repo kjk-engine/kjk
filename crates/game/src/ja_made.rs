@@ -38,6 +38,12 @@
 //! the map then copies that level's cuts into the map's project
 //! (`level_editor`), so the map's project holds all it needs to be played.
 //!
+//! A mod exported from such a project brings the map's rooms' places and
+//! the cuts of their levels (`level_edit::mods::JaMap`). A run without
+//! `--project` builds them in the same way (`make_mods`). The cuts name
+//! the level's file by its digest, so a room is built only from the very
+//! file it was cut from.
+//!
 //! The map's copy of the room, moved and turned to where the map places it,
 //! is then made as a KOTOR room's copy is (`level_edit::map::room_copy`).
 //! A run of the game makes it in memory too (`make_project`); the editor
@@ -79,8 +85,18 @@ pub struct Built {
     pub triangles: usize,
     /// The triangles of the room's walkmesh.
     pub floor: usize,
-    /// The folder of the project whose cuts the room was built from.
-    pub folder: PathBuf,
+    /// The folder of the project whose cuts the room was built from. A
+    /// mod's room has none.
+    pub folder: Option<PathBuf>,
+}
+
+/// Where the cuts a level's rooms are built from are.
+#[derive(Debug, Clone, Copy)]
+pub enum Cuts<'a> {
+    /// In a project's folder (`level_edit::ja_rooms::path`).
+    Project(&'a Path),
+    /// Read already, as a mod brings them.
+    Kept(&'a JaRooms),
 }
 
 /// A level's rooms that a project keeps.
@@ -165,7 +181,7 @@ fn named(kind: &str, bytes: &[u8]) -> String {
 pub fn build_level(
     discovery: &Discovery,
     game: Game,
-    folder: &Path,
+    cuts: Cuts,
     level: &str,
     wanted: Option<&BTreeSet<String>>,
 ) -> Result<(Vec<Built>, Vec<String>), String> {
@@ -177,8 +193,20 @@ pub fn build_level(
         .ok_or(format!("{path}: not in Jedi Academy's archives"))?;
     let bsp = fmt_ja::bsp::parse(&bytes).map_err(|error| format!("{path}: {error}"))?;
     let digest = level_edit::ja_rooms::digest(&bytes);
-    let kept = JaRooms::read(folder, &path, &digest)?
-        .ok_or(format!("the project keeps no rooms of {path}"))?;
+    let kept = match cuts {
+        Cuts::Project(folder) => JaRooms::read(folder, &path, &digest)?
+            .ok_or(format!("the project keeps no rooms of {path}"))?,
+        Cuts::Kept(kept) if kept.digest != digest => {
+            return Err(format!(
+                "The installed {path} is not the file its rooms were cut from."
+            ));
+        }
+        Cuts::Kept(kept) => kept.clone(),
+    };
+    let folder = match cuts {
+        Cuts::Project(folder) => Some(folder.to_path_buf()),
+        Cuts::Kept(_) => None,
+    };
     let cuts = room_cuts(&kept);
     let cutter = cuts.cutter();
     let md3 = |model: &str| fmt_ja::md3::parse(&files.read(model)?).ok();
@@ -306,7 +334,7 @@ pub fn build_level(
             from,
             triangles,
             floor: walkmesh.faces.len(),
-            folder: folder.to_path_buf(),
+            folder: folder.clone(),
         });
     }
     Ok((built, notes))
@@ -323,7 +351,13 @@ pub fn build_sources(
     let mut built = Vec::new();
     let mut notes = Vec::new();
     for source in sources {
-        match build_level(discovery, game, &source.folder, &source.level, None) {
+        match build_level(
+            discovery,
+            game,
+            Cuts::Project(&source.folder),
+            &source.level,
+            None,
+        ) {
             Ok((rooms, more)) => {
                 built.extend(rooms);
                 notes.extend(more);
@@ -348,13 +382,72 @@ pub fn place_copies(game: Game, module: &str, map: &NewMap) -> Vec<String> {
             continue;
         }
         let name = level_edit::map::room_name(module, index);
-        match level_edit::map::room_copy(room, &name, &read) {
-            Ok(files) => {
-                for (resref, restype, bytes) in files {
-                    vfs::made::put(game, &resref, restype, bytes);
+        if let Err(why) = put_copy(game, room, &name, &read) {
+            notes.push(why);
+        }
+    }
+    notes
+}
+
+/// Puts into memory the copy `name` of `room`, from the room's files that
+/// `read` gives.
+fn put_copy(
+    game: Game,
+    room: &level_edit::map::Room,
+    name: &str,
+    read: &dyn Fn(&str, ResType) -> Option<Vec<u8>>,
+) -> Result<(), String> {
+    for (resref, restype, bytes) in level_edit::map::room_copy(room, name, read)? {
+        vfs::made::put(game, &resref, restype, bytes);
+    }
+    Ok(())
+}
+
+/// Builds the rooms of the mods' new maps that come from Jedi Academy
+/// levels (`level_edit::active::Active::ja_maps`), and the maps' copies of
+/// them, into memory, before a run of the game opens any resolver. Gives
+/// what went wrong, such as a player without Jedi Academy installed.
+pub fn make_mods(discovery: &Discovery, active: &level_edit::active::Active) -> Vec<String> {
+    let Some(game) = Game::from_key(&active.project.game) else {
+        return Vec::new();
+    };
+    let read = |name: &str, restype: ResType| {
+        vfs::made::get(game, name, restype).map(|bytes| bytes.to_vec())
+    };
+    let mut notes = Vec::new();
+    for map in &active.ja_maps {
+        // The levels whose rooms were not built: their rooms get no copy.
+        let mut failed = BTreeSet::new();
+        for kept in &map.cuts {
+            let wanted: BTreeSet<String> = (map.rooms.iter())
+                .filter_map(|(_, room)| room.ja.as_ref())
+                .filter(|ja| ja.level == kept.level)
+                .map(|ja| ja.room.clone())
+                .collect();
+            match build_level(
+                discovery,
+                game,
+                Cuts::Kept(kept),
+                &kept.level,
+                Some(&wanted),
+            ) {
+                Ok((_, more)) => notes.extend(more),
+                Err(why) => {
+                    failed.insert(kept.level.as_str());
+                    notes.push(format!(
+                        "the map {} has rooms of Jedi Academy's {}, which kjk could not build. {why}",
+                        map.module, kept.level
+                    ));
                 }
             }
-            Err(why) => notes.push(why),
+        }
+        for (copy, room) in &map.rooms {
+            if (room.ja.as_ref()).is_some_and(|ja| failed.contains(ja.level.as_str())) {
+                continue;
+            }
+            if let Err(why) = put_copy(game, room, copy, &read) {
+                notes.push(format!("the map {}: {why}", map.module));
+            }
         }
     }
     notes
@@ -384,7 +477,13 @@ pub fn make_project(discovery: &Discovery, project: &level_edit::Project) -> Vec
     }
     let mut notes = Vec::new();
     for (level, rooms) in &wanted {
-        match build_level(discovery, game, &project.folder, level, Some(rooms)) {
+        match build_level(
+            discovery,
+            game,
+            Cuts::Project(&project.folder),
+            level,
+            Some(rooms),
+        ) {
             Ok((_, more)) => notes.extend(more),
             Err(why) => notes.push(why),
         }

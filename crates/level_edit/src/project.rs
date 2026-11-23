@@ -230,6 +230,14 @@ impl Project {
             .map(|level| &level.kjk)
     }
 
+    /// The new map of the project's level `module`, if it is one.
+    pub fn map_of(&self, module: &str) -> Option<&NewMap> {
+        if self.module.eq_ignore_ascii_case(module) {
+            return self.map.as_ref();
+        }
+        (self.parked.get(&module.to_ascii_lowercase())).and_then(|level| level.map.as_ref())
+    }
+
     /// Whether the project's level `module` is a new map it makes.
     pub fn is_map(&self, module: &str) -> bool {
         if self.module.eq_ignore_ascii_case(module) {

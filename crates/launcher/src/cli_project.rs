@@ -36,6 +36,20 @@ pub(crate) fn activate_mods() {
         for note in &active.notes {
             eprintln!("kjk mods in {}'s override: {note}", active.project.game);
         }
+        // The Jedi Academy rooms of the mods' new maps, built into memory
+        // before any resolver opens.
+        if !active.ja_maps.is_empty() {
+            let started = std::time::Instant::now();
+            for note in kjk_game::ja_made::make_mods(&discover(), active) {
+                eprintln!("kjk mods in {}'s override: {note}", active.project.game);
+            }
+            eprintln!(
+                "kjk mods in {}'s override: built the Jedi Academy rooms of {} new maps in {:.1} s",
+                active.project.game,
+                active.ja_maps.len(),
+                started.elapsed().as_secs_f32()
+            );
+        }
     }
 }
 

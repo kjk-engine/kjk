@@ -477,7 +477,7 @@ fn setup(
         from: room.from,
         area: room.ja.level.clone(),
         ja: Some(room.ja),
-        ja_from: (room.folder != folder).then_some(room.folder),
+        ja_from: room.folder.filter(|from| *from != folder),
     }));
     let light_data = light_data();
     let program = kjk_program()?;
