@@ -2,8 +2,8 @@
 //! presented snapshots and `sim_host::Loading`):
 //!
 //! - the loading screen while a module is planned: the game's own
-//!   (`ui::screens::loading`, the campaign's own layout: the module's loading
-//!   image, KOTOR 1's hint or KOTOR 2's area name, the bar) where the screens are drawn, else laid out
+//!   (`ui::screens::loading`, the campaign's own layout, with the module's
+//!   loading image, a hint and the bar) where the screens are drawn, else laid out
 //!   as KOTOR's `loadscreen.gui` has it (640 × 480): the module's loading
 //!   image over black, the progress bar (`PB_PROGRESS`, 238, 279, 164 ×
 //!   22, filled with `bluefill` from the left); it holds a moment once the

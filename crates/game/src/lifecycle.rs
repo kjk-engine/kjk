@@ -557,7 +557,8 @@ impl Installer {
         let table = self.install.base().ok()?.two_da("loadscreenhints")?;
         let mut guard = self.hints.lock().ok()?;
         let hints = &mut *guard;
-        let story = !hints.visited.insert(module.to_string()) && table.column("storyhint").is_some();
+        let first_visit = hints.visited.insert(module.to_string());
+        let story = !first_visit && table.column("storyhint").is_some();
         let (next, column) = if story {
             (&mut hints.story, "storyhint")
         } else {
@@ -573,8 +574,9 @@ impl Installer {
 
     /// What the loading screen shows for `module`: its image (reone's
     /// `load_<module>`, else the area's `loadscreens.2da` row), the bar's
-    /// fill (`loadscreen.gui`'s `bluefill`), and under "Loading" the hint, else
-    /// the area's name.
+    /// fill (`loadscreen.gui`'s `bluefill`), and the hint under "Loading". A
+    /// module with no `load_<module>` image and no hint shows the area's
+    /// name there.
     pub fn loading_screen(&self, module: &str) -> LoadingScreen {
         let global = self.install.base().ok();
         let bar = global.and_then(|resolver| viewer::texture(resolver, "bluefill"));

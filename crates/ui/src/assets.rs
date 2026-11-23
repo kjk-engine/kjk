@@ -449,7 +449,13 @@ impl GuiAssets {
     /// lowest copy instead: the one the game ships.
     pub fn stock_screen_layout(&self, name: &str) -> Result<Gui, String> {
         let (resolver, file) = if skin::own(name) {
-            (&self.resolver, name.to_string())
+            let own = self.resolver.find(name, ResType::GUI).is_some();
+            let file = if own {
+                name.to_string()
+            } else {
+                skin::moved(name)
+            };
+            (&self.resolver, file)
         } else {
             let skin = self
                 .skin

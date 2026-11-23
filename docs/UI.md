@@ -60,8 +60,9 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`skin::RENAMED`: the main menu, the party selection, the advanced
   graphics options). Screens are written for KOTOR 2's controls. A layout of the
   campaign's own world stays the campaign's, drawn with its art
-  (`skin::own`: the galaxy map, whose buttons are its planets, and the
-  loading screen, whose bar sits in a slot of KOTOR 1's pictures). A layout drawn under
+  (`skin::own`). The galaxy map is one, because its buttons are its
+  planets. The loading screen is the other, because KOTOR 1's pictures have
+  a slot for its bar. A layout drawn under
   a screen's (the bar) is read from where the screen's came from.
 - A layout from an override folder (the game's own or a Workshop item's)
   is a mod's, unless it is one of the files Aspyr's update ships there

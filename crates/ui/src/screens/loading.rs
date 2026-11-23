@@ -1,7 +1,8 @@
-//! A session starting: KOTOR's loading screen (`loadscreen`), its image
-//! the module's when known, its hint line what is happening or a hint, its
-//! bar how far it is (hidden while that is not known). The layout is the
-//! campaign's own, so its logo is the campaign's.
+//! A session starting: KOTOR's loading screen (`loadscreen`). Its image is
+//! the module's when that is known. Its hint line shows what is happening,
+//! or a hint. Its bar shows how far the load is, and is hidden while that is
+//! not known. The layout is the campaign's own, so its logo is the
+//! campaign's.
 
 use fmt_odyssey::gui::Control;
 
