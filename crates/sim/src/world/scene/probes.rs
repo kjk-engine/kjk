@@ -91,6 +91,7 @@ const PROBES: &[Probe] = &[
         advanced_scene_takes_no_stance,
     ),
     ("scene_fights_same_by_rules", scene_fights_same_by_rules),
+    ("talk_moves_leader", talk_moves_leader),
     ("solo_click_holds", solo_click_holds),
     ("coop_private_free", coop_private_free),
     ("private_talk_kotor_blows", private_talk_kotor_blows),
@@ -3592,6 +3593,50 @@ fn solo_click_holds() -> Result<String, String> {
     let party = ground.last.talk.party().is_some();
     let held = ground.held();
     check(!party && held, format!("a party one {party}, held {held}"))
+}
+
+/// A script's move of the party's leader during the leader's own
+/// conversation arrives, with one seat and with two, whether the host's own
+/// character leads or a companion does. Taris's Matrik sends the leader
+/// (`GetPartyMemberByIndex(0)`) out of his apartment before it blows
+/// (`k_ptar_matrik30x`). With two seats the conversation holds no one else,
+/// and the companion the host led never walked: the rubble shut it in.
+fn talk_moves_leader() -> Found {
+    let mut found = Vec::new();
+    for seats in [1, 2] {
+        for companion in [false, true] {
+            let mut ground = Ground::new(seats)?;
+            let host = ground.body(0)?;
+            if seats == 2 {
+                let guest = ground.body(1)?;
+                ground.put(guest, [-7.0, 3.0]);
+            }
+            ground.put(host, WALK_FROM);
+            let leader = if companion {
+                let buddy = ground.befriend(BUDDY)?;
+                ground.put(host, [-7.0, -3.0]);
+                ground.put(buddy, WALK_FROM);
+                ground.lead(buddy);
+                buddy
+            } else {
+                host
+            };
+            ground.place(TALKER, [-1.0, -5.0])?;
+            ground.click_talker(0)?;
+            let held = ground.held();
+            ground.queue(leader, move_to(WALK_TO, true, None));
+            ground.idle(6000);
+            let left = between(ground.at(leader), floor_at(WALK_TO));
+            found.push((seats, companion, held, left));
+        }
+    }
+    let range = crate::script::MOVE_TO_LOCATION_RANGE;
+    check(
+        found.iter().all(|&(.., left)| left <= range + 0.05),
+        format!(
+            "(seats, a companion leads, held, m left of the place, {range} m at most) {found:?}"
+        ),
+    )
 }
 
 /// S1: two seats, the guest in its own conversation: the world is not

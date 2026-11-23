@@ -416,6 +416,17 @@ pub(super) fn think(
         fighting.0.last_command = command;
         driven.0.push(id.0);
     }
+    // The companion leading, a script walking it, goes by its mind's walk
+    // (below), not by its player's keys, as the first seat's own character
+    // does above. Its keys move nothing during its own conversation. With
+    // one seat that conversation holds the world, and KOTOR's walker carried
+    // it anyway. With two it holds no one else, so the walk was never made:
+    // the companion stayed where it stood while Taris's Matrik ran out of
+    // his apartment before it blew (`k_ptar_matrik30x`), and the rubble
+    // shut it in.
+    if let Some(body) = lent.filter(|body| scripts.state.goals.contains_key(&body.0)) {
+        driven.0.push(body);
+    }
     let mut minds: Vec<_> = actors
         .iter_mut()
         .filter(|(_, avatar, .., fighting)| {
