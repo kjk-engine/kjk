@@ -121,6 +121,9 @@ pub struct Guise {
     /// The item in its body slot (a row of model type `B` dresses its body
     /// by it).
     pub armour: Option<String>,
+    /// Whether that item, or an empty slot, is what its template made it
+    /// with (`creature::Dressing`).
+    pub dressing: asset_odyssey::creature::Dressing,
     /// The head a script gave it (a `heads.2da` row; else the row's own).
     pub head: Option<u8>,
     /// The item in its head slot, drawn on its head unless hidden.
@@ -133,6 +136,7 @@ pub struct Guise {
 struct Worn<'s> {
     appearance: u16,
     armour: Option<&'s str>,
+    dressing: asset_odyssey::creature::Dressing,
     head: Option<u8>,
     headgear: Option<&'s str>,
     aligned: asset_odyssey::creature::Aligned,
@@ -142,6 +146,7 @@ impl Worn<'_> {
     fn is(&self, guise: &Guise) -> bool {
         self.appearance == guise.appearance
             && same_item(self.armour, guise.armour.as_deref())
+            && self.dressing == guise.dressing
             && self.head == guise.head
             && same_item(self.headgear, guise.headgear.as_deref())
             && self.aligned == guise.aligned
@@ -151,6 +156,7 @@ impl Worn<'_> {
         Guise {
             appearance: self.appearance,
             armour: self.armour.map(str::to_ascii_lowercase),
+            dressing: self.dressing,
             head: self.head,
             headgear: self.headgear.map(str::to_ascii_lowercase),
             aligned: self.aligned,
@@ -397,7 +403,7 @@ impl Made {
                 let at = ([0.0; 3], 0.0);
                 let body = (
                     u32::from(guise.appearance),
-                    guise.armour.as_deref(),
+                    (guise.armour.as_deref(), guise.dressing),
                     guise.head,
                     guise.headgear.as_deref(),
                 );
@@ -1134,19 +1140,9 @@ fn guise<'s>(
         .or_else(|| look.head.and_then(|_| own()));
     let aligned =
         crate::alignment_look::in_level(level, crate::cast::sheet(entity, objects).good_evil);
-    let guise = |appearance, head| Worn {
-        appearance,
-        armour: body,
-        head,
-        headgear,
-        aligned,
-    };
-    if let Some(row) = row {
-        return Some(guise(row, look.head));
-    }
-    // A player's own body is the wardrobe's to dress (`wardrobe`).
-    let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
-        return None;
+    let creature = match entity.kind {
+        Kind::Object(ObjectKind::Creature, index) => Some(index),
+        _ => None,
     };
     let composed = |slot| {
         facts?
@@ -1159,6 +1155,26 @@ fn guise<'s>(
     // template's item still.
     let worn = |item: Option<&'s str>| item.map(sim::inventory::resref_of);
     use sim::inventory::slots;
+    // A creature made with nothing on its body that still wears nothing
+    // there took nothing off (`creature::Dressing`).
+    let dressing = if creature.is_some() && body.is_none() && composed(slots::BODY).is_none() {
+        asset_odyssey::creature::Dressing::AsMade
+    } else {
+        asset_odyssey::creature::Dressing::Changed
+    };
+    let guise = |appearance, head| Worn {
+        appearance,
+        armour: body,
+        dressing,
+        head,
+        headgear,
+        aligned,
+    };
+    if let Some(row) = row {
+        return Some(guise(row, look.head));
+    }
+    // A player's own body is the wardrobe's to dress (`wardrobe`).
+    let index = creature?;
     let redressed = !same_item(worn(body), composed(slots::BODY))
         || !same_item(worn(headgear), composed(slots::HEAD))
         || drawn(index).is_some_and(|was| was != aligned);

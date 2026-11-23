@@ -447,9 +447,7 @@ pub(in crate::world) fn apply(
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                 {
                     let fighter = &mut fighting.0;
-                    // A body dying in place keeps its dying clip.
-                    let dying = |acting: Acting| acting.animation == crate::combat::death::DIE;
-                    if !fighter.acting.is_some_and(dying) {
+                    if !fighter.acting.is_some_and(Acting::outlives_a_clear) {
                         fighter.acting = None;
                     }
                     fighter.mind.last_seen = None;
@@ -477,20 +475,29 @@ pub(in crate::world) fn apply(
                 if (object.state.state != 0) == open {
                     continue;
                 }
-                // A door closes on no one standing in its doorway: it would
-                // shut them in its panels (Manaan's Sith base, its wing door
-                // behind an apprentice). KOTOR's executable closes it at once
-                // (its close looks for no one in the way), so it closes once
-                // the doorway is clear: its own queue
+                // A door closes on no one passing through its doorway: it
+                // would shut them in its panels (Manaan's Sith base, its wing
+                // door behind an apprentice). KOTOR's executable closes it at
+                // once (its close looks for no one in the way), so it closes
+                // once no one in the doorway is on the move: its own queue
                 // asks again (Citadel Station's Exchange door, shut and locked
-                // behind Slusk as he walks through it to his desk).
+                // behind Slusk as he walks through it to his desk). One
+                // standing still there with nothing left to do is shut in, as
+                // KOTOR shuts it. Grenn's officer stops a metre short of his
+                // mark outside the Exile's apartment in Residential 082 East,
+                // in the doorway, and the apartment's door (`a_grenn_intro`)
+                // must close and lock behind Grenn all the same.
                 let index = object.index;
-                let standing_in = players.iter().any(|(id, player)| {
+                let passing = players.iter().any(|(id, player)| {
                     let alive = fighters
                         .iter()
                         .find(|(of, _)| of.0 == id.0)
                         .is_none_or(|(_, fighting)| fighting.0.alive());
+                    let [x, y, _] = player.0.velocity;
+                    let busy =
+                        (scripts.state.actions.get(&id.0.0)).is_some_and(|queue| !queue.is_empty());
                     alive
+                        && (x != 0.0 || y != 0.0 || busy)
                         && crate::world::in_doorway(
                             &level.0,
                             index,
@@ -504,7 +511,7 @@ pub(in crate::world) fn apply(
                 if !open && broken {
                     continue;
                 }
-                if !open && standing_in {
+                if !open && passing {
                     let again = script::actions::Queued {
                         action: script::actions::Action::Door { door, open },
                         started_ms: None,

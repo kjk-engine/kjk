@@ -24,7 +24,10 @@ to -26.5,-25.0       # off Moza's smuggled plant (his talk can leave the player
 to Chodo_M_Return    # Chodo's office, opened with Moza's key: the
 talk                 # mercenaries holding him take us lightly, fought
 fight 30
-talk                 # Chodo and Moza; his thanks (no reward asked: LSP)
+until 203TEL_Czerka_Attack=0 # Chodo and Moza; his thanks (no reward asked:
+                     # LSP), which ends the attack. The mercenaries wait at
+                     # the locked office door, so the walk in can take long
+                     # enough for both conversations to end before it does.
 save telos_shuttle
 say Transit to another module # the terminal's transit to the docks, Bay
 say Dock Module 126  # Two's Ithorian: Chodo's shuttle to RZ-0031

@@ -904,10 +904,14 @@ pub(super) fn move_actors(
                 state if party && held => walk::opening_none(state),
                 state => state,
             };
-            let ways = walk::Walled {
+            let walled = walk::Walled {
                 doors: &doors,
                 walled: &made_faces.0,
             };
+            // A script's move to an object waits at a door that will not
+            // open for it (`walk::ThroughShut`).
+            let waits = crate::script::actions::waits_at_doors(scripts.state.actions.get(&id.0.0));
+            let ways = walk::ThroughShut(&walled, waits);
             walk::kotor_step(
                 &level.0, &player.0, walker, speed, clock.msec, run, space, &mets, &ways,
             )

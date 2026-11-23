@@ -82,6 +82,7 @@ const PROBES: &[Probe] = &[
     ("talk_end_clears_video", talk_end_clears_video),
     ("load_clears_video", load_clears_video),
     ("load_plays_music_as_placed", load_plays_music_as_placed),
+    ("load_fades_in", load_fades_in),
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
@@ -124,6 +125,7 @@ const PROBES: &[Probe] = &[
     ("wait_voice_holds", wait_voice_holds),
     ("wait_fade_holds", wait_fade_holds),
     ("next_node_clears_fade", next_node_clears_fade),
+    ("empty_talk_lifts_held_fade", empty_talk_lifts_held_fade),
     ("wait_camera_clip_holds", wait_camera_clip_holds),
     ("cut_clip_outlasts_voice", cut_clip_outlasts_voice),
     ("carried_camera_clip_holds", carried_camera_clip_holds),
@@ -142,6 +144,7 @@ const PROBES: &[Probe] = &[
     ("long_animation_once", long_animation_once),
     ("loop_ends_on_walk", loop_ends_on_walk),
     ("looping_row_plays_on", looping_row_plays_on),
+    ("loop_outlives_a_clear", loop_outlives_a_clear),
     ("wait_for_gestures", wait_for_gestures),
     ("walks_at_kotor_speed", walks_at_kotor_speed),
     (
@@ -212,6 +215,11 @@ const PROBES: &[Probe] = &[
         walks_into_doorway_short_of_door,
     ),
     ("party_waits_for_door", party_waits_for_door),
+    (
+        "object_walk_waits_for_locked_door",
+        object_walk_waits_for_locked_door,
+    ),
+    ("door_shuts_on_one_standing", door_shuts_on_one_standing),
     ("assigned_before_next_line", assigned_before_next_line),
     ("assigned_after_last_reply", assigned_after_last_reply),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
@@ -342,6 +350,8 @@ void MusicBattleChange(object oArea, int nTrack);
 object GetItemInSlot(int nInventorySlot, object oCreature=OBJECT_SELF);
 // 36
 void ActionEquipItem(object oItem, int nInventorySlot, int bInstant=FALSE);
+// 37
+void SetLocked(object oTarget, int bLocked);
 "#;
 
 /// The `ambientmusic.2da` row `probe_battle_music` makes the battle track.
@@ -403,6 +413,8 @@ fn tagged(tag: &str) -> [Op; 3] {
 ///   with the first PC;
 /// - `probe_attack_buddy`, `probe_attack_dummy` and `probe_attack_pc`
 ///   attack the companion, the dummy and the first PC (`ActionAttack`);
+/// - `probe_lock_gate` locks the gate (`SetLocked`), and
+///   `probe_unlock_open` unlocks it and opens it;
 /// - `probe_open` opens the gate (`ActionOpenDoor`); `probe_assign_open`
 ///   assigns the talker that (`AssignCommand`), `probe_assign_converse`
 ///   assigns it a conversation with the first PC, and `probe_wait_4s`
@@ -455,6 +467,13 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
     };
     let mut open = tagged("gate").to_vec();
     open.push(call(5, 1));
+    // `SetLocked(GetObjectByTag("gate"), locked)`.
+    let set_locked = |locked: bool| {
+        let mut ops = vec![Op::Const(Const::Int(i32::from(locked)))];
+        ops.extend(tagged("gate"));
+        ops.push(call(37, 2));
+        ops
+    };
     let cutscene_at = |target: &str, animation: u16, damage: i32| {
         let mut ops = vec![
             Op::Const(Const::Int(damage)),
@@ -634,6 +653,11 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
                 ]),
             ),
             ("probe_open", program(&open)),
+            ("probe_lock_gate", program(&set_locked(true))),
+            (
+                "probe_unlock_open",
+                program(&[set_locked(false), open.clone()].concat()),
+            ),
             ("probe_assign_open", assign_talker(&open)),
             (
                 "probe_assign_converse",
@@ -3226,6 +3250,29 @@ fn load_plays_music_as_placed() -> Found {
     )
 }
 
+/// A loaded game's area fades in (`Save::world`). A save made on a black
+/// screen, the module's fade in held for a conversation that never came,
+/// loads showing the area within `LIFT_MS` (issue 645).
+fn load_fades_in() -> Found {
+    use crate::snapshot::{Fade, LIFT_MS, WorldFadeIn};
+    let mut ground = Ground::new(1)?;
+    {
+        let mut module = ground.world.world.resource_mut::<super::super::Module>();
+        module.fade = Some(Fade::level_load(ground.last.time_ms));
+        module.world_fade_in = WorldFadeIn::AtDialog;
+    }
+    ground.idle(u64::from(LIFT_MS));
+    let covered = |last: &Snapshot| last.fade.map_or(0.0, |fade| fade.alpha(last.time_ms));
+    let before = covered(&ground.last);
+    let mut loaded = ground.reloaded()?;
+    loaded.idle(u64::from(LIFT_MS));
+    let after = (covered(&loaded.last), loaded.last.world_fade_in);
+    check(
+        before == 1.0 && after == (0.0, WorldFadeIn::Done),
+        format!("covered {before} before the load, {after:?} after it"),
+    )
+}
+
 /// A loaded game shows no video effect (`Save::world`): one a script enabled
 /// outside any conversation stays on while the run goes on, as Peragus's
 /// security cameras have it, and is gone once a save of that moment loads.
@@ -4367,6 +4414,45 @@ fn next_node_clears_fade() -> Found {
     check(got == [0.0, 1.0], format!("covered {got:?}"))
 }
 
+/// S5: a conversation with no entry to start from still lets go of the
+/// module's fade in held for a conversation (`HoldWorldFadeInForDialog`),
+/// and the area fades in, as both games do. The Ebon Hawk's vision talk
+/// after the last Star Map is such a conversation (issue 645). Without the
+/// hold, the covering fade stays.
+fn empty_talk_lifts_held_fade() -> Found {
+    use crate::snapshot::{Fade, LIFT_MS, WorldFadeIn};
+    let covered_after = |held: bool| {
+        let mut talk = crate::script::dialogue_probes::talking(2, "");
+        talk.starts.clear();
+        let mut ground = Ground::staged(
+            1,
+            Stage {
+                talk,
+                ..Stage::default()
+            },
+        )?;
+        {
+            let mut module = ground.world.world.resource_mut::<super::super::Module>();
+            module.fade = Some(Fade::level_load(ground.last.time_ms));
+            module.world_fade_in = if held {
+                WorldFadeIn::AtDialog
+            } else {
+                WorldFadeIn::Done
+            };
+        }
+        ground.run_script("probe_begin", TALKER)?;
+        ground.idle(u64::from(LIFT_MS));
+        let last = &ground.last;
+        let fade = last.fade.ok_or("no fade")?;
+        Ok::<_, String>((fade.alpha(last.time_ms), last.world_fade_in))
+    };
+    let got = [covered_after(true)?, covered_after(false)?];
+    check(
+        got == [(0.0, WorldFadeIn::Done), (1.0, WorldFadeIn::Done)],
+        format!("covered after the conversation {got:?}"),
+    )
+}
+
 /// S5: wait flag 1 holds a line for its camera model's clip, its own timer
 /// still counted, as the K1 and TSL executables end a line once its timer
 /// and every flagged wait are done: "Hi." (337 ms by its text) with a 2 s
@@ -4776,6 +4862,39 @@ fn looping_row_plays_on() -> Found {
             played.walk,
             played.ended
         ),
+    )
+}
+
+/// S7: a looping animation played on at once outlives a `ClearAllActions`
+/// on its body, as TSL's executable leaves the body in the animation while
+/// it empties the queue. The talker talks on from 1 s, its queue is cleared
+/// at 1.5 s, and it still talks on at 2.5 s. 3CFD, Peragus's broken droid,
+/// lies slumped so (`k_def_repairsp`) after every conversation's end clears
+/// its actions.
+fn loop_outlives_a_clear() -> Found {
+    let stage = Stage {
+        clips: [((0, TALK), TALK_MS)].into(),
+        ..Stage::default()
+    };
+    let mut ground = Ground::staged(1, stage)?;
+    ground.run_script("probe_talk_on", TALKER)?;
+    let talker = ground.object(TALKER)?;
+    let acting = |ground: &Ground| ground.entity(talker).and_then(|e| e.fighter?.acting);
+    for _ in 0..steps(1500) {
+        ground.step();
+    }
+    let before = acting(&ground);
+    ground.run_script("probe_clear", TALKER)?;
+    for _ in 0..steps(1000) {
+        ground.step();
+    }
+    let after = acting(&ground);
+    let looping = |acting: Option<Acting>| {
+        acting.is_some_and(|acting| acting.animation == TALK && acting.ms == u32::MAX)
+    };
+    check(
+        looping(before) && looping(after),
+        format!("before the clear {before:?}, 1 s after it {after:?}"),
     )
 }
 
@@ -6614,7 +6733,12 @@ const HALF_BODY_M: f32 = crate::motion::HALF_WIDTH * UNIT;
 /// gate's panel its front came while the gate was shut (m, negative short
 /// of it), and whether the gate opened.
 fn through_gate(ground: &mut Ground, who: SimId, ms: u64) -> (Track, f32, bool) {
-    ground.queue(who, move_to(PAST_GATE, false, None));
+    toward_gate(ground, who, move_to(PAST_GATE, false, None), ms)
+}
+
+/// `through_gate` with `action` for the walk.
+fn toward_gate(ground: &mut Ground, who: SimId, action: Queue, ms: u64) -> (Track, f32, bool) {
+    ground.queue(who, action);
     let (mut track, mut past_shut, mut opened) = (Track::default(), f32::MIN, false);
     for _ in 0..steps(ms) {
         ground.step();
@@ -6903,6 +7027,157 @@ fn party_waits_for_door() -> Found {
         ),
     )
 }
+
+/// A creature's walk to a creature past the locked gate
+/// (`ActionMoveToObject`), with a conversation holding the world and in free
+/// play, walks up to the gate and waits there, and never crosses its panel
+/// while the gate stays locked. Once a script unlocks and opens the gate,
+/// the walk goes through and arrives. TSL's `ActionMoveToObject` keeps its
+/// move going until the mover is in range. TSLRCM sends Atris into her
+/// meditation chamber this way, 15 s before its locked door opens. A walk
+/// to a place past the locked gate (`ActionMoveToLocation`) ends instead,
+/// short of the panel.
+fn object_walk_waits_for_locked_door() -> Found {
+    // The ground, the conversation ended unless `held`, the walker before
+    // the gate, and the gate locked.
+    let locked = |held: bool| -> Result<(Ground, SimId), String> {
+        let mut ground = through_ground()?;
+        if !held {
+            ground.goodbye()?;
+        }
+        let walker = ground.place(WALKER, BEFORE_GATE)?;
+        ground.run_script("probe_lock_gate", GATE)?;
+        Ok((ground, walker))
+    };
+    let mut found = Vec::new();
+    for held in [true, false] {
+        let (mut ground, walker) = locked(held)?;
+        let goal = ground.place(BUDDY, BEYOND_GATE)?;
+        let to_object = Queue::Move {
+            to: Target::Object(ObjectId(goal.0)),
+            run: false,
+            range: OBJECT_RANGE,
+            force_ms: None,
+        };
+        let (_, past, opened) = toward_gate(&mut ground, walker, to_object, LOCKED_MS);
+        let waiting = ground.queued(walker) > 0;
+        ground.run_script("probe_unlock_open", GATE)?;
+        let arrived = (0..steps(8000)).position(|_| {
+            ground.step();
+            ground.queued(walker) == 0
+        });
+        let off = between(ground.at(walker), ground.at(goal));
+        let (mut place, walker) = locked(held)?;
+        let (track, place_past, _) = through_gate(&mut place, walker, LOCKED_MS);
+        found.push((
+            held,
+            (waiting, past, opened, arrived, off),
+            (track.ended(), place_past),
+        ));
+    }
+    check(
+        found.iter().all(
+            |&(_, (waiting, past, opened, arrived, off), (ended, place_past))| {
+                waiting
+                    && (-AT_GATE_M..=0.0).contains(&past)
+                    && !opened
+                    && arrived.is_some()
+                    && off <= OBJECT_RANGE + 0.1
+                    && ended.is_some()
+                    && place_past <= 0.0
+            },
+        ),
+        format!(
+            "(held, (the walk to the creature still queued at {LOCKED_MS} ms, its front past the locked panel m at most, the gate opened while locked, arrived at step after it opened, m off the creature), (the walk to the place ended at step, its front past the panel m)) {found:?}"
+        ),
+    )
+}
+
+/// A door a script closes waits for a body walking through its doorway,
+/// and shuts on one standing still there with nothing left to do, as
+/// KOTOR's executable shuts it. The gate opened by itself, a creature
+/// walking through it keeps it open until it is past, and a creature then
+/// standing in the doorway does not. Grenn's officer stops a metre short
+/// of his mark outside the Exile's apartment on Citadel Station, in the
+/// doorway, and the apartment's door stayed open for good, so the Exile
+/// could walk out while under arrest (Discord, 2026-11-21).
+fn door_shuts_on_one_standing() -> Found {
+    use crate::script::actions::{Action, Queued};
+    let mut ground = through_ground()?;
+    let gate = ground.object(GATE)?;
+    ground.run_script("probe_open", GATE)?;
+    let opened = (0..steps(2000)).any(|_| {
+        ground.step();
+        !ground.gate_shut()
+    });
+    let close = |ground: &mut Ground| {
+        let mut state = ground.world.script_state().clone();
+        state.actions.entry(gate.0).or_default().push(Queued {
+            action: Action::Door {
+                door: ObjectId(gate.0),
+                open: false,
+            },
+            started_ms: None,
+        });
+        ground.world.set_script_state(state);
+    };
+    // A walker on its way through: the gate waits until it is past.
+    let walker = ground.place(WALKER, BEFORE_GATE)?;
+    ground.step();
+    ground.queue(walker, move_to(PAST_GATE, false, None));
+    // How far on of the gate's panel the walker's middle is (m).
+    let on = |ground: &Ground| along(BEFORE_GATE, PAST_GATE, ground.at(walker)) - 2.0;
+    let reached = (0..steps(3000)).any(|_| {
+        ground.step();
+        on(&ground) >= -HALF_BODY_M
+    });
+    close(&mut ground);
+    let mut shut_on_walker = false;
+    for _ in 0..steps(4000) {
+        ground.step();
+        if ground.gate_shut() {
+            shut_on_walker = on(&ground).abs() < HALF_BODY_M;
+            break;
+        }
+    }
+    let shut_after_walker = ground.gate_shut();
+    // One standing still on the doorway's floor: the gate shuts on it.
+    ground.run_script("probe_open", GATE)?;
+    let reopened = (0..steps(2000)).any(|_| {
+        ground.step();
+        !ground.gate_shut()
+    });
+    ground.run_script("probe_clear", WALKER)?;
+    ground.put(walker, [-HALF_BODY_M, 0.0]);
+    ground.step();
+    let standing = ground.queued(walker) == 0;
+    close(&mut ground);
+    let shut_on_standing = (0..steps(1000)).any(|_| {
+        ground.step();
+        ground.gate_shut()
+    });
+    check(
+        opened
+            && reached
+            && !shut_on_walker
+            && shut_after_walker
+            && reopened
+            && standing
+            && shut_on_standing,
+        format!(
+            "opened {opened}; the walker reached the doorway {reached}, the gate shut on it {shut_on_walker}, shut once it was past {shut_after_walker}; opened again {reopened}, one standing idle {standing}, the gate shut on it {shut_on_standing}"
+        ),
+    )
+}
+
+/// Where the locked gate probe's goal stands (m, the gate's panel 2 m on
+/// from `BEFORE_GATE`), the walk's range to it (m, `ActionMoveToObject`'s
+/// default), how long the gate stays locked (ms), and how near the panel
+/// (m) the waiting walker's front comes.
+const BEYOND_GATE: [f32; 2] = [3.0, 0.0];
+const OBJECT_RANGE: f32 = 1.0;
+const LOCKED_MS: u64 = 3000;
+const AT_GATE_M: f32 = 0.5;
 
 /// The talker's conversation begun, its "Again." running `again` and the
 /// line it leads back to running `line`, "Goodbye." running `goodbye`.
