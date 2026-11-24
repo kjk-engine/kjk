@@ -532,8 +532,8 @@ fn lead(world: &mut SimWorld, body: SimId) -> Snapshot {
 /// the original (TSL's Goto's yacht: the command centre's trigger asks
 /// for `GetFirstPC()`, and Mira at the head of the party does not fire it
 /// when she enters). A main character is the character the story is about.
-/// The companion the first seat leads is still a PC for `GetIsPC`, because
-/// the original reads that from the character a player controls.
+/// `GetIsPC` is true for the companion the first seat leads, because the
+/// original reads it from the character a player controls.
 fn led_first_pc() -> Result<String, String> {
     let (mut world, _, standing) = switch_world(1, true)?;
     let start = run(&mut world, 1, 0);

@@ -1164,10 +1164,11 @@ impl View<'_> {
         Some(object.conversation.as_str()).filter(|name| !name.is_empty())
     }
 
-    /// The PC of a conversation that `user` starts by using something
-    /// (I30 P8). It is `user` itself when that is a PC. Otherwise `user`
-    /// is a companion a guest drives, and the PC is the host's main
-    /// character. The scripts see one PC.
+    /// The character the scripts see as `GetPCSpeaker` of a conversation
+    /// that `user` starts by using something (I30 P8). It is `user` itself
+    /// when that is a main character. Otherwise `user` is a companion a
+    /// guest drives, and it is the host's main character. The scripts see
+    /// one such character.
     pub(crate) fn pc_for(&self, table: &Party, user: ObjectId) -> ObjectId {
         if self.is_main_character(table, user) {
             user

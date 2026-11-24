@@ -682,9 +682,10 @@ impl Limit {
 
 /// Who would wear an item, as its use limits ask: its alignment (0 dark
 /// to 100 light), classes (`classes.2da` rows, `u8::MAX` for none), race,
-/// subrace, feats, gender, scores, whether a PC (what `GetIsPC` says) and its tag;
-/// whether TSL's rules are played; and the slots its body has locked
-/// (`slots::locked`'s mask: TSL's one-handed Kreia's off hands).
+/// subrace, feats, gender, scores, whether a player controls it (what
+/// `GetIsPC` says) and its tag; whether TSL's rules are played; and the
+/// slots its body has locked (`slots::locked`'s mask: TSL's one-handed
+/// Kreia's off hands).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Wearer {
     pub good_evil: u8,
