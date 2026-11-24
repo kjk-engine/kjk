@@ -346,7 +346,10 @@ party carries and wears that takes upgrades (weapons by kind, body armour:
 each kind it takes, two for its power crystals; the item's icon shows in
 each). The bench works on a copy, as TSL's: a slot chosen lists an empty
 row (taking out what is in it; not for a colour crystal, which stays
-until another takes its place), what is in it, then what the party
+until another takes its place), what is in it, the part it held when the
+bench opened if the visit took that part out (KOTOR 2's executable puts a
+part taken out back in the party's inventory at once, so the list offers
+it again), then what the party
 carries that fits it and no other slot of the visit takes (`LB_ITEMS`,
 from its top; one of an upgrade level above the item's greyed, refused
 with the game's message box 116713); a row chosen changes the copy and
