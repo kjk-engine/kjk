@@ -25,7 +25,8 @@
 //! shows the table: Add is greyed. Until the table comes every slot shows not available. Slots past the campaign's
 //! own (its layout's: KOTOR 1 has nine companions, KOTOR 2 twelve) are
 //! hidden. KOTOR 2's last two slots take the place of two others, and only
-//! one slot of each pair shows.
+//! one slot of each pair shows. When a mod makes both companions of a pair
+//! available, each gets a place of its own (`companion_places`).
 
 use fmt_odyssey::gui::{Border, Control, Gui};
 
@@ -33,6 +34,7 @@ use crate::draw::{DrawList, Quad};
 use crate::intent::{GameAction, Intent};
 use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{Screen, ScreenId};
+use crate::screens::companion_places::{self, STAND_INS};
 use crate::screens::tab::{enabled, hidden, image, skin_line, text};
 use crate::screens::tabs;
 use crate::vm::{CompanionView, PartyChange, PartySelectionView, SceneView, ViewModel};
@@ -71,6 +73,13 @@ enum Toggle {
 
 #[derive(Default)]
 pub struct Party {
+    /// The stand-ins whose pair is available too (`companion_places`), as
+    /// the table told them last frame, and as the layout was shaped for.
+    both: Vec<u8>,
+    shaped: Vec<u8>,
+    /// The stand-ins of `both` that found no place of their own in the
+    /// layout. Each still shares one place with its pair.
+    crowded: std::sync::Mutex<Vec<u8>>,
     /// The companion chosen (its name shows; Add and Remove act on it).
     chosen: Option<u8>,
     /// Those picked, once the player changed them; else the table's.
@@ -89,22 +98,31 @@ fn beyond(tag: &str, table: Option<&PartySelectionView>) -> bool {
     slot(tag, &["BTN_NPC", "LBL_CHAR", "LBL_NA"]).is_some_and(|slot| usize::from(slot) >= slots)
 }
 
-/// KOTOR 2's slots that stand in for another, each with the slot whose
-/// place it takes: Hanharr's (10) for Mira's (7), and the Disciple's (11)
-/// for the Handmaiden's (4). Its layout puts each pair in one place.
-const STAND_INS: [(u8, u8); 2] = [(10, 7), (11, 4)];
+/// The stand-ins (`STAND_INS`) whose pair is available too.
+fn both(table: Option<&PartySelectionView>) -> Vec<u8> {
+    (STAND_INS.iter())
+        .filter(|&&(stand_in, place)| {
+            companion(table, stand_in).is_some() && companion(table, place).is_some()
+        })
+        .map(|&(stand_in, _)| stand_in)
+        .collect()
+}
 
 /// Whether a slot of a stand-in pair is the one not drawn. KOTOR 2's
 /// executable shows the stand-in's slot while that companion is available,
 /// and the other slot otherwise. A mod that moves one slot of a pair and
-/// not the other would otherwise show both.
-fn stood_in(tag: &str, table: Option<&PartySelectionView>) -> bool {
-    let Some(slot) = slot(tag, &["BTN_NPC", "LBL_CHAR", "LBL_NA"]) else {
+/// not the other would otherwise show both. When both companions of a pair
+/// are available, both slots are drawn, each in its own place. Only when
+/// the layout has no free place for the stand-in (`crowded`) does the pair
+/// share one place, as on KOTOR 2's own screen.
+fn stood_in(tag: &str, table: Option<&PartySelectionView>, crowded: &[u8]) -> bool {
+    let Some(slot) = slot(tag, &companion_places::PIECES) else {
         return false;
     };
     STAND_INS.iter().any(|&(stand_in, place)| {
         let available = companion(table, stand_in).is_some();
-        (slot == stand_in && !available) || (slot == place && available)
+        let apart = available && companion(table, place).is_some() && !crowded.contains(&stand_in);
+        !apart && ((slot == stand_in && !available) || (slot == place && available))
     })
 }
 
@@ -125,10 +143,19 @@ impl Party {
     /// table already told and marked open. The one a player opens from the
     /// menu has no table yet, or one that is not a script's.
     pub fn new(vm: &ViewModel) -> Party {
+        let both = both(Party::table(vm));
         Party {
             in_menu: !Party::table(vm).is_some_and(|table| table.open),
+            shaped: both.clone(),
+            both,
             ..Party::default()
         }
+    }
+
+    /// Whether a slot is the one of its stand-in pair not drawn.
+    fn stood_in(&self, tag: &str, vm: &ViewModel) -> bool {
+        let crowded = self.crowded.lock().map(|crowded| crowded.clone());
+        stood_in(tag, Party::table(vm), &crowded.unwrap_or_default())
     }
 
     fn table(vm: &ViewModel) -> Option<&PartySelectionView> {
@@ -246,11 +273,31 @@ impl Screen for Party {
         self.in_menu.then_some(tabs::BAR)
     }
 
-    /// The bar's party panel is taken out (`tabs::without_party`).
+    /// The bar's party panel is taken out (`tabs::without_party`). Each
+    /// stand-in whose pair is available too gets a place of its own.
     fn shape(&self, gui: &mut Gui) {
         if self.in_menu {
             tabs::without_party(gui);
         }
+        let crowded = companion_places::separate(gui, &self.both);
+        if let Ok(mut kept) = self.crowded.lock() {
+            *kept = crowded;
+        }
+    }
+
+    /// The layout is shaped again when the table makes both companions of
+    /// a pair available, or no longer does.
+    fn reshapes(&mut self) -> bool {
+        let changed = self.shaped != self.both;
+        self.shaped.clone_from(&self.both);
+        changed
+    }
+
+    /// The stack asks this each frame. The screen uses it to note which
+    /// stand-ins have their pair available too.
+    fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
+        self.both = both(Party::table(vm));
+        None
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
@@ -289,7 +336,7 @@ impl Screen for Party {
                 }),
                 ..ControlState::default()
             },
-            tag if beyond(tag, table) || stood_in(tag, table) => hidden(),
+            tag if beyond(tag, table) || self.stood_in(tag, vm) => hidden(),
             tag => {
                 if let Some(npc) = slot(tag, &["LBL_CHAR"]) {
                     return match companion(table, npc) {
@@ -377,7 +424,7 @@ impl Screen for Party {
         let slots = table.map_or(0, |table| table.companions.len());
         for npc in (0..slots).filter_map(|npc| u8::try_from(npc).ok()) {
             let tag = format!("BTN_NPC{npc}");
-            if companion(table, npc).is_none() || stood_in(&tag, table) {
+            if companion(table, npc).is_none() || self.stood_in(&tag, vm) {
                 continue;
             }
             let Some(button) = gui.find(&tag) else {

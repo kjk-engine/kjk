@@ -500,10 +500,8 @@ fn combat_rules() -> Check {
     )
 }
 
-/// The screen built on a layout holding the party selection's tags: its
-/// own pieces are made, the companion row is laid out in one line, and the
-/// pieces the lobby does not use are hidden.
-fn built() -> Check {
+/// Fake assets with a layout holding the party selection's tags.
+fn party_layout() -> Fake {
     let mut assets = Fake::new();
     let tags: Vec<String> = ["BTN_NPC", "LBL_CHAR", "LBL_NA"]
         .iter()
@@ -527,6 +525,25 @@ fn built() -> Check {
     assets
         .layouts
         .insert("partyselection", root(800, 600, controls));
+    assets
+}
+
+/// The left edges of the row's first `places` places, and where the last
+/// one ends, in `stack`.
+fn row_edges(stack: &crate::screen::Stack, places: usize) -> (Vec<i32>, Option<i32>) {
+    let extents: Vec<_> = (0..places)
+        .filter_map(|at| stack.extent_of(&format!("BTN_NPC{at}")))
+        .collect();
+    let lefts = extents.iter().map(|extent| extent.left).collect();
+    let end = extents.last().map(|extent| extent.left + extent.width);
+    (lefts, end)
+}
+
+/// The screen built on a layout holding the party selection's tags: its
+/// own pieces are made, the companion row is laid out in one line, and the
+/// pieces the lobby does not use are hidden.
+fn built() -> Check {
+    let mut assets = party_layout();
     let vm = sample(0);
     let stack = opened("lobby", &mut assets, &vm);
     let made = [
@@ -554,15 +571,55 @@ fn built() -> Check {
     let unused = stack.hidden("LBL_3D", &vm);
     // The eleventh place (the main character and ten companions) ends
     // inside the description strip's panel, which ends at 722 units.
-    let last = (stack.extent_of("BTN_NPC10")).map(|extent| extent.left + extent.width);
-    let fits = last.is_some_and(|right| right <= 722);
+    // A row of fewer than twelve places keeps its places 58 units apart.
+    let (lefts, last) = row_edges(&stack, 11);
+    let fits = last.is_some_and(|right| right <= 722)
+        && lefts.windows(2).all(|pair| pair[1] - pair[0] == 58);
     check(
         "lobby_built",
         if missing.is_empty() && one_row && unused && fits {
             Ok("the lobby's pieces are made from the party selection's".into())
         } else {
             Err(format!(
-                "missing {missing:?}, row tops {tops:?}, 3D view hidden {unused}, the eleventh place ends at {last:?}"
+                "missing {missing:?}, row tops {tops:?}, 3D view hidden {unused}, places at {lefts:?}, the eleventh ends at {last:?}"
+            ))
+        },
+    )
+}
+
+/// A lobby of a save whose mod recruited all twelve of KOTOR 2's
+/// companions. The row shows the main character and the twelve companions
+/// in thirteen places. Its spacing narrows so that the last place still
+/// ends inside the description strip's panel, at 722 units, and no two
+/// portraits overlap.
+fn twelve_companions() -> Check {
+    let mut assets = party_layout();
+    let mut vm = sample(0);
+    if let Some(lobby) = vm.lobby.as_mut() {
+        lobby.companions = (0..12)
+            .map(|npc| LobbyCompanionView {
+                npc,
+                name: format!("Companion {npc}").into_bytes(),
+                portrait: Some(format!("po_p{npc}")),
+                state: LobbyCompanionState::Free,
+            })
+            .collect();
+    }
+    let mut stack = opened("lobby", &mut assets, &vm);
+    stack.step(&mut assets, &vm, &super::menus::keys(&[]));
+    let (lefts, last) = row_edges(&stack, 13);
+    let shown = (0..13)
+        .filter(|at| !stack.hidden(&format!("LBL_CHAR{at}"), &vm))
+        .count();
+    let apart = lefts.windows(2).all(|pair| pair[1] - pair[0] >= 38);
+    let ok = lefts.len() == 13 && shown == 13 && apart && last.is_some_and(|right| right <= 722);
+    check(
+        "lobby_twelve_companions",
+        if ok {
+            Ok(format!("thirteen places at {lefts:?}"))
+        } else {
+            Err(format!(
+                "{shown} portraits shown, places at {lefts:?}, the last ends at {last:?}"
             ))
         },
     )
@@ -577,6 +634,7 @@ pub(super) fn all() -> Vec<Check> {
         droids(),
         combat_rules(),
         built(),
+        twelve_companions(),
         labels_in_columns(),
     ]);
     checks

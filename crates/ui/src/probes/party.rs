@@ -213,7 +213,104 @@ pub(super) fn all() -> Vec<Check> {
             .map(|()| "portraits, picks, the one chosen dressed, Done, Back, in play".into())
         }),
         check("party_stand_ins", stand_ins()),
+        check("party_both_of_a_pair", both_of_a_pair(&KOTOR2_PLACES)),
+        check("party_both_of_a_pair_moved", both_of_a_pair(&MOVED_PLACES)),
     ]
+}
+
+/// KOTOR 2's party selection layout: where each of its twelve places is.
+/// Hanharr's (10) lies over Mira's (7), and the Disciple's (11) over the
+/// Handmaiden's (4). The ten others form a ring with an empty middle row.
+const KOTOR2_PLACES: [[i32; 2]; 12] = [
+    [118, 135],
+    [201, 135],
+    [284, 135],
+    [78, 218],
+    [325, 218],
+    [78, 301],
+    [325, 301],
+    [118, 384],
+    [201, 384],
+    [284, 384],
+    [118, 384],
+    [325, 218],
+];
+
+/// The free places KOTOR 2's layout has, in the middle of its ring.
+const RING_MIDDLE: [[i32; 2]; 2] = [[161, 218], [244, 218]];
+
+/// A mod's layout that already gives Hanharr and the Disciple places of
+/// their own, in the ring's lower middle row.
+const MOVED_PLACES: [[i32; 2]; 12] = {
+    let mut places = KOTOR2_PLACES;
+    places[10] = [161, 301];
+    places[11] = [244, 301];
+    places
+};
+
+/// All twelve of KOTOR 2's companions available, as a mod that recruits
+/// both of each pair makes them, over a layout with the places `at`. Every
+/// companion shows in a place of its own. On KOTOR 2's layout Hanharr and
+/// the Disciple move to the free places in the ring's middle. On a layout
+/// that already gives them places of their own, they keep those.
+fn both_of_a_pair(at: &[[i32; 2]; 12]) -> Result<String, String> {
+    let mut assets = Fake::new();
+    let controls = (["BTN_NPC", "LBL_CHAR", "LBL_NA"].iter())
+        .flat_map(|prefix| (0..12).map(move |npc| (format!("{prefix}{npc}"), at[npc])))
+        .map(|(tag, [left, top])| button(&tag, [left, top, 80, 80], b""))
+        .collect();
+    assets
+        .layouts
+        .insert("partyselection", root(800, 600, controls));
+    let companions = (0..12)
+        .map(|npc| {
+            Some(CompanionView {
+                portrait: Some(format!("po_p{npc}")),
+                appearance: None,
+                armour: None,
+                good_evil: None,
+                name: format!("Companion {npc}").into_bytes(),
+                selectable: true,
+            })
+        })
+        .collect();
+    let vm = ViewModel {
+        party_selection: Some(PartySelectionView {
+            slots: 12,
+            companions,
+            opening: Vec::new(),
+            forced: Vec::new(),
+            open: true,
+            cancel: false,
+            change: PartyChange::May,
+        }),
+        ..ViewModel::default()
+    };
+    let mut stack = opened("party", &mut assets, &vm);
+    stack.step(&mut assets, &vm, &keys(&[]));
+    let hidden: Vec<String> = (0..12)
+        .flat_map(|npc| [format!("BTN_NPC{npc}"), format!("LBL_CHAR{npc}")])
+        .filter(|tag| stack.hidden(tag, &vm))
+        .collect();
+    expect(
+        &format!("every companion shown, hidden: {hidden:?}"),
+        hidden.is_empty(),
+    )?;
+    let places: Vec<[i32; 2]> = (0..12)
+        .filter_map(|npc| stack.extent_of(&format!("BTN_NPC{npc}")))
+        .map(|extent| [extent.left, extent.top])
+        .collect();
+    let want = match at[10] == at[7] {
+        true => RING_MIDDLE,
+        false => [at[10], at[11]],
+    };
+    expect(
+        &format!("Hanharr and the Disciple in {want:?}: {places:?}"),
+        places.get(10..) == Some(&want[..]) && places[..10] == at[..10],
+    )?;
+    Ok(format!(
+        "twelve places, Hanharr and the Disciple at {want:?}"
+    ))
 }
 
 /// KOTOR 2's stand-in slots: with Hanharr (10) available and the Disciple
