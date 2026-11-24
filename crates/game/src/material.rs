@@ -1492,7 +1492,8 @@ pub fn cutout_probes() -> sim::probe::Checks {
 /// executable takes it. The TXI's `alphamean` comes first, the float in a
 /// TPC's header second. Only a texture stored uncompressed, with neither,
 /// gets the mean alpha of its pixels. A compressed texture with neither
-/// gets 1 (`kjk sim probes --only "texture sort key"`; proposed 2026-11-23).
+/// gets 1. A number of exactly -1, from either source, counts as none
+/// (`kjk sim probes --only "texture sort key"`; proposed 2026-11-23).
 #[cfg(feature = "probes")]
 pub fn sort_key_probes() -> sim::probe::Checks {
     use asset_odyssey::texture::TextureIr;
@@ -1544,7 +1545,7 @@ pub fn sort_key_probes() -> sim::probe::Checks {
         ),
         is(
             "an uncompressed texture with neither averages its alpha",
-            key(PixelFormat::Rgba8, half, "", None),
+            key(PixelFormat::Rgba8, half.clone(), "", None),
             0.5,
         ),
         is(
@@ -1556,6 +1557,26 @@ pub fn sort_key_probes() -> sim::probe::Checks {
             "a compressed texture with neither is 1, not its alpha mean",
             key(PixelFormat::Dxt5, vec![0; 16], "", None),
             1.0,
+        ),
+        is(
+            "a header float of -1 counts as none, so a compressed texture is 1",
+            key(PixelFormat::Dxt5, vec![0; 16], "", Some(-1.0)),
+            1.0,
+        ),
+        is(
+            "a header float of -1 counts as none, so an uncompressed texture averages its alpha",
+            key(PixelFormat::Rgba8, half.clone(), "", Some(-1.0)),
+            0.5,
+        ),
+        is(
+            "a TXI alphamean of -1 hides the header's float",
+            key(PixelFormat::Rgba8, half.clone(), "alphamean -1", Some(0.75)),
+            0.5,
+        ),
+        is(
+            "a negative number other than -1 is used as it is",
+            key(PixelFormat::Rgba8, half.clone(), "", Some(-0.5)),
+            -0.5,
         ),
     ]
 }
