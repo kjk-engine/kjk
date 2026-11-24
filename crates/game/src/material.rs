@@ -887,7 +887,8 @@ pub struct OdysseyMaterial {
     /// (`EMITTERS_LAST`).
     pub emitted: Option<u32>,
     /// Where a blended opaque surface (`OpaqueAlpha`) sorts among the
-    /// others, from 0 to 1: the share of its texture that is not opaque.
+    /// others, from 0 to 1 for a room's: the share of its texture that is
+    /// not opaque. A creature's, placeable's or door's is `OBJECTS_RANK`.
     /// KOTOR draws the textures with the least alpha last, so a patch of
     /// sand cut out by its alpha lies over the ground it sits on, and not
     /// the other way round (`depth_bias`).
@@ -1659,6 +1660,12 @@ pub const OPAQUE_FIRST: f32 = -1.0e5;
 /// How far apart the ranks 0 and 1 of blended opaque surfaces sort
 /// (`OdysseyMaterial::rank`): more than any distance in view.
 pub const RANK_STEP: f32 = 1.0e4;
+/// The `OdysseyMaterial::rank` of a blended opaque surface of a creature,
+/// placeable or door. KOTOR draws every mesh of a room, and its grass, before
+/// any of them, so they rank after the room's ranks (0 to 1) and the grass.
+/// A creature's half see-through texels write depth, so one drawn before the
+/// room hid the wall behind it.
+pub const OBJECTS_RANK: f32 = 2.0;
 /// `depth_bias` of the grass. It sorts after every blended opaque surface of
 /// a room, whose ranks run from 0 to 1.
 pub const GRASS_AFTER_MESHES: f32 = OPAQUE_FIRST + RANK_STEP;

@@ -1524,12 +1524,12 @@ impl<'t> Spawner<'t> {
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
                     .culled(culled)
-                    .ranked(if is_room && surface == Surface::OpaqueAlpha {
-                        texture
+                    .ranked(match (is_room, surface) {
+                        (true, Surface::OpaqueAlpha) => texture
                             .and_then(|name| self.irs.get(name))
-                            .map_or(0.0, |texture| 1.0 - texture.sort_key().clamp(0.0, 1.0))
-                    } else {
-                        0.0
+                            .map_or(0.0, |texture| 1.0 - texture.sort_key().clamp(0.0, 1.0)),
+                        (false, Surface::OpaqueAlpha) => crate::material::OBJECTS_RANK,
+                        _ => 0.0,
                     })
                 };
                 let material = match whole {
