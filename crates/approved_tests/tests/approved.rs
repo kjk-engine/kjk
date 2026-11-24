@@ -746,7 +746,7 @@ fn undrawn_creature_named() {
 /// it. Over a pit it is in the smallest room whose bounds hold it, not in a
 /// room far below. Outside every room it is in none. Needs `--features
 /// rig`; no installs. (proposed 2026-11-11; the check without a VIS file
-/// proposed 2026-11-24)
+/// approved 2026-11-24)
 #[test]
 fn fight_light_rooms() {
     #[cfg(not(feature = "rig"))]
@@ -2228,7 +2228,7 @@ fn trigger_leads_out_whatever_its_link_flags() {
 /// the Republic's room models 772qgm_01a, 748kora and 750kora have such a
 /// tree. kjk followed the pointers past the file's end and refused each
 /// model, and with it the whole area. The model is made in the test: one
-/// mesh node with the empty tree. No installs. (proposed 2026-11-24)
+/// mesh node with the empty tree. No installs. (approved 2026-11-24)
 #[test]
 fn mod_empty_aabb_tree() {
     use fmt_odyssey::mdl::{FLAG_AABB, FLAG_HEADER, FLAG_MESH, Model};
