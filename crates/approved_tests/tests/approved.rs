@@ -3204,7 +3204,9 @@ fn lightmapped_cut_out_by_diffuse() {
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
 /// TSL's override subfolders one level down, co-op's check covering just
 /// the override files read. On installs written there; no
-/// installs needed (approved 2026-11-05).
+/// installs needed (approved 2026-11-05). A texture held as both a TPC and
+/// a TGA loads the copy the games load (`texture_formats`, proposed
+/// 2026-11-24, not yet approved).
 #[test]
 fn mod_precedence() {
     probed("precedence", &vfs::probes::probes(), 5);
