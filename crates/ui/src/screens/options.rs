@@ -940,9 +940,11 @@ const PAGES: [Spec; 12] = [
 
 /// The Interface page's rows: the menu width, whether pictures keep their
 /// shape, the text size, the text scale, the notifications in the corner,
-/// the target block at the top centre and the frame rate limit. Each one is
-/// off or at KOTOR 2's value while its setting is unset.
-const INTERFACE: [Line; 7] = [
+/// the target block at the top centre, the frame rate limit, and whether
+/// the player joins nearby conversations in co-op. Each one but the last is
+/// off or at KOTOR 2's value while its setting is unset. The last is on
+/// while unset.
+const INTERFACE: [Line; 8] = [
     stepped(
         strings::MENU_WIDTH,
         strings::MENU_WIDTH_HELP,
@@ -978,7 +980,16 @@ const INTERFACE: [Line; 7] = [
         FRAME_LIMIT,
         Values::Rates(FRAME_LIMITS),
     ),
+    ticked_on_by(JOIN_TALKS, strings::JOIN_TALKS, strings::JOIN_TALKS_HELP),
 ];
+
+/// The key of "Join nearby conversations" (`game::dialogue_view`): `true`
+/// or `false`, true while unset.
+pub const JOIN_TALKS: &str = "game.join_talks";
+
+/// The key of the host's "Show chosen replies" (`game::lobby_host`): `true`
+/// or `false`, true while unset.
+pub const SHOW_REPLIES: &str = "game.show_replies";
 
 /// The combat page's rows: the saber rules a session played here plays by,
 /// the three duel options, the hilts KOTOR's single- and double-bladed

@@ -189,7 +189,7 @@ name = "Gathering the Party"
 value = 10.0
 unit = "m"
 range = [0.0, 100.0]
-summary = "When a conversation begins, party members who are farther away than {dialogue.coop.gather_beyond_m:bare} meters are brought to it. When a Pazaak match begins, other players within {dialogue.coop.gather_beyond_m:bare} meters watch it."
+summary = "When a conversation begins, party members who are farther away than {dialogue.coop.gather_beyond_m:bare} meters are brought to it. When the main character's player starts a conversation of their own, every other player who is free, can see it and stands within {dialogue.coop.gather_beyond_m:bare} meters joins it. When a Pazaak match begins, other players within {dialogue.coop.gather_beyond_m:bare} meters watch it."
 source = "ours [verify against KOTOR's scene staging]"
 see = "sim::world::coop_talk::gather"
 
@@ -202,6 +202,16 @@ range = [0, 60000]
 summary = "A line spoken by another player's character waits up to {dialogue.coop.interjection_wait_ms:s} for that player's own conversation to end. After that, the line plays without that player."
 source = "ours"
 see = "sim::script::dialogue"
+
+[coop.shown_reply_most_ms]
+name = "Shown Reply"
+type = "u64"
+value = 4000
+unit = "ms"
+range = [0, 20000]
+summary = "When more than one player is in a conversation, the reply a player takes is shown to every player in it before it runs. It stays on screen as long as a line with no voice would, and at most {dialogue.coop.shown_reply_most_ms:s}. Any player in the conversation can skip it once it has been on screen for the skip delay."
+source = "ours"
+see = "sim::script::dialogue::answers"
 
 [coop.story_depth]
 name = "Story Replies"

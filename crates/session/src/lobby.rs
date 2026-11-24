@@ -97,6 +97,10 @@ pub struct Lobby {
     pub summary: Option<Summary>,
     pub saber_rules: String,
     pub collision: Collision,
+    /// Whether a reply a player takes is shown to the other players in the
+    /// conversation before it runs ("Show chosen replies", on in a new
+    /// lobby).
+    pub show_replies: bool,
     pub companions: Vec<Companion>,
     pub with_party: Vec<u8>,
     pub slots: [Option<Slot>; SLOTS],
@@ -109,6 +113,7 @@ impl Lobby {
             summary: None,
             saber_rules,
             collision,
+            show_replies: true,
             companions: Vec::new(),
             with_party: Vec::new(),
             slots: [

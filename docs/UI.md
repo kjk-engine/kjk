@@ -310,8 +310,8 @@ save on the Host screen, and when a guest joins. It is made from KOTOR 2's
 party selection layout (`partyselect_p`), whose pieces are moved and copied:
 the Players and Game panels and the description strip are copies of the
 panel behind the companion's name, the player portraits are copies of the
-companion portraits, and the saber rules and collision rows are copies of
-the Add button. The companions keep the layout's own portraits, set in one
+companion portraits, and the saber rules, collision and "Show chosen
+replies" rows are copies of the Add button. The companions keep the layout's own portraits, set in one
 row of at most ten. Every piece is KOTOR 2's own art. A companion the story
 took away shows the layout's "no companion" art in place of the portrait,
 as KOTOR 2's party selection shows one who is not available. The player
@@ -775,7 +775,7 @@ Running and checking:
   value, and the last value wraps to the first. Left and Right on the
   keyboard and the pad step it back and on while it is the list's cursor
   row. The Feedback page itself is KOTOR 2's and is unchanged. The
-  Interface page's seven rows are all deliberate additions to KOTOR 2:
+  Interface page's eight rows are all deliberate additions to KOTOR 2:
   - Menu width (`display.menu_width`): Fill the screen, Up to 16:9 or 4:3.
   - Maintain image aspect ratio (`display.image_aspect`).
   - Text size (`display.small_fonts`): KOTOR 2's "Use Small Fonts", which
@@ -812,6 +812,11 @@ Running and checking:
     GPU and the CPU rest between frames. With V-Sync on as well, the lower
     of the two rates holds. The sim keeps its own clock, so the limit never
     changes what the sim does.
+  - Join nearby conversations (`game.join_talks`, on while unset). In
+    co-op, a player with it on joins a conversation the main character's
+    player starts when they stand within 10 meters, can see it, and are
+    free (`DIALOGUE.md`, "Joining nearby"). The player's game tells the
+    host as the option changes and each time it joins.
   - Two safety ceilings apply to a game with a window (issue 318). When
     V-Sync is off and the limit is Off, play is held to 240 frames per
     second. While a screen is open or the window is in the background, the

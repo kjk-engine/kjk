@@ -843,6 +843,42 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     replies. No dialogue hook or `OnUsed` runs for that use (Start, above);
     a use of one in a party conversation is refused. Two seats using one
     NPC in one step: the lower seat starts it and the other joins.
+  - **Joining nearby** (issue 636): when the first seat (the main
+    character's player) starts a conversation of its own, every other
+    seat's body that is free, stands within 10 m of its listener
+    (`dialogue.coop.gather_beyond_m`, the range of watching a pazaak match)
+    and can see it joins it at once, in seat order, as if it walked up
+    (`Step::bring_near`). A guest's own conversation brings nobody in. A
+    body is not free while it is down, fights (its own fight, or a hostile
+    one near it), takes part in a conversation, trades, plays or watches a
+    pazaak match, or holds a container open; nor while its player has a
+    screen open on its own machine (a menu, the level-up screen, the
+    workbench: `Action::Screen`, wire code 73, `Talk::screens`) or turned
+    the option "Join nearby conversations" off (`Action::JoinTalks`, wire
+    code 72, `Talk::quiet`). Both are kept per seat in the scripts' state,
+    so a recording replays the same. Options are not part of a save, so a
+    player's game sends both again each time it joins the host
+    (`game::dialogue_view::talk_options`).
+  - **The chosen reply** (issue 637): while more than one player is in a
+    conversation (a party one holds every seat; a player's own its listener
+    and those joined), the reply a player takes is shown before it runs
+    (`Conversation::chosen`, `Line::Shown`, `Step::choose`). Every player
+    in it sees it in the bottom bar as "Name: words", the chooser too.
+    Nothing of it runs meanwhile: not its scripts, its quest or XP, nor the
+    next line. A story reply locks the conversation at once. No other reply
+    is taken or pointed at. It shows for KOTOR's reading time of a line
+    with no voice (`dialogue.lines.read_tenths_ms_per_char`, as scene mode
+    times one), at most `dialogue.coop.shown_reply_most_ms` (4 s), then it
+    runs as a reply always has (`Step::run_chosen`). Any player in the
+    conversation skips it once `SKIP_AFTER_MS` has passed, in a
+    conversation whose lines cannot be skipped too: it has no voice and
+    only shows for the other players. Cut short meanwhile (its listener
+    hurt or gone, a party conversation starting, its listener's Leave), it
+    runs at once, and the cut goes on with what it left. A reply with no
+    words, and any reply of a player alone in a conversation, runs at once
+    as before. The host turns it off with the lobby's "Show chosen
+    replies" (`Talk::hide_replies`, `SimWorld::set_show_replies`; on by
+    default, fixed for a session, as the saber rules are).
   - **Markers**: any seat points (`Pick::Point`, the reply its screen
     highlights): `Conversation::marks` (seat → reply place), shown to
     everyone in it beside the reply with that seat's character's name;
@@ -895,12 +931,14 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     quest or its plot XP). A party conversation the host accepted locks the
     same way. `Pick::Leave` (byte 62): the listener's ends it cut short
     (`EndConverAbort`), a joined player steps out, its mark and request
-    going with it. Refused, noted `Line::Refused`, while it is locked
-    ("locked", a joined player's too: so in a game-started party
-    conversation, locked from its first line, everyone is told
-    "locked"), and in a party conversation the host accepted that is
-    still unlocked, from anyone but its listener ("the host's"); one
-    paused or waiting takes no Leave.
+    going with it. A joined player steps out of a player's own
+    conversation even when it is locked (issue 636): only its listener's
+    leaving could cut the story short. Refused, noted `Line::Refused`,
+    while it is locked for its listener, and for anyone in a party one
+    ("locked": so in a game-started party conversation, locked from its
+    first line, everyone is told "locked"), and in a party conversation
+    the host accepted that is still unlocked, from anyone but its listener
+    ("the host's"); one paused or waiting takes no Leave.
   - **Interjections**: in a player's own or a party conversation, a
     line said by a seat's body that does not stand in it is said where
     that body stands, never walked or moved, and the body joins. Its own
@@ -978,7 +1016,8 @@ row"): the names of the seats pointing at each reply beside it; the
 story's replies faded on a screen whose player does not take them
 (`Snapshot::takes_story`), a click on one asking the host in where the
 sim would (`Snapshot::asks_host`), else pointing; a Leave row under the
-replies while more than one seat plays a body, faded while locked, and
+replies while more than one seat plays a body, faded while locked (but
+for a player who joined a player's own conversation), and
 its key (key mapping "Leave a
 conversation", L by default, which is saber style's default too: it
 leaves only in a conversation); on the host's screen, while a guest asks

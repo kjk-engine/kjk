@@ -46,8 +46,11 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// of block points and no mishap count. 8: a host may open a co-op lobby
 /// before its world, with the messages `Lobby`, `Choose`, `Ready`, `Start`
 /// and `Closed`. 9: a player may choose the story's character in the lobby
-/// (`Choose` names a pick).
-pub const PROTOCOL_VERSION: u16 = 9;
+/// (`Choose` names a pick). 10: the lobby says whether chosen replies are
+/// shown (`Lobby::show_replies`), and a seat may say whether it joins
+/// nearby conversations and whether a screen is open (`Action::JoinTalks`,
+/// `Action::Screen`).
+pub const PROTOCOL_VERSION: u16 = 10;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

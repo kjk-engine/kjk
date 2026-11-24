@@ -21,6 +21,12 @@
 //! - in such a session, the Leave row under the replies and its key (L
 //!   unless rebound) while the player may leave (`leave`, R6): its own
 //!   conversation ends, one it joined goes on without it;
+//! - in such a session, the reply a player took shown in the bottom bar as
+//!   "Name: words" before it runs (`Conversation::chosen`, issue 637); a
+//!   click, Enter or Space skips it once it has shown a moment;
+//! - this player's "Join nearby conversations" option, and whether a screen
+//!   is open here, told to the host as they change and again each time
+//!   this game joins it (`talk_options`, issue 636);
 //! - the host's request card (R5, `ui::screens::dialog::Dialog::card`)
 //!   while a guest asks it in, talking or not: Y lets the first in, N ends
 //!   its conversation (unless rebound; `Action::Request`);
@@ -175,9 +181,10 @@ impl Plugin for DialogueViewPlugin {
         app.init_resource::<ReplyInput>()
             .init_resource::<Watching>()
             .init_resource::<Called>()
+            .init_resource::<SendTalkOptions>()
             .add_systems(
                 Update,
-                (item_words, answer, requests_keys, show)
+                (item_words, answer, requests_keys, talk_options, show)
                     .chain()
                     .run_if(in_play)
                     .before(crate::ui_view::Stepped),
@@ -413,9 +420,27 @@ pub(crate) fn said_with(raw: &[u8], fill: Fill, other: &dyn Fn(&str) -> Option<S
 }
 
 /// Whether `talk`'s replies are offered now: its line has played and it
-/// waits on the player (a reply that says nothing is taken by itself).
+/// waits on the player (a reply that says nothing is taken by itself), and
+/// no reply taken is shown before it runs (`Conversation::chosen`).
 fn answering(talk: &Conversation) -> bool {
-    talk.until_ms == u64::MAX && !talk.auto && !talk.replies.is_empty()
+    talk.until_ms == u64::MAX && !talk.auto && !talk.replies.is_empty() && talk.chosen.is_none()
+}
+
+/// The words of the reply `talk` shows before it runs (issue 637), if it
+/// shows one: its text, and who took it.
+fn chosen_words(
+    screen: &Screen,
+    talk: &Conversation,
+    swap: &SceneSwap,
+    fill: Fill,
+) -> Option<(ObjectId, Vec<u8>)> {
+    let chosen = talk.chosen?;
+    let dlg = swap.level.scripts()?.dialogue(&talk.dialog)?;
+    let reply = talk.replies.get(usize::from(chosen.nth))?;
+    let node = dlg.replies.get(*reply as usize)?;
+    let tlk = screen.tlk.as_deref();
+    let tlk = |strref| tlk?.text(strref).map(<[u8]>::to_vec);
+    Some((chosen.by, node_text(node, &tlk, fill)))
 }
 
 /// The words of `talk`'s line and of the replies it offers, numbered, as
@@ -609,6 +634,42 @@ fn requests_keys(
     }
 }
 
+/// The host must hear this player's conversation options again: this game
+/// joined it, or joined it again after a drop (`net_join`). Options are not
+/// part of a save, so the host's world knows them only from what each
+/// player's game sends.
+#[derive(Resource, Default)]
+pub(crate) struct SendTalkOptions(pub bool);
+
+/// Tells the host this player's "Join nearby conversations" option
+/// (`Action::JoinTalks`) and whether a screen is open here
+/// (`Action::Screen`): each as it changes, and both when the host must hear
+/// them again (`SendTalkOptions`, and the first frame of play). While a
+/// screen is open the host counts this player as busy, so it joins no
+/// conversation by standing near it.
+fn talk_options(
+    settings: Option<Res<crate::settings::Settings>>,
+    open: Option<Res<UiOpen>>,
+    mut again: ResMut<SendTalkOptions>,
+    outgoing: Option<ResMut<crate::loot::Outgoing>>,
+    mut sent: Local<Option<(bool, bool)>>,
+) {
+    let Some(mut outgoing) = outgoing else {
+        return;
+    };
+    let join = settings.is_none_or(|settings| settings.on(ui::screens::options::JOIN_TALKS));
+    let screen = open.is_some_and(|open| open.0);
+    let all = std::mem::take(&mut again.0) || sent.is_none();
+    let (joined, screened) = sent.unwrap_or((join, screen));
+    if all || joined != join {
+        outgoing.0.push(Action::JoinTalks(join));
+    }
+    if all || screened != screen {
+        outgoing.0.push(Action::Screen(screen));
+    }
+    *sent = Some((join, screen));
+}
+
 /// Whether `talk` is a computer's (its DLG's `ConversationType` 1): the
 /// computer screen shows it (`terminal`), this screen only its voice.
 pub(crate) fn computer(swap: &SceneSwap, talk: &Conversation) -> bool {
@@ -633,7 +694,7 @@ fn show(
         ResMut<Hush>,
     ),
     (input, watching, map): (Res<ReplyInput>, Res<Watching>, Prompts),
-    mut logged: Local<Option<(u32, u32)>>,
+    mut logged: Local<Option<(u32, u32, bool)>>,
 ) {
     let (Some(mut screen), Some(own), Some(swap)) = (screen, own, swap) else {
         return;
@@ -641,9 +702,28 @@ fn show(
     let snapshot = presented.0.current();
     let talk = shown(snapshot, own.0, watching.0);
     let leaves = talk.and_then(|talk| snapshot.may_leave(own.0, talk));
+    let objects = sim::Instances::in_snapshot(&swap.level, snapshot);
+    // The line said: the entry's, by its speaker, or the reply a player took
+    // while it is shown before it runs, by that player's character.
+    let line = talk.map(|talk| {
+        let fill = Fill::to(snapshot, talk.pc);
+        match chosen_words(&screen, talk, &swap, fill) {
+            Some((by, said)) => (by, said),
+            None => (talk.speaker, words(&screen, talk, &swap, fill).0),
+        }
+    });
     let view = talk.filter(|talk| !computer(&swap, talk)).map(|talk| {
         let fill = Fill::to(snapshot, talk.pc);
-        let (said, offered) = words(&screen, talk, &swap, fill);
+        let (_, offered) = words(&screen, talk, &swap, fill);
+        let said = match (talk.chosen, &line) {
+            (Some(_), Some((by, said))) => {
+                let who = name_of(snapshot, &objects, *by);
+                [&who[..], b": ", said].concat()
+            }
+            (_, line) => line
+                .as_ref()
+                .map_or_else(Vec::new, |(_, said)| said.clone()),
+        };
         // Any second seat, not `together` as the Leave row: a watching seat
         // sees the players' marks too.
         let shared = snapshot.seats() > 1;
@@ -676,16 +756,19 @@ fn show(
         }
     }
     if let Some(mut ui) = ui {
-        // Each line said goes to the messages page's dialog log, once.
-        let line = talk
+        // Each line said goes to the messages page's dialog log, once: an
+        // entry, and a reply shown before it runs.
+        let said = talk
             .zip(view.as_ref())
-            .map(|(talk, view)| (talk, &view.said));
-        match line {
-            Some((talk, said)) if *logged != Some((talk.id, talk.entry)) => {
-                *logged = Some((talk.id, talk.entry));
+            .zip(line.as_ref())
+            .map(|((talk, _), (by, said))| (talk, *by, said));
+        match said {
+            Some((talk, by, said))
+                if *logged != Some((talk.id, talk.entry, talk.chosen.is_some())) =>
+            {
+                *logged = Some((talk.id, talk.entry, talk.chosen.is_some()));
                 if !said.is_empty() {
-                    let objects = sim::Instances::in_snapshot(&swap.level, snapshot);
-                    let who = name_of(snapshot, &objects, talk.speaker);
+                    let who = name_of(snapshot, &objects, by);
                     let (who, said) = (fmt_odyssey::code_page(&who), fmt_odyssey::code_page(said));
                     let line = if who.is_empty() {
                         said

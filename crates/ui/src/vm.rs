@@ -1006,6 +1006,9 @@ pub struct LobbyView {
     /// The saber rules and the collision, by their settings values.
     pub saber_rules: String,
     pub collision: String,
+    /// Whether a reply a player takes is shown to the other players in a
+    /// conversation before it runs ("Show chosen replies").
+    pub show_replies: bool,
     /// The story's character and who plays it; `None` while the host
     /// chooses a save.
     pub hero: Option<LobbyHeroView>,

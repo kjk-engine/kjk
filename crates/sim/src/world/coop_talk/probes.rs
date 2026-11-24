@@ -22,6 +22,8 @@ use fmt_odyssey::ncs::{Const, Ncs, Op, Pair, Ty};
 use script_ncs::vm::ObjectId;
 use std::collections::BTreeMap;
 
+mod shared;
+
 /// A probe's name and what it found.
 type Case = (&'static str, Result<String, String>);
 /// One part of the scenario; each starts and ends with no conversation.
@@ -196,6 +198,7 @@ pub fn probes() -> Vec<Case> {
         Ok(ran) => ran,
         Err(why) => return vec![("coop_talk_scenario", Err(why))],
     };
+    cases.extend(shared::shared().unwrap_or_else(|why| vec![("shared_talk", Err(why))]));
     cases.extend(one_seat_as_before().unwrap_or_else(|why| vec![("one_seat_as_before", Err(why))]));
     cases.extend(one_seat_leading().unwrap_or_else(|why| vec![("one_seat_leading", Err(why))]));
     cases.extend(led_back_to_talk().unwrap_or_else(|why| vec![("led_back_to_talk", Err(why))]));
@@ -343,6 +346,14 @@ impl Run {
         };
         let mut world =
             super::super::SimWorld::new(config, level).map_err(|error| error.to_string())?;
+        // The phases test the rules of co-op conversations one at a time:
+        // every seat's player has "Join nearby conversations" off, and the
+        // host "Show chosen replies" off. `shared` tests both, and turns
+        // them on (`Run::share`).
+        let mut state = world.script_state().clone();
+        state.talk.quiet = (0..seats).collect();
+        world.set_script_state(state);
+        world.set_show_replies(false);
         let last = world.snapshot();
         let mut run = Run {
             world,
@@ -484,9 +495,10 @@ impl Run {
         self.step_with(input);
     }
 
-    /// Steps until no line under way is still playing: its replies are
-    /// chosen as it ends (`Step::offer_replies`), and an answer counts from
-    /// then.
+    /// Steps until no line under way is still playing, and no reply taken
+    /// is still shown before it runs (`Conversation::chosen`): its replies
+    /// are chosen as it ends (`Step::offer_replies`), and an answer counts
+    /// from then.
     fn replies_up(&mut self) {
         for _ in 0..REPLIES_UP_STEPS {
             let playing = self
@@ -494,7 +506,7 @@ impl Run {
                 .talk
                 .conversations
                 .iter()
-                .any(|c| c.until_ms != u64::MAX && !c.on_hold());
+                .any(|c| c.until_ms != u64::MAX && !c.on_hold() || c.chosen.is_some());
             if !playing {
                 return;
             }

@@ -1921,21 +1921,26 @@ impl Snapshot {
     /// none while one seat alone plays a body (one player plays as before:
     /// the sim's `together`), watching, or in a party conversation it is not
     /// the listener of (only its listener leaves one); else whether it is
-    /// unlocked. The host's own character stands for its seat too while a
-    /// companion it leads acts for it (an accepted request's listener).
+    /// unlocked, or it joined a player's own (issue 636: a joined player
+    /// steps out of a locked one too). The host's own character stands for
+    /// its seat too while a companion it leads acts for it (an accepted
+    /// request's listener).
     pub fn may_leave(&self, seat: Seat, talk: &Conversation) -> Option<bool> {
         let own = (seat == crate::world::LEADER_SEAT)
             .then(|| self.own(seat))
             .flatten();
-        let stands = [self.body(seat), own].into_iter().flatten().any(|body| {
-            let body = ObjectId(body.id.0);
-            if talk.party {
-                talk.listener == body
-            } else {
-                talk.holds(body)
-            }
+        let bodies = || {
+            [self.body(seat), own]
+                .into_iter()
+                .flatten()
+                .map(|body| ObjectId(body.id.0))
+        };
+        let stands = bodies().any(|body| match talk.party {
+            true => talk.listener == body,
+            false => talk.holds(body),
         });
-        (self.together() && stands).then_some(!talk.locked)
+        let joined = !talk.party && bodies().any(|body| talk.joined.contains(&body));
+        (self.together() && stands).then_some(!talk.locked || joined)
     }
 
     /// More than one seat plays a body, as the sim's `View::together` has
