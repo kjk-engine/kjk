@@ -39,6 +39,7 @@ fn rooms() -> (Vec<RoomView>, Culling) {
             name: name.into(),
             model: None,
             visible: visible.iter().map(|name| name.to_string()).collect(),
+            sees_all: false,
             floor,
             floor_error: None,
         }
