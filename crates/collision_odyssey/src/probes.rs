@@ -311,10 +311,56 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
 
 /// Probes written but not yet approved by the owner. They join [`probes`]
 /// and the approved test `surface_probes` once approved. `kjk collision
-/// probes` runs them. The owner approved every waiting probe on 2026-11-16,
-/// so the list is empty.
+/// probes` runs them.
 pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
-    Vec::new()
+    vec![("roof_walls_high_tops", high_tops())]
+}
+
+/// The walls round high tops (`crate::roofs`). A walkable floor 8 m square
+/// has a slab 4 m up over part of it (an overhang, x from 1 to 3) and a
+/// crate 1 m high on it (x from -3 to -2). A player's box running at the
+/// slab with its soles just over the slab's top is stopped by a wall
+/// before the slab. The same box running under the slab on the floor, and
+/// one running onto the crate's top, meet no wall.
+fn high_tops() -> Result<String, String> {
+    use collision::{LevelBuilder, Tag};
+    let walkable = rect([-4.0, -4.0], [4.0, 4.0]);
+    let mut floor = LevelBuilder::new();
+    let mut solid = LevelBuilder::new();
+    for (corners, material) in &walkable {
+        let tag = Tag::level(Contents::SOLID, *material as u16);
+        floor.triangle(*corners, tag);
+        solid.triangle(*corners, tag);
+    }
+    let slab = ([1.0, -1.0, 4.0], [3.0, 1.0, 4.3]);
+    let crate_ = ([-3.0, -1.0, 0.0], [-2.0, 1.0, 1.0]);
+    for (low, high) in [slab, crate_] {
+        solid.aabb(low, high, Tag::level(Contents::SOLID, 0));
+    }
+    let (floor, solid) = (floor.build(), solid.build());
+    let walls = crate::roofs::walls(&walkable, &floor, &solid, &test_surfaces());
+    let mut level = LevelBuilder::new();
+    for wall in &walls {
+        wall.add_to(&mut level, Tag::level(Contents::WALK_CLIP, 0));
+    }
+    let level = level.build();
+    let box_ = player();
+    // How far the box's middle gets of a run along X at y = 0, its soles
+    // `soles` up.
+    let run = |from: f32, to: f32, soles: f32| {
+        let z = soles - box_.mins[2];
+        let hit = level.trace([from, 0.0, z], [to, 0.0, z], &box_, Contents::PLAYER_SOLID);
+        hit.fraction * (to - from).abs()
+    };
+    let onto_slab = run(0.0, 2.0, 4.4);
+    let under_slab = run(0.0, 2.0, 0.05);
+    let onto_crate = run(-1.0, -2.5, 1.05);
+    let detail = format!(
+        "{} walls; onto the slab {onto_slab:.2} m of 2, under it {under_slab:.2} m of 2, onto the crate {onto_crate:.2} m of 1.5",
+        walls.len()
+    );
+    let ok = onto_slab < 1.0 && under_slab >= 2.0 - 1e-3 && onto_crate >= 1.5 - 1e-3;
+    if ok { Ok(detail) } else { Err(detail) }
 }
 
 /// Which rooms' drawn triangles are left out of the level
