@@ -887,8 +887,9 @@ pub struct OdysseyMaterial {
     /// (`EMITTERS_LAST`).
     pub emitted: Option<u32>,
     /// Where a blended opaque surface (`OpaqueAlpha`) sorts among the
-    /// others, from 0 to 1 for a room's: the share of its texture that is
-    /// not opaque. A creature's, placeable's or door's is `OBJECTS_RANK`.
+    /// others. A room's mesh has a rank from 0 to 1, which is the share of
+    /// its texture that is not opaque. Every other model's mesh has
+    /// `OBJECTS_RANK`.
     /// KOTOR draws the textures with the least alpha last, so a patch of
     /// sand cut out by its alpha lies over the ground it sits on, and not
     /// the other way round (`depth_bias`).
@@ -1576,7 +1577,7 @@ pub fn sort_key_probes() -> sim::probe::Checks {
         ),
         is(
             "a negative number other than -1 is used as it is",
-            key(PixelFormat::Rgba8, half.clone(), "", Some(-0.5)),
+            key(PixelFormat::Rgba8, half, "", Some(-0.5)),
             -0.5,
         ),
     ]
@@ -1660,11 +1661,12 @@ pub const OPAQUE_FIRST: f32 = -1.0e5;
 /// How far apart the ranks 0 and 1 of blended opaque surfaces sort
 /// (`OdysseyMaterial::rank`): more than any distance in view.
 pub const RANK_STEP: f32 = 1.0e4;
-/// The `OdysseyMaterial::rank` of a blended opaque surface of a creature,
-/// placeable or door. KOTOR draws every mesh of a room, and its grass, before
-/// any of them, so they rank after the room's ranks (0 to 1) and the grass.
-/// A creature's half see-through texels write depth, so one drawn before the
-/// room hid the wall behind it.
+/// The `OdysseyMaterial::rank` of a blended opaque surface of any model that
+/// is not a room, such as a creature, a placeable or a door. KOTOR draws every
+/// mesh of a room, and its grass, before any of them. They therefore rank
+/// after the room's ranks (0 to 1) and the grass. A creature's half
+/// see-through texels write depth, so one drawn before the room hid the wall
+/// behind it.
 pub const OBJECTS_RANK: f32 = 2.0;
 /// `depth_bias` of the grass. It sorts after every blended opaque surface of
 /// a room, whose ranks run from 0 to 1.

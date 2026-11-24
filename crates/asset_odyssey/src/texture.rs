@@ -159,9 +159,9 @@ pub struct TextureIr {
 /// a TPC's header. A texture with neither, and stored uncompressed, gets the
 /// mean alpha of its pixels, 1 when they have no alpha. A compressed texture
 /// with neither gets 1. The executable starts the number at exactly -1 and
-/// takes that value, wherever it came from, as "no number": a TXI line of
+/// takes that value, wherever it came from, as "no number". A TXI line of
 /// `alphamean -1` therefore hides the header's float, and a header float of
-/// -1 counts as none. Any other negative number is used as it is.
+/// -1 counts as none.
 fn sort_key(texture: &Texture, txi_key: Option<f32>) -> f32 {
     if let Some(key) = txi_key
         .or(texture.header_key)

@@ -97,8 +97,7 @@ awaits approval. It checks that a texture's sort key is its TXI's
 `alphamean`, else the float in its TPC header, else the mean alpha of its
 pixels when it is stored uncompressed, else 1. It also checks that a number
 of exactly -1, from either source, counts as no number, as in the original.
-It is not an approved test,
-and it runs only through `kjk sim probes --only "texture sort key"`. It
+It is not an approved test, and it runs only through `kjk sim probes --only "texture sort key"`. It
 replaces `texture_image_alpha_mean`, which was added to the approved tests
 without approval and has been removed.
 The probe group "cut-out surfaces" (issues 443 and 515) was also proposed
