@@ -28,6 +28,7 @@ const CASES: &[(&str, Case)] = &[
     ("downed_keeps_its_bytes", kept),
     ("party_member_downed", downed),
     ("death_on_the_downed", death),
+    ("death_downs_the_player", death_downs_the_player),
     ("raised_from_death", raised_from_death),
     ("fall_is_no_death", fall_is_no_death),
     ("get_up_at_combat_end", get_up),
@@ -45,6 +46,7 @@ const CASES: &[(&str, Case)] = &[
     ("revive_chosen_broken", revive_chosen_broken),
     ("free_play_poison_death", free_play_poison_death),
     ("poison_ends_with_the_fall", poison_ends_with_the_fall),
+    ("resurrect_percent", resurrect_percent),
 ];
 
 /// A downed fighter, and one being revived, read back as written.
@@ -177,7 +179,9 @@ impl Run {
                     ..Mind::companion(Seat(0))
                 };
             } else if entity.id == foe {
-                fighter.force.hold(0, STUNNED_MS);
+                fighter
+                    .force
+                    .hold(0, STUNNED_MS, crate::combat::force::HoldKind::Own);
                 fighter.mind.aware_at = 0;
                 fighter.target = Some(host);
             }
@@ -260,7 +264,10 @@ impl Run {
         let mut fighters = self.world.world.query::<(&Id, &mut Fighting)>();
         for (own, mut fighting) in fighters.iter_mut(&mut self.world.world) {
             if own.0 == id {
-                fighting.0.force.hold(now, u64::MAX);
+                fighting
+                    .0
+                    .force
+                    .hold(now, u64::MAX, crate::combat::force::HoldKind::Own);
             }
         }
     }
@@ -298,6 +305,8 @@ impl Run {
             spell: 0,
             id: 0,
             at: None,
+            save: None,
+            laid: false,
         };
         let mut scripts = self
             .world
@@ -390,6 +399,32 @@ fn death() -> Result<String, String> {
     Ok("EffectDeath kills a companion standing or downed; a hit does not kill the downed".into())
 }
 
+/// EffectDeath downs the host, the player's own character, as 0 HP does,
+/// and a second one leaves it down. It gets up once the foe is dead and the
+/// party out of combat. The pillars on Unknown World's South Beach kill
+/// whoever stands near them, and left the player's character dead for good
+/// while its companions stood.
+fn death_downs_the_player() -> Result<String, String> {
+    let mut run = Run::new(2, false)?;
+    run.step(&[]);
+    let mut lives = Vec::new();
+    for _ in 0..2 {
+        run.effect(Who::Host, Effect::Death);
+        run.step(&[]);
+        lives.push(run.life(Who::Host).0);
+    }
+    run.hit(Who::Foe, 999);
+    run.hold(12_000, &[]);
+    let after = run.life(Who::Host);
+    if lives != [Life::Downed; 2] || after != (Life::Alive, RISE_HP) || run.last.lost.is_some() {
+        return Err(format!(
+            "after each death {lives:?}, after the fight {after:?}, lost {:?}",
+            run.last.lost
+        ));
+    }
+    Ok("EffectDeath downs the player's character, twice; it gets up after the fight".into())
+}
+
 /// EffectResurrection raises the dead, a companion killed by EffectDeath
 /// and a hostile creature killed by a blow: standing again, its hit points
 /// `RISE_HP`, no longer lying (TSL's academy raises Bao-Dur, killed where
@@ -404,7 +439,7 @@ fn raised_from_death() -> Result<String, String> {
         }
         run.step(&[]);
         let dead = run.life(who).0;
-        run.effect(who, Effect::Resurrection);
+        run.effect(who, Effect::Resurrection(0));
         run.step(&[]);
         let (life, hp) = run.life(who);
         let lying = run
@@ -1104,5 +1139,30 @@ fn poison_ends_with_the_fall() -> Result<String, String> {
         "downed by the dose, the poison gone; up {} ms later and standing 5 s on at {} HP",
         rose - downed_at,
         host.hp / 100
+    ))
+}
+
+/// `EffectResurrection(nHPPercent)` revives a downed companion at `nHPPercent`%
+/// of its maximum health (TSL's `a_attonspirit` passes 20).
+fn resurrect_percent() -> Result<String, String> {
+    let mut run = Run::new(2, false)?;
+    run.step(&[]);
+    let max_hp = run.fighter(Who::Ally).hp / 100;
+    run.hit(Who::Ally, 999);
+    run.step(&[]);
+    let downed = run.life(Who::Ally).0;
+    run.effect(Who::Ally, Effect::Resurrection(20));
+    run.step(&[]);
+    let (life, hp) = run.life(Who::Ally);
+    let expected = (max_hp * 20 / 100).clamp(1, max_hp) * 100;
+    if downed != Life::Downed || life != Life::Alive || hp != expected {
+        return Err(format!(
+            "downed {downed:?}, then {life:?} at {hp}/100 HP (expected {expected}/100 of {max_hp})"
+        ));
+    }
+    Ok(format!(
+        "downed companion revived with EffectResurrection(20) at {}/{} HP",
+        hp / 100,
+        max_hp
     ))
 }

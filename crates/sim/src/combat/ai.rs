@@ -32,6 +32,7 @@ use crate::combat::troop::Troop;
 use crate::combat::{grenades, items};
 use crate::input::{Seat, buttons};
 use crate::math::Vec3;
+use crate::script::{Menu, Talent};
 use crate::walk::Walker;
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
 use rules::minds::powers;
@@ -43,7 +44,24 @@ pub const CHASE_MS: u64 = crate::combat::COMBAT_MS;
 /// How far a companion strays from its leader before it goes back (units),
 /// and how near it keeps when following.
 pub const LEASH: f32 = tasks::LEASH;
+/// How near its leader (units) a companion that is going back comes before
+/// it fights again.
+pub const LEASH_BACK: f32 = tasks::LEASH_BACK;
 pub const FOLLOW_NEAR: f32 = tasks::FOLLOW_NEAR;
+
+/// Whether a companion `distance` units from its leader, whose task last
+/// step was `task`, goes back to its leader rather than fighting. One that
+/// strays more than `LEASH` goes back. One already going back keeps going
+/// until it is within `LEASH_BACK`. A companion standing at the edge of the
+/// leash so no longer turns between its foe and its leader on every step.
+pub fn leashed(task: Task, distance: f32) -> bool {
+    let reach = if task == Task::Follow {
+        LEASH_BACK
+    } else {
+        LEASH
+    };
+    distance > reach
+}
 /// A melee fighter routes (rather than walking straight) beyond this.
 pub const ROUTE_BEYOND: f32 = tasks::ROUTE_BEYOND;
 /// A melee fighter closing in farther than this (units) bears off to a
@@ -208,7 +226,7 @@ pub fn reaction_ms(awareness: u8) -> u64 {
 /// button held for a while.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cast {
-    Press(u8),
+    Press(u16),
     Hold(u16, u64),
 }
 
@@ -220,11 +238,29 @@ const CHANNEL_REACH: f32 = force::ja::DRAIN_RADIUS;
 const STORM_REACH: f32 = force::ja::LIGHTNING_RADIUS;
 const AIMED_REACH: f32 = force::ja::STUN_RANGE;
 
+/// What a mind reads of a power only its impact script casts
+/// (`force::scripted`): its row's talent facts, or `None` for any other row.
+/// The minds' step answers it from the scripts' library, for a row with an
+/// impact script.
+pub type Scripted<'a> = &'a dyn Fn(u16) -> Option<Talent>;
+
+/// No row is scripted (no scripts run).
+pub fn no_scripted(_: u16) -> Option<Talent> {
+    None
+}
+
 /// How near its target a mind casts `row` (units): as `choose_power`
 /// does; a push or pull where its shove still tells (its strength × level
 /// over the shove's fall-off a unit); one cast on itself or its side
-/// anywhere.
-pub fn power_reach(row: u16) -> f32 {
+/// anywhere; a scripted one from a foe's menu within its row's range
+/// (`force::scripted_reach`).
+pub fn power_reach(row: u16, scripted: Scripted) -> f32 {
+    if let Some(talent) = scripted(row) {
+        return match talent.menu {
+            Menu::Friendly => f32::MAX,
+            _ => force::scripted_reach(talent),
+        };
+    }
     match force::of_row(row) {
         Some((Power::Grip, _)) => GRIP_REACH,
         Some((Power::Lightning, 3)) => STORM_REACH,
@@ -232,17 +268,7 @@ pub fn power_reach(row: u16) -> f32 {
         Some((Power::Push | Power::Pull, level)) => {
             force::ja::PUSH_PULL_STRENGTH * f32::from(level) / force::ja::SHOVE_FALLOFF
         }
-        Some((
-            Power::Heal
-            | Power::Speed
-            | Power::Protect
-            | Power::Absorb
-            | Power::Valor
-            | Power::Resist
-            | Power::Rage
-            | Power::Sight,
-            _,
-        )) => f32::MAX,
+        Some((power, _)) if force::on_own_side(power) => f32::MAX,
         _ => AIMED_REACH,
     }
 }
@@ -254,27 +280,28 @@ const GRIP_HOLD_MS: u64 = powers::GRIP_HOLD_MS;
 const SCRIPTED_GRIP_HOLD_MS: u64 = powers::SCRIPTED_GRIP_HOLD_MS;
 const CHANNEL_HOLD_MS: u64 = powers::CHANNEL_HOLD_MS;
 
-/// The power button with `row` selected; `None` for a row a command
-/// cannot select (`Command::force` is a byte, and its top value is pull's).
+/// The power button with `row` selected; `None` for pull's value, which
+/// no row of the table is.
 fn press(row: u16) -> Option<Cast> {
-    u8::try_from(row)
-        .ok()
-        .filter(|row| *row != force::PULL)
-        .map(Cast::Press)
+    Some(row).filter(|row| *row != force::PULL).map(Cast::Press)
 }
 
 /// A power its script chose (C14, `ActionUseTalentOnObject`), if it knows
 /// it and can pay `cost` of its row: grip, lightning and drain held as
-/// `choose_power` holds them, the rest pressed.
+/// `choose_power` holds them, the rest pressed, a scripted one too.
 pub fn power_cast(
     row: u16,
     sheet: &Sheet,
     fighter: &Fighter,
     cost: &dyn Fn(u16) -> Option<i32>,
+    scripted: Scripted,
 ) -> Option<Cast> {
     let affords = cost(row).is_some_and(|cost| fighter.fp >= cost);
     if !sheet.powers.has(row) || !affords {
         return None;
+    }
+    if scripted(row).is_some() {
+        return press(row);
     }
     match force::of_row(row)?.0 {
         Power::Grip => Some(Cast::Hold(buttons::FORCE_GRIP, SCRIPTED_GRIP_HOLD_MS)),
@@ -282,6 +309,25 @@ pub fn power_cast(
         Power::Drain => Some(Cast::Hold(buttons::FORCE_DRAIN, CHANNEL_HOLD_MS)),
         _ => press(row),
     }
+}
+
+/// A Force Push a mind starts itself now (`Pace::may_push`), with how far it
+/// reaches (units), if it knows the power, can pay for it and its wait since
+/// its last push or pull is over.
+pub fn push_cast(
+    sheet: &Sheet,
+    fighter: &Fighter,
+    cost: &dyn Fn(u16) -> Option<i32>,
+    now: u64,
+) -> Option<(Cast, f32)> {
+    let (row, _) = force::best(&sheet.powers, Power::Push)?;
+    if fighter.force.push_pull_ready > now {
+        return None;
+    }
+    Some((
+        power_cast(row, sheet, fighter, cost, &no_scripted)?,
+        power_reach(row, &no_scripted),
+    ))
 }
 
 /// What a feat its script chose comes to (C14): a melee feat's saber
@@ -299,11 +345,12 @@ pub fn feat_use(
     sheet: &Sheet,
     fighter: &Fighter,
     special: Option<Special>,
+    duel: bool,
 ) -> Option<FeatUse> {
     let styles: [(&[u16], Style); 3] = [
         (&feats::POWER_ATTACK, Style::Strong),
         (&feats::CRITICAL_STRIKE, Style::Medium),
-        (&feats::FLURRY, Style::Fast),
+        (&feats::FLURRY_RANKS, Style::Fast),
     ];
     if let Some((_, style)) = styles.iter().find(|(rows, _)| rows.contains(&row)) {
         return Some(FeatUse::Style(*style));
@@ -312,21 +359,24 @@ pub fn feat_use(
     if !ranged.iter().any(|rows| rows.contains(&row)) {
         return None;
     }
-    choose_special(special, fighter, specials::cost(sheet)).map(FeatUse::Cast)
+    choose_special(special, specials::Bar::of(sheet, fighter, duel)).map(FeatUse::Cast)
 }
 
-/// A gunner's feat special (`combat::specials`) when its bar can pay
-/// `cost`: the alternate button held for a full Power Blast charge or a
-/// Sniper Shot's aim, or pressed once for a Rapid Shot's burst.
-pub fn choose_special(special: Option<Special>, fighter: &Fighter, cost: i32) -> Option<Cast> {
-    let special = special.filter(|_| fighter.fp >= cost)?;
+/// A gunner's feat special (`combat::specials`) when its `bar` can pay:
+/// the weapon's other mode (`Command::other_mode`, the feat attack with a
+/// blaster) held for a full Power Blast charge or for the steadying of a
+/// Sniper Shot from the hip, or pressed once for a Rapid Shot's burst.
+pub fn choose_special(special: Option<Special>, bar: specials::Bar) -> Option<Cast> {
+    let special = special.filter(|_| bar.affordable())?;
     let ms = match special {
         // A tick past the last charge step.
         Special::PowerBlast(_) => {
             specials::CHARGE_STEP_MS * specials::CHARGE_STEPS + rules::minds::items::CHARGE_PAST_MS
         }
         Special::RapidShot(_) => 1,
-        Special::SniperShot(_) => rules::minds::items::SNIPER_AIM_MS,
+        Special::SniperShot(_) => {
+            rules::feats::specials::sniper_shot::STEADY_MS[0] + rules::minds::items::CHARGE_PAST_MS
+        }
     };
     Some(Cast::Hold(buttons::ALT_ATTACK, ms))
 }
@@ -349,10 +399,10 @@ pub fn choose_item(sheet: &Sheet, fighter: &Fighter, now: u64) -> Option<Cast> {
         Use::Squad { .. } => hurt && pack.using.is_none(),
         Use::Antidote => afflicted,
         Use::Stim(_) => pack.stim.is_none(),
-        Use::Shield { .. } | Use::Grenade => false,
+        Use::Shield { .. } | Use::Grenade | Use::Activated => false,
     };
     let (_, carried) = pack.next(&sheet.items, wanted)?;
-    Some(Cast::Hold(items::use_of(carried.row)?.button(), 1))
+    Some(Cast::Hold(carried.kind().button(), 1))
 }
 
 /// A grenade thrown at a target `distance` units away, now and then
@@ -402,6 +452,8 @@ pub struct Foe {
     /// How far (units).
     pub distance: f32,
     pub stunned: bool,
+    /// A Force Scream cannot make it cover its ears now.
+    pub deaf: bool,
     pub droid: bool,
     /// Slow's chain on it.
     pub slowed: bool,
@@ -415,7 +467,8 @@ pub struct Foe {
 /// itself when hurt; a grip held within its reach; a lightning held within
 /// its reach (a line's here; level 3's cone) or a drain within drain's; a
 /// push when crowded; a crowd-control row on a foe not already
-/// stunned (within the aimed reach; droid stun on droids, the rest on the living);
+/// stunned (within the aimed reach; droid stun on droids, the rest on the
+/// living; Force Scream only on one it can make cover its ears);
 /// now and then Slow's chain on a living foe not slowed, Supress or Breach
 /// on one with a power it can end, and a buff it lacks (speed, protect, absorb, valor,
 /// energy resistance, or rage above half health). Only what it knows, can
@@ -442,7 +495,11 @@ pub fn choose_power(
     if hurt && let Some(cast) = known(Power::Heal).and_then(|(row, _)| press(row)) {
         return Some(cast);
     }
-    if distance <= GRIP_REACH && force.grip_ready <= now && known(Power::Grip).is_some() {
+    if !target_droid
+        && distance <= GRIP_REACH
+        && force.grip_ready <= now
+        && known(Power::Grip).is_some()
+    {
         return Some(Cast::Hold(buttons::FORCE_GRIP, GRIP_HOLD_MS));
     }
     let lightning = known(Power::Lightning).is_some_and(|(_, level)| {
@@ -466,9 +523,10 @@ pub fn choose_power(
         return Some(cast);
     }
     if !target_stunned && distance <= AIMED_REACH {
-        let stun = (0..crate::combat::sheet::Rows::<5>::ROWS)
+        let stun = (0..crate::combat::sheet::Powers::ROWS)
             .filter(|row| sheet.powers.has(*row) && affords(*row))
             .filter(|row| force::crowd::droids(*row) == target_droid)
+            .filter(|row| !(foe.deaf && force::crowd::scream(*row)))
             .find(|row| force::of_row(*row).is_some_and(|(power, _)| power == Power::Stun));
         if let Some(cast) = stun.and_then(press) {
             return Some(cast);

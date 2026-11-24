@@ -11,11 +11,14 @@ use crate::Install;
 /// An install's index (`of_install`) also holds the Steam Workshop items
 /// the game loads, each indexed the same way (`workshop`); the lookups here
 /// are the game folder's alone, and the resolver ranks the items' files.
+/// A Jedi Academy install's names its mod folder (`ja_mod`), whose files
+/// are in the index under its name.
 #[derive(Debug, Default)]
 pub struct DirIndex {
     files: BTreeMap<String, PathBuf>,
     collisions: Vec<CaseCollision>,
     workshop: Vec<WorkshopFolder>,
+    ja_mod: Option<String>,
 }
 
 /// A Steam Workshop item's folder, indexed.
@@ -55,14 +58,61 @@ pub struct CaseCollision {
 
 impl DirIndex {
     /// The install's data folder and the Workshop items its game loads
-    /// (`Install::workshop_items`), in their load order.
+    /// (`Install::workshop_items`), in their load order; Jedi Academy's
+    /// mod folder when one is named and found (`Install::ja_mod_folder`).
     pub fn of_install(install: &Install) -> io::Result<DirIndex> {
         let mut index = DirIndex::build(&install.data_root)?;
         for item in install.workshop_items().items {
             let files = DirIndex::build(&item.folder)?;
             index.workshop.push(WorkshopFolder { id: item.id, files });
         }
+        if let Ok(Some((folder, path))) = install.ja_mod_folder() {
+            if install.outside_data_root(&path) {
+                index.graft(&folder, DirIndex::build(&path)?);
+            }
+            index.ja_mod = Some(folder);
+        }
         Ok(index)
+    }
+
+    /// `other`'s files put in this index under `folder/`, as if the folder
+    /// lay at its root: a mod folder kept elsewhere (`Install::ja_mod_folder`).
+    /// A file the index already holds at that path is kept.
+    fn graft(&mut self, folder: &str, other: DirIndex) {
+        let folder = normalize(folder);
+        for (key, path) in other.files {
+            let key = format!("{folder}/{key}");
+            match self.files.get(&key) {
+                Some(kept) => self.collisions.push(CaseCollision {
+                    key,
+                    kept: kept.clone(),
+                    ignored: path,
+                }),
+                None => {
+                    self.files.insert(key, path);
+                }
+            }
+        }
+        self.collisions.extend(other.collisions);
+    }
+
+    /// This index with `folder` (a folder at its root, any case) as Jedi
+    /// Academy's mod folder.
+    pub fn with_ja_mod(mut self, folder: &str) -> DirIndex {
+        self.ja_mod = Some(normalize(folder));
+        self
+    }
+
+    /// This index with no mod folder: Jedi Academy's `base/` alone.
+    pub fn without_ja_mod(mut self) -> DirIndex {
+        self.ja_mod = None;
+        self
+    }
+
+    /// Jedi Academy's mod folder, lowercased (`md`): its archives and files
+    /// load after `base/`'s (`ja::JaStack`).
+    pub fn ja_mod(&self) -> Option<&str> {
+        self.ja_mod.as_deref()
     }
 
     /// This index with `items` as its Workshop items, in load order.
@@ -95,16 +145,37 @@ impl DirIndex {
         game.into_iter().chain(items).collect()
     }
 
+    /// Every file under `root`. A symbolic link or a Windows junction is
+    /// followed to its folder or file, as the games open files through
+    /// it. A linked folder that the path to it already passed through is
+    /// not walked again, so a link back up the tree does not loop. A link
+    /// to nothing is skipped.
     pub fn build(root: &Path) -> io::Result<DirIndex> {
         let mut index = DirIndex::default();
-        let mut pending = vec![root.to_path_buf()];
-        while let Some(dir) = pending.pop() {
+        // Each folder still to walk, with the root and the linked folders
+        // (canonical) on the way to it.
+        let mut pending = vec![(root.to_path_buf(), vec![std::fs::canonicalize(root)?])];
+        while let Some((dir, through)) = pending.pop() {
             let mut entries = std::fs::read_dir(&dir)?.collect::<io::Result<Vec<_>>>()?;
             entries.sort_by_key(|entry| entry.file_name());
             for entry in entries {
                 let path = entry.path();
-                if entry.file_type()?.is_dir() {
-                    pending.push(path);
+                let kind = entry.file_type()?;
+                if kind.is_symlink() {
+                    let Ok(target) = std::fs::metadata(&path) else {
+                        continue;
+                    };
+                    if target.is_dir() {
+                        let canonical = std::fs::canonicalize(&path)?;
+                        if !through.contains(&canonical) {
+                            let mut through = through.clone();
+                            through.push(canonical);
+                            pending.push((path, through));
+                        }
+                        continue;
+                    }
+                } else if kind.is_dir() {
+                    pending.push((path, through.clone()));
                     continue;
                 }
                 let relative = path

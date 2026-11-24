@@ -4,14 +4,23 @@
 //! options screens change them (`Intent::Setting`); each change is saved
 //! at once and shown back to the screens. The file also keeps the
 //! install's host id (`Settings::host_id`), made once.
+//!
+//! The duel options (`DuelOptions`): the saber rules a session played here
+//! plays by (`game.saber_rules`, JA's or a duel mode, `kjk play
+//! --saber-rules` holding another for one run), and how the duel modes
+//! show: the duel bars over saber users' heads, the red warning of an
+//! unblockable swing, and a perfect block's slow motion (`duel_view`,
+//! `sim_host`).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use bevy::prelude::*;
+use sim::combat::saber::SaberRules;
 use ui::intent::Intent;
 use ui::vm::KeyRow;
 
+use crate::camera_tune;
 use crate::display::{Display, DisplayMode};
 use crate::sound::Volumes;
 use crate::ui_view::{Ui, UiIntents};
@@ -27,22 +36,49 @@ pub enum Action {
     Jump,
     Crouch,
     Walk,
-    /// Fire or swing the weapon, and its other mode (a blaster's feat
-    /// special, a throw, a kick).
+    /// Fire or swing the weapon, and its other mode (a throw, a kick).
     Attack,
     AltAttack,
+    /// Held: the blaster in hand is raised to the eye (`sim::holds::AIM`).
+    /// It shares the alternate attack's and Block's button, because a
+    /// blaster ignores the alternate attack and only a blade blocks.
+    Aim,
     Use,
     Security,
     SaberStyle,
     /// The next feat attack of the weapon in hand (`feat_view`).
     NextFeat,
-    Power,
-    Grenade,
-    Medpac,
-    Shield,
-    Stim,
+    /// The ten slots of the action bar, in order (`BAR`).
+    Bar1,
+    Bar2,
+    Bar3,
+    Bar4,
+    Bar5,
+    Bar6,
+    Bar7,
+    Bar8,
+    Bar9,
+    Bar10,
+    /// Held: the power wheel is open.
+    Wheel,
+    /// The screen that sets up the action bar.
+    BarSetup,
     Stealth,
-    LayMine,
+    /// Hold the blade up to block, under the duel saber rules
+    /// (`sim::combat::saber::duel`). With attack it aims the block.
+    Block,
+    /// Kick. Under the duel saber rules a character kicks with any weapon
+    /// in hand. Under Jedi Academy's rules only a character fighting in the
+    /// staff style kicks, as its alternate attack does.
+    Kick,
+    /// The alternate attack on a key of its own, which is also the feat
+    /// attack of a blaster. With a blaster in hand it makes the gun's feat
+    /// attack (`sim::holds::FEAT`). With anything else in hand it is the
+    /// alternate attack. By default Block shares the alternate attack's
+    /// button and takes its press under the duel saber rules
+    /// (`sim_host::share_button`), so this key throws the lightsaber there.
+    /// Pressed with attack, it starts the kata.
+    DuelAltAttack,
     /// Put the weapon in hand away (`sim::action::Action::Holster`).
     Holster,
     /// Exchange the weapon sets (`sim::action::Action::SwitchWeapons`).
@@ -51,9 +87,12 @@ pub enum Action {
     Form,
     RightHand,
     LeftHand,
-    NextPower,
-    PreviousPower,
     Inventory,
+    /// The menu's equipment, character and messages pages. They have no
+    /// key until the player binds one.
+    Equipment,
+    Character,
+    Messages,
     Journal,
     Map,
     Party,
@@ -70,6 +109,18 @@ pub enum Action {
     Ready,
     /// Turn between the own eyes and JA's camera (`play_view::CameraMode`).
     View,
+    /// The camera a step closer or farther (`camera_tune::zoomed`); past
+    /// the nearest, the own eyes.
+    ZoomIn,
+    ZoomOut,
+    /// Held: the mouse (a pad's right stick) turns the camera around the
+    /// character, not the character (`camera_tune::Orbit`).
+    Orbit,
+    /// The camera's shoulder to the other side.
+    SwapShoulder,
+    /// Hide the HUD, or show it again (`ui_view::Ui::hud_hidden`). It has
+    /// no key until the player binds one.
+    HideInterface,
     /// Leave the conversation while it is unlocked (R6, `dialogue_view`).
     LeaveTalk,
     /// The host lets the first guest asking in join, or ends that
@@ -78,311 +129,450 @@ pub enum Action {
     EndCall,
     /// Make a bug report (`report`).
     Report,
+    /// Save a picture of the window in the screenshots folder (`report`).
+    Screenshot,
 }
 
+/// The action bar's slots, from the first to the tenth.
+pub const BAR: [Action; sim::combat::bar::SLOTS] = [
+    Action::Bar1,
+    Action::Bar2,
+    Action::Bar3,
+    Action::Bar4,
+    Action::Bar5,
+    Action::Bar6,
+    Action::Bar7,
+    Action::Bar8,
+    Action::Bar9,
+    Action::Bar10,
+];
+
+/// How many of the bar's slots a controller can use, counted from the
+/// first. Slots 5 to 10 have no buttons on a controller, and the HUD shows
+/// only the first four slots while a controller is in use.
+pub const PAD_BAR: usize = 4;
+
+/// The value of a `key.<action>` or `pad.<action>` setting that leaves the
+/// action with no key or chord.
+pub(crate) const UNBOUND: &str = "none";
+
 /// Each action: its settings name, its label, its default key or mouse
-/// button, and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 44] = [
+/// button (none for an action that has no key until the player binds one),
+/// and whether it is a movement key.
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 61] = [
     (
         Action::Forward,
         "forward",
         "Forward",
-        Input::Key(KeyCode::KeyW),
+        Some(Input::Key(KeyCode::KeyW)),
         true,
     ),
     (
         Action::Backward,
         "backward",
         "Backward",
-        Input::Key(KeyCode::KeyS),
+        Some(Input::Key(KeyCode::KeyS)),
         true,
     ),
     (
         Action::Left,
         "left",
         "Strafe left",
-        Input::Key(KeyCode::KeyA),
+        Some(Input::Key(KeyCode::KeyA)),
         true,
     ),
     (
         Action::Right,
         "right",
         "Strafe right",
-        Input::Key(KeyCode::KeyD),
+        Some(Input::Key(KeyCode::KeyD)),
         true,
     ),
     (
         Action::Jump,
         "jump",
         "Jump",
-        Input::Key(KeyCode::Space),
+        Some(Input::Key(KeyCode::Space)),
         true,
     ),
     (
         Action::Crouch,
         "crouch",
         "Crouch",
-        Input::Key(KeyCode::KeyC),
+        Some(Input::Key(KeyCode::KeyC)),
         true,
     ),
     (
         Action::Walk,
         "walk",
         "Walk",
-        Input::Key(KeyCode::ShiftLeft),
+        Some(Input::Key(KeyCode::ShiftLeft)),
         true,
     ),
     (
         Action::Attack,
         "attack",
         "Attack",
-        Input::Mouse(MouseButton::Left),
+        Some(Input::Mouse(MouseButton::Left)),
         false,
     ),
     (
         Action::AltAttack,
         "alt_attack",
         "Alt attack",
-        Input::Mouse(MouseButton::Right),
+        Some(Input::Mouse(MouseButton::Right)),
         false,
     ),
-    (Action::Use, "use", "Use", Input::Key(KeyCode::KeyE), false),
+    (
+        Action::Aim,
+        "aim",
+        "Aim",
+        Some(Input::Mouse(MouseButton::Right)),
+        false,
+    ),
+    (
+        Action::Use,
+        "use",
+        "Use",
+        Some(Input::Key(KeyCode::KeyE)),
+        false,
+    ),
     (
         Action::Security,
         "security",
         "Security",
-        Input::Key(KeyCode::KeyU),
+        Some(Input::Key(KeyCode::KeyU)),
         false,
     ),
     (
         Action::SaberStyle,
         "saber_style",
         "Saber style",
-        Input::Key(KeyCode::KeyL),
+        Some(Input::Key(KeyCode::KeyL)),
         false,
     ),
     (
         Action::NextFeat,
         "next_feat",
         "Next feat attack",
-        Input::Key(KeyCode::Digit6),
+        Some(Input::Key(KeyCode::KeyT)),
         false,
     ),
     (
-        Action::Power,
-        "power",
-        "Selected power",
-        Input::Key(KeyCode::KeyF),
+        Action::Bar1,
+        "bar_1",
+        "Action bar slot 1",
+        Some(Input::Key(KeyCode::Digit1)),
         false,
     ),
     (
-        Action::Grenade,
-        "grenade",
-        "Grenade",
-        Input::Key(KeyCode::KeyT),
+        Action::Bar2,
+        "bar_2",
+        "Action bar slot 2",
+        Some(Input::Key(KeyCode::Digit2)),
         false,
     ),
     (
-        Action::Medpac,
-        "medpac",
-        "Medpac",
-        Input::Key(KeyCode::Digit3),
+        Action::Bar3,
+        "bar_3",
+        "Action bar slot 3",
+        Some(Input::Key(KeyCode::Digit3)),
         false,
     ),
     (
-        Action::Shield,
-        "shield",
-        "Energy shield",
-        Input::Key(KeyCode::Digit5),
+        Action::Bar4,
+        "bar_4",
+        "Action bar slot 4",
+        Some(Input::Key(KeyCode::Digit4)),
         false,
     ),
     (
-        Action::Stim,
-        "stim",
-        "Stim",
-        Input::Key(KeyCode::Digit4),
+        Action::Bar5,
+        "bar_5",
+        "Action bar slot 5",
+        Some(Input::Key(KeyCode::Digit5)),
+        false,
+    ),
+    (
+        Action::Bar6,
+        "bar_6",
+        "Action bar slot 6",
+        Some(Input::Key(KeyCode::Digit6)),
+        false,
+    ),
+    (
+        Action::Bar7,
+        "bar_7",
+        "Action bar slot 7",
+        Some(Input::Key(KeyCode::Digit7)),
+        false,
+    ),
+    (
+        Action::Bar8,
+        "bar_8",
+        "Action bar slot 8",
+        Some(Input::Key(KeyCode::Digit8)),
+        false,
+    ),
+    (
+        Action::Bar9,
+        "bar_9",
+        "Action bar slot 9",
+        Some(Input::Key(KeyCode::Digit9)),
+        false,
+    ),
+    (
+        Action::Bar10,
+        "bar_10",
+        "Action bar slot 10",
+        Some(Input::Key(KeyCode::Digit0)),
+        false,
+    ),
+    (
+        Action::Wheel,
+        "wheel",
+        "Power wheel",
+        Some(Input::Key(KeyCode::KeyF)),
+        false,
+    ),
+    (
+        Action::BarSetup,
+        "bar_setup",
+        "Action bar setup",
+        None,
         false,
     ),
     (
         Action::Stealth,
         "stealth",
         "Stealth mode",
-        Input::Key(KeyCode::KeyX),
+        Some(Input::Key(KeyCode::KeyX)),
         false,
     ),
     (
-        Action::LayMine,
-        "lay_mine",
-        "Lay a mine",
-        Input::Key(KeyCode::KeyO),
+        Action::Block,
+        "block",
+        "Block (Advanced rules)",
+        Some(Input::Mouse(MouseButton::Right)),
+        false,
+    ),
+    (
+        Action::Kick,
+        "kick",
+        "Kick",
+        Some(Input::Key(KeyCode::KeyG)),
+        false,
+    ),
+    (
+        Action::DuelAltAttack,
+        "duel_alt_attack",
+        "Saber throw/kata/ranged feat",
+        Some(Input::Key(KeyCode::KeyR)),
         false,
     ),
     (
         Action::Holster,
         "holster",
-        "Holster weapon",
-        Input::Key(KeyCode::KeyH),
+        "Draw or holster weapon",
+        Some(Input::Key(KeyCode::KeyH)),
         false,
     ),
     (
         Action::Form,
         "next_form",
         "Next Form",
-        Input::Key(KeyCode::KeyV),
+        Some(Input::Key(KeyCode::KeyV)),
         false,
     ),
     (
         Action::SwitchWeapons,
         "switch_weapons",
         "Switch weapons",
-        Input::Key(KeyCode::KeyB),
+        Some(Input::Key(KeyCode::KeyB)),
         false,
     ),
     (
         Action::RightHand,
         "right_hand",
         "Right hand",
-        Input::Key(KeyCode::Digit1),
+        Some(Input::Key(KeyCode::BracketRight)),
         false,
     ),
     (
         Action::LeftHand,
         "left_hand",
         "Left hand",
-        Input::Key(KeyCode::Digit2),
-        false,
-    ),
-    (
-        Action::NextPower,
-        "next_power",
-        "Next power",
-        Input::Key(KeyCode::BracketRight),
-        false,
-    ),
-    (
-        Action::PreviousPower,
-        "previous_power",
-        "Previous power",
-        Input::Key(KeyCode::BracketLeft),
+        Some(Input::Key(KeyCode::BracketLeft)),
         false,
     ),
     (
         Action::Inventory,
         "inventory",
         "Inventory",
-        Input::Key(KeyCode::KeyI),
+        Some(Input::Key(KeyCode::KeyI)),
         false,
     ),
+    (Action::Equipment, "equipment", "Equipment", None, false),
+    (Action::Character, "character", "Character", None, false),
+    (Action::Messages, "messages", "Messages", None, false),
     (
         Action::Journal,
         "journal",
         "Journal",
-        Input::Key(KeyCode::KeyJ),
+        Some(Input::Key(KeyCode::KeyJ)),
         false,
     ),
-    (Action::Map, "map", "Map", Input::Key(KeyCode::KeyM), false),
+    (
+        Action::Map,
+        "map",
+        "Map",
+        Some(Input::Key(KeyCode::KeyM)),
+        false,
+    ),
     (
         Action::Party,
         "party",
         "Party",
-        Input::Key(KeyCode::KeyP),
+        Some(Input::Key(KeyCode::KeyP)),
         false,
     ),
     (
         Action::Abilities,
         "abilities",
         "Abilities",
-        Input::Key(KeyCode::KeyK),
+        Some(Input::Key(KeyCode::KeyK)),
         false,
     ),
     (
         Action::QuickSave,
         "quick_save",
         "Quick save",
-        Input::Key(KeyCode::F5),
+        Some(Input::Key(KeyCode::F5)),
         false,
     ),
     (
         Action::QuickLoad,
         "quick_load",
         "Quick load",
-        Input::Key(KeyCode::F9),
+        Some(Input::Key(KeyCode::F9)),
         false,
     ),
     (
         Action::Leader,
         "leader",
         "Switch party leader",
-        Input::Key(KeyCode::Tab),
+        Some(Input::Key(KeyCode::Tab)),
         false,
     ),
     (
         Action::Solo,
         "solo",
         "Solo mode",
-        Input::Key(KeyCode::KeyQ),
+        Some(Input::Key(KeyCode::KeyQ)),
         false,
     ),
     (
         Action::Follow,
         "follow",
         "Follow the next (watching)",
-        Input::Key(KeyCode::KeyN),
+        Some(Input::Key(KeyCode::KeyN)),
         false,
     ),
     (
         Action::Break,
         "break",
         "Take a break",
-        Input::Key(KeyCode::KeyZ),
+        Some(Input::Key(KeyCode::KeyZ)),
         false,
     ),
     (
         Action::Ready,
         "ready",
         "Ready to go",
-        Input::Key(KeyCode::KeyY),
+        Some(Input::Key(KeyCode::KeyY)),
         false,
     ),
     (
         Action::View,
         "view",
         "First person",
-        Input::Key(KeyCode::F1),
+        Some(Input::Key(KeyCode::F1)),
+        false,
+    ),
+    (
+        Action::ZoomIn,
+        "zoom_in",
+        "Camera closer",
+        Some(Input::Key(KeyCode::Equal)),
+        false,
+    ),
+    (
+        Action::ZoomOut,
+        "zoom_out",
+        "Camera farther",
+        Some(Input::Key(KeyCode::Minus)),
+        false,
+    ),
+    (
+        Action::Orbit,
+        "orbit",
+        "Look around (hold)",
+        Some(Input::Key(KeyCode::AltLeft)),
+        false,
+    ),
+    (
+        Action::SwapShoulder,
+        "swap_shoulder",
+        "Swap camera shoulder",
+        Some(Input::Mouse(MouseButton::Middle)),
+        false,
+    ),
+    (
+        Action::HideInterface,
+        "hide_interface",
+        "Hide interface",
+        None,
         false,
     ),
     (
         Action::LeaveTalk,
         "leave_talk",
         "Leave a conversation",
-        Input::Key(KeyCode::KeyL),
+        Some(Input::Key(KeyCode::KeyL)),
         false,
     ),
     (
         Action::AcceptCall,
         "accept_call",
         "Accept a join request",
-        Input::Key(KeyCode::KeyY),
+        Some(Input::Key(KeyCode::KeyY)),
         false,
     ),
     (
         Action::EndCall,
         "end_call",
         "End a join request",
-        Input::Key(KeyCode::KeyN),
+        Some(Input::Key(KeyCode::KeyN)),
         false,
     ),
     (
         Action::Report,
         "report",
         "Report a bug",
-        Input::Key(KeyCode::F12),
+        Some(Input::Key(KeyCode::F12)),
+        false,
+    ),
+    (
+        Action::Screenshot,
+        "screenshot",
+        "Take a screenshot",
+        Some(Input::Key(KeyCode::PrintScreen)),
         false,
     ),
 ];
 
 /// Keys a binding may name, by the name the screens and the file use.
-const KEYS: [KeyCode; 101] = {
+const KEYS: [KeyCode; 102] = {
     use KeyCode::*;
     [
         KeyA,
@@ -484,6 +674,7 @@ const KEYS: [KeyCode; 101] = {
         NumLock,
         ScrollLock,
         Pause,
+        PrintScreen,
         IntlBackslash,
         ContextMenu,
     ]
@@ -534,18 +725,129 @@ impl Input {
         };
         Some(Input::Mouse(button))
     }
+
+    /// Whether the input is down, and whether it went down this frame. A
+    /// mouse button reads as up without `mouse`.
+    fn state(
+        self,
+        keys: Option<&ButtonInput<KeyCode>>,
+        mouse: Option<&ButtonInput<MouseButton>>,
+    ) -> (bool, bool) {
+        match self {
+            Input::Key(key) => keys.map_or((false, false), |keys| {
+                (keys.pressed(key), keys.just_pressed(key))
+            }),
+            Input::Mouse(button) => mouse.map_or((false, false), |mouse| {
+                (mouse.pressed(button), mouse.just_pressed(button))
+            }),
+        }
+    }
 }
 
-/// Which key or mouse button does what.
+/// The modifier keys a binding can ask to be held with its key or button.
+/// Each is Ctrl, Shift or Alt, and the left and the right key of each count
+/// the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Mods(u8);
+
+/// The keys of each modifier, in the order of `key_mapping::MODIFIERS`.
+static MODIFIER_KEYS: std::sync::LazyLock<Vec<[KeyCode; 2]>> = std::sync::LazyLock::new(|| {
+    ui::screens::key_mapping::MODIFIERS
+        .iter()
+        .map(|(_, sides)| sides.map(|side| key_named(side).expect("a modifier key")))
+        .collect()
+});
+
+impl Mods {
+    /// The modifiers held now.
+    pub fn held(keys: &ButtonInput<KeyCode>) -> Mods {
+        Mods(
+            MODIFIER_KEYS
+                .iter()
+                .enumerate()
+                .filter(|(_, sides)| keys.any_pressed(**sides))
+                .fold(0, |mods, (bit, _)| mods | 1 << bit),
+        )
+    }
+
+    /// The names of these modifiers (`Ctrl`, `Shift`, `Alt`), in that order.
+    pub fn names(self) -> impl Iterator<Item = &'static str> {
+        ui::screens::key_mapping::MODIFIERS
+            .iter()
+            .enumerate()
+            .filter(move |(bit, _)| self.0 & 1 << bit != 0)
+            .map(|(_, (name, _))| *name)
+    }
+
+    /// Whether every modifier of `other` is among these.
+    pub(crate) fn covers(self, other: Mods) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+/// A keyboard-and-mouse binding: a key or a mouse button, and the modifier
+/// keys that must be held with it (none for most bindings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Binding {
+    pub mods: Mods,
+    pub input: Input,
+}
+
+impl From<Input> for Binding {
+    fn from(input: Input) -> Binding {
+        Binding {
+            mods: Mods::default(),
+            input,
+        }
+    }
+}
+
+impl Binding {
+    /// As the settings file keeps it: the modifiers first, each followed by
+    /// a plus sign, then the input (`KeyW`, `Shift+MouseRight`,
+    /// `Ctrl+Alt+KeyE`).
+    pub fn name(self) -> String {
+        let mods = self.mods.names().map(|name| format!("{name}+"));
+        mods.chain([self.input.name()]).collect()
+    }
+
+    /// The binding a name names (`Binding::name`). Each modifier may be
+    /// named once, in any order. A modifier key itself (Left Shift) takes no
+    /// modifiers.
+    pub fn named(name: &str) -> Option<Binding> {
+        let mut parts: Vec<&str> = name.split('+').collect();
+        let input = Input::named(parts.pop()?)?;
+        let mut mods = Mods::default();
+        for part in parts {
+            let bit = ui::screens::key_mapping::MODIFIERS
+                .iter()
+                .position(|(name, _)| *name == part)?;
+            if mods.0 & 1 << bit != 0 {
+                return None;
+            }
+            mods.0 |= 1 << bit;
+        }
+        let modifier = |input: Input| {
+            MODIFIER_KEYS
+                .iter()
+                .flatten()
+                .any(|key| input == Input::Key(*key))
+        };
+        (mods == Mods::default() || !modifier(input)).then_some(Binding { mods, input })
+    }
+}
+
+/// Which key or mouse button does what. An action with no key or mouse
+/// button bound has no entry.
 #[derive(Resource, Debug, Clone, PartialEq)]
-pub struct KeyMap(BTreeMap<Action, Input>);
+pub struct KeyMap(BTreeMap<Action, Binding>);
 
 impl Default for KeyMap {
     fn default() -> KeyMap {
         KeyMap(
             ACTIONS
                 .iter()
-                .map(|(action, _, _, key, _)| (*action, *key))
+                .filter_map(|(action, _, _, key, _)| Some((*action, Binding::from((*key)?))))
                 .collect(),
         )
     }
@@ -559,22 +861,82 @@ impl KeyMap {
         &DEFAULTS
     }
 
-    pub fn input(&self, action: Action) -> Input {
-        self.0[&action]
+    /// The map with `action` on `key` alone (`bar_view`'s probes).
+    #[cfg(feature = "probes")]
+    pub(crate) fn with_key(mut self, action: Action, key: KeyCode) -> KeyMap {
+        self.0.insert(action, Binding::from(Input::Key(key)));
+        self
+    }
+
+    /// The binding of `action`, if it has one.
+    pub fn binding(&self, action: Action) -> Option<Binding> {
+        self.0.get(&action).copied()
+    }
+
+    /// The key or mouse button bound to `action`, without its modifiers.
+    pub fn input(&self, action: Action) -> Option<Input> {
+        self.binding(action).map(|binding| binding.input)
     }
 
     /// The key bound to `action`, if it is a key (not a mouse button).
     pub fn key(&self, action: Action) -> Option<KeyCode> {
-        match self.input(action) {
+        match self.input(action)? {
             Input::Key(key) => Some(key),
             Input::Mouse(_) => None,
         }
     }
 
-    /// The input bound to `action` as the screens name it (`W`, `1`, `F5`,
-    /// `Mouse 5`).
+    /// Whether `action`'s key went down this frame with its modifiers held.
+    /// A binding on a mouse button, and an action with no binding, are never
+    /// pressed here.
+    pub fn key_pressed(&self, action: Action, keys: &ButtonInput<KeyCode>) -> bool {
+        self.binding(action).is_some_and(|binding| {
+            matches!(binding.input, Input::Key(key) if keys.just_pressed(key))
+                && Mods::held(keys).covers(binding.mods)
+        })
+    }
+
+    /// Each action's binding read from the keyboard and, with `mouse`, its
+    /// buttons: whether it is held, and whether it went down this frame. A
+    /// binding counts while its key or button and all its modifiers are
+    /// held. It does not count while another action's binding on the same
+    /// key or button, with more modifiers, counts too. So with Shift + Right
+    /// mouse bound, Right mouse alone does not also fire.
+    pub fn read(
+        &self,
+        keys: Option<&ButtonInput<KeyCode>>,
+        mouse: Option<&ButtonInput<MouseButton>>,
+    ) -> Vec<(Action, bool, bool)> {
+        let held = keys.map_or(Mods::default(), Mods::held);
+        let live = |binding: &Binding| {
+            let (down, went) = binding.input.state(keys, mouse);
+            let on = down && held.covers(binding.mods);
+            (on, on && went)
+        };
+        self.0
+            .iter()
+            .map(|(action, binding)| {
+                let outdone = self.0.values().any(|other| {
+                    other.input == binding.input
+                        && other.mods != binding.mods
+                        && other.mods.covers(binding.mods)
+                        && live(other).0
+                });
+                let (on, went) = if outdone {
+                    (false, false)
+                } else {
+                    live(binding)
+                };
+                (*action, on, went)
+            })
+            .collect()
+    }
+
+    /// The binding of `action` as the screens name it (`W`, `1`, `F5`,
+    /// `Mouse 5`, `Shift + Right mouse`, a dash for none).
     pub fn shown(&self, action: Action) -> Vec<u8> {
-        ui::screens::key_mapping::key_name(&self.input(action).name()).into_bytes()
+        let name = self.binding(action).map_or_else(String::new, Binding::name);
+        ui::screens::key_mapping::key_name(&name).into_bytes()
     }
 }
 
@@ -600,10 +962,27 @@ impl Default for MouseFeel {
 pub struct Settings {
     values: BTreeMap<String, String>,
     path: Option<PathBuf>,
+    /// The saber rules held for this run (`HELD_RULES`), until the options
+    /// change them.
+    held_rules: Option<SaberRules>,
 }
 
-/// Each setting the screens change, and its default.
-const DEFAULTS: [(&str, &str); 21] = [
+/// Each setting the screens change, and its default. KOTOR 2's "Use Small
+/// Fonts" (`display.small_fonts`) is among them: KOTOR 2 sets it in its ini
+/// file alone, and kjk's Interface page sets it as Text size. The menu's
+/// width, whether pictures keep their shape, the text scale, the
+/// notifications in the corner and the target block at the top centre are
+/// kjk's own Interface settings. The text scale starts at 100%, which is
+/// KOTOR 2's own size. Their defaults are what suits kjk's real-time play, where the
+/// mouse turns the camera and is not free to click: menus up to 16:9 with
+/// pictures kept in shape, notifications that slide in at the corner
+/// without pausing the game, and the target block at the top centre with
+/// the area name under it. Each can be set back to KOTOR 2's way on the
+/// Interface page. The frame rate limit is kjk's own too, on the same page.
+/// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
+/// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
+/// already holds a value for one keeps it.
+const DEFAULTS: [(&str, &str); 40] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -620,15 +999,137 @@ const DEFAULTS: [(&str, &str); 21] = [
     ("display.mode", "window"),
     ("display.size", ""),
     ("display.vsync", "true"),
+    (ui::screens::options::FRAME_LIMIT, "0"),
     ("display.msaa", "4"),
-    ("display.shadows", "true"),
-    ("display.soft_shadows", "true"),
-    ("feedback.tutorials", "true"),
+    ("display.shadows", "high"),
+    ("display.lighting", "classic"),
+    (EFFECTS, "high"),
+    (AMBIENT_OCCLUSION, "off"),
+    (ANISOTROPY, "16"),
+    (ui::draw::SmallFonts::SETTING, "auto"),
+    (ui::draw::TextScale::SETTING, ui::draw::TextScale::DEFAULT),
+    (ui::draw::MenuWidth::SETTING, "16x9"),
+    (ui::draw::IMAGE_ASPECT, "true"),
+    (ui::draw::CORNER_NOTICES, "true"),
+    (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
+    (COLLISION, "limited"),
+    (DAMAGE_PARTY, ui::screens::options::DAMAGE_NORMAL),
+    (DAMAGE_ENEMIES, ui::screens::options::DAMAGE_NORMAL),
+    (SABER_RULES, "ja"),
+    (STANCE_SETS, "true"),
+    (DUEL_BARS, "false"),
+    (DUEL_WARNING, "false"),
+    (DUEL_SLOW_MOTION, "true"),
+    (HILT_SINGLE, ""),
+    (HILT_DOUBLE, ""),
 ];
+
+/// The hilts KOTOR's single- and double-bladed lightsabers are drawn with
+/// (`weapons::Sabers::with_hilts`): KOTOR's own when empty.
+const HILT_SINGLE: &str = "saber.hilt.single";
+const HILT_DOUBLE: &str = "saber.hilt.double";
+/// The camera's options page (`camera_tune`): its Default puts every camera
+/// setting back.
+pub(crate) const CAMERA_PAGE: &str = "options_camera";
+/// The guns' camera page: its Default puts their camera back.
+pub(crate) const GUN_CAMERA_PAGE: &str = "options_camera_guns";
+
+/// The key of Effects Quality (`effects_quality`).
+const EFFECTS: &str = "display.effects";
+
+/// The key of Ambient Occlusion (`ambient_occlusion`).
+const AMBIENT_OCCLUSION: &str = "display.ambient_occlusion";
+
+/// The key of Anisotropic Filtering (`scene::set_anisotropy`).
+const ANISOTROPY: &str = ui::screens::options::ANISOTROPY_KEY;
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
+
+/// The key of Collision (`session::Collision`): how freely characters may
+/// climb the world. A session keeps the collision it started with.
+pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
+
+/// The keys of Damage taken by party and Damage taken by enemies
+/// (`sim::combat::damage::Taken`), in percent.
+const DAMAGE_PARTY: &str = ui::screens::options::DAMAGE_PARTY;
+const DAMAGE_ENEMIES: &str = ui::screens::options::DAMAGE_ENEMIES;
+
+/// The keys of the duel options (`DuelOptions`).
+const SABER_RULES: &str = "game.saber_rules";
+const DUEL_BARS: &str = "game.duel_bars";
+const DUEL_WARNING: &str = "game.duel_warning";
+const DUEL_SLOW_MOTION: &str = "game.duel_slow_motion";
+/// Whether characters use Movie Duels' stances and guards
+/// (`stance_sets::wanted`): `true` or `false`, true while unset.
+pub(crate) const STANCE_SETS: &str = "game.stance_sets";
+
+/// Whether a session played here chooses targeted blocks, by
+/// `KJK_TARGETED_BLOCKS` alone (`Settings::targeted_blocks`). A headless
+/// run, which has no settings, reads it here too.
+pub(crate) fn targeted_blocks_from_env() -> bool {
+    targeted_blocks_by(std::env::var_os("KJK_TARGETED_BLOCKS").as_deref())
+}
+
+/// `targeted_blocks_from_env` with `env` the value of
+/// `KJK_TARGETED_BLOCKS`, if it is set. Only the value 1 turns targeted
+/// blocks on.
+fn targeted_blocks_by(env: Option<&std::ffi::OsStr>) -> bool {
+    env.is_some_and(|value| value == "1")
+}
+
+/// The saber rules `kjk play --saber-rules` (or `kjk host`) holds for its
+/// run over the setting, unsaved, until the options change it.
+static HELD_RULES: std::sync::OnceLock<SaberRules> = std::sync::OnceLock::new();
+
+/// Holds `rules` for this run over the setting (`HELD_RULES`); before the
+/// settings are first read.
+pub fn hold_saber_rules(rules: SaberRules) {
+    let _ = HELD_RULES.set(rules);
+}
+
+/// Whether Movie Duels is installed beside Jedi Academy with its
+/// characters' skeletons and its hilts (`movie_duels_found`). Its stances
+/// and some of its hilts are offered only then. The Advanced rules need
+/// none of its files.
+pub fn movie_duels() -> bool {
+    movie_duels_found() == vfs::MovieDuels::Installed
+}
+
+/// How much of Movie Duels is installed beside Jedi Academy
+/// (`vfs::Install::movie_duels_found`), looked for once a run.
+pub fn movie_duels_found() -> vfs::MovieDuels {
+    static FOUND: std::sync::OnceLock<vfs::MovieDuels> = std::sync::OnceLock::new();
+    *FOUND.get_or_init(|| {
+        crate::discover()
+            .get(vfs::Game::JediAcademy)
+            .map_or(vfs::MovieDuels::Absent, vfs::Install::movie_duels_found)
+    })
+}
+
+/// The duel options as the settings have them: the rules a session played
+/// here plays by, and how the duel modes show (`duel_view`, `sim_host`).
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DuelOptions {
+    pub rules: SaberRules,
+    /// Whether a session played here chooses targeted blocks
+    /// (`SimWorld::targeted`).
+    pub targeted: bool,
+    /// The Stamina bar over saber users' heads.
+    pub bars: bool,
+    /// A character whose swing cannot be blocked drawn red.
+    pub warning: bool,
+    /// A perfect block slows the world for a moment (alone only).
+    pub slow_motion: bool,
+}
+
+/// Fixes the collision of the session about to start (`session::collision`)
+/// as the options have it now. A joined player takes the host's instead
+/// (`net_join`).
+pub fn fix_session_collision() {
+    session::set_collision(Settings::read().collision());
+}
 
 /// Each part of the mix and the setting of its slider.
 const VOLUMES: [(Bus, &str); 4] = [
@@ -644,21 +1145,97 @@ pub(crate) const HOST_ID: &str = "host.id";
 /// The key of the layout of the key bindings a file was saved with, and
 /// the layout now: 2 moved the medpac, stim and shield to the number row,
 /// H holstering; 3 made the attacks bindings of their own, the mouse's
-/// reversed buttons (`mouse.reverse`) becoming theirs swapped.
-const KEY_LAYOUT: (&str, &str) = ("keys.layout", "3");
+/// reversed buttons (`mouse.reverse`) becoming theirs swapped; 4 put the
+/// action bar's slots on the number row and the power wheel on F in place
+/// of the item and power keys (`RETIRED`), which moved the hands and the
+/// next feat attack. Layout 5 moved the controller's chords (`PAD_MOVED`)
+/// and made LB the only layer button, with the action bar's slots on it.
+/// Layout 6 added the action bar's slots 7 to 10 on the keys 7, 8, 9 and 0
+/// (`ADDED_SLOTS`). Layout 7 added Aim (`aim_on_alt`, `ADDED_7`). Layout 8
+/// made Feat attack and Saber throw and kata one action (`one_alt_feat`).
+const KEY_LAYOUT: (&str, &str) = ("keys.layout", "8");
 
-/// The bindings layout 2 moved, by their old default: a file of an older
+/// The settings' names of the action bar slots that layout 6 added.
+const ADDED_SLOTS: [&str; 4] = ["bar_7", "bar_8", "bar_9", "bar_10"];
+
+/// The settings' names of the actions layout 7 added.
+const ADDED_7: [&str; 1] = ["aim"];
+
+/// The settings' names of the action that layout 8 kept and of the action it
+/// merged into that one: saber throw and kata, and the feat attack.
+const MERGED_8: (&str, &str) = ("duel_alt_attack", "feat_attack");
+
+/// The chords layout 5 moved, each by its old default. LB alone blocks and
+/// RB alone opens the power wheel. LB with A, B, X and Y uses the first four
+/// bar slots, which were on RB. The D-pad's up alone is the next feat attack
+/// and its down alone draws or holsters the weapon. LB with the D-pad's up
+/// switches weapons, and LB with its down opens the security screen.
+const PAD_MOVED: [(&str, &str); 10] = [
+    ("pad.wheel", "DPadUp"),
+    ("pad.block", "LB+RightTrigger2"),
+    ("pad.bar_1", "RB+South"),
+    ("pad.bar_2", "RB+East"),
+    ("pad.bar_3", "RB+West"),
+    ("pad.bar_4", "RB+North"),
+    ("pad.holster", "LB+South"),
+    ("pad.security", "LB+West"),
+    ("pad.switch_weapons", "LB+North"),
+    ("pad.next_feat", "LB+DPadUp"),
+];
+
+/// The bindings layout 4 moved, by their old default: a file of an older
 /// layout still on one gets the new default.
-const MOVED: [(&str, &str); 3] = [
-    ("key.medpac", "KeyH"),
-    ("key.stim", "KeyV"),
-    ("key.shield", "KeyB"),
+const MOVED: [(&str, &str); 4] = [
+    ("key.right_hand", "Digit1"),
+    ("key.left_hand", "Digit2"),
+    ("key.next_feat", "Digit6"),
+    ("pad.next_feat", "LB+RightTrigger"),
+];
+
+/// The settings' names of the actions whose default layout 4 set: the
+/// action bar's, which it added, and those it moved (`MOVED`).
+const PLACED: [&str; 11] = [
+    "bar_1",
+    "bar_2",
+    "bar_3",
+    "bar_4",
+    "bar_5",
+    "bar_6",
+    "wheel",
+    "bar_setup",
+    "right_hand",
+    "left_hand",
+    "next_feat",
+];
+
+/// The settings' names of the actions layout 4 removed: the selected power
+/// and the keys that chose it, and the item keys.
+const RETIRED: [&str; 8] = [
+    "power",
+    "next_power",
+    "previous_power",
+    "medpac",
+    "stim",
+    "shield",
+    "grenade",
+    "lay_mine",
 ];
 
 /// What a page's Default button puts back.
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
-        "options_gameplay" => &["camera.invert", AUTOSAVE],
+        "options_gameplay" => &["camera.invert", AUTOSAVE, COLLISION],
+        "options_sabers" => &[
+            SABER_RULES,
+            DUEL_BARS,
+            DUEL_WARNING,
+            DUEL_SLOW_MOTION,
+            HILT_SINGLE,
+            HILT_DOUBLE,
+            STANCE_SETS,
+            DAMAGE_PARTY,
+            DAMAGE_ENEMIES,
+        ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
             "pad.sensitivity",
@@ -668,7 +1245,23 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         ],
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
-        "options_graphics_advanced" => &["display.vsync", "display.msaa", "display.soft_shadows"],
+        "options_graphics_advanced" => &[
+            "display.vsync",
+            "display.msaa",
+            "display.lighting",
+            EFFECTS,
+            AMBIENT_OCCLUSION,
+            ANISOTROPY,
+        ],
+        "options_interface" => &[
+            ui::draw::MenuWidth::SETTING,
+            ui::draw::IMAGE_ASPECT,
+            ui::draw::SmallFonts::SETTING,
+            ui::draw::TextScale::SETTING,
+            ui::draw::CORNER_NOTICES,
+            ui::draw::TARGET_TOP,
+            ui::screens::options::FRAME_LIMIT,
+        ],
         // The window's mode and size alone: a start that did not get going
         // with them (`display::recover`), `kjk --reset-display`.
         "display" => &["display.mode", "display.size"],
@@ -681,20 +1274,32 @@ pub(crate) fn install_key(game: vfs::Game) -> String {
     format!("install.{}", game.key())
 }
 
-/// The folders the player chose for the games, by their variables' names
-/// (`KJK_KOTOR1`, …), read from the settings file alone: `discover` reads
-/// them before any app, and saves nothing.
-pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
-    let values = file()
+/// The setting naming Jedi Academy's mod folder (`MD`), the variable
+/// `KJK_JA_MOD`'s stand-in (`chosen_installs`).
+pub(crate) const JA_MOD: &str = "ja.mod";
+
+/// The settings file's values alone, as kept (no defaults); nothing when
+/// it does not read. What loading reads before any app (`discover`, the
+/// view's options), saving nothing.
+pub(crate) fn stored() -> BTreeMap<String, String> {
+    file()
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| serde_json::from_str::<BTreeMap<String, String>>(&text).ok())
-        .unwrap_or_else(BTreeMap::new);
-    vfs::Game::ALL
+        .unwrap_or_else(BTreeMap::new)
+}
+
+/// The folders the player chose for the games, by their variables' names
+/// (`KJK_KOTOR1`, …), and Jedi Academy's mod folder (`ja.mod`, as
+/// `KJK_JA_MOD`), read from the settings file alone: `discover` reads them
+/// before any app, and saves nothing.
+pub fn chosen_installs() -> std::collections::HashMap<String, String> {
+    let values = stored();
+    let installs = vfs::Game::ALL
         .into_iter()
-        .filter_map(|game| {
-            let chosen = values.get(&install_key(game))?;
-            Some((game.env_var().to_string(), chosen.clone()))
-        })
+        .map(|game| (install_key(game), game.env_var()));
+    installs
+        .chain([(JA_MOD.to_string(), vfs::JA_MOD_VAR)])
+        .filter_map(|(key, var)| Some((var.to_string(), values.get(&key)?.clone())))
         .collect()
 }
 
@@ -715,10 +1320,14 @@ impl Settings {
     fn default_values() -> BTreeMap<String, String> {
         let mut values: BTreeMap<String, String> = DEFAULTS
             .iter()
+            .copied()
+            .chain(camera_tune::defaults())
+            .chain(ui::feedback::defaults())
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect();
         for (_, name, _, key, _) in ACTIONS {
-            values.insert(format!("key.{name}"), key.name());
+            let key = key.map_or_else(|| UNBOUND.to_string(), Input::name);
+            values.insert(format!("key.{name}"), key);
         }
         values.insert(KEY_LAYOUT.0.into(), KEY_LAYOUT.1.into());
         values
@@ -729,12 +1338,14 @@ impl Settings {
         Settings {
             values: Settings::default_values(),
             path: None,
+            held_rules: HELD_RULES.get().copied(),
         }
     }
 
-    /// The settings in the user's file, over the defaults; a file that
-    /// does not read is left for the defaults (and a warning). A file with
-    /// no host id gets one, made at random and saved.
+    /// The settings in the user's file, over the defaults. A file that does
+    /// not read gives the defaults and a warning, and is kept aside as
+    /// `settings.json.bad` (`store::set_aside`). A file with no host id gets
+    /// one, made at random and saved.
     pub fn load() -> Settings {
         Settings::load_from(file())
     }
@@ -744,14 +1355,29 @@ impl Settings {
         let mut settings = Settings::defaults();
         let mut changed = false;
         if let Some(path) = &path
-            && let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(bytes) = std::fs::read(path)
         {
-            match serde_json::from_str::<BTreeMap<String, String>>(&text) {
+            match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
-                    changed = relayout(&mut read);
+                    changed = relayout(&mut read)
+                        | retire_mda(&mut read, movie_duels_found() != vfs::MovieDuels::Absent)
+                        | block_on_alt(&mut read);
+                    changed |= one_shadow_setting(&mut read) | retire_duel_stances(&mut read);
                     settings.values.extend(read);
                 }
-                Err(error) => warn!("{}: {error}; the defaults stand", path.display()),
+                // The file is kept aside for the player, and the defaults
+                // are saved in its place below (they have no host id).
+                Err(error) => match store::set_aside(path) {
+                    Ok(aside) => warn!(
+                        "{}: {error}; the defaults stand, and the file was kept as {}",
+                        path.display(),
+                        aside.display()
+                    ),
+                    Err(why) => warn!(
+                        "{}: {error}; the defaults stand, and the file could not be kept aside: {why}",
+                        path.display()
+                    ),
+                },
             }
         }
         settings.path = path;
@@ -772,6 +1398,11 @@ impl Settings {
         self.path.as_deref()
     }
 
+    /// Every value set, by key.
+    pub fn values(&self) -> &BTreeMap<String, String> {
+        &self.values
+    }
+
     /// The value set for `key`, if any.
     pub fn value(&self, key: &str) -> Option<&str> {
         self.values.get(key).map(String::as_str)
@@ -787,14 +1418,10 @@ impl Settings {
         let Some(path) = &self.path else {
             return;
         };
-        let written = path
-            .parent()
-            .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| {
-                let text = serde_json::to_string_pretty(&self.values).expect("strings serialize");
-                std::fs::write(path, text)
-            });
-        if let Err(error) = written {
+        // Written whole beside its place and renamed into it: a program
+        // that stops while writing leaves the old settings, not half of them.
+        let text = serde_json::to_string_pretty(&self.values).expect("strings serialize");
+        if let Err(error) = store::write_atomically(path, text.as_bytes()) {
             warn!("{}: {error}", path.display());
         }
     }
@@ -803,6 +1430,24 @@ impl Settings {
     /// the pad's chords, `pad`) back. Keys must name a key a binding may
     /// use, chords a chord (or `none`).
     pub fn apply(&mut self, key: &str, value: &str) {
+        // A camera's preset sets its sliders (Custom, the cycle's last, and
+        // the guns' Same as Melee move none); a slider moved names its
+        // camera's preset again.
+        if let Some(profile) = camera_tune::preset_of(key) {
+            for (name, share) in profile.preset_values(value).into_iter().flatten() {
+                self.values.insert(name.into(), share.into());
+            }
+            self.values.insert(key.into(), value.into());
+            self.save();
+            return;
+        }
+        if let Some(profile) = camera_tune::slider_of(key) {
+            self.values.insert(key.into(), value.into());
+            let preset = profile.preset_named(|name| self.value(name));
+            self.values.insert(profile.preset.into(), preset.into());
+            self.save();
+            return;
+        }
         let defaults = Settings::default_values();
         match (key, value) {
             ("reset", "keys") => {
@@ -816,25 +1461,48 @@ impl Settings {
                     self.values.remove(&format!("pad.{name}"));
                 }
             }
+            ("reset", page @ (CAMERA_PAGE | GUN_CAMERA_PAGE)) => {
+                let reset: Vec<_> = if page == CAMERA_PAGE {
+                    camera_tune::camera_defaults().collect()
+                } else {
+                    camera_tune::GUNS.defaults().collect()
+                };
+                for (name, default) in reset {
+                    self.values.insert(name.into(), default.into());
+                }
+            }
+            ("reset", ui::feedback::PAGE) => {
+                for name in ui::feedback::reset_keys() {
+                    self.values.insert(name.to_string(), defaults[name].clone());
+                }
+            }
             ("reset", page) => {
+                if page_keys(page).contains(&SABER_RULES) {
+                    self.held_rules = None;
+                }
                 for name in page_keys(page) {
                     self.values
                         .insert(name.to_string(), defaults[*name].clone());
                 }
             }
-            (name, key) if name.starts_with("key.") && Input::named(key).is_none() => {
+            (name, key)
+                if name.starts_with("key.") && key != UNBOUND && Binding::named(key).is_none() =>
+            {
                 warn!("{key}: not a key a binding may use");
                 return;
             }
             (name, chord)
                 if pad_action(name).is_some()
-                    && chord != "none"
+                    && chord != UNBOUND
                     && crate::pad::Chord::named(chord).is_none() =>
             {
                 warn!("{chord}: not a chord a binding may use");
                 return;
             }
             (name, value) => {
+                if name == SABER_RULES {
+                    self.held_rules = None;
+                }
                 self.values.insert(name.to_string(), value.to_string());
             }
         }
@@ -846,16 +1514,21 @@ impl Settings {
         self.values.get(key).is_some_and(|value| value == "true")
     }
 
+    /// The keys and mouse buttons: the defaults, with a file's
+    /// `key.<action>` over them (a binding's name, `Binding::name`, or
+    /// `none` to leave the action with no key).
     pub fn keys(&self) -> KeyMap {
         KeyMap(
             ACTIONS
                 .iter()
-                .map(|(action, name, _, default, _)| {
-                    let bound = self
-                        .values
-                        .get(&format!("key.{name}"))
-                        .and_then(|key| Input::named(key));
-                    (*action, bound.unwrap_or(*default))
+                .filter_map(|(action, name, _, default, _)| {
+                    let default = default.map(Binding::from);
+                    let binding = match self.values.get(&format!("key.{name}")) {
+                        Some(key) if key == UNBOUND => None,
+                        Some(key) => Binding::named(key).or(default),
+                        None => default,
+                    };
+                    Some((*action, binding?))
                 })
                 .collect(),
         )
@@ -888,7 +1561,7 @@ impl Settings {
         crate::pad::PadMap::with(ACTIONS.iter().filter_map(|(action, name, ..)| {
             let value = self.values.get(&format!("pad.{name}"))?;
             let chord = crate::pad::Chord::named(value);
-            if chord.is_none() && value != "none" {
+            if chord.is_none() && value != UNBOUND {
                 warn!("pad.{name}: {value} names no chord; the default stands");
                 return None;
             }
@@ -917,14 +1590,67 @@ impl Settings {
     /// KOTOR's "Tutorial Popups" option (on by default, as the game's): a
     /// tutorial window a script shows comes up (`script_screens`).
     pub fn tutorials(&self) -> bool {
-        self.values
-            .get("feedback.tutorials")
-            .is_none_or(|v| v != "false")
+        ui::feedback::on(&self.values, ui::feedback::TUTORIALS)
+    }
+
+    /// The saber rules a session played here plays by: those held for the
+    /// run (`--saber-rules`), else the setting's: JA's when unset or not a
+    /// name.
+    pub fn saber_rules(&self) -> SaberRules {
+        self.held_rules.unwrap_or_else(|| {
+            self.values
+                .get(SABER_RULES)
+                .and_then(|name| SaberRules::named(name))
+                .unwrap_or(SaberRules::Ja)
+        })
+    }
+
+    /// Whether a session played here chooses targeted blocks. Targeted
+    /// blocks are switched off, and the options page has no row for them.
+    /// A value stored in the settings file is ignored. A developer turns
+    /// them on by starting the game with `KJK_TARGETED_BLOCKS=1`. They
+    /// apply only under the Advanced rules (`SimWorld::targeted`).
+    pub fn targeted_blocks(&self) -> bool {
+        targeted_blocks_from_env()
+    }
+
+    /// The defaults with the file's values over them, as `load` has them,
+    /// saving nothing (`stored`).
+    pub(crate) fn read() -> Settings {
+        let mut settings = Settings::defaults();
+        settings.values.extend(stored());
+        settings
+    }
+
+    /// The duel options (`DuelOptions`).
+    pub fn duel(&self) -> DuelOptions {
+        DuelOptions {
+            rules: self.saber_rules(),
+            targeted: self.targeted_blocks(),
+            bars: self.on(DUEL_BARS),
+            warning: self.on(DUEL_WARNING),
+            slow_motion: self.on(DUEL_SLOW_MOTION),
+        }
+    }
+
+    /// The settings as the screens show them: the saber rules held for the
+    /// run in the setting's place.
+    pub fn values_shown(&self) -> BTreeMap<String, String> {
+        let mut shown = self.values.clone();
+        if let Some(rules) = self.held_rules {
+            shown.insert(SABER_RULES.into(), rules.name().into());
+        }
+        shown
     }
 
     /// The player looks through its own eyes (`play_view::CameraMode`).
     pub fn first_person(&self) -> bool {
         self.values.get("camera.view").is_some_and(|v| v == "first")
+    }
+
+    /// The third-person camera the options ask for.
+    pub fn camera(&self) -> camera_tune::CameraTune {
+        camera_tune::CameraTune::from_settings(|key| self.value(key))
     }
 
     /// Keeps whether the player looks through its own eyes.
@@ -959,26 +1685,75 @@ impl Settings {
             mode: DisplayMode::named(get("display.mode")),
             size: crate::display::size_named(get("display.size")),
             vsync: get("display.vsync") != "false",
-            samples: match get("display.msaa") {
-                "1" => 1,
-                "2" => 2,
-                _ => 4,
-            },
+            frame_limit: ui::screens::options::frame_limit(get(ui::screens::options::FRAME_LIMIT)),
+            antialias: crate::temporal::Antialias::named(get("display.msaa")),
             gamma: crate::display::gamma(self.fraction("display.gamma", 0.5)),
             grass: get("display.grass") != "false",
         }
     }
 
-    /// Whether characters cast shadows, and soft ones.
+    /// What casts characters' shadows (the options' Shadows).
     pub fn shadows(&self) -> crate::shadows::ShadowSettings {
-        let on = |key: &str| self.values.get(key).is_none_or(|value| value != "false");
-        crate::shadows::ShadowSettings {
-            on: on("display.shadows"),
-            soft: on("display.soft_shadows"),
-        }
+        let value = self.values.get("display.shadows");
+        crate::shadows::ShadowSettings::named(value.map_or("high", String::as_str))
     }
 
-    /// The key rows the key mapping shows.
+    /// The collision a session started now builds its areas with (the
+    /// options' Collision).
+    pub fn collision(&self) -> session::Collision {
+        self.values
+            .get(COLLISION)
+            .and_then(|name| session::Collision::named(name))
+            .unwrap_or(session::Collision::Limited)
+    }
+
+    /// The share of the normal damage the party and the enemies take in a
+    /// game started or loaded now (the options' damage multipliers). A value
+    /// that is not a number counts as the normal damage.
+    pub fn damage_taken(&self) -> sim::combat::damage::Taken {
+        let percent = |key: &str| {
+            self.values
+                .get(key)
+                .and_then(|value| value.trim().parse::<u16>().ok())
+                .unwrap_or_else(|| sim::combat::damage::Taken::default().party())
+        };
+        sim::combat::damage::Taken::new(percent(DAMAGE_PARTY), percent(DAMAGE_ENEMIES))
+    }
+
+    /// The original game's lighting, or kjk's own with glow (the options'
+    /// Lighting).
+    pub fn lighting(&self) -> crate::rolloff::LightingMode {
+        let value = self.values.get("display.lighting");
+        crate::rolloff::LightingMode::named(value.map_or("classic", String::as_str))
+    }
+
+    /// Whether particles are drawn at the frame's size or half of it (the
+    /// options' Effects Quality).
+    pub fn effects(&self) -> crate::effects_quality::EffectsQuality {
+        let value = self.values.get(EFFECTS);
+        crate::effects_quality::EffectsQuality::named(value.map_or("high", String::as_str))
+    }
+
+    /// Whether the room's light is darkened where something stands close to
+    /// a surface (the options' Ambient Occlusion).
+    pub fn ambient_occlusion(&self) -> crate::ambient_occlusion::AmbientOcclusion {
+        let value = self.values.get(AMBIENT_OCCLUSION);
+        crate::ambient_occlusion::AmbientOcclusion::named(value.map_or("off", String::as_str))
+    }
+
+    /// How many samples a texture seen at a shallow angle takes (the
+    /// options' Anisotropic Filtering): 1 (off), 2, 4, 8 or 16. A value
+    /// that is not one of these counts as 16.
+    pub fn anisotropy(&self) -> u16 {
+        self.values
+            .get(ANISOTROPY)
+            .and_then(|value| value.parse().ok())
+            .filter(|samples| [1, 2, 4, 8, 16].contains(samples))
+            .unwrap_or(16)
+    }
+
+    /// The key rows the key mapping shows, each with its binding's name
+    /// (empty where none is bound).
     pub fn rows(&self) -> Vec<KeyRow> {
         let map = self.keys();
         ACTIONS
@@ -986,7 +1761,7 @@ impl Settings {
             .map(|(action, name, label, _, movement)| KeyRow {
                 action: name.to_string(),
                 label: label.to_string(),
-                key: map.input(*action).name(),
+                key: map.binding(*action).map_or_else(String::new, Binding::name),
                 movement: *movement,
                 shares: shares(*action),
             })
@@ -1026,10 +1801,21 @@ const STICK: [Action; 5] = [
 /// The actions that may keep one binding, as the defaults have them: their
 /// moments never meet (a ready check's Ready and a join request's Accept;
 /// following while watching and ending a join request) or a screen takes
-/// one (Leave, on a conversation or a watched pazaak table). A rebinding
-/// swaps with any other action on the binding asked for.
-pub(crate) const SHARES: [[Action; 2]; 4] = [
+/// one (Leave, on a conversation or a watched pazaak table), or a tap is
+/// one and a hold the other (a pad's R3: Saber style tapped, the camera's
+/// orbit held, `pad::TAP_ON_ORBIT`), or what is in hand picks one (the
+/// right mouse button blocks under the duel rules with a lit lightsaber,
+/// and is the alternate attack otherwise, `sim_host::share_button`). The
+/// weapon in hand also picks between Aim and the actions on the right mouse
+/// button, because a blaster ignores the alternate attack and only a blade
+/// blocks. A rebinding swaps with every other action on the binding asked
+/// for.
+pub(crate) const SHARES: [[Action; 2]; 8] = [
+    [Action::AltAttack, Action::Block],
+    [Action::Aim, Action::AltAttack],
+    [Action::Aim, Action::Block],
     [Action::SaberStyle, Action::LeaveTalk],
+    [Action::SaberStyle, Action::Orbit],
     [Action::Crouch, Action::LeaveTalk],
     [Action::Ready, Action::AcceptCall],
     [Action::Follow, Action::EndCall],
@@ -1078,6 +1864,74 @@ pub fn key_bindings() -> Vec<(String, String)> {
         .collect()
 }
 
+/// A file's Shadows and Soft Shadows check boxes brought to the one
+/// Shadows setting. Shadows off is `off`. Shadows on with Soft Shadows off
+/// is `low`, and with it on is `high`. Whether the file held the check
+/// boxes.
+fn one_shadow_setting(read: &mut BTreeMap<String, String>) -> bool {
+    let soft = read.remove("display.soft_shadows");
+    let now = match (
+        read.get("display.shadows").map(String::as_str),
+        soft.as_deref(),
+    ) {
+        (Some("false"), _) => "off",
+        (Some("true") | None, Some("false")) => "low",
+        (Some("true"), _) => "high",
+        (_, soft) => return soft.is_some(),
+    };
+    read.insert("display.shadows".into(), now.into());
+    true
+}
+
+/// Drops a saved `game.duel_stances`. The stances come with MDA, so the
+/// setting that once turned them on no longer exists. True when it dropped
+/// one.
+pub(crate) fn retire_duel_stances(read: &mut BTreeMap<String, String>) -> bool {
+    read.remove("game.duel_stances").is_some()
+}
+
+/// A saved `game.saber_rules` naming one of the Advanced rules' retired
+/// names (`SaberRules::RETIRED_NAMES`) is rewritten to `advanced` when Movie
+/// Duels is installed, which is what those names played, and to `ja`
+/// otherwise, which is what they played without it. Whether it was.
+fn retire_mda(read: &mut BTreeMap<String, String>, movie_duels: bool) -> bool {
+    let Some(set) = read.get_mut(SABER_RULES) else {
+        return false;
+    };
+    if !SaberRules::RETIRED_NAMES
+        .iter()
+        .any(|old| set.eq_ignore_ascii_case(old))
+    {
+        return false;
+    }
+    let now = match movie_duels {
+        true => SaberRules::DuelAdvanced,
+        false => SaberRules::Ja,
+    };
+    *set = now.name().into();
+    true
+}
+
+/// A file with no binding for Block (one written before it existed) that
+/// has the alternate attack on another button than the default puts Block
+/// on that button too, so the two share it as the defaults do (a reversed
+/// mouse's alternate attack is on the left button). Whether it did.
+fn block_on_alt(read: &mut BTreeMap<String, String>) -> bool {
+    // A file of the pre-release v0.17.1-md-rc.1 holds Block on R, its
+    // default then. R is now the duel rules' alternate attack, which such
+    // a file does not name, so its Block moves as an unnamed one does.
+    let on_old_default = read.get("key.block").is_some_and(|key| key == "KeyR")
+        && !read.contains_key("key.duel_alt_attack");
+    if read.contains_key("key.block") && !on_old_default {
+        return false;
+    }
+    let Some(alt) = read.get("key.alt_attack").cloned() else {
+        return false;
+    };
+    read.insert("key.block".into(), alt);
+    true
+}
+
 /// A file's settings brought to the bindings' layout now: those that moved
 /// and it kept on their old default dropped (the new default stands), and
 /// the layout set. Whether it was of an older layout.
@@ -1090,13 +1944,6 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     if read.get(key).is_some_and(|saved| saved == layout) {
         return false;
     }
-    if saved < 2 {
-        for (name, old) in MOVED {
-            if read.get(name).is_some_and(|saved| saved == old) {
-                read.remove(name);
-            }
-        }
-    }
     if saved < 3
         && read
             .remove("mouse.reverse")
@@ -1105,8 +1952,186 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
         read.insert("key.attack".into(), "MouseRight".into());
         read.insert("key.alt_attack".into(), "MouseLeft".into());
     }
+    // Layouts 7 and 8 run as one step. Test builds of this work wrote
+    // layout 6 for a file with Aim and Feat attack, and layout 7 for a file
+    // with Feat attack already merged. So a file of layout 7 has had both
+    // steps. A file of layout 6 is either the action bar's layout 6 or such
+    // a test build's, and it gets both steps. Aim is only put on the
+    // alternate attack where the file names no Aim, so a test build's file
+    // keeps its Aim.
+    if saved < 7 {
+        aim_on_alt(read);
+        one_alt_feat(read);
+    }
+    if saved < 4 {
+        bar_layout(read);
+    }
+    if saved < 5 {
+        pad_layout(read);
+    }
+    // A slot that layout 6 added takes its default key, unless another
+    // action of the file is on that key. Then the slot is left unbound. The
+    // test builds' files of layouts 6 and 7 name no slots 7 to 10, so the
+    // step runs for them too. A file that names the slots keeps them.
+    let placed = |name: &str| {
+        (saved < 7 && (ADDED_7.contains(&name) || name == MERGED_8.0))
+            || (saved < 8 && ADDED_SLOTS.contains(&name))
+    };
+    place_defaults(read, placed, &["key.", "pad."]);
     read.insert(key.into(), layout.into());
     true
+}
+
+/// A file of a layout before 8 brings Feat attack and Saber throw and kata
+/// to the one action that replaced them (`MERGED_8`). Each device (`key.`,
+/// `pad.`) is brought on its own. The merged action keeps the binding of
+/// Saber throw and kata where the file names one that is not unbound.
+/// Otherwise it takes the binding of Feat attack where the file names one
+/// that is not unbound. Otherwise the file's setting is dropped, and
+/// `place_defaults` later gives the merged action its default unless another
+/// action of the file is on it. The file's Feat attack settings are dropped
+/// in every case.
+fn one_alt_feat(read: &mut BTreeMap<String, String>) {
+    let (kept, merged) = MERGED_8;
+    for prefix in ["key.", "pad."] {
+        let kept = format!("{prefix}{kept}");
+        let bound = |value: Option<String>| value.filter(|value| value != UNBOUND);
+        let feat = bound(read.remove(&format!("{prefix}{merged}")));
+        match (bound(read.get(&kept).cloned()), feat) {
+            (Some(_), _) => {}
+            (None, Some(feat)) => {
+                read.insert(kept, feat);
+            }
+            (None, None) => {
+                read.remove(&kept);
+            }
+        }
+    }
+}
+
+/// A file of a layout before 7 puts Aim where it has the alternate attack,
+/// on each device on which it binds the alternate attack to a key or chord
+/// and names no Aim. So a reversed mouse aims with its left button, as it
+/// uses the alternate attack there. It runs before the older layouts' steps,
+/// so that a chord they drop is dropped for both actions.
+fn aim_on_alt(read: &mut BTreeMap<String, String>) {
+    for prefix in ["key.", "pad."] {
+        let aim = format!("{prefix}aim");
+        let alt = read
+            .get(&format!("{prefix}alt_attack"))
+            .filter(|alt| *alt != UNBOUND)
+            .cloned();
+        if let Some(alt) = alt.filter(|_| !read.contains_key(&aim)) {
+            read.insert(aim, alt);
+        }
+    }
+}
+
+/// A file of a layout before 4 brought to it. The removed actions' bindings
+/// are dropped, and so are the moved ones it kept on their old default.
+/// A chord on RB, which layout 4 held for the action bar's layer, is
+/// dropped too. Last, an action whose default this layout set (`PLACED`)
+/// and that the file does not bind takes its default key
+/// (`place_defaults`). The chords are placed by `pad_layout`.
+fn bar_layout(read: &mut BTreeMap<String, String>) {
+    read.retain(|setting, _| {
+        let action = setting
+            .strip_prefix("key.")
+            .or_else(|| setting.strip_prefix("pad."));
+        !action.is_some_and(|action| RETIRED.contains(&action))
+    });
+    for (name, old) in MOVED {
+        if read.get(name).is_some_and(|saved| saved == old) {
+            read.remove(name);
+        }
+    }
+    read.retain(|setting, chord| !(pad_action(setting).is_some() && crate::pad::names_rb(chord)));
+    place_defaults(read, |name| PLACED.contains(&name), &["key."]);
+}
+
+/// A file of layout 4 brought to 5, which moved the controller's chords
+/// (`PAD_MOVED`). The file's chords that no longer name a chord are
+/// dropped. Those are the chords with RB held, because RB is no layer now.
+/// A moved action's chord that the file kept on its old default is dropped
+/// too. So is any other chord of the file that is now a moved action's new
+/// default, such as an old LB chord on LB with A, which is now the first
+/// bar slot's. Last, every action the file does not bind takes its default
+/// chord, unless another action of the file is on it (`place_defaults`).
+/// Then it is left unbound.
+fn pad_layout(read: &mut BTreeMap<String, String>) {
+    let pads = crate::pad::PadMap::defaults();
+    let moved_to: Vec<(&str, String)> = PAD_MOVED
+        .iter()
+        .filter_map(|(setting, _)| {
+            let chord = pads.chord(pad_action(setting)?)?;
+            Some((*setting, chord.name()))
+        })
+        .collect();
+    let dropped: Vec<String> = read
+        .iter()
+        .filter(|(setting, value)| {
+            let Some(action) = pad_action(setting) else {
+                return false;
+            };
+            let sharing = shares(action);
+            let on_moved = moved_to.iter().any(|(other, chord)| {
+                *other != setting.as_str()
+                    && chord == *value
+                    && !sharing
+                        .iter()
+                        .any(|name| other.strip_prefix("pad.") == Some(name.as_str()))
+            });
+            value.as_str() != UNBOUND
+                && (crate::pad::Chord::named(value).is_none()
+                    || PAD_MOVED.contains(&(setting.as_str(), value.as_str()))
+                    || on_moved)
+        })
+        .map(|(setting, _)| setting.clone())
+        .collect();
+    for setting in &dropped {
+        read.remove(setting);
+    }
+    place_defaults(read, |_| true, &["pad."]);
+}
+
+/// Gives each action that `placed` names, and that the file does not bind
+/// on a device of `prefixes` (`key.`, `pad.`), its default key or chord, but
+/// only if no other action of the file is on that binding. Otherwise the
+/// action is left unbound, so that no two actions end on one binding unless
+/// `SHARES` lets them share it. A setting that names no action, such as
+/// `key.lightning` from a file older than the single Force button, never
+/// takes a binding.
+fn place_defaults(
+    read: &mut BTreeMap<String, String>,
+    placed: impl Fn(&str) -> bool,
+    prefixes: &[&str],
+) {
+    let pads = crate::pad::PadMap::defaults();
+    for &(action, name, _, key, _) in ACTIONS.iter().filter(|(_, name, ..)| placed(name)) {
+        let defaults = [
+            ("key.", key.map(Input::name)),
+            ("pad.", pads.chord(action).map(crate::pad::Chord::name)),
+        ];
+        for (prefix, default) in defaults {
+            let setting = format!("{prefix}{name}");
+            let Some(default) =
+                default.filter(|_| prefixes.contains(&prefix) && !read.contains_key(&setting))
+            else {
+                continue;
+            };
+            let sharing = shares(action);
+            let taken = read.iter().any(|(other, value)| {
+                *value == default
+                    && other.strip_prefix(prefix).is_some_and(|other| {
+                        ACTIONS.iter().any(|(_, name, ..)| *name == other)
+                            && !sharing.iter().any(|name| name == other)
+                    })
+            });
+            if taken {
+                read.insert(setting, UNBOUND.into());
+            }
+        }
+    }
 }
 
 pub struct SettingsPlugin;
@@ -1123,6 +2148,7 @@ impl Plugin for SettingsPlugin {
         if windowed && let Some(reset) = crate::display::recover(&mut settings) {
             app.insert_resource(reset);
         }
+        crate::scene::set_anisotropy(settings.anisotropy());
         app.insert_resource(settings.keys())
             .insert_resource(settings.mouse())
             .insert_resource(settings.pads())
@@ -1130,6 +2156,11 @@ impl Plugin for SettingsPlugin {
             .insert_resource(settings.volumes())
             .insert_resource(settings.display())
             .insert_resource(settings.shadows())
+            .insert_resource(settings.duel())
+            .insert_resource(settings.lighting())
+            .insert_resource(settings.effects())
+            .insert_resource(settings.ambient_occlusion())
+            .insert_resource(settings.camera())
             .insert_resource(settings)
             .add_systems(Startup, show)
             .add_systems(Update, apply.after(crate::ui_view::Stepped));
@@ -1139,9 +2170,24 @@ impl Plugin for SettingsPlugin {
 /// The settings as the screens show them.
 fn show(settings: Res<Settings>, ui: Option<ResMut<Ui>>) {
     if let Some(mut ui) = ui {
-        ui.vm.settings = settings.values.clone();
-        ui.vm.keys = settings.rows();
-        ui.vm.pad_keys = settings.pad_rows();
+        settings.shown(&mut ui);
+    }
+}
+
+impl Settings {
+    /// `ui`'s copy of the settings brought up to date. `ui` counts each
+    /// time a setting in its copy changes (`Ui::settings_revision`).
+    pub(crate) fn shown(&self, ui: &mut Ui) {
+        let shown = self.values_shown();
+        if ui.vm.settings != shown {
+            ui.vm.settings = shown;
+            ui.settings_revision = ui.settings_revision.wrapping_add(1);
+        }
+        ui.vm.movie_duels = movie_duels();
+        ui.vm.movie_duels_incomplete =
+            matches!(movie_duels_found(), vfs::MovieDuels::Incomplete { .. });
+        ui.vm.keys = self.rows();
+        ui.vm.pad_keys = self.pad_rows();
     }
 }
 
@@ -1149,15 +2195,23 @@ fn show(settings: Res<Settings>, ui: Option<ResMut<Ui>>) {
 fn apply(
     mut intents: ResMut<UiIntents>,
     mut settings: ResMut<Settings>,
-    mut keys: ResMut<KeyMap>,
-    mut mouse: ResMut<MouseFeel>,
+    (mut keys, mut mouse): (ResMut<KeyMap>, ResMut<MouseFeel>),
     (mut pads, mut pad): (ResMut<crate::pad::PadMap>, ResMut<crate::pad::PadFeel>),
-    (mut volumes, mut display, mut shadows): (
+    (mut volumes, mut display, mut camera): (
         ResMut<Volumes>,
         ResMut<Display>,
-        ResMut<crate::shadows::ShadowSettings>,
+        ResMut<camera_tune::CameraTune>,
     ),
-    ui: Option<ResMut<Ui>>,
+    (mut shadows, mut lighting, mut effects, mut duel): (
+        ResMut<crate::shadows::ShadowSettings>,
+        ResMut<crate::rolloff::LightingMode>,
+        ResMut<crate::effects_quality::EffectsQuality>,
+        ResMut<DuelOptions>,
+    ),
+    (mut occlusion, ui): (
+        ResMut<crate::ambient_occlusion::AmbientOcclusion>,
+        Option<ResMut<Ui>>,
+    ),
 ) {
     let mut changed = false;
     intents.0.retain(|intent| match intent {
@@ -1176,10 +2230,14 @@ fn apply(
         volumes.set_if_neq(settings.volumes());
         display.set_if_neq(settings.display());
         shadows.set_if_neq(settings.shadows());
+        duel.set_if_neq(settings.duel());
+        lighting.set_if_neq(settings.lighting());
+        effects.set_if_neq(settings.effects());
+        occlusion.set_if_neq(settings.ambient_occlusion());
+        crate::scene::set_anisotropy(settings.anisotropy());
+        camera.set_if_neq(settings.camera());
         if let Some(mut ui) = ui {
-            ui.vm.settings = settings.values.clone();
-            ui.vm.keys = settings.rows();
-            ui.vm.pad_keys = settings.pad_rows();
+            settings.shown(&mut ui);
         }
     }
 }
@@ -1187,6 +2245,13 @@ fn apply(
 #[cfg(feature = "probes")]
 pub fn binding_probes() -> sim::probe::Checks {
     probes::checks()
+}
+
+/// The settings' file as a start reads it (issue 279): one that does not
+/// read is kept aside and the defaults are saved in its place.
+#[cfg(feature = "probes")]
+pub fn file_probes() -> sim::probe::Checks {
+    probes::file_checks()
 }
 
 #[cfg(feature = "probes")]

@@ -23,8 +23,14 @@ pub fn probes() -> Checks {
         ),
         ("crumbs_while_held", while_held()),
     ];
+    checks.push(("lost_device_told", lost_device_told(&root.join("lost"))));
+    checks.push((
+        "lost_device_render_facts",
+        lost_device_render_facts(&root.join("facts")),
+    ));
     checks.extend(unexpected(&root.join("runs")));
     checks.push(("prune_keeps_crashes", prune(&root.join("prune"))));
+    checks.push(("software_adapter_refused", software_adapter()));
     let _ = std::fs::remove_dir_all(&root);
     checks
 }
@@ -55,6 +61,7 @@ fn holds_everything(folder: &Path) -> Result<String, String> {
         area: "Command Module".into(),
         conversation: Some(("end_trask".into(), 7)),
         party: vec!["trask".into()],
+        target: Some(aimed("Outcast Corpse (Empty)", "tar05_promcorpse", 1.48)),
         ..Breadcrumbs::default()
     };
     let text = crash_text(folder, Some(&crumbs))?;
@@ -67,6 +74,7 @@ fn holds_everything(folder: &Path) -> Result<String, String> {
         "module end_m01aa (Command Module)",
         "conversation end_trask node 7",
         "party trask",
+        "target Outcast Corpse (Empty) (tag tar05_promcorpse, 1.5 m)",
         "0: frame",
     ];
     let missing: Vec<&str> = wanted
@@ -81,6 +89,51 @@ fn without_crumbs(folder: &Path) -> Result<String, String> {
     check(
         text.contains("breadcrumbs: unavailable"),
         "the breadcrumbs' absence said".into(),
+    )
+}
+
+/// A crash after the render device was lost is told as the driver's, and
+/// any other crash is not.
+fn lost_device_told(folder: &Path) -> Result<String, String> {
+    let plain = folder.join("plain");
+    crash_text(&plain, None)?;
+    let lost = folder.join("lost");
+    fresh(&lost)?;
+    write_crash(
+        &lost,
+        &lost_line("Unknown driver at fault"),
+        "the render device",
+        "main",
+        "",
+        "kjk 9.9\n",
+        None,
+    )
+    .map_err(|error| error.to_string())?;
+    let told = (lost_device_in(&plain), lost_device_in(&lost));
+    check(told == (false, true), format!("plain, lost: {told:?}"))
+}
+
+/// The crash of a lost render device lists the render facts of the last
+/// frames below the build's facts.
+fn lost_device_render_facts(folder: &Path) -> Result<String, String> {
+    use crate::render_facts::{Fact, note, push};
+    fresh(folder)?;
+    note(Fact::Capsules, 77);
+    push(1);
+    write_crash(
+        folder,
+        &lost_line("Unknown driver at fault"),
+        "the render device",
+        "main",
+        "",
+        &with_render_facts("kjk 9.9\n"),
+        None,
+    )
+    .map_err(|error| error.to_string())?;
+    let text = std::fs::read_to_string(folder.join(CRASH)).map_err(|error| error.to_string())?;
+    check(
+        text.contains("kjk 9.9\nrender facts, a line for each") && text.contains("capsules 77"),
+        text,
     )
 }
 
@@ -161,4 +214,28 @@ fn prune(runs: &Path) -> Result<String, String> {
     let kept = kept(folders.clone(), 10, now);
     let wanted: Vec<PathBuf> = folders[1..3].iter().chain(&folders[5..]).cloned().collect();
     check(kept == wanted, format!("kept {} of 15", kept.len()))
+}
+
+/// A run with a window refuses a software renderer and nothing else. A
+/// headless run and a run with `KJK_SOFTWARE_RENDERER=1` take it.
+fn software_adapter() -> Result<String, String> {
+    use wgpu::DeviceType::{Cpu, DiscreteGpu, IntegratedGpu, Other, VirtualGpu};
+    // Each case: the adapter, headless, allowed, and whether it is refused.
+    let cases = [
+        (Cpu, false, false, true),
+        (Cpu, true, false, false),
+        (Cpu, false, true, false),
+        (IntegratedGpu, false, false, false),
+        (DiscreteGpu, false, false, false),
+        (VirtualGpu, false, false, false),
+        (Other, false, false, false),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|(device, headless, allowed, refused)| {
+            refuses_adapter(*device, *headless, *allowed) != *refused
+        })
+        .map(|case| format!("{case:?}"))
+        .collect();
+    check(wrong.is_empty(), format!("wrong for {wrong:?}"))
 }

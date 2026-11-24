@@ -66,27 +66,64 @@ pub fn probes() -> crate::probe::Checks {
             (step.name, result)
         })
         .chain(stops())
+        .chain([("leash_holds_on_its_edge", leash_holds_on_its_edge())])
         .collect()
+}
+
+/// A companion with a foe in sight stands 1 unit past its leash, then 1
+/// unit inside it, step after step, as Bao-Dur and Kreia stood by the
+/// building at Telos's Czerka site. Its task is chosen as `think` chooses
+/// it: back to its leader when leashed, else at its foe. Once it turns back,
+/// it keeps going back on every step, and never turns to its foe again
+/// there.
+fn leash_holds_on_its_edge() -> Result<String, String> {
+    use crate::combat::ai::{self, Task};
+    let mut task = Task::Engage;
+    let mut tasks = Vec::new();
+    for step in 0..8 {
+        let distance = ai::LEASH + if step % 2 == 0 { 1.0 } else { -1.0 };
+        task = if ai::leashed(task, distance) {
+            Task::Follow
+        } else {
+            Task::Engage
+        };
+        tasks.push(task);
+    }
+    let detail = format!("the tasks step by step {tasks:?}");
+    if tasks.iter().all(|task| *task == Task::Follow) {
+        Ok(detail)
+    } else {
+        Err(detail)
+    }
 }
 
 /// Beasts of K1's `appearance.2da` (personal space and `hitdist`,
 /// metres), each standing where a scene's fight stops it, facing its foe:
 /// there it attacks.
 fn stops() -> Vec<(&'static str, Result<String, String>)> {
+    // Each beast's personal space and `hitdist` (metres), at a humanoid
+    // (personal space 0.35 m); a katarn stops outside both personal spaces.
+    let humanoid = 0.35;
     let beasts = [
-        ("scene_stop_rakghoul_strikes", 0.35, 1.0),
-        ("scene_stop_gamorrean_strikes", 0.4, 1.0),
-        ("scene_stop_kath_hound_strikes", 0.6, 1.0),
+        ("scene_stop_rakghoul_strikes", 0.35, 1.0, None),
+        ("scene_stop_gamorrean_strikes", 0.4, 1.0, None),
+        ("scene_stop_kath_hound_strikes", 0.6, 1.0, None),
+        (
+            "scene_stop_katarn_keeps_its_space",
+            1.3,
+            1.0,
+            Some(1.3 + humanoid),
+        ),
     ];
     beasts
         .into_iter()
-        .map(|(name, space, hit_distance)| {
+        .map(|(name, space, hit_distance, kept)| {
             let strike = crate::module::Strike {
                 hit_distance,
                 ..crate::module::Strike::BLANK
             };
             let close = mind::Attack::Blow(crate::world::strikes::strike_reach(&strike, space));
-            let stop = scene_stop(close, true);
+            let stop = scene_stop(close, true, space + humanoid);
             let me = MotionState::standing([0.0, 0.0, -SOLE_Z], 0.0);
             let foe = MotionState::standing([stop, 0.0, -SOLE_Z], 180.0);
             let at = mind::look_at(&foe, close);
@@ -109,7 +146,15 @@ fn stops() -> Vec<(&'static str, Result<String, String>)> {
                 command.buttons
             );
             let attacks = command.buttons & crate::input::buttons::ATTACK != 0;
-            (name, if attacks { Ok(detail) } else { Err(detail) })
+            let apart = kept.is_none_or(|kept: f32| stop * UNIT >= kept - 0.001);
+            (
+                name,
+                if attacks && apart {
+                    Ok(detail)
+                } else {
+                    Err(detail)
+                },
+            )
         })
         .collect()
 }

@@ -34,6 +34,8 @@ use console::AnimationTime;
 use asset_odyssey::texture::{FrameStrip, TextureIr};
 
 use crate::material::{AreaLight, Lighting, OdysseyMaterial, Surface};
+use crate::model_fx::{SprayAssets, SprayStores};
+use crate::quad_list::{QuadList, Quads};
 use crate::scene::SceneEntity;
 use crate::viewer::{Effect, EffectBlend, Effects};
 
@@ -44,7 +46,7 @@ pub struct EffectsPlugin;
 
 impl Plugin for EffectsPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "refraction.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "refraction.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(MaterialPlugin::<RefractionMaterial>::default())
             .add_systems(Startup, keep_transmission)
             .add_systems(
@@ -139,15 +141,13 @@ pub(crate) struct Look {
     pub strip: Option<FrameStrip>,
 }
 
-/// One mesh per effect shader (lower-case name), with its look, and the
-/// meshes that hold nothing now (left alone while they stay empty).
 pub(crate) struct ShaderMeshes {
-    shaders: BTreeMap<String, (Handle<Mesh>, Look)>,
+    shaders: BTreeMap<String, (QuadList, Look)>,
     empty: std::collections::BTreeSet<String>,
 }
 
 impl ShaderMeshes {
-    fn new(shaders: BTreeMap<String, (Handle<Mesh>, Look)>) -> ShaderMeshes {
+    fn new(shaders: BTreeMap<String, (QuadList, Look)>) -> ShaderMeshes {
         ShaderMeshes {
             empty: shaders.keys().cloned().collect(),
             shaders,
@@ -160,23 +160,23 @@ impl ShaderMeshes {
         commands: &mut Commands,
         (blends, textures): (&BTreeMap<String, EffectBlend>, &BTreeMap<String, TextureIr>),
         images: &mut Assets<Image>,
-        meshes: &mut Assets<Mesh>,
-        materials: &mut Assets<OdysseyMaterial>,
+        (meshes, buffers, materials): SprayAssets,
     ) -> ShaderMeshes {
         let mut shaders = BTreeMap::new();
         for (name, &blend) in blends {
             let texture = textures.get(name);
             let strip = texture.and_then(|texture| texture.facts.strip);
             let texture = texture.map(|texture| images.add(crate::scene::image(texture)));
-            let material = material(blend, texture, [1.0; 3], materials);
-            let mesh = meshes.add(Batch::default().into_mesh());
+            let made = material(blend, texture, [1.0; 3]);
+            let list = QuadList::new(made, true, (&mut *meshes, &mut *buffers, &mut *materials));
+            let (mesh, material) = list.drawn();
             commands.spawn((
-                Mesh3d(mesh.clone()),
+                Mesh3d(mesh),
                 MeshMaterial3d(material),
                 Transform::IDENTITY,
                 NoFrustumCulling,
             ));
-            shaders.insert(name.clone(), (mesh, Look { blend, strip }));
+            shaders.insert(name.clone(), (list, Look { blend, strip }));
         }
         ShaderMeshes::new(shaders)
     }
@@ -191,18 +191,20 @@ impl ShaderMeshes {
         self.shaders.get(shader).map(|&(_, look)| look)
     }
 
-    /// Each shader's batch into its mesh (an empty one for a shader with
-    /// none).
-    pub(crate) fn fill(&mut self, mut batches: BTreeMap<String, Batch>, meshes: &mut Assets<Mesh>) {
-        for (name, (mesh, _)) in &self.shaders {
+    pub(crate) fn fill(&mut self, mut batches: BTreeMap<String, Batch>, assets: SprayAssets) {
+        let (meshes, buffers, materials) = assets;
+        for (name, (list, _)) in &mut self.shaders {
             let batch = batches.remove(name).unwrap_or_else(Batch::default);
             let empty = batch.is_empty();
             if empty && self.empty.contains(name) {
                 continue;
             }
-            if let Some(mut handle) = meshes.get_mut(mesh) {
-                *handle = batch.into_mesh();
-            }
+            let quads = Quads {
+                positions: batch.positions,
+                uvs: batch.uvs,
+                colours: Some(batch.colours),
+            };
+            list.write(&quads, (&mut *meshes, &mut *buffers, &mut *materials));
             if empty {
                 self.empty.insert(name.clone());
             } else {
@@ -263,8 +265,7 @@ pub fn spawn(
     commands: &mut Commands,
     effects: &Effects,
     (textures, irs): (&BTreeMap<&str, Handle<Image>>, &BTreeMap<String, TextureIr>),
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<OdysseyMaterial>,
+    (meshes, buffers, materials): SprayAssets,
     refractions: &mut Assets<RefractionMaterial>,
     ambient: [f32; 3],
 ) {
@@ -274,22 +275,18 @@ pub fn spawn(
     }
     let mut shaders = BTreeMap::new();
     for (name, &blend) in &effects.blends {
-        let material = material(
-            blend,
-            textures.get(name.as_str()).cloned(),
-            ambient,
-            materials,
-        );
-        let mesh = meshes.add(quads(Vec::new(), Vec::new(), Vec::new()));
+        let made = material(blend, textures.get(name.as_str()).cloned(), ambient);
+        let list = QuadList::new(made, true, (&mut *meshes, &mut *buffers, &mut *materials));
+        let (mesh, material) = list.drawn();
         commands.spawn((
-            Mesh3d(mesh.clone()),
+            Mesh3d(mesh),
             MeshMaterial3d(material),
             Transform::IDENTITY,
             NoFrustumCulling,
             SceneEntity,
         ));
         let strip = irs.get(name).and_then(|texture| texture.facts.strip);
-        shaders.insert(name.clone(), (mesh, Look { blend, strip }));
+        shaders.insert(name.clone(), (list, Look { blend, strip }));
     }
     let refraction = effects.refraction_model.as_ref().map(|_| {
         let mesh = meshes.add(quads(Vec::new(), Vec::new(), Vec::new()));
@@ -316,14 +313,13 @@ pub(crate) fn material(
     blend: EffectBlend,
     texture: Option<Handle<Image>>,
     ambient: [f32; 3],
-    materials: &mut Assets<OdysseyMaterial>,
-) -> Handle<OdysseyMaterial> {
+) -> OdysseyMaterial {
     let surface = match blend {
         EffectBlend::Add => Surface::AddOne,
         EffectBlend::Alpha => Surface::BlendVertex,
         EffectBlend::Modulate => Surface::Modulate,
     };
-    materials.add(OdysseyMaterial::new(
+    OdysseyMaterial::new(
         Vec4::ONE,
         texture,
         None,
@@ -339,7 +335,7 @@ pub(crate) fn material(
             fogged: false,
         },
         &AreaLight::ambient(ambient),
-    ))
+    )
 }
 
 /// Quads being gathered for one shader's mesh.
@@ -532,11 +528,6 @@ pub(crate) struct Puff {
 }
 
 impl Puff {
-    /// Whether it shows at `now` (its first and last moments included).
-    pub(crate) fn alive(&self, now: f32) -> bool {
-        self.start_ms <= now && now <= self.end_ms
-    }
-
     /// Its quad at `now` into `batch`, coloured for `blend`.
     pub(crate) fn draw(
         &self,
@@ -575,7 +566,7 @@ fn draw_effects(
     held: Res<AnimationTime>,
     drawn: Option<ResMut<EffectMeshes>>,
     cameras: Query<(&GlobalTransform, &Projection, &Camera), crate::lifecycle_view::SceneCamera>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut stores: SprayStores,
 ) {
     let Some(mut drawn) = drawn else { return };
     let Ok((camera, projection, camera_info)) = cameras.single() else {
@@ -661,7 +652,8 @@ fn draw_effects(
             _ => {}
         }
     }
-    drawn.shaders.fill(batches, &mut meshes);
+    drawn.shaders.fill(batches, stores.assets());
+    let (meshes, ..) = stores.assets();
     let empty = refraction_indices.is_empty();
     if let Some(mesh) = &drawn.refraction
         && !(empty && drawn.refraction_empty)

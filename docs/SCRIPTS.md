@@ -45,6 +45,13 @@ the games' own compiled scripts; nothing of them is in the repo.
 - A module's plan carries a `Library` (`Level::with_scripts`, in its
   digest): the scripts its module, area and objects hook, and those they
   name in strings (`ExecuteScript`), with the catalog.
+- A resref a script names (the template `CreateObject` or
+  `CreateItemOnObject` makes, the script `ExecuteScript` runs, the
+  conversation `ActionStartConversation` starts) is cut to its first 16
+  characters, as the games' resrefs hold 16 and their archives keep a
+  longer name so cut (`script::resref`). A mod's start script makes
+  `jfts_trask_remains`, which its installer put in the module as
+  `jfts_trask_remai`.
 - Authority only, last in the step; randomness from the authority stream.
   `State` (globals, objects' indexed locals, events waiting, deferred
   code) is not in snapshots: a save carries it; an install carries it on
@@ -100,9 +107,13 @@ the games' own compiled scripts; nothing of them is in the repo.
   each shows its state's visual while it lasts as the state does
   (`Hold::state`, drawn by `script_fx::new_holds`): a stun 2002 (its
   `v_imp_stun`), a droid's stun 1007, a paralysis, horror, sleep,
-  whirlwind or choke (`EffectChoke`, the gas traps': no immunity keeps it
-  off) nothing (so `k_ptar_dueldlg`'s second of paralysis, which
-  holds the player while Taris's duel announcer begins, is silent). Each
+  whirlwind or choke nothing (so `k_ptar_dueldlg`'s second of paralysis,
+  which holds the player while Taris's duel announcer begins, is silent).
+  No immunity keeps a whirlwind or a choke (`EffectChoke`, the gas traps')
+  off, and no Force Immunity feat keeps a whirlwind off. The executable
+  makes a whirlwind state 10, and that state's link has no immunities. A
+  Sentinel with Force Immunity: Stun is therefore lifted and hurt by Force
+  Whirlwind. Each
   state plays its clip as both executables have it, whether a weapon is
   out or not (`acting::of_state`, `cast::held_clip`;
   `CSWSCreature::RecomputeAmbientAnimationState`): a stun, a mind trick and
@@ -211,12 +222,37 @@ the games' own compiled scripts; nothing of them is in the repo.
   item's; a player's character has none yet. `GetStringByStrRef` reads
   the talk table. The library's digest holds the lines its levels may
   read: its conversations' lines, its items' names, and every integer its
-  scripts hold. Aspyr's Mac K1 table and the Windows one differ only in
-  lines nearly no level reads: an options screen's text, and blank lines
-  (spaces on Windows, no text on the Mac) that only the Endar Spire's
-  opening cut times. Co-op compares no `dialog.tlk` file
+  scripts hold. A line of only spaces, a line with no text and an empty
+  line all read as no line. A script gets an empty string for each, the
+  library's digest holds each as no line, and a conversation times each as
+  the shortest line. Aspyr's Mac K1 table and the Windows one differ in 47
+  lines. One is the anti-aliasing option's description, which only the
+  options screen shows. The other 46 hold one to five spaces on Windows
+  and no text on the Mac. Conversations in the Endar Spire, on Taris, on
+  the Leviathan, on the Unknown World and in some cutscene modules read
+  some of these 46 lines, and both tables make the same levels there.
+  Co-op compares no `dialog.tlk` file
   (`vfs::fingerprint::world_group`): the host's scripts decide, and a
   player reads its own lines.
+- A global must be declared in `globalcat.2da`, with its kind. A script
+  that sets one the table does not declare changes nothing, and a read of
+  it gives 0, as both executables do (K1's logs "Script var BOOLEAN '…'
+  not in catalogue!"). The game's log names, once a module, the globals
+  its scripts set that the table does not declare
+  (`Level::undeclared_globals`). The games' own scripts set a few
+  (K1's Taris modules set `BenBount`, `Tar_JanicInv` and `ZelkaTk`). A
+  mod's names there mean its `globalcat.2da` changes were not installed:
+  K1 Restoration's swoop race then never starts, because its end script
+  checks `K1R_SWOOPCHECK`, and the screen stays black, as it would in the
+  original game.
+- KOTOR 2 reads `globalcat.2da` from its first row to its last, and the
+  first row of a name decides that global's kind. Its executable skips a
+  row whose name an earlier row declared, in any case. It also skips a
+  name of more than 21 letters, and a row of a kind that is full. It holds
+  900 booleans, 1000 numbers, 100 locations and 5 strings. kjk reads
+  KOTOR 2's table the same way (`session::sheets::globals`). KOTOR 1's
+  executable has not been checked for these limits, so its table is read
+  without them.
 - TSL's number globals hold a signed byte: `IncrementGlobalNumber` and
   `DecrementGlobalNumber` past −128 or 127 leave the global as it was
   (the game warns). `RemoveHeartbeat` takes an object's heartbeat away
@@ -251,20 +287,26 @@ the games' own compiled scripts; nothing of them is in the repo.
   (toward a side, or toward 50 and no further; TSL's party others move
   with the player's character unless its fourth argument is TRUE).
   `GetLastHostileActor` is the last to attack the object or cast a harmful
-  power at it, never a dead or destroyed one. `GetPartyLeader` is
+  power at it, never a dead or destroyed one. A character out of combat
+  has none. TSL's executable clears it when a creature's combat state
+  ends, which `CancelCombat` and a surrender also do. K1's is taken to do
+  the same [verify], since its duelists talk after a stun duel. `GetPartyLeader` is
   party member 0: the companion made leader, else the first seat's
   character (`WORLD-STATE.md`: each seat still moves its own body); `GetUserActionsPending` is
   always false (a seat's commands act at once, never queued).
-- Skills: TSL's `GetSkillRank` is the rank as its executable reads it
-  (`CSWSCreatureStats::GetSkillRank`): the stored rank with its effects,
-  worn items and feats, plus the key ability's modifier (`skills.2da`'s
-  `keyability`, `stealth::total`); 0 for a skill only the trained use that
-  the character has no ranks in (Stealth counts one rank with Force
-  Camouflage known), 0 for a skill it has no row for, −1 for anything not
-  a character. `GetSkillRankBase` is the stored rank alone. K1's stays the
-  rank its sheet holds as its effects leave it, −1 for anything not a
-  character or a skill it has no row for [verify K1's executable: TSL's
-  adds the ability]. `GetHasSkill` a rank above 0 (reone, xoreos).
+- Skills: both games' `GetSkillRank` is the rank as their executables read
+  it (`CSWSCreatureStats::GetSkillRank` without its base-only flag,
+  `stealth::rank`). It is the stored rank with what effects, worn items and
+  feats add, plus the key ability's modifier (`skills.2da`'s `keyability`).
+  It is 0 for a skill only the trained may use that the character has no
+  ranks in, 0 for a skill it has no row for, and −1 for anything not a
+  character. In TSL, Stealth counts one rank with Force Camouflage known;
+  K1's executable has no such rule. TSL's `GetSkillRankBase` is the stored
+  rank alone. The stored rank is what a level buys and what a save keeps.
+  Items, effects and feats are never added into it, so a skill's cap at
+  level-up (the level + 3, half that for a cross-class skill, TSL's
+  `CSWCLevelUpStats::IncreaseSkillRank`) counts only the ranks bought.
+  `GetHasSkill` a rank above 0 (reone, xoreos).
   Computer terminals: the games' own scripts price and take spikes
   (`DIALOGUE.md`, "Computers").
 - Movies and module changes: `PlayMovie` and `StartNewModule`'s
@@ -287,9 +329,15 @@ the games' own compiled scripts; nothing of them is in the repo.
   (`snapshot::WorldFadeIn`; `end_m01aa`'s own fade in, a 3 s hold, stands;
   `tar_m03af`'s `k_ptar_postswoop` cut to black after a race is lifted);
   `HoldWorldFadeInForDialog` there defers it to a conversation's start
-  (`ebo_m41aa`: black until Carth speaks); a conversation starting (not
-  a bark or a one-liner) lifts one too (`k_ptar_postrace`'s fade to
-  black before Brejik's scene). TSL's `SetFadeUntilScript` locks the
+  (`ebo_m41aa`: black until Carth speaks). Any conversation started lets
+  go of that hold, even a bark, a one-liner or one with no entry to start
+  from. The Ebon Hawk's vision talk after the last Star Map
+  (`ebo_bast_vision`) has no line left to say, and the area fades in all
+  the same (issue 645). A conversation starting (not a bark or a
+  one-liner) lifts any covering fade too (`k_ptar_postrace`'s fade to
+  black before Brejik's scene). A loaded game's area fades in, its hold
+  gone, as the games keep neither the fade nor the hold in a save
+  (`Snapshot::fade_in_as_loaded`). TSL's `SetFadeUntilScript` locks the
   fade standing: only `SetGlobalFadeIn` lifts it. [verify in the game]
   the moments: after the arrival's scripts, at a conversation's start.
   DLG nodes' own fades (`FadeType`): `DIALOGUE.md`, "Fades"; scripts and
@@ -300,8 +348,12 @@ the games' own compiled scripts; nothing of them is in the repo.
   `videoeffects.2da` row on everyone's screen until `DisableVideoEffect`
   or a conversation's end (TSL's `CGuiInGame::CloseDialog` disables it)
   (`Snapshot::video_effect`, KJKS 59; kept across modules, as the
-  routine's "apply indefinitely" reads [verify]). Neither reone nor xoreos
-  implements them; the columns are read by name and by TSL's executable,
+  routine's "apply indefinitely" reads [verify]). A loaded game shows no
+  video effect (`Save::world`). TSL's executable writes no save field for
+  one: the only video field it names is `CamVidEffect`, which conversation
+  files carry. A save made while a script's effect is on therefore loads
+  untinted, as do this build's older saves that kept one. Neither reone
+  nor xoreos implements them; the columns are read by name and by TSL's executable,
   which names `filmnoisetex` and carries the grey's channel weights
   (0.3086, 0.6094, 0.0820). `enablesaturation` pulls each pixel toward its
   grey by `saturation` and multiplies by `modulationred`/`green`/`blue`
@@ -476,8 +528,9 @@ the games' own compiled scripts; nothing of them is in the repo.
   character in the status summary as its executable does, QUIRKS.md
   Q-0247), the story's stat changes on the stored sheet
   (`AdjustCreatureAttributes`: the score a byte that wraps, Q-0250, a
-  Constitution change moving the most and the current hit points, a
-  Wisdom one a Force user's most FP, by the modifier's change a level;
+  Constitution change moving the most and the current hit points by the
+  modifier's change a level; a Force user's most FP follows Wisdom by
+  itself, `Sheet::force_points`;
   `AdjustCreatureSkills`, none below 0, Q-0251;
   `Modify…SavingThrowBase`: the sheet's `fortbonus`, `refbonus`,
   `willbonus`, read from templates too), `GetSkillRankBase`,
@@ -604,20 +657,83 @@ kjk script routines tsl 101per          # the sweep's most reached, end to end
 kjk script fighting k1                  # the combat AI's routines, end to end
 ```
 
+### Power and feat rows in scripts
+
+The sim names every `spells.2da` and `feat.2da` row by its canonical
+number (`rules::rows`, `docs/VFS.md`). A script of the game or of a mod
+names the install's row numbers, because a patcher compiles a mod's
+scripts with the numbers of the rows it appended. KOTOR 2's impact scripts
+lent to a KOTOR 1 install name KOTOR 2's numbers, which are the canonical
+ones. The resolver tells a lent script by the layer it is read from
+(`vfs::lent::lent_script`).
+
+When a script that names install rows calls a routine, each argument that
+is a row is made canonical before the routine runs, and a row the routine
+returns is made an install row again (`sim::script::rows`). The routines
+that take a row are GetHasSpell, GetHasSpellEffect, GetSpellAcquired,
+GrantSpell, TalentSpell, EventSpellCastAt, EffectSpellImmunity,
+GetSpellBaseForcePointCost, GetSpellFormMask, the four ActionCastSpell and
+ActionCastFakeSpell routines, IsFormActive and SetCurrentForm (KOTOR 2's
+forms are `spells.2da` rows), GetHasFeat, GetFeatAcquired,
+GetHasFeatEffect, GrantFeat, TalentFeat, ActionUseFeat, and
+GetCreatureTalentBest's excluded row. The routines that return a row are
+GetSpellId, GetLastSpell, GetEffectSpellId, GetLastForcePowerUsed,
+GetLastCombatFeatUsed, GetMetaMagicFeat and GetIdFromTalent. A number past
+the install's table, such as -1, passes unchanged. On an install without a
+mod's rows the numbers are the same, and nothing is translated.
+
 ### The routines left unbound
 
-K1 binds 624 of its 772 routines, TSL 725 of its 877 (`sim::script::bound`:
+K1 binds 641 of its 772 routines, TSL 742 of its 877 (`sim::script::bound`:
 the `bound!` table and the minigames' routines `script::minigame` answers).
 No script shipped with either game calls an unbound routine, and neither
 does TSLRCM (TSL's Steam Workshop item 485537937): PRs 167 and 169 bound
-the last it called. What is left, read off each game's `nwscript.nss` and
-`sim::script::bound`, are mostly NWN's leftovers. K1's 148, grouped; TSL
-leaves the same 148 and 4 of its own:
+the last it called.
+
+Mods that add Force powers write impact scripts of their own, and those
+may call routines the games' own scripts never do. These are bound for
+them:
+
+- `EffectConfused` and `EffectFrightened` give KOTOR's confused and
+  frightened states (`combat::effects::state`), which immunities refuse as
+  the executables do.
+- `EffectForceResistanceDecrease` lowers the Force resistance a target has
+  from effects.
+- `EffectSeeInvisible` is KOTOR's true seeing.
+- `MagicalEffect`, `SupernaturalEffect`, `ExtraordinaryEffect`,
+  `VersusAlignmentEffect` and `VersusRacialTypeEffect` return the effect
+  they are given. The subtype and the restriction to an alignment or a
+  race are not kept.
+- `GetEffectSubType` answers magical for every effect.
+  `GetEffectDurationType` answers permanent for an effect that runs until
+  it is removed, and temporary for one that runs for a time.
+- `TouchAttackMelee` and `TouchAttackRanged` roll a d20 plus the attacker's
+  base attack bonus, its attack effects and its STR modifier (DEX for a
+  ranged one) against the target's defence. A 1 misses and a 20 is a
+  critical hit. They answer 0 for a miss, 1 for a hit and 2 for a critical
+  hit.
+- `SetForcePowerUnsuccessful` marks the creature's last power as not
+  successful, so `GetWasForcePowerSuccessful` answers false. The feedback
+  line it names is not shown.
+- `GetHasFeatEffect`, `GetAreaOfEffectCreator` and `GetSpellCastItem` are
+  bound as documented no-ops. No effect here comes from a feat, nothing
+  places an area of effect, and a power's impact never runs from an item.
+  They answer false or no object.
+
+A script that calls a routine still unbound goes on running. The call
+returns its type's empty value, and an action call still takes its place in
+the queue. An effect whose routine is unbound is applied as nothing. The
+first such call of each routine prints one warning on the standard error,
+naming the routine and the script that called it (`script::unbound`).
+
+What is left, read off each game's `nwscript.nss` and `sim::script::bound`,
+are mostly NWN's leftovers. K1's 131, grouped; TSL leaves the same 131 and
+4 of its own:
 
 - Debug and logging (6): `PrintFloat`, `PrintInteger`, `PrintObject`, `PrintVector`, `WriteTimestampedLogEntry`, `ExportAllCharacters`.
 - NWN's clock and units (7): `SetTime`, `GetIsDay`, `GetIsNight`, `GetIsDawn`, `GetIsDusk`, `FeetToMeters`, `YardsToMeters`.
-- NWN's effects and their kinds (21): `GetEffectDurationType`, `GetEffectSubType`, `MagicalEffect`, `SupernaturalEffect`, `ExtraordinaryEffect`, `EffectForceJump`, `EffectConfused`, `EffectFrightened`, `EffectAreaOfEffect`, `EffectAssuredDeflection`, `EffectHitPointChangeWhenDying`, `EffectForceResistanceDecrease`, `EffectDispelMagicAll`, `EffectDispelMagicBest`, `EffectSeeInvisible`, `EffectTimeStop`, `EffectSpellLevelAbsorption`, `VersusAlignmentEffect`, `VersusRacialTypeEffect`, `GetAreaOfEffectCreator`, `GetHasFeatEffect`.
-- Combat (14): `TouchAttackMelee`, `TouchAttackRanged`, `GetGoingToBeAttackedBy`, `GetLastAttackType`, `GetLastAttackMode`, `GetIsWeaponEffective`, `GetWeaponRanged`, `GetItemACValue`, `GetMovementRate`, `GetDifficultyModifier`, `GetFirstAttacker`, `GetNextAttacker`, `SetForcePowerUnsuccessful`, `GetSpellCastItem`.
+- NWN's effects (8): `EffectForceJump`, `EffectAreaOfEffect`, `EffectAssuredDeflection`, `EffectHitPointChangeWhenDying`, `EffectDispelMagicAll`, `EffectDispelMagicBest`, `EffectTimeStop`, `EffectSpellLevelAbsorption`. A script gets an effect from each, and the effect does nothing.
+- Combat (10): `GetGoingToBeAttackedBy`, `GetLastAttackType`, `GetLastAttackMode`, `GetIsWeaponEffective`, `GetWeaponRanged`, `GetItemACValue`, `GetMovementRate`, `GetDifficultyModifier`, `GetFirstAttacker`, `GetNextAttacker`.
 - Faction statistics (11): `GetFactionWeakestMember`, `GetFactionStrongestMember`, `GetFactionMostDamagedMember`, `GetFactionLeastDamagedMember`, `GetFactionGold`, `GetFactionAverageGoodEvilAlignment`, `GetFactionAverageLevel`, `GetFactionAverageXP`, `GetFactionMostFrequentClass`, `GetFactionWorstAC`, `GetFactionBestAC`.
 - Strings, maths and places (9): `TestStringAgainstPattern`, `GetMatchedSubstring`, `GetMatchedSubstringsCount`, `VectorToAngle`, `RandomName`, `GetDistanceBetweenLocations2D`, `GetNearestCreatureToLocation`, `GetNearestObjectToLocation`, `GetStartingLocation`.
 - Objects and items (14): `GetLastItemEquipped`, `GetTransitionTarget`, `SetAreaTransitionBMP`, `GetModuleItemAcquiredFrom`, `GetModuleItemLostBy`, `GetIsPlayableRacialType`, `GetLockKeyTag`, `EventActivateItem`, `GetItemActivatedTargetLocation`, `GetItemActivatedTarget`, `GetPlaceableIllumination`, `SetPlaceableIllumination`, `GetIsPlaceableObjectActionPossible`, `DoPlaceableObjectAction`.
@@ -632,3 +748,24 @@ leaves the same 148 and 4 of its own:
 kjk script check k1 --unbound           # the count, then every unbound routine
 kjk script check tsl --unbound
 ```
+
+### Mod bugs kjk patches
+
+kjk patches a bug in a mod's script only when the owner agrees to it, and
+each patch is a quirk fixed in `QUIRKS.md`. A patch is our own data, never
+code that names a module, a script or a tag. It is a line in the module's
+encounter file (`data/encounters/<game>/<module>.encounter`,
+`session::encounters`), which changes the module's objects when the module
+is planned. The engine's rules stay the same for every module.
+
+A `spare_lock <tag> <script>` line names a door or placeable and a script.
+That script's `SetLocked` never locks the object
+(`ObjectData::spared_locks`). Other scripts still lock it, and the script
+still locks every other object.
+
+- TSLRCM's ambush in the Nar Shaddaa docks (`k_303_zattack`, Q-0721)
+  locks every door in the area, including the flophouse door to Mira's
+  apartment. That door is the apartment's only way out. A party inside the
+  apartment with that door closed could never leave.
+  `data/encounters/tsl/303nar.encounter` spares the flophouse door from
+  that script.

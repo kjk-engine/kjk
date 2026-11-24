@@ -12,6 +12,8 @@ const FORMAT: &str = "SSF";
 /// The lines the engines play, by their place in the list (as reone
 /// numbers them; the same in K1 and TSL).
 pub mod slots {
+    /// The battle cries (six) a creature shouts as it goes into a fight.
+    pub const BATTLE_CRIES: [usize; 6] = [0, 1, 2, 3, 4, 5];
     /// "Selected": what a party member says as it becomes the one led
     /// (three; "Ready.", "Yes?").
     pub const SELECT: [usize; 3] = [6, 7, 8];
@@ -20,6 +22,10 @@ pub mod slots {
     pub const PAIN_GRUNTS: [usize; 2] = [12, 13];
     /// The death line.
     pub const DEAD: usize = 15;
+    /// Stealth mode begun. TSL's executable asks for entry 21 of the set
+    /// (`CSWCCreature::SetStealthState`), counting from 1
+    /// (`CSoundSet::GetStrres` reads entry n − 1).
+    pub const BEGIN_STEALTH: usize = 20;
     /// Security begun ("On it."), failed ("Damn!"), succeeded ("It's
     /// open.").
     pub const BEGIN_UNLOCK: usize = 22;

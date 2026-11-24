@@ -144,11 +144,14 @@ pub const NPCS: usize = 12;
 /// number (bit n: NPC n): each available companion's template, those the
 /// player may not pick (`SetNPCSelectability`), those in the party, those
 /// the screen's script puts in whatever is picked, and whether a script
-/// showed it (its choice then makes the party; else the screen only shows
-/// the table). `worn`: what each companion the table has a creature of
-/// wears in its body slot now (an item template; `None`, nothing), which
-/// its 3D view is dressed in, as KOTOR's screen shows the creature the
-/// table keeps; one never made (absent) wears its template's.
+/// showed it (`open`). `cancel` is whether the player may back out of it:
+/// always from the screen opened in play, from a script's only when the
+/// script allowed it (TSL's `nAllowCancel`). `refusal` says why the screen
+/// opened in play may not change the party (none: it may). `worn`: what
+/// each companion the table has a creature of wears in its body slot now
+/// (an item template; `None`, nothing), which its 3D view is dressed in, as
+/// KOTOR's screen shows the creature the table keeps; one never made
+/// (absent) wears its template's.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Roster {
     pub available: BTreeMap<u8, String>,
@@ -157,9 +160,94 @@ pub struct Roster {
     pub members: u16,
     pub forced: u16,
     pub open: bool,
+    pub cancel: bool,
+    pub refusal: Option<Refusal>,
 }
 
+/// Why the party selection screen a player opened in play may not change
+/// the party (`script::party_refusal`). Both executables refuse in an
+/// unescapable area (the ARE's `Unescapable`, or `SetAreaUnescapable`).
+/// KOTOR 2's also refuses in combat and while one of the party is
+/// unconscious. KOTOR 1's map page also refuses while a party member
+/// stands far from the leader (`Apart`) and while a hostile creature sees
+/// one of the party (`Foes`). Each reason has its own line in the game's
+/// talk table. `LookOnly` is a co-op guest's screen, which only shows the
+/// table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    LookOnly,
+    Unescapable,
+    Combat,
+    Unconscious,
+    Apart,
+    Foes,
+}
+
+impl Refusal {
+    const ALL: [Refusal; 6] = [
+        Refusal::LookOnly,
+        Refusal::Unescapable,
+        Refusal::Combat,
+        Refusal::Unconscious,
+        Refusal::Apart,
+        Refusal::Foes,
+    ];
+
+    /// Its number in the screen's flags byte (0 is none).
+    fn code(self) -> u8 {
+        Refusal::ALL
+            .iter()
+            .position(|refusal| *refusal == self)
+            .map_or(0, |at| at as u8 + 1)
+    }
+
+    fn of(code: u8) -> Option<Refusal> {
+        Refusal::ALL.get(usize::from(code.checked_sub(1)?)).copied()
+    }
+}
+
+/// The flags byte's bits: a script showed the screen, the player may back
+/// out of it; the refusal's number above them.
+const ROSTER_OPEN: u8 = 1;
+const ROSTER_CANCEL: u8 = 2;
+const ROSTER_REFUSAL_SHIFT: u8 = 2;
+
 impl Roster {
+    /// Whom the screen opens with picked, as KOTOR's executable sets it up:
+    /// the forced companions alone when its script forces any, else the
+    /// party as it stands. Taking the screen unchanged makes this party.
+    pub fn opening(&self) -> Vec<u8> {
+        let bits = if self.forced != 0 {
+            self.forced
+        } else {
+            self.members
+        };
+        (0..NPCS)
+            .filter(|npc| Roster::has(bits, *npc) && self.template(*npc).is_some())
+            .filter_map(|npc| u8::try_from(npc).ok())
+            .collect()
+    }
+
+    /// The picks that keep the party as it stands beside the forced: the
+    /// forced first, then the members, two at most, as `Action::ChooseParty`
+    /// carries them (`u8::MAX` for none). What a player who wants nobody
+    /// to leave picks; the walkthrough harness closes a screen its route
+    /// picks nothing on with them.
+    pub fn keeping_party(&self) -> [u8; 2] {
+        let mut picks = [u8::MAX; 2];
+        let members = (0..NPCS)
+            .filter(|npc| Roster::has(self.members, *npc) && !Roster::has(self.forced, *npc));
+        let forced = (0..NPCS).filter(|npc| Roster::has(self.forced, *npc));
+        let wanted = forced
+            .chain(members)
+            .filter(|npc| self.template(*npc).is_some())
+            .filter_map(|npc| u8::try_from(npc).ok());
+        for (pick, npc) in picks.iter_mut().zip(wanted) {
+            *pick = npc;
+        }
+        picks
+    }
+
     /// `npc`'s template, when it is available.
     pub fn template(&self, npc: usize) -> Option<&str> {
         self.available
@@ -204,7 +292,10 @@ impl Roster {
         out.u16(self.unselectable);
         out.u16(self.members);
         out.u16(self.forced);
-        out.u8(u8::from(self.open));
+        let open = if self.open { ROSTER_OPEN } else { 0 };
+        let cancel = if self.cancel { ROSTER_CANCEL } else { 0 };
+        let refusal = self.refusal.map_or(0, Refusal::code) << ROSTER_REFUSAL_SHIFT;
+        out.u8(open | cancel | refusal);
         let worn: Vec<_> = self
             .worn
             .iter()
@@ -227,7 +318,10 @@ impl Roster {
         roster.unselectable = input.u16()?;
         roster.members = input.u16()?;
         roster.forced = input.u16()?;
-        roster.open = input.u8()? != 0;
+        let flags = input.u8()?;
+        roster.open = flags & ROSTER_OPEN != 0;
+        roster.cancel = flags & ROSTER_CANCEL != 0;
+        roster.refusal = Refusal::of(flags >> ROSTER_REFUSAL_SHIFT);
         for _ in 0..input.u8()? {
             let npc = input.u8()?;
             let some = input.u8()? != 0;
@@ -501,6 +595,55 @@ impl Sound {
     }
 }
 
+/// A mine went off (`world::traps::explode`). Both games mark such a mine
+/// as exploded when they take it away. Each player's side then plays the
+/// `explosionsound` of the mine's `traps.2da` row at the mine, and the
+/// `activate` clip of the row's model. Views do that once from this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Explosion {
+    /// The mine, a script object id.
+    pub mine: u32,
+    /// The mine's `traps.2da` row.
+    pub row: u8,
+    /// Where the mine stood (metres), each axis as an `f32`'s bits.
+    at: [u32; 3],
+}
+
+impl Explosion {
+    pub fn new(mine: u32, row: u8, at: [f32; 3]) -> Explosion {
+        Explosion {
+            mine,
+            row,
+            at: at.map(f32::to_bits),
+        }
+    }
+
+    /// Where the mine stood (metres).
+    pub fn at(&self) -> [f32; 3] {
+        self.at.map(f32::from_bits)
+    }
+
+    /// The explosion as bytes of its own (the network's message).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Writer::default();
+        out.u32(self.mine);
+        out.u8(self.row);
+        for axis in self.at {
+            out.u32(axis);
+        }
+        out.0
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Explosion, DecodeError> {
+        let mut input = Reader::new("explosion", bytes);
+        let mine = input.u32()?;
+        let row = input.u8()?;
+        let at = [input.u32()?, input.u32()?, input.u32()?];
+        input.finish()?;
+        Ok(Explosion { mine, row, at })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
     /// The item (a template) was gone: taken this step by `by`, or before.
@@ -532,9 +675,9 @@ pub enum Notice {
     Said(String),
     /// The party gained XP (lost, if negative).
     Experience(i32),
-    /// The level asked for could not be taken (its picks were not the
-    /// level's, or the XP was short).
-    LevelRefused,
+    /// The level asked for could not be taken, and why (its picks were not
+    /// the level's, or the XP was short).
+    LevelRefused(crate::levels::Refusal),
     Show(Screen),
     /// A sound a script played, for every player.
     Sound(Sound),
@@ -558,6 +701,16 @@ pub enum Notice {
         dc: u8,
         success: bool,
     },
+    /// A saving throw to break free of a hold (the game's line 1408): the
+    /// save's name (a talk-table strref), the d20 rolled, the save's total
+    /// with its bonuses, the DC, and whether it broke free.
+    Save {
+        save: u32,
+        roll: u8,
+        total: i16,
+        dc: i16,
+        success: bool,
+    },
     /// The party detected a trap: its `traps.2da` name (a strref).
     TrapSeen {
         name: u32,
@@ -572,6 +725,8 @@ pub enum Notice {
         dc: u8,
         success: bool,
     },
+    /// A mine went off, for every player to see and hear.
+    Explosion(Explosion),
     /// Refused: the party is in combat (a break, a walk into an exit, a
     /// forced move: KOTOR's "enemies nearby").
     InCombat,

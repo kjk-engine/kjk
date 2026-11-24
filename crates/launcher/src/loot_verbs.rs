@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 use std::process::ExitCode;
 
+use fmt_odyssey::resref_of;
 use serde_json::json;
 use sim::action::Action;
 use vfs::{Discovery, Game};
@@ -78,10 +79,12 @@ pub fn loot(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             let Some(facts) = objects.of_entity(entity) else {
                 continue;
             };
-            // Units by template: listed, marked, held, held droppable.
+            // Units by resref: listed, marked, held, held droppable. A
+            // template lists a module's own item by its resref, and the item
+            // made from it carries its module (`fmt_odyssey::own_template`).
             let mut units: BTreeMap<&str, [u32; 4]> = BTreeMap::new();
             for held in &facts.inventory {
-                let counts = units.entry(held.template.as_str()).or_default();
+                let counts = units.entry(resref_of(&held.template)).or_default();
                 counts[0] += u32::from(held.stack);
                 counts[1] += u32::from(held.stack) * u32::from(held.droppable);
             }
@@ -91,7 +94,7 @@ pub fn loot(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
                 .filter(|item| item.holder == entity.id.0)
                 .collect();
             for item in &held {
-                let counts = units.entry(item.template.as_str()).or_default();
+                let counts = units.entry(resref_of(&item.template)).or_default();
                 counts[2] += u32::from(item.stack);
                 counts[3] += u32::from(item.stack) * u32::from(item.droppable);
             }
@@ -206,11 +209,11 @@ fn containers(
         };
         let mut units: BTreeMap<&str, [u32; 2]> = BTreeMap::new();
         for held in &facts.inventory {
-            units.entry(held.template.as_str()).or_default()[0] += u32::from(held.stack);
+            units.entry(resref_of(&held.template)).or_default()[0] += u32::from(held.stack);
         }
         let shown: Vec<String> = (state.loot(entity.id.0))
             .map(|(_, item)| {
-                units.entry(item.template.as_str()).or_default()[1] += u32::from(item.stack);
+                units.entry(resref_of(&item.template)).or_default()[1] += u32::from(item.stack);
                 format!("{} ×{}", item.template, item.stack)
             })
             .collect();

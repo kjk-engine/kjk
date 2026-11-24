@@ -377,7 +377,7 @@ impl Assets {
         let gait = self.gait(&look);
         let [x, y, _] = entity.player.as_ref().map_or([0.0; 3], |player| player.velocity);
         let moving = x.hypot(y) >= kjk_game::cast::STILL_SPEED;
-        let acting = kjk_game::cast::drawn_acting(fighter, moving, ms as f64)
+        let acting = kjk_game::cast::drawn_acting(fighter, moving, ms as f64, gait.humanoid)
             .filter(|acting| acting.animation != sim::combat::death::DIE)
             .filter(|acting| {
                 let alive = fighter.alive();
@@ -1422,10 +1422,9 @@ impl Checker<'_> {
             }
         }
         self.footing(snapshot, world, talk, &at);
-        let hidden = match (dlg.unequip_items, dlg.unequip_held) {
-            (true, _) => kjk_game::weapons::Hide::All,
-            (false, true) => kjk_game::weapons::Hide::Held,
-            (false, false) => kjk_game::weapons::Hide::None,
+        let hidden = match dlg.unequip_items {
+            true => kjk_game::weapons::Hide::All,
+            false => kjk_game::weapons::Hide::None,
         };
         self.weapons(snapshot, objects, (pair.speaker, hidden), &at);
     }
@@ -1656,7 +1655,8 @@ impl Checker<'_> {
                 && hidden == kjk_game::weapons::Hide::None
             {
                 use kjk_game::weapons::{self, Hold, Place};
-                let armed = weapons::armed(&fighter, ms, fought.contains(&entity.id));
+                // A character without a weapon was skipped above.
+                let armed = weapons::armed(&fighter, ms, fought.contains(&entity.id), true);
                 let hiding = fighter.acting.is_some_and(|a| kjk_game::acting::hides_items(&a, ms));
                 let held = weapons::in_hand(armed, false, (false, hiding));
                 let out = usize::from(fighter.hand.min(1));
@@ -2240,7 +2240,12 @@ fn check_module(discovery: &Discovery, game: Game, module: &str) -> Result<Value
             break;
         }
         let (label, run, quiet) = &queue[at];
-        let (label, quiet, talk, picks) = (label.clone(), *quiet, run.talk.clone(), run.picks.clone());
+        let (label, quiet, talk, picks) = (
+            label.clone(),
+            *quiet,
+            run.talk.as_ref().map(|talk| talk.tag.clone()),
+            run.picks.clone(),
+        );
         at += 1;
         let mut checker = Checker {
             assets: &mut assets,
@@ -2483,7 +2488,7 @@ fn merge_module(was: &mut Value, other: &Value) {
 fn talk_run(tag: &str, picks: Vec<u8>) -> Run {
     Run {
         seconds: TALK_MOST_S,
-        talk: Some(tag.to_string()),
+        talk: crate::by_hand::talk(Some(tag.to_string()), None),
         read_ms: 500,
         picks,
         ..Run::default()

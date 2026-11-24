@@ -104,27 +104,42 @@ impl Wardrobe {
     /// headgear none while `hidden` (`headgear`).
     fn wanted(
         &mut self,
-        snapshot: &sim::Snapshot,
+        (snapshot, tsl): (&sim::Snapshot, bool),
         seat: u8,
         hidden: crate::headgear::Hidden,
     ) -> Option<Wear> {
-        let worn = crate::headgear::seat_look(snapshot, sim::Seat(seat), hidden)?;
+        let worn = crate::headgear::seat_look(snapshot, (sim::Seat(seat), tsl), hidden)?;
         if let Some(look) = self.looks.get(&worn) {
             return look.clone();
         }
         let resolver = self.setup.resources.get()?;
-        let look = crate::persona::wear(&resolver, &mut self.tables, worn.clone());
+        let owner = (worn.2.as_deref()).and_then(|item| self.setup.resources.owner(item));
+        let look = crate::persona::wear(
+            (&resolver, owner.as_deref()),
+            &mut self.tables,
+            worn.clone(),
+        );
         self.looks.insert(worn, look.clone());
         look
     }
 
-    fn load(&self, wear: Wear) -> Option<Task<Result<Dressed, String>>> {
+    /// `wear` dressed, in an area whose `DefaultEnvMap` is `area_envmap`.
+    fn load(
+        &self,
+        wear: Wear,
+        area_envmap: Option<String>,
+    ) -> Option<Task<Result<Dressed, String>>> {
         let resources = self.setup.resources.clone();
         let cache = self.cache.clone();
         Some(AsyncComputeTaskPool::get().spawn(async move {
             let resolver = resources.get().ok_or("no resources")?;
             let mut cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
-            crate::play::dress(&resolver, &mut cache, &wear, [0.0; 3])
+            crate::play::dress(
+                &resolver,
+                &mut cache,
+                &wear,
+                ([0.0; 3], area_envmap.as_deref()),
+            )
         }))
     }
 }
@@ -141,7 +156,10 @@ pub fn dress(
     mut assets: ModelAssets,
     mut commands: Commands,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
-    settings: Option<Res<crate::settings::Settings>>,
+    (settings, talk): (
+        Option<Res<crate::settings::Settings>>,
+        Res<crate::headgear::TalkHides>,
+    ),
 ) {
     let wardrobe = &mut *wardrobe;
     if wardrobe.setup.named {
@@ -149,8 +167,10 @@ pub fn dress(
     }
     wardrobe.enter(swap.level.name());
     let snapshot = presented.0.current();
+    let tsl = swap.level.game() == sim::combat::passive::Game::Tsl;
     let hidden = |who: &str| {
         (settings.as_ref()).is_some_and(|settings| crate::headgear::hidden_in(settings, who))
+            || talk.hides(who)
     };
     let dressed = wardrobe.setup.dressed.clone();
     let worn: Vec<Wear> = dressed
@@ -160,7 +180,7 @@ pub fn dress(
         .clone();
     for (seat, now) in worn.iter().enumerate() {
         let seat = seat as u8;
-        let Some(wanted) = wardrobe.wanted(snapshot, seat, &hidden) else {
+        let Some(wanted) = wardrobe.wanted((snapshot, tsl), seat, &hidden) else {
             continue;
         };
         if wanted == *now {
@@ -174,7 +194,7 @@ pub fn dress(
         {
             continue;
         }
-        if let Some(task) = wardrobe.load(wanted.clone()) {
+        if let Some(task) = wardrobe.load(wanted.clone(), content.0.default_envmap.clone()) {
             wardrobe.loading.insert(seat, (wanted, task));
         }
     }
@@ -212,7 +232,7 @@ pub fn dress(
         facts.0.insert(
             "wardrobe".into(),
             serde_json::json!({
-                "wears": worn.iter().map(|wear| format!("{} {} {:?} {:?}", wear.body, wear.head, wear.texture, wear.headgear)).collect::<Vec<_>>(),
+                "wears": worn.iter().map(|wear| format!("{} {} {:?} {:?} {:?}", wear.body, wear.head, wear.head_texture, wear.texture, wear.headgear)).collect::<Vec<_>>(),
                 "loading": wardrobe.loading.keys().collect::<Vec<_>>(),
                 "dressings": wardrobe.dressings,
                 "notes": wardrobe.notes,
@@ -246,7 +266,8 @@ fn spawn(
             placed
         }));
     let (images, mut stores) = assets.split();
-    let mut spawner = Spawner::new(&textures, scene.area_light(), images);
+    let mut spawner = Spawner::sharing(&textures, scene.area_light(), images, &scene.images);
+    spawner.bakes = true;
     let mut nodes = Vec::new();
     for n in first..scene.models.len() {
         let (_, its) = spawner.placed(

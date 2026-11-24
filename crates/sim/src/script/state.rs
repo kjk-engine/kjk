@@ -42,6 +42,9 @@ pub struct Delayed {
     /// The digest of `script`'s bytes it was deferred from
     /// (`Library::script_digest`); none for a save from before it was kept.
     pub code: Option<[u8; 32]>,
+    /// Deferred by a run after it showed the upgrade bench: it waits while
+    /// the bench is up (`State::bench_up`), as both games pause under it.
+    pub bench: bool,
 }
 
 /// A script to run from its start, for an event: its caller, the object
@@ -57,8 +60,9 @@ pub struct Pending {
     pub number: i32,
     /// A notice event's `perception` kind; 0 for any other event.
     pub perception: u8,
-    /// Whether the caller's own AI raised it (a user-defined event its AI
-    /// run signalled to itself, `Event::ai`): its run is that AI's too.
+    /// Whether the run is the caller's own AI (`Event::ai`). That is a
+    /// user-defined event its AI run signalled to itself, and its dialogue
+    /// hook answering a line one of its listen patterns heard (`speak`).
     pub ai: bool,
     /// The companion a guest drives whose own act raised it (a door it
     /// opened or failed to open, a lock it picked, a thing it used): its
@@ -146,6 +150,9 @@ pub struct State {
     pub delayed: Vec<Delayed>,
     /// The next `Delayed::order`.
     pub next: u64,
+    /// When a script showed the first seat the upgrade bench, while it is
+    /// up: the code that script deferred after waits (`Delayed::bench`).
+    pub bench_up: Option<u64>,
     /// Each object's action queue, front first.
     pub actions: BTreeMap<u32, Vec<Queued>>,
     /// Location values (position in metres, facing in degrees): a
@@ -258,10 +265,18 @@ pub struct State {
     pub traps: BTreeMap<u32, TrapState>,
     /// The skills each seat is using on a trap (`world::traps`), by seat.
     pub skill_uses: BTreeMap<u8, SkillUse>,
-    /// TSL's mines set on doors, by the door's id (`world::traps`).
+    /// TSL's mines set on locks, by the door's or placeable's id
+    /// (`world::traps`).
     pub door_mines: BTreeMap<u32, DoorMine>,
     /// When the creatures last looked for traps (sim ms, `world::traps`).
     pub last_detect_ms: u64,
+    /// The standard factions scripts gave doors and placeables
+    /// (`ChangeToStandardFaction`), by id: what `GetFactionEqual` reads and
+    /// whether the party attacks one (`world::objects::attackable`).
+    pub factions: BTreeMap<u32, u8>,
+    /// Where the loading screens' hints stand: what the games keep in their
+    /// saves (`GAMEPLAYHINT`, `STORYHINT`).
+    pub hints: Hints,
     /// When each body next perceives (sim ms; its AI's cadence), and the
     /// rolls it holds (`stealth::Rolls`), by id (`world::scripts`).
     pub perception: BTreeMap<u32, (u64, crate::stealth::Rolls)>,
@@ -338,6 +353,62 @@ pub struct State {
     pub subscreen: u8,
 }
 
+/// Where the loading screen's hints stand, as the games save them. Each
+/// counter is the next row to show in a column of hints. There is one
+/// counter for the gameplay hints. KOTOR 1 has one counter for the story
+/// hints, which is `story[0]`. KOTOR 2 has one for each planet, picked by
+/// the digit its module's name starts with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Hints {
+    pub gameplay: u8,
+    pub story: [u8; 10],
+}
+
+impl Hints {
+    /// The strref in the column `cell` reads (a row's cell, `None` where it
+    /// has no value) at the row `next` names, and `next` one row on. Where
+    /// that row has no value the column starts over at its first row, and a
+    /// column whose first row has none gives nothing.
+    pub fn take_row(next: &mut u8, cell: impl Fn(usize) -> Option<i64>) -> Option<i64> {
+        let strref = cell(usize::from(*next)).or_else(|| {
+            *next = 0;
+            cell(0)
+        })?;
+        *next = next.wrapping_add(1);
+        Some(strref)
+    }
+
+    /// KOTOR 2's story hint for the module of `planet` (the digit its name
+    /// starts with) in a table of `rows` rows: `hint` of the next row whose
+    /// `area` is `planet`, and `next` just past it. The search skips the
+    /// rows of other planets, starts over at the first row when it runs
+    /// out of rows, and gives up after as many tries as the table has rows.
+    pub fn take_planet_row(
+        next: &mut u8,
+        planet: u8,
+        rows: usize,
+        area: impl Fn(usize) -> Option<i64>,
+        hint: impl Fn(usize) -> Option<i64>,
+    ) -> Option<i64> {
+        let mut tries = 0;
+        loop {
+            match area(usize::from(*next)) {
+                None => *next = 0,
+                Some(found) if found == i64::from(planet) => {
+                    let strref = hint(usize::from(*next));
+                    *next = next.wrapping_add(1);
+                    return strref;
+                }
+                Some(_) => *next = next.wrapping_add(1),
+            }
+            if tries > rows {
+                return None;
+            }
+            tries += 1;
+        }
+    }
+}
+
 /// What a skill's use is: on a trap (`world::traps`), or Security on a
 /// lock (`world::locks`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,7 +417,7 @@ pub enum UseKind {
     Recover,
     Lay,
     Unlock,
-    /// TSL's mine set on a door (`world::traps`).
+    /// TSL's mine set on a lock (`world::traps`).
     MineDoor,
 }
 
@@ -360,9 +431,10 @@ impl UseKind {
     ];
 }
 
-/// A mine set on a door (TSL, `world::traps`): who set it, the mine laid
-/// at the door (its id), the kit's blast strength, when it blasts the lock
-/// (sim ms), and when the door then opens, once it blasted it.
+/// A mine set on a lock (TSL, `world::traps`): who set it, the mine laid
+/// at the door or placeable (its id), the kit's blast strength, when it
+/// blasts the lock (sim ms), and when a door then opens, once it blasted
+/// it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DoorMine {
     pub setter: u32,
@@ -506,8 +578,29 @@ impl State {
             run,
             ai,
             code,
+            bench: false,
         });
         self.next += 1;
+    }
+
+    /// `dead`'s death script has run at `now`, deferring the code from
+    /// order `from` on. Both executables run the death script at once as the
+    /// creature dies, and only then post the event that takes its body
+    /// away. Of two events due at one moment, the one posted first runs
+    /// first. So the code the death script deferred to run at or before the
+    /// moment the body goes is kept on the corpse, and the body waits for it
+    /// (`remains::take_away`). A death script run late (the step's runs
+    /// spent) is measured from the death: its code's times less that delay.
+    pub(super) fn after_death_script(&mut self, dead: ObjectId, from: u64, now: u64) {
+        let Some(corpse) = self.corpses.get_mut(&dead.0) else {
+            return;
+        };
+        let late = now.saturating_sub(corpse.died_ms);
+        let before = (self.delayed.iter())
+            .filter(|delayed| delayed.order >= from)
+            .filter(|delayed| delayed.due_ms.saturating_sub(late) <= corpse.due_ms)
+            .map(|delayed| delayed.order);
+        corpse.waits.extend(before);
     }
 
     /// Whether code `id` deferred (`DelayCommand`, its `OBJECT_SELF`) is
@@ -542,10 +635,24 @@ impl State {
             .delayed
             .iter()
             .enumerate()
-            .filter(|(_, d)| d.due_ms <= now_ms)
+            .filter(|(_, d)| d.due_ms <= now_ms && !(d.bench && self.bench_up.is_some()))
             .min_by_key(|(_, d)| (d.due_ms, d.order))
             .map(|(at, _)| at)?;
         Some(self.delayed.remove(at))
+    }
+
+    /// The upgrade bench a script showed closed at `now_ms`: the code it
+    /// deferred after showing it is due as long after now as it was asked
+    /// for, the time the bench was up not counted.
+    pub fn bench_closed(&mut self, now_ms: u64) {
+        let Some(shown) = self.bench_up.take() else {
+            return;
+        };
+        let held = now_ms.saturating_sub(shown);
+        for delayed in self.delayed.iter_mut().filter(|delayed| delayed.bench) {
+            delayed.due_ms += held;
+            delayed.bench = false;
+        }
     }
 
     /// Appends `action` to `object`'s queue (a script's `Action…`; a
@@ -715,6 +822,7 @@ impl State {
         encode_pendings(out, &self.pending);
         encode_delayeds(out, &self.delayed);
         out.u64(self.next);
+        out.u64(self.bench_up.unwrap_or(u64::MAX));
         encode_queues(out, &self.actions);
         out.u32(self.locations.len() as u32);
         for (at, yaw) in &self.locations {
@@ -982,9 +1090,30 @@ impl State {
             out.string(module);
             lying.encode(out);
         }
+        out.u32(self.factions.len() as u32);
+        for (id, faction) in &self.factions {
+            out.u32(*id);
+            out.u8(*faction);
+        }
+        out.u8(self.hints.gameplay);
+        self.hints.story.iter().for_each(|row| out.u8(*row));
     }
 
     /// An item template's facts in play (`inventory::facts_in_play`).
+    /// The player's level as KOTOR 2's scripts keep it in the global
+    /// `G_PC_LEVEL`, which a scaled lock reads (`Lock::difficulty`). It is 0
+    /// until a script has set it.
+    pub fn pc_level(&self) -> i32 {
+        self.numbers.get("G_PC_LEVEL").copied().unwrap_or(0)
+    }
+
+    /// The DC to open `facts`' lock now (`Lock::difficulty`); 0 for an
+    /// object with no lock.
+    pub fn lock_dc(&self, facts: &crate::module::ObjectData) -> u8 {
+        let level = self.pc_level();
+        facts.lock.as_ref().map_or(0, |lock| lock.difficulty(level))
+    }
+
     pub fn item_facts<'a>(
         &'a self,
         catalog: &'a crate::inventory::Catalog,
@@ -1010,6 +1139,7 @@ impl State {
             .map(|facts| (facts.template.clone(), facts))
             .collect();
         self.known = known;
+        self.items.touch();
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<State, DecodeError> {
@@ -1042,6 +1172,9 @@ impl State {
         state.pending = decode_pendings(input)?;
         state.delayed = decode_delayeds(input)?;
         state.next = input.u64()?;
+        if input.since(crate::since::save::FIX_JEDI_FROM_THE_START) {
+            state.bench_up = Some(input.u64()?).filter(|shown| *shown != u64::MAX);
+        }
         state.actions = decode_queues(input)?;
         for _ in 0..input.u32()? {
             let at = [input.f32()?, input.f32()?, input.f32()?];
@@ -1293,6 +1426,18 @@ impl State {
             let module = input.string()?;
             let lying = crate::inventory::Lying::decode(input)?;
             state.floor.insert(id, (module, lying));
+        }
+        if input.since(crate::since::save::FIX_ISSUE_366) {
+            for _ in 0..input.u32()? {
+                let id = input.u32()?;
+                state.factions.insert(id, input.u8()?);
+            }
+        }
+        if input.since(crate::since::save::FIX_648) {
+            state.hints.gameplay = input.u8()?;
+            for row in &mut state.hints.story {
+                *row = input.u8()?;
+            }
         }
         Ok(state)
     }
@@ -1633,6 +1778,10 @@ fn encode_action(out: &mut Writer, action: &Action) {
             out.u8(BARK);
             out.u32(*strref);
         }
+        Action::Sound { resref } => {
+            out.u8(SOUND);
+            out.string(resref);
+        }
         Action::FollowOwner { range } => {
             out.u8(FOLLOW_OWNER);
             out.f32(*range);
@@ -1665,6 +1814,8 @@ const PAUSE: u8 = 58;
 const FOLLOW: u8 = 59;
 const PICK_UP: u8 = 60;
 const PUT_DOWN: u8 = 61;
+/// A queued `PlaySound`'s code in a save.
+const SOUND: u8 = 62;
 
 fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
     let at = input.at();
@@ -1755,6 +1906,9 @@ fn decode_action(input: &mut Reader) -> Result<Action, DecodeError> {
         46 => Action::Surrender,
         BARK => Action::Bark {
             strref: input.u32()?,
+        },
+        SOUND => Action::Sound {
+            resref: input.string()?,
         },
         FOLLOW_OWNER => Action::FollowOwner {
             range: input.f32()?,
@@ -1876,6 +2030,7 @@ fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
         out.u8(delayed.run.unwrap_or(u8::MAX));
         out.u8(u8::from(delayed.ai));
         encode_code(out, delayed.code);
+        out.u8(u8::from(delayed.bench));
     }
 }
 
@@ -1945,6 +2100,7 @@ fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
                 },
                 ai: input.since(crate::since::save::DRIVEN_AI_DEFERRED) && input.u8()? != 0,
                 code: decode_code(input)?,
+                bench: input.since(crate::since::save::FIX_JEDI_FROM_THE_START) && input.u8()? != 0,
             })
         })
         .collect()
@@ -2153,6 +2309,7 @@ impl State {
         self.corpses
             .extend(left.corpses.into_iter().map(|(id, mut corpse)| {
                 corpse.due_ms = corpse.due_ms.saturating_add(away);
+                corpse.died_ms = corpse.died_ms.saturating_add(away);
                 (id, corpse)
             }));
         self.encounters

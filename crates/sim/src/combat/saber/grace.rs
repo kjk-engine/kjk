@@ -19,7 +19,7 @@ use crate::math::Vec3;
 use crate::snapshot::SimId;
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
 
-use super::Style;
+use super::{Move, Style};
 
 /// The longest hold (ms).
 pub const GRACE_MS: u16 = rules::sabers::lag::GRACE_MS;
@@ -44,6 +44,9 @@ pub struct Held {
     /// Where the blade met the body and which way it moved (units).
     pub point: Vec3,
     pub direction: Vec3,
+    /// The striker's move when the blade met the body. Targeted blocks read
+    /// the swing's side from it when the hold ends.
+    pub swung: Move,
 }
 
 /// A fighter's held hits, in slots.
@@ -66,6 +69,7 @@ impl Held {
         for value in self.point.iter().chain(&self.direction) {
             out.f32(*value);
         }
+        out.u16(self.swung.index());
     }
 
     fn decode(input: &mut Reader) -> Result<Held, DecodeError> {
@@ -81,6 +85,7 @@ impl Held {
         for value in &mut values {
             *value = input.f32()?;
         }
+        let swung = decode_swung(input)?;
         Ok(Held {
             by,
             tick,
@@ -91,8 +96,21 @@ impl Held {
             cadence_ms,
             point: [values[0], values[1], values[2]],
             direction: [values[3], values[4], values[5]],
+            swung,
         })
     }
+}
+
+/// The striker's move of a held hit (`Held::swung`). A snapshot from before
+/// targeted blocks has none and reads it as `Move::READY`, which has no
+/// side. Such a snapshot also reads targeted blocks as off, so the move is
+/// never asked for there.
+fn decode_swung(input: &mut Reader) -> Result<Move, DecodeError> {
+    if !input.since(crate::since::snapshot::FEAT_TARGETED_BLOCKS) {
+        return Ok(Move::READY);
+    }
+    let at = input.at();
+    Move::from_index(input.u16()?).ok_or(input.invalid("held move", at))
 }
 
 /// What an empty slot holds on the wire.
@@ -106,6 +124,7 @@ const BLANK: Held = Held {
     cadence_ms: 0,
     point: [0.0; 3],
     direction: [0.0; 3],
+    swung: Move::READY,
 };
 
 /// The ticks of `msec` a hit is held on a player whose view lags `lag_ms`:

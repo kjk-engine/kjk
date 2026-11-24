@@ -2,7 +2,8 @@
 //! (I22 C20; QUIRKS.md Q-0070).
 //!
 //! - A shot: a character with a blaster out whose torso starts its attack
-//!   (`BOTH_ATTACK2` for the Bryar, `BOTH_ATTACK3` for the rest), or starts
+//!   (`BOTH_ATTACK2` for a pistol, `BOTH_ATTACK3` for a gun held in both
+//!   hands: `sim::motion::gun_shot`), or starts
 //!   it over, from one snapshot to the next. Its flash leaves the muzzle
 //!   (`sim::muzzle`, `CalcMuzzlePoint`) along the view; a pistol in each
 //!   hand, one shot for each hand the shot left (`Shooting::hands`), each
@@ -25,7 +26,7 @@
 
 use bevy::prelude::*;
 use collision::{Bodies, Body, CollisionWorld as _, Extents, UNIT};
-use sim::combat::sheet::Weapon;
+use sim::combat::sheet::{Blaster, Weapon};
 use sim::combat::specials::Special;
 use sim::combat::{Delivery, Missile, weapons};
 use sim::motion::Anim;
@@ -48,14 +49,15 @@ const LATE_TICKS: u64 = 4;
 /// before it stops anyway (ms).
 const DOOMED_MS: f64 = 400.0;
 
-/// A shot: who fired which blaster (its base item, the feat special the
-/// shot carried) from which hand's gun (`cast::Guns`), when (sim ms), from
-/// where (units) and which way.
+/// A shot: who fired which blaster (its base item, the JA blaster it fires
+/// as, the feat special the shot carried) from which hand's gun
+/// (`cast::Guns`), when (sim ms), from where (units) and which way.
 #[derive(Debug, Clone, Copy)]
 pub struct Shot {
     pub by: SimId,
     pub hand: u8,
     pub base_item: u16,
+    pub blaster: Blaster,
     pub special: Option<Special>,
     pub ms: f64,
     pub muzzle: Vec3,
@@ -96,11 +98,11 @@ pub fn shots(
                 |e: &sim::EntityState| e.fighter.map_or_else(Default::default, |f| f.shooting);
             let (then, shooting_now) = (shooting(earlier), shooting(entity));
             // The special its trigger was under: a charge let go, a burst
-            // going, an aim held.
+            // going, a Sniper Shot steadied.
             let special = Special::of(&sheet, blaster).filter(|special| match special {
                 Special::PowerBlast(_) => then.charging_from.is_some(),
                 Special::RapidShot(_) => then.burst > 0 || shooting_now.burst > 0,
-                Special::SniperShot(_) => shooting_now.aiming,
+                Special::SniperShot(_) => then.steadying,
             });
             // A pair's guns each their own; one gun's shots leave the gun out.
             let pair = sheet.pistol_pair();
@@ -125,6 +127,7 @@ pub fn shots(
                         by: entity.id,
                         hand,
                         base_item: held.base_item,
+                        blaster: own,
                         special,
                         ms: now.time_ms as f64,
                         muzzle: Vec3::from_array(sim::hand_muzzle(&ps, muzzle, hand)),
@@ -174,6 +177,12 @@ pub struct OwnFire {
     /// The own character at own time, as its newest prediction by then has
     /// it (its Force effects show from it).
     pub own: Option<sim::EntityState>,
+    /// The own blaster's crosshair as the own time shows it, before easing
+    /// (`reticle_view::of`).
+    pub reticle: Option<ui::vm::ReticleView>,
+    /// The own character has a melee weapon readied at own time
+    /// (`reticle_view::melee_out`).
+    pub melee_out: bool,
 }
 
 /// Where an own bolt is in its life.
@@ -198,6 +207,8 @@ pub enum Fate {
 pub struct OwnBolt {
     pub tick: u64,
     pub weapon: Weapon,
+    /// A Power Blast's bolt (`Missile::power`).
+    pub power: bool,
     pub base: Vec3,
     pub velocity: Vec3,
     /// When it left the muzzle (own ms).
@@ -216,6 +227,7 @@ impl OwnBolt {
         Some(OwnBolt {
             tick,
             weapon: missile.weapon,
+            power: missile.power,
             base,
             velocity: Vec3::from_array(missile.velocity),
             fired: missile.from_ms as f64,
@@ -325,7 +337,7 @@ impl OwnBolt {
             return None;
         }
         let metres = |v: Vec3| (v * UNIT).to_array();
-        let trace = level.with(doors, |world| {
+        let trace = level.with_unremembered(doors, |world| {
             Bodies::new(world, bodies).skipping(me.0 | sim::BODY).trace(
                 metres(from),
                 metres(to),

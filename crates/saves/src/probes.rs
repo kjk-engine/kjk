@@ -228,7 +228,13 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
 /// - an item the module lacks is restored from the lookup, else lost;
 /// - a story restored and written again is the story (spec 4c), but for
 ///   its build, its time and the place within the 2 m snap, and for what
-///   each case names as lost, each with why.
+///   each case names as lost, each with why;
+/// - where the loading screens' hints stand is kept in the story and
+///   restored with it;
+/// - a story without hints starts each at its first row;
+/// - a new game starts every hint at its first row with no module visited;
+/// - the hint rows go down their columns and start over at a blank cell,
+///   and KOTOR 2's planets keep their own rows.
 pub fn story_probes() -> sim::probe::Checks {
     let (level, save) = sim::fixtures::kitchen_sink();
     let story = Story::of(&save, &level);
@@ -264,6 +270,18 @@ pub fn story_probes() -> sim::probe::Checks {
             "story_restores_own_items",
             restores_own_items(&level, &save),
         ),
+        ("story_item_carries_every_field", item_carries_every_field()),
+        (
+            "story_restores_item_fields",
+            restores_item_fields(&level, &save),
+        ),
+        ("story_keeps_hints", keeps_hints(&level, &save)),
+        (
+            "story_without_hints_reads",
+            reads_without_hints(&level, &save),
+        ),
+        ("new_game_has_no_hints_or_visits", new_game()),
+        ("hint_rows_follow_the_original", hint_rows()),
         ("story_restores_twins_left", restores_twins_left(&save)),
         ("story_restores_twins_here", restores_twins_here(&save)),
     ];
@@ -592,6 +610,7 @@ fn round_trip(
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     let (mut before, mut after) = (story.clone(), Story::of(&again, level));
     for (_, _, blank) in excluded {
@@ -732,6 +751,195 @@ fn restores_items_elsewhere(level: &sim::Level, save: &sim::Save) -> Result<Stri
     )
 }
 
+/// An item with every field set to something other than a default comes
+/// back from its story entry as it was, on an item made from its template,
+/// but for the holder and `infinite`, which the story leaves out on
+/// purpose. A field `Item` gains and the story misses shows here.
+fn item_carries_every_field() -> Result<String, String> {
+    use sim::inventory::Item;
+    let item = Item {
+        template: "fixture_all".into(),
+        holder: 7,
+        slot: Some(4),
+        stack: 3,
+        charges: 6,
+        droppable: false,
+        plot: true,
+        identified: false,
+        infinite: true,
+        non_equippable: true,
+        upgrades: 5,
+        fitted: vec!["fixture_part".into()],
+    };
+    let mut made = Item {
+        template: "fixture_all".into(),
+        holder: 9,
+        slot: None,
+        stack: 1,
+        charges: 0,
+        droppable: true,
+        plot: false,
+        identified: true,
+        infinite: false,
+        non_equippable: false,
+        upgrades: 0,
+        fitted: Vec::new(),
+    };
+    story::StoryItem::of(&item).apply(&mut made);
+    let expected = Item {
+        holder: 9,
+        infinite: false,
+        ..item
+    };
+    check(
+        made == expected,
+        format!("restored {made:?}, expected {expected:?}"),
+    )
+}
+
+/// The party's pool holds stacks of one stackable item that differ in
+/// upgrades or in charges, and an item a script made a plot item: each
+/// comes back as it was.
+fn restores_item_fields(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    use sim::inventory::{Item, ItemFacts, PARTY};
+    let mut save = save.clone();
+    let item = |template: &str, stack: u16, charges: u8, upgrades: u32| Item {
+        template: template.into(),
+        holder: PARTY,
+        slot: None,
+        stack,
+        charges,
+        droppable: true,
+        plot: false,
+        identified: true,
+        infinite: false,
+        non_equippable: false,
+        upgrades,
+        fitted: Vec::new(),
+    };
+    let mut plot = item("fixture_plain", 1, 0, 0);
+    plot.plot = true;
+    let mut stolen = item("fixture_plain", 1, 0, 0);
+    (stolen.droppable, stolen.identified, stolen.non_equippable) = (false, false, true);
+    save.script
+        .items
+        .insert(9_501, item("fixture_grenade", 3, 5, 0));
+    save.script
+        .items
+        .insert(9_502, item("fixture_grenade", 2, 5, 1));
+    save.script
+        .items
+        .insert(9_503, item("fixture_medpac", 4, 5, 0));
+    save.script
+        .items
+        .insert(9_504, item("fixture_medpac", 2, 3, 0));
+    save.script.items.insert(9_505, plot);
+    save.script.items.insert(9_506, stolen);
+    let story = Story::of(&save, level);
+    let lookup = |template: &str| match template {
+        "fixture_grenade" | "fixture_medpac" => Some(ItemFacts {
+            stacking: 20,
+            charges: 5,
+            ..ItemFacts::plain(template)
+        }),
+        "fixture_plain" => Some(ItemFacts::plain(template)),
+        _ => None,
+    };
+    let (mut world, _) = story.restore(level, 1, &lookup)?;
+    let held = |template: &str| -> Vec<(u16, u8, u32, bool, bool, bool, bool)> {
+        let mut all: Vec<_> = world
+            .script_state()
+            .items
+            .held_by(PARTY)
+            .filter(|(_, item)| item.template == template)
+            .map(|(_, item)| {
+                (
+                    item.stack,
+                    item.charges,
+                    item.upgrades,
+                    item.plot,
+                    item.droppable,
+                    item.identified,
+                    item.non_equippable,
+                )
+            })
+            .collect();
+        all.sort();
+        all
+    };
+    let grenades = held("fixture_grenade");
+    let medpacs = held("fixture_medpac");
+    let plain = held("fixture_plain");
+    let detail = format!("grenades {grenades:?}; medpacs {medpacs:?}; plain {plain:?}");
+    check(
+        grenades.len() == 2
+            && medpacs.len() == 2
+            && plain.iter().any(|item| item.3)
+            && plain.iter().any(|item| !item.4 && !item.5 && item.6),
+        detail.clone(),
+    )?;
+    let again = sim::Save {
+        hz: sim::TICK_HZ,
+        level: level.id(),
+        snapshot: world.snapshot(),
+        script: world.script_state().clone(),
+        stances: world.stance_ids(),
+    };
+    let sorted = |story: &Story| {
+        let mut items = story.items.get("party").cloned().unwrap_or(Vec::new());
+        items.sort_by_key(|item| format!("{item:?}"));
+        items
+    };
+    let written = sorted(&Story::of(&again, level));
+    if written != sorted(&story) {
+        return Err(format!(
+            "written again, the party's items differ: {written:?} against {:?}",
+            sorted(&story)
+        ));
+    }
+    let mut json = serde_json::to_value(&story).map_err(|error| error.to_string())?;
+    for item in json["items"]
+        .as_object_mut()
+        .into_iter()
+        .flat_map(|holders| holders.values_mut())
+        .flat_map(|items| items.as_array_mut().into_iter().flatten())
+    {
+        if let Some(item) = item.as_object_mut() {
+            for flag in ["plot", "droppable", "identified", "non_equippable"] {
+                item.remove(flag);
+            }
+        }
+    }
+    let old: Story = serde_json::from_value(json).map_err(|error| error.to_string())?;
+    let (world, _) = old.restore(level, 1, &|template: &str| {
+        Some(ItemFacts {
+            plot: true,
+            ..ItemFacts::plain(template)
+        })
+    })?;
+    let flags: Vec<_> = world
+        .script_state()
+        .items
+        .held_by(PARTY)
+        .filter(|(_, item)| item.template == "fixture_plain")
+        .map(|(_, item)| {
+            (
+                item.plot,
+                item.droppable,
+                item.identified,
+                item.non_equippable,
+            )
+        })
+        .collect();
+    check(
+        !flags.is_empty()
+            && flags
+                .iter()
+                .all(|flags| *flags == (true, true, true, false)),
+        format!("{detail}; a story without the flags gives {flags:?}"),
+    )
+}
+
 /// An item of the module's own (`own_template`) in the party's pool,
 /// named in the story by its template and, as a story from before such
 /// items were named for their module has it, by its bare resref: each
@@ -762,6 +970,10 @@ fn restores_own_items(level: &sim::Level, save: &sim::Save) -> Result<String, St
             .push(story::StoryItem {
                 template: name.into(),
                 stack: 1,
+                plot: Some(false),
+                droppable: Some(true),
+                identified: Some(true),
+                non_equippable: Some(false),
                 ..story::StoryItem::default()
             });
         let named = |detail: String| format!("{name}: {detail}");
@@ -995,4 +1207,128 @@ fn restores_twins_here(save: &sim::Save) -> Result<String, String> {
     story.visited.insert(here, twins_kept(&level));
     let (mut world, said) = story.restore(&moved, 1, &|_| None)?;
     twins_right(&moved, &mut world, &said)
+}
+
+/// Hints as a save keeps them: three rows in, and a story counter of the
+/// first planet and the fourth.
+fn some_hints() -> sim::script::Hints {
+    let mut hints = sim::script::Hints {
+        gameplay: 3,
+        ..sim::script::Hints::default()
+    };
+    hints.story[0] = 2;
+    hints.story[3] = 5;
+    hints
+}
+
+fn keeps_hints(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    let mut save = save.clone();
+    save.script.hints = some_hints();
+    let story = Story::of(&save, level);
+    let text = serde_json::to_string(&story).map_err(|error| error.to_string())?;
+    let back: Story = serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    let (mut world, _) = back.restore(level, 1, &|_| None)?;
+    let bytes = save.encode();
+    let decoded = sim::Save::decode(&bytes).map_err(|error| error.to_string())?;
+    check(
+        story.hints.gameplay == 3
+            && story.hints.story.get(3) == Some(&5)
+            && world.hints() == some_hints()
+            && world.snapshot().visited(&story.place.module)
+            && decoded.script.hints == some_hints(),
+        format!("{:?}", world.hints()),
+    )?;
+    round_trip(&story, level, &[], &[])
+}
+
+fn reads_without_hints(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    let mut story = Story::of(save, level);
+    let mut value = serde_json::to_value(&story).map_err(|error| error.to_string())?;
+    value
+        .as_object_mut()
+        .and_then(|fields| fields.remove("hints"))
+        .ok_or("the story has no hints field")?;
+    story = serde_json::from_value(value).map_err(|error| error.to_string())?;
+    let (world, _) = story.restore(level, 1, &|_| None)?;
+    check(
+        story.hints == story::StoryHints::default()
+            && world.hints() == sim::script::Hints::default(),
+        format!("{:?}", world.hints()),
+    )
+}
+
+fn new_game() -> Result<String, String> {
+    let (level, left) = (with_carth()?, sim::fixtures::left());
+    let fresh = Story::default();
+    let mut world = sim::SimWorld::new(sim::WorldConfig::one_seat(), level.clone())
+        .map_err(|error| error.to_string())?;
+    let here = world
+        .snapshot()
+        .place
+        .as_ref()
+        .map(|place| place.module.clone())
+        .ok_or("the new world is in no module")?;
+    let before = world.snapshot();
+    let left_module = left
+        .place()
+        .map(|place| place.module.clone())
+        .ok_or("the left ground is in no module")?;
+    let others = !before.visited("a_module_never_entered");
+    world
+        .install(left.clone(), None)
+        .map_err(|error| format!("entering the module left: {error}"))?;
+    let after = world.snapshot();
+    check(
+        fresh.hints == story::StoryHints::default()
+            && fresh.visited.is_empty()
+            && world.hints() == sim::script::Hints::default()
+            && others
+            && !before.visited(&left_module)
+            && before.visited(&here)
+            && after.visited(&here)
+            && after.visited(&left_module),
+        format!("{:?}", world.hints()),
+    )
+}
+
+/// A column's cells, as the table gives them: a number, or none.
+fn cells(column: &[Option<i64>]) -> impl Fn(usize) -> Option<i64> + '_ {
+    |row| column.get(row).copied().flatten()
+}
+
+fn hint_rows() -> Result<String, String> {
+    use sim::script::Hints;
+    let column = [Some(10), Some(11), None, Some(13)];
+    let mut next = 0;
+    let shown: Vec<Option<i64>> = (0..5)
+        .map(|_| Hints::take_row(&mut next, cells(&column)))
+        .collect();
+    check(
+        shown == [Some(10), Some(11), Some(10), Some(11), Some(10)] && next == 1,
+        format!("a blank cell sends the column back to its first row: {shown:?}, next {next}"),
+    )?;
+    let empty = [None, Some(1)];
+    let mut next = 5;
+    let none = Hints::take_row(&mut next, cells(&empty));
+    check(
+        none.is_none() && next == 0,
+        format!("a column with no first row gives nothing: {none:?}, next {next}"),
+    )?;
+    let areas = [Some(1), Some(2), Some(1), Some(2), Some(2)];
+    let hints = [Some(101), Some(202), Some(103), Some(204), Some(205)];
+    let (mut one, mut two) = (0, 0);
+    let rows = areas.len();
+    let ask = |planet, next: &mut u8| {
+        Hints::take_planet_row(next, planet, rows, cells(&areas), cells(&hints))
+    };
+    let shown = [
+        ask(1, &mut one),
+        ask(2, &mut two),
+        ask(1, &mut one),
+        ask(1, &mut one),
+    ];
+    check(
+        shown == [Some(101), Some(202), Some(103), Some(101)],
+        format!("each planet goes down its own rows and starts over: {shown:?}"),
+    )
 }

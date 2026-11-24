@@ -61,7 +61,7 @@ pub fn roster(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             object.template,
             sheet.level,
             sheet.max_hp,
-            sheet.max_fp,
+            sheet.force_points(),
             sheet.defence(),
             sheet.faction,
             if hostile { " HOSTILE" } else { "" },
@@ -111,7 +111,7 @@ pub fn roster(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         }
         rows.push(serde_json::json!({
             "index": index, "tag": object.tag, "template": object.template,
-            "level": sheet.level, "max_hp": sheet.max_hp, "max_fp": sheet.max_fp,
+            "level": sheet.level, "max_hp": sheet.max_hp, "max_fp": sheet.force_points(),
             "defence": sheet.defence(), "faction": sheet.faction, "hostile": hostile,
             "weapons": weapons, "flags": sheet.flags, "race": sheet.race,
             "guards": guards, "versus": versus,
@@ -224,7 +224,7 @@ struct Tally {
 
 /// Seat 0's command: the stand-in mind against the nearest hostile it can
 /// reach in `last`.
-fn player_command(last: &Snapshot) -> sim::Command {
+pub(crate) fn player_command(last: &Snapshot) -> sim::Command {
     let Some(me) = last
         .entities
         .iter()
@@ -293,7 +293,7 @@ pub fn fight(
     };
     let rate = TickRate::default();
     let mut last = world.snapshot();
-    let mut recorder = Recorder::new(rate.hz(), last.clone(), world.level().id(), 100)
+    let mut recorder = Recorder::new(rate.hz(), last.clone(), world.level().id(), 100, world.stance_ids())
         .with_script(world.script_state().clone());
     let mut tally = Tally::default();
     // Events already counted, by (character, sequence number).

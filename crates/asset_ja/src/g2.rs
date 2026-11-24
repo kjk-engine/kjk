@@ -194,6 +194,8 @@ impl BoneAnim {
 /// A bone's local transform (rotation, translation in metres).
 pub type Local = (Quat, Vec3);
 
+type Mixed = (Local, Local, f32);
+
 /// Two frames of one animation mixed as Ghoul2 lerps them: the joint at
 /// `pivot` linearly (`joint`), rotation along the arc Ghoul2's lerped
 /// matrix follows (the shorter one), at an even pace. Ghoul2's own matrix lerp rushes through
@@ -269,6 +271,7 @@ fn arc(a: Quat, b: Quat, t: f32) -> Quat {
 
 /// A player model's animation state: what each bone that has an
 /// animation of its own is playing.
+#[derive(Clone)]
 pub struct Player<'a> {
     gla: &'a Gla,
     order: Vec<usize>,
@@ -650,64 +653,112 @@ impl<'a> Player<'a> {
         let count = self.gla.bones.len();
         let mut pose = vec![(Quat::IDENTITY, Vec3::ZERO); count];
         let mut states: Vec<Option<BoneState>> = vec![None; count];
-        // Each blending bone's captured pose, new pose and share.
-        let mut mixed: Vec<Option<(Local, Local, f32)>> = vec![None; count];
+        let mut mixed: Vec<Option<Mixed>> = vec![None; count];
         for &bone in &self.order {
-            let state = match self.anims.get(&bone) {
-                Some(anim) => {
-                    let blend = anim.blend.and_then(|blend| {
-                        let into = now_ms - blend.start_ms;
-                        (0.0 <= into && into < blend.time_ms).then(|| (blend, into / blend.time_ms))
-                    });
-                    Some((anim.timing(now_ms), blend, bone))
-                }
-                None => usize::try_from(self.gla.bones[bone].parent)
-                    .ok()
-                    .filter(|&parent| parent < count)
-                    .and_then(|parent| states[parent]),
-            };
-            let Some((timing, blend, driver)) = state else {
+            let inherited = self.parent(bone).and_then(|parent| states[parent]);
+            let Some((state, local, mix)) = self.local(bone, now_ms, inherited) else {
                 continue;
             };
-            states[bone] = state;
-            let pivot = self.base(bone).1;
-            let show = |timing: Timing| {
-                let current = self.frame(bone, timing.current);
-                if timing.lerp == 0.0 {
-                    current
-                } else {
-                    mix_frames(current, self.frame(bone, timing.new), timing.lerp, pivot)
-                }
-            };
-            let mut local = show(timing);
-            if let Some((blend, amount)) = blend {
-                let back = blend.frame - blend.frame.trunc();
-                let held = self.frame(bone, blend.frame as i32);
-                let next = self.frame(bone, blend.lerp_frame as i32);
-                let recorded = blend
-                    .from_shown
-                    .then(|| self.shown.get(&driver).and_then(|shown| shown.get(bone)))
-                    .flatten();
-                let captured = match recorded {
-                    Some(&shown) => shown,
-                    // Q-0004: the fraction on the wrong frame.
-                    None if self.quirks => mix_frames(next, held, back, pivot),
-                    None => mix_frames(held, next, back, pivot),
-                };
-                // Only the root turns: the bones under it inherit its
-                // blend, their locals already riding on its turn.
-                let captured = match blend.turned {
-                    Some(turn) if bone == driver => (turn * captured.0, turn * captured.1),
-                    _ => captured,
-                };
-                let reference = show(self.anims[&driver].timing(blend.start_ms)).0;
-                mixed[bone] = Some((captured, local, amount));
-                local = mix_blend(captured, local, reference, amount, pivot);
-            }
+            states[bone] = Some(state);
+            mixed[bone] = mix;
             pose[bone] = local;
         }
         self.limbs_blended(&mut pose, &mixed);
         pose
+    }
+
+    /// It must give the same angles as `bolt_angles` over `pose`.
+    pub fn bolt_angles_at(&self, now_ms: f32, bone: usize) -> Angles {
+        let count = self.gla.bones.len();
+        let mut chain = vec![bone];
+        while let Some(parent) = self.parent(chain[chain.len() - 1]) {
+            if chain.len() > count {
+                break;
+            }
+            chain.push(parent);
+        }
+        let leg = |link: usize| {
+            (self.limbs.iter()).any(|limb| [limb.upper, limb.lower, limb.end].contains(&link))
+        };
+        if chain.len() > count || chain.iter().any(|&link| leg(link)) {
+            return self.bolt_angles(&self.pose(now_ms), bone);
+        }
+        let mut inherited = None;
+        let mut in_model: Option<Local> = None;
+        for &link in chain.iter().rev() {
+            let played = self.local(link, now_ms, inherited);
+            inherited = played.map(|(state, ..)| state);
+            let (turn, place) = played.map_or((Quat::IDENTITY, Vec3::ZERO), |(_, local, _)| local);
+            in_model = Some(match in_model {
+                Some((parent_turn, parent_place)) => {
+                    (parent_turn * turn, parent_place + parent_turn * place)
+                }
+                None => (turn, place),
+            });
+        }
+        let (turn, _) = in_model.unwrap_or((Quat::IDENTITY, Vec3::ZERO));
+        Self::angles_of(turn * self.base(bone).0)
+    }
+
+    fn parent(&self, bone: usize) -> Option<usize> {
+        usize::try_from(self.gla.bones[bone].parent)
+            .ok()
+            .filter(|&parent| parent < self.gla.bones.len())
+    }
+
+    fn local(
+        &self,
+        bone: usize,
+        now_ms: f32,
+        inherited: Option<BoneState>,
+    ) -> Option<(BoneState, Local, Option<Mixed>)> {
+        let state = match self.anims.get(&bone) {
+            Some(anim) => {
+                let blend = anim.blend.and_then(|blend| {
+                    let into = now_ms - blend.start_ms;
+                    (0.0 <= into && into < blend.time_ms).then(|| (blend, into / blend.time_ms))
+                });
+                Some((anim.timing(now_ms), blend, bone))
+            }
+            None => inherited,
+        };
+        let (timing, blend, driver) = state?;
+        let pivot = self.base(bone).1;
+        let show = |timing: Timing| {
+            let current = self.frame(bone, timing.current);
+            if timing.lerp == 0.0 {
+                current
+            } else {
+                mix_frames(current, self.frame(bone, timing.new), timing.lerp, pivot)
+            }
+        };
+        let mut local = show(timing);
+        let mut mixed = None;
+        if let Some((blend, amount)) = blend {
+            let back = blend.frame - blend.frame.trunc();
+            let held = self.frame(bone, blend.frame as i32);
+            let next = self.frame(bone, blend.lerp_frame as i32);
+            let recorded = blend
+                .from_shown
+                .then(|| self.shown.get(&driver).and_then(|shown| shown.get(bone)))
+                .flatten();
+            let captured = match recorded {
+                Some(&shown) => shown,
+                // Q-0004: the fraction on the wrong frame.
+                None if self.quirks => mix_frames(next, held, back, pivot),
+                None => mix_frames(held, next, back, pivot),
+            };
+            // Only the root turns. The bones under it inherit its blend,
+            // because their local transforms already ride on its turn.
+            let captured = match blend.turned {
+                Some(turn) if bone == driver => (turn * captured.0, turn * captured.1),
+                _ => captured,
+            };
+            let reference = show(self.anims[&driver].timing(blend.start_ms)).0;
+            mixed = Some((captured, local, amount));
+            local = mix_blend(captured, local, reference, amount, pivot);
+        }
+        state.map(|state| (state, local, mixed))
     }
 
     /// Legs mid-blend carried by position: each joint goes straight from
@@ -721,7 +772,7 @@ impl<'a> Player<'a> {
     /// ms; Ghoul2's lerped matrices fold the shin through the middle
     /// instead, the foot going straight. At either end of the blend this is
     /// the captured or the new pose.
-    fn limbs_blended(&self, pose: &mut [Local], mixed: &[Option<(Local, Local, f32)>]) {
+    fn limbs_blended(&self, pose: &mut [Local], mixed: &[Option<Mixed>]) {
         let blending = |limb: &Limb| {
             [limb.upper, limb.lower, limb.end]
                 .iter()
@@ -730,7 +781,7 @@ impl<'a> Player<'a> {
         if !self.limbs.iter().any(blending) {
             return;
         }
-        let side = |pick: fn(&(Local, Local, f32)) -> Local| -> Vec<Local> {
+        let side = |pick: fn(&Mixed) -> Local| -> Vec<Local> {
             pose.iter()
                 .zip(mixed)
                 .map(|(&shown, m)| m.as_ref().map_or(shown, pick))
@@ -916,7 +967,33 @@ impl<'a> Player<'a> {
     /// game's axes): pitch and yaw of its forward axis (the bone's −Y), roll
     /// from its right axis (−X).
     pub fn bolt_angles(&self, pose: &[Local], bone: usize) -> Angles {
-        let q = self.finals(pose)[bone].0 * self.base(bone).0;
+        Self::angles_of(self.finals(pose)[bone].0 * self.base(bone).0)
+    }
+
+    /// How far the line from bone `from` to bone `to` is turned in `pose`
+    /// about the model's up axis from where it lies at the base pose (the
+    /// game's yaw, degrees).
+    pub fn line_yaw(&self, pose: &[Local], (from, to): (usize, usize)) -> f32 {
+        let finals = self.finals(pose);
+        let point = |bone: usize, (q, t): Local| t + q * self.base(bone).1;
+        let rest = (Quat::IDENTITY, Vec3::ZERO);
+        let base = point(to, rest) - point(from, rest);
+        let now = point(to, finals[to]) - point(from, finals[from]);
+        let cross = base.x * now.y - base.y * now.x;
+        let dot = base.x * now.x + base.y * now.y;
+        cross.atan2(dot).to_degrees()
+    }
+
+    /// Every bone as `frame` (its whole frame, the fraction dropped) has
+    /// it, as if one sequence played that frame on the whole body.
+    pub fn frame_pose(&self, frame: f32) -> Vec<Local> {
+        (0..self.gla.bones.len())
+            .map(|bone| self.frame(bone, frame as i32))
+            .collect()
+    }
+
+    /// The game's angles of the axes `q` turns ours to.
+    fn angles_of(q: Quat) -> Angles {
         // Ours to the game's: our −Y forward is its +X.
         let game = |v: Vec3| [-v.y, v.x, v.z];
         let mut out = angles::look_angles(game(q * -Vec3::Y));
@@ -924,18 +1001,61 @@ impl<'a> Player<'a> {
         out
     }
 
+    /// `bone`'s local `a` mixed toward `b` by `t` (0 to 1), its joint kept
+    /// on its parent as a frame's lerp keeps it.
+    pub fn mix(&self, bone: usize, a: Local, b: Local, t: f32) -> Local {
+        mix_frames(a, b, t, self.base(bone).1)
+    }
+
+    /// `bone`'s local `pose` with `t` (0 to 1) of the change from `to` to
+    /// `from` added: two poses of the same bone, the turn between them and
+    /// the move of its joint, the joint kept on its parent as `mix` keeps
+    /// it. With `t` at 1 and `pose` at `to`, the result is `from`.
+    pub fn offset(&self, bone: usize, pose: Local, (from, to): (Local, Local), t: f32) -> Local {
+        let pivot = self.base(bone).1;
+        let turn = Quat::IDENTITY.slerp((from.0 * to.0.inverse()).normalize(), t);
+        let q = (turn * pose.0).normalize();
+        let moved = (from.1 + from.0 * pivot - (to.1 + to.0 * pivot)) * t;
+        (q, pose.1 + pose.0 * pivot + moved - q * pivot)
+    }
+
     /// Turns `bone` in `pose` by angle overrides (pitch, yaw, roll in
     /// degrees, about the bone's own axes at its base pose: yaw about X,
     /// then pitch about Y, then roll about Z), pivoting on the bone's base
     /// place.
     pub fn turn(&self, pose: &mut [Local], bone: usize, angles: Angles) {
+        let (_, at) = self.base(bone);
+        let t = self.turn_of(bone, angles);
+        let (q, tr) = pose[bone];
+        pose[bone] = ((q * t).normalize(), tr + q * (at - t * at));
+    }
+
+    /// The turn `turn` gives `bone` by `angles`, as a rotation of its local.
+    fn turn_of(&self, bone: usize, angles: Angles) -> Quat {
         let [pitch, yaw, roll] = angles.map(f32::to_radians);
         let m =
             Quat::from_rotation_z(roll) * Quat::from_rotation_y(pitch) * Quat::from_rotation_x(yaw);
-        let (base, at) = self.base(bone);
-        let t = (base * m * base.inverse()).normalize();
-        let (q, tr) = pose[bone];
-        pose[bone] = ((q * t).normalize(), tr + q * (at - t * at));
+        let base = self.base(bone).0;
+        (base * m * base.inverse()).normalize()
+    }
+
+    /// The turn `turn` would give `bone` in `pose` by `angles`, as a turn of
+    /// the model's space about the bone's joint (`turn_in_model`). Taken
+    /// now and given later, it turns the bone about the same axes in the
+    /// model whatever its parents were turned by in between.
+    pub fn model_turn(&self, pose: &[Local], bone: usize, angles: Angles) -> Quat {
+        let now = self.bone_final(pose, bone).0;
+        (now * self.turn_of(bone, angles) * now.inverse()).normalize()
+    }
+
+    /// `bone` in `pose` turned by `turn` in the model's space about its
+    /// joint, its children riding on it.
+    pub fn turn_in_model(&self, pose: &mut [Local], bone: usize, turn: Quat) {
+        let (q, t) = self.bone_final(pose, bone);
+        let joint = t + q * self.base(bone).1;
+        let q = (turn * q).normalize();
+        let wanted = BTreeMap::from([(bone, (q, joint - q * self.base(bone).1))]);
+        self.refit(pose, &wanted);
     }
 }
 

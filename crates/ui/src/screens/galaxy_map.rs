@@ -1,11 +1,11 @@
 //! The galaxy map (`galaxymap`), which a script shows (`ShowGalaxyMap`) on
 //! the planet the party is at: the planets the scripts made available on
 //! their buttons (`planetary.2da`'s `guitag`), those not selectable greyed,
-//! the rest hidden. A planet pressed is chosen; the chosen one's name,
-//! description and turning model show, and it is lit. Accept travels there
-//! (`GameAction::Travel`) when it is selectable; Back closes the map. Every
-//! player sees the map; only the host's Accept travels (I30 P6), a guest's
-//! is hidden.
+//! the rest hidden, over the galaxy (`galaxy.mdl`). A planet pressed is
+//! chosen; the chosen one's name, description and turning model show, and
+//! it is lit. Accept travels there (`GameAction::Travel`) when it is
+//! selectable; Back closes the map. Every player sees the map; only the
+//! host's Accept travels (I30 P6), a guest's is hidden.
 //!
 //! A KOTOR 1 campaign keeps KOTOR 1's own layout: KOTOR 2's holds KOTOR 2's
 //! planets (`skin::OWN`).
@@ -29,6 +29,9 @@ pub struct GalaxyMap {
 const NAME: &str = "LBL_PLANETNAME";
 const DESCRIPTION: &str = "LBL_DESC";
 const MODEL: &str = "3D_PlanetModel";
+/// The view behind the planets, which shows the galaxy.
+const DISPLAY: &str = "3D_PlanetDisplay";
+const GALAXY: &str = "galaxy";
 const ACCEPT: &str = "BTN_ACCEPT";
 const BACK: &str = "BTN_BACK";
 /// The layout's planet buttons start so (`LBL_Planet_Taris`, `LBL_Live01`).
@@ -109,7 +112,11 @@ impl Screen for GalaxyMap {
                     None => hidden(),
                 }
             }
-            "3D_PlanetDisplay" => said(None),
+            DISPLAY => ControlState {
+                scene: Some(SceneView::Model(GALAXY.into())),
+                text: Some(Vec::new()),
+                ..ControlState::default()
+            },
             _ => ControlState::default(),
         }
     }

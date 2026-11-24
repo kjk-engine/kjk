@@ -78,16 +78,22 @@ pub fn carry_old_name(folder: &Path) {
     }
 }
 
-/// kjk's folder for its settings and saves, the platform's own place as
-/// `var` (the environment) gives it: `Application Support` on macOS,
-/// `%APPDATA%` on Windows, else the XDG config folder. `None` without a
-/// home to tell it by. A folder under the old name is carried over.
+/// kjk's folder for its settings and saves, as `var` (the environment)
+/// gives it: `KJK_HOME` when it is set. Otherwise the platform's own
+/// place: `Application Support` on macOS, `%APPDATA%` on Windows, else the
+/// XDG config folder. A folder under the old name is carried over to that
+/// place. When that place has a `moved-to.txt` whose first line names an
+/// existing folder, that folder is kjk's folder instead. `None` without a
+/// home to tell it by.
 pub fn kjk_folder(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     let set = |name: &str| {
         var(name)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
     };
+    if let Some(home) = set("KJK_HOME") {
+        return Some(home);
+    }
     let base = if cfg!(target_os = "macos") {
         set("HOME").map(|home| home.join("Library").join("Application Support"))
     } else if cfg!(windows) {
@@ -95,8 +101,22 @@ pub fn kjk_folder(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     } else {
         set("XDG_CONFIG_HOME").or_else(|| set("HOME").map(|home| home.join(".config")))
     };
-    base.map(|base| base.join("kjk"))
-        .inspect(|folder| carry_old_name(folder))
+    let default = base
+        .map(|base| base.join("kjk"))
+        .inspect(|folder| carry_old_name(folder))?;
+    Some(moved_to(&default).unwrap_or(default))
+}
+
+/// The file in kjk's default folder that names the folder it was moved to.
+pub const MOVED_TO: &str = "moved-to.txt";
+
+/// The existing folder that the first line of `MOVED_TO` in `default`
+/// names.
+fn moved_to(default: &Path) -> Option<PathBuf> {
+    let text = fs::read_to_string(default.join(MOVED_TO)).ok()?;
+    let first = text.lines().next()?.trim();
+    let folder = PathBuf::from(first);
+    (!first.is_empty() && folder.is_dir()).then_some(folder)
 }
 
 impl Store {
@@ -407,6 +427,25 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::rename(&temporary, path).inspect_err(|_| {
         let _ = fs::remove_file(&temporary);
     })
+}
+
+/// Moves a file that cannot be read out of the way, so that a start can go
+/// on without it and the player still has it. The file is renamed to
+/// `<name>.bad` beside it, or `<name>.bad-2`, `<name>.bad-3` and so on when
+/// that name is taken. The result is the new path.
+pub fn set_aside(path: &Path) -> io::Result<PathBuf> {
+    let name = path
+        .file_name()
+        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+    let mut aside = path.with_file_name(format!("{name}.bad"));
+    for n in 2.. {
+        if !aside.exists() {
+            break;
+        }
+        aside = path.with_file_name(format!("{name}.bad-{n}"));
+    }
+    fs::rename(path, &aside)?;
+    Ok(aside)
 }
 
 /// Marks `path` used now (its modified time), for `gc`; failing is fine.

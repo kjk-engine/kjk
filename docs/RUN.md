@@ -9,9 +9,47 @@ KJK_PERF=1 kjk --cmds '…'             # also writes a trace
 kjk play --mute …                     # no sound (or KJK_MUTE=1); the settings' volumes untouched
 kjk --reset-display                   # opens in a window: the settings' screen resolution put back
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
+KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
+KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at a half of the window's side (taa_quality, taa_balanced, taa_ultra_performance; `game::upscale`)
+KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
+KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
+KJK_DEPTH_PREPASS=none kjk …          # sets the depth prepass's coverage for the run (none or full) in place of the GPU load check. The old value rooms now gives full. TAA, the upscalers and ambient occlusion still get the full one (`game::prepasses`, docs/PREPASSES.md)
+KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
+KJK_CHECKED_SHADERS=1 kjk …           # kjk's own shaders compiled with wgpu's runtime checks: every array index clamped and every loop bounded (`game::shader_checks`); 0 turns them off
+KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
+KJK_EXTRACT_GATES=off kjk …           # every one of Bevy's extract systems runs on every frame, even with nothing to copy (see "Three switches change how kjk runs")
+KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
+KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
+KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
+KJK_RAYS=on KJK_AA=taa kjk …          # Shadows at Ultra for the run, whatever the settings say, on a card with ray queries (`game::ray_structures`)
+KJK_SOFTWARE_RENDERER=1 kjk …         # a run with a window draws on a software renderer (Windows' WARP, llvmpipe) instead of closing with a message (`game::crash::refuse_software_adapter`)
+KJK_RAYS=off kjk …                    # the render device is made without ray queries, as on a card that has none; Ultra draws as High
+KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=5 kjk …  # characters, placeables and doors show in colour where a ray from the camera meets their structures
+KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=6 kjk …  # the rooms' meshes show in colour where a ray from the camera meets their merged structures, one colour for each mesh
+KJK_ROOM_QUERIES=off kjk …            # the rooms hidden behind walls are drawn too: no occlusion queries, only the VIS and the fog pick the rooms (`game::room_queries`)
+KJK_PROBES=off kjk …                  # Enhanced lighting without the light probes: characters take the area's flat ambient (`game::light_probes`)
+KJK_PROBES=only kjk …                 # characters, placeables and doors show their probe light alone, with no lamps and no texture
+KJK_LAMP_SHARE=1 kjk …                # all of each lamp's share is taken out of the probe light (0 to 1; half by default), for tuning
+KJK_AO=on kjk …                       # Ambient Occlusion on for the run, whatever the settings say (`off` turns it off); it still needs Enhanced lighting and TAA, DLSS or the upscaler (`game::ambient_occlusion`)
+KJK_AO=on KJK_AO_DEBUG=1 kjk …        # the surfaces that take ambient occlusion show it alone: white in the open, darker where something stands close
+KJK_AO=on KJK_AO_DEBUG=2 kjk …        # those surfaces show the normals the occlusion is worked out from (green faces up)
+KJK_AO_LIGHTMAP=0.3 kjk …             # the share of the occlusion a lightmapped surface takes (0 to 1; 1 by default), for tuning
+KJK_AO_CONTACT=0 kjk …                # the share of the contact darkening under bodies kept while ambient occlusion is on (0 to 1; all of it by default), for tuning
+KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and placeables keep off the floor comes from straight above, as it did before step 7b, to compare pictures
+KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
+KJK_LINEAR=temporal kjk …             # the linear frame (LIGHTING-PLAN.md step 9), under Enhanced lighting with TAA, the upscaler or DLSS only: the frame decoded to linear light before the temporal pass, and encoded after (`game::linear_frame`)
+KJK_REPLAY_STAGE=arena@302nar kjk sim replay run.kjkr   # replays a recording made on an arena stage in the level that stage makes. The module alone does not make the stage's level
+KJK_REPLAY_HOSTILE=GandThug,TranThug kjk sim replay …   # with KJK_REPLAY_STAGE, the creatures that `--hostile` turned against the player when the recording was made, separated by commas
+KJK_REPLAY_TIMES=times.txt kjk sim replay run.kjkr      # also writes each tick's number and the microseconds since the tick before it, one tick a line. A tick after a checkpoint also counts the time to hash the checkpoint
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
+kjk installs --json                   # one JSON line: each game's folder (found, refused or missing) and whether ffmpeg is there, for the launcher; no window
+kjk installs --json --check k1 <dir>  # the same for one folder a player picked; nothing is written
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
+
+`KJK_HOME` names kjk's folder for its settings, saves and logs. When the
+system's own folder for kjk has a file `moved-to.txt` whose first line is
+the path of an existing folder, kjk uses that folder instead.
 
 ## Commands
 
@@ -32,11 +70,26 @@ ends the run with exit code 1; a script that does not parse exits with 2.
 | `ui open inventory`, `ui press BTN_OK`, … | at once: the request handed to the game's screens (`UI.md` lists them) |
 | `vfx 2007 end_trask [9] [source]` | at once: a `visualeffects.2da` row played on the creature with that tag, as a script's would be, for that many seconds, a beam from the source's tag |
 | `anim 2.5`, `anim run` | at once: animation and game time are held at that second (`kjk play` steps the sim up to it), or run with the clock again |
+| `tick 400`, `tick run` | the world has stepped to that tick of the sim. The world is then held there. Frames go on, but no later tick is stepped until `tick run` or a later `tick`. An order given while the world is held lands on the next tick, once a few frames have passed (`wait 10f`). So a run that holds and gives its orders at the same ticks plays the same ticks every time. The command fails if the world is already past that tick, or if it has not reached it within 120 s. It works in `kjk play` without co-op, and it follows `wait world` |
 | `record name 1.5 5.5 [30]` | game time is held at each frame's moment from 1.5 s to 5.5 s in turn (30 a second), each screenshotted (`name-0000.png`, …), then `name.mp4` is made of them with the run's `audio.wav` by `ffmpeg` (none: the frames stay, with a warning) |
 | `clip name 9 [12]` | the game, running on, screenshotted 12 times a second of its time for 9 s (later when capturing falls behind), each frame stamped with the game's time it shows, then `name.mp4` of them with the sound (`SOUND.md`) |
+| `size 1920 1080` | at once: a headless run's frame is resized to that width and height in pixels, as a player resizing the game's window would resize it. A run with a window fails this command. `size 0 0` stands for a minimized window. Every camera drawing the frame is then sized 0 by 0, as Bevy sizes the cameras of a minimized window on Windows, and the frame keeps its image. The next `size` brings the cameras back. |
 | `quit` | always; the run ends with success |
 
 Unnamed screenshots and dumps are numbered (`screenshot-1`, `dump-1`, …).
+
+A dump's `census` fact counts what a long session could pile up. It gives
+how many entities have each component, the archetypes, the resources, and
+the systems each schedule runs. It gives the render world's entities. It
+gives how many buffers, textures, bind groups and other objects wgpu still
+holds for the program (`gpu_objects`, counted every 30 render frames), and
+the GPU memory wgpu's allocator has handed out (`gpu_memory`). The `assets`
+fact counts the meshes, images, shaders and each kind of material. The
+`vitals` fact gives the process's memory, on Windows its private bytes
+(`footprint_mb`) and its working set (`resident_mb`). Dumps taken at the
+same spot after each load or area change should give the same counts. A
+count that grows each time is something the session keeps that it should
+let go (issue 445).
 
 `kjk play` (and `host`, `join`) opens its window at once on KOTOR's loading screen and loads its
 stage on a thread meanwhile (as the main menu's New Game does), drawing the
@@ -76,10 +129,14 @@ slowest. A phase is added with `launch_times::timed` or `record`.
 
 ```bash
 kjk bench                                   # every scene, the default settings
-kjk bench --preset low --label mine         # MSAA, shadows and soft shadows off
+kjk bench --preset low --label mine         # MSAA and shadows off
 kjk bench --scenes cantina,harbinger --seconds 10
 kjk bench --exe path/to/old/kjk.exe --label v0.10.0   # another build, run from here
 kjk bench --scenes cantina --trace          # also keep each scene's trace.json
+kjk bench --scenes ebon_hawk,peragus_hangar,dark_fight --preset shadows-hard --gpu
+kjk bench --scenes ebon_hawk --preset enhanced --gpu               # the Lighting setting's cost
+kjk bench --scenes dark_fight --preset shadows-soft --gpu --headless --size 3840x2160
+kjk compare-pictures first.png second.png --out difference.png
 ```
 
 Each scene (`bench::SCENES`: a stage or a chain save, copied to
@@ -96,17 +153,265 @@ beside it; the run folders are deleted. A frame takes about the longer of
 the two threads plus the extract (which runs on the main thread while the
 render thread waits).
 
+The results count the draw calls of the main opaque pass
+(`opaque_draws`), of its alpha-masked pass (`mask_draws`), of the depth
+prepass (`prepass_draws`) and of the see-through items
+(`transparent_draws`). Since 2026-11-18 a multi-drawn batch set counts as
+one draw in each of them. Before that, `opaque_draws` left those batch sets
+out, so it can read higher than in older results. Each scene's
+`depth_prepass` gives the share of the measured frames at each coverage of
+the depth prepass (none or full) and the number of changes. It also gives
+the GPU load check's mean GPU time and render frame time over the run,
+when the GPU was timed (`docs/PREPASSES.md`).
+
 Two more scenes, Citadel Station (`telos`) and Kashyyyk's Great Walkway
 (`kashyyyk`), run only when named (`--scenes telos,kashyyyk`): a
 profile-guided build is trained on the others (docs/RELEASE.md), and these
-check that its gain holds beyond them.
+check that its gain holds beyond them. The lighting plan's two scenes
+(`docs/LIGHTING-PLAN.md`) also run only when named. `ebon_hawk` is TSL's
+Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
+fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
+plan measures them together with `peragus_hangar`.
 
-Two switches for measuring against: `KJK_EXEC` names the schedules run
-on one thread (`main,render,graph` by default; `none`: Bevy's
-multithreaded executor everywhere; on macOS a run with a window keeps
-`render` multithreaded, since its surface is made on the main thread),
-and `KJK_PERF=1` keeps Bevy's spans
-(which cost about a quarter of the frame rate).
+Six crowd scenes also run only when named. They put the most characters
+in view at once, to measure what posing them costs. Each scene holds the
+camera where it shows the most of them.
+
+- `crowd_brawl` is the Jekk'Jekk Tarr cantina on Nar Shaddaa. It adds 40
+  foes, and about 120 characters stand within 150 m of the camera.
+- `refugee_brawl` is Nar Shaddaa's Refugee Quad. It adds 40 foes, and
+  about 100 characters stand within 150 m.
+- `anchorhead_brawl` is Anchorhead on Tatooine. It adds 40 foes, and about
+  70 characters stand within 150 m.
+- `proving_grounds` is the Trayus Proving Grounds on Malachor, with its 59
+  foes.
+- `trayus_academy` is the Trayus Academy on Malachor, with its 70 Sith.
+- `upper_cantina` is Taris's Upper City Cantina, with 41 characters. It is
+  the only crowd at peace.
+
+The first five are fights, and in each of them the player is made
+immortal so that the fight lasts the whole measurement.
+
+The five fights play the same fight in every run. In the three fights
+with 40 added foes, the bench holds the world at tick 400 (`tick 400`),
+makes the player immortal, calls in the 40 foes and places the camera,
+then lets the world run on. Every order lands on tick 401. In the two
+Malachor fights, the bench holds the world at tick 125 and makes the
+player immortal, so the order lands on tick 126. It then holds the world
+again while it places the camera. That is at tick 500 for
+`trayus_academy` and at tick 1000 for `proving_grounds`. So every run
+simulates the same ticks with the same inputs, and two builds with the
+same sim hash (`bumps/SIM_HASH`) are measured on the same fight. A `kjk`
+older than the `tick` command cannot run these five scenes. The dumps are still taken at moments of
+wall time, so a slow frame can move a measuring window by a few ticks.
+Each scene's line in the results file gives `ticks`, the sim's tick at
+the first dump and at the last. Two builds that kept up with the clock show nearly
+the same ticks. A build whose frames took longer than 64 ms falls behind
+the clock and shows fewer ticks, and its fight is then not the same.
+
+```bash
+kjk bench --scenes crowd_brawl,refugee_brawl,anchorhead_brawl,trayus_academy,proving_grounds,upper_cantina
+```
+
+The table's last two columns give the mean time per frame spent posing
+the characters (`game::cast`) and how many were posed per frame. A `kjk`
+whose dumps do not sum them shows `-`.
+
+The scene `main_menu` is K1's main menu, started with no arguments. Malak
+stands in smoke and mist there, which the menu draws into a 3D view of its
+own (`game::gui_scene`). Its line in the table is followed by a line for
+each such view: the particle quads drawn, the pixels they cover, the
+view's own pixels, and the samples each pixel takes. A pixel covered by
+ten quads counts ten times. These numbers do not depend on the GPU, so
+they compare a fast machine's run with a slow one's. On 2026-11-13 the
+menu drew about 640 quads, which covered each pixel of its view about 75
+times over. The results file has them as `view_particles`.
+
+On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
+make the timing queries' buffer). Run without it there.
+
+There are twenty presets. `default` keeps the settings' defaults. `low`
+turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
+other three set the shadows alone, over MSAA 4. `shadows-off` sets
+Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
+to High. Shadows are cast by the characters' capsules. At Low and at
+High the area's lamps and its sun cast them. A fight's lights cast them
+too: from each character, the 3 that light it most at High, and the 1
+that lights it most at Low, where each traces 3 merged capsules. At
+Ultra every one of a fight's lights casts.
+At High the characters nearest the camera and the placeables also
+cast from shadow tiles, depth pictures drawn from their own meshes
+(`game::shadow_tiles`). `KJK_SHADOW_TILES=off` turns the tiles off, so
+one build measures High with and without them. When tiles are drawn, a
+line under each scene gives their count, the meshes drawn into them, the
+draw calls a frame, and the microseconds each step of the tile pass took:
+`gather` on the main thread, `extract`, `prepare` and `draw` on the render
+thread. The results file has them as `shadow_tiles`.
+With `KJK_SKIN_ONCE=on` a compute pass places each character's skinned
+vertices in the world once a frame, and the character's tiles draw them
+(`game::skin_once`). Without it, the tile pass skins each mesh once for
+each tile. The switch lets one build measure both. The compute pass's
+work is inside `prepare` and `draw`. The results file's
+`shadow_tiles.skin_once` gives the meshes it places and their vertices.
+`shadows-ultra` sets Shadows to Ultra over TAA, and `shadows-high-taa`
+sets Shadows to High over TAA, so the two can be compared. At Ultra each
+light's shadow is one ray toward the light. The ray is traced against
+acceleration structures of the casting characters, the placeables and the
+doors (`game::ray_structures`). A fight's light is also traced against the
+rooms' structures, which are built once as an area loads, so a wall or a
+closed door stops it. No tile is drawn, and the skin-once pass
+places every casting character for the structures. Ultra needs a card
+with ray queries, and TAA or DLSS. TAA at the window's size and kjk's own
+upscaler both count as TAA. Under MSAA, or on a card without ray
+queries, Ultra draws as High does. The GPU spans
+`ray_structures/characters` and `ray_structures/top_level` time the
+builds. A span `ray_structures/placeables` is there only on a frame that
+builds a placeable's, a door's or a weapon's structure, or the merged
+structures of the placeables or the doors. A span `ray_structures/rooms`
+is there only on a frame that builds the rooms' merged structures, which
+happens once as an area loads.
+A dump's `ray_structures` fact gives the counts, and whether the structures
+are traced. `instances` counts the top-level structure's instances. wgpu
+walks every one of them at the frame's submit, once for each time the
+frame sets an Odyssey material. This count is what makes Ultra cost time
+on the CPU.
+`dependencies` counts the bottom-level structures those instances use,
+each once. The rooms' meshes are geometries of a few merged structures
+(`room_structures`, `room_geometries`, `room_triangles`). The placeables'
+meshes that stand still are geometries of merged structures too
+(`prop_structures`, `prop_geometries`), and so are the doors'
+(`door_structures`, `door_geometries`). `room_builds`, `prop_builds` and
+`door_builds` count how many times each kind of merged structure was built
+since the run started. In a scene where nothing moves they stay the same.
+`room_moving` counts the room meshes that an area's animation keeps
+moving. They are left out of the rooms' structures. `room_lists` counts
+how many times the list of room meshes was made since the run started.
+`props_apart` and `doors_apart` count the placeables' and doors' meshes
+that moved or appeared in the last 30 frames, which have instances of
+their own. `rigid_meshes` counts the characters' weapons and helmets, which
+have instances of their own too. `KJK_RAYS=on`
+makes a run use Ultra whatever the settings say. `KJK_RAYS=off` makes the
+render device without ray queries, so a run acts as a card that has none.
+`classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
+Shadows at High. `KJK_AA=taa` in front of the command runs either under
+TAA. `effects-high` and `effects-low` set the options' Effects Quality
+alone, over MSAA 4 and Shadows at High. Each view's particle line then
+also names the Effects Quality and the pixels the particles are drawn
+over at it. At Low that is a quarter of the pixels they cover, since the
+particles are drawn at half the width and half the height.
+`ao-off` and `ao-on` set the options' Ambient Occlusion alone, over TAA,
+Enhanced lighting and Shadows at High, since the option needs TAA and
+Enhanced lighting. With `--gpu`, a line under each scene gives the GPU time
+of the pass (`ambient_occlusion`, its three compute passes together) and
+of the depth prepass (`early prepass`), which also writes the normals while
+the option is on. A dump's `ambient_occlusion` fact says whether the scene
+camera has the pass (`on`), why not (`why_not`: `off`, `classic`, `msaa`
+or `unsupported`), how many frames it ran in since the run began
+(`frames_run`), the size of the frame it last ran over (`size`, the
+smaller frame under an upscaler), its samples a pixel (`samples`), and the
+two shares set by `KJK_AO_LIGHTMAP` and `KJK_AO_CONTACT`.
+Six presets set the anti-aliasing alone. `taa` sets TAA at the
+window's size. `taa-quality`, `taa-balanced`, `taa-performance` and
+`taa-ultra-performance` set kjk's own upscaler at two thirds, 58%, a half
+and a third of the window's side. `dlss-performance` sets DLSS at a half
+of the side, and falls back to `taa-performance` on a card or a build
+without DLSS. Under the upscaler, a line under each scene gives the GPU
+time of its resolve (`taa_upscale`) and of its sharpening
+(`taa_upscale_sharpen`).
+
+`kjk compare-pictures` tells how far two pictures of one size differ. It
+prints the largest and the mean difference of a colour channel, in steps
+of 255, and how many pixels differ by more than 2 steps. `--out` writes a
+grey picture of the differences, 16 times as bright.
+
+Two runs of one build never draw quite the same picture. Characters
+breathe, console lights blink and dust blows. `--still third.png` takes a
+second picture made the same way as the first. Only the pixels that are
+exactly the same in those two are then compared. `--up-to 229` compares only the
+colour channels that are at most 229 of 255 in the first picture. That is
+the roll-off's knee (`game::rolloff`), below which Enhanced lighting
+leaves a value alone.
+
+The pictures for such a check come from headless runs, which draw the
+same frames each time. A bench's picture does not, because its window
+runs as fast as it can. This takes one picture of the cantina at frame
+240, under the settings file named in `KJK_SETTINGS`:
+
+```bash
+kjk play --stage tar_m03ae --headless --cmds 'wait world; wait 240f; screenshot still; quit'
+```
+
+The Dune Sea's dust moves over the whole frame, so almost every pixel
+changes between two runs there.
+
+`--size 3840x2160` sets the frame's size in place of 1920x1080.
+`--headless` runs each scene with no window. A headless run is paced at
+60 frames a second, so its frame times say little, but `--gpu`'s pass
+times hold. A card too fast to show a GPU cost at 1920x1080 shows it this
+way.
+
+`--gpu` times the render passes on the GPU. It sets `KJK_GPU_TIMES=1`,
+which any run can set. Bevy's render diagnostics then time its main
+passes, and count their fragment shader invocations where the adapter
+counts them. kjk's own passes over the frame are timed too, as `roll_off`,
+`video_effect` and `ui_composite`. A `shadows` span also times Bevy's
+shadow-map systems. No
+light draws a shadow map since the capsule shadows, so the span is about
+0 ms on builds that have them. Each
+pass's milliseconds are summed over every camera and light view of a
+frame. A dump's `vitals.gpu` has them per pass (`ms` and `fragments`),
+and their total (`spans_ms`). The table shows them on a line under each
+scene. The results file has them as `gpu_ms`, `gpu_fragments` and
+`gpu_spans_ms`. The timestamp queries cost a little. So a comparison of
+two builds runs both with `--gpu` or both without it. An older build
+has no GPU timings at all.
+
+Three switches change how kjk runs, to measure against.
+
+`KJK_EXEC` names the schedules that run on one thread. By default these
+are `main,render,graph`. With `none`, Bevy's multithreaded executor runs
+every schedule. On macOS, a run with a window keeps `render`
+multithreaded, because its surface is made on the main thread.
+
+`KJK_PERF=1` keeps Bevy's spans. They cost about a quarter of the frame
+rate.
+
+`KJK_EXTRACT_GATES=off` runs every one of Bevy's extract systems on every
+frame. By default, kjk skips an extract system on the frames where it has
+nothing to copy. In a fight, about half of them are skipped.
+
+## The rooms' own light: `kjk room-lights`
+
+```bash
+kjk room-lights                          # K1 and TSL, into target/room-lights
+kjk room-lights tsl --out somewhere/else
+```
+
+This survey opens no window. It reads every area's rooms, doors,
+placeables and creatures, and the rooms' lightmaps. It writes
+`room-lights.json` with every lamp, every glowing mesh, every room and
+every lightmapped room mesh. It writes `room-lights.txt` with the tables
+of step 7a and 7d of `LIGHTING-PLAN.md`. A run over both games takes
+about half a minute.
+
+## Lights fitted to the lightmap: `kjk room-light-fit`
+
+```bash
+kjk room-light-fit tar_m03ae               # into target/room-lights/fit
+kjk room-light-fit 003ebo --game tsl
+kjk room-light-fit lev_m40ac --every-glow  # every glowing mesh is a panel
+```
+
+This trial tool opens no window and works on one module. It searches
+K1 and then TSL for the module unless `--game` names one. It takes the
+area's lamps and glowing panels as lights at fixed places. It then solves
+for the strengths that best match BioWare's lightmaps, as step 7c of
+`LIGHTING-PLAN.md` describes. For each area it writes four files. The
+`.txt` file holds the tables. The `.json` file holds every candidate light
+with its fitted strength. The `-lightmaps.png` picture shows every
+lightmap beside the fitted light and their difference. The `-top.png`
+picture shows the floors from above in the same three panels. A run takes
+from 10 seconds to about a minute.
 
 ## The whole-game sweep
 
@@ -162,7 +467,7 @@ kjk playthrough k1 @taris_start data/routes/k1/taris_upper_city.route --god
 `--god` keeps the player above 0 HP (the sheet's immortal flag, which a
 script's `SetMinOneHP` leaves alone): a walk that tests what the scripts and the world do, not
 the fights' balance. `--mighty` makes the player's blows count ten times
-over (fights end quickly; a test aid as `--god` is). The player clicks
+over, in KOTOR 2 each with the greatest chance to hit (fights end quickly; a test aid as `--god` is). The player clicks
 past every conversation line that plays out on its own, as a player
 skips dialogue (`Pick::Skip`); `--listen` hears every line out.
 `--stale` starts from a checkpoint made with other level data than this
@@ -180,7 +485,10 @@ its end, `MINIGAMES.md`; `turrets hold` without firing), `pazaak`, `equip` (`equ
 the party carries if named), `bash` (struck with what is in hand until its lock breaks), `disarm X,Y`
 (the mine the party sees nearest there, Demolitions, from where the player stands; `recover X,Y`
 the same, keeping its kit), `cast ROW`
-(that power cast on the player from its power list until its effect lasts), `use item:TEMPLATE` (what
+(that power cast on the player from its power list until its effect lasts), `heal ROW`
+(that healing power cast on the player until its vitality is full), `item TEMPLATE`
+(one of that item the party carries used on the player, once, as the inventory's Use Item button does:
+Manaan's sonic emitter), `use item:TEMPLATE` (what
 holds that item: remains searched, their creature fallen in a route before, or a foe fought), `leader`, `solo`, `return` (the map's return to the Ebon Hawk or back, blocked where the page refuses it), `levelup`, `sell`, `credits`, `wait`, `until`,
 `module`, `if` and `while` blocks closed by `end`; and, for what a route stands in for, `global`,
 `gold`, `skill NAME=RANK` and `goto MODULE [TAG]`, the module's entry

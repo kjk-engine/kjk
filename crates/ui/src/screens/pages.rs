@@ -9,9 +9,10 @@ use fmt_odyssey::gui::{Control, Gui};
 
 use crate::draw::{DrawList, Quad};
 use crate::intent::{GameAction, GuiSound, Intent};
-use crate::paint::{ControlState, ListView, Painter, Row, rect_of};
+use crate::paint::{ControlState, ListView, Painter, Row, bonus_colour, rect_of};
+use crate::screens::copy_beside;
 use crate::screens::filter::{self, Filter};
-use crate::screens::tab::{Page, disabled, enabled, hidden, image, rows, signed, text};
+use crate::screens::tab::{Page, disabled, enabled, hidden, image, rows, signed, skin_line, text};
 use crate::vm::{CharacterView, Entry, Owned, Preview, SceneView, ViewModel};
 
 fn character(vm: &ViewModel) -> CharacterView {
@@ -66,6 +67,12 @@ fn described_refused(entry: Option<&Entry>, lead: &[u8], refused: Option<&[u8]>)
     state
 }
 
+/// An attack bonus as the equip page writes it ("+2", "0", "-1"), or
+/// nothing for a hand that shows no weapon.
+fn shown(attack: Option<i32>) -> String {
+    attack.map_or(String::new(), signed)
+}
+
 /// What putting an item on changes, as the equip page's numbers show it
 /// (`Preview`): each that changes, "now -> then", a line each and a blank
 /// line after; nothing when none does.
@@ -79,8 +86,8 @@ fn preview_lines(me: &CharacterView, then: &Preview) -> Vec<u8> {
     for (hand, side) in ["", "Off hand "].iter().enumerate() {
         change(
             &format!("{side}Attack"),
-            signed(me.attack[hand]),
-            signed(then.attack[hand]),
+            shown(me.attack[hand]),
+            shown(then.attack[hand]),
         );
         change(
             &format!("{side}Damage"),
@@ -124,23 +131,94 @@ fn vitality(me: &CharacterView) -> String {
     format!("{}/{}", me.hp.0, me.hp.1)
 }
 
-/// The equip slots: their label, their button, the empty slot's icon,
-/// the slot's name (a strref: the same in both games' talk tables; no
-/// layout or table carries them, so the second set's hands are named as
-/// the first's), its `INVENTORY_SLOT_*`.
-const SLOTS: [(&str, &str, &str, u32, u8); 11] = [
-    ("LBL_INV_IMPLANT", "BTN_INV_IMPLANT", "iimplant", 31388, 9),
-    ("LBL_INV_HEAD", "BTN_INV_HEAD", "ihead", 31375, 0),
-    ("LBL_INV_HANDS", "BTN_INV_HANDS", "ihands", 31383, 3),
-    ("LBL_INV_ARM_L", "BTN_INV_ARM_L", "iforearm_l", 31376, 7),
-    ("LBL_INV_BODY", "BTN_INV_BODY", "iarmor", 31380, 1),
-    ("LBL_INV_ARM_R", "BTN_INV_ARM_R", "iforearm_r", 31377, 8),
-    ("LBL_INV_WEAP_L", "BTN_INV_WEAP_L", "iweap_l", 31378, 5),
-    ("LBL_INV_BELT", "BTN_INV_BELT", "ibelt", 31382, 10),
-    ("LBL_INV_WEAP_R", "BTN_INV_WEAP_R", "iweap_r", 31379, 4),
-    ("LBL_INV_WEAP_L2", "BTN_INV_WEAP_L2", "iweap_l", 31378, 19),
-    ("LBL_INV_WEAP_R2", "BTN_INV_WEAP_R2", "iweap_r", 31379, 18),
+/// The equip slots: their label, their button, the name of the empty
+/// slot's icon, the slot's name for a living character and for a droid,
+/// and its `INVENTORY_SLOT_*`. The names are strrefs, the same in both
+/// games' talk tables. No layout or table carries them, so the second
+/// set's hands are named as the first's.
+///
+/// Both games show a droid the same slots as a living character, with
+/// other icons and names. A droid's empty slot icon is the living
+/// character's with a "d" after the first "i" (`idhands`, not `ihands`).
+/// A droid's head is its Sensor, its body its Plating, its belt its
+/// Shield, its two forearms its Special Weapons, and its hands and implant
+/// slots its two Utility slots.
+const SLOTS: [(&str, &str, &str, u32, u32, u8); 11] = [
+    (
+        "LBL_INV_IMPLANT",
+        "BTN_INV_IMPLANT",
+        "implant",
+        31388,
+        41811,
+        9,
+    ),
+    ("LBL_INV_HEAD", "BTN_INV_HEAD", "head", 31375, 41810, 0),
+    ("LBL_INV_HANDS", "BTN_INV_HANDS", "hands", 31383, 41811, 3),
+    (
+        "LBL_INV_ARM_L",
+        "BTN_INV_ARM_L",
+        "forearm_l",
+        31376,
+        41814,
+        7,
+    ),
+    ("LBL_INV_BODY", "BTN_INV_BODY", "armor", 31380, 41813, 1),
+    (
+        "LBL_INV_ARM_R",
+        "BTN_INV_ARM_R",
+        "forearm_r",
+        31377,
+        41814,
+        8,
+    ),
+    (
+        "LBL_INV_WEAP_L",
+        "BTN_INV_WEAP_L",
+        "weap_l",
+        31378,
+        31378,
+        5,
+    ),
+    ("LBL_INV_BELT", "BTN_INV_BELT", "belt", 31382, 41812, 10),
+    (
+        "LBL_INV_WEAP_R",
+        "BTN_INV_WEAP_R",
+        "weap_r",
+        31379,
+        31379,
+        4,
+    ),
+    (
+        "LBL_INV_WEAP_L2",
+        "BTN_INV_WEAP_L2",
+        "weap_l",
+        31378,
+        31378,
+        19,
+    ),
+    (
+        "LBL_INV_WEAP_R2",
+        "BTN_INV_WEAP_R2",
+        "weap_r",
+        31379,
+        31379,
+        18,
+    ),
 ];
+
+/// The icon an empty slot shows for `me`: `i` and the slot's name, with a
+/// `d` between them for a droid.
+fn empty_icon(me: &CharacterView, name: &str) -> String {
+    format!("i{}{name}", if me.droid { "d" } else { "" })
+}
+
+/// The name of `slot` (a `SLOTS` button) for `me`, as a strref.
+fn slot_name(me: &CharacterView, slot: &str) -> Option<u32> {
+    SLOTS
+        .iter()
+        .find(|(_, button, ..)| *button == slot)
+        .map(|(.., living, droid, _)| if me.droid { *droid } else { *living })
+}
 
 /// The slot whose `equipableslots` bit a slot's items carry: the second
 /// weapon set's hands (18, 19) the first's (4, 5), as TSL's equip screen
@@ -168,7 +246,7 @@ const LOCKED_SLOT: u32 = 125554;
 /// Whether the equip page dresses the party member it shows: the
 /// player's own, or one the bar marks (`MemberView::dresses`: the host's
 /// companions no seat plays, I30 P14).
-fn dresses(vm: &ViewModel) -> bool {
+pub(crate) fn dresses(vm: &ViewModel) -> bool {
     vm.viewed == 0 || vm.party.get(vm.viewed).is_some_and(|member| member.dresses)
 }
 
@@ -189,6 +267,14 @@ pub struct Equip {
     pointed: usize,
     /// The headgear eye has the focus: its tip shows.
     eye_focused: bool,
+    /// The slot whose list the list's cursor last stood in: each slot's
+    /// list (one list control) opens with its cursor at the top.
+    cursor_in: Option<u8>,
+    /// The controls under the description box (`under_desc_box`), told
+    /// before the layout is stretched to the window, by tag and id: the
+    /// menu bar's layout under the page has controls of the same tags (its
+    /// own `LBL_BACK1`).
+    under_desc: Vec<(String, i32)>,
 }
 
 /// The eye in the head slot's top right corner (a remaster's, kjk's own
@@ -215,11 +301,13 @@ impl Equip {
     }
 }
 
-/// Where TSL's `equip_p` keeps its description box (`LB_DESC`): over the
-/// slots, which it hides while a slot's list is open.
+/// Where TSL's `equip_p` keeps its description box (`LB_DESC`) in its
+/// 800 × 600 frame: over the slots, which it hides while a slot's list is
+/// open.
 const DESC_BOX: [i32; 4] = [410, 134, 313, 336];
 
-/// Whether `control`'s centre lies within the description box (`DESC_BOX`).
+/// Whether `control`'s centre lies within the description box (`DESC_BOX`),
+/// in the layout as read (`Page::fit_read`, before the stretch).
 fn under_desc_box(control: &Control) -> bool {
     let [left, top, width, height] = DESC_BOX;
     let extent = control.extent;
@@ -251,15 +339,20 @@ impl Equip {
     /// goes in it and is for the member's race (`Owned::unfit`), as both
     /// games' equip screens list (`CSWGuiInGameEquip`): those it may not
     /// wear among them (`refused`).
-    fn listed(&self, me: &CharacterView) -> Vec<Listed> {
+    ///
+    /// With KOTOR 2's feedback option "Hide Unequippable" on, the items the
+    /// member may not wear are left out instead of drawn red.
+    fn listed(&self, me: &CharacterView, vm: &ViewModel) -> Vec<Listed> {
         let Some((_, slot)) = self.slot else {
             return Vec::new();
         };
+        let hide = crate::feedback::on(&vm.settings, crate::feedback::HIDE_UNEQUIPPABLE);
         let worn = me.worn.iter().find(|(at, _)| *at == slot);
-        let fitting = me
-            .owned
-            .iter()
-            .filter(|owned| owned.slots & 1 << rules(slot) != 0 && !owned.unfit);
+        let fitting = me.owned.iter().filter(|owned| {
+            owned.slots & 1 << rules(slot) != 0
+                && !owned.unfit
+                && !(hide && why_red(me, slot, owned).is_some())
+        });
         worn.into_iter()
             .flat_map(|(_, owned)| [Listed::Off, Listed::Worn(owned.clone())])
             .chain(fitting.cloned().map(Listed::Carried))
@@ -268,8 +361,8 @@ impl Equip {
 
     /// The chosen row, when choosing it changes something: `Some(None)` for
     /// the "None" row, else the item to wear.
-    fn choice(&self, me: &CharacterView) -> Option<Option<Owned>> {
-        match self.listed(me).get(self.chosen?)? {
+    fn choice(&self, me: &CharacterView, vm: &ViewModel) -> Option<Option<Owned>> {
+        match self.listed(me, vm).get(self.chosen?)? {
             Listed::Off => Some(None),
             Listed::Worn(_) => None,
             Listed::Carried(owned) => Some(Some(owned.clone())),
@@ -289,7 +382,7 @@ impl Page for Equip {
                 // The "None" row tells what it would take off.
                 let row = self.chosen.unwrap_or(self.pointed);
                 let worn = |slot| me.worn.iter().find(|(at, _)| *at == slot);
-                let listed = self.listed(&me).into_iter().nth(row);
+                let listed = self.listed(&me, vm).into_iter().nth(row);
                 let item = match &listed {
                     Some(Listed::Carried(owned) | Listed::Worn(owned)) => Some(owned.clone()),
                     Some(Listed::Off) => self
@@ -318,11 +411,15 @@ impl Page for Equip {
                     refused.as_deref(),
                 );
             }
-            if under_desc_box(control) {
+            if self
+                .under_desc
+                .iter()
+                .any(|(tag, id)| *tag == control.tag && *id == control.id)
+            {
                 return hidden();
             }
         }
-        if let Some((.., empty, _, slot)) = SLOTS.iter().find(|(label, ..)| *label == tag) {
+        if let Some((_, _, empty, .., slot)) = SLOTS.iter().find(|(label, ..)| *label == tag) {
             let worn = me
                 .worn
                 .iter()
@@ -336,7 +433,7 @@ impl Page for Equip {
             return image(Some(
                 worn.or(hand)
                     .and_then(|entry| entry.icon.clone())
-                    .unwrap_or_else(|| empty.to_string()),
+                    .unwrap_or_else(|| empty_icon(&me, empty)),
             ));
         }
         // A locked slot's button in red, as TSL's equip screen draws it.
@@ -352,12 +449,8 @@ impl Page for Equip {
                 None => hidden(),
             },
             "LBL_SLOTNAME" => ControlState {
-                strref: self.slot.and_then(|(slot, _)| {
-                    SLOTS
-                        .iter()
-                        .find(|(_, button, ..)| *button == slot)
-                        .map(|(.., strref, _)| *strref)
-                }),
+                strref: self.slot.and_then(|(slot, _)| slot_name(&me, slot)),
+                skin_strref: true,
                 text: self.slot.is_none().then(Vec::new),
                 ..ControlState::default()
             },
@@ -372,7 +465,7 @@ impl Page for Equip {
                 // that does not go with its main hand's weapon.
                 let refused = |owned: &Owned| why_red(&me, slot, owned).is_some();
                 let (entries, red): (Vec<Entry>, Vec<bool>) = self
-                    .listed(&me)
+                    .listed(&me, vm)
                     .into_iter()
                     .map(|row| match row {
                         Listed::Carried(owned) => (owned.entry.clone(), refused(&owned)),
@@ -406,9 +499,9 @@ impl Page for Equip {
             "LBL_DEF" => text(me.defence.to_string()),
             "LBL_ATKR" => text(&me.damage[0]),
             "LBL_ATKL" => text(&me.damage[1]),
-            "LBL_TOHITR" => text(signed(me.attack[0])),
-            "LBL_TOHITL" => text(signed(me.attack[1])),
-            "BTN_EQUIP" => enabled(dresses(vm) && self.choice(&me).is_some()),
+            "LBL_TOHITR" => text(shown(me.attack[0])),
+            "LBL_TOHITL" => text(shown(me.attack[1])),
+            "BTN_EQUIP" => enabled(dresses(vm) && self.choice(&me, vm).is_some()),
             _ => ControlState::default(),
         }
     }
@@ -435,7 +528,7 @@ impl Page for Equip {
             self.chosen = None;
         } else if tag == "BTN_EQUIP" && dresses(vm) {
             let me = character(vm);
-            if let (Some((_, slot)), Some(choice)) = (self.slot, self.choice(&me)) {
+            if let (Some((_, slot)), Some(choice)) = (self.slot, self.choice(&me, vm)) {
                 // K1's equip screen: an item worn, `Inventory_Select`; one
                 // taken off, `Inventory_Drop`.
                 out.push(Intent::Sound(if choice.is_some() {
@@ -469,9 +562,14 @@ impl Page for Equip {
         }
     }
 
+    /// As in both games, the row the pointer or the cursor comes to is the
+    /// chosen one: only it is lit (as the inventory's, `Inventory`).
     fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
         if list == "LB_ITEMS" {
             self.pointed = index;
+            if self.slot.is_some() {
+                self.chosen = Some(index);
+            }
         }
     }
 
@@ -480,7 +578,7 @@ impl Page for Equip {
     fn double(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         let me = character(vm);
         if SLOTS.iter().any(|(_, button, ..)| *button == tag)
-            && self.listed(&me).first() == Some(&Listed::Off)
+            && self.listed(&me, vm).first() == Some(&Listed::Off)
         {
             self.chosen = Some(0);
             self.press("BTN_EQUIP", vm, out);
@@ -489,6 +587,11 @@ impl Page for Equip {
 
     fn primary(&self, list: &str) -> Option<&'static str> {
         (list == "LB_ITEMS").then_some("BTN_EQUIP")
+    }
+
+    fn lists_anew(&mut self) -> bool {
+        let slot = self.slot.map(|(_, slot)| slot);
+        std::mem::replace(&mut self.cursor_in, slot) != slot
     }
 
     /// The slots, else, while a slot's list is open over them, the list.
@@ -511,9 +614,11 @@ impl Page for Equip {
     }
 
     /// The eye's tip, over its top right corner while it has the focus.
+    /// KOTOR 2's feedback option "Enable Tool Tips" off shows no tip.
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
+        let tips = crate::feedback::on(&vm.settings, crate::feedback::TOOLTIPS);
         let (Some((_, hidden)), Some(eye), true) =
-            (Equip::eye(vm), gui.find(EYE), self.eye_focused)
+            (Equip::eye(vm), gui.find(EYE), self.eye_focused && tips)
         else {
             return Vec::new();
         };
@@ -559,16 +664,34 @@ impl Page for Equip {
         eye.extent.height = side;
         gui.controls.push(eye);
     }
+
+    fn fit_read(&mut self, gui: &Gui) {
+        self.under_desc = gui
+            .walk()
+            .filter(|control| under_desc_box(control))
+            .map(|control| (control.tag.clone(), control.id))
+            .collect();
+    }
 }
 
 /// The inventory page: the party's items, of the kind its filter shows;
 /// Use Item uses the chosen one on the member shown (KOTOR's: the items
 /// used on oneself, a medpac or a stim), when this player may.
+///
+/// As in both games, the row the pointer or the cursor comes to is the
+/// chosen one (KOTOR 2's lists select the row under the mouse): only it is
+/// lit, and its description shows. It stays chosen when the pointer leaves
+/// the list.
 pub struct Inventory {
     filter: Filter,
     selected: Option<usize>,
     /// The row the list's cursor is on: described while none is chosen.
     pointed: usize,
+    /// The item it opened on (`at_datapad`), chosen until the player
+    /// chooses another row or filter.
+    wanted: Option<u32>,
+    /// The list's cursor was put on the wanted item (`cursor_to`).
+    placed: bool,
 }
 
 impl Default for Inventory {
@@ -577,15 +700,40 @@ impl Default for Inventory {
             filter: Filter::new(filter::INVENTORY),
             selected: None,
             pointed: 0,
+            wanted: None,
+            placed: false,
         }
     }
 }
 
 impl Inventory {
+    /// The page opened on datapad `item` (a picked-up datapad's box read
+    /// with the journal key): the Datapads filter chosen, the datapad
+    /// chosen in its list, its words in the description.
+    pub fn at_datapad(item: u32) -> Inventory {
+        let mut page = Inventory {
+            wanted: Some(item),
+            ..Inventory::default()
+        };
+        page.filter.press("BTN_DATAPADS");
+        page
+    }
+
+    /// The chosen row: the player's, else the item it opened on.
+    fn chosen(&self, me: &CharacterView) -> Option<usize> {
+        self.selected.or_else(|| {
+            let wanted = self.wanted?;
+            self.filter
+                .shown(&me.owned, |owned| &owned.entry)
+                .iter()
+                .position(|owned| owned.item == wanted)
+        })
+    }
+
     /// The chosen item, when this player may use it on the member shown.
     fn usable(&self, vm: &ViewModel, me: &CharacterView) -> Option<u32> {
         let listed = self.filter.shown(&me.owned, |owned| &owned.entry);
-        let owned = listed.get(self.selected?)?;
+        let owned = listed.get(self.chosen(me)?)?;
         (owned.usable && dresses(vm)).then_some(owned.item)
     }
 }
@@ -611,8 +759,8 @@ impl Page for Inventory {
             .map(|owned| owned.entry.clone())
             .collect();
         match tag {
-            "LB_ITEMS" => rows(&items, self.selected),
-            "LB_DESCRIPTION" => described(items.get(self.selected.unwrap_or(self.pointed)), &[]),
+            "LB_ITEMS" => rows(&items, self.chosen(&me)),
+            "LB_DESCRIPTION" => described(items.get(self.chosen(&me).unwrap_or(self.pointed)), &[]),
             "LBL_CREDITS_VALUE" => text(me.credits),
             "BTN_USEITEM" => enabled(self.usable(vm, &me).is_some()),
             _ => ControlState::default(),
@@ -622,6 +770,7 @@ impl Page for Inventory {
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         if self.filter.press(tag) {
             self.selected = None;
+            self.wanted = None;
             self.pointed = 0;
         } else if tag == "BTN_USEITEM" {
             let me = character(vm);
@@ -633,12 +782,24 @@ impl Page for Inventory {
 
     fn row(&mut self, _: &str, index: usize, _: &ViewModel) {
         self.selected = Some(index);
+        self.wanted = None;
     }
 
     fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
         if list == "LB_ITEMS" {
             self.pointed = index;
+            self.selected = Some(index);
+            self.wanted = None;
         }
+    }
+
+    fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
+        if self.placed || self.wanted.is_none() {
+            return None;
+        }
+        let row = self.chosen(&character(vm))?;
+        self.placed = true;
+        Some(("LB_ITEMS", row))
     }
 
     fn primary(&self, list: &str) -> Option<&'static str> {
@@ -650,8 +811,59 @@ impl Page for Inventory {
     }
 }
 
+/// The character page: the sheet, and kjk's own Stance under the member
+/// (`STANCE`), with its tip while it has the focus.
 #[derive(Default)]
-pub struct Character;
+pub struct Character {
+    stance_focused: bool,
+}
+
+/// The character page's Stance: the stance set the member stands in or
+/// waits for (`CharacterView::stance`). A press steps the member's saved
+/// pick (`CharacterView::stance_setting`) through its row's set and every
+/// skeleton offered (`ViewModel::stances`), and the game sends the pick to
+/// the host. It is greyed, a press doing nothing, unless the session plays
+/// by MDA and its level has stance sets.
+const STANCE: &str = "BTN_STANCE";
+
+/// The gap between Close and Stance, and how far Stance reaches: to the
+/// member's view's right edge.
+const STANCE_GAP: i32 = 10;
+
+impl Character {
+    /// Whether stances may be picked: the session plays by the Advanced rules, and its
+    /// level offers stance sets.
+    fn stances_on(vm: &ViewModel) -> bool {
+        vm.session_rules.as_deref() == Some(crate::vm::DUEL_RULES) && !vm.stances.is_empty()
+    }
+
+    /// The member's pick among `""` (its row's) and the skeletons offered:
+    /// where it is, and the choices.
+    fn picks<'v>(vm: &'v ViewModel, key: &str) -> (usize, Vec<&'v str>) {
+        let choices: Vec<&str> = std::iter::once("")
+            .chain(vm.stances.iter().map(|(folder, _)| folder.as_str()))
+            .collect();
+        let set = vm.settings.get(key).map_or("", String::as_str);
+        let at = choices
+            .iter()
+            .position(|folder| *folder == set)
+            .unwrap_or(0);
+        (at, choices)
+    }
+
+    /// Stance's words: the name of the set the member stands in or waits
+    /// for, or `STANCE_OWN` while it stands in none.
+    fn stance(me: &CharacterView) -> String {
+        let name = me.stance.as_deref().unwrap_or(crate::strings::STANCE_OWN);
+        format!("{}: {name}", crate::strings::STANCE)
+    }
+}
+
+/// The skills page's row names, which KOTOR 2's code sets on its layout's
+/// labels: "Skill Rank", "Bonus" and "Total Rank".
+const SKILL_RANK: u32 = 1579;
+const SKILL_BONUS: u32 = 32129;
+const SKILL_TOTAL: u32 = 41904;
 
 /// The six scores' labels, in the sheet's order.
 const SCORES: [(&str, &str); 6] = [
@@ -670,14 +882,22 @@ impl Page for Character {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let me = character(vm);
         let tag = control.tag.as_str();
+        // Each score as items and effects leave it, and its modifier, both
+        // coloured by how far they moved the character's own score, as
+        // KOTOR 2's character screen does (`bonus_colour`).
         for (at, (score, modifier)) in SCORES.iter().enumerate() {
             let value = i32::from(me.abilities[at]);
-            if tag == *score {
-                return text(value.to_string());
-            }
-            if tag == *modifier {
-                return text(signed((value - 10).div_euclid(2)));
-            }
+            let shown = if tag == *score {
+                value.to_string()
+            } else if tag == *modifier {
+                signed((value - 10).div_euclid(2))
+            } else {
+                continue;
+            };
+            return ControlState {
+                tint: Some(bonus_colour(value - i32::from(me.own_abilities[at]))),
+                ..text(shown)
+            };
         }
         match tag {
             "SLD_ALIGN" => ControlState {
@@ -699,6 +919,13 @@ impl Page for Character {
                 }),
                 ..ControlState::default()
             },
+            STANCE => match &me.stance_setting {
+                Some(_) => ControlState {
+                    greyed: !Character::stances_on(vm),
+                    ..text(Character::stance(&me))
+                },
+                None => hidden(),
+            },
             "LBL_VITALITY_STAT" => text(vitality(&me)),
             "LBL_DEFENSE_STAT" => text(me.defence.to_string()),
             "LBL_FORCE_STAT" => text(format!("{}/{}", me.fp.0, me.fp.1)),
@@ -714,6 +941,14 @@ impl Page for Character {
         if tag == "BTN_LEVELUP" && character(vm).may_level {
             out.push(Intent::Open("levelup"));
         }
+        if tag == STANCE
+            && Character::stances_on(vm)
+            && let Some(key) = character(vm).stance_setting
+        {
+            let (at, choices) = Character::picks(vm, &key);
+            let next = choices[(at + 1) % choices.len()];
+            out.push(Intent::Setting(key, next.to_string()));
+        }
         if tag == "BTN_AUTO"
             && let me = character(vm)
             && let Some(auto) = me.auto_level
@@ -726,6 +961,49 @@ impl Page for Character {
                 feats: auto.feats,
                 powers: auto.powers,
             }));
+        }
+    }
+
+    fn focused(&mut self, tag: &str, _: &ViewModel) {
+        self.stance_focused = tag == STANCE;
+    }
+
+    fn left(&mut self, tag: &str) {
+        if tag == STANCE {
+            self.stance_focused = false;
+        }
+    }
+
+    /// Stance's tip over its top right corner while it has the focus: what
+    /// it is, or what it needs.
+    fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
+        let (Some(stance), true, Some(_)) = (
+            gui.find(STANCE),
+            self.stance_focused,
+            character(vm).stance_setting,
+        ) else {
+            return Vec::new();
+        };
+        let words = if Character::stances_on(vm) {
+            crate::strings::STANCE_HELP
+        } else {
+            crate::strings::STANCE_NEEDS
+        };
+        let [l, t, w, _] = rect_of(stance);
+        let mut out = DrawList::default();
+        painter.tooltip(words.as_bytes(), [l + w, t], &mut out);
+        out.quads
+    }
+
+    /// Stance: a copy of Close beside it, reaching to the member's view's
+    /// right edge, the focus going between them.
+    fn shape(&self, gui: &mut Gui) {
+        let Some(view) = gui.find("LBL_3DCHAR") else {
+            return;
+        };
+        let right = view.extent.left + view.extent.width;
+        if let Some(stance) = copy_beside(gui, "BTN_EXIT", STANCE, STANCE_GAP) {
+            stance.extent.width = right - stance.extent.left;
         }
     }
 }
@@ -767,10 +1045,13 @@ impl Page for Abilities {
         let me = character(vm);
         let entries = self.entries(&me);
         let chosen = self.selected.and_then(|at| entries.get(at));
-        let rank = chosen
-            .filter(|_| self.kind == Kind::Skills)
-            .and_then(|entry| entry.count)
-            .map(|rank| rank.to_string());
+        // The chosen skill's own ranks and its total (the skills list is in
+        // `skills.2da` order), as KOTOR 2's skills page shows them with the
+        // bonus between (`CSWGuiInGameAbilities::OnEnterSkill`).
+        let rank = self
+            .selected
+            .filter(|_| self.kind == Kind::Skills && chosen.is_some())
+            .and_then(|at| Some((*me.own_skills.get(at)?, *me.skill_totals.get(at)?)));
         let feats = self.kind == Kind::Feats;
         let told = || description(&chosen.map_or(Vec::new(), |entry| entry.description.clone()));
         let pick = |kind: Kind| ControlState {
@@ -788,27 +1069,43 @@ impl Page for Abilities {
             "LB_DESC_FEATS" if feats => told(),
             "LB_DESC" | "LB_DESC_FEATS" => hidden(),
             "LBL_INFOBG" if rank.is_none() => hidden(),
-            "LBL_RANKVAL" | "LBL_TOTALVAL" => match &rank {
-                Some(rank) => text(rank),
-                None => hidden(),
-            },
-            "LBL_BONUSVAL" => match &rank {
-                Some(_) => text("0"),
+            "LBL_RANKVAL" | "LBL_BONUSVAL" | "LBL_TOTALVAL" => match rank {
+                Some((rank, _)) if control.tag == "LBL_RANKVAL" => text(rank.to_string()),
+                Some((rank, total)) if control.tag == "LBL_BONUSVAL" => {
+                    let bonus = total - i32::from(rank);
+                    ControlState {
+                        tint: Some(bonus_colour(bonus)),
+                        ..text(signed(bonus))
+                    }
+                }
+                Some((_, total)) => text(total.to_string()),
                 None => hidden(),
             },
             "LBL_SKILLRANK" | "LBL_BONUS" | "LBL_TOTAL" if rank.is_none() => hidden(),
+            // KOTOR 2's layout has its powers' words here ("Base Cost",
+            // "Dark Side"). Its code names the skills' rows itself.
+            "LBL_SKILLRANK" => skin_line(SKILL_RANK),
+            "LBL_BONUS" => skin_line(SKILL_BONUS),
+            "LBL_TOTAL" => skin_line(SKILL_TOTAL),
             "BTN_SKILLS" => pick(Kind::Skills),
             "BTN_POWERS" => pick(Kind::Powers),
             "BTN_FEATS" => pick(Kind::Feats),
+            BAR_SETUP => text(BAR_SETUP_WORDS),
             _ => ControlState::default(),
         }
     }
 
-    fn press(&mut self, tag: &str, _: &ViewModel, _: &mut Vec<Intent>) {
+    fn press(&mut self, tag: &str, _: &ViewModel, out: &mut Vec<Intent>) {
         let kind = match tag {
             "BTN_SKILLS" => Kind::Skills,
             "BTN_POWERS" => Kind::Powers,
             "BTN_FEATS" => Kind::Feats,
+            BAR_SETUP => {
+                out.push(Intent::Swap(
+                    <crate::screens::action_bar::ActionBar as Page>::NAME,
+                ));
+                return;
+            }
             _ => return,
         };
         if kind != self.kind {
@@ -817,14 +1114,41 @@ impl Page for Abilities {
         }
     }
 
-    fn row(&mut self, _: &str, index: usize, _: &ViewModel) {
-        self.selected = Some(index);
+    fn row(&mut self, list: &str, index: usize, vm: &ViewModel) {
+        self.pointed(list, index, vm);
+    }
+
+    /// The row the pointer or the cursor comes to is chosen, as in KOTOR 2.
+    fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
+        if list == "LB_ABILITY" {
+            self.selected = Some(index);
+        }
     }
 
     fn first_focus(&self) -> Option<&str> {
         Some("LB_ABILITY")
     }
+
+    /// A controller's X opens the action bar setup page from any of the
+    /// three lists. The hints at the bottom of the screen show X with the
+    /// button's words.
+    fn pad_x(&self) -> Option<&str> {
+        Some(BAR_SETUP)
+    }
+
+    /// The button that opens the action bar setup page, beside Close.
+    fn shape(&self, gui: &mut Gui) {
+        copy_beside(gui, "BTN_EXIT", BAR_SETUP, BAR_SETUP_GAP);
+    }
 }
+
+/// The abilities page's button that opens the action bar setup page, its
+/// words, and its gap from Close beside it (layout pixels). The button shows
+/// no key, so a player who left the setup page's key unbound sees no empty
+/// key box.
+const BAR_SETUP: &str = "BTN_ACTIONBAR";
+const BAR_SETUP_WORDS: &str = "Action bar";
+const BAR_SETUP_GAP: i32 = 10;
 
 /// What the messages page lists.
 #[derive(Default, Clone, Copy, PartialEq, Eq)]

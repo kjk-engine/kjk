@@ -1,10 +1,9 @@
 //! The force powers' effects in `kjk play`, drawn each frame from the
 //! casters' channels and hands as JA's client draws them: lightning from
 //! its effect files at the left hand, played back from every client frame
-//! whose primitives may still live; a grip's puffs at the left hand, two
-//! a client frame, each added twice, tinted by a slow red pulse (`grip`);
-//! and a push's or pull's distortion, following the hand for a moment and
-//! then held where it was (`scene_fx::distort`).
+//! whose primitives may still live. A grip shows no puffs at the hand, and
+//! a push or a pull shows no distortion in the air: JA draws both, and
+//! kjk leaves them out because they look out of place in KOTOR.
 //!
 //! Everyone is drawn from the host's snapshots at the view's time, but a
 //! joined player's own character, which shows from its predictions at its
@@ -16,35 +15,32 @@ use std::collections::BTreeMap;
 
 use asset_ja::fx::{self, Rng};
 use asset_odyssey::texture::TextureIr;
-use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
 use collision::{Contents, Extents};
 use console::DumpFacts;
-use sim::combat::force::{Gesture, Power, ja};
-use sim::{EntityState, SimId};
+use sim::EntityState;
+use sim::combat::force::Power;
+use sim::motion::Anim;
 
 use crate::cast::Hitboxes;
 use crate::lifecycle_view::SceneCamera;
-use crate::material::OdysseyMaterial;
+use crate::model_fx::SprayStores;
 use crate::scene::game_to_bevy;
-use crate::scene_fx::{self, Batch, Puff, RefractionMaterial, ShaderMeshes, View};
+use crate::scene_fx::{self, ShaderMeshes, View};
 use crate::shots::OwnFire;
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
-use crate::viewer::{EffectBlend, EffectModel};
+use crate::viewer::EffectBlend;
 use crate::viewer_ja::Files;
 
 const UNIT: f32 = asset_ja::UNIT;
 /// JA's client frames, as the effects are timed (QUIRKS.md Q-0005).
 const FRAME_MS: f32 = 1000.0 / 60.0;
-/// A grip's puffs: how long each lives, how fast it drifts (units a
-/// second, along the view's left), and its two shaders.
+/// A grip's puffs in the rig viewer (`force_fx`): how long each lives, how
+/// fast it drifts (units a second, along the view's left), and its two
+/// shaders.
 pub(crate) const PUFF_MS: f32 = 120.0;
 pub(crate) const PUFF_SPEED: f32 = 55.0;
 pub(crate) const GRIP_SHADERS: [&str; 2] = ["gfx/effects/forcePush", "gfx/effects/sabers/red_glow"];
-/// A push's or pull's distortion: how long it lasts, and how long it
-/// follows the hand.
-const DISTORT_MS: f32 = 500.0;
-const FOLLOW_MS: f32 = 200.0;
 /// How long a lightning efx's primitives may live, at most (ms): how far
 /// back its copies are played.
 const LIGHTNING_BACK_MS: f32 = 250.0;
@@ -87,7 +83,6 @@ fn glow_colour(texture: &TextureIr) -> Vec3 {
 pub struct Setup {
     /// Lightning at levels 1 and 2, and at 3.
     lightning: [fx::Effect; 2],
-    refraction: Option<EffectModel>,
     textures: BTreeMap<String, TextureIr>,
     blends: BTreeMap<String, EffectBlend>,
 }
@@ -103,9 +98,7 @@ pub fn load(files: &Files, notes: &mut Vec<String>) -> Setup {
         .iter()
         .flat_map(|effect| &effect.templates)
         .flat_map(|template| &template.shaders)
-        .map(String::as_str)
-        .chain(GRIP_SHADERS)
-        .map(str::to_ascii_lowercase)
+        .map(|shader| shader.to_ascii_lowercase())
         .collect();
     shaders.sort();
     shaders.dedup();
@@ -119,7 +112,6 @@ pub fn load(files: &Files, notes: &mut Vec<String>) -> Setup {
     let blends = crate::viewer_ja::effect_blends(files, shaders, notes);
     Setup {
         lightning,
-        refraction: crate::viewer_rig::refraction_model(files, notes),
         textures,
         blends,
     }
@@ -143,15 +135,8 @@ struct Pending(Option<Setup>);
 struct Drawn {
     lightning: [fx::Effect; 2],
     shaders: ShaderMeshes,
-    refraction: Option<(EffectModel, Handle<Mesh>)>,
-    /// The distortion's mesh holds nothing now: it is not written again
-    /// until something is drawn into it (a mesh written is sent to the GPU
-    /// anew).
-    refraction_empty: bool,
-    /// Each distortion's cast (ms) and where it stopped following the hand.
-    held: BTreeMap<SimId, (f32, Vec3)>,
-    /// Client frames drawn with lightning, grip and a distortion.
-    frames: [usize; 3],
+    /// Client frames drawn with lightning.
+    frames: usize,
     /// Each shader's light colour (`glow_colour`), by lowercase name.
     glows: BTreeMap<String, Vec3>,
 }
@@ -171,15 +156,12 @@ impl Plugin for ForceViewPlugin {
     }
 }
 
-/// A mesh and a material per shader, and the distortion's; they outlive the
-/// scenes.
+/// A mesh and a material per shader; they outlive the scenes.
 fn spawn(
     mut commands: Commands,
     mut pending: ResMut<Pending>,
     mut images: ResMut<Assets<Image>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<OdysseyMaterial>>,
-    mut refractions: ResMut<Assets<RefractionMaterial>>,
+    mut stores: SprayStores,
 ) {
     let Some(setup) = pending.0.take() else {
         return;
@@ -188,29 +170,15 @@ fn spawn(
         &mut commands,
         (&setup.blends, &setup.textures),
         &mut images,
-        &mut meshes,
-        &mut materials,
+        stores.assets(),
     );
-    let refraction = setup.refraction.map(|model| {
-        let mesh = meshes.add(Batch::default().into_mesh());
-        commands.spawn((
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(refractions.add(RefractionMaterial::default())),
-            Transform::IDENTITY,
-            NoFrustumCulling,
-        ));
-        (model, mesh)
-    });
     let glows = (setup.textures.iter())
         .map(|(shader, texture)| (shader.to_ascii_lowercase(), glow_colour(texture)))
         .collect();
     commands.insert_resource(Drawn {
         lightning: setup.lightning,
         shaders,
-        refraction,
-        refraction_empty: false,
-        held: BTreeMap::new(),
-        frames: [0; 3],
+        frames: 0,
         glows,
     });
     commands.remove_resource::<Pending>();
@@ -235,7 +203,7 @@ impl Bolts {
     /// Their lights (`LIGHTNING_*`): at `hand` and where they end on
     /// average (units), in their colour on average; none with none.
     fn lights(&self, hand: Vec3, to_bevy: impl Fn(Vec3) -> Vec3) -> Vec<crate::material::GpuLight> {
-        use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+        use crate::material::{GpuLight, fight_kind};
         if self.count < 1.0 {
             return Vec::new();
         }
@@ -245,7 +213,8 @@ impl Bolts {
             .map(|at| GpuLight {
                 position_radius: to_bevy(at).extend(LIGHTNING_RADIUS),
                 color_multiplier: colour.extend(strength),
-                kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+                kind: fight_kind(false),
+                ..Default::default()
             })
             .to_vec()
     }
@@ -275,59 +244,6 @@ pub(crate) fn grip_pair(red: u8) -> [(f32, f32, [u8; 3], &'static str); 2] {
     ]
 }
 
-/// One client frame `t` (the caster's view time, ms) of a grip channel
-/// that started at `from`, from the left hand at `hand` (units): the puffs
-/// of every client frame since that may still live, all tinted as now,
-/// each alive drawn twice (JA's client adds the grip's effect twice a
-/// frame). A puff whose shader has no blend is left out.
-fn grip(
-    batches: &mut BTreeMap<String, Batch>,
-    (from, t): (f32, f32),
-    hand: Vec3,
-    blend_of: &dyn Fn(&str) -> Option<EffectBlend>,
-    view: &View,
-    to_bevy: impl Fn(Vec3) -> Vec3 + Copy,
-) {
-    let red = grip_red(t);
-    for start in frames(from.max(t - PUFF_MS), t) {
-        for (speed, rotation, colour, shader) in grip_pair(red) {
-            let shader = shader.to_ascii_lowercase();
-            let Some(blend) = blend_of(&shader) else {
-                continue;
-            };
-            let puff = Puff {
-                start_ms: start,
-                end_ms: start + PUFF_MS,
-                origin: hand.to_array(),
-                speed,
-                radius: 2.0,
-                rotation,
-                colour,
-            };
-            if !puff.alive(t) {
-                continue;
-            }
-            let batch = batches.entry(shader).or_default();
-            for _ in 0..2 {
-                puff.draw(batch, (blend, t), view, to_bevy);
-            }
-        }
-    }
-}
-
-/// A push's or pull's cast (sim ms) under way in `force`, and whether it
-/// is a pull.
-fn throw(force: &sim::combat::force::ForceState) -> Option<(u64, bool)> {
-    let (gesture, until) = force.hand?;
-    let (hand, wait, pull) = match gesture {
-        Gesture::Push => (ja::PUSH_HAND_MS, ja::PUSH_COOLDOWN_MS, false),
-        Gesture::Pull => (ja::PULL_HAND_MS, ja::PULL_COOLDOWN_MS, true),
-        Gesture::Choke => return None,
-    };
-    let cast = until.checked_sub(hand)?;
-    (force.push_pull_ready == cast + wait).then_some((cast, pull))
-}
-
 #[allow(clippy::too_many_arguments)]
 fn draw(
     presented: Res<PresentedSnapshot>,
@@ -337,8 +253,8 @@ fn draw(
     drawn: Option<ResMut<Drawn>>,
     places: Query<&GlobalTransform>,
     cameras: Query<(&GlobalTransform, &Projection, &Camera), SceneCamera>,
-    (mut meshes, mut lights): (ResMut<Assets<Mesh>>, ResMut<ForceLights>),
-    mut facts: ResMut<DumpFacts>,
+    mut stores: SprayStores,
+    (mut lights, mut facts): (ResMut<ForceLights>, ResMut<DumpFacts>),
 ) {
     let Some(mut drawn) = drawn else { return };
     let mut lit = Vec::new();
@@ -367,7 +283,7 @@ fn draw(
     let doors = std::cell::OnceCell::new();
     let ends = |from: Vec3, to: Vec3| {
         let doors = doors.get_or_init(|| level.states_in(current));
-        let hit = level.with(doors.as_deref(), |world| {
+        let hit = level.with_unremembered(doors.as_deref(), |world| {
             world.trace(
                 (from * UNIT).to_array(),
                 (to * UNIT).to_array(),
@@ -380,9 +296,7 @@ fn draw(
     let to_game = game_to_bevy().inverse();
     let to_bevy = |p: Vec3| game_to_bevy() * (p * UNIT);
     let eye = view.eye();
-    let mut batches: BTreeMap<String, Batch> = BTreeMap::new();
-    let mut refraction = (Batch::default(), Vec::new());
-    let mut held = BTreeMap::new();
+    let mut batches = BTreeMap::new();
     for (entity, t) in casters {
         let (Some(fighter), Some(ps)) = (entity.fighter, entity.player) else {
             continue;
@@ -390,106 +304,78 @@ fn draw(
         if !fighter.alive() {
             continue;
         }
-        let force = fighter.force;
-        let hand = hitboxes
-            .0
-            .get(&entity.id)
-            .and_then(|spots| spots[sim::combat::Location::HandLeft as usize])
-            .and_then(|node| places.get(node).ok())
-            .map_or_else(
-                || Vec3::from_array(sim::combat::mind::chest(&ps)),
-                |place| to_game * place.translation() / UNIT,
-            );
+        let Some(channel) = fighter
+            .force
+            .channel
+            .filter(|c| c.power == Power::Lightning)
+        else {
+            continue;
+        };
+        let spot = |location: sim::combat::Location| {
+            hitboxes
+                .0
+                .get(&entity.id)
+                .and_then(|spots| spots[location as usize])
+                .and_then(|node| places.get(node).ok())
+                .map_or_else(
+                    || Vec3::from_array(sim::combat::mind::chest(&ps)),
+                    |place| to_game * place.translation() / UNIT,
+                )
+        };
+        // A character with no weapon casts with both hands (JA's two-handed
+        // lightning), and the bolts leave from each.
+        let both = ps.torso.anim == Anim::BOTH_FORCE_2HANDEDLIGHTNING_HOLD;
+        let hands = [
+            sim::combat::Location::HandLeft,
+            sim::combat::Location::HandRight,
+        ];
+        let hands = &hands[..if both { 2 } else { 1 }];
         let (forward, ..) = sim::math::angle_vectors(ps.view);
         let axis = fx::axis(Vec3::from_array(forward));
-        match force.channel.map(|c| (c.power, c.level, c.from as f32)) {
-            Some((Power::Lightning, level, from)) => {
-                let effect = &drawn.lightning[usize::from(level > 2)];
-                let mut bolts = Bolts::default();
-                for start in frames(from.max(t - LIGHTNING_BACK_MS), t) {
-                    let mut rng = Rng((entity.id.0 as i32) ^ (start / FRAME_MS) as i32);
-                    for spawned in fx::play(effect, hand, axis, start, &mut rng, &ends) {
-                        if !spawned.alive(t) {
-                            continue;
-                        }
-                        let shader = spawned.shader.to_ascii_lowercase();
-                        if spawned.kind == fx::Kind::Electricity {
-                            let glow = drawn.glows.get(&shader).copied().unwrap_or(Vec3::ONE);
-                            bolts.add(spawned.origin2, spawned.rgb_start * glow);
-                        }
-                        if let Some(look) = drawn.shaders.look(&shader) {
-                            let batch = batches.entry(shader).or_default();
-                            let mut rng = Rng(spawned.seed ^ (t / FRAME_MS) as i32);
-                            scene_fx::primitive(
-                                batch,
-                                &spawned,
-                                look,
-                                (t, FRAME_MS),
-                                &mut rng,
-                                &eye,
-                                to_bevy,
-                            );
-                        }
+        let effect = &drawn.lightning[usize::from(channel.level > 2)];
+        let from = channel.from as f32;
+        for (side, &location) in hands.iter().enumerate() {
+            let hand = spot(location);
+            let mut bolts = Bolts::default();
+            for start in frames(from.max(t - LIGHTNING_BACK_MS), t) {
+                let seed = (entity.id.0 as i32) ^ (start / FRAME_MS) as i32;
+                // The second hand's bolts are seeded apart from the first's.
+                let mut rng = Rng(seed ^ ((side as i32) << 16));
+                for spawned in fx::play(effect, hand, axis, start, &mut rng, &ends) {
+                    if !spawned.alive(t) {
+                        continue;
+                    }
+                    let shader = spawned.shader.to_ascii_lowercase();
+                    if spawned.kind == fx::Kind::Electricity {
+                        let glow = drawn.glows.get(&shader).copied().unwrap_or(Vec3::ONE);
+                        bolts.add(spawned.origin2, spawned.rgb_start * glow);
+                    }
+                    if let Some(look) = drawn.shaders.look(&shader) {
+                        let batch = batches.entry(shader).or_default();
+                        let mut rng = Rng(spawned.seed ^ (t / FRAME_MS) as i32);
+                        scene_fx::primitive(
+                            batch,
+                            &spawned,
+                            look,
+                            (t, FRAME_MS),
+                            &mut rng,
+                            &eye,
+                            to_bevy,
+                        );
                     }
                 }
-                lit.extend(bolts.lights(hand, to_bevy));
-                drawn.frames[0] += 1;
             }
-            Some((Power::Grip, _, from)) => {
-                grip(
-                    &mut batches,
-                    (from, t),
-                    hand,
-                    &|shader| drawn.shaders.blend(shader),
-                    &view,
-                    to_bevy,
-                );
-                drawn.frames[1] += 1;
-            }
-            _ => {}
+            lit.extend(bolts.lights(hand, to_bevy));
         }
-        if let (Some((cast, pull)), Some((model, _))) = (throw(&force), &drawn.refraction) {
-            let cast = cast as f32;
-            if t >= cast && t < cast + DISTORT_MS {
-                let at = match drawn.held.get(&entity.id) {
-                    Some(&(was, at)) if was == cast && t >= cast + FOLLOW_MS => at,
-                    _ => hand,
-                };
-                held.insert(entity.id, (cast, at));
-                let (batch, indices) = &mut refraction;
-                scene_fx::distort(
-                    model,
-                    (cast, pull, &[(cast, at.to_array())]),
-                    t,
-                    &view,
-                    batch,
-                    indices,
-                    to_bevy,
-                );
-                drawn.frames[2] += 1;
-            }
-        }
+        drawn.frames += 1;
     }
-    drawn.held = held;
     lights.set_if_neq(ForceLights(lit));
-    drawn.shaders.fill(batches, &mut meshes);
-    let (batch, indices) = refraction;
-    let empty = indices.is_empty();
-    if let Some((_, mesh)) = &drawn.refraction
-        && !(empty && drawn.refraction_empty)
-    {
-        if let Some(mut handle) = meshes.get_mut(mesh) {
-            *handle = batch.into_triangles(indices);
-        }
-        drawn.refraction_empty = empty;
-    }
+    drawn.shaders.fill(batches, stores.assets());
     if facts.wanted() {
         facts.0.insert(
             "force_fx".into(),
             serde_json::json!({
-                "lightning_frames": drawn.frames[0],
-                "grip_frames": drawn.frames[1],
-                "distortion_frames": drawn.frames[2],
+                "lightning_frames": drawn.frames,
                 "lights": lights.0.iter().map(|light| {
                     let [r, g, b, m] = light.color_multiplier.to_array();
                     [r, g, b, m].map(|x| (x * 100.0).round() / 100.0)

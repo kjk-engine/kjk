@@ -11,14 +11,9 @@ use super::engine::{Bound, Engine, int, object, truth};
 use super::{Change, Character, Pending};
 use crate::combat::Sheet;
 use crate::combat::forms;
-use crate::combat::sheet::{Ability, Rows, skills};
+use crate::combat::sheet::{Ability, Powers};
 use crate::module::ObjectKind;
 use crate::snapshot::StatusKind;
-
-/// Force Camouflage (`spells.2da` 156): known, a Stealth of no ranks counts
-/// `CAMOUFLAGE_RANK`, as the executable's skill rank has it.
-const FORCE_CAMOUFLAGE: u16 = 156;
-const CAMOUFLAGE_RANK: u8 = rules::force::routines::CAMOUFLAGE_STEALTH;
 
 /// `Modify…SavingThrowBase`'s saves, by routine: Fortitude, Reflex, Will
 /// (`Sheet::save_bonus`).
@@ -69,15 +64,35 @@ pub(crate) fn random_destination(
     let (dx, dy) = (offset(), offset());
     let mut to = [from[0] + dx, from[1] + dy, from[2]];
     to[2] = floor(to).unwrap_or(from[2]);
+    let turn = |_first: f32| DESTINATION_TURN_M;
+    straight_point(from, to, (&turn, DESTINATION_LEAST_M), below, walks).unwrap_or(from)
+}
+
+/// The first place along the line from `from` toward `to` that a body
+/// walks straight to (`walks`), as TSL's executable searches for both
+/// `GetRandomDestination` and `ActionRandomWalk`. A blocked line is tried
+/// again `DESTINATION_SHORTER` as far along. Once that is shorter than
+/// `turn` gives for the first length, the line is turned a quarter left, a
+/// quarter right or right round (one in three each) at its first length.
+/// The search gives up when a line is shorter than `least` or after
+/// `DESTINATION_TRIES` lines, and then there is no place.
+pub(crate) fn straight_point(
+    from: [f32; 3],
+    mut to: [f32; 3],
+    (turn, least): (&dyn Fn(f32) -> f32, f32),
+    below: &mut dyn FnMut(u32) -> u32,
+    walks: &dyn Fn([f32; 3], [f32; 3]) -> bool,
+) -> Option<[f32; 3]> {
     let mut way = crate::math::sub(to, from);
     let first = crate::math::normalize(&mut way);
+    let turn_m = turn(first);
     let mut far = first;
     for _ in 0..DESTINATION_TRIES {
         if walks(from, to) {
-            return to;
+            return Some(to);
         }
         far *= DESTINATION_SHORTER;
-        if far < DESTINATION_TURN_M {
+        if far < turn_m {
             way = match below(3) {
                 1 => [-way[1], way[0], 0.0],
                 2 => [way[1], -way[0], 0.0],
@@ -86,11 +101,11 @@ pub(crate) fn random_destination(
             far = first;
         }
         to = crate::math::mad(from, far, way);
-        if far < DESTINATION_LEAST_M {
+        if far < least {
             break;
         }
     }
-    from
+    None
 }
 
 impl Engine<'_> {
@@ -118,25 +133,12 @@ impl Engine<'_> {
         self.view.module.power_cost(row, &c.sheet, c.party, at)
     }
 
-    /// A skill's rank as TSL's `GetSkillRank` reads it: the stored rank,
-    /// with effects and worn items, the feats' and the key ability's
-    /// modifier (`stealth::total`); 0 for a skill only the trained use that
-    /// it has no ranks in (Stealth counts `CAMOUFLAGE_RANK` with Force
-    /// Camouflage known).
+    /// A skill's rank as the module's game's `GetSkillRank` reads it
+    /// (`stealth::rank`).
     pub(super) fn skill_rank(&self, c: &Character, skill: usize) -> i32 {
-        let camouflaged = skill == skills::STEALTH
-            && c.worn.skills[skill] == 0
-            && c.worn.powers.has(FORCE_CAMOUFLAGE);
-        if camouflaged {
-            let mut worn = c.worn;
-            worn.skills[skill] = CAMOUFLAGE_RANK;
-            let mut now = c.sheet;
-            now.skills[skill] = now.skills[skill].saturating_add(CAMOUFLAGE_RANK);
-            return i32::from(
-                crate::stealth::total(Some(self.library), &worn, &now, skill).unwrap_or(0),
-            );
-        }
-        i32::from(crate::stealth::total(Some(self.library), &c.worn, &c.sheet, skill).unwrap_or(0))
+        let tsl = crate::combat::passive::Game::named(&self.view.module.game)
+            == crate::combat::passive::Game::Tsl;
+        crate::stealth::rank(Some(self.library), &c.worn, &c.sheet, skill, tsl)
     }
 
     /// TSL's combat and Force routines (see the module documentation).
@@ -166,7 +168,7 @@ impl Engine<'_> {
             // Known from now, no prerequisite or level asked (the last
             // class's known list in the executable).
             GrantSpell => {
-                if let Some(row) = row().filter(|row| *row < Rows::<5>::ROWS) {
+                if let Some(row) = row().filter(|row| *row < Powers::ROWS) {
                     self.restore(object(args, 1), |sheet, _| sheet.powers.insert(row));
                 }
                 Value::Int(0)
@@ -235,11 +237,11 @@ impl Engine<'_> {
             ),
             // The base score moved as a byte (it wraps); Constitution's
             // change moves the most hit points and the hit points with it,
-            // Wisdom's a Force user's most FP, each by the modifier's change
-            // a level.
+            // by the modifier's change a level (a Force user's most FP
+            // follows Wisdom by itself: `Sheet::force_points`).
             AdjustCreatureAttributes => {
                 let who = object(args, 0);
-                let (Some(ability), Some((c, mut sheet))) = (
+                let (Some(ability), Some((_, mut sheet))) = (
                     usize::try_from(int(args, 1))
                         .ok()
                         .and_then(|at| Ability::ALL.get(at).copied()),
@@ -251,19 +253,15 @@ impl Engine<'_> {
                 let score = &mut sheet.abilities[ability as usize];
                 *score = score.wrapping_add(int(args, 2) as u8);
                 let by = (sheet.modifier(ability) - before) * i32::from(sheet.level);
-                let moved = |most: u16| (i32::from(most) + by).clamp(0, i32::from(u16::MAX)) as u16;
                 let mut hp = None;
-                match ability {
-                    Ability::Constitution => {
-                        sheet.max_hp = moved(sheet.max_hp).max(1);
-                        hp = self
-                            .view
-                            .thing(who)
-                            .and_then(|thing| thing.hp)
-                            .map(|(hp, _)| (hp + by).clamp(1, i32::from(sheet.max_hp)) as u16);
-                    }
-                    Ability::Wisdom if c.worn.max_fp > 0 => sheet.max_fp = moved(sheet.max_fp),
-                    _ => {}
+                if ability == Ability::Constitution {
+                    sheet.max_hp =
+                        (i32::from(sheet.max_hp) + by).clamp(1, i32::from(u16::MAX)) as u16;
+                    hp = self
+                        .view
+                        .thing(who)
+                        .and_then(|thing| thing.hp)
+                        .map(|(hp, _)| (hp + by).clamp(1, i32::from(sheet.max_hp)) as u16);
                 }
                 self.out.changes.push(Change::Sheet { who, sheet });
                 if let Some(hp) = hp {
@@ -294,7 +292,7 @@ impl Engine<'_> {
             }
             // The stored rank, no effects, items nor ability; 0 for a skill
             // the table lacks; −1 for what is not a character.
-            GetSkillRankBase => Value::Int(match self.character(object(args, 1)) {
+            GetSkillRankBase => Value::Int(match self.character(self.skilled(object(args, 1))) {
                 Some(c) => usize::try_from(int(args, 0))
                     .ok()
                     .and_then(|skill| c.worn.skills.get(skill))

@@ -122,7 +122,7 @@ const REST_SPEED_SQ: f32 = 0.5;
 /// space, metres): where, and the surface's normal there. The executable
 /// traces it through the scene: the rooms first, then every model's
 /// meshes but the emitter's own.
-pub type Surfaces<'a> = &'a dyn Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)>;
+pub type Surfaces<'a> = &'a (dyn Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)> + Sync);
 
 /// A level floor at `height`: what a way crossing it down meets.
 pub fn floor(height: f32) -> impl Fn(Vec3, Vec3) -> Option<(Vec3, Vec3)> {
@@ -145,6 +145,15 @@ pub struct Shape {
     pub uvs: Vec<[f32; 2]>,
     pub colours: Vec<[f32; 4]>,
     pub indices: Vec<u32>,
+}
+
+impl Shape {
+    fn clear(&mut self) {
+        self.positions.clear();
+        self.uvs.clear();
+        self.colours.clear();
+        self.indices.clear();
+    }
 }
 
 /// A chunk model's triangles in its own space, and its texture.
@@ -547,23 +556,22 @@ impl Values {
             return;
         };
         for (kind, keys) in keys {
-            let mix = |a: &Vec<f32>, b: &Vec<f32>, f: f32| -> Vec<f32> {
-                a.iter().zip(b).map(|(a, b)| a + (b - a) * f).collect()
-            };
+            let value = self.0.entry(*kind).or_default();
+            value.clear();
             let (first, last) = (&keys[0], &keys[keys.len() - 1]);
-            let value = if at <= first.0 {
-                first.1.clone()
+            if at <= first.0 {
+                value.extend_from_slice(&first.1);
             } else if at >= last.0 {
-                last.1.clone()
+                value.extend_from_slice(&last.1);
             } else {
                 let next = keys
                     .iter()
                     .position(|(time, _)| *time > at)
                     .unwrap_or(keys.len() - 1);
                 let (a, b) = (&keys[next - 1], &keys[next]);
-                mix(&a.1, &b.1, (at - a.0) / (b.0 - a.0).max(f32::EPSILON))
-            };
-            self.0.insert(*kind, value);
+                let f = (at - a.0) / (b.0 - a.0).max(f32::EPSILON);
+                value.extend(a.1.iter().zip(&b.1).map(|(a, b)| a + (b - a) * f));
+            }
         }
     }
 
@@ -578,16 +586,6 @@ impl Values {
     /// Its birthrate now (the dumps).
     pub fn birthrate(&self) -> f32 {
         self.or(emit::BIRTHRATE, 0.0)
-    }
-
-    /// These with no births: what a model gone from view leaves (its
-    /// particles live out their lives, none born).
-    pub fn quiet(&self) -> Values {
-        let mut quiet = self.clone();
-        for kind in [emit::BIRTHRATE, emit::RANDOM_BIRTHRATE] {
-            quiet.0.insert(kind, vec![0.0]);
-        }
-        quiet
     }
 
     fn colour(&self, kind: u32) -> Option<Vec3> {
@@ -670,6 +668,11 @@ fn bounce_off(particle: &mut Particle, before: Vec3, surfaces: Surfaces, bounce:
 struct Particle {
     at: Vec3,
     velocity: Vec3,
+    /// The way it was sent at its birth: the emitter's z turned by the
+    /// spread, a unit vector in the particle's space. An
+    /// `Aligned_to_Particle_Dir` quad lies along it for the particle's whole
+    /// life, whatever gravity, drag or a reference node do to its velocity.
+    heading: Vec3,
     age: f32,
     /// Turned this far (radians), at this rate, about this axis (a chunk's;
     /// a quad turns in its plane).
@@ -802,16 +805,16 @@ impl Particles {
         let round = (self.random() * 0.5 + 0.5) * std::f32::consts::TAU;
         let way = Quat::from_rotation_z(round) * Quat::from_rotation_x(tilt) * Vec3::Z;
         let speed = values.or(emit::VELOCITY, 0.0) + self.random() * values.or(emit::RAND_VEL, 0.0);
-        let (at, velocity) = if emitter.world {
+        let (at, velocity, heading) = if emitter.world {
             let way = space.transform_vector3(way).normalize_or_zero();
             let inherited = if emitter.inherit_velocity {
                 moving
             } else {
                 Vec3::ZERO
             };
-            (space.transform_point3(at), way * speed + inherited)
+            (space.transform_point3(at), way * speed + inherited, way)
         } else {
-            (at, way * speed)
+            (at, way * speed, way)
         };
         // A spinning one starts turned anywhere; a still one square on.
         let spin = values.or(emit::PARTICLE_ROT, 0.0);
@@ -829,6 +832,7 @@ impl Particles {
         self.list.push(Particle {
             at,
             velocity,
+            heading,
             age: 0.0,
             turned,
             spin,
@@ -843,12 +847,14 @@ impl Particles {
     /// `dt` seconds on, with `values`; `detonated` when a clip passed a
     /// `detonate` event; `space` the emitter's transform and `surfaces`
     /// what its particles' ways meet (game space); `target` a
-    /// point-to-point emitter's reference node (in its space).
+    /// point-to-point emitter's reference node (in its space). Without
+    /// `births`, its birth rate counts as 0: a model gone from view leaves
+    /// its particles to live out their lives.
     pub fn step(
         &mut self,
         emitter: &Emitter,
         values: &Values,
-        (dt, detonated): (f32, bool),
+        (dt, detonated, births): (f32, bool, bool),
         (space, surfaces): (Mat4, Option<Surfaces>),
         target: Option<Vec3>,
     ) {
@@ -930,7 +936,7 @@ impl Particles {
             self.list.retain(|particle| particle.age < life);
         }
         match emitter.update {
-            Update::Fountain => {
+            Update::Fountain if births => {
                 for _ in 0..self.fountain_births(values, dt) {
                     self.born(emitter, values, space, moving);
                 }
@@ -942,7 +948,10 @@ impl Particles {
                 }
             }
             Update::Explosion if detonated => {
-                let count = values.or(emit::BIRTHRATE, 1.0).max(1.0) as usize;
+                let count = match births {
+                    true => values.or(emit::BIRTHRATE, 1.0).max(1.0) as usize,
+                    false => 1,
+                };
                 for _ in 0..count {
                     self.born(emitter, values, space, moving);
                 }
@@ -1212,10 +1221,15 @@ impl Particles {
             let (x, y) = match emitter.facing {
                 Facing::AlignedWorldZ => (spun, upright * size),
                 Facing::AlignedDirection => {
+                    // K1's executable gives each particle the emitter's
+                    // turn at its birth and lays the quad on that turn's x
+                    // and z for good: Manaan's surf, pulled back to its
+                    // reference node, stays flat on the sea instead of
+                    // standing up through the walkways when it stops.
                     let heading = if emitter.world {
-                        particle.velocity
+                        particle.heading
                     } else {
-                        space.transform_vector3(particle.velocity)
+                        space.transform_vector3(particle.heading)
                     };
                     let along = heading.normalize_or(axis_y);
                     (square_to(along, axis_x, axis_y) * size, along * size)
@@ -1320,6 +1334,26 @@ pub fn passed(clip: &AnimationIr, from: f32, to: f32) -> impl Iterator<Item = &s
         .map(|(_, name)| name.as_str())
 }
 
+/// The events `clip` passes as the time it has played goes from `from` to
+/// `to` seconds. The two times count from the clip's start and run on past
+/// its end, so a loop's second round starts at its length. Time that did
+/// not move on, or went back, passes nothing. A `looped` clip wraps only
+/// when its time runs past its end, and a step longer than the whole clip
+/// passes each event once.
+pub fn passed_since(clip: &AnimationIr, (from, to): (f32, f32), looped: bool) -> Vec<&str> {
+    let length = clip.length;
+    if to <= from {
+        return Vec::new();
+    }
+    if !looped || length <= 0.0 {
+        return passed(clip, from, to).collect();
+    }
+    if to - from >= length {
+        return clip.events.iter().map(|(_, name)| name.as_str()).collect();
+    }
+    passed(clip, from % length, to % length).collect()
+}
+
 /// Whether `clip` passes a `detonate` event between `from` and `to`
 /// seconds of it (`passed`).
 pub fn detonates(clip: &AnimationIr, from: f32, to: f32) -> bool {
@@ -1341,11 +1375,15 @@ pub fn detonates_over(clip: &AnimationIr, (at, elapsed): (f32, f32), dt: f32) ->
 /// A mesh whose alpha or self-illumination a clip keys, with a material of
 /// its own: its node, and its alpha and self-illumination now (the rest
 /// pose's until a clip keys them; then where the last clip left them).
+/// `looks` are a mesh's whose alpha is keyed (`material::Looks`): it is
+/// drawn with its opaque surface while its alpha is 1 and blended while it
+/// is below 1.
 pub struct Lit {
     node: usize,
     material: Handle<OdysseyMaterial>,
     alpha: f32,
     illum: [f32; 3],
+    looks: Option<material::Looks>,
 }
 
 impl Lit {
@@ -1358,8 +1396,15 @@ impl Lit {
 
     /// What `clip` keys on its node `at` seconds in, over what it shows.
     pub fn key(&mut self, (fx, ir): (&ModelFx, &ModelIr), clip: &str, at: f32) {
-        let node = ir.nodes[self.node].name.to_ascii_lowercase();
-        if let Some(keys) = fx.surfaces.get(clip).and_then(|s| s.get(&node)) {
+        let name = &ir.nodes[self.node].name;
+        let keyed = fx.surfaces.get(clip).and_then(|surfaces| {
+            if name.bytes().any(|byte| byte.is_ascii_uppercase()) {
+                surfaces.get(&name.to_ascii_lowercase())
+            } else {
+                surfaces.get(name)
+            }
+        });
+        if let Some(keys) = keyed {
             self.alpha = sample_alpha(&keys.alpha, at).unwrap_or(self.alpha);
             self.illum = sample_illum(&keys.illum, at).unwrap_or(self.illum);
         }
@@ -1373,6 +1418,7 @@ impl Lit {
         materials: &mut Assets<OdysseyMaterial>,
         animated: Option<&mut material::Animated>,
     ) {
+        self.surface(materials);
         let illum = Vec3::from_array(self.illum);
         if animated.is_some_and(|animated| {
             animated.light(self.material.id(), (self.alpha, illum), materials)
@@ -1387,6 +1433,30 @@ impl Lit {
         {
             material.params.tint.w = self.alpha;
             material.params.self_illum = glow;
+        }
+    }
+
+    /// Its material blended while its keyed alpha is below 1, and drawn
+    /// with its opaque surface again once the alpha is back at 1. KOTOR's
+    /// executable blends a mesh only while its alpha is below 1. Blended,
+    /// a mesh writes no depth, so a body whose clip keys its alpha at 1
+    /// showed its far arm through its chest: the Star Forge's captive Jedi
+    /// (`plc_endcorps`, its `torso` keyed 1 in its `default` clip; issue
+    /// 408). The same holds for a mesh blended at rest by its own alpha
+    /// and keyed up to 1: the captives' drained bodies. The surface changes
+    /// only when the alpha crosses 1, so the material is not rebuilt every
+    /// frame.
+    fn surface(&self, materials: &mut Assets<OdysseyMaterial>) {
+        let Some(looks) = &self.looks else {
+            return;
+        };
+        let whole = self.alpha >= 1.0;
+        if materials
+            .get(&self.material)
+            .is_some_and(|m| m.wants_look(looks, whole))
+            && let Some(mut material) = materials.get_mut(&self.material)
+        {
+            material.show_look(looks, whole);
         }
     }
 }
@@ -1408,7 +1478,8 @@ pub fn glows(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Vec<usize>
 
 /// The meshes of a model's nodes (`ir`, spawned as `nodes`) a clip keys
 /// alpha or self-illumination on, each given a copy of its material: one
-/// keyed alpha drawn blended, or added by its alpha when it is additive or
+/// keyed alpha drawn blended while its alpha is below 1 (`Lit::surface`),
+/// or added by its alpha when it is additive or
 /// its node one of `glows` (reone draws a texture its TXI makes additive
 /// additive with alpha or without; xoreos only without: the swoop's
 /// thruster cards, `lmg_jet01` and `02`, are DXT5 with alpha); `None`
@@ -1459,17 +1530,13 @@ pub(crate) fn own_materials(
                 continue;
             };
             let mut copy = materials.get(&handle.0).cloned()?;
+            let mut looks = None;
             if fades && (glows.contains(&node) || copy.surface == material::Surface::Additive) {
                 copy = copy.faded_additive();
-            } else if fades
-                && matches!(
-                    copy.surface,
-                    material::Surface::Opaque
-                        | material::Surface::OpaqueAlpha
-                        | material::Surface::OpaqueEnvMasked
-                )
-            {
-                copy.surface = material::Surface::Blend;
+            } else if fades && let Some(keyed) = copy.keyed_looks() {
+                // Blended only while the alpha is below 1 (`Lit::surface`).
+                copy.show_look(&keyed, mesh.alpha >= 1.0);
+                looks = Some(keyed);
             }
             let material = materials.add(copy);
             if let Some(moving) = moving.as_deref_mut() {
@@ -1481,6 +1548,7 @@ pub(crate) fn own_materials(
                 material,
                 alpha: mesh.alpha,
                 illum: mesh.self_illum,
+                looks,
             });
         }
     }
@@ -1513,10 +1581,12 @@ pub struct Spray {
     /// A quads emitter's list its mesh is placed by (`Pulled`); none for a
     /// chunk's or a heat haze's, whose mesh is made anew.
     pulled: Option<Pulled>,
-    /// Its mesh holds nothing (`fill`): an emitter with nothing to draw
+    /// Its mesh holds nothing (`build`): an emitter with nothing to draw
     /// leaves it as it is, rather than sending an empty mesh anew each
     /// frame.
     empty: bool,
+    shape: Shape,
+    spare: Vec<u8>,
     pub entity: Entity,
     pub weather: Option<WeatherSpray>,
 }
@@ -1543,8 +1613,6 @@ pub enum Laid {
     Pulled(Vec<u8>),
 }
 
-/// The stores a spray's particles are written to (`Spray::put`): its
-/// mesh, its list and the material reading it.
 pub type SprayAssets<'a> = (
     &'a mut Assets<Mesh>,
     &'a mut Assets<ShaderBuffer>,
@@ -1566,8 +1634,26 @@ impl SprayStores<'_> {
     }
 }
 
+pub(crate) fn list_bytes(
+    mut bytes: Vec<u8>,
+    positions: &[[f32; 3]],
+    uvs: &[[f32; 2]],
+    colours: &[[f32; 4]],
+    room: usize,
+) -> Vec<u8> {
+    bytes.clear();
+    bytes.reserve(room * 4 * PARTICLE_BYTES);
+    for ((position, uv), colour) in positions.iter().zip(uvs).zip(colours) {
+        for value in position.iter().chain(uv).chain(colour) {
+            bytes.extend_from_slice(&value.to_ne_bytes());
+        }
+    }
+    bytes.resize(room * 4 * PARTICLE_BYTES, 0);
+    bytes
+}
+
 /// `quads` quads of nothing, as a pulled spray's mesh (`Pulled`).
-fn blank_quads(quads: usize) -> Mesh {
+pub(crate) fn blank_quads(quads: usize) -> Mesh {
     let vertices = quads * 4;
     crate::scene::coloured_quads(
         vec![[0.0; 3]; vertices],
@@ -1577,7 +1663,7 @@ fn blank_quads(quads: usize) -> Mesh {
 }
 
 /// `bytes` as a pulled spray's list: moved to the GPU, not kept.
-fn particle_list(bytes: Vec<u8>) -> ShaderBuffer {
+pub(crate) fn particle_list(bytes: Vec<u8>) -> ShaderBuffer {
     let mut buffer = ShaderBuffer::new(&[], bevy::asset::RenderAssetUsages::RENDER_WORLD);
     buffer.data = Some(bytes);
     buffer
@@ -1692,6 +1778,8 @@ pub(crate) fn sprays(
                 mesh,
                 pulled,
                 empty: true,
+                shape: Shape::default(),
+                spare: Vec::new(),
                 entity: spray,
                 weather: None,
             }
@@ -1774,20 +1862,14 @@ impl Spray {
         births: bool,
     ) {
         let emitter = &fx.emitters[self.emitter];
-        let quiet;
-        let values = if births {
-            &self.values
-        } else {
-            quiet = self.values.quiet();
-            &quiet
-        };
+        let values = &self.values;
         if emitter.update == Update::Lightning {
             self.particles.lightning(values, dt, self.target, births);
         } else {
             self.particles.step(
                 emitter,
                 values,
-                (dt, detonated),
+                (dt, detonated, births),
                 (space, surfaces),
                 self.target,
             );
@@ -1815,23 +1897,10 @@ impl Spray {
     }
 
     /// Its mesh made of its particles as they are (none unless `shown`),
-    /// facing the camera's `right` and `up`, all in its parent's space.
-    pub fn fill(
-        &mut self,
-        (fx, chunks): (&ModelFx, &BTreeMap<String, Chunk>),
-        space: Mat4,
-        facing: (Vec3, Vec3),
-        shown: bool,
-        stores: SprayAssets,
-    ) {
-        if let Some(laid) = self.build((fx, chunks), space, facing, shown) {
-            self.put(laid, stores);
-        }
-    }
-
-    /// Its mesh as `fill` makes it, none when it stays as it is (empty
-    /// before and now); it reads and writes nothing else, so sprays build
-    /// theirs side by side (`own_fx`).
+    /// facing the camera's `right` and `up`, all in its parent's space;
+    /// none when it stays as it is (empty before and now). It reads and
+    /// writes nothing else, so sprays build theirs side by side (`own_fx`,
+    /// `fx_model::step_sprays`), and `put` then puts it in place.
     pub fn build(
         &mut self,
         (fx, chunks): (&ModelFx, &BTreeMap<String, Chunk>),
@@ -1840,7 +1909,8 @@ impl Spray {
         shown: bool,
     ) -> Option<Laid> {
         let emitter = &fx.emitters[self.emitter];
-        let mut shape = Shape::default();
+        let mut shape = std::mem::take(&mut self.shape);
+        shape.clear();
         if shown {
             match emitter.chunk.as_ref().and_then(|name| chunks.get(name)) {
                 Some(chunk) => {
@@ -1854,6 +1924,7 @@ impl Spray {
         }
         let empty = shape.positions.is_empty();
         if empty && self.empty {
+            self.shape = shape;
             return None;
         }
         self.empty = empty;
@@ -1865,15 +1936,14 @@ impl Spray {
                 true => quads.next_power_of_two(),
                 false => pulled.quads,
             };
-            let mut bytes = Vec::with_capacity(room * 4 * PARTICLE_BYTES);
-            for ((position, uv), colour) in
-                shape.positions.iter().zip(&shape.uvs).zip(&shape.colours)
-            {
-                for value in position.iter().chain(uv).chain(colour) {
-                    bytes.extend_from_slice(&value.to_ne_bytes());
-                }
-            }
-            bytes.resize(room * 4 * PARTICLE_BYTES, 0);
+            let bytes = list_bytes(
+                std::mem::take(&mut self.spare),
+                &shape.positions,
+                &shape.uvs,
+                &shape.colours,
+                room,
+            );
+            self.shape = shape;
             return Some(Laid::Pulled(bytes));
         }
         Some(Laid::Mesh(if shape.indices.is_empty() {
@@ -1895,8 +1965,10 @@ impl Spray {
             (Laid::Pulled(bytes), Some(pulled)) => {
                 let quads = bytes.len() / (4 * PARTICLE_BYTES);
                 if quads == pulled.quads {
-                    if let Some(mut buffer) = buffers.get_mut(&pulled.buffer) {
-                        buffer.data = Some(bytes);
+                    if let Some(mut buffer) = buffers.get_mut(&pulled.buffer)
+                        && let Some(spare) = buffer.data.replace(bytes)
+                    {
+                        self.spare = spare;
                     }
                     return;
                 }
@@ -2040,6 +2112,7 @@ fn bounced(at: Vec3, velocity: Vec3, bounce: f32, dt: f32) -> Particle {
     let mut particle = Particle {
         at,
         velocity,
+        heading: velocity.normalize_or_zero(),
         age: 0.0,
         turned: 0.0,
         spin: 0.0,
@@ -2125,7 +2198,13 @@ fn birth_probes() -> Checks {
         };
         let mut particles = Particles::new(7, 256);
         let values = Values::of(&emitter);
-        particles.step(&emitter, &values, (0.0, true), (Mat4::IDENTITY, None), None);
+        particles.step(
+            &emitter,
+            &values,
+            (0.0, true, true),
+            (Mat4::IDENTITY, None),
+            None,
+        );
         particles
             .list
             .iter()
@@ -2241,14 +2320,21 @@ fn emitter_limit_probes() -> Checks {
 }
 
 /// One particle of a `facing` emitter (heading up its own z, placed by
-/// `space`) drawn to a camera of `right` and `up`: its quad's side and
-/// height as unit vectors, and how far v climbs from its foot to its head.
+/// `space`, falling by `mass` for `seconds`) drawn to a camera of `right`
+/// and `up`: its quad's side and height as unit vectors, and how far v
+/// climbs from its foot to its head.
 #[cfg(feature = "probes")]
-fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3, Vec3, f32) {
+fn facing_axes(
+    facing: Facing,
+    (right, up): (Vec3, Vec3),
+    space: Mat4,
+    (mass, seconds): (f32, f32),
+) -> (Vec3, Vec3, f32) {
     let rest = [
         (emit::LIFE_EXP, 5.0),
         (emit::SIZE_START, 2.0),
         (emit::VELOCITY, 3.0),
+        (emit::MASS, mass),
     ];
     let emitter = Emitter {
         facing,
@@ -2256,7 +2342,10 @@ fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3,
     };
     let values = Values::of(&emitter);
     let mut particles = Particles::new(1, 8);
-    particles.step(&emitter, &values, (0.1, false), (space, None), None);
+    let step = 0.1;
+    for _ in 0..(seconds / step).round().max(1.0) as usize {
+        particles.step(&emitter, &values, (step, false, true), (space, None), None);
+    }
     let mut shape = Shape::default();
     particles.quads(&emitter, &values, space, (right, up), &mut shape);
     let corner = |k: usize| Vec3::from_array(shape.positions[k]);
@@ -2269,22 +2358,37 @@ fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3,
 
 /// The orientations drawn about an axis: world z's quad stands on it,
 /// turned to the camera's side (its up down for an upside-down camera), and
-/// the particle direction's is long along where its particle heads, its
-/// side the emitter's x turned square to that. A picture stands upright:
-/// its texture's rows go up bottom first, so v climbs to its head (Taris'
-/// hologram dancers stood on their heads, issue 76).
+/// the particle direction's is long along where its particle headed when
+/// it was born, its side the emitter's x turned square to that. It stays so
+/// when its mass bends its way (K1's executable keeps the birth turn: the
+/// surf on Manaan stood up through the walkways, issue 326). A picture
+/// stands upright: its texture's rows go up bottom first, so v climbs to
+/// its head (Taris' hologram dancers stood on their heads, issue 76).
 #[cfg(feature = "probes")]
 fn facing_probes() -> Checks {
     let near = |a: Vec3, b: Vec3| (a - b).length() < 1e-4;
-    let (side, height, rise) =
-        facing_axes(Facing::AlignedWorldZ, (Vec3::X, Vec3::Y), Mat4::IDENTITY);
-    let (_, _, facing_rise) = facing_axes(Facing::Camera, (Vec3::X, Vec3::Y), Mat4::IDENTITY);
+    let still = (0.0, 0.1);
+    let (side, height, rise) = facing_axes(
+        Facing::AlignedWorldZ,
+        (Vec3::X, Vec3::Y),
+        Mat4::IDENTITY,
+        still,
+    );
+    let (_, _, facing_rise) =
+        facing_axes(Facing::Camera, (Vec3::X, Vec3::Y), Mat4::IDENTITY, still);
     let hanging = Vec3::new(0.0, 0.6, -0.8);
-    let (_, upside_down, _) =
-        facing_axes(Facing::AlignedWorldZ, (Vec3::X, hanging), Mat4::IDENTITY);
+    let (_, upside_down, _) = facing_axes(
+        Facing::AlignedWorldZ,
+        (Vec3::X, hanging),
+        Mat4::IDENTITY,
+        still,
+    );
     // The emitter's z turned onto world x, its x onto -z.
     let turned = Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
-    let (across, along, _) = facing_axes(Facing::AlignedDirection, (Vec3::Y, Vec3::Z), turned);
+    let along_of = |fall| facing_axes(Facing::AlignedDirection, (Vec3::Y, Vec3::Z), turned, fall);
+    let (across, along, _) = along_of(still);
+    // Two seconds of a heavy fall turn its velocity almost straight down.
+    let (fallen_across, fallen_along, _) = along_of((5.0, 2.0));
     vec![
         (
             "facing_world_z",
@@ -2302,6 +2406,13 @@ fn facing_probes() -> Checks {
             check(
                 near(along, Vec3::X) && near(across, Vec3::NEG_Z),
                 format!("{along} {across}"),
+            ),
+        ),
+        (
+            "facing_particle_dir_kept",
+            check(
+                near(fallen_along, Vec3::X) && near(fallen_across, Vec3::NEG_Z),
+                format!("{fallen_along} {fallen_across}"),
             ),
         ),
         (

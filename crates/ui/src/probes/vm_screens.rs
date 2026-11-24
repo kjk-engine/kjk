@@ -8,12 +8,12 @@ use super::menus::{keys, root};
 use super::paint::{Fake, button};
 use super::{Check, check, expect};
 use crate::input::Key;
-use crate::intent::{Fitting, GameAction, Intent};
+use crate::intent::{Fitting, GameAction, GuiSound, Intent};
 use crate::screen::Stack;
 use crate::vm::{
-    BreakdownView, CharacterView, Entry, ItemKind, LevelUpView, LostView, MemberView, RecipeView,
-    StoreView, UpgradeChoice, UpgradeItem, UpgradeKind, UpgradeSlot, ViewModel, Ware,
-    WorkbenchView,
+    BreakdownView, CharacterView, Entry, ItemKind, ItemText, LevelUpView, LostView, MemberView,
+    RecipeView, StoreView, UpgradeChoice, UpgradeItem, UpgradeKind, UpgradePart, UpgradeSlot,
+    ViewModel, Ware, WorkbenchView,
 };
 
 pub(super) fn list(tag: &str, top: i32) -> Control {
@@ -63,6 +63,7 @@ fn layouts(assets: &mut Fake) {
                     label("LBL_STOCK_VALUE", 12),
                     label("LBL_CREDITS_VALUE", 24),
                     label("LBL_BUYSELL", 36),
+                    label("LBL_COST", 48),
                 ],
                 buttons(&[
                     "BTN_Accept",
@@ -96,7 +97,12 @@ fn layouts(assets: &mut Fake) {
                 640,
                 480,
                 [
-                    vec![list("LB_ITEMS", 0)],
+                    vec![
+                        list("LB_ITEMS", 0),
+                        list("LB_DESC", 200),
+                        label("LBL_SLOTNAME", 320),
+                        label("LBL_PROPERTY", 340),
+                    ],
                     buttons(&[
                         "BTN_UPGRADE31",
                         "BTN_UPGRADE31_LS",
@@ -135,7 +141,12 @@ fn layouts(assets: &mut Fake) {
         (
             "chemical",
             with(
-                vec![list("LB_SHOPITEMS", 0), list("LB_INVITEMS", 120)],
+                vec![
+                    list("LB_SHOPITEMS", 0),
+                    list("LB_INVITEMS", 120),
+                    label("LBL_TITLE", 240),
+                    label("LBL_COST", 252),
+                ],
                 buttons(&[
                     "BTN_CREATE_HEALTH",
                     "BTN_CREATE_STIMS",
@@ -229,6 +240,15 @@ pub(super) fn words(stack: &Stack, vm: &ViewModel, tag: &str) -> String {
     String::from_utf8_lossy(&stack.text_of(tag, vm).unwrap_or(Vec::new())).into_owned()
 }
 
+/// The line of KOTOR 2's talk table that `tag` shows, when the screen
+/// names one (`tab::skin_line`).
+pub(super) fn skin_line(stack: &Stack, vm: &ViewModel, tag: &str) -> Option<u32> {
+    stack
+        .state_of(tag, vm)
+        .filter(|state| state.skin_strref)
+        .and_then(|state| state.strref)
+}
+
 pub(super) fn disabled(stack: &Stack, vm: &ViewModel, tag: &str) -> bool {
     stack.state_of(tag, vm).is_some_and(|state| state.disabled)
 }
@@ -300,22 +320,38 @@ fn benches(assets: &mut Fake) -> Check {
         &medical,
         "LB_SHOPITEMS",
     );
+    let labels = ["LBL_TITLE", "BTN_Accept", "BTN_Examine", "LBL_COST"];
+    let making = labels.map(|tag| skin_line(&lab, &vm, tag));
     presses(&mut lab, assets, &vm, &["BTN_Examine"]);
     let broken_down = listed(&lab, &vm, "LB_INVITEMS");
+    let breaking = labels.map(|tag| skin_line(&lab, &vm, tag));
+    // KOTOR 2's "Create New Items", "Create Item", "View Breakdown Items"
+    // and "Chemical Cost", then "Breakdown Inventory Items", "Breakdown
+    // Item", "View Createable Items" and "Chemical Value".
+    let named = (
+        [111574, 48379, 48373, 48434].map(Some),
+        [115425, 115426, 48375, 115432].map(Some),
+    );
     check(
         "bench_screens",
         expect(
             &format!(
                 "the workbench opens on {opens:?}, closes with {closes:?}; the lab station opens \
-                 on {first:?}, its tabs {tabs:?}, breaks down {broken_down:?}"
+                 on {first:?}, its tabs {tabs:?}, breaks down {broken_down:?}, its labels \
+                 {making:?} then {breaking:?}"
             ),
             opens == (vec!["Other".into()], true)
                 && closes == (Some(219), Some(1582))
                 && first == ["Medical"]
                 && tabs == [["Stims"], ["Mines"], ["Grenades"]]
-                && broken_down == ["Blaster", "Medpac"],
+                && broken_down == ["Blaster", "Medpac"]
+                && (making, breaking) == named,
         )
-        .map(|()| "the workbench's and lab station's tabs, close button and breakdown list".into()),
+        .map(|()| {
+            "the workbench's and lab station's tabs, close button, breakdown list and the \
+             labels for each list"
+                .into()
+        }),
     )
 }
 
@@ -325,6 +361,98 @@ fn icon(stack: &Stack, vm: &ViewModel, tag: &str) -> String {
         .state_of(tag, vm)
         .and_then(|state| state.fill)
         .unwrap_or(String::new())
+}
+
+/// The upgrade bench tells what a part does before Assemble, as KOTOR 2's
+/// does (issue 298). A pistol with a scope slot (KOTOR 1's kind, whose
+/// part brings the pistol's own "Attack +2"):
+/// - The empty slot shows the scope slot's picture, and the description
+///   is the pistol's stats in force and its text.
+/// - The scope's row pointed at in the slot's list describes the scope.
+/// - The scope put in, the description shows "Attack +2" before Assemble.
+///   The labels under the slots name the scope and tell its own stats and
+///   the pistol's that come with it.
+/// - The back key clicks.
+fn upgrade_tells(assets: &mut Fake) -> Check {
+    let stat = |upgrade, line: &str| crate::assets::Stat {
+        upgrade,
+        line: line.as_bytes().to_vec(),
+    };
+    let scope = UpgradePart {
+        entry: Entry {
+            icon: Some("i_scope_mk1".into()),
+            ..named("Scope Mk I", "Keen\n\nA scope.", None)
+        },
+        stats: vec![b"Keen".to_vec()],
+        row: Some(16),
+        ..UpgradePart::default()
+    };
+    let vm = ViewModel {
+        upgrades: vec![UpgradeItem {
+            id: 7,
+            item: named("Pistol", "", None),
+            kind: UpgradeKind::Ranged,
+            slots: vec![UpgradeSlot {
+                choices: vec![UpgradeChoice {
+                    id: 41,
+                    part: scope,
+                    fits: true,
+                }],
+                name: b"Scope".to_vec(),
+                icon: Some("i_scope".into()),
+                keyed: Some(16),
+                ..UpgradeSlot::default()
+            }],
+            text: ItemText {
+                stats: vec![stat(None, "Damage: 1-4"), stat(Some(16), "Attack +2")],
+                text: b"A pistol.".to_vec(),
+                ..ItemText::default()
+            },
+            ..UpgradeItem::default()
+        }],
+        ..ViewModel::default()
+    };
+    let mut bench = opened("upgrade:7", assets, &vm);
+    let empty = (
+        icon(&bench, &vm, "BTN_UPGRADE31"),
+        told(&bench, &vm, "LB_DESC"),
+    );
+    presses(&mut bench, assets, &vm, &["BTN_UPGRADE31"]);
+    bench.step(assets, &vm, &keys(&[Key::Down]));
+    let pointed = told(&bench, &vm, "LB_DESC");
+    presses(&mut bench, assets, &vm, &["LB_ITEMS"]);
+    let fitted = (
+        icon(&bench, &vm, "BTN_UPGRADE31"),
+        told(&bench, &vm, "LB_DESC"),
+        words(&bench, &vm, "LBL_SLOTNAME"),
+        words(&bench, &vm, "LBL_PROPERTY"),
+    );
+    let back = bench.step(assets, &vm, &keys(&[Key::Back])).sounds;
+    check(
+        "upgrade_tells",
+        expect(
+            &format!(
+                "empty {empty:?}; the scope pointed at {pointed:?}; put in {fitted:?}; the back \
+                 key {back:?}"
+            ),
+            empty == ("i_scope".into(), "Damage: 1-4\n\nA pistol.".into())
+                && pointed == "Keen\n\nA scope."
+                && fitted
+                    == (
+                        "i_scope_mk1".into(),
+                        "Damage: 1-4\nAttack +2\n\nA pistol.".into(),
+                        "Scope Mk I".into(),
+                        "Keen\nAttack +2".into(),
+                    )
+                && back.contains(&GuiSound::Clicked)
+                && !bench.is_open(),
+        )
+        .map(|()| {
+            "the bench's description shows a part's stats before Assemble, a row pointed at \
+             describes its part, the slot labels tell the part, and the back key clicks"
+                .into()
+        }),
+    )
 }
 
 /// An upgrade slot chosen and its list's row `row` (by the cursor, from
@@ -350,9 +478,13 @@ pub(super) fn all() -> Vec<Check> {
         icon: Some(icon.into()),
         ..named(name, "", None)
     };
+    let part = |entry| UpgradePart {
+        entry,
+        ..UpgradePart::default()
+    };
     let choice = |id, name: &str, fits| UpgradeChoice {
         id,
-        entry: shown(name, &format!("i_{}", name.to_lowercase())),
+        part: part(shown(name, &format!("i_{}", name.to_lowercase()))),
         fits,
     };
     let rubat = choice(41, "Rubat", true);
@@ -363,24 +495,27 @@ pub(super) fn all() -> Vec<Check> {
         kind: UpgradeKind::Lightsaber,
         slots: vec![
             UpgradeSlot {
-                fitted: Some((None, shown("Blue", "i_blue"))),
-                choices: Vec::new(),
-                at: None,
+                fitted: Some((None, part(shown("Blue", "i_blue")))),
+                ..UpgradeSlot::default()
             },
             UpgradeSlot {
-                fitted: Some((Some(1), shown("Damind", "i_damind"))),
+                fitted: Some((Some(1), part(shown("Damind", "i_damind")))),
                 choices: vec![rubat.clone()],
-                at: None,
+                ..UpgradeSlot::default()
             },
             UpgradeSlot {
-                fitted: None,
                 choices: vec![rubat, choice(42, "Lens", false)],
-                at: None,
+                ..UpgradeSlot::default()
             },
         ],
+        ..UpgradeItem::default()
     };
     let vm = ViewModel {
-        journal: vec![named("Escape", "Find Bastila.", None)],
+        journal: vec![crate::vm::QuestView {
+            name: b"Escape".to_vec(),
+            description: b"Find Bastila.".to_vec(),
+            ..crate::vm::QuestView::default()
+        }],
         store: Some(StoreView {
             store: 7,
             stock: vec![
@@ -405,15 +540,18 @@ pub(super) fn all() -> Vec<Check> {
             },
             saber,
         ],
+        // Its own scores: the level-up screen builds on these, not on the
+        // Strength and Intelligence its items add (issue 339).
         levelup: Some(LevelUpView {
             who: 0,
             class: 0,
             level: 4,
+            abilities: [14, 12, 12, 10, 10, 10],
             skills: [2, 0, 0, 0, 0, 0, 0, 0],
             ..LevelUpView::default()
         }),
         character: Some(CharacterView {
-            abilities: [14, 12, 12, 10, 10, 10],
+            abilities: [15, 12, 12, 14, 10, 10],
             ..CharacterView::default()
         }),
         ..chargen_vm()
@@ -451,8 +589,8 @@ pub(super) fn all() -> Vec<Check> {
     presses(&mut store, &mut assets, &vm, &["BTN_Examine"]);
     let selling = (
         store.hidden("LB_SHOPITEMS", &vm) && !store.hidden("LB_INVITEMS", &vm),
-        words(&store, &vm, "LBL_BUYSELL"),
-        words(&store, &vm, "BTN_Accept"),
+        ["LBL_BUYSELL", "BTN_Accept", "BTN_Examine", "LBL_COST"]
+            .map(|tag| skin_line(&store, &vm, tag)),
         disabled(&store, &vm, "BTN_Accept"),
     );
     let sold = presses(&mut store, &mut assets, &vm, &["LB_INVITEMS", "BTN_Accept"]);
@@ -516,7 +654,12 @@ pub(super) fn all() -> Vec<Check> {
     presses(&mut bench, &mut assets, &vm, &["BTN_OK", "BTN_BACK"]);
     // The Damind crystal taken out (the empty row), then Assemble.
     let taken = pick(&mut bench, &mut assets, &vm, ("BTN_UPGRADE32_LS", 0));
-    let assembled = presses(&mut bench, &mut assets, &vm, &["BTN_ASSEMBLE"]);
+    bench.press("BTN_ASSEMBLE");
+    let frame = bench.step(&mut assets, &vm, &keys(&[]));
+    let upgrade_sound =
+        frame.sounds.contains(&GuiSound::Upgrade) && !frame.sounds.contains(&GuiSound::Clicked);
+    let mut assembled = frame.intents;
+    assembled.extend(bench.step(&mut assets, &vm, &keys(&[])).intents);
     let after = bench.top().map(|screen| screen.0);
     // Back throws a visit's choices away.
     presses(&mut bench, &mut assets, &vm, &["BTN_UPGRADEITEMS"]);
@@ -548,9 +691,29 @@ pub(super) fn all() -> Vec<Check> {
     let first = levelup.focused().map(str::to_string);
     presses(&mut levelup, &mut assets, &vm, &["BTN_STEPNAME1"]);
     let floor = levelup.hidden("STR_MINUS_BTN", &vm);
-    // Recommended is the creation's: greyed levelling up, and inert.
+    let title = levelup
+        .state_of("MAIN_TITLE_LBL", &vm)
+        .and_then(|state| state.strref);
+    // Creation's 18 is no ceiling levelling up (Bastila's Dexterity).
+    let eighteen = ViewModel {
+        levelup: vm.levelup.clone().map(|up| LevelUpView {
+            abilities: [14, 18, 12, 10, 10, 10],
+            ..up
+        }),
+        ..vm.clone()
+    };
+    let mut past = opened("levelup", &mut assets, &eighteen);
+    presses(
+        &mut past,
+        &mut assets,
+        &eighteen,
+        &["BTN_STEPNAME1", "DEX_PLUS_BTN"],
+    );
+    let past_eighteen = words(&past, &eighteen, "DEX_POINTS_BTN");
+    // Recommended works levelling up (issue 369): the point goes to the
+    // class's primary ability, Strength here.
     presses(&mut levelup, &mut assets, &vm, &["BTN_RECOMMENDED"]);
-    let kept_scores = (
+    let recommended_scores = (
         disabled(&levelup, &vm, "BTN_RECOMMENDED"),
         words(&levelup, &vm, "STR_POINTS_BTN"),
     );
@@ -572,8 +735,10 @@ pub(super) fn all() -> Vec<Check> {
     );
     let skill_points = words(&levelup, &vm, "REMAINING_SELECTIONS_LBL");
     let held = levelup.hidden("COM_MINUS_BTN", &vm);
+    // Demolitions comes first in the class's order, but its rank costs 2
+    // points and only 1 is left, so the point buys a Computer Use rank.
     presses(&mut levelup, &mut assets, &vm, &["BTN_RECOMMENDED"]);
-    let kept_ranks = (
+    let recommended_ranks = (
         disabled(&levelup, &vm, "BTN_RECOMMENDED"),
         words(&levelup, &vm, "COMPUTER_USE_POINTS_BTN"),
         words(&levelup, &vm, "REMAINING_SELECTIONS_LBL"),
@@ -623,6 +788,7 @@ pub(super) fn all() -> Vec<Check> {
     );
     vec![
         benches(&mut assets),
+        upgrade_tells(&mut assets),
         unbraced,
         check("script_screens", {
             expect(
@@ -657,7 +823,9 @@ pub(super) fn all() -> Vec<Check> {
         .and_then(|()| {
             expect(
                 &format!("Show Sell List shows the party's, to sell: {selling:?}"),
-                selling == (true, "Sell".into(), "Sell".into(), true),
+                // KOTOR 2's "Selling Items", "Sell Item", "Show Buy List"
+                // and "Item Value".
+                selling == (true, [32130, 125553, 41937, 41945].map(Some), true),
             )
         })
         .and_then(|()| {
@@ -701,8 +869,8 @@ pub(super) fn all() -> Vec<Check> {
                     "a visit on a copy: Assemble greyed ({greyed}) until a change; the Rubat \
                      chosen shows {copied:?} (nothing sent: {chose:?}); the lens greyed \
                      ({rows:?} {dimmed:?}) and refused ({refused:?}); the Damind taken out \
-                     ({taken:?}); Assemble sends {:?} and closes to {after:?}; Back sends \
-                     {:?} and closes to {back_to:?}",
+                     ({taken:?}); Assemble sends {:?} with the upgrade sound ({upgrade_sound}) \
+                     and closes to {after:?}; Back sends {:?} and closes to {back_to:?}",
                     game(&assembled),
                     game(&thrown)
                 ),
@@ -714,6 +882,7 @@ pub(super) fn all() -> Vec<Check> {
                     && refused == (Some("message"), Some(116_713))
                     && game(&taken).is_empty()
                     && game(&assembled) == [made]
+                    && upgrade_sound
                     && after == Some("upgrade_select")
                     && game(&thrown).is_empty()
                     && back_to == Some("upgrade_select"),
@@ -743,21 +912,36 @@ pub(super) fn all() -> Vec<Check> {
         .and_then(|()| expect("a score cannot go below what it was", floor))
         .and_then(|()| {
             expect(
+                &format!("titled Level Up: {title:?}"),
+                title == Some(1071),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("18 raised to 19 levelling up: {past_eighteen:?}"),
+                past_eighteen == "19",
+            )
+        })
+        .and_then(|()| {
+            expect(
                 &format!("one point, one raise: {raised:?}"),
                 raised == ("15".into(), "0".into()),
             )
         })
         .and_then(|()| {
             expect(
-                &format!("(2 + 0) / 2 skill points: {skill_points:?}"),
+                &format!("(2 + 0) / 2 skill points, its own Intelligence's: {skill_points:?}"),
                 skill_points == "1",
             )
         })
         .and_then(|()| expect("ranks held cannot be taken back", held))
         .and_then(|()| {
             expect(
-                &format!("no Recommended levelling up: {kept_scores:?} {kept_ranks:?}"),
-                kept_scores == (true, "14".into()) && kept_ranks == (true, "2".into(), "1".into()),
+                &format!(
+                    "Recommended levelling up: {recommended_scores:?} {recommended_ranks:?}"
+                ),
+                recommended_scores == (false, "15".into())
+                    && recommended_ranks == (false, "3".into(), "0".into()),
             )
         })
         .and_then(|()| {

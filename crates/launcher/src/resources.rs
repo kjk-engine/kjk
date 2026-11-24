@@ -76,8 +76,72 @@ fn ls_ja(discovery: &Discovery, pattern: &str, only_shadowed: bool) -> ExitCode 
     eprintln!(
         "{listed} names from {} pk3 and {} loose files",
         stack.pk3s.len(),
-        stack.loose.len()
+        stack.loose_files()
     );
+    ExitCode::SUCCESS
+}
+
+/// Every saber of the JA stack's `.sab` files whose name matches
+/// `pattern`: a name a lower file also has is hidden, as the first file
+/// holding a block is the one read (`viewer_ja::saber_and_hilt`).
+pub fn sabers(discovery: &Discovery, pattern: &str) -> ExitCode {
+    let (_, stack) = match ja_stack(discovery) {
+        Ok(opened) => opened,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let pattern = pattern.to_ascii_lowercase();
+    let mut seen: BTreeMap<String, String> = BTreeMap::new();
+    let (mut listed, mut files) = (0, 0);
+    let all = stack.all();
+    let sab_files = all
+        .iter()
+        .filter(|(path, _)| path.starts_with("ext_data/sabers/") && path.ends_with(".sab"));
+    for (path, resolved) in sab_files {
+        files += 1;
+        let source = stack.source_name(resolved.source);
+        let Ok(bytes) = stack.read(path, resolved.source) else {
+            eprintln!("{path}: not read from {source}");
+            continue;
+        };
+        for name in asset_ja::saber_names(&bytes) {
+            if !matches(&pattern, &name) {
+                continue;
+            }
+            listed += 1;
+            if let Some(first) = seen.get(&name) {
+                outln!("{name}\t{path}\t{source}\thidden by {first}");
+                continue;
+            }
+            seen.insert(name.clone(), path.to_string());
+            let Some(saber) = asset_ja::saber(&bytes, &name) else {
+                outln!("{name}\t{path}\t{source}\tno saberModel");
+                continue;
+            };
+            let colors: Vec<&str> = saber
+                .colors
+                .iter()
+                .map(|color| {
+                    if color.is_empty() {
+                        "-"
+                    } else {
+                        color.as_str()
+                    }
+                })
+                .collect();
+            outln!(
+                "{name}\t{path}\t{source}\t{}\t{} blade{}\t{:?}\t{}",
+                saber.model,
+                saber.lengths.len(),
+                if saber.lengths.len() == 1 { "" } else { "s" },
+                saber.lengths,
+                colors.join(",")
+            );
+        }
+    }
+    eprintln!("{listed} sabers from {files} .sab files");
     ExitCode::SUCCESS
 }
 

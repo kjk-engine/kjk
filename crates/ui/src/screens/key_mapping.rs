@@ -29,10 +29,17 @@ pub enum Device {
 
 /// A pad button's name as the raw input carries it (`Pad:LB+South`).
 pub const PAD_RAW: &str = "Pad:";
-/// The pad button that cancels an entry (it opens the menu in play), and
-/// the one held for a chord's second layer.
+/// The pad button that cancels an entry (it opens the menu in play).
 const PAD_CANCEL: &str = "Start";
+/// LB, the button held for a chord's second layer. LB alone may also be
+/// bound (Block is, by default).
 const PAD_SHIFT: &str = "LeftTrigger";
+/// The second layer's prefix in a chord's name (`LB+South`).
+const PAD_LAYER: &str = "LB+";
+
+/// The entry's instructions while a pad binds. `{shift}` and `{menu}` are
+/// the pad's names for LB and Start.
+const PRESS_PAD: &str = "Press a button. Hold {shift} and press another button for a chord with {shift}. Press {shift} alone and let it go to bind {shift} alone. Press {menu} to cancel.";
 
 impl Device {
     /// The settings' prefix of its bindings (`key.jump`, `pad.jump`).
@@ -125,12 +132,9 @@ impl KeyMapping {
 const ROW: i32 = 24;
 const INDENT: i32 = 10;
 
-/// A binding's setting: its key and value.
+/// A binding's setting: its key and value (`none` for no binding).
 fn setting(device: Device, action: &str, key: &str) -> (String, String) {
-    let value = match (device, key) {
-        (Device::Pad, "") => "none",
-        _ => key,
-    };
+    let value = if key.is_empty() { "none" } else { key };
     (format!("{}.{action}", device.prefix()), value.to_string())
 }
 
@@ -283,10 +287,54 @@ impl Screen for KeyMapping {
     }
 }
 
+/// `text` with each `{action}` (a settings' name, as `{zoom_in}`) as what
+/// the action is bound to now: the pad's button while a pad plays, else
+/// the key. A brace that names no action stays as written.
+pub fn with_bindings(text: &str, vm: &ViewModel) -> String {
+    let device = if vm.pad_playing {
+        Device::Pad
+    } else {
+        Device::Keys
+    };
+    device.rows(vm).iter().fold(text.to_string(), |text, row| {
+        text.replace(&format!("{{{}}}", row.action), &device.shown(&row.key, vm))
+    })
+}
+
+/// The modifier keys a binding can ask to be held with its key or button,
+/// each by the name the settings file uses before a plus sign
+/// (`Shift+MouseRight`), and its left and right keys.
+pub const MODIFIERS: [(&str, [&str; 2]); 3] = [
+    ("Ctrl", ["ControlLeft", "ControlRight"]),
+    ("Shift", ["ShiftLeft", "ShiftRight"]),
+    ("Alt", ["AltLeft", "AltRight"]),
+];
+
+/// Whether a key is one of the modifier keys (`ShiftLeft` is).
+fn is_modifier(key: &str) -> bool {
+    MODIFIERS.iter().any(|(_, sides)| sides.contains(&key))
+}
+
+/// A binding's name as shown: its modifiers first, each followed by a plus
+/// sign, then its key or button (`Shift+MouseRight` as `Shift + Right
+/// mouse`); no binding (empty, or `none`) as a dash.
+pub fn key_name(binding: &str) -> String {
+    if binding.is_empty() || binding == "none" {
+        return strings::UNBOUND.to_string();
+    }
+    let (mods, key) = binding.rsplit_once('+').unwrap_or(("", binding));
+    mods.split('+')
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .chain([input_name(key)])
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
 /// A key's or mouse button's name as shown: `KeyW` as `W`, `Digit1` as
 /// `1`, `ShiftLeft` as `Left Shift`, `Numpad5` as `Num 5`, `MouseBack` as
 /// `Mouse 4`; one not known as its own name.
-pub fn key_name(key: &str) -> String {
+fn input_name(key: &str) -> String {
     let named = NAMES.iter().find(|(name, _)| *name == key);
     if let Some((_, shown)) = named {
         return shown.to_string();
@@ -349,11 +397,13 @@ const NAMES: &[(&str, &str)] = &[
     ("NumpadEnter", "Num Enter"),
     ("NumLock", "Num Lock"),
     ("ScrollLock", "Scroll Lock"),
+    ("PrintScreen", "Print Screen"),
     ("ContextMenu", "Menu key"),
 ];
 
 /// A chord's name as shown, in the names of the pad played with last
-/// (`LB+South` as `LB+A`); an unbound one as a dash.
+/// (`LB+South` as `LB+A`, `RightTrigger` as `RB`). An unbound one shows as
+/// a dash.
 pub fn chord_name(chord: &str, vm: &ViewModel) -> String {
     let button = |name: &str| {
         vm.pad_names
@@ -361,7 +411,7 @@ pub fn chord_name(chord: &str, vm: &ViewModel) -> String {
             .find(|(button, _)| button == name)
             .map_or_else(|| name.to_string(), |(_, shown)| shown.clone())
     };
-    match chord.strip_prefix("LB+") {
+    match chord.strip_prefix(PAD_LAYER) {
         _ if chord.is_empty() || chord == "none" => strings::UNBOUND.to_string(),
         Some(rest) => format!("{}+{}", button(PAD_SHIFT), button(rest)),
         None => button(chord),
@@ -389,17 +439,32 @@ fn paragraphs(words: &[&str]) -> ControlState {
     }
 }
 
+/// The raw input's name of a key let go (`Released:ShiftLeft`), which only
+/// the key entry reads.
+pub const RELEASED_RAW: &str = "Released:";
+
 /// Asking for an action's new key or button (KOTOR's message box): the next one
 /// pressed is it; Escape, a pad's Menu or Cancel keeps the old one. One
 /// another action has is named first, and taken (swapped) on a second
 /// press.
+///
+/// On the keyboard and mouse, a modifier key (Ctrl, Shift or Alt) waits.
+/// If another key or a mouse button is pressed while it is held, the binding
+/// is the two together (Shift + Right mouse). If the modifier is let go
+/// first, the binding is the modifier key alone (Left Shift).
 pub struct KeyEntry {
     device: Device,
     action: String,
     label: String,
     current: String,
-    /// The binding asked for that another action has, and whose it is.
-    clash: Option<(String, KeyRow)>,
+    /// The binding asked for that other actions have, and whose it is.
+    clash: Option<(String, Vec<KeyRow>)>,
+    /// The modifier keys held down since the entry opened, in the order
+    /// they were pressed.
+    held: Vec<String>,
+    /// Whether LB went down on a pad and no other button has been pressed
+    /// since. LB let go then binds LB alone (`pad_chord`).
+    shift_waits: bool,
 }
 
 impl KeyEntry {
@@ -417,11 +482,62 @@ impl KeyEntry {
             label: row.map_or(action.to_string(), |row| row.label.clone()),
             current: row.map_or(String::new(), |row| row.key.clone()),
             clash: None,
+            held: Vec::new(),
+            shift_waits: false,
         }
     }
 
-    /// The action other than this one on `binding` it may not share with.
-    fn other(&self, binding: &str, vm: &ViewModel) -> Option<KeyRow> {
+    /// The pad binding a raw pad input makes (`Pad:LB+South`, or a button let
+    /// go as `Released:Pad:LeftTrigger`). LB pressed waits, because it is
+    /// also the layer's button. If another button is pressed while LB is
+    /// held, the binding is the chord of the two (`LB+South`). If LB is let
+    /// go first, the binding is LB alone. None while LB waits, and for a
+    /// button let go that binds nothing.
+    fn pad_chord(&mut self, key: &str) -> Option<String> {
+        let shift =
+            |name: &str| name == PAD_SHIFT || name.strip_prefix(PAD_LAYER) == Some(PAD_SHIFT);
+        if let Some(released) = key
+            .strip_prefix(RELEASED_RAW)
+            .and_then(|key| key.strip_prefix(PAD_RAW))
+        {
+            let alone = shift(released) && std::mem::take(&mut self.shift_waits);
+            return alone.then(|| PAD_SHIFT.to_string());
+        }
+        let pressed = key.strip_prefix(PAD_RAW)?;
+        self.shift_waits = shift(pressed);
+        (!self.shift_waits).then(|| pressed.to_string())
+    }
+
+    /// The binding a key or button pressed now makes, with the modifiers
+    /// held (`Ctrl+Shift+KeyE`), in the order of `MODIFIERS`. None while
+    /// the key is a modifier, which waits (`KeyEntry`).
+    fn chord(&mut self, key: &str) -> Option<String> {
+        if let Some(released) = key.strip_prefix(RELEASED_RAW) {
+            let first = self.held.first().is_some_and(|held| held == released);
+            self.held.retain(|held| held != released);
+            return first.then(|| released.to_string());
+        }
+        if is_modifier(key) {
+            if !self.held.iter().any(|held| held == key) {
+                self.held.push(key.to_string());
+            }
+            return None;
+        }
+        let mods = MODIFIERS
+            .iter()
+            .filter(|(_, sides)| self.held.iter().any(|held| sides.contains(&held.as_str())));
+        Some(
+            mods.map(|(name, _)| format!("{name}+"))
+                .chain([key.to_string()])
+                .collect(),
+        )
+    }
+
+    /// The actions other than this one on `binding` that it may not share
+    /// with. Several actions may share one binding (Block, the alternate
+    /// attack and Aim share the right mouse button), so a swap moves them
+    /// all.
+    fn others(&self, binding: &str, vm: &ViewModel) -> Vec<KeyRow> {
         let mine = self
             .device
             .rows(vm)
@@ -430,13 +546,71 @@ impl KeyEntry {
         self.device
             .rows(vm)
             .iter()
-            .find(|row| {
+            .filter(|row| {
                 row.key == binding
                     && row.action != self.action
                     && !row.shares.contains(&self.action)
                     && !mine.is_some_and(|mine| mine.shares.contains(&row.action))
             })
             .cloned()
+            .collect()
+    }
+
+    /// Whether an action that stays on the binding this one leaves
+    /// (`current`) may not share it with `moved`. Such a moved action is
+    /// left unbound instead. For example, Aim bound onto E would move Use to
+    /// the right mouse button, where Block and the alternate attack stay.
+    fn refused_at_current(&self, moved: &KeyRow, vm: &ViewModel) -> bool {
+        !self.current.is_empty()
+            && self.device.rows(vm).iter().any(|row| {
+                row.key == self.current
+                    && row.action != self.action
+                    && row.action != moved.action
+                    && !row.shares.contains(&moved.action)
+                    && !moved.shares.contains(&row.action)
+            })
+    }
+
+    /// What the entry says when `binding` is `others`'. When every one of
+    /// them can take the old key, the next press swaps them. When some
+    /// cannot (`refused_at_current`), it says which actions move to the old
+    /// key and which are left without a key.
+    fn clash_message(&self, binding: &str, others: &[KeyRow], vm: &ViewModel) -> String {
+        let shown = self.device.shown(binding, vm);
+        let (left, moved): (Vec<&KeyRow>, Vec<&KeyRow>) = others
+            .iter()
+            .partition(|other| self.refused_at_current(other, vm));
+        let all: Vec<&KeyRow> = others.iter().collect();
+        let named = format!("{shown} is {}.", owners(&all));
+        if left.is_empty() {
+            return format!("{named} Press {shown} again to swap them.");
+        }
+        let mut message = format!("{named} Press {shown} again to bind {} to it.", self.label);
+        if !moved.is_empty() {
+            let old = self.device.shown(&self.current, vm);
+            message += &format!(" {} will move to {old}.", names(&moved));
+        }
+        message + &format!(" {} will be left without a key.", names(&left))
+    }
+}
+
+/// The actions whose binding is asked for, as the clash message names
+/// them: "Use's", or "Block's, Alt attack's and Aim's".
+fn owners(rows: &[&KeyRow]) -> String {
+    listed(rows.iter().map(|row| format!("{}'s", row.label)).collect())
+}
+
+/// The actions of `rows` by name, as the clash message lists them: "Use",
+/// or "Block, Alt attack and Aim".
+fn names(rows: &[&KeyRow]) -> String {
+    listed(rows.iter().map(|row| row.label.clone()).collect())
+}
+
+/// `names` joined as a sentence lists them: "a", "a and b", "a, b and c".
+fn listed(names: Vec<String>) -> String {
+    match names.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => names.concat(),
     }
 }
 
@@ -457,20 +631,14 @@ impl Screen for KeyEntry {
         match control.tag.as_str() {
             "LB_MESSAGE" => {
                 let how = if pad {
-                    strings::PRESS_BUTTON
+                    PRESS_PAD
                         .replace("{shift}", &chord_name(PAD_SHIFT, vm))
                         .replace("{menu}", &chord_name(PAD_CANCEL, vm))
                 } else {
                     strings::PRESS_KEY.to_string()
                 };
                 let now = match &self.clash {
-                    Some((binding, other)) => {
-                        let shown = self.device.shown(binding, vm);
-                        format!(
-                            "{shown} is {}'s. Press {shown} again to swap them.",
-                            other.label
-                        )
-                    }
+                    Some((binding, others)) => self.clash_message(binding, others, vm),
                     None => format!(
                         "{} {}",
                         strings::NOW_ON,
@@ -507,16 +675,36 @@ impl Screen for KeyEntry {
     }
 
     /// Every key or button pressed is the entry's (none presses the page's
-    /// own buttons); one of the other device is let be.
+    /// own buttons); one of the other device is let be. A modifier key
+    /// pressed, or any key let go, is noted and passed on.
     fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
         let pad = key.strip_prefix(PAD_RAW);
         if key == "Escape" || pad == Some(PAD_CANCEL) {
             out.push(Intent::Close);
             return true;
         }
+        let made;
         let binding = match (self.device, pad) {
-            (Device::Keys, None) => key,
-            (Device::Pad, Some(chord)) => chord,
+            (Device::Keys, None) => match self.chord(key) {
+                Some(chord) => {
+                    made = chord;
+                    made.as_str()
+                }
+                // A modifier waiting, or a key let go: the frame's other
+                // presses still come here (a click with Shift pressed in the
+                // same frame).
+                None => return false,
+            },
+            (Device::Pad, _) if pad.is_some() || key.starts_with(RELEASED_RAW) => {
+                match self.pad_chord(key) {
+                    Some(chord) => {
+                        made = chord;
+                        made.as_str()
+                    }
+                    // LB waiting, or a button let go that binds nothing.
+                    None => return pad.is_some(),
+                }
+            }
             _ => return true,
         };
         let prefix = self.device.prefix();
@@ -524,16 +712,19 @@ impl Screen for KeyEntry {
             out.push(Intent::Close);
             return true;
         }
-        match self.other(binding, vm) {
-            Some(other) if self.clash.as_ref().map(|(b, _)| b.as_str()) != Some(binding) => {
-                self.clash = Some((binding.to_string(), other));
-                return true;
-            }
-            Some(other) => {
-                let (key, value) = setting(self.device, &other.action, &self.current);
-                out.push(Intent::Setting(key, value));
-            }
-            None => {}
+        let others = self.others(binding, vm);
+        if !others.is_empty() && self.clash.as_ref().map(|(b, _)| b.as_str()) != Some(binding) {
+            self.clash = Some((binding.to_string(), others));
+            return true;
+        }
+        for other in &others {
+            let to = if self.refused_at_current(other, vm) {
+                ""
+            } else {
+                self.current.as_str()
+            };
+            let (key, value) = setting(self.device, &other.action, to);
+            out.push(Intent::Setting(key, value));
         }
         out.push(Intent::Setting(
             format!("{prefix}.{}", self.action),

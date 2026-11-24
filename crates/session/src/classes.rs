@@ -2,15 +2,16 @@
 //! the tables it names: each class's attack, save and defence rows, its
 //! feats (`feat.2da`'s `<class>_list`: 0 to 2 picked, 3 granted at
 //! `<class>_granted`, 4 never), its powers (`spells.2da`'s column for the
-//! class, the class level it may from), its skills (`skills.2da`), feats and
+//! class, the total level it may from), its skills (`skills.2da`), feats and
 //! powers picked each level (`featgain`, `classpowergain`), and the XP each
 //! level asks (`exptable.2da`). TSL's levels count a class's skill points
 //! and the INT modifier whole, K1's half their sum
-//! (`Classes::whole_skill_points`).
+//! (`Classes::whole_skill_points`). The feats KOTOR 2 lent K1's table are
+//! listed (`Classes::lent_feats`), so a class's grants of them catch up.
 
 use asset_odyssey::module::Source;
+use fmt_odyssey::tlk::LENT_FLAG;
 use fmt_odyssey::twoda::TwoDa;
-use sim::combat::sheet::Rows;
 use sim::levels::{Class, Classes, Needs, SKILLS};
 
 use crate::sheets::Tables;
@@ -30,9 +31,9 @@ const POWER_COLUMNS: [(&str, &str); 9] = [
     ("sas", "assassin"),
 ];
 
-/// A class's level for a power in its `spells.2da` column: from that level
-/// (0: any), none when -1 (`CSWSCreatureStats::CanChooseSpell` refuses only
-/// the column's 0xff).
+/// The total level a power asks in a class's `spells.2da` column: from that
+/// level (0: any), none when -1 (`CSWSCreatureStats::CanChooseSpell` refuses
+/// only the column's 0xff).
 fn power_level(table: &TwoDa, power: usize, column: &str) -> Option<u8> {
     table
         .int(power, column)
@@ -52,18 +53,82 @@ pub(crate) fn ability(name: &str) -> Option<u8> {
         .map(|at| at as u8)
 }
 
-/// A by-level column of `name`, its rows in order while they read.
+/// KOTOR 1's class tables for the levels past their last row, one column a
+/// line: the table, the column, then a value for each level from
+/// `K1_ADDED_FROM` (`data/levels_k1.txt` says where the values come from).
+const K1_ADDED: &str = include_str!("../../../data/levels_k1.txt");
+
+/// The level `K1_ADDED`'s first value is for: the first level past KOTOR
+/// 1's tables.
+const K1_ADDED_FROM: usize = 21;
+
+/// `K1_ADDED`'s values for `column` of `table`, from level `K1_ADDED_FROM`
+/// (none for a column it does not list).
+fn k1_added(table: &str, column: &str) -> Vec<i64> {
+    K1_ADDED
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .map(|line| line.split_whitespace())
+        .find_map(|mut words| {
+            let named = words.next()?.eq_ignore_ascii_case(table)
+                && words.next()?.eq_ignore_ascii_case(column);
+            named.then(|| words.filter_map(|word| word.parse().ok()).collect())
+        })
+        .unwrap_or_else(Vec::new)
+}
+
+/// A by-level column of `name`, its rows in order while they read. In
+/// KOTOR 1, a table that reaches level `K1_ADDED_FROM - 1` goes on with
+/// `K1_ADDED`'s values up to `levels::MOST`, after its own last row.
 fn by_level<T: TryFrom<i64>>(tables: &mut Tables, name: &str, column: &str) -> Vec<T> {
     let Some(table) = tables.table(name) else {
         return Vec::new();
     };
-    (0..table.row_labels.len())
-        .map_while(|row| {
-            table
-                .int(row, column)
-                .and_then(|value| T::try_from(value).ok())
-        })
+    let mut rows: Vec<i64> = (0..table.row_labels.len())
+        .map_while(|row| table.int(row, column))
+        .collect();
+    if !tables.tsl() && rows.len() + 1 >= K1_ADDED_FROM {
+        let added = k1_added(name, column);
+        let most = usize::from(rules::progression::levels::MOST);
+        let first = rows.len() + 1 - K1_ADDED_FROM;
+        rows.extend(
+            added
+                .iter()
+                .skip(first)
+                .take(most.saturating_sub(rows.len())),
+        );
+    }
+    rows.into_iter()
+        .map_while(|value| T::try_from(value).ok())
         .collect()
+}
+
+/// The XP each level starts at, from level 1 to `levels::MOST`: the
+/// install's `exptable.2da` while its rows read (its last, `0xFFFFFFFF`,
+/// is a level that cannot be reached and does not), then `levels::XP_STEP`
+/// times the level below more than the level below.
+pub(crate) fn experience(tables: &mut Tables) -> Vec<i32> {
+    let mut levels: Vec<i32> = by_level(tables, "exptable", "xp");
+    let most = usize::from(rules::progression::levels::MOST);
+    levels.truncate(most);
+    while levels.len() < most {
+        let below = levels.len() as i32;
+        let last = levels.last().copied().unwrap_or(0);
+        levels.push(last.saturating_add(rules::progression::levels::XP_STEP * below));
+    }
+    levels
+}
+
+/// Row `level` (from 1) of `column` of a by-level `table` (`by_level`): a
+/// creature template's class level read as levelling reads it.
+pub(crate) fn level_cell(
+    tables: &mut Tables,
+    table: &str,
+    column: &str,
+    level: i64,
+) -> Option<i64> {
+    let at = usize::try_from(level.max(1) - 1).ok()?;
+    by_level::<i64>(tables, table, column).get(at).copied()
 }
 
 /// Rows of `table` with an order in `column`, in it (the rest after, by
@@ -82,6 +147,23 @@ fn ordered(table: &TwoDa, rows: impl Iterator<Item = usize>, column: &str) -> Ve
         .collect();
     rows.sort();
     rows.into_iter().map(|(_, row)| row).collect()
+}
+
+/// `classes.2da`'s score columns, strength to charisma (`sheet::Ability`
+/// order).
+const SCORES: [&str; 6] = ["str", "dex", "con", "int", "wis", "cha"];
+
+/// The scores `row` of `classes.2da` recommends (`Class::recommended`);
+/// `creation::LOWEST` where a cell is blank or no score. The creation
+/// screen and the host both read them here, so a mod's table gives both
+/// the same scores.
+pub fn recommended(classes: &TwoDa, row: usize) -> [u8; 6] {
+    SCORES.map(|column| {
+        classes
+            .int(row, column)
+            .and_then(|score| u8::try_from(score).ok())
+            .unwrap_or(sim::creation::LOWEST)
+    })
 }
 
 fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
@@ -109,6 +191,7 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
             .text(row, "primaryabil")
             .and_then(|name| ability(&name))
             .unwrap_or(0),
+        recommended: recommended(classes, row),
         ..Class::default()
     };
     if let Some(table) = classes.text(row, "attackbonustable") {
@@ -126,11 +209,20 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
     }
     let reg: Vec<u8> = by_level(tables, "featgain", &format!("{gain}_reg"));
     let bonus: Vec<u8> = by_level(tables, "featgain", &format!("{gain}_bon"));
-    class.feat_picks = reg.iter().zip(&bonus).map(|(a, b)| a + b).collect();
+    // A level with no bonus row has no bonus feat (`k1_added` lists no
+    // bonus column).
+    class.feat_picks = reg
+        .iter()
+        .enumerate()
+        .map(|(at, picks)| picks + bonus.get(at).copied().unwrap_or(0))
+        .collect();
     class.power_picks = by_level(tables, "classpowergain", &feats);
     if let Some(table) = tables.table("feat") {
         // A sheet knows only so many feats and powers (`Rows`).
-        let rows = 0..table.row_labels.len().min(usize::from(Rows::<4>::ROWS));
+        let rows = 0..table
+            .row_labels
+            .len()
+            .min(usize::from(sim::combat::sheet::Feats::ROWS));
         for feat in rows.clone() {
             let granted: Option<u8> = table
                 .int(feat, &format!("{feats}_granted"))
@@ -159,13 +251,20 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
     }
     let column = POWER_COLUMNS.iter().find(|(of, _)| *of == feats);
     if let (Some((_, column)), Some(table)) = (column, tables.table("spells")) {
-        let rows = (0..table.row_labels.len().min(usize::from(Rows::<5>::ROWS))).filter(|&power| {
-            table
-                .int(power, "usertype")
-                .and_then(|value| i32::try_from(value).ok())
-                == Some(1)
-                && power_level(&table, power, column).is_some()
-        });
+        // TSL's level-up screen lists a power only when its row has a name
+        // (`name` not blank or 0), so a nameless row is never offered.
+        let rows = (0..table
+            .row_labels
+            .len()
+            .min(usize::from(sim::combat::sheet::Powers::ROWS)))
+            .filter(|&power| {
+                table
+                    .int(power, "usertype")
+                    .and_then(|value| i32::try_from(value).ok())
+                    == Some(1)
+                    && table.int(power, "name").is_some_and(|name| name != 0)
+                    && power_level(&table, power, column).is_some()
+            });
         class.powers = ordered(&table, rows, "light_recom")
             .into_iter()
             .filter_map(|power| Some((power_level(&table, power, column)?, power as u16)))
@@ -203,7 +302,7 @@ pub fn classes(source: &dyn Source) -> Classes {
         classes: (0..table.row_labels.len())
             .map(|row| class(&mut tables, &table, row))
             .collect(),
-        levels: by_level(&mut tables, "exptable", "xp"),
+        levels: experience(&mut tables),
         whole_skill_points: tables.tsl(),
         granted_powers: tables.tsl(),
         ..Classes::default()
@@ -234,6 +333,14 @@ pub fn classes(source: &dyn Source) -> Classes {
             };
             if needs != Needs::default() {
                 classes.needs.insert(row as u16, needs);
+            }
+            // A row KOTOR 2 lent this table names itself from KOTOR 2's talk
+            // table (`vfs::lent`).
+            let lent = feat
+                .int(row, "name")
+                .is_some_and(|name| name & i64::from(LENT_FLAG) != 0);
+            if lent && let Ok(row) = u16::try_from(row) {
+                classes.lent_feats.push(row);
             }
         }
     }

@@ -45,6 +45,15 @@ pub enum Change {
     Alignment(Who, u8),
     Hp(Who, i32),
     Fp(Who, i32),
+    /// The character's levels in the first class made levels in the second.
+    ChangeClass(Who, u8, u8),
+    Portrait(Who, u16),
+    /// A class added with no levels yet, taken at the next level-up.
+    AddClass(Who, u8),
+    /// The character taken up to this many levels in the class.
+    ClassLevels(Who, u8, u8),
+    /// Companion `npc`'s influence (TSL).
+    Influence(u8, u8),
     /// Companion `npc` made available as a template's creature.
     Available(u8, String),
     Join(u8),
@@ -214,6 +223,12 @@ impl Session {
             if let Some(level) = &self.level {
                 editor = editor.with_level(level);
             }
+            if let Some(catalog) = ground.catalog {
+                editor = editor.with_classes(&catalog.data.classes);
+                if let Some(portraits) = &catalog.data.portraits {
+                    editor = editor.with_portraits(portraits);
+                }
+            }
             for applied in &self.changes {
                 make(&mut editor, &applied.change)
                     .map_err(|why| format!("replaying \"{}\": {why}", applied.words))?;
@@ -256,6 +271,11 @@ impl Session {
                 .find(|character| character.who == *who)
         };
         match change {
+            Change::ChangeClass(who, from, _)
+                if character(who)?.career.first().map(|(class, _)| *class) == Some(*from) =>
+            {
+                editor.body_warning(who)
+            }
             Change::GrantFeat(who, feat) => edit::feat_warning(classes, &character(who)?, *feat),
             Change::GrantPower(who, row) => edit::power_warning(classes, &character(who)?, *row),
             _ => None,
@@ -285,6 +305,7 @@ impl Session {
         };
         let feat = |key| row(|catalog| &catalog.feats, key, "feat");
         let power = |key| row(|catalog| &catalog.powers, key, "power");
+        let class = |key: &u8| row(|catalog| &catalog.classes, u16::from(*key), "class");
         match change {
             Change::Credits(credits) => format!("credits set to {credits}"),
             Change::PartyXp(xp) => format!("party XP set to {xp}"),
@@ -342,6 +363,35 @@ impl Session {
             }
             Change::Hp(who, hp) => format!("{}: HP set to {}", who_words(who), hp / 100),
             Change::Fp(who, fp) => format!("{}: FP set to {}", who_words(who), fp / 100),
+            Change::ChangeClass(who, from, to) => format!(
+                "{}: {} levels changed to {}",
+                who_words(who),
+                class(from),
+                class(to)
+            ),
+            Change::Portrait(who, row) => format!(
+                "{}: head changed to {}",
+                who_words(who),
+                ground
+                    .catalog
+                    .and_then(|catalog| catalog.portrait_label(*row))
+                    .unwrap_or(format!("portrait {row}"))
+            ),
+            Change::AddClass(who, added) => format!(
+                "{}: + class {} (taken at the next level-up)",
+                who_words(who),
+                class(added)
+            ),
+            Change::ClassLevels(who, of, levels) => {
+                format!(
+                    "{}: {} raised to {levels} levels",
+                    who_words(who),
+                    class(of)
+                )
+            }
+            Change::Influence(npc, influence) => {
+                format!("companion {npc}: influence set to {influence}")
+            }
             Change::Available(npc, template) => {
                 format!(
                     "companion {npc} made available as {template} (applies when you load the save)"
@@ -433,6 +483,11 @@ fn make(editor: &mut edit::Editor, change: &Change) -> Result<(), String> {
         Change::Alignment(who, value) => editor.set_alignment(&who, value),
         Change::Hp(who, hp) => editor.set_hp(&who, hp),
         Change::Fp(who, fp) => editor.set_fp(&who, fp),
+        Change::ChangeClass(who, from, to) => editor.change_class(&who, from, to),
+        Change::Portrait(who, row) => editor.set_portrait(&who, row),
+        Change::AddClass(who, class) => editor.add_class(&who, class),
+        Change::ClassLevels(who, class, levels) => editor.set_class_levels(&who, class, levels),
+        Change::Influence(npc, influence) => editor.set_influence(npc, influence),
         Change::Available(npc, template) => editor.make_available(npc, &template),
         Change::Join(npc) => editor.join(npc),
         Change::Leave(npc) => editor.leave(npc),

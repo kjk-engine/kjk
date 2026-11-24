@@ -1,7 +1,7 @@
 //! The ragdolls' world: their bodies and joints, the level's faces near
 //! them, and the drives that pull them toward their targets.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use glam::{Mat3, Quat, Vec3};
@@ -9,7 +9,7 @@ use rapier3d::math::{Pose, Rotation, Vector};
 use rapier3d::prelude::*;
 
 use crate::Frame;
-use crate::body::{JointKind, Solid, Template};
+use crate::body::{Joint, JointKind, Part, Solid, Template};
 
 /// The physics step (s): 120 a second.
 const STEP: f32 = 1.0 / 120.0;
@@ -46,8 +46,21 @@ const BOUNCE: f32 = 0.05;
 /// Moving bodies lose speed to the air and their own floppiness.
 const LINEAR_DAMPING: f32 = 0.05;
 const ANGULAR_DAMPING: f32 = 0.6;
+/// The smallest share of a body's largest inertia that it keeps about any
+/// axis. A krayt dragon has a capsule 10 m long and 0.6 m across. Such a
+/// capsule spins about its own axis far more freely than end over end.
+/// The joint solver then blows the body apart within a second of free fall
+/// (issue 558).
+const ROUNDEST: f32 = 0.25;
 /// A level face's `user_data`: no ragdoll's.
 const LEVEL: u128 = u128::MAX;
+/// The side of a cell of the grid that sorts the level's faces seen from
+/// above (metres).
+const CELL: f32 = 4.0;
+/// A face over more cells than this is tested by every segment instead of
+/// being filed in each cell. A level with no brushes gets one floor 1 km
+/// across.
+const MOST_CELLS: i64 = 64;
 /// A ragdoll let go (no hold) none of whose bodies moves farther than this (metres,
 /// radians) in `SETTLE` seconds is put to sleep: it has come to rest. By
 /// place, not speed: a joint at its limit and the floor push against each
@@ -62,6 +75,16 @@ const RESTING_DAMPING: (f32, f32) = (5.0, 12.0);
 /// however it creeps: a limb whose joint is held at its limit against the
 /// floor can roll on for ever, a little too fast to count as still.
 const SLOW_FOR: f32 = 1.5;
+/// A ragdoll touching one that falls asleep sleeps with it only when its
+/// muscles are fully let go and it has been all but down this long (s). A
+/// dying body can stand still for a moment, and asleep it would stand for
+/// ever.
+const SLOW_FOR_TOGETHER: f32 = 0.5;
+/// A ragdoll let go is put to sleep after this long (s) whatever it does.
+/// A body whose light parts hang on much heavier ones can shake on the
+/// floor for ever: Kashyyyk's Czerka defense turrets did, and each one cost
+/// a physics step every frame for as long as its wreck lay there.
+const LIMP_AT_MOST: f32 = 6.0;
 
 /// How strongly a ragdoll follows its targets: `hold` pulls each body to
 /// its target in the world, `tone` turns each toward its target about its
@@ -79,17 +102,21 @@ impl Muscles {
     };
 }
 
-/// A body's mass (kg) and its inertia about its centre (body frame): a
-/// box's, or a capsule's as a cylinder of its whole length.
+/// A body's mass (kg) and its inertia about its centre. The inertia is
+/// kept twice. The drives use it as a matrix in the body's frame, and
+/// Rapier takes it as mass properties. A box has a box's inertia. A
+/// capsule has the inertia of a cylinder as long as the whole capsule. No
+/// axis has less than `ROUNDEST` of the largest inertia.
 #[derive(Debug, Clone, Copy)]
 struct Mass {
     mass: f32,
     inertia: Mat3,
+    props: MassProperties,
 }
 
 impl Mass {
     fn of(mass: f32, solid: &Solid) -> Mass {
-        let inertia = match *solid {
+        let (principal, frame) = match *solid {
             Solid::Capsule {
                 ends: [a, b],
                 radius,
@@ -98,24 +125,34 @@ impl Mass {
                 let across = mass * (length * length / 12.0 + radius * radius / 4.0);
                 let along = mass * radius * radius / 2.0;
                 let axis = (b - a).try_normalize().unwrap_or(Vec3::Z);
-                let outer = Mat3::from_cols(axis * axis.x, axis * axis.y, axis * axis.z);
-                Mat3::IDENTITY * across + outer * (along - across)
+                (
+                    Vec3::new(along, across, across),
+                    Quat::from_rotation_arc(Vec3::X, axis),
+                )
             }
             Solid::Cuboid { turn, half, .. } => {
                 let size = half * 2.0;
                 let squared = size * size;
-                let own = Mat3::from_diagonal(
-                    Vec3::new(
-                        squared.y + squared.z,
-                        squared.x + squared.z,
-                        squared.x + squared.y,
-                    ) * (mass / 12.0),
-                );
-                let turn = Mat3::from_quat(turn);
-                turn * own * turn.transpose()
+                let own = Vec3::new(
+                    squared.y + squared.z,
+                    squared.x + squared.z,
+                    squared.x + squared.y,
+                ) * (mass / 12.0);
+                (own, turn)
             }
         };
-        Mass { mass, inertia }
+        let principal = principal.max(Vec3::splat(principal.max_element() * ROUNDEST));
+        let turn = Mat3::from_quat(frame);
+        Mass {
+            mass,
+            inertia: turn * Mat3::from_diagonal(principal) * turn.transpose(),
+            props: MassProperties::with_principal_inertia_frame(
+                vector(solid.centre()),
+                mass,
+                vector(principal),
+                rotation(frame),
+            ),
+        }
     }
 
     /// The impulse that changes its spin by `spin` (world) turned so.
@@ -158,8 +195,12 @@ struct Ragdoll {
     still: Option<(f32, Vec<Frame>)>,
     /// How long it has been all but down (s).
     slow_for: f32,
-    /// Each part's joint to its parent, while it holds.
+    /// How long it has been let go and awake (s).
+    limp_for: f32,
+    /// Each part's joint to its parent, while the joint holds.
     joints: Vec<Option<ImpulseJointHandle>>,
+    /// Each part's joint as it was hung, after `eased`.
+    hung: Vec<Option<Joint>>,
     /// The parts cut off the body (bit per part): limp, and touching what
     /// they were cut from.
     cut_off: u64,
@@ -177,6 +218,14 @@ pub struct World {
     ragdolls: Vec<Option<Ragdoll>>,
     /// The level's faces taken in so far, by their key.
     faces: BTreeSet<u32>,
+    /// Their corners (world), for keeping a new ragdoll's parts on its
+    /// root's side of them (`kept_near`).
+    corners: Vec<[Vec3; 3]>,
+    /// Each face's index in `corners`, filed by the cells it spans seen
+    /// from above. A segment then tests only the faces of its own cells.
+    cells: HashMap<(i32, i32), Vec<u32>>,
+    /// The faces over more than `MOST_CELLS` cells.
+    wide: Vec<u32>,
     /// Time not stepped yet (s).
     behind: f32,
 }
@@ -253,6 +302,9 @@ impl World {
             physics,
             ragdolls: Vec::new(),
             faces: BTreeSet::new(),
+            corners: Vec::new(),
+            cells: HashMap::new(),
+            wide: Vec::new(),
             behind: 0.0,
         }
     }
@@ -269,6 +321,7 @@ impl World {
                 continue;
             }
             added.insert(key);
+            self.file(corners);
             let first = vertices.len() as u32;
             vertices.extend(corners.map(vector));
             indices.push([first, first + 1, first + 2]);
@@ -288,10 +341,43 @@ impl World {
         }
     }
 
-    /// A ragdoll of `template`, its bodies where `places` has them (world,
-    /// by part), all moving at `velocity`.
-    pub fn spawn(&mut self, template: Arc<Template>, places: &[Frame], velocity: Vec3) -> Id {
+    /// A ragdoll of `template`, with every body moving at `velocity`. Its
+    /// bodies start where `places` puts them (world, by part). They are
+    /// then moved to meet at their joints (`joined`). The whole body is
+    /// lifted onto the floor when the root starts under it (`lifted`).
+    /// Every body is kept on the root's side of the level's faces
+    /// (`kept_near`).
+    ///
+    /// A `settled` ragdoll died before it was seen. It lies as its dead
+    /// clip has it, and it is neither lifted nor kept near. A part that
+    /// starts in the ground stays there (`buried`), because the ground
+    /// holds it. The other parts sag onto the floor. The krayt dragon's
+    /// dead clip lays it on its belly. The middle of its chest is then
+    /// 0.8 m under the Dune Sea's sand, and its right legs are deeper. When
+    /// the level threw those parts out, or when the body was lifted clear
+    /// by 2.8 m and dropped, the corpse ended up humped and 2 m from where
+    /// it lay (issue 558).
+    pub fn spawn(
+        &mut self,
+        template: Arc<Template>,
+        places: &[Frame],
+        velocity: Vec3,
+        settled: bool,
+    ) -> Id {
+        let joined = joined(&template, places);
+        let kept = if settled {
+            joined
+        } else {
+            self.kept_near(&template, &self.lifted(&template, &joined))
+        };
+        let places = kept.as_slice();
         let (friction, bounce) = template.material.surface();
+        let top = template
+            .parts
+            .iter()
+            .zip(places)
+            .map(|(part, place)| place.point(part.solid.centre()).z)
+            .fold(f32::MIN, f32::max);
         let slot = self
             .ragdolls
             .iter()
@@ -300,33 +386,52 @@ impl World {
         let mut bodies: Vec<RigidBodyHandle> = Vec::with_capacity(template.parts.len());
         let mut masses = Vec::with_capacity(template.parts.len());
         let mut joints = Vec::with_capacity(template.parts.len());
+        let mut hung = Vec::with_capacity(template.parts.len());
         for (index, (part, place)) in template.parts.iter().zip(places).enumerate() {
-            let body = RigidBodyBuilder::dynamic()
+            let held = settled && self.buried(part, *place, top);
+            let body = if held {
+                RigidBodyBuilder::fixed()
+            } else {
+                RigidBodyBuilder::dynamic()
+            };
+            let body = body
                 .pose(pose(*place))
                 .linvel(vector(thrown(velocity)))
                 .linear_damping(LINEAR_DAMPING)
                 .angular_damping(ANGULAR_DAMPING)
                 .ccd_enabled(true);
             let part_mass = part.mass * template.mass;
-            let shape = match part.solid {
+            let (shape, at) = match part.solid {
                 Solid::Capsule {
                     ends: [a, b],
                     radius,
-                } => ColliderBuilder::capsule_from_endpoints(vector(a), vector(b), radius),
-                Solid::Cuboid { centre, turn, half } => {
-                    ColliderBuilder::cuboid(half.x, half.y, half.z)
-                        .position(pose(Frame::new(centre, turn)))
-                }
+                } => (
+                    ColliderBuilder::capsule_from_endpoints(vector(a), vector(b), radius),
+                    pose(Frame::IDENTITY),
+                ),
+                Solid::Cuboid { centre, turn, half } => (
+                    ColliderBuilder::cuboid(half.x, half.y, half.z),
+                    pose(Frame::new(centre, turn)),
+                ),
             };
+            let mass = Mass::of(part_mass, &part.solid);
+            // Rapier takes a collider's mass properties in the collider's
+            // own frame.
             let collider = shape
-                .mass(part_mass)
+                .position(at)
+                .mass_properties(mass.props.transform_by(&at.inverse()))
                 .friction(friction)
                 .restitution(bounce)
                 .user_data((slot as u128) << 8 | index as u128)
                 .active_hooks(ActiveHooks::FILTER_CONTACT_PAIRS);
             let (handle, _) = self.physics.insert(body, collider);
-            masses.push(Mass::of(part_mass, &part.solid));
-            if let (Some(parent), Some(joint)) = (part.parent, part.joint) {
+            masses.push(mass);
+            let joint = part
+                .parent
+                .zip(part.joint)
+                .map(|(parent, joint)| eased(joint, (places[parent], *place)));
+            hung.push(joint);
+            if let (Some(parent), Some(joint)) = (part.parent, joint) {
                 let data = match joint.kind {
                     JointKind::Ball { cone, twist } => {
                         let ball = GenericJointBuilder::new(JointAxesMask::LOCKED_SPHERICAL_AXES)
@@ -371,7 +476,9 @@ impl World {
             muscles: Muscles::LIMP,
             still: None,
             slow_for: 0.0,
+            limp_for: 0.0,
             joints,
+            hung,
             cut_off: 0,
         };
         if slot == self.ragdolls.len() {
@@ -380,6 +487,134 @@ impl World {
             self.ragdolls[slot] = Some(ragdoll);
         }
         Id(slot as u32)
+    }
+
+    /// `places` (world, by part) with each part moved back toward the
+    /// root's middle where a level face stands between the root's middle
+    /// and the part: its reach (a capsule's ends, a box's middle) then
+    /// stops a radius short of the face. A creature killed against a wall
+    /// can have a hand through it (the wall is a single face, and the
+    /// sim's body is narrower than the arms). Such a part, behind the
+    /// face, was held there by it and left the body stuck in the wall
+    /// (issue 416).
+    fn kept_near(&self, template: &Template, places: &[Frame]) -> Vec<Frame> {
+        let mut kept = places.to_vec();
+        let (Some(root), Some(root_place)) = (template.parts.first(), places.first()) else {
+            return kept;
+        };
+        let from = root_place.point(root.solid.centre());
+        for (part, place) in template.parts.iter().zip(kept.iter_mut()).skip(1) {
+            let (reach, radius) = match part.solid {
+                Solid::Capsule { ends, radius } => (ends.to_vec(), radius),
+                Solid::Cuboid { centre, half, .. } => (vec![centre], half.min_element()),
+            };
+            let back = reach
+                .into_iter()
+                .filter_map(|end| {
+                    let to = place.point(end);
+                    let hit = self.first_face(from, to)?;
+                    let way = (to - from).try_normalize()?;
+                    let stop = (from.distance(to) * hit - radius).max(0.0);
+                    Some(way * (stop - from.distance(to)))
+                })
+                .max_by(|a, b| a.length().total_cmp(&b.length()));
+            if let Some(back) = back {
+                place.translation += back;
+            }
+        }
+        kept
+    }
+
+    /// `places` (world, by part) raised together so that the root's solid
+    /// rests on the highest floor between the root's middle and the
+    /// highest part's middle, when a floor is there. A body seen while its
+    /// death animation still plays starts in that animation's pose, which
+    /// can put the root under the ground. A root above every other part,
+    /// or a body wholly under the floor, is left as it is.
+    fn lifted(&self, template: &Template, places: &[Frame]) -> Vec<Frame> {
+        let mut lifted = places.to_vec();
+        let (Some(root), Some(root_place)) = (template.parts.first(), places.first()) else {
+            return lifted;
+        };
+        let from = root_place.point(root.solid.centre());
+        let top = template
+            .parts
+            .iter()
+            .zip(places)
+            .map(|(part, place)| place.point(part.solid.centre()).z)
+            .fold(from.z, f32::max);
+        let floor = self
+            .crossings(from, from.with_z(top))
+            .filter(|(_, corners)| faces_up(corners))
+            .map(|(share, _)| from.z + (top - from.z) * share)
+            .max_by(f32::total_cmp);
+        if let Some(floor) = floor {
+            let lift = Vec3::Z * (floor - lowest(&root.solid, *root_place));
+            for place in &mut lifted {
+                place.translation += lift;
+            }
+        }
+        lifted
+    }
+
+    /// Whether a part at `place` (world) dips under the floor beneath it.
+    /// It does when an upward face lies between its lowest point and `top`,
+    /// the body's highest point.
+    fn buried(&self, part: &Part, place: Frame, top: f32) -> bool {
+        let under = place
+            .point(part.solid.centre())
+            .with_z(lowest(&part.solid, place));
+        self.crossings(under, under.with_z(top.max(under.z + 1e-3)))
+            .any(|(_, corners)| faces_up(corners))
+    }
+
+    /// Where the segment from `from` to `to` first meets a level face, as
+    /// a share of its length.
+    fn first_face(&self, from: Vec3, to: Vec3) -> Option<f32> {
+        self.crossings(from, to)
+            .map(|(share, _)| share)
+            .min_by(f32::total_cmp)
+    }
+
+    /// Adds a face to `corners` and files it in the cells it spans.
+    fn file(&mut self, corners: [Vec3; 3]) {
+        let index = self.corners.len() as u32;
+        self.corners.push(corners);
+        let (low, high) = cells_over(corners.iter().copied());
+        if spanned(low, high) > MOST_CELLS {
+            self.wide.push(index);
+            return;
+        }
+        for x in low.0..=high.0 {
+            for y in low.1..=high.1 {
+                self.cells.entry((x, y)).or_default().push(index);
+            }
+        }
+    }
+
+    /// Each level face that the segment from `from` to `to` crosses. Each
+    /// comes with the place of the crossing, as a share of the segment's
+    /// length. The faces come in the order they were taken in.
+    fn crossings(&self, from: Vec3, to: Vec3) -> impl Iterator<Item = (f32, &[Vec3; 3])> {
+        let margin = Vec3::splat(1e-3);
+        let (low, high) = cells_over([from.min(to) - margin, from.max(to) + margin].into_iter());
+        let near: Vec<u32> = if spanned(low, high) > MOST_CELLS {
+            (0..self.corners.len() as u32).collect()
+        } else {
+            let mut near = self.wide.clone();
+            for x in low.0..=high.0 {
+                for y in low.1..=high.1 {
+                    near.extend(self.cells.get(&(x, y)).into_iter().flatten());
+                }
+            }
+            near.sort_unstable();
+            near.dedup();
+            near
+        };
+        near.into_iter().filter_map(move |index| {
+            let corners = &self.corners[index as usize];
+            Some((crossing(from, to, corners)?, corners))
+        })
     }
 
     /// Where each of the ragdoll's bodies should be at `seconds` (world, by
@@ -393,6 +628,8 @@ impl World {
         else {
             return;
         };
+        let joined = joined(&ragdoll.template, targets);
+        let targets = joined.as_slice();
         if let Some(was) = ragdoll.targets_at {
             let dt = (seconds - was) as f32;
             if dt > 1e-4 {
@@ -516,6 +753,19 @@ impl World {
             .is_some_and(|ragdoll| ragdoll.cut(part))
     }
 
+    /// The parts whose joints to their parents were cut (bit per part).
+    /// Each one is the first part of a piece that lies apart from the
+    /// body: the part itself and all that still hangs on it.
+    pub fn severed(&self, id: Id) -> u64 {
+        let Some(ragdoll) = self.ragdolls.get(id.0 as usize).and_then(Option::as_ref) else {
+            return 0;
+        };
+        let parts = &ragdoll.template.parts;
+        (0..parts.len())
+            .filter(|&part| parts[part].parent.is_some() && ragdoll.joints[part].is_none())
+            .fold(0, |severed, part| severed | 1 << part)
+    }
+
     /// Each body of the ragdoll (world, by part).
     pub fn places(&self, id: Id) -> Option<Vec<Frame>> {
         let ragdoll = self.ragdolls.get(id.0 as usize)?.as_ref()?;
@@ -563,27 +813,71 @@ impl World {
             }
             let hooks = Touching(&self.ragdolls);
             self.physics.step_with_events(&hooks, &());
-            for ragdoll in self.ragdolls.iter_mut().flatten() {
-                settle(&mut self.physics.bodies, ragdoll);
+            let mut slept: Vec<usize> = Vec::new();
+            for (slot, ragdoll) in self.ragdolls.iter_mut().enumerate() {
+                if let Some(ragdoll) = ragdoll
+                    && settle(&mut self.physics.bodies, ragdoll)
+                {
+                    slept.push(slot);
+                }
+            }
+            // A sleeping body wakes at the touch of one awake. Bodies lying on
+            // each other must therefore sleep together, or they wake each
+            // other for as long as one of them still moves a little.
+            while let Some(slot) = slept.pop() {
+                for other in self.touching(slot) {
+                    let bodies = &mut self.physics.bodies;
+                    if let Some(ragdoll) = self.ragdolls[other].as_mut()
+                        && ragdoll.muscles.hold == 0.0
+                        && ragdoll.muscles.tone == 0.0
+                        && ragdoll.slow_for >= SLOW_FOR_TOGETHER
+                        && !asleep(bodies, ragdoll)
+                        && slow(bodies, ragdoll)
+                    {
+                        sleep(bodies, ragdoll);
+                        slept.push(other);
+                    }
+                }
             }
         }
     }
+
+    /// The other ragdolls in contact with ragdoll `slot`, by slot.
+    fn touching(&self, slot: usize) -> BTreeSet<usize> {
+        let Some(ragdoll) = self.ragdolls.get(slot).and_then(Option::as_ref) else {
+            return BTreeSet::new();
+        };
+        let owner = |handle| {
+            let data = self.physics.colliders.get(handle)?.user_data;
+            (data != LEVEL).then_some((data >> 8) as usize)
+        };
+        ragdoll
+            .bodies
+            .iter()
+            .filter_map(|&handle| self.physics.bodies.get(handle))
+            .flat_map(|body| body.colliders())
+            .flat_map(|&collider| self.physics.narrow_phase.contact_pairs_with(collider))
+            .filter(|pair| pair.has_any_active_contact())
+            .flat_map(|pair| [owner(pair.collider1), owner(pair.collider2)])
+            .flatten()
+            .filter(|&other| other != slot)
+            .collect()
+    }
 }
 
-/// Puts a ragdoll let go to sleep once it has lain still for `SETTLE`, or
-/// been all but down for `SLOW_FOR`; one all but down is damped hard
-/// meanwhile.
-fn settle(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) {
+/// Puts a ragdoll that was let go to sleep. This happens once it has lain
+/// still for `SETTLE`, has been all but down for `SLOW_FOR`, or has been
+/// let go for `LIMP_AT_MOST`. A ragdoll that is all but down is damped hard
+/// until then. Returns whether the ragdoll was put to sleep.
+fn settle(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) -> bool {
     if ragdoll.muscles.hold > 0.0 || asleep(bodies, ragdoll) {
         ragdoll.still = None;
         ragdoll.slow_for = 0.0;
-        return;
+        ragdoll.limp_for = 0.0;
+        return false;
     }
-    let slow = ragdoll
-        .bodies
-        .iter()
-        .filter_map(|&handle| bodies.get(handle))
-        .all(|body| body.linvel().length() < SLOW);
+    ragdoll.limp_for += STEP;
+    let slow = slow(bodies, ragdoll);
     ragdoll.slow_for = if slow { ragdoll.slow_for + STEP } else { 0.0 };
     let (linear, angular) = if slow {
         RESTING_DAMPING
@@ -614,23 +908,41 @@ fn settle(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) {
             false
         }
     };
-    if settled || ragdoll.slow_for >= SLOW_FOR {
-        for &handle in &ragdoll.bodies {
-            if let Some(body) = bodies.get_mut(handle) {
-                body.sleep();
-            }
-        }
-        ragdoll.still = None;
-        ragdoll.slow_for = 0.0;
+    let settling = settled || ragdoll.slow_for >= SLOW_FOR || ragdoll.limp_for >= LIMP_AT_MOST;
+    if settling {
+        sleep(bodies, ragdoll);
     }
+    settling
 }
 
-/// Whether every body of the ragdoll sleeps.
-fn asleep(bodies: &RigidBodySet, ragdoll: &Ragdoll) -> bool {
+/// Whether every body of the ragdoll is all but down (slower than `SLOW`).
+fn slow(bodies: &RigidBodySet, ragdoll: &Ragdoll) -> bool {
     ragdoll
         .bodies
         .iter()
-        .all(|&handle| bodies.get(handle).is_none_or(RigidBody::is_sleeping))
+        .filter_map(|&handle| bodies.get(handle))
+        .all(|body| body.linvel().length() < SLOW)
+}
+
+fn sleep(bodies: &mut RigidBodySet, ragdoll: &mut Ragdoll) {
+    for &handle in &ragdoll.bodies {
+        if let Some(body) = bodies.get_mut(handle) {
+            body.sleep();
+        }
+    }
+    ragdoll.still = None;
+    ragdoll.slow_for = 0.0;
+    ragdoll.limp_for = 0.0;
+}
+
+/// Whether every body of the ragdoll sleeps. A body held in the ground
+/// always counts as asleep.
+fn asleep(bodies: &RigidBodySet, ragdoll: &Ragdoll) -> bool {
+    ragdoll.bodies.iter().all(|&handle| {
+        bodies
+            .get(handle)
+            .is_none_or(|body| !body.is_dynamic() || body.is_sleeping())
+    })
 }
 
 /// A turn `pull` (N·m·s) on part `child`, and the same the other way on
@@ -685,6 +997,82 @@ fn rub(bodies: &mut RigidBodySet, ragdoll: &Ragdoll) {
 /// `limit_twists`: Rapier's twist limit pushes about the parent's axis,
 /// which fights the cone once the bone swings far from it; below this a
 /// hard limit holds (a droid's stiff joints).
+/// The lowest and highest cells (`CELL`) that `points` reach, seen from
+/// above.
+fn cells_over(points: impl Iterator<Item = Vec3>) -> ((i32, i32), (i32, i32)) {
+    let (low, high) = points.fold((Vec3::MAX, Vec3::MIN), |(low, high), point| {
+        (low.min(point), high.max(point))
+    });
+    let cell = |at: f32| (at / CELL).floor().clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+    ((cell(low.x), cell(low.y)), (cell(high.x), cell(high.y)))
+}
+
+/// How many cells lie from `low` to `high`.
+fn spanned(low: (i32, i32), high: (i32, i32)) -> i64 {
+    (i64::from(high.0) - i64::from(low.0) + 1) * (i64::from(high.1) - i64::from(low.1) + 1)
+}
+
+/// Where the segment from `from` to `to` crosses triangle `corners`, as a
+/// share of its length (either face of it).
+fn crossing(from: Vec3, to: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<f32> {
+    let way = to - from;
+    let (ab, ac) = (*b - *a, *c - *a);
+    let p = way.cross(ac);
+    let det = ab.dot(p);
+    if det.abs() < f32::EPSILON {
+        return None;
+    }
+    let off = from - *a;
+    let u = off.dot(p) / det;
+    let q = off.cross(ab);
+    let v = way.dot(q) / det;
+    let t = ac.dot(q) / det;
+    ((0.0..=1.0).contains(&u) && v >= 0.0 && u + v <= 1.0 && (0.0..=1.0).contains(&t)).then_some(t)
+}
+
+/// `places` (world, by part) with each part moved so that its joint meets
+/// its parent's anchor, parents first. A dead clip can move a node that
+/// has no part. The parts below that node are then apart from the body.
+fn joined(template: &Template, places: &[Frame]) -> Vec<Frame> {
+    let mut joined = places.to_vec();
+    for (index, part) in template.parts.iter().enumerate() {
+        if let (Some(parent), Some(joint)) = (part.parent, part.joint)
+            && parent < index
+        {
+            let anchor = joined[parent].then(joint.on_parent).translation;
+            let place = &mut joined[index];
+            place.translation = anchor - place.rotation * joint.on_child.translation;
+        }
+    }
+    joined
+}
+
+/// Whether a level face faces up, as a floor does. A face's corners turn
+/// anticlockwise seen from outside its brush.
+fn faces_up([a, b, c]: &[Vec3; 3]) -> bool {
+    (*b - *a).cross(*c - *a).z > 0.0
+}
+
+/// The lowest point of a solid placed at `place` (world z).
+fn lowest(solid: &Solid, place: Frame) -> f32 {
+    match *solid {
+        Solid::Capsule { ends, radius } => {
+            ends.iter()
+                .map(|end| place.point(*end).z)
+                .fold(f32::MAX, f32::min)
+                - radius
+        }
+        Solid::Cuboid { centre, turn, half } => (0..8)
+            .map(|corner| {
+                let sign = |bit: i32| if corner & bit == 0 { -1.0 } else { 1.0 };
+                place
+                    .point(centre + turn * (Vec3::new(sign(1), sign(2), sign(4)) * half))
+                    .z
+            })
+            .fold(f32::MAX, f32::min),
+    }
+}
+
 fn wide(cone: f32) -> bool {
     cone > WIDE_CONE.to_radians()
 }
@@ -695,7 +1083,8 @@ fn wide(cone: f32) -> bool {
 fn limit_twists(bodies: &RigidBodySet, ragdoll: &Ragdoll) -> Vec<(usize, usize, Vec3)> {
     let mut pulls = Vec::new();
     for (index, part) in ragdoll.template.parts.iter().enumerate() {
-        let (Some(parent), Some(joint), Some(_)) = (part.parent, part.joint, ragdoll.joints[index])
+        let (Some(parent), Some(joint), Some(_)) =
+            (part.parent, ragdoll.hung[index], ragdoll.joints[index])
         else {
             continue;
         };
@@ -741,6 +1130,47 @@ fn limit_twists(bodies: &RigidBodySet, ragdoll: &Ragdoll) -> Vec<(usize, usize, 
         pulls.push((index, parent, axis * change * inertia * GAIN));
     }
     pulls
+}
+
+/// `joint` with its limits turned to take in the bodies where they start
+/// (`parent` and `child`, world). A ball joint's cone is turned toward the
+/// child's bone by as much as the bone's swing exceeds the cone. The
+/// middle of its twist is turned by as much as the twist exceeds its
+/// limit. A start pose outside the limits therefore sits at a limit, never
+/// beyond it. A dead clip bends a krayt dragon's paws 60° to 100° from
+/// their rest on its forearms. The solver snapped them back and threw a
+/// leg 8 m into the air (issue 558).
+fn eased(joint: Joint, (parent, child): (Frame, Frame)) -> Joint {
+    let JointKind::Ball { cone, twist: limit } = joint.kind else {
+        return joint;
+    };
+    let mut on_parent = parent.rotation * joint.on_parent.rotation;
+    let on_child = child.rotation * joint.on_child.rotation;
+    let (from, to) = (on_parent * Vec3::X, on_child * Vec3::X);
+    let swing = from.angle_between(to);
+    if swing > cone
+        && let Some(axis) = from.cross(to).try_normalize()
+    {
+        on_parent = Quat::from_axis_angle(axis, swing - cone) * on_parent;
+    }
+    let relative = on_parent.inverse() * on_child;
+    let relative = if relative.w < 0.0 {
+        -relative
+    } else {
+        relative
+    };
+    let twist = 2.0 * relative.x.atan2(relative.w);
+    let excess = twist - twist.clamp(-limit, limit);
+    if excess != 0.0 {
+        on_parent = Quat::from_axis_angle(to, excess) * on_parent;
+    }
+    Joint {
+        on_parent: Frame::new(
+            joint.on_parent.translation,
+            parent.rotation.inverse() * on_parent,
+        ),
+        ..joint
+    }
 }
 
 /// `velocity` as fast as a body is ever thrown: JA flings its dead at the

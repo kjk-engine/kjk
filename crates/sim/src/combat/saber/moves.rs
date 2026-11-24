@@ -778,6 +778,11 @@ impl Move {
         self.within(DUAL_SPIN_PROTECT as usize, A3_SPECIAL as usize + 1)
     }
 
+    /// A kata or a spin.
+    pub fn winds_up(self) -> bool {
+        self.kata() || matches!(self, SPINATTACK | SPINATTACK_DUAL | SPINATTACK_ALORA)
+    }
+
     pub fn kick(self) -> bool {
         self.within(KICKS, AFTER_KICKS) || self == HILT_BASH
     }
@@ -812,6 +817,11 @@ impl Move {
     /// A broken attack or a broken parry.
     pub fn broken(self) -> bool {
         self.within(BROKEN_ATTACKS, KNOCKAWAYS)
+    }
+
+    /// Beaten, or knocked aside: no state to meet a blow in.
+    pub fn reeling(self) -> bool {
+        self.broken() || self.knockaway()
     }
 
     pub fn knockaway(self) -> bool {

@@ -26,6 +26,10 @@ pub fn all() -> Vec<Probe> {
         ("session_told_in_words", session::told_in_words()),
         ("session_feat_warned_k1", session::feat_warned_k1()),
         ("session_give_equipped", session::give_equipped()),
+        (
+            "session_flags_read_without_case",
+            session::flags_read_without_case(),
+        ),
         ("write_good", write::good()),
         ("write_failed_check", write::failed_check()),
         ("write_saved_over", write::saved_over()),
@@ -37,5 +41,9 @@ pub fn all() -> Vec<Probe> {
             write::forced_backs_up_again(),
         ),
         ("write_received_kept", write::received_kept()),
+        (
+            "write_meta_follows_player_k1",
+            write::meta_follows_player_k1(),
+        ),
     ]
 }

@@ -22,6 +22,7 @@ pub(super) fn rasters() -> Vec<Check> {
         size: (640.0, 480.0),
         fill: false,
         wide: Vec::new(),
+        sized: Vec::new(),
         quads: vec![white_quad([0.0, 0.0, 320.0, 240.0])],
     };
     let none = |_: TextureId| -> Option<&Pixels> { None::<&Pixels> };
@@ -35,6 +36,7 @@ pub(super) fn rasters() -> Vec<Check> {
         size: (640.0, 480.0),
         fill: false,
         wide: Vec::new(),
+        sized: Vec::new(),
         quads: vec![Quad {
             texture: TextureId(1),
             color: [1.0, 0.0, 0.0, 1.0],
@@ -45,6 +47,7 @@ pub(super) fn rasters() -> Vec<Check> {
         size: (640.0, 480.0),
         fill: false,
         wide: Vec::new(),
+        sized: Vec::new(),
         quads: vec![Quad {
             clip: Some([0.0, 0.0, 100.0, 100.0]),
             ..white_quad([0.0, 0.0, 640.0, 480.0])
@@ -60,6 +63,7 @@ pub(super) fn rasters() -> Vec<Check> {
         size: (640.0, 480.0),
         fill: false,
         wide: Vec::new(),
+        sized: Vec::new(),
         quads: vec![Quad { clip, ..bar }],
     };
     let right = turn([1.0, 0.0], [0.0, 0.0], FRAC_PI_2);

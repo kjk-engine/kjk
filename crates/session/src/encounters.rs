@@ -1,16 +1,21 @@
-//! Encounter overrides (I28): our own data, one text file per module
-//! (`data/encounters/<game>/<module>.encounter`, built in), that change a
-//! module's creatures for real-time and co-op play — never written into
-//! the game install. Applied to the module's facts when it is planned, for
-//! the players driving a body when it is planned (I30 P21;
-//! `ModuleData::players`), so every machine installs the same encounter
-//! (the module digest covers it).
+//! Encounter overrides (I28). They are our own data, one text file per
+//! module (`data/encounters/<game>/<module>.encounter`, built in). They
+//! change a module's creatures for real-time and co-op play. They also
+//! change its doors where a mod's script would shut the party in. They
+//! are never written into the game install. They are applied to the
+//! module's facts when it is planned, for the players driving a body at
+//! that time (I30 P21, `ModuleData::players`). The module digest covers
+//! them, so every machine installs the same encounter.
 //!
 //! One change per line, `#` to the end of a line is a comment; a line may
 //! end with a condition on the players, `if players >= 2` (also `<=`, `==`):
 //!
 //! ```text
 //! hp <tag> <whole HP> | x<factor>     every creature tagged: its maximum
+//! damage <tag> +<points> | -<points>  every creature tagged: each weapon
+//!                                      it holds adds that many points to
+//!                                      the roll of each hit (KOTOR's
+//!                                      damage bonus)
 //! move <tag> <x> <y> <z> [<yaw°>]     the first so tagged, metres
 //! add <tag> <new tag> <x> <y> <z> [<yaw°>]  a copy of the first so tagged
 //! add <tag> <new tag> by <dx> <dy> <dz>      the same, offset from it
@@ -20,6 +25,11 @@
 //! per_player hp x<factor>              creatures hostile to the player:
 //!                                      each player past the first adds
 //!                                      the factor of their maximum
+//! spare_lock <tag> <script>            every door or placeable tagged is
+//!                                      never locked by the script's
+//!                                      `SetLocked`. This fixes a mod's
+//!                                      bug, with the owner's
+//!                                      approval (QUIRKS.md).
 //! ```
 //!
 //! Tags are matched without case. An added creature goes at the end of the
@@ -55,6 +65,10 @@ pub enum What {
         tag: String,
         hp: Hp,
     },
+    Damage {
+        tag: String,
+        points: i8,
+    },
     Move {
         tag: String,
         at: [f32; 3],
@@ -82,6 +96,10 @@ pub enum What {
     },
     PerPlayerHp {
         factor: f32,
+    },
+    SpareLock {
+        tag: String,
+        script: String,
     },
 }
 
@@ -189,6 +207,12 @@ pub fn parse(text: &str) -> Result<Vec<Change>, String> {
                     )
                 },
             },
+            ["damage", tag, points] if points.starts_with(['+', '-']) => What::Damage {
+                tag: (*tag).to_string(),
+                points: points
+                    .parse()
+                    .map_err(|_| format!("line {line}: {points:?} is not a number of points"))?,
+            },
             ["move", _, rest @ ..] => {
                 let (at, yaw) = point(rest, line)?;
                 What::Move {
@@ -251,6 +275,10 @@ pub fn parse(text: &str) -> Result<Vec<Change>, String> {
             }
             ["per_player", "hp", amount] => What::PerPlayerHp {
                 factor: factor(amount, line)?,
+            },
+            ["spare_lock", tag, script] => What::SpareLock {
+                tag: (*tag).to_string(),
+                script: script.to_ascii_lowercase(),
             },
             _ => return Err(format!("line {line}: unknown change {:?}", words.join(" "))),
         };
@@ -324,6 +352,14 @@ pub fn apply(module: &mut ModuleData, changes: &[Change], players: u8) -> Applie
                         Hp::Whole(value) => value.max(1),
                         Hp::Times(factor) => scale(sheet.max_hp, factor),
                     };
+                })
+            }
+            What::Damage { tag, points } => {
+                let points = *points;
+                sheets(module, tag, |sheet| {
+                    for weapon in sheet.weapons.iter_mut().flatten() {
+                        weapon.damage_bonus = weapon.damage_bonus.saturating_add(points);
+                    }
                 })
             }
             What::Move { tag, at, yaw } => {
@@ -403,6 +439,18 @@ pub fn apply(module: &mut ModuleData, changes: &[Change], players: u8) -> Applie
                 });
                 true
             }
+            What::SpareLock { tag, script } => {
+                let lockable = |object: &ObjectData| {
+                    matches!(object.kind, ObjectKind::Door | ObjectKind::Placeable)
+                        && object.tag.eq_ignore_ascii_case(tag)
+                };
+                let spared = module.change_each(lockable, |_, object| {
+                    if !object.spared_locks.contains(script) {
+                        object.spared_locks.push(script.clone());
+                    }
+                });
+                spared > 0
+            }
         };
         if !matched {
             applied.unmatched.push(change.line);
@@ -413,7 +461,9 @@ pub fn apply(module: &mut ModuleData, changes: &[Change], players: u8) -> Applie
 
 /// The count a plan is for reaches its module (I30 P21). On the proving
 /// ground with a creature `probe_foe`, `hp probe_foe x2 if players >= 2`
-/// is planned for none, one and two. For `kjk sim probes`.
+/// is planned for none, one and two; a `damage` line moves its weapons'
+/// damage bonus, and one without a sign is refused. A `spare_lock` line
+/// reaches the door. Every built-in file reads. For `kjk sim probes`.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let ground = sim::determinism::proving_ground();
     let Some(module) = ground.module() else {
@@ -440,7 +490,49 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     };
     let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
     let (none, one, two) = (planned(0), planned(1), planned(2));
-    vec![
+    // A `damage` line moves the bonus of each weapon the creature holds by
+    // its points; a line without a sign is refused.
+    let bonuses = |data: &ModuleData| -> Vec<i8> {
+        data.objects()
+            .find(|object| creature_tagged(object, "probe_foe"))
+            .and_then(|object| object.sheet)
+            .map(|sheet| {
+                sheet
+                    .weapons
+                    .iter()
+                    .flatten()
+                    .map(|w| w.damage_bonus)
+                    .collect()
+            })
+            .unwrap_or_else(Vec::new)
+    };
+    let damage = [
+        ("damage_more", "damage probe_foe +1", Some(1)),
+        ("damage_less", "damage probe_foe -2", Some(-2)),
+        ("damage_unsigned", "damage probe_foe 1", None),
+    ]
+    .map(|(name, line, points): (&'static str, &str, Option<i8>)| {
+        let result = match (parse(line), points) {
+            (Ok(changes), Some(points)) => {
+                let mut data = base.clone();
+                let applied = apply(&mut data, &changes, 1);
+                let (before, after) = (bonuses(&base), bonuses(&data));
+                let moved = before
+                    .iter()
+                    .map(|bonus| bonus + points)
+                    .collect::<Vec<_>>();
+                check(
+                    !before.is_empty() && after == moved && applied.unmatched.is_empty(),
+                    format!("{line:?}: bonuses {before:?} became {after:?}"),
+                )
+            }
+            (Err(why), None) => Ok(format!("{line:?} refused: {why}")),
+            (Ok(_), None) => Err(format!("{line:?} was read")),
+            (Err(why), Some(_)) => Err(why),
+        };
+        (name, result)
+    });
+    let mut checks = vec![
         (
             "planned_for_one",
             check(
@@ -464,5 +556,40 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("none counted: planned for {}", none.players),
             ),
         ),
-    ]
+    ];
+    checks.extend(damage);
+    // A `spare_lock` line gives the script's name, in lowercase, to the
+    // door so tagged. The module's digest then covers it.
+    let spare = parse("spare_lock GATE Probe_Ambush").map(|changes| {
+        let mut data = base.clone();
+        let applied = apply(&mut data, &changes, 1);
+        let spared = data
+            .objects()
+            .find(|object| object.kind == ObjectKind::Door && object.tag == "gate")
+            .map(|object| object.spared_locks.clone());
+        (spared, applied.unmatched, data.digest() != one.digest())
+    });
+    checks.push((
+        "spare_lock_reaches_the_door",
+        match spare {
+            Ok((spared, unmatched, moved)) => check(
+                spared.as_deref() == Some(&["probe_ambush".to_string()][..])
+                    && unmatched.is_empty()
+                    && moved,
+                format!("the gate spares {spared:?}, another digest {moved}"),
+            ),
+            Err(why) => Err(why),
+        },
+    ));
+    let unread: Vec<String> = all()
+        .filter_map(|(game, module)| built_in(game, module).err())
+        .collect();
+    checks.push((
+        "built_in_files_read",
+        check(
+            unread.is_empty(),
+            format!("{} files, unread {unread:?}", all().count()),
+        ),
+    ));
+    checks
 }

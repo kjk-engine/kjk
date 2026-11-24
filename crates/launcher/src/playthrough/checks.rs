@@ -128,11 +128,14 @@ pub fn probes() -> sim::probe::Checks {
         .chain(hidden_foes(&base))
         .chain(goal_held(&base))
         .chain(gains())
+        .chain(backs_off())
+        .chain(lost_backs_off())
         .chain(fights_end())
         .chain(scenes())
         .chain(loots())
         .chain(picks_remains())
         .chain(picks())
+        .chain(fight_reach())
         .chain(walks_for())
         .chain(shut_doors(&base, &level))
         .collect()
@@ -223,8 +226,11 @@ pub(super) fn scenes() -> sim::probe::Checks {
 /// player does not see it (`Chase::given_up`): on the proving ground, the
 /// player 3 m west of the wall across, the foe 3 m east of it, hidden; the
 /// same foe 2 m west of the player, seen, is not; nor a hidden one not lost.
-/// (Dxun's turret ramp: a boma wandered into a drawn rock past a wall, where
-/// the floor runs on under it, and the fight walked at it for 90 s.)
+/// A hidden foe lost before another foe was lost is still given up. (Dxun's
+/// turret ramp: a boma wandered into a drawn rock past a wall, where the
+/// floor runs on under it, and the fight walked at it for 90 s. Telos's
+/// Czerka site: two mercenaries out of reach took turns, each fought again
+/// once the other was lost.)
 /// And the hidden foe is seen from a spot (`sight_spot`) only with the
 /// door open: from the doorway's floor, a way leading there, its chest in
 /// sight; with the door shut, from nowhere (Iziz's wall turrets, hidden by
@@ -283,16 +289,22 @@ pub(super) fn hidden_foes(base: &Snapshot) -> sim::probe::Checks {
         (snapshot, at.map(|v| v * UNIT))
     };
     let refused = BTreeSet::new();
-    let given_up = |foe_x: f32, lost: bool| {
+    let other = sim::SimId(u32::MAX - 3);
+    let given_up = |foe_x: f32, lost: &[sim::SimId]| {
         let (snapshot, _) = scene(foe_x, false);
         let here = Here::new(&level, &snapshot, &refused);
         let chase = Chase {
-            lost: lost.then_some(foe_id),
+            lost: lost.iter().copied().collect(),
             ..Chase::default()
         };
         chase.given_up(&here, &player, foe_id)
     };
-    let (hidden, seen, not_lost) = (given_up(3.0, true), given_up(-5.0, true), given_up(3.0, false));
+    let (hidden, seen, not_lost, both) = (
+        given_up(3.0, &[foe_id]),
+        given_up(-5.0, &[foe_id]),
+        given_up(3.0, &[other]),
+        given_up(3.0, &[foe_id, other]),
+    );
     // The ground's floor for walks (it has no navigation mesh of its own):
     // its two halves, 0.2 m off the wall across, and the doorway between
     // them when the door is open.
@@ -331,8 +343,11 @@ pub(super) fn hidden_foes(base: &Snapshot) -> sim::probe::Checks {
         (
             NAMES[0],
             sim::probe::check(
-                hidden && !seen && !not_lost,
-                format!("lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}"),
+                hidden && !seen && !not_lost && both,
+                format!(
+                    "lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}; \
+                     lost, and another lost after it: {both}"
+                ),
             ),
         ),
         (
@@ -365,6 +380,60 @@ pub(super) fn gains() -> sim::probe::Checks {
         sim::probe::check(
             cases == [true, false, false, false],
             format!("no ground gained, 1 m gained, at hand, another foe: {cases:?}"),
+        ),
+    )]
+}
+
+/// A chase wedged three times over backs off (`Chase::backs_off`), not again
+/// while it backs off, and once more after: its two back offs are two steps
+/// back from the wedge, so the goal walls the floor it wedged at
+/// (`walls_wedge`), as a walk goal's two steps back to its corner do. (Telos's
+/// Czerka site: the chase down to the mercenaries by the mined entrance
+/// backed off from the same step and went back into it for 90 s.)
+pub(super) fn backs_off() -> sim::probe::Checks {
+    let mut chase = Chase::default();
+    let start = 60_000;
+    let stalled = chase.backs_off(WEDGED_STALLS - 1, start);
+    let first = chase.backs_off(WEDGED_STALLS, start);
+    let walls_once = super::walls_wedge(false, false, chase.backed);
+    let during = chase.backs_off(WEDGED_STALLS, start + BACKING_MS);
+    let again = chase.backs_off(WEDGED_STALLS, start + BACKING_MS * 3);
+    let walls_twice = super::walls_wedge(false, false, chase.backed);
+    let detail = format!(
+        "stalled twice {stalled}; wedged {first}, walls {walls_once}; while backing off {during}; \
+         wedged again {again}, walls {walls_twice}; sides {:?}",
+        chase.backing.1
+    );
+    vec![(
+        "chase_wedged_twice_walls_the_floor",
+        sim::probe::check(
+            !stalled && first && !walls_once && !during && again && walls_twice && chase.backing.1 == -127,
+            detail,
+        ),
+    )]
+}
+
+/// A lost walk that backs off a second time within `UNWEDGE_M` of where it
+/// first backed off walls the floor it wedged at (`walls_wedge`), as a walk
+/// that stepped back to its corner twice does. A back off 3 m away from the
+/// last one counts as a first one again. (Dxun's jungle, TSL 402dxn: the
+/// way to a cannok's remains turned at a corner beside a steep bank, and with
+/// Mira and Bao-Dur a metre behind, each back off left the player on the bank
+/// and the way was planned through the same corner again.)
+pub(super) fn lost_backs_off() -> sim::probe::Checks {
+    let mut backs = super::LostBackOffs::default();
+    let at = |x: f32| [x / UNIT, 0.0, 0.0];
+    let counts = [
+        backs.backed_off(at(0.0)),
+        backs.backed_off(at(0.3)),
+        backs.backed_off(at(3.3)),
+    ];
+    let walls = counts.map(|count| super::walls_wedge(false, false, count));
+    vec![(
+        "lost_walk_backed_off_twice_walls_the_floor",
+        sim::probe::check(
+            walls == [false, true, false],
+            format!("back offs counted {counts:?}, walls {walls:?}"),
         ),
     )]
 }
@@ -418,7 +487,9 @@ pub(super) fn goal_held(base: &Snapshot) -> sim::probe::Checks {
 /// A foe with no way to it is shot only past a blade's swing (in space: one
 /// just within it on the flat but 3 m up is past it) and within a gun's
 /// range, and seen; a use stops waiting for quiet at `USE_FIGHT_MS`, an exit
-/// or a walk never.
+/// or a walk never. A door shut on the way reaches past `EXIT_FIGHT_M` to
+/// the nearest foe that has fought, never to one that has not
+/// (`shut_fight_m`).
 pub(super) fn fights_end() -> sim::probe::Checks {
     let swing = melee_m().1;
     let at = |x: f32, z: f32| [x, 0.0, z];
@@ -453,6 +524,22 @@ pub(super) fn fights_end() -> sim::probe::Checks {
                 format!("a use before its time, at it; an exit, a walk at it: {over:?}"),
             ),
         ),
+        {
+            let far = EXIT_FIGHT_M + 17.0;
+            let reaches = [
+                shut_fight_m([]),
+                shut_fight_m([(far, false)]),
+                shut_fight_m([(far, true)]),
+                shut_fight_m([(far + 1.0, true), (far, true), (10.0, true)]),
+            ];
+            (
+                "door_shut_fights_far_foes_that_fought",
+                sim::probe::check(
+                    reaches == [EXIT_FIGHT_M, EXIT_FIGHT_M, far + 1.0, far + 1.0],
+                    format!("no foe, a far one that never fought, a far one that fought, the nearest of two far: {reaches:?}"),
+                ),
+            )
+        },
     ]
 }
 
@@ -695,6 +782,47 @@ pub(super) fn picks() -> sim::probe::Checks {
         .collect()
 }
 
+/// The foes a `fight 20` may take (`fight_foes`) while a foe 100 m off keeps
+/// the party in combat. A beast 15 m from the player may be taken. The foe
+/// 100 m off may be taken, as a player goes to help a companion. A beast 50 m
+/// off that keeps no one in combat may not be taken, though it stands nearer
+/// than the foe that stretched the fight's reach. A foe 15 m from where the
+/// fight began may be taken, though the chase has led the player 60 m from
+/// that place and 75 m from the foe (Dxun's camp, the Sith assassins the
+/// departure waits for).
+pub(super) fn fight_reach() -> sim::probe::Checks {
+    let (near, keeper, between, behind) = (sim::SimId(1), sim::SimId(2), sim::SimId(3), sim::SimId(4));
+    let foes = vec![
+        (near, [15.0, 0.0, 0.0]),
+        (between, [50.0, 0.0, 0.0]),
+        (keeper, [100.0, 0.0, 0.0]),
+        (behind, [-75.0, 0.0, 0.0]),
+    ];
+    let began = [-60.0, 0.0, 0.0];
+    let taken: Vec<sim::SimId> = fight_foes(foes, [[0.0; 3], began], 20.0, &[keeper])
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    let detail = format!("taken {taken:?}");
+    let cases: [(&'static str, sim::SimId, bool); 4] = [
+        ("fight_takes_a_foe_within_its_radius", near, true),
+        ("fight_takes_a_foe_near_where_it_began", behind, true),
+        ("fight_takes_a_far_foe_keeping_the_party_in_combat", keeper, true),
+        ("fight_leaves_a_far_foe_keeping_no_one_in_combat", between, false),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, id, expected)| {
+            let result = if taken.contains(&id) == expected {
+                Ok(detail.clone())
+            } else {
+                Err(detail.clone())
+            };
+            (name, result)
+        })
+        .collect()
+}
+
 /// A door pressed this goal that stayed shut is not pressed again in
 /// passing (`closed_door_near`), but the goal's own is; a use or an exit
 /// whose way one shut
@@ -789,7 +917,8 @@ pub(super) fn shut_doors(base: &Snapshot, level: &sim::Level) -> sim::probe::Che
 /// end, through it. A trigger the player stood in while talking and was
 /// jumped out of turned it back; one it walked out of did not. A body gone
 /// round twice where it stands is walled and the way keeps clear of it; one
-/// that moved between rounds is not. A walk approached off the mesh makes for the floor it would from the mesh
+/// that moved between rounds is not; so is the floor ahead of a walk wedged
+/// short of its corner (`TurnedBack::wedged`). A walk approached off the mesh makes for the floor it would from the mesh
 /// (`Here::approach`). A walk to a way out keeps off one leading elsewhere
 /// (`TurnedBack::keep_off_exits`), and a body sliding into that one, driven
 /// another way, is held back (`exit_ahead`).
@@ -973,17 +1102,14 @@ pub fn wall_probes() -> sim::probe::Checks {
     // (0, 4) and then a metre on: the first's faces are walled and the way
     // keeps a body's pass from it; the second, moved, is not; nor a hostile
     // one gone round twice at (0, -4) (a storm beast on Malachor).
-    let walled_body = {
-        let mut turned = TurnedBack::default();
-        let (body, moving, foe) = (origin(0.0, 0.0), origin(0.0, 4.0), origin(0.0, -4.0));
-        let once = turned.went_round(body, false);
-        let moved = turned.went_round(moving, false) || turned.went_round(origin(1.0, 4.0), false);
-        let hostile = turned.went_round(foe, true) || turned.went_round(foe, true);
-        let twice = turned.went_round(body, false);
+    // How near (metres) the way from `from` to `to`, planned round what
+    // `turned` walls, comes to `spot` (units), sampled every 10 cm.
+    let nearest = |turned: &mut TurnedBack, spot: [f32; 3]| {
         turned.wall(&Here::new(&level, &snapshot, &BTreeSet::new()));
         let refused = BTreeSet::new();
         let here = Here::new(&level, &snapshot, &refused).walled(&turned.walled);
-        let nearest = here.route(from, to, true).map(|corners| {
+        let spot = spot.map(|v| v * UNIT);
+        here.route(from, to, true).map(|corners| {
             std::iter::once(from)
                 .chain(corners)
                 .collect::<Vec<_>>()
@@ -993,12 +1119,21 @@ pub fn wall_probes() -> sim::probe::Checks {
                     let steps = (flat(a, b) / 0.1).ceil().max(1.0) as usize;
                     (0..=steps).map(move |k| {
                         let t = k as f32 / steps as f32;
-                        flat([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.0], [0.0; 3])
+                        flat([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, 0.0], spot)
                     })
                 })
                 .fold(f32::MAX, f32::min)
-        });
-        let pass = 2.0 * sim::motion::HALF_WIDTH * UNIT;
+        })
+    };
+    let pass = 2.0 * sim::motion::HALF_WIDTH * UNIT;
+    let walled_body = {
+        let mut turned = TurnedBack::default();
+        let (body, moving, foe) = (origin(0.0, 0.0), origin(0.0, 4.0), origin(0.0, -4.0));
+        let once = turned.went_round(body, false);
+        let moved = turned.went_round(moving, false) || turned.went_round(origin(1.0, 4.0), false);
+        let hostile = turned.went_round(foe, true) || turned.went_round(foe, true);
+        let twice = turned.went_round(body, false);
+        let nearest = nearest(&mut turned, body);
         let detail = format!(
             "walled after one round {once}, a moved body {moved}, a hostile one {hostile}, after two {twice}; the way's nearest to it {nearest:?} m"
         );
@@ -1009,6 +1144,107 @@ pub fn wall_probes() -> sim::probe::Checks {
             } else {
                 Err(detail)
             },
+        )
+    };
+    // A walk wedged at (-1.5, 0) making for a corner at (8, 0): the floor
+    // `UNWEDGE_M` on towards it is walled at once, once, and the way keeps a
+    // body's pass from it (Malachor's south buried ship, a drawn rock).
+    let wedged = {
+        let mut turned = TurnedBack::default();
+        let spot = super::wedged_at(origin(-1.5, 0.0), to);
+        let first = turned.wedged(spot);
+        let again = turned.wedged(spot);
+        let nearest = nearest(&mut turned, spot);
+        let detail = format!(
+            "walled at {:?}: first {first}, again {again}; the way's nearest to it {nearest:?} m",
+            spot.map(|v| v * UNIT)
+        );
+        (
+            "walk_walls_the_floor_where_it_wedged",
+            if first && !again && nearest.is_some_and(|m| m >= pass) {
+                Ok(detail)
+            } else {
+                Err(detail)
+            },
+        )
+    };
+    // The same floor walled and a walker at `from` making for `to`: its step
+    // makes for the first corner of the way round the wall, as the goal's
+    // routes do, not straight at `to` (a fight's chase planned through the
+    // walls and went back into the Elders' compound's gap for good).
+    let stepped = {
+        let mut turned = TurnedBack::default();
+        turned.wedged(super::wedged_at(origin(-1.5, 0.0), to));
+        turned.wall(&Here::new(&level, &snapshot, &BTreeSet::new()));
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused).walled(&turned.walled);
+        let player = sim::motion::MotionState::standing(from, 0.0);
+        let mut walker = sim::walk::Walker::new(to);
+        here.step(&mut walker, &player, 0);
+        let metres_off = |at: [f32; 3]| flat(at.map(|v| v * UNIT), from.map(|v| v * UNIT));
+        let round = here
+            .route(from, to, true)
+            .and_then(|corners| corners.into_iter().find(|corner| metres_off(*corner) > 0.1));
+        let metres = |at: Option<[f32; 3]>| at.map(|at| at.map(|v| v * UNIT));
+        let detail = format!(
+            "making for {:?}, the way round's first corner {:?}",
+            metres(walker.waypoint),
+            metres(round)
+        );
+        let ok = round.is_some() && walker.waypoint == round && round != Some(to);
+        ("walk_steps_round_the_floor_walled", if ok { Ok(detail) } else { Err(detail) })
+    };
+    // A walk backing off from a wedge walls the floor at once with a
+    // placeable in its way and no creature; with nothing in its way, only
+    // after stepping back to its corner twice; with a creature, never.
+    // A way leads round the floor walled where a walk wedged at (-1.5, 0)
+    // (`Here::leads_round`), but not round a band walled right across the
+    // floor: a fight's chase wedged there on the level loses its foe
+    // (Telos's Czerka site, the landing pad's only way down a corner the box
+    // sticks at), one wedged against a placeable does not (`wedge_loses_foe`).
+    let no_way_round = {
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused);
+        let mut turned = TurnedBack::default();
+        turned.wedged(super::wedged_at(origin(-1.5, 0.0), to));
+        turned.wall(&here);
+        let round_wedge = here.leads_round(&turned.walled, from, to);
+        let across = sim::walk::faces_under(&level, &band(10.0));
+        let round_band = here.leads_round(&across, from, to);
+        // Lost only on the level's own wedge with no way round, never
+        // against a placeable (Taris's Lower City, a junk pile).
+        let loses = [(false, round_wedge), (false, round_band), (true, round_band)]
+            .map(|(placeable, round)| super::wedge_loses_foe(placeable, || round));
+        let detail = format!(
+            "round the wedge's floor {round_wedge}; round a band across the floor {round_band}; \
+             foe lost (wedge, band, band against a placeable) {loses:?}"
+        );
+        (
+            "chase_finds_no_way_round_a_wedge_across_its_way",
+            if round_wedge && !round_band && loses == [false, true, false] {
+                Ok(detail)
+            } else {
+                Err(detail)
+            },
+        )
+    };
+    let placeable_wedge = {
+        let cases = [
+            ((false, true, 0), true),
+            ((false, false, 1), false),
+            ((false, false, 2), true),
+            ((true, true, 2), false),
+        ];
+        let wrong: Vec<_> = cases
+            .iter()
+            .filter(|((creature, placeable, unwedges), walls)| {
+                super::walls_wedge(*creature, *placeable, *unwedges) != *walls
+            })
+            .collect();
+        let detail = format!("(creature, placeable, steps back) wrongly judged: {wrong:?}");
+        (
+            "walk_walls_a_wedge_against_a_placeable_at_once",
+            if wrong.is_empty() { Ok(detail) } else { Err(detail) },
         )
     };
     // Ways out of a module: the band to y 5 m leading elsewhere, the goal's
@@ -1088,6 +1324,10 @@ pub fn wall_probes() -> sim::probe::Checks {
         rounds,
         used,
         walled_body,
+        wedged,
+        stepped,
+        no_way_round,
+        placeable_wedge,
         kept_off,
         guarded,
         routed("walk_goes_round_a_trigger_that_turned_it_back", 5.0, true),
@@ -1099,7 +1339,64 @@ pub fn wall_probes() -> sim::probe::Checks {
         ),
         left("walked_out_of_one_does_not", [0.0, 0.05, 0.0], false),
         approached,
+        walks_off_an_open_edge(),
     ]
+}
+
+/// A player stranded 3 m up on a slab, as Darth Bandon's Force Choke left
+/// one on the pipes under the Hrakert station's ceiling. The slab runs
+/// from x -4 m to 1.5 m and from y -1.5 m to 1.5 m. A wall stands over the
+/// floor east of x 1.5 m, from 1 m up, and a ceiling lies a little more
+/// than a body's height over the slab, too low for a body lifted a step.
+/// The nearest floor on the mesh lies under the wall. The player walks off
+/// the slab's open north or south edge, not at the wall.
+fn walks_off_an_open_edge() -> (&'static str, Result<String, String>) {
+    const NAME: &str = "stranded_player_walks_off_an_open_edge";
+    const CELL: f32 = 0.5;
+    const SLAB: ([f32; 3], [f32; 3]) = ([-4.0, -1.5, 2.7], [1.5, 1.5, 3.0]);
+    const WALL: ([f32; 3], [f32; 3]) = ([1.5, -4.0, 1.0], [2.0, 4.0, 6.0]);
+    const CEILING: ([f32; 3], [f32; 3]) = ([-4.0, -4.0, 4.9], [4.0, 4.0, 5.2]);
+    let under_slab = |x: f32, y: f32| x < SLAB.1[0] && (SLAB.0[1]..SLAB.1[1]).contains(&y);
+    let cells: Vec<(f32, f32)> = (-8..8)
+        .flat_map(|i| (-8..8).map(move |j| (i as f32 * CELL, j as f32 * CELL)))
+        .collect();
+    let cell = |&(x, y): &(f32, f32)| {
+        let [a, b, c, d] = [[x, y], [x + CELL, y], [x + CELL, y + CELL], [x, y + CELL]].map(|[x, y]| [x, y, 0.0]);
+        [[a, b, c], [a, c, d]]
+    };
+    let floor: Vec<[[f32; 3]; 3]> = cells.iter().flat_map(cell).collect();
+    // No floor of the mesh under the slab, as the furniture check covers it.
+    let walkable: Vec<[[f32; 3]; 3]> = cells.iter().filter(|(x, y)| !under_slab(*x, *y)).flat_map(cell).collect();
+    let mut builder = collision::LevelBuilder::new();
+    let solid = collision::Tag::level(collision::Contents::SOLID, 1);
+    for &triangle in &floor {
+        builder.triangle(triangle, solid);
+    }
+    for (min, max) in [SLAB, WALL, CEILING] {
+        builder.aabb(min, max, solid);
+    }
+    let level = sim::Level::new(
+        "edge",
+        Arc::new(builder.build()),
+        Arc::new(sim::motion::AnimTable::stand_in()),
+    )
+    .with_nav(collision::nav::NavMesh::build(&walkable, sim::walk::CLEARANCE * UNIT));
+    // Resting a hair over the slab, as a body's ground trace leaves it.
+    const REST_M: f32 = 0.01;
+    let on_slab = [0.5 / UNIT, 0.0, (SLAB.1[2] + REST_M) / UNIT - sim::motion::SOLE_Z];
+    let player = sim::motion::MotionState::standing(on_slab, 180.0);
+    let Some(floor) = sim::walk::back_on(&level, player.origin) else {
+        return (NAME, Err("on the mesh on the slab".into()));
+    };
+    let to = back_down(&level, &player, floor);
+    let at_floor = drops_onto_mesh(&level, player.origin, floor);
+    let [x, y, _] = to.map(|v| v * UNIT);
+    let detail = format!(
+        "the nearest floor at {:?} (dropped onto from the slab: {at_floor}), walks to ({x:.2}, {y:.2})",
+        floor.map(|v| v * UNIT)
+    );
+    let off = y.abs() > SLAB.1[1] && x < WALL.0[0] && drops_onto_mesh(&level, player.origin, to);
+    (NAME, if off && !at_floor { Ok(detail) } else { Err(detail) })
 }
 
 /// The checks of where a `use` looks for one fallen (`note_fallen`), for
@@ -1115,16 +1412,31 @@ pub fn wall_probes() -> sim::probe::Checks {
 /// `actions`, behind what it does first (Bastila's surrender on the Unknown
 /// World: her fake cast, then her talk).
 pub(super) fn talk_coming(actions: &BTreeMap<u32, Vec<sim::script::actions::Queued>>, party: &[u32]) -> bool {
-    actions.values().flatten().any(|queued| {
-        matches!(
-            queued.action,
-            sim::script::actions::Action::Converse { with, .. } if party.contains(&with.0)
-        )
-    })
+    talk_behind(actions, party).is_some()
+}
+
+/// How few actions a creature does first before a conversation with one of
+/// `party` its `actions` hold; none queued, none. Fewer than before is a
+/// `talk` coming nearer: Mandalore's shuttle scene, its start deferred half a
+/// second behind his jump to the shuttle, when his heartbeat's patrol of the
+/// camp comes in that half second, waits for the whole patrol.
+pub(super) fn talk_behind(actions: &BTreeMap<u32, Vec<sim::script::actions::Queued>>, party: &[u32]) -> Option<usize> {
+    actions
+        .values()
+        .filter_map(|queue| {
+            queue.iter().position(|queued| {
+                matches!(
+                    queued.action,
+                    sim::script::actions::Action::Converse { with, .. } if party.contains(&with.0)
+                )
+            })
+        })
+        .min()
 }
 
 /// A fight's quiet waits on a conversation with the party queued behind a
-/// creature's other actions, not on one with someone else.
+/// creature's other actions, not on one with someone else; a `talk` waits
+/// on one coming nearer (`nearer_probes`).
 pub fn quiet_probes() -> sim::probe::Checks {
     use sim::script::actions::{Action, Queued};
     let queued = |with: u32| {
@@ -1158,7 +1470,52 @@ pub fn quiet_probes() -> sim::probe::Checks {
         let detail = format!("a conversation coming {coming}");
         (name, if coming == want { Ok(detail) } else { Err(detail) })
     })
+    .chain(nearer_probes())
     .collect()
+}
+
+/// A `talk` waits on a conversation queued behind a creature's other
+/// actions while they get done: one behind two, then behind one, is nearer;
+/// behind the same one, or another's, is not.
+fn nearer_probes() -> sim::probe::Checks {
+    use sim::script::actions::{Action, Queued};
+    let queue = |ahead: usize, with: u32| {
+        let wait = Queued {
+            action: Action::Hold { talk: None },
+            started_ms: None,
+        };
+        let talk = Queued {
+            action: Action::Converse {
+                with: ObjectId(with),
+                dialog: String::new(),
+                asker: None,
+                cue: None,
+            },
+            started_ms: None,
+        };
+        let mut queued = vec![wait; ahead];
+        queued.push(talk);
+        BTreeMap::from([(7, queued)])
+    };
+    [
+        ("talk_nearer_as_the_actions_before_it_end", queue(2, 1), queue(1, 1), true),
+        ("talk_no_nearer_behind_the_same_actions", queue(1, 1), queue(1, 1), false),
+        ("talk_with_others_never_nearer", queue(2, 9), queue(1, 9), false),
+    ]
+    .into_iter()
+    .map(|(name, before, after, want)| {
+        let (was, is) = (talk_behind(&before, &[0, 1]), talk_behind(&after, &[0, 1]));
+        let nearer = nearer(was, is);
+        let detail = format!("behind {was:?} then {is:?}: nearer {nearer}");
+        (name, if nearer == want { Ok(detail) } else { Err(detail) })
+    })
+    .collect()
+}
+
+/// Whether a conversation queued behind `is` actions is nearer than when it
+/// was behind `was`.
+pub(super) fn nearer(was: Option<usize>, is: Option<usize>) -> bool {
+    is.zip(was).is_some_and(|(is, was)| is < was)
 }
 
 /// A use waits on a foe fighting a companion more than `STRAY_M` from the
@@ -1234,6 +1591,8 @@ pub fn fallen_probes() -> sim::probe::Checks {
             Corpse {
                 due_ms: 0,
                 bag: bag.map(|at| Bag { row: 0, at, yaw: 0.0 }),
+                died_ms: 0,
+                waits: Vec::new(),
             },
         )])
     };
@@ -1300,11 +1659,11 @@ pub fn draw_probes() -> sim::probe::Checks {
         made(4, Delivery::Blaster(Blaster::Pistol), 1, 6, feats::PROFICIENCY_BLASTER, slots::RIGHT_WEAPON),
         made(5, Delivery::Blaster(Blaster::Pistol), 1, 6, feats::PROFICIENCY_BLASTER, slots::RIGHT_WEAPON),
     ];
-    let trained = |rows: &[u16]| rows.iter().fold(Rows::<4>::default(), |all, row| all.with(*row));
+    let trained = |rows: &[u16]| rows.iter().fold(Rows::<8>::default(),|all, row| all.with(*row));
     let soldier = trained(&[feats::PROFICIENCY_MELEE, feats::PROFICIENCY_BLASTER]);
     let scout = trained(&[feats::PROFICIENCY_BLASTER]);
     let all = trained(&[feats::PROFICIENCY_ALL]);
-    let draws = |feats: Option<&Rows<4>>| {
+    let draws = |feats: Option<&Rows<8>>| {
         let blade = super::gear::strongest(&carried, feats, true);
         (blade, blade.or_else(|| super::gear::strongest(&carried, feats, false)))
     };

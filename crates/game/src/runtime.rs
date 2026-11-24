@@ -72,6 +72,7 @@ pub fn run(options: RunOptions) -> AppExit {
     eprintln!("run folder: {}", folder.display());
     crate::crash::install_hook(folder.clone(), crate::crash::facts());
     let player = crate::crash::PlayerRun::of(options.headless, &options.script);
+    crate::crash::dialog_on_lost_device(player);
     let mut backup = None;
     if player.0 {
         crate::crash::mark(&folder, crate::crash::PLAYER);
@@ -130,11 +131,29 @@ pub fn run(options: RunOptions) -> AppExit {
         filter: log_filter(),
         ..default()
     };
+    // `KJK_RAYS=off` makes the render device without ray queries, as on a
+    // card that has none (`ray_structures`).
+    let render = bevy::render::RenderPlugin {
+        render_creation: match crate::ray_structures::asked() {
+            Some(false) => bevy::render::settings::WgpuSettings {
+                disabled_features: Some(crate::ray_structures::RAY_FEATURES),
+                ..default()
+            }
+            .into(),
+            _ => default(),
+        },
+        ..default()
+    };
     let mut laps = crate::launch_times::Laps::new("app");
+    // NVIDIA's runtime wants the project's id before the render device is
+    // made (Bevy's DLSS panics without it).
+    #[cfg(dlss)]
+    app.insert_resource(crate::temporal::dlss_project_id());
     if options.headless {
         app.add_plugins(
             DefaultPlugins
                 .set(log)
+                .set(render)
                 .set(WindowPlugin {
                     primary_window: None,
                     exit_condition: ExitCondition::DontExit,
@@ -143,22 +162,27 @@ pub fn run(options: RunOptions) -> AppExit {
                 })
                 .disable::<WinitPlugin>(),
         )
-        .add_plugins(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
-            1.0 / 60.0,
-        )));
+        .add_plugins(ScheduleRunnerPlugin::run_loop(
+            if crate::display::uncapped() {
+                Duration::ZERO
+            } else {
+                Duration::from_secs_f64(1.0 / 60.0)
+            },
+        ));
     } else {
-        app.add_plugins(DefaultPlugins.set(log).set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "kjk".into(),
-                ..default()
-            }),
+        app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
+            primary_window: Some(game_window()),
             ..default()
         }))
         .add_plugins(crate::window_icon::WindowIconPlugin)
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");
-    app.add_plugins((ScenePlugin, crate::executors::ExecutorsPlugin));
+    app.add_plugins((
+        ScenePlugin,
+        crate::executors::ExecutorsPlugin,
+        crate::extract_gates::ExtractGatesPlugin,
+    ));
     if thunder {
         // Its mixer first, so the plugin opens no menu one.
         crate::sound::install(app.world_mut(), crate::sound::Bank::default());
@@ -230,7 +254,8 @@ pub fn run(options: RunOptions) -> AppExit {
                         && !crate::splash::skipped(),
                 },
             ),
-        ));
+        ))
+        .init_resource::<crate::bolt_hits::BoltHits>();
     }
     if let Some(start) = screens {
         app.add_plugins((
@@ -247,6 +272,9 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::bark_view::BarkViewPlugin,
                 crate::arena::ArenaPlugin,
                 crate::floaty_view::FloatyViewPlugin,
+                crate::duel_view::DuelViewPlugin,
+                crate::hitmarker_view::HitmarkerViewPlugin,
+                crate::block_reticle_view::BlockReticlePlugin,
                 crate::message_log::MessageLogPlugin,
             ),
             crate::party_calls::PartyCallsPlugin,
@@ -257,6 +285,9 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::form_view::FormViewPlugin,
                 crate::feat_view::FeatViewPlugin,
                 crate::pick_view::PickViewPlugin,
+                crate::bar_view::BarViewPlugin,
+                crate::wheel_view::WheelViewPlugin,
+                crate::bar_setup_view::BarSetupViewPlugin,
             ),
             crate::merchant::MerchantPlugin,
             crate::pazaak_view::PazaakViewPlugin,
@@ -281,8 +312,18 @@ pub fn run(options: RunOptions) -> AppExit {
             commands: options.commands,
         },
         crate::launch_times::LaunchTimesPlugin,
+        crate::crash::DeviceLostPlugin,
+        crate::render_facts::RenderFactsPlugin,
     ))
-    .add_systems(Startup, (log_render_adapter, write_manifest).chain());
+    .add_systems(
+        Startup,
+        (
+            log_render_adapter,
+            write_manifest,
+            crate::crash::refuse_software_adapter,
+        )
+            .chain(),
+    );
     if menu {
         app.add_systems(Startup, crate::crash::notice);
     }
@@ -310,6 +351,16 @@ static SCREENS: Mutex<Option<JoinHandle<Result<GuiAssets, String>>>> = Mutex::ne
 /// Starts opening the screens' assets of `campaign` (the game the run plays:
 /// its tables, talk table and items; on the install the run shares,
 /// `installs`) on a thread, so they open while a run loads.
+/// The game's window as it is first made. The player cannot drag it smaller
+/// than `display::SMALLEST_WINDOW`.
+pub(crate) fn game_window() -> Window {
+    Window {
+        title: "kjk".into(),
+        resize_constraints: crate::display::window_limits(),
+        ..default()
+    }
+}
+
 pub fn open_screens(campaign: vfs::Game) {
     let opening = std::thread::spawn(move || campaign_screens(campaign));
     *SCREENS.lock().unwrap_or_else(PoisonError::into_inner) = Some(opening);
@@ -350,7 +401,7 @@ pub fn set_campaign(ui: &mut crate::ui_view::Ui, campaign: vfs::Game) {
         Ok((index, base)) => {
             info!(target: "ui", campaign = campaign.key(), "the screens read its data");
             assets.set_campaign(campaign, index, base);
-            ui.stack.palette = ui::sweep::palette(campaign);
+            ui.stack.palette = ui::paint::Palette::of(campaign);
             ui.vm.chargen = None;
             ui.vm.session.campaign = Some(campaign);
         }

@@ -76,6 +76,18 @@ impl<'a> Here<'a> {
             || self.made.get(face as usize).copied().unwrap_or(false)
     }
 
+    /// Whether a way leads from `from` to `to` (units) round the faces
+    /// `walled` and those under the placeables play made, through the doors
+    /// a walk tries: asked with the walls the goal has just made, which this
+    /// step's reading does not hold yet.
+    pub(super) fn leads_round(&self, walled: &[bool], from: [f32; 3], to: [f32; 3]) -> bool {
+        let walls = |face: u32| {
+            walled.get(face as usize).copied().unwrap_or(false)
+                || self.made.get(face as usize).copied().unwrap_or(false)
+        };
+        sim::walk::route_round(self.level, from, to, &|index| self.to_try(index), &walls).is_some()
+    }
+
     /// This step's reading, planning round the faces under the placeables
     /// play made (`MadeWalls::faces`).
     pub(super) fn made(self, made: &Arc<[bool]>) -> Self {
@@ -173,10 +185,25 @@ impl<'a> Here<'a> {
             .as_deref()
     }
 
-    /// Whether the player's eye sees foe `id`'s chest (`chest`).
+    /// Whether the player's eye sees foe `id` (`seen_at`).
     pub(super) fn sees(&self, player: &sim::motion::MotionState, id: sim::SimId) -> bool {
-        self.chest(id)
-            .is_some_and(|chest| self.level.sees(self.sight(), mind::eye(player), chest))
+        self.seen_at(player, id).is_some()
+    }
+
+    /// The point of foe `id` the player's eye sees (units): its chest
+    /// (`chest`), or, with the chest hidden, the first point seen lower down
+    /// its body, halfway to its origin and then its origin. A medical droid
+    /// in Taris's Sith base stood with its chest, 1.6 m up, under a ledge.
+    /// The ledge hid the chest from every side, so the player walked into
+    /// the droid and backed off for 134 s and never shot it.
+    pub(super) fn seen_at(&self, player: &sim::motion::MotionState, id: sim::SimId) -> Option<[f32; 3]> {
+        let chest = self.chest(id)?;
+        let origin = self.snapshot.get(id)?.player?.origin;
+        let eye = mind::eye(player);
+        [1.0, 0.5, 0.0]
+            .map(|share| sim::math::mad(origin, share, sim::math::sub(chest, origin)))
+            .into_iter()
+            .find(|at| self.level.sees(self.sight(), eye, *at))
     }
 
     /// What the sim's own minds aim at of creature `id` (units,
@@ -216,6 +243,25 @@ impl<'a> Here<'a> {
         };
         self.routes.borrow_mut().insert(key, way.clone());
         way
+    }
+
+    /// This step's command for `walker` taking `player` at `now`: through
+    /// the doors a walk tries, and round the faces this goal walled where a
+    /// way round them leads (`goes_round`), else through them. Every walk
+    /// the harness steers plans so: a fight's chase that planned through
+    /// the floor walled where it wedged went back to the same wedge for good
+    /// (the Unknown World's Elders' compound, a gap narrower than a body
+    /// between a bench and a wall).
+    pub(super) fn step(&self, walker: &mut Walker, player: &sim::motion::MotionState, now: u64) -> Command {
+        let round = self.goes_round(player.origin, walker.goal);
+        walker.command_round(
+            self.level,
+            player,
+            now,
+            &|index| self.to_try(index),
+            &|face| round && self.walls(face),
+            (false, false),
+        )
     }
 
     /// `way`'s corners.
@@ -436,7 +482,8 @@ const TALK_RINGS: [f32; 4] = [0.4, 0.55, 0.7, 0.8];
 /// stood (`sim::walk::faces_under_body`), walled too: KOTOR's planner keeps
 /// its lines off creatures, so a walk takes another way past one standing in
 /// a gap (Moza in Chodo's office, where the way out ran between him and a
-/// wall, gone round and planned back through him for good). And the
+/// wall, gone round and planned back through him for good). And the spots
+/// a walk wedged short of its corner (`wedged`), walled the same way. And the
 /// triggers leading out of the module that the goal's way out does not take
 /// (`keep_off_exits`, with the way out they were chosen for), walled too. Of
 /// one level: another's are dropped.
@@ -529,6 +576,26 @@ impl TurnedBack {
         count == ROUNDS_TO_WALL
     }
 
+    /// A walk wedged short of its corner, `at` (units) the floor on its line
+    /// that its box gets no nearer: walled at once, as a body gone round
+    /// twice is, so the way is planned past it. The navigation mesh runs on
+    /// under a drawn rock its walker passes as a point, a box not (Malachor's
+    /// south buried ship). Whether it is newly walled.
+    pub(super) fn wedged(&mut self, at: [f32; 3]) -> bool {
+        let same = |was: [f32; 3]| flat(was.map(|v| v * UNIT), at.map(|v| v * UNIT)) <= SAME_SPOT_M;
+        match self.rounded.iter_mut().find(|(was, _)| same(*was)) {
+            Some((_, count)) if *count >= ROUNDS_TO_WALL => false,
+            Some((_, count)) => {
+                *count = ROUNDS_TO_WALL;
+                true
+            }
+            None => {
+                self.rounded.push((at, ROUNDS_TO_WALL));
+                true
+            }
+        }
+    }
+
     /// The goal's way out this step, `way_out` (an `exit`'s or a `to`'s
     /// own): the triggers leading out of the module that it does not take
     /// (`takes`) are walled, as `exit_ahead` holds the player back from them,
@@ -557,8 +624,8 @@ impl TurnedBack {
     }
 
     /// The faces under the triggers that turned the player back, the exits
-    /// kept off (`keep_off_exits`) and the bodies walled (`went_round`), made
-    /// anew.
+    /// kept off (`keep_off_exits`) and the bodies and wedges walled
+    /// (`went_round`, `wedged`), made anew.
     pub(super) fn wall(&mut self, here: &Here) {
         let mut walled = Vec::new();
         let kept_off = self.exits.iter().flat_map(|(_, exits)| exits);
@@ -847,6 +914,22 @@ pub(super) fn fights_first(goal: &Goal, fought: bool, in_combat: bool, shut_sinc
         Goal::Exit(_) | Goal::Use(_) => (!fought && in_combat) || shut_since,
         _ => false,
     }
+}
+
+/// How far (metres) an exit or a use whose way a door stayed shut on looks
+/// for the foes to fight first, given each foe the player can get at as its
+/// distance and whether it has been in a fight in the area: `EXIT_FIGHT_M`,
+/// or out to the nearest foe beyond that which has fought, as a player told
+/// by the door that turrets are still active goes back for the turrets that
+/// fired on them. Farther foes that never fought are left alone. (The Star
+/// Forge's deck two: a use stopped fighting after `USE_FIGHT_MS` and left two
+/// turrets standing 42 m from their door, which stayed locked.)
+pub(super) fn shut_fight_m(foes: impl IntoIterator<Item = (f32, bool)>) -> f32 {
+    foes.into_iter()
+        .filter(|&(d, fought)| fought && d > EXIT_FIGHT_M)
+        .map(|(d, _)| d + 1.0)
+        .min_by(f32::total_cmp)
+        .unwrap_or(EXIT_FIGHT_M)
 }
 
 /// Whether a use is answered: by its door opening or its target speaking
@@ -1160,11 +1243,17 @@ pub(super) fn aiming(player: &sim::motion::MotionState, me: &sim::EntityState, c
     mind::looking(player, pitch, yaw)
 }
 
-/// Where to strike creature `id` standing at `at` (metres): its chest as the
-/// sim's minds aim (`Here::chest`), else, an object with no body (a
-/// placeable bashed), 0.3 m above where it stands.
-pub(super) fn strike_at(here: &Here, id: Option<sim::SimId>, at: [f32; 3]) -> [f32; 3] {
-    id.and_then(|id| here.chest(id))
+/// Where `player` strikes creature `id` standing at `at` (metres): the point
+/// of it the player sees (`Here::seen_at`), else its chest as the sim's
+/// minds aim (`Here::chest`), else, an object with no body (a placeable
+/// bashed), 0.3 m above where it stands.
+pub(super) fn strike_at(
+    here: &Here,
+    player: &sim::motion::MotionState,
+    id: Option<sim::SimId>,
+    at: [f32; 3],
+) -> [f32; 3] {
+    id.and_then(|id| here.seen_at(player, id).or_else(|| here.chest(id)))
         .map_or([at[0], at[1], at[2] + 0.3], |chest| chest.map(|v| v * UNIT))
 }
 
@@ -1193,6 +1282,33 @@ pub(super) fn hostiles(
         .collect();
     found.sort_by(|a, b| a.0.total_cmp(&b.0));
     found.into_iter().map(|(_, id, at)| (id, at)).collect()
+}
+
+/// The foes a `fight` goal may take, out of `foes`. A foe within the goal's
+/// own `radius` of the player, or of where the player stood when the fight
+/// began (`around`, both places), may be taken. The second place keeps a foe
+/// in the fight when the chase of nearer foes leads the player away from it.
+/// In Dxun's camp four Sith assassins stood 60 m north of where `fight 80`
+/// began. The chase went 35 m south first, and from there they were 93 m
+/// off. The fight ended without them, and the camp's script, which waits for
+/// the last assassin to fall, never sent the party to Iziz. A foe farther
+/// off than both places may be taken only if
+/// it keeps the party in combat (`keeping`, the `keepers` the player can get
+/// at), as a player goes across the area to help a companion. A fight's reach
+/// grows to the nearest such foe, but the beasts that stand between are not
+/// part of that fight. On Dxun a maalraas fought Bao-Dur 120 m behind the
+/// player. The `fight 20` at the young boma then took every beast within
+/// those 120 m, one after another, and its chase ran on through the jungle
+/// into the zakkeg's trigger, whose scene the route needs later.
+pub(super) fn fight_foes(
+    foes: Vec<(sim::SimId, [f32; 3])>,
+    around: [[f32; 3]; 2],
+    radius: f32,
+    keeping: &[sim::SimId],
+) -> Vec<(sim::SimId, [f32; 3])> {
+    foes.into_iter()
+        .filter(|(id, at)| around.iter().any(|place| flat(*at, *place) <= radius) || keeping.contains(id))
+        .collect()
 }
 
 /// A living creature of the area, as the harness weighs it: its body,
@@ -1381,7 +1497,7 @@ pub(super) fn on_the_way(here: &Here, from: [f32; 3], to: [f32; 3]) -> Vec<Strin
                 let data = here.facts(index)?;
                 let state = object_of(here, index);
                 let lock = match (&data.lock, state.locked(data.opens)) {
-                    (Some(lock), true) => format!(", locked, DC {}", lock.open_dc),
+                    (Some(lock), true) => format!(", locked, DC {}", lock.difficulty(0)),
                     (None, true) => ", locked".into(),
                     _ => String::new(),
                 };

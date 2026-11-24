@@ -2,12 +2,15 @@
 //! presented snapshots and `sim_host::Loading`):
 //!
 //! - the loading screen while a module is planned: the game's own
-//!   (`ui::screens::loading`, KOTOR 2's layout: the module's loading image,
-//!   the area's name, the bar) where the screens are drawn, else laid out
-//!   as KOTOR's `loadscreen.gui` has it (640 × 480): the module's loading
+//!   (`ui::screens::loading`, the campaign's own layout, with the module's
+//!   loading image, a hint and the bar) where the screens are drawn. Where
+//!   they are not (a run with no game screens), it is laid out in the 640 ×
+//!   480 of KOTOR 1's `loadscreen.gui` for either game: the module's loading
 //!   image over black, the progress bar (`PB_PROGRESS`, 238, 279, 164 ×
-//!   22, filled with `bluefill` from the left); it holds a moment once the
-//!   module is in (then this one fades), so the new scene appears settled;
+//!   22, filled with `bluefill` from the left) and no hint. It holds a
+//!   moment once the module is in, and then until the new scene can be
+//!   drawn whole (`PictureWait`), then this one fades, so the new scene appears
+//!   settled;
 //! - the doors, opening and closing as the sim has them: a door that
 //!   changes state plays its `opening1`/`opening2` (or `closing`) clip
 //!   (the first for a way its model has no clip for) from
@@ -30,6 +33,7 @@ use crate::material::{AreaLight, Lighting, OdysseyMaterial, Surface};
 use crate::scene::{self, Animator, SceneContent, SceneModel};
 use crate::sim_host::{Loading, PresentedSnapshot};
 use crate::ui_view::Ui;
+use crate::warmup::{Compiled, Warmup};
 
 /// The loading screen's layer, and how long it holds and fades once the
 /// module is in (seconds).
@@ -38,16 +42,183 @@ const HOLD: f32 = 0.35;
 const FADE: f32 = 0.35;
 /// `PB_PROGRESS` in `loadscreen.gui` (left, top, width, height).
 const BAR: [f32; 4] = [238.0, 279.0, 164.0, 22.0];
+/// The longest a new picture is waited for (seconds). A pipeline that
+/// never compiles must not hold the loading screen up for ever.
+const LONGEST_WAIT: f32 = 30.0;
+/// Render frames a new picture's meshes take to reach the render world and
+/// ask for their pipelines.
+const WAIT_FRAMES: u64 = 4;
+
+/// Waits until the render world can draw a new picture whole. Bevy
+/// compiles a render pipeline in the background the first time a mesh
+/// needs it, and draws nothing with it until it is ready. On a cold shader
+/// cache (the first run after an install or a driver update) that takes
+/// seconds: a player saw a Taris area black but for a few doors and the
+/// party for about 10 seconds after its loading screen had gone (162
+/// pipelines compiled in 11.5 s). The picture is ready once a few render
+/// frames have gone by, no pipeline warm-up (`warmup`) is under way and
+/// every pipeline asked for is compiled, or once `LONGEST_WAIT` has passed.
+pub(crate) struct PictureWait {
+    since: Instant,
+    frame: u64,
+}
+
+impl PictureWait {
+    pub(crate) fn begin(compiled: Option<&Compiled>) -> PictureWait {
+        PictureWait {
+            since: Instant::now(),
+            frame: compiled.map_or(0, Compiled::frames),
+        }
+    }
+
+    /// Whether the picture can be shown. `warming`: a warm-up is under way.
+    /// Without a renderer there is nothing to wait for.
+    pub(crate) fn ready(&self, compiled: Option<&Compiled>, warming: bool) -> bool {
+        let Some(compiled) = compiled else {
+            return true;
+        };
+        let drawn = !warming && compiled.frames() >= self.frame + WAIT_FRAMES && compiled.quiet();
+        drawn || self.timed_out()
+    }
+
+    /// Whether `LONGEST_WAIT` has passed since the wait began.
+    pub(crate) fn timed_out(&self) -> bool {
+        self.waited() >= LONGEST_WAIT
+    }
+
+    /// Seconds since the wait began.
+    pub(crate) fn waited(&self) -> f32 {
+        self.since.elapsed().as_secs_f32()
+    }
+}
+
+/// Whether the world waits for the area a module's install put in to be
+/// drawn whole. From the install's commit until the picture is ready
+/// (`PictureWait`), the world's ticks are held (`sim_host::advance`, as
+/// while a movie is up), so the area's scripts, conversations, fights and
+/// timers start when the player can see them. A guest holds back telling
+/// the host it has loaded meanwhile (`net_join`), and the host's world
+/// waits for it as for any player still loading, at most its load wait.
+/// Without a renderer nothing is waited for.
+#[derive(Resource, Default)]
+pub struct Picture {
+    /// The commit the wait is for, the wait, and whether the picture was
+    /// ready (it stays so for that commit).
+    commit: Option<Instant>,
+    wait: Option<PictureWait>,
+    ready: bool,
+}
+
+impl Picture {
+    /// Whether the world waits after the install `committed` (none: no
+    /// install waits). A commit not yet looked at waits too, so no tick
+    /// slips through before the first look.
+    pub fn holds(&self, committed: Option<Instant>) -> bool {
+        committed.is_some() && !(self.commit == committed && self.ready)
+    }
+
+    /// Looks at the picture after the install `committed`. With a
+    /// renderer it is ready no sooner than the loading screen's first
+    /// moment (`HOLD`), when the screen starts to lift (`settle`).
+    fn observe(&mut self, committed: Option<Instant>, compiled: Option<&Compiled>, warming: bool) {
+        if self.commit != committed {
+            self.commit = committed;
+            self.wait = committed.map(|_| PictureWait::begin(compiled));
+            self.ready = false;
+        }
+        if let (Some(wait), Some(committed)) = (&self.wait, committed)
+            && !self.ready
+        {
+            let held = compiled.is_none() || committed.elapsed().as_secs_f32() >= HOLD;
+            self.ready = held && wait.ready(compiled, warming);
+        }
+    }
+
+    /// Whether the picture after the install `committed` is ready.
+    fn ready(&self, committed: Instant) -> bool {
+        self.commit == Some(committed) && self.ready
+    }
+}
+
+/// What the picture waits for: the warm-up under way, and what the render
+/// world has compiled.
+type Drawing<'w> = (Option<Res<'w, Warmup>>, Option<Res<'w, Compiled>>);
+
+/// Looks at the picture after the last install, every frame.
+fn watch_picture(loading: Res<Loading>, mut picture: ResMut<Picture>, (warmup, compiled): Drawing) {
+    picture.observe(loading.committed, compiled.as_deref(), warmup.is_some());
+}
+
+/// `kjk sim probes --only "loading hold"`: when the world waits for the
+/// picture after an install (`Picture::holds`), the rule `sim_host` holds
+/// the world's ticks by.
+#[cfg(feature = "probes")]
+pub fn picture_probes() -> sim::probe::Checks {
+    // An install a second ago, past the loading screen's first moment.
+    let now = Instant::now();
+    let committed = Some(
+        now.checked_sub(std::time::Duration::from_secs(1))
+            .unwrap_or(now),
+    );
+    let mut picture = Picture::default();
+    let unseen = picture.holds(committed);
+    let none = !picture.holds(None);
+    // No renderer: ready at the first look.
+    picture.observe(committed, None, false);
+    let headless = !picture.holds(committed);
+    let again = committed.map(|at| at + std::time::Duration::from_millis(1));
+    let next = picture.holds(again);
+    // A renderer that has drawn nothing yet: the world waits.
+    let compiled = Compiled::default();
+    let mut drawing = Picture::default();
+    drawing.observe(committed, Some(&compiled), false);
+    let waits = drawing.holds(committed);
+    // Never drawn, it waits its longest and no more.
+    drawing.wait = drawing.wait.take().map(|wait| PictureWait {
+        since: wait.since - std::time::Duration::from_secs_f32(LONGEST_WAIT),
+        ..wait
+    });
+    drawing.observe(committed, Some(&compiled), true);
+    let capped = !drawing.holds(committed);
+    vec![
+        (
+            "picture_holds_the_world",
+            sim::probe::check(
+                unseen && none && waits && next,
+                format!(
+                    "a commit not looked at holds {unseen}, no commit goes on {none}, a picture not drawn holds {waits}, the next commit holds {next}"
+                ),
+            ),
+        ),
+        (
+            "picture_waits_within_bounds",
+            sim::probe::check(
+                headless && capped,
+                format!(
+                    "no renderer goes on at once {headless}, the longest wait goes on {capped}"
+                ),
+            ),
+        ),
+    ]
+}
 
 pub struct LifecycleViewPlugin;
 
 impl Plugin for LifecycleViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Overlay>()
+            .init_resource::<GameScreen>()
+            .init_resource::<Picture>()
             .add_systems(
                 Update,
                 (
-                    (loading_screen, game_screen).run_if(resource_exists::<Loading>),
+                    (
+                        watch_picture,
+                        loading_screen.before(console::ConsoleQueue),
+                        game_screen,
+                    )
+                        .chain()
+                        .run_if(resource_exists::<Loading>),
                     count_assets,
                 ),
             )
@@ -70,6 +241,8 @@ struct Overlay {
     /// The `Loading::images` the parts were built for.
     images: u32,
     materials: Vec<Handle<OdysseyMaterial>>,
+    /// The commit the fade is for, and when it began.
+    fading: Option<(Instant, Instant)>,
 }
 
 /// A part of the loading screen.
@@ -137,9 +310,41 @@ fn up(loading: &Loading) -> bool {
                 .is_none_or(|started| started.elapsed().as_secs_f32() >= 0.3))
 }
 
+/// Whether the game's loading screen is this view's to close.
+#[derive(Resource, Default)]
+struct GameScreen(bool);
+
+/// A session just installed behind its own loading screen (`session_flow`):
+/// the screen stays up, with the session's image and words, and is closed
+/// as a module's is, once the area can be drawn whole (`settle`). Closed at
+/// once, it showed the area black for seconds on a cold shader cache
+/// (issue 410).
+pub(crate) fn hand_over(world: &mut World) {
+    if !world.contains_resource::<Loading>() {
+        return;
+    }
+    let (image, status) = {
+        let mut ui = world.resource_mut::<Ui>();
+        let ui = &mut *ui;
+        ui.stack.open("loading", &ui.vm);
+        (ui.vm.session.image.clone(), ui.vm.session.status.clone())
+    };
+    let now = Instant::now();
+    let mut loading = world.resource_mut::<Loading>();
+    loading.active = true;
+    loading.screen = true;
+    loading.started = Some(now);
+    loading.committed = Some(now);
+    loading.image_name = image;
+    loading.title = (!status.is_empty()).then_some(status);
+    loading.progress = 1.0;
+    world.insert_resource(GameScreen(true));
+}
+
 /// The game's own loading screen while a module installs, where the
 /// screens are drawn (a session's start shows its own already).
-fn game_screen(loading: Res<Loading>, ui: Option<ResMut<Ui>>, mut ours: Local<bool>) {
+fn game_screen(loading: Res<Loading>, ui: Option<ResMut<Ui>>, mut ours: ResMut<GameScreen>) {
+    let ours = &mut ours.0;
     let Some(mut ui) = ui.filter(|ui| ui.assets.is_some()) else {
         return;
     };
@@ -168,17 +373,36 @@ fn game_screen(loading: Res<Loading>, ui: Option<ResMut<Ui>>, mut ours: Local<bo
     *ours = true;
 }
 
-/// Once the module is in: a moment, then the fade; the screen's alpha.
-fn settle(loading: &mut Loading) -> f32 {
+/// Once the module is in: a moment, and then until the new scene can be
+/// drawn whole (`Picture`), then the fade; the screen's alpha. A scene
+/// already ready fades after the moment, as it always did. The world's
+/// first tick in the new area comes as the fade begins.
+fn settle(loading: &mut Loading, overlay: &mut Overlay, picture: &Picture) -> f32 {
     let Some(committed) = loading.committed else {
+        overlay.fading = None;
         return 1.0;
     };
-    let since = Instant::now().duration_since(committed).as_secs_f32();
-    if since >= HOLD + FADE {
+    let fading = match overlay.fading.filter(|(of, _)| *of == committed) {
+        Some((_, fading)) => fading,
+        None => {
+            let held = committed.elapsed().as_secs_f32() >= HOLD;
+            if !held || !picture.ready(committed) {
+                return 1.0;
+            }
+            let ms = (committed.elapsed().as_secs_f32() * 1000.0).round();
+            info!(target: "lifecycle", ms, "the loading screen lifts, the area drawn");
+            let now = Instant::now();
+            overlay.fading = Some((committed, now));
+            now
+        }
+    };
+    let since = fading.elapsed().as_secs_f32();
+    if since >= FADE {
         loading.active = false;
         loading.committed = None;
+        overlay.fading = None;
     }
-    (1.0 - (since - HOLD) / FADE).clamp(0.0, 1.0)
+    (1.0 - since / FADE).clamp(0.0, 1.0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -193,6 +417,7 @@ fn loading_screen(
     mut images: ResMut<Assets<Image>>,
     mut transforms: Query<&mut Transform, With<OverlayPart>>,
     (mut facts, mut states): (ResMut<console::DumpFacts>, ResMut<console::States>),
+    picture: Res<Picture>,
 ) {
     let overlay = &mut *overlay;
     let game = ui.is_some_and(|ui| ui.assets.is_some());
@@ -205,7 +430,7 @@ fn loading_screen(
     let shown = loading.active && drawn && loading.image.is_some();
     states.0.insert("loading_screen".into(), shown);
     if game {
-        settle(&mut loading);
+        settle(&mut loading, overlay, &picture);
     }
     if !loading.active || game {
         if overlay.camera.is_some() {
@@ -302,21 +527,23 @@ fn loading_screen(
         overlay.fill = Some(fill);
         overlay.images = loading.images;
     }
-    facts.0.insert(
-        "loading_screen".into(),
-        serde_json::json!({
-            "module": loading.module,
-            "title": loading.title,
-            "image": loading.image.as_ref().map(|image| [image.width, image.height]),
-            "progress": loading.progress,
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "loading_screen".into(),
+            serde_json::json!({
+                "module": loading.module,
+                "title": loading.title,
+                "image": loading.image.as_ref().map(|image| [image.width, image.height]),
+                "progress": loading.progress,
+            }),
+        );
+    }
     // The bar fills from the left.
     if let Some(Ok(mut transform)) = overlay.fill.map(|fill| transforms.get_mut(fill)) {
         *transform = bar_fill(loading.progress);
     }
     if loading.committed.is_some() {
-        let alpha = settle(&mut loading);
+        let alpha = settle(&mut loading, overlay, &picture);
         for handle in &overlay.materials {
             if let Some(mut material) = materials.get_mut(handle) {
                 material.params.tint.w = alpha;
@@ -327,21 +554,53 @@ fn loading_screen(
 
 /// How many meshes, images and materials are loaded: a module left must
 /// take its own with it (`dump` shows them).
+/// The other materials and the shaders are counted too: one that grows with
+/// every load or area change is kept by something the session holds on to
+/// (issue 445).
 fn count_assets(
     meshes: Res<Assets<Mesh>>,
     images: Res<Assets<Image>>,
     materials: Res<Assets<OdysseyMaterial>>,
+    others: OtherAssets,
     mut facts: ResMut<console::DumpFacts>,
 ) {
+    if !facts.wanted() {
+        return;
+    }
+    let (glow, grass, haze, refraction, shell, blur, ui, standard, shaders) = others;
+    let len = |assets: Option<usize>| assets.unwrap_or(0);
     facts.0.insert(
         "assets".into(),
         serde_json::json!({
             "meshes": meshes.len(),
             "images": images.len(),
             "materials": materials.len(),
+            "glow_materials": len(glow.map(|assets| assets.len())),
+            "grass_materials": len(grass.map(|assets| assets.len())),
+            "heat_haze_materials": len(haze.map(|assets| assets.len())),
+            "refraction_materials": len(refraction.map(|assets| assets.len())),
+            "shell_materials": len(shell.map(|assets| assets.len())),
+            "speed_blur_materials": len(blur.map(|assets| assets.len())),
+            "ui_materials": len(ui.map(|assets| assets.len())),
+            "standard_materials": len(standard.map(|assets| assets.len())),
+            "shaders": len(shaders.map(|assets| assets.len())),
         }),
     );
 }
+
+/// The assets `count_assets` counts besides meshes, images and the
+/// Odyssey materials, where their plugins run.
+type OtherAssets<'w> = (
+    Option<Res<'w, Assets<crate::glow_shell::GlowMaterial>>>,
+    Option<Res<'w, Assets<crate::grass::GrassMaterial>>>,
+    Option<Res<'w, Assets<crate::heat_haze::HeatHazeMaterial>>>,
+    Option<Res<'w, Assets<crate::scene_fx::RefractionMaterial>>>,
+    Option<Res<'w, Assets<crate::shell::ShellMaterial>>>,
+    Option<Res<'w, Assets<crate::speed_blur::SpeedBlurMaterial>>>,
+    Option<Res<'w, Assets<crate::ui_material::UiMaterial>>>,
+    Option<Res<'w, Assets<StandardMaterial>>>,
+    Option<Res<'w, Assets<Shader>>>,
+);
 
 /// A door of the scene, animated as the sim has it.
 struct DoorAnim {

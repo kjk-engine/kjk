@@ -1,5 +1,6 @@
 //! The probes of `strikes` (`kjk sim probes`).
 
+use super::super::covert::probes::Armed;
 use super::*;
 use crate::combat::Sheath;
 use crate::combat::saber::Move as SaberMove;
@@ -134,6 +135,8 @@ struct Ran {
     weapons: Vec<Option<Delivery>>,
     said: Vec<String>,
     held_until: Option<u64>,
+    /// How many of the beast's attacks the dummy's blade turned.
+    parried: usize,
     last: crate::Snapshot,
 }
 
@@ -211,10 +214,22 @@ fn object_fight(snapshot: &crate::Snapshot, index: u32) -> Result<crate::combat:
 }
 
 /// A beast (`strike`; none: a humanoid with empty hands) and a dummy on the
-/// proving ground, of factions at war, the beast told to attack the dummy.
-/// `held`: its rounds attack again, and its first blow is followed by a
-/// hold of `HOLD_MS` (a stun, as Fear holds), the dummy in its reach.
-fn scenario(strike: Option<Strike>, held: bool) -> Result<Ran, String> {
+/// proving ground, of factions at war (a `friend`: the dummy of the beast's
+/// own), the beast told to attack the dummy. `held`: its rounds attack
+/// again, and its first blow is followed by a hold of `HOLD_MS` (a stun, as
+/// Fear holds), the dummy in its reach.
+fn scenario(strike: Option<Strike>, held: bool, friend: bool) -> Result<Ran, String> {
+    scenario_with(strike, held, friend, false)
+}
+
+/// `scenario`, the dummy a Jedi with a lightsaber who faces the beast if
+/// `jedi`.
+fn scenario_with(
+    strike: Option<Strike>,
+    held: bool,
+    friend: bool,
+    jedi: bool,
+) -> Result<Ran, String> {
     use crate::combat::Sheet;
     use crate::combat::sheet::factions::{FRIENDLY_1, HOSTILE_1};
     use crate::module::ObjectData;
@@ -249,11 +264,15 @@ fn scenario(strike: Option<Strike>, held: bool) -> Result<Ran, String> {
     let dummy = creature(
         "dummy",
         -2.5,
-        0.0,
+        if jedi { 180.0 } else { 0.0 },
         Sheet {
-            faction: FRIENDLY_1,
+            faction: if friend { HOSTILE_1 } else { FRIENDLY_1 },
             max_hp: 500,
-            ..Sheet::commoner()
+            ..if jedi {
+                Sheet::dev_jedi()
+            } else {
+                Sheet::commoner()
+            }
         },
         &[("ScriptAttacked", "probe_attacked")],
     );
@@ -270,6 +289,7 @@ fn scenario(strike: Option<Strike>, held: bool) -> Result<Ran, String> {
         weapons: Vec::new(),
         said: Vec::new(),
         held_until: None,
+        parried: 0,
         last: world.snapshot(),
     };
     let beast_id = ran
@@ -300,6 +320,10 @@ fn scenario(strike: Option<Strike>, held: bool) -> Result<Ran, String> {
             ran.weapons
                 .push(dummy.newest().next().and_then(|event| event.weapon));
         }
+        let turned = dummy.newest().next().is_some_and(|event| {
+            event.tick == tick && event.result == crate::combat::Outcome::Parried
+        });
+        ran.parried += usize::from(turned);
         (waited, hp) = (beast.weapon_wait_ms, dummy.hp);
         if held && ran.held_until.is_none() && !ran.struck.is_empty() {
             let until = snapshot.time_ms + HOLD_MS;
@@ -330,17 +354,22 @@ fn scenario(strike: Option<Strike>, held: bool) -> Result<Ran, String> {
 /// lands blows of its creature weapon, each its hit moment into an attack,
 /// a round apart; its rounds run (`ScriptEndRound`) and the dummy hears it
 /// was attacked (`ScriptAttacked`); the same creature without a strike (a
-/// humanoid with empty hands) lands its fists' blows instead; two runs end
-/// the same.
+/// humanoid with empty hands) lands its fists' blows instead; set on a
+/// dummy of its own faction its attack lands all the same (a script's
+/// attack asks no standing; its round's blow, as the fight it keeps after
+/// is a foe's alone); two runs end the same.
 /// For the approved test `beast_strikes`.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
-    let ran = match scenario(Some(GORE), false) {
+    let ran = match scenario(Some(GORE), false, false) {
         Ok(ran) => ran,
         Err(why) => return vec![("strike_scenario", Err(why))],
     };
-    let again = scenario(Some(GORE), false).map(|again| again.last.hash());
-    let bare = scenario(None, false).map(|bare| bare.weapons);
+    let again = scenario(Some(GORE), false, false).map(|again| again.last.hash());
+    let bare = scenario(None, false, false).map(|bare| bare.weapons);
+    let friend = scenario(Some(GORE), false, true).map(|friend| friend.struck);
+    let jedi = scenario_with(Some(GORE), false, false, true)
+        .map(|jedi| (jedi.parried, jedi.struck.len(), jedi.begun.len()));
     let apart: Vec<u64> = ran
         .struck
         .windows(2)
@@ -357,7 +386,10 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         .collect();
     let said = |words: &str| ran.said.iter().filter(|said| *said == words).count();
     let hit_ms = u64::from(GORE.hit_ms);
-    vec![
+    // A beast's attacks are `beasts::EVERY_MS` apart, a step either way
+    // (the interval is no whole number of steps).
+    let every = beasts::EVERY_MS as u64;
+    let mut checks = vec![
         (
             "lands_blows",
             check(
@@ -369,11 +401,11 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             "a_round_apart",
             check(
                 !apart.is_empty()
-                    && apart.contains(&ROUND_MS)
+                    && apart.iter().any(|gap| gap.abs_diff(every) <= STEP_MS)
                     && apart
                         .iter()
-                        .all(|gap| (ROUND_MS..ROUND_MS + PACED_LATE_MS).contains(gap)),
-                format!("{apart:?} ms apart"),
+                        .all(|gap| (every - STEP_MS..every + PACED_LATE_MS).contains(gap)),
+                format!("{apart:?} ms apart, an attack every {every} ms"),
             ),
         ),
         (
@@ -382,7 +414,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 into.len() == ran.struck.len()
                     && into
                         .iter()
-                        .all(|ms| (hit_ms..hit_ms + STEP_MS).contains(ms)),
+                        .all(|ms| (hit_ms - STEP_MS..hit_ms + STEP_MS).contains(ms)),
                 format!("{into:?} ms into their attacks"),
             ),
         ),
@@ -404,6 +436,13 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             check(said("attacked") >= 1, format!("{:?}", ran.said)),
         ),
         (
+            "attacks_a_friend",
+            check(
+                friend.as_ref().is_ok_and(|struck| !struck.is_empty()),
+                format!("the dummy of its own faction hit at {friend:?} ms"),
+            ),
+        ),
+        (
             "humanoid_punches",
             check(
                 bare.as_ref().is_ok_and(|weapons| {
@@ -422,6 +461,121 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("{again:?}"),
             ),
         ),
+        (
+            "a_jedi_turns_some",
+            check(
+                jedi.as_ref().is_ok_and(|(parried, struck, begun)| {
+                    *parried >= 1 && *struck >= 1 && parried + struck <= *begun
+                }),
+                format!("a Jedi's blade (turned, hits taken, attacks begun) {jedi:?}"),
+            ),
+        ),
+    ];
+    checks.extend(block_checks());
+    checks
+}
+
+/// A blade turning a beast's attack (`sabers::strike_block`), asked
+/// directly: a Jedi with a lit lightsaber facing a beast 2 m ahead. Under
+/// JA's rules the blade turns an attack KOTOR's roll misses and none it
+/// hits, and none from behind. Under the Advanced rules a player holding
+/// block loses `beasts::BLOCK` Stamina, more against a stronger beast and
+/// `block::CRITICAL_TIMES` times as much for a critical hit; without block
+/// held, or with less Stamina than the block takes, nothing is turned and
+/// nothing lost.
+fn block_checks() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::combat::saber::SaberRules;
+    use crate::combat::{Fighter, Sheet};
+    use crate::world::sabers::{StrikeBlow, strike_block};
+    use rules::duel::block;
+
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    let sheet = Sheet::dev_jedi();
+    let ps = crate::motion::MotionState::standing([0.0; 3], 0.0);
+    let ahead = [2.0 / UNIT, 0.0, 0.0];
+    let blow = |from: Vec3, stronger: i32, critical: bool, chance: i64| StrikeBlow {
+        from,
+        at: math::scale(from, 0.2),
+        stronger,
+        critical,
+        chance,
+    };
+    // The most Stamina the Jedi's level allows.
+    let full = crate::combat::saber::duel::standing::cap(sheet.level);
+    // Whether it was turned and the Stamina it took, for a fighter with
+    // `points` of Stamina, block held or not.
+    let turned = |rules: SaberRules, (held, points): (bool, u8), blow: StrikeBlow| {
+        let mut fighter = Fighter::of(&sheet);
+        fighter.saber.on = true;
+        fighter.saber.current_move = SaberMove::READY;
+        fighter.saber.duel.block_held = held;
+        fighter.saber.duel.points = points;
+        let mut rng = crate::rng::SimRng::new(7, 0);
+        let player = rules.duel();
+        let turned = strike_block(
+            (rules, player),
+            &mut fighter,
+            &ps,
+            &sheet,
+            blow,
+            1000,
+            &mut rng,
+        );
+        (
+            turned,
+            i32::from(points) - i32::from(fighter.saber.duel.points),
+        )
+    };
+    let ja = |blow| turned(SaberRules::Ja, (false, full), blow);
+    let advanced = |state, blow| turned(SaberRules::DuelAdvanced, state, blow);
+    let behind = math::scale(ahead, -1.0);
+    let misses = [
+        ja(blow(ahead, 0, false, 0)),
+        ja(blow(ahead, 0, false, 1000)),
+    ];
+    let from_behind = ja(blow(behind, 0, false, 0));
+    let costs = [
+        advanced((true, full), blow(ahead, 0, false, 1000)),
+        advanced((true, full), blow(ahead, 8, false, 1000)),
+        advanced((true, full), blow(ahead, 8, true, 1000)),
+        advanced((true, full), blow(ahead, -3, false, 1000)),
+    ];
+    let wanted = [
+        beasts::BLOCK,
+        beasts::BLOCK + 8 * beasts::BLOCK_STRENGTH,
+        (beasts::BLOCK + 8 * beasts::BLOCK_STRENGTH) * block::CRITICAL_TIMES,
+        beasts::BLOCK,
+    ];
+    let refused = [
+        advanced((false, full), blow(ahead, 0, false, 0)),
+        advanced((true, (beasts::BLOCK - 1) as u8), blow(ahead, 0, false, 0)),
+        advanced((true, full), blow(behind, 0, false, 0)),
+    ];
+    vec![
+        (
+            "blade_turns_a_miss",
+            check(
+                misses == [(true, 0), (false, 0)] && from_behind == (false, 0),
+                format!(
+                    "a miss and a hit from ahead {misses:?}, a miss from behind {from_behind:?}"
+                ),
+            ),
+        ),
+        (
+            "block_takes_stamina",
+            check(
+                costs.iter().all(|(turned, _)| *turned)
+                    && costs.iter().map(|(_, cost)| *cost).eq(wanted),
+                format!("turned and Stamina taken {costs:?}, wanted {wanted:?}"),
+            ),
+        ),
+        (
+            "no_block_without_the_button_or_stamina",
+            check(
+                refused.iter().all(|seen| *seen == (false, 0)),
+                format!("block not held, too little Stamina, from behind: {refused:?}"),
+            ),
+        ),
     ]
 }
 
@@ -434,12 +588,12 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
 /// For the approved test `fight_through_a_hold`.
 pub fn hold_probes() -> Vec<(&'static str, Result<String, String>)> {
     let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
-    let ran = match scenario(Some(GORE), true) {
+    let ran = match scenario(Some(GORE), true, false) {
         Ok(ran) => ran,
         Err(why) => return vec![("hold_scenario", Err(why))],
     };
     let unseen = unseen_scenario();
-    let again = scenario(Some(GORE), true).map(|again| again.last.hash());
+    let again = scenario(Some(GORE), true, false).map(|again| again.last.hash());
     let Some(until) = ran.held_until else {
         return vec![("hold_scenario", Err("no first blow".into()))];
     };
@@ -560,42 +714,46 @@ const BRAWL_STEPS: u64 = 6000;
 /// A blow taken: when, from whom, with what.
 type Taken = (u64, Option<SimId>, Option<Delivery>);
 
-/// What a brawl saw: the punches each side began (when, and what its torso
-/// showed in the snapshot), the blows each took (when, from whom, with
-/// what), when the foe died, the last snapshot.
+/// What a brawl saw: the attacks each side began (when, what its torso
+/// showed in the snapshot, and its chain after it), the blows each took
+/// (when, from whom, with what), when the foe died, the last snapshot.
 struct Brawl {
     thrown: [Vec<(u64, Anim)>; 2],
+    chains: [Vec<u8>; 2],
     taken: [Vec<Taken>; 2],
     ids: [SimId; 2],
     died: Option<u64>,
     last: crate::Snapshot,
 }
 
-/// The player, bare-handed, 1.5 m from a bare-handed foe of a faction at
-/// war with it on the proving ground (no scripts: the foe's mind picks the
-/// player), facing it and holding attack.
-fn brawl() -> Result<Brawl, String> {
+/// The player, bare-handed, `apart` metres from `foe` on the proving
+/// ground, facing it. The player's faction and `HOSTILE_1` are at war, and
+/// the probe's scripts run if `scripted`. The world, and the player's and
+/// the foe's ids.
+fn facing_off(
+    foe: crate::module::ObjectData,
+    apart: f32,
+    scripted: bool,
+) -> Result<(super::super::SimWorld, [SimId; 2]), String> {
+    facing_off_holding(foe, apart, scripted, None)
+}
+
+/// `facing_off`, the player holding `weapon` (none: bare-handed).
+fn facing_off_holding(
+    foe: crate::module::ObjectData,
+    apart: f32,
+    scripted: bool,
+    weapon: Option<Weapon>,
+) -> Result<(super::super::SimWorld, [SimId; 2]), String> {
     use crate::combat::Sheet;
     use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
-    use crate::{StepReason, TickInput};
 
-    let foe = creature(
-        "brawler",
-        -2.5,
-        crate::determinism::TURN_DEGREES + 180.0,
-        Sheet {
-            faction: HOSTILE_1,
-            max_hp: 20,
-            ..Sheet::commoner()
-        },
-        &[],
-    );
     let player_sheet = Sheet {
         max_hp: 200,
-        weapons: [None; 2],
+        weapons: [weapon, None],
         ..Sheet::dev_soldier()
     };
-    let (mut world, foe_at) = world_with(vec![foe], [PLAYER, HOSTILE_1], false, player_sheet)?;
+    let (mut world, foe_at) = world_with(vec![foe], [PLAYER, HOSTILE_1], scripted, player_sheet)?;
     let first = world.snapshot();
     let foe_id = first
         .entities
@@ -607,10 +765,10 @@ fn brawl() -> Result<Brawl, String> {
         .body(crate::Seat(0))
         .map(|body| body.id)
         .ok_or("no player")?;
-    // The player on the foe's floor, 1.5 m back along the ground's x.
+    // The player on the foe's floor, `apart` back along the ground's x.
     let back = math::sub(
         crate::determinism::ground_point(0.0, 0.0, 0.0),
-        crate::determinism::ground_point(1.5, 0.0, 0.0),
+        crate::determinism::ground_point(apart, 0.0, 0.0),
     );
     let mut players = world.world.query::<(&Id, &mut Player)>();
     let foe_origin = players
@@ -625,9 +783,67 @@ fn brawl() -> Result<Brawl, String> {
             player.0.view = [0.0, crate::determinism::TURN_DEGREES, 0.0];
         }
     }
-    let ids = [player_id, foe_id];
+    Ok((world, [player_id, foe_id]))
+}
+
+/// One step of the player holding attack, facing the foe where both stood
+/// in `before` (the player first).
+fn attack_step(
+    world: &mut super::super::SimWorld,
+    tick: u64,
+    before: [Option<Vec3>; 2],
+) -> crate::Snapshot {
+    let yaw = match before {
+        [Some(me), Some(foe)] => math::atan2_deg(foe[1] - me[1], foe[0] - me[0]),
+        _ => crate::determinism::TURN_DEGREES,
+    };
+    let mut input = crate::TickInput::default();
+    input.insert(
+        crate::Seat(0),
+        crate::Command {
+            angles: crate::moves::view_angles(0.0, yaw),
+            buttons: buttons::ATTACK,
+            ..crate::Command::default()
+        },
+    );
+    crate::step(
+        world,
+        tick,
+        &input,
+        STEP_MS as u32,
+        crate::StepReason::Authority,
+    )
+}
+
+/// The player, bare-handed, 1.5 m from a bare-handed foe of a faction at
+/// war with it on the proving ground (no scripts: the foe's mind picks the
+/// player), facing it and holding attack.
+fn brawl() -> Result<Brawl, String> {
+    brawl_holding(None, 20)
+}
+
+/// `brawl`, both sides holding `weapon` (none: bare-handed), the foe with
+/// `foe_hp` hit points.
+fn brawl_holding(weapon: Option<Weapon>, foe_hp: u16) -> Result<Brawl, String> {
+    use crate::combat::Sheet;
+    use crate::combat::sheet::factions::HOSTILE_1;
+
+    let foe = creature(
+        "brawler",
+        -2.5,
+        crate::determinism::TURN_DEGREES + 180.0,
+        Sheet {
+            faction: HOSTILE_1,
+            max_hp: foe_hp,
+            weapons: [weapon, None],
+            ..Sheet::commoner()
+        },
+        &[],
+    );
+    let (mut world, ids) = facing_off_holding(foe, 1.5, false, weapon)?;
     let mut seen = Brawl {
         thrown: [Vec::new(), Vec::new()],
+        chains: [Vec::new(), Vec::new()],
         taken: [Vec::new(), Vec::new()],
         ids,
         died: None,
@@ -643,27 +859,8 @@ fn brawl() -> Result<Brawl, String> {
     let mut before = fights(&seen.last);
     for tick in 1..=BRAWL_STEPS {
         // Facing the foe wherever it stands, attack held.
-        let [me, foe] = before.map(|fight| fight.map(|(.., at)| at));
-        let yaw = match (me, foe) {
-            (Some(me), Some(foe)) => math::atan2_deg(foe[1] - me[1], foe[0] - me[0]),
-            _ => crate::determinism::TURN_DEGREES,
-        };
-        let mut input = TickInput::default();
-        input.insert(
-            crate::Seat(0),
-            crate::Command {
-                angles: crate::moves::view_angles(0.0, yaw),
-                buttons: buttons::ATTACK,
-                ..crate::Command::default()
-            },
-        );
-        let snapshot = crate::step(
-            &mut world,
-            tick,
-            &input,
-            STEP_MS as u32,
-            StepReason::Authority,
-        );
+        let at = before.map(|fight| fight.map(|(.., at)| at));
+        let snapshot = attack_step(&mut world, tick, at);
         let now = fights(&snapshot);
         for side in 0..2 {
             let (Some((was, ..)), Some((fighter, ps, _))) = (before[side], now[side]) else {
@@ -671,6 +868,7 @@ fn brawl() -> Result<Brawl, String> {
             };
             if fighter.weapon_wait_ms > was.weapon_wait_ms {
                 seen.thrown[side].push((snapshot.time_ms, ps.torso.anim));
+                seen.chains[side].push(fighter.saber.chain);
             }
             if fighter.hp < was.hp {
                 let event = fighter.newest().next();
@@ -780,6 +978,313 @@ pub fn fist_probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         ("punch_lands_from_a_doorway", doorway_punch()),
         ("punch_reaches_a_bulky_body", bulky_punch()),
+    ]
+}
+
+/// A player holding a stun baton, not attacking, whose weapon timer rises as
+/// a grenade's throw raises it (800 ms, `firing`), with a foe in reach: no
+/// baton blow lands, for no swing began.
+fn baton_timer_alone() -> Result<String, String> {
+    use crate::combat::Sheet;
+    use crate::combat::sheet::factions::HOSTILE_1;
+
+    let foe = creature(
+        "bystander",
+        -2.5,
+        crate::determinism::TURN_DEGREES + 180.0,
+        Sheet {
+            faction: HOSTILE_1,
+            max_hp: 200,
+            ..Sheet::commoner()
+        },
+        &[],
+    );
+    let (mut world, [player_id, foe_id]) = facing_off_holding(foe, 0.8, true, Some(stun_baton()))?;
+    let hp = |world: &mut super::super::SimWorld, who: SimId| {
+        world
+            .snapshot()
+            .get(who)
+            .and_then(|e| e.fighter)
+            .map(|f| f.hp)
+    };
+    let before = hp(&mut world, foe_id);
+    let mut fighters = world.world.query::<(&Id, &mut Fighting)>();
+    for (id, mut fighting) in fighters.iter_mut(&mut world.world) {
+        if id.0 == player_id {
+            fighting.0.weapon_wait_ms = 800;
+        }
+    }
+    for tick in 1..=150 {
+        crate::step(
+            &mut world,
+            tick,
+            &crate::TickInput::default(),
+            STEP_MS as u32,
+            StepReason::Authority,
+        );
+    }
+    let after = hp(&mut world, foe_id);
+    crate::probe::check(
+        before.is_some() && before == after,
+        format!("the foe's hit points {before:?} then {after:?}"),
+    )
+}
+
+/// A plain stun baton (`baseitems.2da` row 1): 1d6 bludgeoning.
+fn stun_baton() -> Weapon {
+    use crate::combat::sheet::feats::PROFICIENCY_MELEE;
+    Weapon::plain(
+        1,
+        1,
+        6,
+        (1, 2),
+        damage_types::BLUDGEONING,
+        [PROFICIENCY_MELEE; 3],
+    )
+}
+
+/// The checks of a brawl with stun batons (see `fist_probes`): the player,
+/// attack held, swings KOTOR's two baton swings in turn, each starting
+/// `BatonSwing::interval_ms` after the last, each hitting at its swing's hit
+/// moment, paced by that interval, never a punch on the torso; the foe
+/// swings back the same way; two runs end the same. For the approved test
+/// `baton_swings`.
+pub fn baton_probes() -> Vec<(&'static str, Result<String, String>)> {
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    // The foe lasts long enough to swing back several times (at 20 hit
+    // points the player's swings, four a round, fell it in about three
+    // seconds).
+    let brawled = || brawl_holding(Some(stun_baton()), 60);
+    let seen = match brawled() {
+        Ok(seen) => seen,
+        Err(why) => return vec![("baton_brawl_scenario", Err(why))],
+    };
+    let again = brawled().map(|again| again.last.hash());
+    let [player, foe] = &seen.thrown;
+    let [player_chains, foe_chains] = &seen.chains;
+    let [player_took, foe_took] = &seen.taken;
+    let [player_id, foe_id] = seen.ids;
+    // The swing each attack began with: the chain before it.
+    let swings = |chains: &[u8]| -> Vec<BatonSwing> {
+        chains.iter().map(|after| baton_swing(after ^ 1)).collect()
+    };
+    let in_turn = |chains: &[u8]| {
+        let clips: Vec<&str> = swings(chains).iter().map(|swing| swing.clip).collect();
+        clips.len() >= 3
+            && clips
+                .iter()
+                .enumerate()
+                .all(|(n, clip)| *clip == ["g1a1", "g1a2"][n % 2])
+    };
+    // Each swing begins its interval after the last, to the step (the timer
+    // carries its overrun, so the steps never add up).
+    let paced = |thrown: &[(u64, Anim)], chains: &[u8]| {
+        let swung = swings(chains);
+        let first = thrown.first().map_or(0, |(at, _)| *at);
+        let mut due = first;
+        thrown.len() >= 3
+            && thrown.iter().zip(&swung).all(|((at, _), swing)| {
+                let on_time = at.abs_diff(due) < STEP_MS;
+                due += u64::from(swing.interval_ms);
+                on_time
+            })
+    };
+    // How long after its swing's hit moment each blow on the foe landed.
+    let late: Vec<i64> = foe_took
+        .iter()
+        .filter_map(|(hit, ..)| {
+            let at = player.iter().rposition(|(begun, _)| begun < hit)?;
+            let swing = baton_swing(player_chains[at] ^ 1);
+            Some(*hit as i64 - player[at].0 as i64 - i64::from(swing.hit_ms))
+        })
+        .collect();
+    let batons_of = |took: &[Taken], by: SimId| {
+        !took.is_empty()
+            && took
+                .iter()
+                .all(|(_, from, weapon)| *from == Some(by) && *weapon == Some(Delivery::Baton))
+    };
+    let punched = |thrown: &[(u64, Anim)]| {
+        thrown
+            .iter()
+            .any(|(_, anim)| matches!(anim, Anim::BOTH_MELEE1 | Anim::BOTH_MELEE2))
+    };
+    let cadences: Vec<(u32, u16)> = (0..2)
+        .map(|chain| {
+            (
+                blow_cadence_ms(Some(baton_swing(chain))),
+                baton_swing(chain).interval_ms,
+            )
+        })
+        .collect();
+    vec![
+        (
+            "baton_swings_in_turn",
+            check(in_turn(player_chains), format!("chains {player_chains:?}")),
+        ),
+        (
+            "baton_swing_interval",
+            check(
+                paced(player, player_chains),
+                format!("swings began at {player:?}"),
+            ),
+        ),
+        (
+            "baton_hits_at_clip_hit",
+            check(
+                !late.is_empty()
+                    && late.len() == foe_took.len()
+                    && late.iter().all(|ms| ms.unsigned_abs() < STEP_MS),
+                format!("{late:?} ms past the swings' hit moments"),
+            ),
+        ),
+        (
+            "baton_hit_paced_by_interval",
+            check(
+                cadences
+                    .iter()
+                    .all(|(cadence, interval)| *cadence == u32::from(*interval))
+                    && blow_cadence_ms(None) == CADENCE_MS as u32,
+                format!("baton cadences and intervals {cadences:?}"),
+            ),
+        ),
+        (
+            "baton_torso_not_punching",
+            check(
+                !punched(player) && !punched(foe),
+                format!("torsos {player:?} and {foe:?}"),
+            ),
+        ),
+        (
+            "foe_swings_baton_back",
+            check(
+                batons_of(player_took, foe_id)
+                    && batons_of(foe_took, player_id)
+                    && in_turn(foe_chains),
+                format!("blows {player_took:?}, chains {foe_chains:?}"),
+            ),
+        ),
+        ("no_baton_hit_without_swing", baton_timer_alone()),
+        (
+            "baton_same_every_run",
+            check(
+                again.as_ref().is_ok_and(|hash| *hash == seen.last.hash()),
+                format!("{again:?}"),
+            ),
+        ),
+    ]
+}
+
+/// How long the player strikes at a creature in `struck_at`: 1500 steps of
+/// 8 ms, which is four of its punches.
+const STRUCK_STEPS: u64 = 1500;
+
+/// What the player's blows on a creature did: the ticks of the blows it
+/// met, whether it lost hit points, when it was first in combat, and how
+/// often its end-of-round script ran.
+struct Struck {
+    blows: std::collections::BTreeSet<u64>,
+    hurt: bool,
+    in_combat_at: Option<u64>,
+    rounds: usize,
+}
+
+/// The player, bare-handed, holding attack at a bare-handed creature of
+/// `faction` 1 m away on the proving ground, within a punch's reach (the
+/// creature's mind is the probe's scripts, so it never steps in). The
+/// creature's end-of-round script says "round".
+fn struck_at(faction: u8) -> Result<Struck, String> {
+    use crate::combat::Sheet;
+    use crate::notice::Notice;
+
+    let target = creature(
+        "struck",
+        -2.5,
+        crate::determinism::TURN_DEGREES + 180.0,
+        Sheet {
+            faction,
+            max_hp: 200,
+            ..Sheet::commoner()
+        },
+        &[("ScriptEndRound", "probe_round")],
+    );
+    let (mut world, ids) = facing_off(target, 1.0, true)?;
+    let [player_id, target_id] = ids;
+    let fight = |snapshot: &crate::Snapshot| {
+        snapshot
+            .get(target_id)
+            .and_then(|entity| entity.fighter)
+            .ok_or("the creature has no fight")
+    };
+    let mut last = world.snapshot();
+    let full = fight(&last)?.hp;
+    let mut struck = Struck {
+        blows: Default::default(),
+        hurt: false,
+        in_combat_at: None,
+        rounds: 0,
+    };
+    for tick in 1..=STRUCK_STEPS {
+        let at = ids.map(|id| last.get(id).map(|entity| entity.position));
+        last = attack_step(&mut world, tick, at);
+        let fighter = fight(&last)?;
+        let by_player = fighter.newest().filter(|event| event.by == Some(player_id));
+        struck.blows.extend(by_player.map(|event| event.tick));
+        struck.hurt |= fighter.hp < full;
+        if fighter.in_combat(last.time_ms) {
+            struck.in_combat_at.get_or_insert(last.time_ms);
+        }
+        let round = Notice::Said("round".into());
+        struck.rounds += world
+            .take_notices()
+            .iter()
+            .filter(|(_, notice)| *notice == round)
+            .count();
+    }
+    Ok(struck)
+}
+
+/// The checks of the player's blows on a creature that is not its foe
+/// (issue #341), on the proving ground. The player, bare-handed, holds
+/// attack at a neutral creature for 12 s. Its punches meet the creature,
+/// which loses no hit points, is never in combat, and never runs its
+/// end-of-round script. A foe struck the same way is in combat and its
+/// end-of-round script runs. For the approved test `blows_on_a_bystander`.
+pub fn bystander_probes() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::combat::sheet::factions::{HOSTILE_1, NEUTRAL};
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    let (neutral, foe) = match (struck_at(NEUTRAL), struck_at(HOSTILE_1)) {
+        (Ok(neutral), Ok(foe)) => (neutral, foe),
+        (Err(why), _) | (_, Err(why)) => return vec![("bystander_scenario", Err(why))],
+    };
+    let told = |struck: &Struck| {
+        format!(
+            "{} blows met, hurt {}, in combat at {:?} ms, {} rounds",
+            struck.blows.len(),
+            struck.hurt,
+            struck.in_combat_at,
+            struck.rounds
+        )
+    };
+    vec![
+        (
+            "bystander_met_unharmed",
+            check(neutral.blows.len() >= 2 && !neutral.hurt, told(&neutral)),
+        ),
+        (
+            "bystander_out_of_combat",
+            check(
+                neutral.in_combat_at.is_none() && neutral.rounds == 0,
+                told(&neutral),
+            ),
+        ),
+        (
+            "foe_in_combat",
+            check(
+                foe.blows.len() >= 2 && foe.in_combat_at.is_some() && foe.rounds >= 1,
+                told(&foe),
+            ),
+        ),
     ]
 }
 
@@ -1342,7 +1847,7 @@ pub fn sheath_probes() -> Vec<(&'static str, Result<String, String>)> {
     let bytes = Action::from_bytes(&Action::Holster.to_bytes());
     let charge = charge();
     let bolt = first_bolt();
-    vec![
+    let mut rows = vec![
         (
             "lit_by_a_click",
             check(
@@ -1445,5 +1950,309 @@ pub fn sheath_probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("{again:?}"),
             ),
         ),
-    ]
+    ];
+    rows.extend(draw_probes());
+    rows
+}
+
+/// When the draw runs' player presses the draw or holster key, how long
+/// after it the weapon is looked at (past the 8 s rule twice), and when the
+/// runs that put it away press the key again (sim ms).
+const DRAW_MS: u64 = 1000;
+const DRAWN_FOR_MS: u64 = 20_000;
+const PUT_AWAY_MS: u64 = 23_000;
+/// How long a run goes on after its last press before it is looked at.
+const SETTLE_MS: u64 = 2000;
+
+/// What a draw run saw of the player on one step.
+#[derive(Debug, Clone, Copy)]
+struct Drawing {
+    ms: u64,
+    sheath: Sheath,
+    /// The blade in hand is out (`SaberState::on`).
+    on: bool,
+    /// `Fighter::weapon_away`.
+    away: bool,
+    stealth: bool,
+    torso: crate::motion::Anim,
+}
+
+/// A draw run: each step's `Drawing` and the last snapshot.
+struct DrawRun {
+    steps: Vec<Drawing>,
+    last: crate::Snapshot,
+}
+
+impl DrawRun {
+    /// The first step at or after `ms`.
+    fn at(&self, ms: u64) -> Option<Drawing> {
+        self.steps.iter().find(|step| step.ms >= ms).copied()
+    }
+}
+
+/// Seat 0 presses the draw or holster key in the next step.
+fn draw_key() -> crate::TickInput {
+    let mut input = crate::TickInput::default();
+    input.insert(crate::Seat(0), crate::Command::default());
+    input.act(crate::Seat(0), crate::action::Action::Holster);
+    input
+}
+
+/// The player alone on the proving ground, a sneak (`covert::probes::sneak`)
+/// holding `armed` in its right hand, in Stealth Mode when `stealth`, in the
+/// player restrict mode when `restricted`, pressing the draw or holster key
+/// at each of `presses` (sim ms) and standing still until `until`.
+fn draw_run(
+    armed: Armed,
+    (stealth, restricted): (bool, bool),
+    presses: &[u64],
+    until: u64,
+) -> Result<DrawRun, String> {
+    use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
+    let mut sheet = super::super::covert::probes::sneak(8, true);
+    sheet.weapons = [armed.weapon(), None];
+    let (mut world, _) = world_with(Vec::new(), [PLAYER, HOSTILE_1], false, sheet)?;
+    let player_id = world
+        .snapshot()
+        .body(crate::Seat(0))
+        .map(|body| body.id)
+        .ok_or("no player")?;
+    if restricted {
+        let mut state = world.script_state().clone();
+        state.party.restrict = true;
+        world.set_script_state(state);
+    }
+    super::super::drivers::probes::poke(&mut world, player_id, |fighter, _| {
+        fighter.covert.stealth = stealth;
+    });
+    let mut run = DrawRun {
+        steps: Vec::new(),
+        last: world.snapshot(),
+    };
+    for tick in 1..=until / STEP_MS {
+        let input = if presses.contains(&run.last.time_ms) {
+            draw_key()
+        } else {
+            let mut input = crate::TickInput::default();
+            input.insert(crate::Seat(0), crate::Command::default());
+            input
+        };
+        run.last = crate::step(
+            &mut world,
+            tick,
+            &input,
+            STEP_MS as u32,
+            crate::StepReason::Authority,
+        );
+        let entity = run.last.get(player_id).ok_or("the player is gone")?;
+        let fighter = entity.fighter.ok_or("the player has no fight")?;
+        let ps = entity.player.ok_or("the player has no body")?;
+        run.steps.push(Drawing {
+            ms: run.last.time_ms,
+            sheath: fighter.sheath,
+            on: fighter.saber.on,
+            away: fighter.weapon_away(run.last.time_ms),
+            stealth: fighter.covert.stealth,
+            torso: ps.torso.anim,
+        });
+    }
+    Ok(run)
+}
+
+/// Whether `step` holds `armed` in hand by the player's draw: its sheath
+/// `Sheath::Drawn`, its weapon not away, and a blade out.
+fn drawn_in_hand(armed: Armed, step: Option<Drawing>) -> bool {
+    step.is_some_and(|step| {
+        step.sheath == Sheath::Drawn && !step.away && (armed == Armed::Blaster || step.on)
+    })
+}
+
+/// Whether `step` has its weapon put away by the player.
+fn put_away(step: Option<Drawing>) -> bool {
+    step.is_some_and(|step| step.sheath == Sheath::Holstered && step.away && !step.on)
+}
+
+/// The draw or holster key (`Action::Holster`): a lightsaber, a vibroblade
+/// and a blaster put away are drawn by a press and still out 20 s later,
+/// past the 8 s rule; a second press puts each away. A gun drawn so is
+/// raised as an attack raises it. In the player restrict mode the key
+/// draws nothing. In Stealth Mode the key draws the weapon and Stealth Mode
+/// holds. A snapshot with a drawn weapon reads back (`Sheath::Drawn` is
+/// byte 4). The first seat's key draws the weapon of the companion leading
+/// the party, not its own character's.
+pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::probe::{check, failed};
+    let looked = DRAW_MS + DRAWN_FOR_MS;
+    let mut rows: Vec<(&'static str, Result<String, String>)> = Vec::new();
+    for (armed, out, again) in [
+        (
+            Armed::Saber,
+            "drawn_saber_stays_out",
+            "drawn_saber_put_away",
+        ),
+        (
+            Armed::Vibroblade,
+            "drawn_vibroblade_stays_out",
+            "drawn_vibroblade_put_away",
+        ),
+        (
+            Armed::Blaster,
+            "drawn_blaster_stays_out",
+            "drawn_blaster_put_away",
+        ),
+    ] {
+        match draw_run(
+            armed,
+            (false, false),
+            &[DRAW_MS, PUT_AWAY_MS],
+            PUT_AWAY_MS + SETTLE_MS,
+        ) {
+            Ok(run) => {
+                let raised = armed != Armed::Blaster
+                    || run
+                        .at(DRAW_MS + STEP_MS)
+                        .is_some_and(|step| step.torso == crate::motion::Anim::TORSO_RAISEWEAP1);
+                rows.push((
+                    out,
+                    check(
+                        drawn_in_hand(armed, run.at(looked)) && raised,
+                        format!(
+                            "after the press {:?}; 20 s later {:?}",
+                            run.at(DRAW_MS + STEP_MS),
+                            run.at(looked)
+                        ),
+                    ),
+                ));
+                let later = run.at(PUT_AWAY_MS + SETTLE_MS);
+                rows.push((again, check(put_away(later), format!("{later:?}"))));
+            }
+            Err(why) => rows.extend(failed([out, again], why)),
+        }
+    }
+    let settled = DRAW_MS + SETTLE_MS;
+    // A blaster's run tells whether the key itself draws nothing: a draw
+    // that the restrict mode puts away on the same step still plays the
+    // gun's raise or put-away clip on the press's step.
+    let restricted = [Armed::Saber, Armed::Blaster].map(|armed| {
+        draw_run(armed, (false, true), &[DRAW_MS], settled)
+            .map(|run| (run.at(DRAW_MS + STEP_MS), run.at(settled)))
+    });
+    let refused = restricted.iter().all(|run| {
+        use crate::motion::Anim;
+        run.as_ref().is_ok_and(|(pressed, later)| {
+            pressed.is_some_and(|step| {
+                step.sheath != Sheath::Drawn
+                    && ![Anim::TORSO_RAISEWEAP1, Anim::TORSO_DROPWEAP1].contains(&step.torso)
+            }) && later.is_some_and(|step| step.sheath != Sheath::Drawn && step.away)
+        })
+    });
+    rows.push((
+        "restricted_cannot_draw",
+        check(
+            refused,
+            format!("the lightsaber, then the blaster, at the press and 2 s later {restricted:?}"),
+        ),
+    ));
+    // A lightsaber drawn in Stealth Mode stays unlit on every step.
+    match draw_run(Armed::Saber, (true, false), &[DRAW_MS], settled) {
+        Ok(run) => {
+            let before = run.at(STEP_MS);
+            let after = run.at(settled);
+            let held = |step: Option<Drawing>| step.is_some_and(|step| step.stealth);
+            let drawn = after.is_some_and(|step| step.sheath == Sheath::Drawn && !step.away);
+            let unlit = run.steps.iter().all(|step| !step.on);
+            rows.push((
+                "draw_in_stealth_mode",
+                check(
+                    held(before) && held(after) && drawn && unlit,
+                    format!("before the press {before:?}; 2 s after {after:?}; unlit {unlit}"),
+                ),
+            ));
+            let decoded = crate::Snapshot::decode(&run.last.encode());
+            let kept = decoded.as_ref().is_ok_and(|decoded| *decoded == run.last);
+            let sheath = decoded.as_ref().ok().and_then(|decoded| {
+                decoded
+                    .body(crate::Seat(0))
+                    .and_then(|body| body.fighter)
+                    .map(|fighter| fighter.sheath)
+            });
+            rows.push((
+                "drawn_snapshot_reads_back",
+                check(
+                    kept && sheath == Some(Sheath::Drawn) && Sheath::Drawn as u8 == 4,
+                    format!(
+                        "read back the same {kept}, sheath {sheath:?}, byte {}",
+                        Sheath::Drawn as u8
+                    ),
+                ),
+            ));
+        }
+        Err(why) => rows.extend(failed(
+            ["draw_in_stealth_mode", "drawn_snapshot_reads_back"],
+            why,
+        )),
+    }
+    match leader_draws() {
+        Ok([draws, switched]) => rows.extend([
+            ("leader_companion_draws", draws),
+            ("switched_companion_puts_it_away", switched),
+        ]),
+        Err(why) => rows.extend(failed(
+            ["leader_companion_draws", "switched_companion_puts_it_away"],
+            why,
+        )),
+    }
+    rows
+}
+
+/// The second companion leading the party, seat 0 presses the draw or
+/// holster key: 2 s later the companion's weapon is drawn by its player
+/// and the player's own character's is not. Then the player leads its own
+/// character again: 8 s and 2 s after that, the companion, under its AI,
+/// has its weapon away and back under the game's rule.
+fn leader_draws() -> Result<[Result<String, String>; 2], String> {
+    use super::super::drivers::probes::{party_world, run, scripts_of};
+    let (mut world, _, [_, led]) = party_world(crate::Guests::Avatars, 1)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    let first = run(&mut world, &[(0, 0)]);
+    let own = first
+        .own(crate::Seat(0))
+        .map(|own| own.id)
+        .ok_or("no own character")?;
+    let tick = world.tick() + 1;
+    crate::step(
+        &mut world,
+        tick,
+        &draw_key(),
+        STEP_MS as u32,
+        crate::StepReason::Authority,
+    );
+    let idle = |world: &mut super::super::SimWorld, ms: u64| {
+        let mut last = run(world, &[(0, 0)]);
+        for _ in 1..ms / STEP_MS {
+            last = run(world, &[(0, 0)]);
+        }
+        last
+    };
+    let fight = |snapshot: &crate::Snapshot, id| {
+        snapshot
+            .get(id)
+            .and_then(|entity| entity.fighter)
+            .map(|fighter| (fighter.sheath, fighter.weapon_away(snapshot.time_ms)))
+    };
+    let drawn = idle(&mut world, SETTLE_MS);
+    let (led_drawn, own_drawn) = (fight(&drawn, led), fight(&drawn, own));
+    let draws = crate::probe::check(
+        led_drawn == Some((Sheath::Drawn, false))
+            && own_drawn.is_some_and(|(sheath, _)| sheath != Sheath::Drawn),
+        format!("the leader {led_drawn:?}, the player's own character {own_drawn:?}"),
+    );
+    scripts_of(&mut world).state.party.leader = None;
+    let later = idle(&mut world, COMBAT_MS + SETTLE_MS);
+    let led_later = fight(&later, led);
+    let switched = crate::probe::check(
+        led_later == Some((Sheath::Fight, true)),
+        format!("the companion no longer led, 10 s on: {led_later:?}"),
+    );
+    Ok([draws, switched])
 }

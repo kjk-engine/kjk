@@ -14,6 +14,8 @@
 //! Which blades (`slots`): a lightsaber is JA's `single_1` in the right
 //! hand; two sabers the same again in the left (the second while it is
 //! lit); a double-bladed one is `dual_1`'s two blades on the right hand.
+//! A short lightsaber's blade is `SHORT_SABER_SHARE` of `single_1`'s, as
+//! KOTOR's short hilts' blade planes are of the regular hilts' (issue 505).
 //! KOTOR's swords, vibroblades and staves (C9) have no JA hilt: they take
 //! the same tags with a stand-in length (`MELEE_LENGTH`, a delegated
 //! decision).
@@ -23,9 +25,10 @@ use crate::combat::saber::look::{self, Doing};
 use crate::combat::saber::{Kit, SaberState, Style};
 use crate::math::{self, Vec3};
 use crate::motion::{Anim, AnimInfo, AnimTable, MotionState};
+use crate::skeleton::stance;
 use crate::skeleton::{
-    self, Blade, BladeId, Blend, Frames, Hand, Placement, Playback, Pose, Sequence, SkeletonData,
-    Under,
+    self, Blade, BladeId, Blend, Frames, Hand, Placement, Playback, Played, Pose, Sequence,
+    SkeletonData, StanceSets, Under, Wield,
 };
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
 
@@ -44,6 +47,9 @@ pub const MELEE_STAFF_LENGTH: f32 = rules::sabers::blades::MELEE_STAFF_LENGTH;
 /// How long JA's server blends a part into a new animation (ms).
 const BLEND_MS: u32 = rules::sabers::blades::BLEND_MS;
 
+/// How long a perfect parry blends in over what the torso showed (ms).
+const PARRY_BLEND_MS: u32 = rules::duel::perfect::PARRY_BLEND_MS;
+
 /// A blade's last place older than this counts as none (ms; rulebook 5.1).
 pub const TRAIL_MS: u64 = rules::sabers::blades::TRAIL_MS;
 
@@ -57,12 +63,59 @@ pub fn push_per_speed(msec: u32) -> f32 {
 }
 
 /// One part as the server's skeleton plays it: the animation and restart
-/// bit last set, and its playback.
+/// bit last set, its playback, and the sequence it plays in place of the
+/// animation's own (`Played::OWN` for the animation's own).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shown {
     pub anim: Anim,
     pub flip: bool,
     pub playback: Playback,
+    pub plays: Played,
+}
+
+impl Shown {
+    /// Whether this part's playback or blend names a frame at or past
+    /// `lent`, the first frame the stance sets lend to the skeleton. A
+    /// forward playback's end is one past its last frame, so it names a lent
+    /// frame only when it lies past `lent`.
+    pub fn reads_lent(&self, lent: i32) -> bool {
+        let at = |frame: i32| frame >= lent;
+        let playback = self.playback;
+        at(playback.start_frame)
+            || playback.end_frame > lent
+            || playback.blend.is_some_and(|b| {
+                at(b.frame as i32)
+                    || at(b.next)
+                    || b.under.is_some_and(|under| {
+                        at(under.frame as i32)
+                            || at(under.next)
+                            || at(under.start.current)
+                            || at(under.start.next)
+                    })
+            })
+    }
+}
+
+/// What a fighter's stance asks of its pose this tick. There is none under
+/// JA's rules. `sets` are the level's stance sets (none for a level without
+/// them), `set` is the fighter's set (0 for none), and `wield` is what it
+/// shows: its blade lit or not, its held block, and a perfect parry.
+#[derive(Debug, Clone, Copy)]
+pub struct Stance<'a> {
+    pub sets: Option<&'a StanceSets>,
+    pub set: u8,
+    pub wield: Wield,
+}
+
+impl Stance<'_> {
+    /// What the legs and the torso play in place of `anims` (legs, torso).
+    /// None is the animation's own sequence.
+    fn resolve(&self, anims: [Anim; 2], table: &AnimTable) -> [Option<(Played, Sequence)>; 2] {
+        match self.sets {
+            Some(sets) => sets.resolve(self.set, self.wield, anims, table),
+            None => stance::resolve_plain(self.wield, anims, table),
+        }
+    }
 }
 
 /// What the server's copy of a character's skeleton plays (JA keeps it in
@@ -88,28 +141,95 @@ impl Posed {
     /// Follows the player's parts (`G_UpdateClientAnims`): a part whose
     /// animation or restart bit changed is set at `now` with the server's
     /// blend, the legs at their own speed, the torso at `torso_speed`.
-    pub fn follow(&mut self, ps: &MotionState, torso_speed: f32, anims: &AnimTable, now: u64) {
-        let set = |shown: &mut Option<Shown>, anim: Anim, flip: bool, speed: f32| {
-            if shown.is_some_and(|s| s.anim == anim && s.flip == flip) {
+    ///
+    /// With a `stance`, each part plays the sequence its stance gives it
+    /// (`Stance::resolve`). A part whose animation and restart bit stay
+    /// but whose sequence changes is set again with the same start, so the
+    /// other sequence plays on from the same moment, and it blends in from
+    /// the pose shown. A perfect parry (`Wield::parry`) plays from the time
+    /// it began, at its own rate, and blends in over `PARRY_BLEND_MS`. A
+    /// second parry begun later plays again from its start. An attempt at a
+    /// perfect block (`Wield::attempt`) plays the same way from the press
+    /// of attack, so a new press plays it again from its start. Without a
+    /// stance every part plays its animation's own sequence.
+    pub fn follow(
+        &mut self,
+        ps: &MotionState,
+        torso_speed: f32,
+        anims: &AnimTable,
+        stance: Option<Stance>,
+        now: u64,
+    ) {
+        let wanted = stance.map_or([None; 2], |stance| {
+            stance.resolve([ps.legs.anim, ps.torso.anim], anims)
+        });
+        let parry = stance.and_then(|stance| stance.wield.parry);
+        let attempt = stance.and_then(|stance| stance.wield.attempt);
+        let set = |shown: &mut Option<Shown>,
+                   anim: Anim,
+                   flip: bool,
+                   speed: f32,
+                   wanted: Option<(Played, Sequence)>| {
+            let plays = wanted.map_or(Played::OWN, |(plays, _)| plays);
+            let from = parry
+                .filter(|parry| plays.parries_perfectly(parry.index))
+                .map(|parry| parry.at as i64)
+                .or_else(|| attempt.filter(|_| plays.attempts()).map(|at| at as i64));
+            if let (Some(at), Some(s)) = (from, shown.as_mut())
+                && s.plays == plays
+                && s.playback.start_ms == at
+            {
+                s.anim = anim;
+                s.flip = flip;
+                return;
+            }
+            let same = shown.filter(|s| s.anim == anim && s.flip == flip);
+            if from.is_none() && same.is_some_and(|s| s.plays == plays) {
                 return;
             }
             let old = shown.map(|s| s.playback);
-            let playback = Playback::set(
-                old.as_ref(),
-                &sequence(anims.get(anim)),
-                speed,
-                now as i64,
-                BLEND_MS,
-                None,
-            );
+            let played = wanted.map_or_else(|| sequence(anims.get(anim)), |(_, played)| played);
+            // A clip slower than JA's (the split kick) is slowed on the
+            // skeleton too, so it lasts as long as the sim holds it.
+            let (speed, blend) = match from {
+                Some(_) => (1.0, PARRY_BLEND_MS),
+                None => (speed * crate::motion::clip_speed(anim), BLEND_MS),
+            };
+            let mut playback = Playback::set(old.as_ref(), &played, speed, now as i64, blend, None);
+            match (from, same) {
+                (Some(at), _) => playback.start_ms = at,
+                (None, Some(same)) => playback.start_ms = same.playback.start_ms,
+                (None, None) => {}
+            }
             *shown = Some(Shown {
                 anim,
                 flip,
                 playback,
+                plays,
             });
         };
-        set(&mut self.legs, ps.legs.anim, ps.legs.flip, 1.0);
-        set(&mut self.torso, ps.torso.anim, ps.torso.flip, torso_speed);
+        set(&mut self.legs, ps.legs.anim, ps.legs.flip, 1.0, wanted[0]);
+        set(
+            &mut self.torso,
+            ps.torso.anim,
+            ps.torso.flip,
+            torso_speed,
+            wanted[1],
+        );
+    }
+
+    /// Drops every part that plays another sequence than its animation's
+    /// own. It also drops every part whose playback or blend names a frame
+    /// at or past `lent`, the first frame the stance sets lend. Such a part
+    /// plays its own sequence but still blends from a set's frames, as a
+    /// swing does in its first 150 ms out of a set's stance. The next
+    /// `follow` sets a dropped part afresh without a blend.
+    pub fn drop_played(&mut self, lent: i32) {
+        for part in [&mut self.legs, &mut self.torso] {
+            if part.is_some_and(|s| s.plays != Played::OWN || s.reads_lent(lent)) {
+                *part = None;
+            }
+        }
     }
 
     /// Both parts frozen on `frame` of `anim` (a saber lock's frame, set on
@@ -138,6 +258,7 @@ impl Posed {
                 anim,
                 flip,
                 playback,
+                plays: Played::OWN,
             });
         }
     }
@@ -202,6 +323,7 @@ const BLANK: Shown = Shown {
     anim: Anim::BOTH_STAND1,
     flip: false,
     playback: BLANK_PLAYBACK,
+    plays: Played::OWN,
 };
 
 const BLANK_BLEND: Blend = Blend {
@@ -246,6 +368,7 @@ fn encode_shown(shown: &Shown, out: &mut Writer) {
             out.f32(under.amount);
         });
     });
+    out.u16(shown.plays.0);
 }
 
 fn decode_flag(input: &mut Reader, what: &'static str) -> Result<bool, DecodeError> {
@@ -296,6 +419,16 @@ fn decode_shown(input: &mut Reader) -> Result<Shown, DecodeError> {
         },
         "posed blend flag",
     )?;
+    // Older snapshots: every part plays its animation's own sequence.
+    let plays = if input.since(crate::since::snapshot::FIX_BUG_REPORTS_2026_11_17) {
+        Played(input.u16()?)
+    } else if input.since(crate::since::snapshot::STANCE_PARRIES) {
+        Played::of_sets_without_gaits(input.u16()?)
+    } else if input.since(crate::since::snapshot::SIM_STANCE_SETS) {
+        Played::of_short_sets(input.u16()?)
+    } else {
+        Played::OWN
+    };
     Ok(Shown {
         anim,
         flip,
@@ -307,6 +440,7 @@ fn decode_shown(input: &mut Reader) -> Result<Shown, DecodeError> {
             looping,
             blend,
         },
+        plays,
     })
 }
 
@@ -357,12 +491,28 @@ impl Trail {
     }
 }
 
+/// The length of a short lightsaber's blade, as a share of a regular
+/// lightsaber's.
+pub const SHORT_SABER_SHARE: f32 = rules::sabers::blades::SHORT_SABER / 100.0;
+
 /// One blade a character holds: which of the data's blades on which hand,
-/// and a stand-in length for a melee weapon's.
+/// a stand-in length for a melee weapon's, and whether it is a short
+/// lightsaber's.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Slot {
     pub id: BladeId,
-    pub length: Option<f32>,
+    pub stand_in: Option<f32>,
+    pub short: bool,
+}
+
+impl Slot {
+    /// Its blade's length (units). A melee weapon's blade is its stand-in.
+    /// A lightsaber's blade is the data's (`full`), and a short lightsaber's
+    /// blade is `SHORT_SABER_SHARE` of that.
+    pub fn length(&self, full: Option<f32>) -> Option<f32> {
+        let share = if self.short { SHORT_SABER_SHARE } else { 1.0 };
+        self.stand_in.or(full.map(|full| full * share))
+    }
 }
 
 /// The blades of the weapon in `hand` (see the module documentation):
@@ -374,17 +524,23 @@ pub fn slots(kit: &Kit, saber: &SaberState, hand: u8) -> [Option<Slot>; 2] {
     if !saber.on {
         return [None; 2];
     }
-    let length = |staff: bool| {
-        (!blade.saber).then_some(if staff {
+    // The left blade of a pair is the other hand's weapon.
+    let other = kit.blade(1 - hand.min(1)).unwrap_or(blade);
+    let slot = |hand, saber, which, staff| {
+        let blade = if hand == Hand::Left { other } else { blade };
+        let stand_in = (!blade.saber).then_some(if staff {
             MELEE_STAFF_LENGTH
         } else {
             MELEE_LENGTH
-        })
-    };
-    let slot = |hand, saber, blade, staff| {
+        });
         Some(Slot {
-            id: BladeId { hand, saber, blade },
-            length: length(staff),
+            id: BladeId {
+                hand,
+                saber,
+                blade: which,
+            },
+            stand_in,
+            short: blade.saber && blade.short,
         })
     };
     let second = !saber.second_off;
@@ -438,9 +594,7 @@ pub fn place(
     placement: &Placement,
     slot: &Slot,
 ) -> Option<Blade> {
-    let length = slot
-        .length
-        .or(data.saber_blade(slot.id).map(|b| b.length))?;
+    let length = slot.length(data.saber_blade(slot.id).map(|b| b.length))?;
     let bolt = skeleton::bolt(data, pose, now as i64, skeleton::Bolt::Blade(slot.id))?;
     Some(Blade::of(&skeleton::world(&bolt, placement), length))
 }
@@ -478,18 +632,17 @@ pub fn fresh(trail: Option<Trail>, now_ms: u64) -> Option<Trail> {
     trail.filter(|t| now_ms.saturating_sub(t.at_ms) <= TRAIL_MS)
 }
 
-/// The box around blades (units): every muzzle and tip, the saber entity
-/// bolts and blades clip against (rulebook 5.6).
-pub fn bounds(blades: impl Iterator<Item = Blade>) -> Option<(Vec3, Vec3)> {
-    blades.fold(None, |acc, blade| {
-        let (mut min, mut max) = acc.unwrap_or((blade.muzzle, blade.muzzle));
-        for p in [blade.muzzle, blade.tip] {
-            for axis in 0..3 {
-                min[axis] = min[axis].min(p[axis]);
-                max[axis] = max[axis].max(p[axis]);
-            }
-        }
-        Some((min, max))
+/// The boxes along `blade` (units) that bolts and shots clip against:
+/// cubes `rules::sabers::bolts::BLADE_REACH` either side of points from the
+/// muzzle to the tip, close enough that they overlap, so the blade is a
+/// thin rod and not one box around it.
+pub fn bolt_boxes(blade: &Blade) -> impl Iterator<Item = (Vec3, Vec3)> {
+    let reach = rules::sabers::bolts::BLADE_REACH;
+    let along = math::sub(blade.tip, blade.muzzle);
+    let pieces = (math::length(along) / reach).ceil().max(1.0) as usize;
+    (0..=pieces).map(move |at| {
+        let point = math::mad(blade.muzzle, at as f32 / pieces as f32, along);
+        (point.map(|v| v - reach), point.map(|v| v + reach))
     })
 }
 

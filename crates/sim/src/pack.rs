@@ -45,7 +45,15 @@ const MAGIC: &[u8; 4] = b"KJKT";
 /// pack's kinds byte reads as before, its items no launchers (bit 4 clear);
 /// packs are built again from the install once the version moves, so Mira's
 /// launcher is read then..
-pub const VERSION: u32 = 23 + crate::pending::PACK;
+/// 24: an item template keeps the bit it sets in the mask Force powers are
+/// checked against (`ItemFacts::force_item`). Old saves: old packs read items
+/// that bar and allow no power; the import step writes the pack again.
+/// 25: a creature template's sheet knows 512 power rows and 512 feat rows, and
+/// what its items give 512 feat rows (`sheet::Powers`, `sheet::Feats`). Old
+/// saves: a kept companion's template in an old save reads 256 feat rows and
+/// 320 power rows, the rows past those empty; the import step writes the
+/// store's packs again.
+pub const VERSION: u32 = 25 + crate::pending::PACK;
 
 /// The oldest version read in a save's companions' templates: v0.1.0's
 /// (`crate::since::pack`, `bumps/README.md`).
@@ -160,6 +168,7 @@ pub(crate) fn encode_item(facts: &ItemFacts, out: &mut Writer) {
     out.u8(u8::from(facts.stealth_unit)
         | u8::from(facts.shield) << 1
         | u8::from(facts.launcher) << 2);
+    out.u8(facts.force_item);
 }
 
 pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> {
@@ -227,11 +236,15 @@ pub(crate) fn decode_item(input: &mut Reader) -> Result<ItemFacts, DecodeError> 
         stealth_unit: false,
         shield: false,
         launcher: false,
+        force_item: 0,
     };
     let kinds = input.u8()?;
     facts.stealth_unit = kinds & 1 != 0;
     facts.shield = kinds & 2 != 0;
     facts.launcher = kinds & 4 != 0;
+    if input.since(crate::since::pack::FIX_UI_RULES) {
+        facts.force_item = input.u8()?;
+    }
     Ok(facts.made())
 }
 
@@ -373,6 +386,7 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         link: None,
         geometry: Vec::new(),
         use_points: Vec::new(),
+        transitions: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: crate::module::Ways::One,
@@ -413,6 +427,7 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
     };
     if input.u8()? != 0 {
         facts.hit_points = Some((input.u32()? as i32, input.u32()? as i32));
@@ -428,7 +443,9 @@ const GATHERED_MAGIC: &[u8; 4] = b"KJKL";
 /// `UnequipHItem`. 4: nodes TSL's `NodeUnskippable`. 5: nodes TSL's
 /// `AlienRaceNode` and `Emotion`, conversations `AlienRaceOwner`. 6: nodes
 /// their camera's video effect (`CamVidEffect`).
-pub const GATHERED_VERSION: u32 = 6 + crate::pending::GATHERED;
+/// 7: a conversation keeps its music (`Dlg::ambient_track`, the DLG's
+/// `AmbientTrack`).
+pub const GATHERED_VERSION: u32 = 7 + crate::pending::GATHERED;
 
 /// What a module's script library is made of (`session`'s gathering): its
 /// compiled scripts, its conversations and the strings the scripts hold.
@@ -524,12 +541,13 @@ pub(crate) fn encode_dlg(dlg: &Dlg, out: &mut Writer) {
     out.u8(u8::from(dlg.animated_cut)
         | u8::from(dlg.old_hit_check) << 1
         | u8::from(dlg.unequip_items) << 2
-        | u8::from(dlg.unequip_held) << 3);
+        | u8::from(dlg.unequip_headgear) << 3);
     encode_list(&dlg.stunts, out, |(tag, model), out| {
         out.string(tag);
         out.string(model);
     });
     out.u32(dlg.alien_race_owner as u32);
+    out.string(&dlg.ambient_track);
 }
 
 fn decode_dlg(input: &mut Reader) -> Result<Dlg, DecodeError> {
@@ -558,9 +576,10 @@ fn decode_dlg(input: &mut Reader) -> Result<Dlg, DecodeError> {
         animated_cut: flags & 1 != 0,
         old_hit_check: flags & 2 != 0,
         unequip_items: flags & 4 != 0,
-        unequip_held: flags & 8 != 0,
+        unequip_headgear: flags & 8 != 0,
         stunts: decode_list(input, |input| Ok((input.string()?, input.string()?)))?,
         alien_race_owner: input.u32()? as i32,
+        ambient_track: input.string()?,
     })
 }
 

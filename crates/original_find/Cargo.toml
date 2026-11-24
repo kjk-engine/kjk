@@ -1,0 +1,16 @@
+[package]
+name = "original_find"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Finds the original games' warp list in their decoded code. The library
+# `kjk original` loads into the games uses it, and so does an approved test.
+# It is its own crate so that kjk itself never links the x86 decoder.
+[dependencies]
+iced-x86 = { version = "1.21", default-features = false, features = ["std", "decoder", "instr_info"] }
+
+[lints]
+workspace = true

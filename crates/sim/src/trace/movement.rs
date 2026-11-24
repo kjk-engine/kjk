@@ -24,7 +24,8 @@ use super::record::{Record, Trace};
 use super::scenario::{Line, Scenario, float, int, pairs, vec3};
 use crate::combat::saber::throw::Flight;
 use crate::combat::saber::{
-    Blade, Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, Style, Throw, Thrown,
+    Blade, Block, Blocked, Change, Getup, Gun, Hand, Held, Kit, Move as SaberMove, Style, Throw,
+    Thrown,
 };
 use crate::combat::sheet::Blaster;
 use crate::combat::{Fighter, Sheath};
@@ -64,16 +65,25 @@ struct Keys {
     turn: [i16; 3],
 }
 
-/// Button names (`b=attack+walk`), or a number.
-fn button_bits(word: &str) -> Result<u16, String> {
+/// Button names (`b=attack+walk`), or a number, with the `Command::holds`
+/// bits the names also press. The word `alt` holds the alternate attack and
+/// a blaster's aim. The word `feat` holds a blaster's feat attack.
+fn button_bits(word: &str) -> Result<(u16, u8), String> {
     if let Ok(bits) = word.parse::<u16>() {
-        return Ok(bits);
+        return Ok((bits, 0));
     }
-    let mut bits = 0;
+    let (mut bits, mut holds) = (0, 0);
     for name in word.split('+') {
         bits |= match name {
             "attack" => buttons::ATTACK,
-            "alt" => buttons::ALT_ATTACK,
+            "alt" => {
+                holds |= crate::input::holds::AIM;
+                buttons::ALT_ATTACK
+            }
+            "feat" => {
+                holds |= crate::input::holds::FEAT;
+                0
+            }
             "walk" => buttons::WALKING,
             "use" => buttons::USE,
             "useheld" => buttons::USE_HELD,
@@ -92,7 +102,7 @@ fn button_bits(word: &str) -> Result<u16, String> {
             other => return Err(format!("no button {other}")),
         };
     }
-    Ok(bits)
+    Ok((bits, holds))
 }
 
 fn anim(word: &str) -> Result<Anim, String> {
@@ -255,7 +265,7 @@ impl Rig {
                 "f" => c.forward = int(value)?,
                 "r" => c.right = int(value)?,
                 "u" => c.up = int(value)?,
-                "b" => c.buttons = button_bits(value)?,
+                "b" => (c.buttons, c.holds) = button_bits(value)?,
                 "w" => c.weapon = int(value)?,
                 "fs" => c.force = int(value)?,
                 "msec" => keys.msec = int(value)?,
@@ -342,10 +352,14 @@ impl Rig {
                     fighter: &mut fight.fighter,
                     kit: &fight.kit,
                     player: fight.player,
+                    keyed: fight.player,
                     others: &fight.others,
                     rng: &mut fight.rng,
                     enemy: fight.enemy,
                     at_rest: false,
+                    drew: false,
+                    rules: Default::default(),
+                    targeted: false,
                 };
                 match stepped {
                     None => motion::move_body(
@@ -606,6 +620,7 @@ impl Rig {
                     "holstered" => Sheath::Holstered,
                     "lit" => Sheath::Lit,
                     "holstering" => Sheath::Holstering,
+                    "drawn" => Sheath::Drawn,
                     other => return Err(format!("no sheath {other}")),
                 }
             }
@@ -621,6 +636,7 @@ impl Rig {
         let mut blade = Blade {
             saber: true,
             double: false,
+            short: false,
             proficient: true,
         };
         let mut kit = Kit::default();
@@ -655,6 +671,13 @@ impl Rig {
                 other => return Err(format!("arms: no key {other}")),
             }
         }
+        let gun = |blaster, one_handed| {
+            Held::Blaster(Gun {
+                blaster,
+                one_handed,
+            })
+        };
+        let (pistol, rifle) = (gun(Blaster::Pistol, true), gun(Blaster::Rifle, false));
         kit.hands = match kind {
             "none" => {
                 self.fight = None;
@@ -671,14 +694,11 @@ impl Rig {
                 Held::Nothing,
             ],
             "saber_fists" => [Held::Blade(blade), Held::Other],
-            "pistol" => [Held::Blaster(Blaster::Pistol), Held::Nothing],
-            "rifle" => [Held::Blaster(Blaster::Rifle), Held::Nothing],
-            "pistols" => [
-                Held::Blaster(Blaster::Pistol),
-                Held::Blaster(Blaster::Pistol),
-            ],
-            "rifle_saber" => [Held::Blaster(Blaster::Rifle), Held::Blade(blade)],
-            "saber_pistol" => [Held::Blade(blade), Held::Blaster(Blaster::Pistol)],
+            "pistol" => [pistol, Held::Nothing],
+            "rifle" => [rifle, Held::Nothing],
+            "pistols" => [pistol, pistol],
+            "rifle_saber" => [rifle, Held::Blade(blade)],
+            "saber_pistol" => [Held::Blade(blade), pistol],
             other => return Err(format!("no arms {other}")),
         };
         self.fight = Some(Fight {
@@ -1263,7 +1283,7 @@ fn extra(g: &mut Gen, s: &mut Scenario, armed: bool) {
         }
         _ => match g.below(5) {
             3 => {
-                let sheath = g.pick(&["fight", "holstered", "lit", "holstering"]);
+                let sheath = g.pick(&["fight", "holstered", "lit", "holstering", "drawn"]);
                 s.push_owned(vec!["set".into(), "sheath".into(), sheath.into()]);
             }
             4 => {

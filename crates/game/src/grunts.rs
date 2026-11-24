@@ -11,13 +11,17 @@
 //!   forward and flips always, its other swings `combat.grunts.chance` in
 //!   10 for everyone (`swing_grunts`): KOTOR's every-attack rule at JA's
 //!   pace grunted on every swing;
+//! - **battle cry**: a creature winding up a charge (`Duel::windup_until`
+//!   rising from 0): one of its BattleCry 1–6 at random, always;
 //! - **pain**: a landed blow on one still standing (a hit, critical or
 //!   automatic hit event with damage, its hit points above 0): one of
 //!   PainGrunt 1–2 at random.
 //!
 //! KOTOR's rule: said always by the player's own character, else one time
 //! in `combat.grunts.others_one_in`. Two flags of the executable's attack
-//! that skip both are not read [verify].
+//! that skip both are not read [verify]. A character's attack and pain
+//! grunts keep `combat.grunts.gap_ms` apart (`Gap`), counted from the last
+//! one heard: one the odds pass over starts no gap.
 //!
 //! - **selected**: the body the seat plays changing to another (Tab, a
 //!   portrait click, control passing on from a fallen leader, a script's
@@ -28,6 +32,10 @@
 //!
 //! - **poisoned**: a poison taking hold (`Pack::poison` new): its
 //!   Poisoned line, always, as both games' executables say it.
+//!
+//! - **stealth**: stealth mode turning on (`Covert::stealth` new): its
+//!   begin-stealth line, always, as TSL's executable says it
+//!   (`CSWCCreature::SetStealthState`). Not on a scene's first look.
 //!
 //! The death cry (`Dead`) is cried by every creature that dies,
 //! a script's death too (`combat_fx`).
@@ -56,14 +64,47 @@ pub struct Seen {
     sabers: BTreeMap<SimId, SaberState>,
     /// Each character's poison as last seen (when it ends).
     poisons: BTreeMap<SimId, Option<u64>>,
+    /// Each character's stealth mode as last seen.
+    stealth: BTreeMap<SimId, bool>,
+    /// Each character's wind-up of a charge as last seen.
+    windups: BTreeMap<SimId, bool>,
     /// The body the seat played when last looked at.
     body: Option<SimId>,
+    gap: Gap,
+}
+
+/// When each character last grunted (game ms), keeping its grunts
+/// `combat.grunts.gap_ms` apart.
+#[derive(Default)]
+struct Gap(BTreeMap<SimId, u64>);
+
+impl Gap {
+    /// Whether `id`'s grunt at `now` that the odds let through (`says`) is
+    /// heard: not within the gap of its last one (a time before that one,
+    /// a rewind, holds nothing back). A grunt heard starts a new gap.
+    fn heard(&mut self, id: SimId, now: u64, says: bool) -> bool {
+        let quiet = self
+            .0
+            .get(&id)
+            .is_some_and(|&last| now >= last && now - last < rules::combat::grunts::GAP_MS);
+        if !says || quiet {
+            return false;
+        }
+        self.0.insert(id, now);
+        true
+    }
 }
 
 /// Whether a saber or melee weapon that was `was` began an attack as `now`
 /// (JA's move into an attack, or the next of a chain).
 fn swung(was: &SaberState, now: &SaberState) -> bool {
     now.current_move.attack() && (!was.current_move.attack() || now.chain != was.chain)
+}
+
+/// Whether a wind-up of a charge began between two looks: one under way now
+/// (`windup_until` above 0) that was not before.
+fn winds_up(was: bool, windup_until: u64) -> bool {
+    windup_until > 0 && !was
 }
 
 /// Whether a poison took hold between `was` and `now` (each the end of the
@@ -109,6 +150,7 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
         .looked_ms
         .replace(snapshot.time_ms)
         .unwrap_or(snapshot.time_ms);
+    let now = snapshot.time_ms;
     let roll = |id: SimId, salt: u32, line: u32| crate::view_rng::mix32_salted(id.0 ^ line, salt);
     for entity in &snapshot.entities {
         let Some(fighter) = &entity.fighter else {
@@ -128,7 +170,11 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
             .or(ja.then_some((snapshot.time_ms, Some(fighter.saber.current_move))));
         if let Some((since, ja)) = swing {
             let at = since as u32;
-            if swing_grunts(ja, own, roll(entity.id, at, 1)) {
+            if seen.gap.heard(
+                entity.id,
+                now,
+                swing_grunts(ja, own, roll(entity.id, at, 1)),
+            ) {
                 said.push((
                     entity.id,
                     pick(&slots::ATTACK_GRUNTS, roll(entity.id, at, 2)),
@@ -142,6 +188,21 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
             .is_some_and(|was| took(was, poison))
         {
             said.push((entity.id, slots::POISONED));
+        }
+        let winding = fighter.saber.duel.windup_until;
+        if winds_up(
+            seen.windups.insert(entity.id, winding > 0).unwrap_or(false),
+            winding,
+        ) {
+            let at = winding as u32;
+            said.push((
+                entity.id,
+                pick(&slots::BATTLE_CRIES, roll(entity.id, at, 5)),
+            ));
+        }
+        let stealth = fighter.covert.stealth;
+        if seen.stealth.insert(entity.id, stealth) == Some(false) && stealth {
+            said.push((entity.id, slots::BEGIN_STEALTH));
         }
         let Some(last) = seen.events.insert(entity.id, fighter.next_event) else {
             continue;
@@ -159,7 +220,10 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
         });
         if let Some(event) = hurt {
             let at = u32::from(event.sequence);
-            if says(own, roll(entity.id, at, 3)) {
+            if seen
+                .gap
+                .heard(entity.id, now, says(own, roll(entity.id, at, 3)))
+            {
                 said.push((entity.id, pick(&slots::PAIN_GRUNTS, roll(entity.id, at, 4))));
             }
         }
@@ -305,6 +369,49 @@ pub fn probes() -> sim::probe::Checks {
                 check(
                     seen == [true, false, false, true] && slots::POISONED == 27,
                     format!("taken, running, ended, another after it: {seen:?}"),
+                )
+            },
+        ),
+        (
+            "a character's grunts keep the gap, each its own, from one heard",
+            {
+                let gap = rules::combat::grunts::GAP_MS;
+                let (a, b, c) = (SimId(3), SimId(4), SimId(5));
+                let mut heard = Gap::default();
+                let said = [
+                    heard.heard(a, 1000, true),
+                    heard.heard(b, 1000, true),
+                    heard.heard(a, 1000 + gap - 1, true),
+                    heard.heard(c, 1000, false),
+                    heard.heard(c, 1001, true),
+                    heard.heard(a, 1000 + gap, true),
+                    heard.heard(a, 1001 + gap, false),
+                    heard.heard(a, 999 + gap * 2, true),
+                    heard.heard(a, 500, true),
+                ];
+                check(
+                    said == [true, true, false, false, true, true, false, false, true],
+                    format!(
+                        "a, b, a in its gap, c passed over, c, a after, a passed over, a in its gap, a rewound: {said:?}"
+                    ),
+                )
+            },
+        ),
+        (
+            "a wind-up begun says a battle cry, one under way or ended none",
+            {
+                let said = [
+                    winds_up(false, 1600),
+                    winds_up(true, 1600),
+                    winds_up(true, 0),
+                    winds_up(false, 0),
+                ];
+                let cries: Vec<usize> = (0..6)
+                    .map(|roll| pick(&slots::BATTLE_CRIES, roll))
+                    .collect();
+                check(
+                    said == [true, false, false, false] && cries == [0, 1, 2, 3, 4, 5],
+                    format!("begun, under way, ended, none: {said:?}; cries {cries:?}"),
                 )
             },
         ),

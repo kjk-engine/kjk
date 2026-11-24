@@ -115,6 +115,7 @@ pub(crate) fn mesh(texture: &str) -> MeshIr {
         lightmap: None,
         transparency_hint: 0,
         skinned: false,
+        shadow: false,
         self_illum: [0.0; 3],
         alpha: 1.0,
         ambient: [1.0; 3],
@@ -181,6 +182,7 @@ pub(crate) fn model_of(name: &str, meshes: Vec<MeshIr>) -> ModelIr {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals: Vec::new(),
+        folded: Vec::new(),
     }
 }
 

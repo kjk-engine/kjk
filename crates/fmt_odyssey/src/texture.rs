@@ -6,8 +6,8 @@
 //! turn. Text after the pixel data is the texture's TXI.
 //!
 //! Encodings: uncompressed 1 grey, 2 RGB, 4 RGBA (0x0c, swizzled BGRA, is an
-//! Xbox layout and is refused); compressed 2 DXT1, 4 DXT5. A compressed image
-//! six times as tall as wide is a cube map of six square faces. A TXI with
+//! Xbox layout and is refused); compressed 2 DXT1, 4 DXT5. An image six
+//! times as tall as wide is a cube map of six square faces. A TXI with
 //! `proceduretype cycle` splits the image into `numx` × `numy` frames. Both
 //! rules follow the xoreos reference, which reads these files more completely
 //! than reone.
@@ -67,6 +67,37 @@ pub struct Texture {
     /// A TPC's declared size of its first compressed image, when it differs
     /// from the size its dimensions give.
     pub declared_size: Option<(usize, usize)>,
+    /// The file stores the texture's mip chain, as a TPC does. A TGA holds
+    /// its first level alone, and the levels below it are made when it is
+    /// loaded (`asset_odyssey::texture::TextureIr::from_texture`).
+    pub mips_stored: bool,
+    /// The float at bytes 4 to 8 of a TPC's header, which KOTOR's executable
+    /// sorts its textures by, whatever the TXI's `alphamean` says. A TGA has
+    /// none.
+    pub header_key: Option<f32>,
+}
+
+/// The TXI a texture is drawn by, picked as KOTOR 2's executable picks it
+/// (`CAuroraInterface::GetResource`). A loose TXI of the texture's name
+/// comes first, even an empty one. Without one, the TXI stored in the TPC
+/// of that name is used: `texture`'s own when it was read from a TPC, else
+/// the TPC that `read` finds. A texture read from a TGA has no TXI of its
+/// own, so a mod's TGA that replaces a stock TPC and ships no TXI keeps the
+/// stock TPC's (High Quality Blasters' guns keep their env map). `read`
+/// reads the resource of the texture's name and a type, the highest layer
+/// first. `None` when there is no TXI anywhere.
+pub fn texture_txi(
+    texture: Option<&Texture>,
+    read: impl Fn(crate::ResType) -> Option<Vec<u8>>,
+) -> Option<Txi> {
+    if let Some(bytes) = read(crate::ResType::TXI) {
+        return Some(Txi::parse(&bytes));
+    }
+    if let Some(texture) = texture.filter(|texture| texture.mips_stored) {
+        return Some(texture.txi.clone());
+    }
+    let tpc = read(crate::ResType::TPC)?;
+    Some(Texture::parse_tpc(&tpc).ok()?.txi)
 }
 
 fn unsupported(format: &'static str, what: String) -> FormatError {
@@ -80,6 +111,25 @@ impl Texture {
 
     pub fn height(&self) -> usize {
         self.layers[0][0].height
+    }
+
+    /// Whether it has alpha to draw by: an RGBA or DXT5 image (DXT1 is drawn
+    /// as RGB) with some texel of its first level less than opaque. One
+    /// saved with an alpha channel it leaves opaque throughout draws as one
+    /// without, so it is drawn so.
+    pub fn has_alpha(&self) -> bool {
+        let mut first = self.layers.iter().filter_map(|chain| chain.first());
+        match self.format {
+            PixelFormat::Rgba8 => first.any(|mip| {
+                mip.data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|texel| texel[3] < 255)
+            }),
+            PixelFormat::Dxt5 => first.any(|mip| dxt::dxt5_see_through(&mip.data)),
+            _ => false,
+        }
     }
 
     /// One mip level as RGBA8, rows from the top.
@@ -117,7 +167,13 @@ impl Texture {
         })
     }
 
+    /// A TPC; one whose TXI's flip-book frames do not fit its data (a mod's
+    /// TXI written for another image) is read as the one image it holds.
     pub fn parse_tpc(bytes: &[u8]) -> Result<Texture, FormatError> {
+        Texture::tpc(bytes, true).or_else(|_| Texture::tpc(bytes, false))
+    }
+
+    fn tpc(bytes: &[u8], flip_book: bool) -> Result<Texture, FormatError> {
         if bytes.len() < TPC_HEADER {
             return Err(FormatError::Truncated {
                 format: TPC,
@@ -149,7 +205,7 @@ impl Texture {
         if width == 0 || height == 0 {
             return Err(unsupported(TPC, format!("{width}x{height} image")));
         }
-        let cube = compressed && height == width * 6;
+        let cube = height == width * 6;
         let mut layer_count = if cube { 6 } else { 1 };
         if cube {
             height = width;
@@ -176,7 +232,7 @@ impl Texture {
         // declared size covers all of them (measured on the games' files;
         // the header's mip count does not describe the frames).
         let mut frame_budget = None;
-        if let Some((x, y)) = txi.cycle_frames() {
+        if let Some((x, y)) = txi.cycle_frames().filter(|_| flip_book) {
             let (x, y) = (x as usize, y as usize);
             if x > width || y > height {
                 return Err(unsupported(
@@ -257,91 +313,269 @@ impl Texture {
             bottom_up: true,
             missing_mips,
             declared_size,
+            mips_stored: true,
+            header_key: Some(f32::from_le_bytes(bytes[4..8].try_into().expect("4 bytes"))),
         })
     }
 
     pub fn parse_tga(bytes: &[u8]) -> Result<Texture, FormatError> {
-        if bytes.len() < 18 {
-            return Err(FormatError::Truncated {
-                format: TGA,
-                needed: 18,
-                len: bytes.len(),
-            });
+        Texture::parse_tga_layers(bytes, 1)
+    }
+
+    /// A TGA flip-book: the image is a sheet of `columns` × `rows` equal
+    /// frames, which its TXI's `proceduretype cycle` asks for with `numx`
+    /// and `numy`. A TPC flip-book stores each frame as its own image; a
+    /// TGA keeps them side by side in one picture, and each frame becomes a
+    /// layer here, as a TPC's frames are. The frames are numbered as TSL's
+    /// executable cuts them from the file's stored pixels: left to right
+    /// along each band of rows, the band stored first being frame 0. Each
+    /// frame keeps its rows in stored order, as the whole image does. A
+    /// sheet that does not divide into whole frames is refused.
+    pub fn parse_tga_frames(
+        bytes: &[u8],
+        columns: usize,
+        rows: usize,
+    ) -> Result<Texture, FormatError> {
+        let mut sheet = Texture::parse_tga(bytes)?;
+        let (width, height) = (sheet.width(), sheet.height());
+        if columns == 0
+            || rows == 0
+            || !width.is_multiple_of(columns)
+            || !height.is_multiple_of(rows)
+        {
+            return Err(unsupported(
+                TGA,
+                format!("flip-book of {columns}x{rows} frames in a {width}x{height} image"),
+            ));
         }
-        let id_len = usize::from(bytes[0]);
-        let colour_map = bytes[1];
-        let kind = bytes[2];
-        let width = usize::from(u16::from_le_bytes([bytes[12], bytes[13]]));
-        let height = usize::from(u16::from_le_bytes([bytes[14], bytes[15]]));
-        let depth = bytes[16];
-        let descriptor = bytes[17];
-        if colour_map != 0 {
-            return Err(unsupported(TGA, "colour-mapped image".into()));
-        }
-        let (format, pixel) = match (kind & !8, depth) {
-            (2, 32) => (PixelFormat::Rgba8, 4),
-            (2, 24) => (PixelFormat::Rgb8, 3),
-            (3, 8) => (PixelFormat::Grey8, 1),
-            (other, depth) => {
-                return Err(unsupported(TGA, format!("type {other} at {depth} bits")));
-            }
+        let texel = sheet.format.size(1, 1);
+        let (frame_width, frame_height) = (width / columns, height / rows);
+        let image = &sheet.layers[0][0].data;
+        let frame = |index: usize| {
+            let (column, band) = (index % columns, index / columns);
+            let first_row = band * frame_height;
+            let data = (first_row..first_row + frame_height)
+                .flat_map(|y| {
+                    let start = (y * width + column * frame_width) * texel;
+                    image[start..start + frame_width * texel].iter().copied()
+                })
+                .collect();
+            vec![Mip {
+                width: frame_width,
+                height: frame_height,
+                data,
+            }]
         };
-        let rle = kind & 8 != 0;
-        let mut at = 18 + id_len;
-        let count = width * height;
+        sheet.layers = (0..columns * rows).map(frame).collect();
+        sheet.cube = false;
+        Ok(sheet)
+    }
+
+    /// A TGA whose image stacks `layers` equal layers in its stored order (a
+    /// cube map's six faces, which its TXI's `cube` asks for, as xoreos
+    /// splits it). Every layout a TGA writer produces is read: true colour
+    /// at 15, 16, 24 or 32 bits, grey at 8 or 16 (with alpha), colour-mapped
+    /// with any palette depth, each raw or run-length encoded; a colour map
+    /// on an image that does not use it is skipped.
+    ///
+    /// The texels stay in the order the file stores them, and the first
+    /// stored row is the bottom row, as in a TPC. The descriptor's two
+    /// corner bits (0x10 for right to left, 0x20 for top to bottom) are
+    /// ignored. TSL's executable never reads them. Its TGA reader and its
+    /// texture loader hand the stored texels to the renderer as they are,
+    /// and nothing turns them over. A mod's TGA whose header says it starts at the top left
+    /// therefore looks right in the game only when its rows are stored
+    /// bottom first. xoreos turns such a file over, and kjk did too. A file
+    /// like that showed upside down in kjk, such as the sky over the Telos
+    /// Polar Plateau in issue 559.
+    pub fn parse_tga_layers(bytes: &[u8], layers: usize) -> Result<Texture, FormatError> {
         let truncated = |needed: usize| FormatError::Truncated {
             format: TGA,
             needed,
             len: bytes.len(),
         };
+        let header = bytes.get(..18).ok_or(truncated(18))?;
+        let u16_at = |at: usize| usize::from(u16::from_le_bytes([header[at], header[at + 1]]));
+        let (id_len, mapped, kind) = (usize::from(header[0]), header[1] != 0, header[2]);
+        let (map_first, map_len, map_depth) = (u16_at(3), u16_at(5), header[7]);
+        let (width, height, depth, descriptor) = (u16_at(12), u16_at(14), header[16], header[17]);
+        let rle = kind & 8 != 0;
+        let mut at = 18 + id_len;
+        let map_bytes = map_len * usize::from(map_depth).div_ceil(8);
+        let palette = if mapped {
+            let palette = bytes
+                .get(at..at + map_bytes)
+                .ok_or(truncated(at + map_bytes))?;
+            at += map_bytes;
+            Some(palette)
+        } else {
+            None
+        };
+        let colour = |depth: u8| Colour::of_depth(depth, descriptor & 0x0f);
+        let refuse = || unsupported(TGA, format!("type {kind} at {depth} bits"));
+        let (layout, palette) = match (kind & !8, depth) {
+            (1, 8) => {
+                let entry = colour(map_depth).ok_or_else(refuse)?;
+                let palette = palette.ok_or_else(refuse)?;
+                (PixelLayout::Index(entry, map_first), palette)
+            }
+            (2 | 3, 8) => (PixelLayout::Grey, &[][..]),
+            (3, 16) => (PixelLayout::GreyAlpha, &[][..]),
+            (2, depth) => (
+                PixelLayout::Colour(colour(depth).ok_or_else(refuse)?),
+                &[][..],
+            ),
+            _ => return Err(refuse()),
+        };
+        if width == 0 || height == 0 || layers == 0 || !height.is_multiple_of(layers) {
+            return Err(unsupported(
+                TGA,
+                format!("{width}x{height} image of {layers} layers"),
+            ));
+        }
+        let pixel = usize::from(depth).div_ceil(8);
+        let count = width * height;
         // A run packet of 2 bytes or more expands to at most 128 pixels.
         let room = bytes.len().saturating_sub(at) * if rle { 128 } else { 1 };
-        let mut raw = Vec::with_capacity((count * pixel).min(room));
+        let mut stored = Vec::with_capacity((count * pixel).min(room));
         if rle {
-            while raw.len() < count * pixel {
+            while stored.len() < count * pixel {
                 let head = *bytes.get(at).ok_or(truncated(at + 1))?;
                 at += 1;
                 let run = usize::from(head & 0x7f) + 1;
+                let take = if head & 0x80 != 0 { pixel } else { run * pixel };
+                let values = bytes.get(at..at + take).ok_or(truncated(at + take))?;
                 if head & 0x80 != 0 {
-                    let value = bytes.get(at..at + pixel).ok_or(truncated(at + pixel))?;
                     for _ in 0..run {
-                        raw.extend_from_slice(value);
+                        stored.extend_from_slice(values);
                     }
-                    at += pixel;
                 } else {
-                    let values = bytes
-                        .get(at..at + run * pixel)
-                        .ok_or(truncated(at + run * pixel))?;
-                    raw.extend_from_slice(values);
-                    at += run * pixel;
+                    stored.extend_from_slice(values);
                 }
+                at += take;
             }
-            raw.truncate(count * pixel);
+            stored.truncate(count * pixel);
         } else {
-            raw.extend_from_slice(
-                bytes
-                    .get(at..at + count * pixel)
-                    .ok_or(truncated(at + count * pixel))?,
-            );
+            let values = bytes
+                .get(at..at + count * pixel)
+                .ok_or(truncated(at + count * pixel))?;
+            stored.extend_from_slice(values);
         }
-        // Stored as BGR(A); turn into RGB(A).
-        if pixel >= 3 {
-            for chunk in raw.chunks_exact_mut(pixel) {
-                chunk.swap(0, 2);
-            }
+        let format = layout.format();
+        let out = format.size(1, 1);
+        let mut data = Vec::with_capacity(count * out);
+        for texel in stored.chunks_exact(pixel) {
+            let rgba = layout.rgba(texel, palette).ok_or_else(|| {
+                unsupported(TGA, format!("colour index past its {map_len} entries"))
+            })?;
+            data.extend_from_slice(&rgba[..out]);
         }
+        let row = width * out;
+        let layer_height = height / layers;
+        let layers: Vec<Vec<Mip>> = data
+            .chunks_exact(row * layer_height)
+            .map(|layer| {
+                vec![Mip {
+                    width,
+                    height: layer_height,
+                    data: layer.to_vec(),
+                }]
+            })
+            .collect();
         Ok(Texture {
             format,
-            layers: vec![vec![Mip {
-                width,
-                height,
-                data: raw,
-            }]],
-            cube: false,
+            cube: layers.len() == 6,
+            layers,
             txi: Txi::default(),
-            bottom_up: descriptor & 0x20 == 0,
+            bottom_up: true,
             missing_mips: 0,
             declared_size: None,
+            mips_stored: false,
+            header_key: None,
+        })
+    }
+}
+
+/// How a TGA stores a colour, in a texel or a palette entry.
+#[derive(Clone, Copy)]
+enum Colour {
+    Bgra,
+    Bgr,
+    /// 16 bits, the top one alpha.
+    Argb1555,
+    /// 15 or 16 bits, no alpha.
+    Rgb555,
+}
+
+impl Colour {
+    fn of_depth(depth: u8, alpha_bits: u8) -> Option<Colour> {
+        Some(match depth {
+            32 => Colour::Bgra,
+            24 => Colour::Bgr,
+            16 if alpha_bits > 0 => Colour::Argb1555,
+            15 | 16 => Colour::Rgb555,
+            _ => return None,
+        })
+    }
+
+    fn size(self) -> usize {
+        match self {
+            Colour::Bgra => 4,
+            Colour::Bgr => 3,
+            Colour::Argb1555 | Colour::Rgb555 => 2,
+        }
+    }
+
+    fn rgba(self, stored: &[u8]) -> [u8; 4] {
+        let five = |bits: u16| {
+            let value = (bits & 0x1f) as u8;
+            (value << 3) | (value >> 2)
+        };
+        match self {
+            Colour::Bgra => [stored[2], stored[1], stored[0], stored[3]],
+            Colour::Bgr => [stored[2], stored[1], stored[0], 255],
+            Colour::Argb1555 | Colour::Rgb555 => {
+                let bits = u16::from_le_bytes([stored[0], stored[1]]);
+                let opaque = matches!(self, Colour::Rgb555) || bits & 0x8000 != 0;
+                let alpha = if opaque { 255 } else { 0 };
+                [five(bits >> 10), five(bits >> 5), five(bits), alpha]
+            }
+        }
+    }
+}
+
+/// How a TGA stores one texel.
+#[derive(Clone, Copy)]
+enum PixelLayout {
+    Colour(Colour),
+    Grey,
+    GreyAlpha,
+    /// A byte indexing a palette whose entries are stored so; the first
+    /// entry's index.
+    Index(Colour, usize),
+}
+
+impl PixelLayout {
+    fn format(self) -> PixelFormat {
+        match self {
+            PixelLayout::Colour(Colour::Bgr | Colour::Rgb555)
+            | PixelLayout::Index(Colour::Bgr | Colour::Rgb555, _) => PixelFormat::Rgb8,
+            PixelLayout::Grey => PixelFormat::Grey8,
+            _ => PixelFormat::Rgba8,
+        }
+    }
+
+    /// The texel as RGBA (grey first for grey); `None` for an index outside
+    /// the palette.
+    fn rgba(self, texel: &[u8], palette: &[u8]) -> Option<[u8; 4]> {
+        Some(match self {
+            PixelLayout::Colour(colour) => colour.rgba(texel),
+            PixelLayout::Grey => [texel[0], texel[0], texel[0], 255],
+            PixelLayout::GreyAlpha => [texel[0], texel[0], texel[0], texel[1]],
+            PixelLayout::Index(entry, first) => {
+                let at = usize::from(texel[0]).checked_sub(first)? * entry.size();
+                entry.rgba(palette.get(at..at + entry.size())?)
+            }
         })
     }
 }

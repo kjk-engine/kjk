@@ -18,6 +18,8 @@ pub(crate) mod anim;
 #[cfg(feature = "probes")]
 pub mod body_probes;
 mod force_jump;
+#[cfg(feature = "probes")]
+pub mod prop_step_probes;
 mod saber;
 mod slide;
 mod weapon;
@@ -28,11 +30,16 @@ use rules::movement::rolls;
 
 use crate::input::{Command, buttons};
 use crate::math::{self, Vec3, dot, length, mad, normalize, scale};
-pub use anim::{Anim, AnimInfo, AnimTable, Part};
+#[cfg(feature = "probes")]
+pub(crate) use anim::is_kick;
+pub use anim::is_run;
+pub use anim::{Anim, AnimInfo, AnimTable, Part, clip_speed, is_grapple};
 use anim::{Animator, Parts, play_flags};
 pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
+#[cfg(feature = "probes")]
+pub(crate) use saber::move_speed;
 pub(crate) use saber::play_speed;
-pub use weapon::{Arms, Other, shrugs_off_pain};
+pub use weapon::{Arms, Other, gun_ready, gun_shot, shrugs_off_pain};
 
 pub use collision::UNIT;
 pub use collision::player::{
@@ -135,6 +142,21 @@ pub enum Ground {
     Entity(u32),
 }
 
+/// How long a body has kept running into another character, and the
+/// characters it walks through until the two have parted
+/// (`world::jams`). Entities are the bodies' (`world::BODY` set); 0 is
+/// none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Jam {
+    /// The character it ran into on its last step.
+    pub by: u32,
+    /// For how long it has run into that one without a break (sim
+    /// milliseconds).
+    pub ms: u32,
+    /// The characters it walks through, the older first.
+    pub passing: [u32; 2],
+}
+
 /// A player's movement state, in JA units: the snapshot carries it whole.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MotionState {
@@ -179,6 +201,8 @@ pub struct MotionState {
     /// Sim time before which holding use does nothing (JA tries a use at
     /// intervals while it is held).
     pub next_use_ms: u64,
+    /// The character it keeps running into, and those it walks through.
+    pub jam: Jam,
 }
 
 impl MotionState {
@@ -207,6 +231,7 @@ impl MotionState {
             command_angles: [0, math::degrees_to_short(yaw), 0],
             command_aim: [0; 3],
             next_use_ms: 0,
+            jam: Jam::default(),
         }
     }
 
@@ -264,6 +289,18 @@ pub fn react(ps: &mut MotionState, anims: &AnimTable, anim: Anim, torso_only: bo
         anim,
         play_flags::OVER_ANY | play_flags::HOLD_FULL,
     );
+}
+
+/// `react` on both parts, started over when it already plays: a grab's
+/// clips (`world::grapples`), each its own from the start.
+pub fn react_anew(ps: &mut MotionState, anims: &AnimTable, anim: Anim) {
+    let animator = Animator {
+        table: anims,
+        sent_legs: ps.legs.anim,
+        sent_torso: ps.torso.anim,
+    };
+    let set = play_flags::OVER_ANY | play_flags::HOLD_FULL | play_flags::ANEW;
+    animator.play(ps, Parts::WHOLE, anim, set);
 }
 
 /// Plays a shot's `anim` on the torso: over whatever plays, started over
@@ -331,6 +368,10 @@ struct Move<'a, 'b> {
     cmd: Command,
     /// The command as it came.
     raw: Command,
+    /// The last command's angles, as the step found them
+    /// (`MotionState::command_angles`). The step's camera turn runs from
+    /// them to `raw`'s angles.
+    angles_before: [i16; 3],
     arms: Option<&'a mut Arms<'b>>,
     animator: Animator<'a>,
     collision: &'a dyn CollisionWorld,
@@ -344,6 +385,12 @@ struct Move<'a, 'b> {
     on_walkable: bool,
     /// The plane of the ground below, walkable or steep.
     ground_plane: Option<Vec3>,
+    /// The box stands with its middle on a placeable's drawn shape that is
+    /// not walkable (`slide::flank`), such as a heap's top it jumped onto.
+    on_shape: bool,
+    /// The ground below is a flank (`slide::flank`) under any part of the
+    /// box.
+    ground_flank: bool,
     /// The speed the keys ask for at full tilt (units/s).
     speed: f32,
     /// The view's forward and right.
@@ -353,6 +400,29 @@ struct Move<'a, 'b> {
     /// The state as the step found it, before anything moved it.
     origin_before: Vec3,
     velocity_before: Vec3,
+    room: SearchedOnce,
+    freed: SearchedOnce,
+}
+
+/// The world does not change within a step, and a body wedged in the level
+/// searches the same spots at both of a step's ground checks.
+#[derive(Default)]
+struct SearchedOnce(Option<(BoxAt, Option<Vec3>)>);
+
+#[derive(PartialEq, Clone, Copy)]
+struct BoxAt([u32; 9]);
+
+impl SearchedOnce {
+    fn get_or(&mut self, key: BoxAt, search: impl FnOnce() -> Option<Vec3>) -> Option<Vec3> {
+        match self.0 {
+            Some((made, answer)) if made == key => answer,
+            _ => {
+                let answer = search();
+                self.0 = Some((key, answer));
+                answer
+            }
+        }
+    }
 }
 
 /// One movement step of `msec` milliseconds ending at `time_ms`, against
@@ -390,6 +460,63 @@ pub fn carry(
     stepped: &crate::walk::Stepped,
 ) {
     Move::new(ps, command, msec, time_ms, (collision, anims), arms).carried(stepped);
+}
+
+/// The world a walking body's step traces, as `world::movement` steps it.
+/// A body walking a planned route (`routed`) passes through placeables'
+/// drawn shapes and is stopped by the walls round their footprints
+/// (`Masked::routed`), as KOTOR's walker meets only the walkmesh. A body
+/// moved by its own keys whose box already stands in a shape passes
+/// shapes, so it walks out on the floor rather than being lifted onto the
+/// top. Any other body meets the shapes.
+pub(crate) fn walker_world<'a>(
+    world: &'a dyn CollisionWorld,
+    routed: bool,
+    at: Vec3,
+    maxs_z: f32,
+) -> collision::Masked<'a> {
+    if routed {
+        collision::Masked::routed(world)
+    } else if in_shape(world, at, maxs_z) {
+        collision::Masked::new(world, Contents::SHAPE)
+    } else {
+        collision::Masked::new(world, Contents::NONE)
+    }
+}
+
+pub(crate) fn body_box(maxs_z: f32) -> Extents {
+    let half = HALF_WIDTH * UNIT;
+    Extents {
+        mins: [-half, -half, SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
+    }
+}
+
+/// Whether a standing body's box (its origin `at`, units, and its top
+/// `maxs_z`) stands in a placeable's drawn shape (`Contents::SHAPE`).
+pub(crate) fn in_shape(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32) -> bool {
+    shape_within(world, at, maxs_z, 0.0)
+}
+
+/// Whether a standing body's box (its origin `at`, units, and its top
+/// `maxs_z`) stands clear of every placeable's drawn shape
+/// (`Contents::SHAPE`) but has one within `margin` (units) of it on some
+/// side (`Level::beside_shape`).
+pub fn beside_shape(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32, margin: f32) -> bool {
+    shape_within(world, at, maxs_z, margin) && !in_shape(world, at, maxs_z)
+}
+
+/// Whether a placeable's drawn shape stands within `margin` (units) of a
+/// standing body's box, or in it.
+fn shape_within(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32, margin: f32) -> bool {
+    let half = (HALF_WIDTH + margin) * UNIT;
+    let extents = Extents {
+        mins: [-half, -half, SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
+    };
+    let from = scale(at, UNIT);
+    let trace = world.sweep(from, from, &Shape::Upright(extents), Contents::SHAPE);
+    trace.start_solid || trace.all_solid
 }
 
 /// The four rolls, whatever their timers.
@@ -441,6 +568,7 @@ impl<'a, 'b> Move<'a, 'b> {
         Move {
             cmd: *command,
             raw: *command,
+            angles_before: ps.command_angles,
             arms,
             animator,
             collision,
@@ -451,12 +579,16 @@ impl<'a, 'b> Move<'a, 'b> {
             maxs,
             on_walkable: false,
             ground_plane: None,
+            on_shape: false,
+            ground_flank: false,
             speed: 0.0,
             view_forward: [0.0; 3],
             view_right: [0.0; 3],
             touches: Vec::new(),
             origin_before: ps.origin,
             velocity_before: ps.velocity,
+            room: SearchedOnce::default(),
+            freed: SearchedOnce::default(),
             ps,
         }
     }
@@ -538,6 +670,10 @@ impl Move<'_, '_> {
         if !dead {
             self.weapon_step();
             self.footsteps();
+        } else if let Some(arms) = self.arms.as_mut() {
+            // A dead body keeps no camera turn, so a body brought back to
+            // life starts with no aim.
+            arms.fighter.saber.turn = crate::combat::saber::duel::aim::Turn::NONE;
         }
         self.ps.velocity = self.ps.velocity.map(f32::round_ties_even);
         self.ps.maxs_z = self.maxs[2];
@@ -788,21 +924,32 @@ impl Move<'_, '_> {
         self.ps.ground = None;
         self.ground_plane = None;
         self.on_walkable = false;
+        self.on_shape = false;
+        self.ground_flank = false;
+    }
+
+    fn box_at(&self) -> BoxAt {
+        let mut key = [0; 9];
+        let all = self.ps.origin.iter().chain(&self.mins).chain(&self.maxs);
+        for (slot, value) in key.iter_mut().zip(all) {
+            *slot = value.to_bits();
+        }
+        BoxAt(key)
     }
 
     /// Finds what the box stands on, landing it when it comes down.
     fn find_ground(&mut self) {
         let mut hit = self.probe_below();
         if hit.all_solid
-            && let Some(spot) = self.room_nearby()
+            && let Some(spot) = self.room_nearby_once()
             && spot != self.ps.origin
         {
             self.ps.origin = spot;
             hit = self.probe_below();
         }
 
-        if hit.all_solid && self.room_nearby().is_none() {
-            if let Some(spot) = self.free_spot() {
+        if hit.all_solid && self.room_nearby_once().is_none() {
+            if let Some(spot) = self.free_spot_once() {
                 self.ps.origin = spot;
             }
             self.leave_ground();
@@ -812,14 +959,20 @@ impl Move<'_, '_> {
             self.ground_missed();
             self.ground_plane = None;
             self.on_walkable = false;
+            self.on_shape = false;
+            self.ground_flank = false;
             return;
         }
+        self.ground_flank = slide::flank(hit.contents);
+        self.on_shape = self.ground_flank && self.middle_on_flank(self.ps.origin);
         let velocity = self.ps.velocity;
         if velocity[2] > 0.0 && dot(velocity, hit.normal) > rules::movement::air::THROWN_OFF {
-            if self.cmd.forward >= 0 {
+            // A finisher's throw flies in its own clip (`world::grapples`).
+            let thrown = anim::is_grapple(self.ps.legs.anim);
+            if !thrown && self.cmd.forward >= 0 {
                 self.animator.legs_now(self.ps, Anim::BOTH_JUMP1);
                 self.ps.flags &= !motion_flags::JUMPED_BACK;
-            } else {
+            } else if !thrown {
                 self.animator.legs_now(self.ps, Anim::BOTH_JUMPBACK1);
                 self.ps.flags |= motion_flags::JUMPED_BACK;
             }
@@ -927,7 +1080,8 @@ impl Move<'_, '_> {
         // A special jump's legs still playing land in their own clip (JA
         // sets the landing's timer only on legs that can be cut).
         let legs = self.ps.legs;
-        let held = anim::in_special_jump(legs.anim) && legs.timer > 0;
+        let held =
+            (anim::in_special_jump(legs.anim) || anim::is_grapple(legs.anim)) && legs.timer > 0;
         if !rolling && !held && self.ps.in_air_anim {
             let anim = if self.ps.flags & motion_flags::JUMPED_BACK != 0 {
                 Anim::BOTH_LANDBACK1
@@ -1009,6 +1163,32 @@ impl Move<'_, '_> {
         self.trace(o, end, self.mins, self.maxs).fraction < rules::movement::fine::CREVICE_FREE
     }
 
+    fn room_nearby_once(&mut self) -> Option<Vec3> {
+        let key = self.box_at();
+        let mut room = std::mem::take(&mut self.room);
+        let found = room.get_or(key, || self.room_nearby());
+        self.room = room;
+        found
+    }
+
+    fn free_spot_once(&mut self) -> Option<Vec3> {
+        let key = self.box_at();
+        let mut freed = std::mem::take(&mut self.freed);
+        let found = freed.get_or(key, || self.free_spot());
+        self.freed = freed;
+        found
+    }
+
+    fn fits(&self, spot: Vec3) -> bool {
+        let at = scale(spot, UNIT);
+        let extents = Extents {
+            mins: scale(self.mins, UNIT),
+            maxs: scale(self.maxs, UNIT),
+        };
+        self.collision
+            .fits(at, &Shape::Upright(extents), Contents::PLAYER_SOLID)
+    }
+
     /// The first of the 27 spots within a unit of the origin on each axis
     /// (the origin among them) where the box fits (JA only checks for one:
     /// a body with room so near is left where it is).
@@ -1019,7 +1199,7 @@ impl Move<'_, '_> {
             NUDGES.iter().find_map(|&dy| {
                 NUDGES.iter().find_map(|&dz| {
                     let spot = [o[0] + dx, o[1] + dy, o[2] + dz];
-                    (!self.trace(spot, spot, self.mins, self.maxs).all_solid).then_some(spot)
+                    self.fits(spot).then_some(spot)
                 })
             })
         })
@@ -1040,7 +1220,7 @@ impl Move<'_, '_> {
                     .into_iter()
                     .find_map(|dz| {
                         let spot = [o[0] + r * cos, o[1] + r * sin, o[2] + dz];
-                        (!self.trace(spot, spot, self.mins, self.maxs).all_solid).then_some(spot)
+                        self.fits(spot).then_some(spot)
                     })
             })
         })
@@ -1139,7 +1319,7 @@ impl Move<'_, '_> {
         self.friction();
         self.note_push_direction();
 
-        let plane = self.ground_plane.unwrap_or([0.0, 0.0, 1.0]);
+        let plane = self.walking_plane().unwrap_or([0.0, 0.0, 1.0]);
         let along = |v: Vec3| {
             let mut v = self.along_plane([v[0], v[1], 0.0], plane);
             normalize(&mut v);

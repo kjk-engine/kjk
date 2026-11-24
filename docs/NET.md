@@ -45,7 +45,24 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   grows only for misses of commands the client made, not for ticks it
   skipped after a long frame. `kjk net margins` measures what each margin
   buys (host and player stepping in frames, hitches). Prediction restores the newest
-  snapshot and steps again; own-avatar mismatches are logged by cause.
+  snapshot and steps again (beside the frames, see `kjk join` below);
+  own-avatar mismatches are logged by cause.
+- Baselines: a client confirms the newest snapshot it rebuilt with every
+  commands frame, a frame held at the horizon too (it makes no new
+  command, so it sends the commands not acked yet). After 16 frames in a
+  row against a baseline it no longer holds, it asks for a keyframe. A
+  frame against a baseline newer than every snapshot it holds is not
+  counted: that is the keyframe the host pinned, still on its way over the
+  reliable channel. A keyframe of a big module takes over a second at the
+  link's 256 KB/s, and asking again each time pinned a newer one, so the
+  client never held the keyframe its frames named.
+- The link keeps a record of its last 256 packets. A packet still in
+  flight when its slot is taken is declared lost then, and the walks over
+  the records (resend, loss, the oldest in flight) skip a slot that holds
+  another packet. Before, a peer that went quiet for more than 256 of our
+  packets (a hitch, a burst of lost acks) left the walk reading newer
+  packets' records as older ones: the reliable channel stopped resending
+  and never delivered again.
 - The own character (`play_view`): a prediction that changes what its legs
   or torso play at a tick already shown (the host's hit, parry or bounce,
   which the client never predicts) is a rewrite (`play.own_rewrites` in a
@@ -57,7 +74,11 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
 - Installs: clients plan in parallel, commit locally, `check_after`;
   the world resumes when all loaded or after 30 s (a late loader catches
   up). Each `Installer` keeps built areas (`session::AreaCache`).
-- Ending: a disconnect goes in three packets (`HostQuit`, `Left`).
+- Ending: a disconnect goes in three packets (`HostQuit`, `Left`). A
+  player whose session ends (the host quit or removed it, refused the
+  world built here) goes back to the main menu, which says why
+  (`net_join::leave_ended`, `kjk --notice` across the restart); scripted
+  and headless runs go on to their script's end.
 - Coming back: a player whose link times out joins again by itself with
   its seat's token (`ClientConfig::rejoin_us`; `kjk join` tries 45 s,
   from the same socket), told so on screen. The host keeps a timed-out
@@ -71,6 +92,42 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   quiet, never while it plays. A rejoin that lands in another seat (the
   host restarted) ends the session. A link that broke the protocol frees
   its seat at once.
+- The host's own player joins its host in the same process
+  (`Server::in_process`). Its attempt never gives up, and the first seat
+  is kept for it until it is in. Before, a host whose first frame took over
+  5 s (`handshake::GIVE_UP_US`) lost its own player, and the first guest
+  took seat 0 and drove the host's character.
+- A join the host never answers ends after `handshake::GIVE_UP_US`, and
+  the player is told what came back (issue 340). When nothing came back,
+  the message asks the player to check the address, that the host has
+  finished loading, and that the host's firewall lets kjk receive UDP on
+  the port. Windows usually counts a VPN such as Radmin VPN or Hamachi as
+  a public network, so the host must allow kjk on public networks too.
+  When the host's machine said that nothing takes the port (Windows reports
+  that on the next receive), the message says no game is hosting there.
+  When the host answered but did not let the player in, the message says
+  so (`Client::heard_host`). The host logs each address that asks to join
+  (`ServerEvent::Asked`, once per address among the last 8), so a host's
+  log shows whether a player's packets reach it at all. A Windows host
+  whose IPv4 socket beside the IPv6 one is refused (another program holds
+  the port for IPv4) does not start, since no IPv4 player could join it.
+- A player who joined sees the loading screen ("Waiting for the host")
+  until the host's first keyframe is rebuilt (`ClientEvent::Playing`).
+  Before, the world was drawn meanwhile from the stage's own start, which
+  never stepped. That showed a black screen, or characters in their bind
+  pose (a Discord report over Radmin VPN). Over a slow link a big module's
+  keyframe takes seconds: the Unknown World's temple from a save, at
+  1 Mbit/s and 80 ms round trip, took 2.6 s.
+- A player's game keeps its seat's token for each host it joined, in
+  `seats.json` in the kjk folder (`game::seat_tokens`), and joins with it
+  the next time. So a game that crashed and was started again gets back
+  the seat the host kept for it, and the companion that seat drove.
+  Before, it joined as a new player. It took another seat and watched the
+  party while its old companion stayed kept, and a second crash left the
+  host saying all its seats were taken (issue 306). When the host still
+  hears the token's seat (`InUse`: another game on the same machine plays
+  it), the game joins again without the token. Scripted and headless runs
+  keep no tokens.
 - Actions name objects by their index in the module: those waiting are
   dropped when an install starts and when it commits, and none is taken
   while it loads or from a player not loaded in the current epoch.
@@ -82,22 +139,76 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   never copied); the client predicts nothing (the host steps each tick in
   the same frame) and rebuilds every 32nd tick's snapshot, hash-checked, so
   the codec stays proven in every session (`net.json`'s `rebuilt`,
-  `check_failures`) without costing a rebuild a tick.
+  `check_failures`) without costing a rebuild a tick. The step thread has
+  each checked tick split, hashed and packed on a thread of its own
+  (`Stepped::beside`). The client rebuilds it on another thread
+  (`ClientConfig::rebuild_beside`) and lands it at the next frame. So the
+  check costs the frame almost nothing. It used to cost that frame about
+  2 ms on an M4 Max. After an install the client gets the host's level
+  only once it has heard of the install (`Solo::level_owed`). An install
+  that starts while a menu or the lost box holds the world goes out as a
+  whole snapshot, which can reach the client after the host committed. The
+  level given before that was dropped, the client never loaded, and the
+  world stood still for the 30 s load wait (issue 643).
 - `kjk host`: the same for `--seats`, listening on UDP 29170; a net thread
   (`net_thread`) pumps the socket and links, so acks never wait for a
-  frame. Every stepped hash goes to `hashes.txt`. It says "listening on"
+  frame. Every stepped hash goes to `hashes.txt`. A tick stepped beside
+  the frame (`game::sim_worker`) is split there too, as the server keeps
+  it for its players' frames when one can be made of it (its parts and
+  check: `Stepped::new_hashed`), and hashed, so the frame neither splits
+  nor hashes it (issue 229). A host's frame hands only its last tick to
+  the step thread (docs/SIM.md, "The step thread"). A tick a slow frame
+  steps itself is split when a frame first reads it. It says "listening on"
   once its stage is loaded: `cargo xtask duo` and `refusals` join on that
   line (whole lines only, a line still being written is not read).
 - `kjk join <host>`: handshake, then the host's stage loads while the net
   thread answers; its own avatar and camera predicted, every other player
-  and creature from the host's snapshots at the remote view. Each new
-  host snapshot (one a frame, below 62 fps) restores the world and
-  re-steps the whole lead, about 16 ticks at 80 ms RTT, each tick a full
-  snapshot; the frame's lead grows with its longest recent frame, so a
-  costly re-step feeds itself. The host's snapshots and the predictions
-  are handed to the view shared, never copied: copying each cost as much
-  as making it, and the Taris Undercity (`tar_m04aa`) at 80 ms RTT ran a
-  guest at 9–15 fps, ~30 ticks a rewind; shared, 37–53 fps (issue 229).
+  and creature from the host's snapshots at the remote view. A guest's
+  frame steps no world (issue 229), as a host's does not
+  (`game::sim_worker`):
+  - **Its new ticks** go to a thread with the live world as the frame
+    makes their commands, and land at the next frame's start: what it
+    shows of its own seat is a frame behind, as a host's is, blended by
+    the predicted clock of the frame that made them against the newest
+    tick shown, so it trails the clock by a tick and a frame, evenly.
+  - **A rewind** (`session::rebase`: the world restored from the newest
+    host snapshot and stepped again to the tick made) runs on a thread of
+    its own while frames go on, one at a time, and lands at a frame's
+    start: its world replaces the live one, and the next steps bring it to
+    the tick made. What it changes is shown with them, its correction
+    too, so the view never meets a world behind the one it drew. A rewind
+    made for a world since replaced (a hold, a resume, an install) is
+    dropped by its generation.
+  - **When**: at once when this seat's body as predicted differs from the
+    host's at a snapshot's tick (or a body was taken or lost), else at
+    most every `REBASE_EVERY_US` (32 ms). Each snapshot is compared as it
+    comes, as before; what the host changed that the body has not met
+    yet reaches the predicted world that much later at most.
+  - **Snapshots**: a rewind makes whole snapshots only from the oldest
+    own tick the view still reads (`Client::set_view_from`); before it,
+    this seat's body and the bolts in flight, which the next snapshot is
+    compared with. The host's snapshots and the predictions are handed to
+    the view shared, never copied.
+  - The session's lock is held for none of it: the net thread stamps
+    datagrams as they arrive, so the round trip and the lead are not
+    lengthened by frames. Before, each snapshot rewound on the frame,
+    under the lock, and the lead grows with the longest recent frame, so
+    a costly rewind fed itself: the Taris Undercity (`tar_m04aa`) at
+    80 ms RTT ran a guest at 9–15 fps. Measured there (2026-11-09, host
+    and guest on one machine, 1080p): solo 254 fps, the guest 198 at
+    80 ms RTT and 198 at 150, the host 177; solo with a second game
+    running beside it, as each side of a co-op pair has here, about 200.
+  - A thread that dies (a panic in a step) is not waited on: its rewinds
+    run in the caller from then on, and a live world lost with its steps
+    is made again from the newest snapshot. The probes run both in the
+    caller, a rewind landing a frame later as on a thread, so a seed
+    still plays the same session byte for byte; `kjk net probes`
+    ("rewinds") checks the rewind and the steps against stepping the
+    world directly, threads that die included, and `kjk net session`
+    plays sessions with rewinds on their thread (a clean link, `wan`'s, a
+    hold, the threads killed mid-session, a KOTOR module) and from every
+    snapshot as before. Every session checks that what a client shows of
+    its own seat never goes back in time while its clocks run.
 - **Through Steam** (`io::steam`, the `steam` feature, on by default):
   beside UDP, a host takes players through Steam's relayed messages
   (`ISteamNetworkingMessages`), so nobody forwards a port. The session's
@@ -116,7 +227,18 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   without it, and so does the release (`cargo xtask dist`, docs/RELEASE.md),
   which ships no Valve code.
 - Refused players are told why: another build, "your k1 override folder
-  differs from the host's", "the host's 3 seats are all taken".
+  differs from the host's", "the host's 3 seats are all taken". The data
+  compared is each game's world groups alone
+  (`vfs::fingerprint::world_fingerprint`: ~850 files and 4 GB for all
+  three games, not the 34,000 files and 9 GB of the voices, sounds and
+  movies too), hashed once and cached as it goes, the loading screen
+  counting it in tenths. `dialog.tlk` is not compared. Aspyr's Mac table
+  differs from the Windows one in an options screen's text, which no
+  level reads, and in 46 blank lines, which read the same in both tables
+  (`docs/SCRIPTS.md`). The lines a level's
+  scripts read are in its digest, so a guest whose table differs there
+  (another language, a community patch) is refused once its level is
+  built, told its scripts or `dialog.tlk` differ (issue 261).
 - Each run writes `net.json` (with the net feel's 250 ms samples);
   `KJK_PERF=1` adds `net.*` spans and counters to `trace.json`. Measured
   (`end_m01aa`'s fight, 100 ms RTT): ~60 KB/s down (97 before packing),

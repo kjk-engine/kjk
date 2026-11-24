@@ -20,7 +20,7 @@ use crate::motion::{self, Anim, MotionState};
 use crate::script::{MoveRates, STUCK_STALLS};
 use crate::snapshot::{ObjectState, SimId};
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
-use crate::world::Level;
+use crate::world::{Level, near_door};
 
 /// How far a route keeps a body's centre off the walls where it turns
 /// (units): JA's half-width and a hand more, as KOTOR's walkmeshes run on
@@ -68,6 +68,14 @@ pub fn passable(level: &Level, index: u32, state: ObjectState) -> bool {
     level.placed().get(index as usize).is_some_and(|object| {
         object.kind == ObjectKind::Door && (state.state != 0 || state.opens(object.opens))
     })
+}
+
+/// Whether the level's entity `index` is a door.
+fn is_door(level: &Level, index: u32) -> bool {
+    level
+        .placed()
+        .get(index as usize)
+        .is_some_and(|object| object.kind == ObjectKind::Door)
 }
 
 /// The corners of a route from a character standing at `from` to one
@@ -143,21 +151,91 @@ pub fn route_round(
         )
     })?;
     let last = corners.len().saturating_sub(1);
-    Some(
-        corners
-            .into_iter()
-            .enumerate()
-            .map(|(at, corner)| {
-                let [x, y, z] = math::scale(corner, 1.0 / UNIT);
-                let origin = [x, y, z - motion::SOLE_Z];
-                if at == last {
-                    origin
+    let mut corners: Vec<Vec3> = corners
+        .into_iter()
+        .enumerate()
+        .map(|(at, corner)| {
+            let [x, y, z] = math::scale(corner, 1.0 / UNIT);
+            let origin = [x, y, z - motion::SOLE_Z];
+            if at == last {
+                origin
+            } else {
+                clear(level, origin)
+            }
+        })
+        .collect();
+    fit_legs(level, from, &mut corners);
+    Some(corners)
+}
+
+/// Each leg of a route from `from` through `corners` (origins, units; the
+/// last is the goal and stays) that a standing body does not walk straight
+/// along (`Level::leg_fits_level`) shifted sideways, its corners moved
+/// together (the start and the goal stay) to the nearest offset of the
+/// `CLEAR_RINGS` where the box passes, each corner fitting and the floor
+/// leading straight there, the leg before it passing too. KOTOR's walker is
+/// a point, and a doorway's walkable floor may run on under the wall beside
+/// it: Nar Shaddaa's refugee quad routed its upper level's doors at their
+/// far ends, where the body met the wall and never touched the door.
+fn fit_legs(level: &Level, from: Vec3, corners: &mut [Vec3]) {
+    let Some(nav) = level.nav() else {
+        return;
+    };
+    let last = corners.len().saturating_sub(1);
+    for at in 0..corners.len() {
+        let point = |corners: &[Vec3], index: Option<usize>| index.map_or(from, |i| corners[i]);
+        let before = at.checked_sub(1);
+        let (start, end) = (point(corners, before), corners[at]);
+        if level.leg_fits_level(start, end) {
+            continue;
+        }
+        // The corners that may move: the leg's start unless it is `from`,
+        // its end unless it is the goal.
+        let (moves_start, moves_end) = (before.is_some(), at < last);
+        if !moves_start && !moves_end {
+            continue;
+        }
+        let (dx, dy) = (end[0] - start[0], end[1] - start[1]);
+        let length = (dx * dx + dy * dy).sqrt();
+        if length <= 0.0 {
+            continue;
+        }
+        let side = [-dy / length, dx / length];
+        let moved = |corner: Vec3, far: f32| {
+            [
+                corner[0] + side[0] * far,
+                corner[1] + side[1] * far,
+                corner[2],
+            ]
+        };
+        let fits =
+            |corner: Vec3, to: Vec3| level.fits_level(to) && nav.keeps_to(soles(corner), soles(to));
+        let into = point(corners, before.and_then(|i| i.checked_sub(1)));
+        let shifted = CLEAR_RINGS
+            .iter()
+            .flat_map(|&far| [far, -far])
+            .map(|far| {
+                let new_start = if moves_start {
+                    moved(start, far)
                 } else {
-                    clear(level, origin)
-                }
+                    start
+                };
+                let new_end = if moves_end { moved(end, far) } else { end };
+                (new_start, new_end)
             })
-            .collect(),
-    )
+            .find(|&(new_start, new_end)| {
+                (!moves_end || fits(end, new_end))
+                    && (!moves_start
+                        || fits(start, new_start) && level.leg_fits_level(into, new_start))
+                    && level.leg_fits_level(new_start, new_end)
+            });
+        if let Some((new_start, new_end)) = shifted {
+            if let Some(i) = before {
+                corners[i] = new_start;
+            }
+            corners[at] = new_end;
+        }
+    }
 }
 
 /// Whether each face of the navigation mesh (by number) lies under
@@ -304,6 +382,36 @@ pub trait Ways {
     /// in a way out the walk is not to take.
     fn leads_out(&self, _body: Vec3) -> bool {
         false
+    }
+    /// Whether a walk that finds no way plans through the doors that will
+    /// not open for it, walks up to the first and waits there until it
+    /// opens (`ThroughShut`).
+    fn waits_at_shut(&self) -> bool {
+        false
+    }
+}
+
+/// `ways`, and whether the walk waits at a shut door: true for a script's
+/// move to an object (`script::actions::waits_at_doors`). Such a walk with
+/// no way past the doors as they stand plans through those that will not
+/// open for it (a locked door), walks up to the door and waits there, never
+/// passing it, and walks on once it opens. TSL's `ActionMoveToObject` keeps
+/// its move going until the mover is in range. TSLRCM sends Atris to her
+/// meditation chamber at the Telos academy so, before its locked door opens.
+pub struct ThroughShut<'a>(pub &'a dyn Ways, pub bool);
+
+impl Ways for ThroughShut<'_> {
+    fn door(&self, index: u32) -> ObjectState {
+        self.0.door(index)
+    }
+    fn walls(&self, face: u32) -> bool {
+        self.0.walls(face)
+    }
+    fn leads_out(&self, body: Vec3) -> bool {
+        self.0.leads_out(body)
+    }
+    fn waits_at_shut(&self) -> bool {
+        self.1
     }
 }
 
@@ -493,6 +601,18 @@ const DOORWAY_STEP: f32 = rules::walking::searches::DOORWAY_STEP;
 /// scripted mover on its walkmesh by x and y (Dantooine's Council waypoints
 /// lie under the enclave's floor: Bastila and Carth never walked to it).
 pub fn on_floor(level: &Level, to: Vec3) -> Vec3 {
+    floor_within(level, to, GOAL_COLUMN_M)
+}
+
+/// Where a body in the air at `to` comes down. It is `on_floor` with no
+/// floor more than `FLOOR_ABOVE_M` over `to`, the same allowance as for a
+/// character standing. A catwalk the body rose past is therefore not its
+/// floor.
+pub fn floor_under(level: &Level, to: Vec3) -> Vec3 {
+    floor_within(level, to, FLOOR_ABOVE_M)
+}
+
+fn floor_within(level: &Level, to: Vec3, above: f32) -> Vec3 {
     let Some(nav) = level.nav() else {
         return to;
     };
@@ -500,11 +620,38 @@ pub fn on_floor(level: &Level, to: Vec3) -> Vec3 {
     if face_under(nav, goal).is_some() {
         return to;
     }
-    match nav.height(goal, GOAL_COLUMN_M, GOAL_COLUMN_M) {
+    match nav.height(goal, GOAL_COLUMN_M, above) {
         Some(height) => [to[0], to[1], height / UNIT - motion::SOLE_Z],
         None => to,
     }
 }
+
+/// Where a script's mover standing at `from` and sent to `to` (origins,
+/// units) with no floor over or under `to` (`on_floor` finds none) makes
+/// for instead: the origin over the point of the mesh nearest `to` within
+/// `SAFE_SPOT_M` of it seen from above, its floor from `FLOOR_BELOW_M`
+/// under `to` to `FLOOR_ABOVE_M` over it (never the storey below a
+/// balcony's edge), on the mover's own island of the mesh when it stands
+/// on one (never a room the walls shut off). KOTOR moves a path's end
+/// point off the walkmesh to a safe spot that near, and the move ends
+/// there (Sasha and Lur Arka run down the Ebon Hawk's ramp to its exit
+/// waypoint, which lies past the ramp's walkable floor). None when the
+/// floor is under `to`, or no spot is that near.
+pub fn safe_spot(level: &Level, from: Vec3, to: Vec3) -> Option<Vec3> {
+    let nav = level.nav()?;
+    let goal = soles(to);
+    if nav.locate(goal, GOAL_COLUMN_M, GOAL_COLUMN_M).is_some() {
+        return None;
+    }
+    let island = nav.island_at(soles(from), FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    let window = (FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    let [x, y, z] = nav.nearest_point(goal, window, SAFE_SPOT_M, island)?;
+    Some(math::scale([x, y, z], 1.0 / UNIT)).map(|[x, y, z]| [x, y, z - motion::SOLE_Z])
+}
+
+/// How far (metres) a script's destination off the floor looks for it
+/// (`safe_spot`).
+const SAFE_SPOT_M: f32 = rules::walking::searches::SAFE_SPOT_M;
 
 /// Where a character standing at `from` (its origin, units) off the
 /// navigation mesh (on a ledge a blow or a jump put it on) steps back to:
@@ -525,7 +672,10 @@ pub fn back_on(level: &Level, from: Vec3) -> Option<Vec3> {
 /// within `BACK_ON_M` of it, nearest the goal, as one lifted onto a raised
 /// piece of floor no way leads from (a bed's top its steps let a body up
 /// onto) steps off on the goal's side; none when both stand on one island,
-/// or either is off the mesh.
+/// or either is off the mesh. A face it can walk straight over to
+/// (`Level::passes`) comes first: in Dantooine's Enclave sublevel the
+/// Exile, up on the ledge round the dung pit, made for the floor beyond the
+/// ledge's wall, the face nearest the goal, while the pit lay open beside.
 pub fn down_to(level: &Level, from: Vec3, goal: Vec3) -> Option<Vec3> {
     let nav = level.nav()?;
     let (here, there) = (soles(from), soles(goal));
@@ -534,18 +684,44 @@ pub fn down_to(level: &Level, from: Vec3, goal: Vec3) -> Option<Vec3> {
     if island(here)? == goal_island {
         return None;
     }
-    let [x, y, z] = nav
-        .faces
+    let origin = |[x, y, z]: Vec3| [x / UNIT, y / UNIT, z / UNIT - motion::SOLE_Z];
+    nav.faces
         .iter()
         .filter(|face| face.island == goal_island && !face.covered)
         .filter(|face| collision::nav::flat_length(face.centre, here) <= BACK_ON_M)
-        .min_by(|a, b| {
-            collision::nav::flat_length(a.centre, there)
-                .total_cmp(&collision::nav::flat_length(b.centre, there))
-        })?
-        .centre;
-    Some([x / UNIT, y / UNIT, z / UNIT - motion::SOLE_Z])
+        .map(|face| {
+            let spot = origin(face.centre);
+            (
+                !level.passes(from, spot),
+                collision::nav::flat_length(face.centre, there),
+                spot,
+            )
+        })
+        .min_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)))
+        .map(|(.., spot)| spot)
 }
+
+/// Where a character standing at `from` (its origin, units) stands to be as
+/// near as it can to `perch` (an origin, units) that is off the navigation
+/// mesh, on a crate or a piece of furniture: the origin over the point of the
+/// mesh nearest it within `BACK_ON_M`, on the character's own island and not
+/// under furniture. None with no mesh, or when none is that near.
+pub fn below_perch(level: &Level, from: Vec3, perch: Vec3) -> Option<Vec3> {
+    let nav = level.nav()?;
+    let island = nav.island_at(soles(from), FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    // The point asked about lies a little toward the character, so that of
+    // the edges alike in distance the character's own side is found.
+    let mut toward = math::sub(soles(from), soles(perch));
+    toward[2] = 0.0;
+    math::normalize(&mut toward);
+    let asked = math::mad(soles(perch), BESIDE_SHIFT_M, toward);
+    let [x, y, z] = nav.nearest_point(asked, (BACK_ON_M, FLOOR_ABOVE_M), BACK_ON_M, island)?;
+    Some(math::scale([x, y, z], 1.0 / UNIT)).map(|[x, y, z]| [x, y, z - motion::SOLE_Z])
+}
+
+/// How far (metres) toward the character `below_perch` shifts the point it
+/// looks for the nearest floor to.
+const BESIDE_SHIFT_M: f32 = 0.5;
 
 /// How far (metres) one off the navigation mesh looks for it (`back_on`).
 const BACK_ON_M: f32 = rules::walking::searches::BACK_ON_M;
@@ -697,18 +873,27 @@ pub fn toward(player: &MotionState, corner: Vec3) -> Command {
 /// along must hold a standing body and lie over the navigation mesh within
 /// such a drop. Other bodies are not looked at [verify].
 pub fn way_clear(level: &Level, player: &MotionState, forward: i8, right: i8) -> bool {
-    if forward == 0 && right == 0 {
-        return true;
-    }
+    forward == 0 && right == 0 || stands(level, ahead_of(player, forward, right))
+}
+
+/// Whether a character standing on a perch (a crate no mesh covers) stays on
+/// it when it takes the keys `forward` and `right`: the point `way_clear`
+/// looks at has a solid or a shape under it.
+pub fn way_aloft(level: &Level, player: &MotionState, forward: i8, right: i8) -> bool {
+    forward == 0 && right == 0 || level.supports(ahead_of(player, forward, right))
+}
+
+/// The point (an origin, units) a character looks at to see whether the way
+/// of the keys `forward` and `right` is clear.
+fn ahead_of(player: &MotionState, forward: i8, right: i8) -> Vec3 {
     let (ahead, side, _) = math::angle_vectors([0.0, player.view[1], 0.0]);
     let [share, looked] = rules::walking::route::PROBE;
     let along = |key: i8| f32::from(key) * share * looked;
-    let at = math::mad(
+    math::mad(
         math::mad(player.origin, along(forward), ahead),
         along(right),
         side,
-    );
-    stands(level, at)
+    )
 }
 
 /// Whether a standing body fits at `at` (an origin, units) over the
@@ -904,7 +1089,7 @@ impl Walker {
             now_ms,
             &|index| ways.door(index),
             &|face| ways.walls(face),
-            true,
+            (true, ways.waits_at_shut()),
         )
     }
 
@@ -924,13 +1109,15 @@ impl Walker {
             now_ms,
             &|index| ways.door(index),
             &|face| ways.walls(face),
-            false,
+            (false, false),
         )
     }
 
     /// `command`, planning off the faces `walled` names (`route_round`);
     /// with `waits`, a walk that finds no way waits KOTOR's pathfinding wait
-    /// before it looks again (`pathfind_wait_ms`).
+    /// before it looks again (`pathfind_wait_ms`); with `through_shut`, one
+    /// with no way plans through the doors that will not open for it
+    /// (`ThroughShut`).
     pub fn command_round(
         &mut self,
         level: &Level,
@@ -938,7 +1125,7 @@ impl Walker {
         now_ms: u64,
         state: &dyn Fn(u32) -> ObjectState,
         walled: &dyn Fn(u32) -> bool,
-        waits: bool,
+        (waits, through_shut): (bool, bool),
     ) -> Command {
         let idle = mind::looking(player, player.view[0], player.view[1]);
         if self.arrived(player) {
@@ -967,7 +1154,7 @@ impl Walker {
         // a moment later is walked through (a_903kreia's d_entrance).
         let waiting = self.waypoint.is_none() && now_ms < self.since_ms;
         if !waiting && (self.waypoint.is_none() || reached || stalled) {
-            self.plan(level, player.origin, state, walled, stalled);
+            self.plan(level, player.origin, (state, through_shut), walled, stalled);
             self.since_ms = match self.waypoint {
                 None if waits => now_ms + pathfind_wait_ms(now_ms, self.goal),
                 _ => now_ms,
@@ -991,12 +1178,14 @@ impl Walker {
     /// The corner to make for next from `at` (`route_round` through the
     /// objects `state` says, off the faces `walled` names; with `skip`, past
     /// one it stands beside, `next_corner`), or back onto the mesh; its
-    /// headway counted afresh.
+    /// headway counted afresh. With `through_shut` and no way through the
+    /// doors as they stand, the way through the doors that will not open
+    /// for it, as if open (`ThroughShut`).
     fn plan(
         &mut self,
         level: &Level,
         at: Vec3,
-        state: &dyn Fn(u32) -> ObjectState,
+        (state, through_shut): (&dyn Fn(u32) -> ObjectState, bool),
         walled: &dyn Fn(u32) -> bool,
         skip: bool,
     ) {
@@ -1008,8 +1197,19 @@ impl Walker {
         // against the South Apartments' wall by the raid).
         let back = back_on(level, at);
         let under = back.filter(|on| math::flat_distance(*on, at) <= REACHED);
-        self.waypoint = route_round(level, at, self.goal, state, walled)
-            .or_else(|| route_round(level, under?, self.goal, state, walled))
+        let route = |state: &dyn Fn(u32) -> ObjectState| {
+            route_round(level, at, self.goal, state, walled)
+                .or_else(|| route_round(level, under?, self.goal, state, walled))
+        };
+        // A door that will not open, as if open one way (`ObjectState::state`).
+        let opened = |index: u32| match state(index) {
+            shut if !passable(level, index, shut) && is_door(level, index) => {
+                ObjectState { state: 1, ..shut }
+            }
+            stands => stands,
+        };
+        self.waypoint = route(state)
+            .or_else(|| route(&opened).filter(|_| through_shut))
             .and_then(|corners| next_corner(&corners, at, skip, self.since_ms == 0))
             .or(back.filter(|_| under.is_none()));
         self.best = f32::MAX;
@@ -1336,6 +1536,39 @@ pub struct Stepped {
     pub pushed: Option<(SimId, Vec3)>,
 }
 
+/// Whether the walk `walker` of a body standing at `origin` (units) goes
+/// through the door `door` (the level's entity, placed as `panel`): its next corner stands
+/// on the far side of the door's panel, or the corner is in the doorway
+/// (on a face of the navigation mesh that is the door's) and the walk's
+/// goal stands on the far side. KOTOR's creatures open a door only where
+/// their path leads through it. A body pushed against a door's panel from
+/// its own side does not open it. On the Endar Spire, a Sith fighting
+/// beside end_door10_cut2 was knocked back against it and opened it. The
+/// room-5 scene waits for a party member to open that door
+/// (`k_pend_room5_02`), so it never played (#397).
+pub fn heads_through(
+    level: &Level,
+    walker: &Walker,
+    origin: Vec3,
+    (door, panel): (u32, &ObjectData),
+) -> bool {
+    let (sin, cos) = math::sin_cos_deg(panel.yaw);
+    let side = |p: Vec3| {
+        let off = [
+            p[0] * UNIT - panel.position[0],
+            p[1] * UNIT - panel.position[1],
+        ];
+        cos * off[1] - sin * off[0] > 0.0
+    };
+    let across = |p: Vec3| side(p) != side(origin);
+    let corner = walker.waypoint.unwrap_or(walker.goal);
+    let in_doorway = level.nav().is_some_and(|nav| {
+        face_under(nav, soles(corner)).and_then(|face| nav.faces[face as usize].entity)
+            == Some(door)
+    });
+    across(corner) || in_doorway && across(walker.goal)
+}
+
 /// How near (units, along either axis) two bodies' origins come before
 /// their boxes touch: their widths.
 const CONTACT: f32 = 2.0 * motion::HALF_WIDTH;
@@ -1360,9 +1593,9 @@ const LIFT: f32 = rules::walking::walker::LIFT;
 /// its yaw snapped to the step, as KOTOR's mover has no turn rate. A body
 /// it would walk into (not one it passes, `Walker::passes`) it pushes aside
 /// and walks on, or it stops: a bump, which the walk goes round or gives up
-/// on (`Walker::meet`). A shut door's
-/// doorway (a door's face of the mesh, the door closed) stops it short of
-/// the panel until the door opens, and gives the walk up where the door
+/// on (`Walker::meet`). A closed door whose shape the step's body would
+/// touch stops it short of the panel until the door opens, and gives the
+/// walk up where the door
 /// will not open for it (`passable` by `state`, which shuts every closed
 /// door to the held party). A walk with no route there (its walker
 /// found none) stands until its walker looks again (KOTOR's pathfinding
@@ -1450,24 +1683,29 @@ pub fn kotor_step(
             None => None,
         },
     };
-    // A door shut across the step: a door's face of the mesh (where a body
-    // would be inside its closed panels) that it is not on already, the
-    // door closed.
-    let door_of =
-        |p: Vec3| face_under(nav, soles(p)).and_then(|face| nav.faces[face as usize].entity);
-    let shut = door_of(origin)
-        .filter(|index| door_of(at) != Some(*index) && ways.door(*index).state == 0)
-        .filter(|index| {
-            level
-                .placed()
-                .get(*index as usize)
-                .is_some_and(|object| object.kind == ObjectKind::Door)
-        });
+    // A door shut across the step: a closed door whose closed shape the body
+    // touches at the step's end and did not touch at its start. KOTOR's
+    // walker meets a door only through the door's own walkmesh
+    // (`CSWSCreature::WalkUpdateLocationTestDistance`). The floor faces
+    // under its doorway stay walkable, and a walk may end on them short of
+    // the panel (Tatooine's docking bay clerk, #501).
+    let touches = |p: Vec3, index: u32| near_door(level, index, p, player.maxs_z, 0.0);
+    // The doors come lowest first, so the door found is the one that a
+    // search of every door of the level, in order, finds.
+    let at_origin = crate::world::near_doors(level, origin, player.maxs_z);
+    let shut = (at_origin.iter().copied())
+        .find(|&index| ways.door(index).state == 0 && !touches(at, index));
     if let Some(door) = shut {
         // One it may not open (locked, scenery, or the held party's: `state`
-        // shuts it, `opening_none`) is no way: the walk is given up.
+        // shuts it, `opening_none`) is no way: the walk is given up, but
+        // for a walk that waits at such a door (`ThroughShut`), which stands
+        // before it, its stalls not counted, until it opens.
         if !passable(level, door, ways.door(door)) {
-            route.give_up();
+            if ways.waits_at_shut() {
+                route.stalls = 0;
+            } else {
+                route.give_up();
+            }
         }
         return Some(stand(None, shut));
     }
@@ -1483,7 +1721,7 @@ pub fn kotor_step(
         route.plan(
             level,
             origin,
-            &|index| ways.door(index),
+            (&|index| ways.door(index), ways.waits_at_shut()),
             &|face| ways.walls(face),
             false,
         );

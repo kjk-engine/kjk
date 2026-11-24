@@ -216,7 +216,10 @@ fn side_hit(side: Side, quarter: u8, rng: &mut SimRng) -> Anim {
 /// flinch: always when it was caught unawares (`surprised`) or cut by a
 /// `blade`, never when it is a `droid`, always from a blow of more than
 /// half its most; otherwise by how hurt it already is and how heavy the
-/// blow, divided by the flinch skill.
+/// blow, divided by the flinch skill, and scaled by `share`: the thousandths
+/// of one KOTOR attack's damage the hit carries (`damage::pace`, at most
+/// 1000), so a fast gun's many small bolts make a creature flinch about as
+/// often as a slow gun's few large ones.
 pub fn pain_chance(
     damage: i32,
     hp: i32,
@@ -224,6 +227,7 @@ pub fn pain_chance(
     surprised: bool,
     blade: bool,
     droid: bool,
+    share: i64,
 ) -> i64 {
     let most = i64::from(max_hp.max(1)) * 100;
     let damage = i64::from(damage);
@@ -239,7 +243,21 @@ pub fn pain_chance(
     }
     let lost = (most - hp).max(0) * 1000 / (2 * most);
     let blow = damage * 2000 / most;
-    ((lost + blow) / rules::combat::flinch::SKILL_DIVISOR).clamp(0, 1000)
+    let chance = ((lost + blow) / rules::combat::flinch::SKILL_DIVISOR).clamp(0, 1000);
+    chance * share.clamp(0, 1000) / 1000
+}
+
+/// How long after its last flinch ends (`pain_until`, sim ms; 0 if it never
+/// flinched) a creature cannot flinch again: a `droid` in KOTOR II's
+/// scaling `set` `flinch::STEADY_SET` or higher keeps its footing
+/// `flinch::STEADY_MS`; any other creature can flinch again at once.
+pub fn footing_ms(droid: bool, set: u8, pain_until: u64) -> u64 {
+    use rules::combat::flinch;
+    if droid && set >= flinch::STEADY_SET && pain_until > 0 {
+        flinch::STEADY_MS
+    } else {
+        0
+    }
 }
 
 /// The pain a flinch plays: holding a saber pain 2 or 3 (JA's), else by

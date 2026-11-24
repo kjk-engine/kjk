@@ -43,6 +43,12 @@ pub struct Saved {
 #[derive(Resource, Default)]
 pub struct SaveOutcome(pub Option<Saved>);
 
+/// An autosave was written (`sim_host::autosave`) since the screens last
+/// listed the saves. The list is read again (`told`), so that the lost box's
+/// Load and the Load screen see the autosave as the newest save.
+#[derive(Resource, Default)]
+pub struct Autosaved(pub bool);
+
 /// The host's save copies this player received (I30 P17): each one's id
 /// here, or why it was refused (`net_join`).
 #[derive(Resource, Default)]
@@ -68,6 +74,13 @@ pub(crate) fn refuse_on_screen(ui: &mut Ui, why: String) {
     ui.vm.feedback.push(why.clone());
     ui.vm.session.error = Some(why);
     ui.stack.open("message", &ui.vm);
+}
+
+/// The day `saved` (Unix seconds) was, as the lobby shows it (UTC):
+/// "2026-11-14".
+pub fn date(saved: u64) -> String {
+    let (year, month, day) = saves::civil_from_days((saved / 86_400) as i64);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 /// When `saved` (Unix seconds) was, as the screens show it (UTC).
@@ -166,7 +179,8 @@ pub struct SaveViewPlugin;
 
 impl Plugin for SaveViewPlugin {
     fn build(&self, app: &mut App) {
-        // `SaveRequest` and `SaveOutcome` are the host's (`SimHostPlugin`).
+        // `SaveRequest`, `SaveOutcome` and `Autosaved` are the host's
+        // (`SimHostPlugin`).
         app.init_resource::<Received>()
             .add_systems(Startup, |mut ui: ResMut<Ui>| refresh(&mut ui))
             .add_systems(
@@ -270,7 +284,7 @@ fn act(
                 match (&world, latest) {
                     (Some(_), Some(latest)) => reload.0 = Some(latest.id.clone()),
                     (Some(_), None) => rest.push(Intent::Session(SessionIntent::ToMenu)),
-                    (None, _) => ui.vm.feedback.push("The host loads the last save.".into()),
+                    (None, _) => ui.vm.feedback.push("Waiting for the host.".into()),
                 }
             }
             other => rest.push(other),
@@ -309,13 +323,18 @@ const SAVED: &str = "Game saved";
 /// A save made: listed, told ("Game saved" at the right edge, under the
 /// minimap), and the Save screen that asked closed back to the game;
 /// refused, told why (in a message over the Save screen when it asked).
+/// An autosave is listed without a word.
 fn told(
     mut ui: ResMut<Ui>,
     mut outcome: ResMut<SaveOutcome>,
+    mut autosaved: ResMut<Autosaved>,
     mut received: ResMut<Received>,
     summary: Option<ResMut<crate::progress::Told>>,
 ) {
     let ui = &mut *ui;
+    if std::mem::take(&mut autosaved.0) {
+        refresh(ui);
+    }
     for kept in received.0.drain(..) {
         match kept {
             Ok(_) => {

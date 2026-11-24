@@ -95,6 +95,7 @@ fn run(root: &Path) -> Result<Checks, String> {
         level: world.level().id(),
         script: world.script_state().clone(),
         snapshot: snapshot.clone(),
+        stances: world.stance_ids(),
     };
     let world_of = |root: &Path, id: &str| {
         std::fs::read(root.join(id).join(crate::WORLD)).map_err(|error| error.to_string())
@@ -130,7 +131,8 @@ fn run(root: &Path) -> Result<Checks, String> {
         .iter()
         .all(|id| listing.received.get(id).is_some_and(|r| r.from == "Ana"));
     let (again, _) = read(player, &kept[0])?;
-    let loaded = sim::SimWorld::from_snapshot(&again.snapshot, level)
+    let loaded = again
+        .world_as_saved(level)
         .map(|mut world| world.snapshot().hash() == snapshot.hash());
     let count = || list(player).saves.len();
     let before = count();

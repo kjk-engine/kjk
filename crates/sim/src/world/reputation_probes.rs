@@ -10,6 +10,9 @@
 //! dead source, and a source of the player's faction, change nothing (run
 //! first, while the war stands at 0, so a change would show). The
 //! standings survive a save, and an old save's pair reads as before.
+//! `GetReputation` reads the standing of a placeable of the Sand People's
+//! faction, as the Dune Sea's `tat18_tuskanfac` is. The K1 Community Patch
+//! reads it this way and lowers the standing by exactly that much, to 0.
 
 use fmt_odyssey::ncs::{Const, Op};
 use script_ncs::probes::Asm;
@@ -31,6 +34,8 @@ void AdjustReputation(object oTarget, object oSourceFactionMember, int nAdjustme
 object GetObjectByTag(string sTag, int nNth=0);
 // 2
 object GetFirstPC();
+// 3
+int GetReputation(object oSource, object oTarget);
 "#;
 
 /// The Sand People's member, a dead one, and two of factions standing
@@ -39,6 +44,13 @@ const TUSKEN: &str = "probe_tusken";
 const DEAD_TUSKEN: &str = "probe_dead_tusken";
 const FRIEND: &str = "probe_friend";
 const OTHER: &str = "probe_other";
+/// A tag no object in the module has: Anchorhead's `k_ptat17_enter` names
+/// the Sand People's faction object of the Dune Sea, which is not there
+/// (QUIRKS.md Q-0660).
+const MISSING: &str = "probe_missing";
+/// A placeable of the Sand People's faction, as the Dune Sea's
+/// `tat18_tuskanfac` is.
+const FACTION_PLACEABLE: &str = "probe_tuskanfac";
 
 /// How `FRIENDLY_1` regards `HOSTILE_2`, and how `HOSTILE_2` regards it.
 const UNEVEN: (u8, u8) = (80, 20);
@@ -64,8 +76,18 @@ enum Who {
     Tag(&'static str),
 }
 
+/// How much a script moves a standing. It is either a number, or the
+/// standing the source's faction has toward the target, taken away. The
+/// second is how the K1 Community Patch's `CP_AdjustSandRep` makes the Sand
+/// People hostile.
+#[derive(Clone, Copy)]
+enum By {
+    Exactly(i32),
+    ToHostile,
+}
+
 /// `AdjustReputation(target, source, by)`'s script.
-fn adjusting(target: Who, source: Who, by: i32) -> fmt_odyssey::ncs::Ncs {
+fn adjusting(target: Who, source: Who, by: By) -> fmt_odyssey::ncs::Ncs {
     let name = |asm: &mut Asm, who: Who| match who {
         Who::Pc => {
             asm.op(Op::Action {
@@ -83,7 +105,21 @@ fn adjusting(target: Who, source: Who, by: i32) -> fmt_odyssey::ncs::Ncs {
         }
     };
     let mut asm = Asm::default();
-    asm.op(Op::Const(Const::Int(by)));
+    match by {
+        By::Exactly(by) => {
+            asm.op(Op::Const(Const::Int(by)));
+        }
+        // −GetReputation(source, target), which takes the standing to 0.
+        By::ToHostile => {
+            name(&mut asm, target);
+            name(&mut asm, source);
+            asm.op(Op::Action {
+                routine: 3,
+                args: 2,
+            })
+            .op(Op::Neg(fmt_odyssey::ncs::Ty::Int));
+        }
+    }
     name(&mut asm, source);
     name(&mut asm, target);
     asm.op(Op::Action {
@@ -101,20 +137,33 @@ fn scripts() -> Vec<(String, fmt_odyssey::ncs::Ncs)> {
     let tusken = Who::Tag(TUSKEN);
     let mut scripts: Vec<_> = ROBES
         .iter()
-        .map(|&(what, by)| (what.to_string(), adjusting(Who::Pc, tusken, by)))
+        .map(|&(what, by)| {
+            (
+                what.to_string(),
+                adjusting(Who::Pc, tusken, By::Exactly(by)),
+            )
+        })
         .collect();
     scripts.extend([
         (
             "nudge".to_string(),
-            adjusting(Who::Tag(FRIEND), Who::Tag(OTHER), NUDGE),
+            adjusting(Who::Tag(FRIEND), Who::Tag(OTHER), By::Exactly(NUDGE)),
         ),
         (
             "dead source".to_string(),
-            adjusting(Who::Pc, Who::Tag(DEAD_TUSKEN), PEACE),
+            adjusting(Who::Pc, Who::Tag(DEAD_TUSKEN), By::Exactly(PEACE)),
         ),
         (
             "player source".to_string(),
-            adjusting(tusken, Who::Pc, PEACE),
+            adjusting(tusken, Who::Pc, By::Exactly(PEACE)),
+        ),
+        (
+            "missing source".to_string(),
+            adjusting(Who::Pc, Who::Tag(MISSING), By::Exactly(-PEACE)),
+        ),
+        (
+            "patch hostile".to_string(),
+            adjusting(Who::Pc, Who::Tag(FACTION_PLACEABLE), By::ToHostile),
         ),
     ]);
     scripts
@@ -149,6 +198,12 @@ fn world() -> Result<SimWorld, String> {
             };
             Placement::Own(ObjectData::creature(tag, tag, [x, y + dy, z], sheet))
         }));
+    data.placements.push(Placement::Own(ObjectData {
+        kind: crate::module::ObjectKind::Placeable,
+        tag: FACTION_PLACEABLE.into(),
+        faction: HOSTILE_1,
+        ..ObjectData::unknown(FACTION_PLACEABLE, [x, y + 10.0, z], 0.0)
+    }));
     data.repute = repute();
     let library = crate::probe::library(CATALOG, scripts());
     let level = ground.with_module(data).with_scripts(library);
@@ -234,6 +289,11 @@ pub fn probes() -> Checks {
             .iter()
             .zip(wanted)
             .all(|((_, (them, us)), want)| *them == want && *us == want);
+    // The robes taken off where no member of the Sand People's faction is:
+    // the peace stays.
+    let robed = both(&world);
+    run(&mut world, "missing source");
+    let after_missing = both(&world);
     run(&mut world, "nudge");
     let nudged = (
         standing(&world, FRIENDLY_1, HOSTILE_2),
@@ -248,6 +308,15 @@ pub fn probes() -> Checks {
     let presented_sent = crate::Snapshot::decode(&world.snapshot().encode())
         .map(|decoded| decoded.standing)
         .map_err(|error| error.to_string());
+    // The K1 Community Patch's Dune Sea heartbeat runs twice while the
+    // party is not in robes. It takes the standing the robes raised back to
+    // 0, and it stays at 0.
+    let patched: Vec<(u8, u8)> = (0..2)
+        .map(|_| {
+            run(&mut world, "patch hostile");
+            both(&world)
+        })
+        .collect();
     let old: Adjustments = [(PLAYER, HOSTILE_1, -50), (FRIENDLY_1, HOSTILE_2, 10)]
         .into_iter()
         .flat_map(|(a, b, by)| crate::module::adjustment_cells(a, b, by))
@@ -288,6 +357,23 @@ pub fn probes() -> Checks {
                 after_dead == start && after_player == start,
                 format!(
                     "{start:?}; after a dead source {after_dead:?}, the player's {after_player:?}"
+                ),
+            ),
+        ),
+        (
+            "reputation_missing_source_changes_nothing",
+            check(
+                robed == (PEACE as u8, PEACE as u8) && after_missing == robed,
+                format!("{robed:?}; after a source that is not there {after_missing:?}"),
+            ),
+        ),
+        (
+            "reputation_read_by_a_placeable_of_the_faction",
+            check(
+                robed == (PEACE as u8, PEACE as u8) && patched == [(0, 0), (0, 0)],
+                format!(
+                    "from {robed:?}, the standing read through the faction's placeable and taken away twice: \
+                     {patched:?} (wanted 0 both times)"
                 ),
             ),
         ),

@@ -3,8 +3,10 @@
 //! starts it when the view's clock reaches that moment, placed for the
 //! camera as JA places a sound for its view; the player's own sounds are
 //! not placed. A window plays to the sound device. A headless run captures
-//! the mix on the game's clock, from 0 ms, to `audio.wav` in its run
-//! folder, so `record`'s videos have their sound.
+//! the mix to `audio.wav` in its run folder, so `record`'s videos have their
+//! sound. The file starts at the game's time when the run's sound began,
+//! not at the game's 0 ms. After a save is loaded, the game's clock can be
+//! many hours in, and silence from 0 ms up to it would fill gigabytes.
 //!
 //! Sounds go by the names JA's code gives them
 //! (`sound/weapons/saber/saberhit1.wav`); one that is not there as a WAV is
@@ -18,8 +20,7 @@ use audio::{
     Bed, Bus, CAPTURE_RATE, Channel, Clip, Emitter, Falloff, Listener, Mixer, Output, Sound, Stream,
 };
 use bevy::prelude::*;
-use console::{DumpDue, DumpFacts, GameClock, RunFolder};
-use fmt_odyssey::ResType;
+use console::{AudioMarks, DumpDue, DumpFacts, GameClock, RunFolder};
 use sim::{Seat, SimId};
 use store::{Key, Store};
 use vfs::resolver::Resolver;
@@ -66,20 +67,9 @@ pub fn load(
     bank
 }
 
-/// A KOTOR sound's file by resref: a WAV of the install's layers, else of
-/// a stream folder (music, sounds, voices), as the games look them up.
+/// A KOTOR sound's file by resref (`Resolver::sound`).
 pub fn kotor_file(resolver: &Resolver, resref: &str) -> Option<Vec<u8>> {
-    let wav = ResType::WAV;
-    let location = resolver.find(resref, wav).map(|found| found.location);
-    location
-        .or_else(|| {
-            resolver
-                .streams
-                .iter()
-                .find_map(|layer| layer.resources.get(&(resref.to_ascii_lowercase(), wav)))
-        })?
-        .read()
-        .ok()
+    resolver.sound(resref)?.read().ok()
 }
 
 impl Bank {
@@ -102,6 +92,16 @@ impl Bank {
                 "KOTOR sounds not read: {}",
                 self.not_read[lost..].join(", ")
             ));
+        }
+    }
+
+    /// Makes `name` play the clip of `fallback` when `name` itself was not
+    /// read.
+    pub fn stand_in(&mut self, name: &str, fallback: &str) {
+        if !self.clips.contains_key(name)
+            && let Some(clip) = self.clips.get(fallback).cloned()
+        {
+            self.clips.insert(name.to_string(), clip);
         }
     }
 
@@ -268,11 +268,7 @@ fn install_menu(app: &mut World) {
         return;
     }
     let mixer = (!app.resource::<Headless>().0)
-        .then(|| {
-            Mixer::new(Output::Device)
-                .inspect_err(|error| warn!(target: "sound", "no sound: {error}"))
-                .ok()
-        })
+        .then(|| open_mixer(Output::Device))
         .flatten();
     app.insert_resource(Mixing {
         mixer,
@@ -281,7 +277,22 @@ fn install_menu(app: &mut World) {
         asked: BTreeMap::new(),
         unknown: BTreeSet::new(),
         cued: Default::default(),
+        started: Started::default(),
     });
+}
+
+/// A mixer on `output`, or `None` with a warning when it cannot open. The
+/// sound device it opened is logged, so a player's report says which one
+/// it was and how it was fed.
+fn open_mixer(output: Output) -> Option<Mixer> {
+    Mixer::new(output)
+        .inspect(|mixer| {
+            if let Some(device) = mixer.device() {
+                info!(target: "sound", "{device}");
+            }
+        })
+        .inspect_err(|error| warn!(target: "sound", "no sound: {error}"))
+        .ok()
 }
 
 /// A session's sounds, put into `app`: the mixer opens on the window's
@@ -294,15 +305,23 @@ pub fn install(app: &mut World, bank: Bank) {
     } else {
         Output::Device
     };
-    let mixer = Mixer::new(output)
-        .inspect_err(|error| warn!(target: "sound", "no sound: {error}"))
-        .ok();
+    // The menu's mixer lets the device go first: an ALSA device without a
+    // sound server plays for one program stream at a time.
+    app.remove_resource::<Mixing>();
+    let mixer = open_mixer(output);
     let capture = (mixer.is_some() && headless)
         .then(|| WavFile::create(&folder.join(console::AUDIO), CAPTURE_RATE))
         .and_then(|made| {
             made.inspect_err(|error| warn!(target: "sound", "no {}: {error}", console::AUDIO))
                 .ok()
         });
+    // A new session's capture starts a new file, so the marks of the last
+    // file no longer say anything about it.
+    if capture.is_some()
+        && let Some(mut marks) = app.get_resource_mut::<AudioMarks>()
+    {
+        marks.0.clear();
+    }
     app.insert_resource(Mixing {
         mixer,
         bank,
@@ -310,6 +329,7 @@ pub fn install(app: &mut World, bank: Bank) {
         asked: BTreeMap::new(),
         unknown: BTreeSet::new(),
         cued: Default::default(),
+        started: Started::default(),
     });
 }
 
@@ -326,10 +346,57 @@ struct Mixing {
     /// The last `CUED_KEPT` sounds started: when (the view's ms) and which,
     /// for dumps.
     cued: std::collections::VecDeque<(f32, String)>,
+    started: Started,
 }
 
 /// How many of the sounds last started a dump lists (`Mixing::cued`).
 const CUED_KEPT: usize = 256;
+
+/// A sound's name without its extension and its number (`metal_step` for
+/// `metal_step3.mp3`).
+fn stem(name: &str) -> &str {
+    let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+    stem.trim_end_matches(char::is_numeric)
+}
+
+/// When each character or object last started each sound (the view's ms),
+/// by the sound's name without its number (`stem`). One does not start the
+/// same sound again within `rules::engine::sounds::SAME_GAP_MS`, as in
+/// Quake 3, whose sound code JA's is built on. A sound asked for on every
+/// frame (issue 415) is heard once in each gap.
+#[derive(Default)]
+pub struct Started(BTreeMap<(u32, String), f32>);
+
+impl Started {
+    /// The most it remembers before it forgets those past the gap.
+    const KEPT: usize = 4096;
+
+    /// Whether `entity` may start the sound `stem` at `ms`. A sound that
+    /// starts is remembered.
+    pub fn first(&mut self, entity: u32, stem: &str, ms: f32) -> bool {
+        let gap = rules::engine::sounds::SAME_GAP_MS as f32;
+        let key = (entity, stem.to_string());
+        if self
+            .0
+            .get(&key)
+            .is_some_and(|&last| (ms - last).abs() < gap)
+        {
+            return false;
+        }
+        self.0.insert(key, ms);
+        if self.0.len() > Self::KEPT {
+            self.0.retain(|_, last| (ms - *last).abs() < gap);
+        }
+        true
+    }
+}
+
+/// The most the heard clock moves in one frame without a jump (ms). A frame
+/// makes up only a few game steps, which is well under a second. A bigger
+/// move, forward or back, means the game's clock jumped, such as when a save
+/// was loaded. The mix then starts over at the new time instead of mixing
+/// the hours in between.
+const MOST_STEP_MS: f64 = 5_000.0;
 
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
@@ -375,7 +442,7 @@ fn mix(
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     (waited, showing): (Option<Res<Waited>>, Option<Res<crate::movie_view::Showing>>),
     frozen: Option<Res<crate::sim_host::Frozen>>,
-    volumes: Res<Volumes>,
+    (volumes, mut marks): (Res<Volumes>, ResMut<AudioMarks>),
     (scene_clock, scene_time, held): (
         Option<Res<SceneClock>>,
         Res<Time>,
@@ -415,6 +482,16 @@ fn mix(
         }
         (None, None) => time.elapsed_secs_f64() * 1000.0,
     };
+    let jumped = mixer
+        .clock()
+        .is_none_or(|clock| (now - clock).abs() > MOST_STEP_MS);
+    if jumped {
+        // Before this frame's cues are queued, which are on the new time.
+        mixer.jump_to(now);
+        if let Some(capture) = &mixing.capture {
+            marks.0.push((now, capture.seconds()));
+        }
+    }
     let current = presented.as_ref().map(|presented| presented.0.current());
     if let Some(camera) = cameras.iter().next() {
         let eye = crate::scene_fx::eye_of(camera);
@@ -430,11 +507,20 @@ fn mix(
     for entity in current.iter().flat_map(|current| &current.entities) {
         mixer.place(entity.id.0, Vec3::from_array(entity.position) / UNIT);
     }
+    if jumped {
+        mixing.started.0.clear();
+    }
     for cue in cues.0.drain(..) {
         let Some(clip) = mixing.bank.clips.get(&cue.name) else {
             mixing.unknown.insert(cue.name);
             continue;
         };
+        let stem = stem(&cue.name);
+        if let Some(entity) = cue.entity
+            && !mixing.started.first(entity.0, stem, cue.ms)
+        {
+            continue;
+        }
         let sound = Sound {
             clip: clip.clone(),
             emitter: Emitter {
@@ -448,11 +534,6 @@ fn mix(
             rate: cue.rate,
         };
         mixer.play_at(f64::from(cue.ms) + waited_ms, sound);
-        let stem = cue
-            .name
-            .rsplit_once('.')
-            .map_or(cue.name.as_str(), |(stem, _)| stem);
-        let stem = stem.trim_end_matches(char::is_numeric);
         match mixing.asked.get_mut(stem) {
             Some(count) => *count += 1,
             None => {
@@ -502,11 +583,6 @@ fn mix(
         mixer.bed(name, stream, bed);
     }
     if let Some(capture) = &mut mixing.capture {
-        // The file starts at the game's 0 ms.
-        if mixer.clock().is_none() {
-            let frames = (now * f64::from(CAPTURE_RATE) / 1000.0).round() as usize;
-            write(capture, &vec![0.0; frames * 2]);
-        }
         write(capture, &mixer.advance(now));
     } else {
         mixer.advance(now);
@@ -531,6 +607,7 @@ fn mix(
             "unheard": mixer.counts().1,
             "listener": mixer.listener().origin.to_array(),
             "captured_s": mixing.capture.as_ref().map(WavFile::seconds),
+            "capture_marks": marks.0,
             "unknown": mixing.unknown,
         }),
     );
@@ -543,3 +620,8 @@ fn write(capture: &mut WavFile, samples: &[f32]) {
         warn!(target: "sound", "{}: {error}", console::AUDIO);
     }
 }
+
+#[cfg(feature = "probes")]
+mod probes;
+#[cfg(feature = "probes")]
+pub use probes::pause_probes;

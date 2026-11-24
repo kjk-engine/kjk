@@ -152,6 +152,42 @@ pub enum Stored {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Since(pub Stored, pub u32);
 
+/// A pre-release build whose snapshots carry a version that `main` later
+/// gave to another change. A branch's build numbers its pending bumps
+/// after the `main` it was cut from, so its saves' version means a
+/// different layout on a later `main` (`crate::snapshot::PRERELEASES`).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Prerelease {
+    /// The release's tag, or the version and commit the build reports.
+    pub name: &'static str,
+    /// The snapshot version its saves carry.
+    pub snapshot: u32,
+    /// The snapshot version of the `main` it was built on. Its saves hold
+    /// every change up to this one.
+    pub base: u32,
+    /// The save version its saves carry and the save version of the `main`
+    /// it was built on, when its save version also means another layout
+    /// on a later `main`. Its saves hold every save change up to the second.
+    pub save: Option<(u32, u32)>,
+    /// The later changes its saves also hold, of either format, in the
+    /// layout `main` reads them by.
+    pub holds: &'static [Since],
+    /// The later changes its saves hold in an earlier layout than the one
+    /// `main` reads them by.
+    pub early: &'static [Early],
+}
+
+/// A change a pre-release wrote in an earlier layout than the one its
+/// branch reached `main` with (`Prerelease::early`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Early {
+    /// The Advanced enemy pacing as the build `v0.18.1 (6b2ea2a)` wrote
+    /// it. A blade wielder's pace ends after the time it may next attack
+    /// again, and has no wait between kicks. A duel ends after the charge
+    /// flag, and has no time when the swing began.
+    FirstPacing,
+}
+
 /// The versions of the stored formats bytes are in: their headers', or
 /// this build's (`u32::MAX`: every `since` true) for bytes of this build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +195,9 @@ pub(crate) struct Versions {
     pub save: u32,
     pub snapshot: u32,
     pub pack: u32,
+    /// The pre-release the bytes are read as, if any. It changes what
+    /// `since` answers only for a snapshot of its version.
+    pub prerelease: Option<&'static Prerelease>,
 }
 
 impl Versions {
@@ -166,6 +205,7 @@ impl Versions {
         save: u32::MAX,
         snapshot: u32::MAX,
         pack: u32::MAX,
+        prerelease: None,
     };
 
     fn of(&mut self, format: Stored) -> &mut u32 {
@@ -216,8 +256,37 @@ impl<'a> Reader<'a> {
     /// Whether these bytes hold a change that came in `since`
     /// (`crate::since`): its format's version here is it or later.
     pub fn since(&self, since: Since) -> bool {
+        if let Some(prerelease) = self.prerelease() {
+            let base = match since.0 {
+                Stored::Snapshot => Some(prerelease.base),
+                Stored::Save => prerelease
+                    .save
+                    .filter(|&(version, _)| self.versions.save == version)
+                    .map(|(_, base)| base),
+                Stored::Pack => None,
+            };
+            if let Some(base) = base {
+                return since.1 <= base || prerelease.holds.contains(&since);
+            }
+        }
         let mut versions = self.versions;
         *versions.of(since.0) >= since.1
+    }
+
+    /// Whether these bytes hold `early`, a change in the earlier layout a
+    /// pre-release wrote it in. A decoder that reads the change when
+    /// `since` its version also reads it in that layout when this is true.
+    pub fn early(&self, early: Early) -> bool {
+        self.prerelease()
+            .is_some_and(|prerelease| prerelease.early.contains(&early))
+    }
+
+    /// The pre-release these bytes are read as, once their snapshot's
+    /// version is the one its saves carry.
+    fn prerelease(&self) -> Option<&'static Prerelease> {
+        self.versions
+            .prerelease
+            .filter(|prerelease| self.versions.snapshot == prerelease.snapshot)
     }
 
     /// The 4-byte signature, then a u32 version that must be `version`.

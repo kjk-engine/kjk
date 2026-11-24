@@ -205,8 +205,8 @@ pub struct Run {
     pub picks: Vec<u8>,
     pub arrive: Option<String>,
     pub globals: Vec<(String, i32)>,
-    /// The tag of an object the player uses at the start.
-    pub talk: Option<String>,
+    /// The object the player uses at the start (`--talk`, `--dialog`).
+    pub talk: Option<crate::by_hand::Talk>,
     pub skills: Vec<(usize, u8)>,
     pub items: Vec<(String, u16)>,
     /// The player made by quick creation (class, portrait, name), as `kjk
@@ -295,8 +295,8 @@ pub(crate) fn play_watched(
     // A companion talked to (`--party`) is there once it joins; any other
     // is talked to first, as before.
     let talk_later = !run.party.is_empty();
-    if let Some(tag) = run.talk.as_ref().filter(|_| !talk_later) {
-        talk_to(&mut world, tag)?;
+    if let Some(talk) = run.talk.as_ref().filter(|_| !talk_later) {
+        talk_to(&mut world, talk, None)?;
     }
     if let Ok(resolver) = installer.base_resolver() {
         let made = run
@@ -310,8 +310,8 @@ pub(crate) fn play_watched(
         crate::persona::start(&mut world, resolver, 1, &[], made)?;
     }
     crate::by_hand::party(&mut world, &run.party, Some(installer))?;
-    if let Some(tag) = run.talk.as_ref().filter(|_| talk_later) {
-        talk_to(&mut world, tag)?;
+    if let Some(talk) = run.talk.as_ref().filter(|_| talk_later) {
+        talk_to(&mut world, talk, None)?;
     }
     let rate = sim::TickRate::default();
     let mut picks = run.picks.iter();

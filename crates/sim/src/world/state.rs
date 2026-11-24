@@ -147,7 +147,7 @@ impl SimWorld {
             fade: None,
             world_fade_in: crate::snapshot::WorldFadeIn::Done,
             video_effect: None,
-            spawned: Vec::new(),
+            spawned: Arc::default(),
             roster: None,
             progress: crate::snapshot::Progress::default(),
             personas: Vec::new(),
@@ -167,13 +167,17 @@ impl SimWorld {
             remotes: Vec::new(),
             puppets: Vec::new(),
             standing: Default::default(),
+            saber_rules: Default::default(),
+            targeted_blocks: false,
+            waiting: Vec::new(),
+            damage_taken: Default::default(),
             shared: SimRng::new(config.seed, 0),
             authority,
             next_id,
             seats_held: config.seats,
         };
         let start = if level.module.is_some() {
-            crate::install::assemble(&start, &level, None, None, &[], &Default::default())?.0
+            crate::install::assemble(&start, &level, None, None, &[], &Default::default(), None)?.0
         } else {
             start
         };
@@ -243,9 +247,11 @@ impl SimWorld {
         });
         world.insert_resource(NextId(snapshot.next_id));
         world.insert_resource(SeatsHeld(snapshot.seats_held));
+        world.insert_resource(super::Rules(snapshot.saber_rules, snapshot.targeted_blocks));
+        world.insert_resource(super::DamageTaken(snapshot.damage_taken));
         world.init_resource::<Inputs>();
-        world.init_resource::<Touched>();
         world.init_resource::<Bumped>();
+        world.init_resource::<GrenadeHolsterKeys>();
         world.init_resource::<MadeFaces>();
         world.init_resource::<Driven>();
         world.init_resource::<scene::Held>();
@@ -284,6 +290,7 @@ impl SimWorld {
         world.insert_resource(party::PartyState {
             paused_by: snapshot.paused_by,
             ready: snapshot.ready.clone(),
+            through: false,
         });
         world.insert_resource(drivers::Kept(snapshot.kept.clone()));
         world.init_resource::<drivers::Phantoms>();
@@ -299,6 +306,7 @@ impl SimWorld {
         world.init_resource::<scripts::Spent>();
         world.init_resource::<scripts::ItemTalents>();
         world.init_resource::<scripts::FeatTalents>();
+        world.init_resource::<scripts::WeaponSwaps>();
         world.init_resource::<scripts::Rounds>();
         world.init_resource::<scripts::StatesEnded>();
         world.insert_resource(Module {
@@ -313,6 +321,7 @@ impl SimWorld {
             roster: snapshot.roster.clone(),
             reconciled: None,
             dropped_code: Vec::new(),
+            stances_gone: Vec::new(),
             arrival_fallback: None,
             explored: snapshot.explored.clone(),
             visuals: snapshot.visuals.clone(),
@@ -442,11 +451,16 @@ impl SimWorld {
                         scene::hold,
                         remote::launch.run_if(on_authority),
                         hold_talkers,
+                        restrict_seats,
+                        ready_grenades,
                     )
                         .chain(),
                     (made_faces, minds::think.run_if(on_authority)).chain(),
                     powers::force,
                     (
+                        // The seats' stance set picks come before the
+                        // moves, whose saber step applies a queued set.
+                        stances::picks,
                         move_actors,
                         remote::flight::fly,
                         remote::kit::kit.run_if(on_authority),
@@ -454,7 +468,8 @@ impl SimWorld {
                         .chain(),
                     fire,
                     sabers::sabers,
-                    strikes::strikes,
+                    // A grab reaches after the punches (`grapples`).
+                    (strikes::strikes, grapples::grapples).chain(),
                     fly,
                     // The fall reads the fight the hurts left.
                     (
@@ -477,13 +492,21 @@ impl SimWorld {
                     expire,
                     history::remember.run_if(on_authority),
                     (
-                        scripts::scripts,
-                        scene::hold,
-                        scripts::apply,
-                        locks::refused,
+                        (
+                            scripts::scripts,
+                            scene::hold,
+                            scripts::apply,
+                            locks::refused,
+                        )
+                            .chain()
+                            .run_if(on_authority),
+                        // Last, so a sheet any system changed this step has
+                        // its bar settled before the step's snapshot. The
+                        // host alone settles bars, and clients take them
+                        // from its snapshots.
+                        bars::settle.run_if(on_authority),
                     )
-                        .chain()
-                        .run_if(on_authority),
+                        .chain(),
                 )
                     .chain()
                     .run_if(party::running),
@@ -517,7 +540,7 @@ impl SimWorld {
             module.place.clone(),
             module.pending.clone(),
             module.stash.clone(),
-            module.instances.made().to_vec(),
+            module.instances.made_shared().clone(),
             module.roster.clone(),
             module.explored.clone(),
             module.visuals.clone(),
@@ -545,6 +568,11 @@ impl SimWorld {
             .0
             .module()
             .map(|module| &**module);
+        let waiting = module
+            .filter(|module| crate::script::party::at_base(&module.name))
+            .map_or(Vec::new(), |_| {
+                script_state.party.waiting_creatures().map(SimId).collect()
+            });
         let screens = script_state.screens(module);
         let barred = script_state.transit_barred(module);
         let in_combat = self.world.resource::<InCombat>().0;
@@ -591,6 +619,10 @@ impl SimWorld {
             remotes: self.world.resource::<remote::Remotes>().0.clone(),
             standing,
             puppets,
+            waiting,
+            saber_rules: self.world.resource::<super::Rules>().0,
+            targeted_blocks: self.world.resource::<super::Rules>().1,
+            damage_taken: self.world.resource::<super::DamageTaken>().0,
             shared,
             authority,
             next_id,

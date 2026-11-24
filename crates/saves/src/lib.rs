@@ -292,6 +292,37 @@ pub fn write_encoded(
     Ok(id)
 }
 
+/// The playthrough checkpoint `bytes` written into the saves folder `root`
+/// as save `id`, named and titled by `titles` (the Load screen's name, then
+/// the area's title), saved at `saved` (seconds since 1970). Its module is
+/// the one the checkpoint was made in. The save leaves out the test aids
+/// the playthrough played with (`sim::Snapshot::without_test_aids`), so a
+/// player loading it can be hurt and deals normal damage. The checkpoint
+/// itself keeps them.
+pub fn write_checkpoint(
+    root: &Path,
+    id: &str,
+    bytes: &[u8],
+    (name, title): (&str, &str),
+    saved: u64,
+) -> Result<(), String> {
+    let mut save = sim::Save::decode(bytes).map_err(|error| error.to_string())?;
+    save.snapshot.without_test_aids();
+    let meta = Meta {
+        name: name.to_string(),
+        module: save
+            .snapshot
+            .place
+            .as_ref()
+            .map_or_else(|| save.level.name.clone(), |place| place.module.clone()),
+        area: title.to_string(),
+        saved,
+        seats: save.snapshot.seats(),
+        ..Meta::default()
+    };
+    write(root, Some(id), &save, &meta).map(|_| ())
+}
+
 /// Save `id` written again as `world` (a save as `sim::Save::encode` makes
 /// it) with `meta` and `story`, keeping where it came from when it is a
 /// copy of another's game (`copies::Received`): for a tool that changes a
@@ -346,17 +377,30 @@ pub struct Winner {
     pub alignment: u8,
 }
 
-/// Keeps `played` as what was last played here.
+/// Keeps `played` as what was last played here. The file is written whole
+/// beside its place and then renamed into it, so a program that stops
+/// while writing it leaves the old file.
 pub fn write_played(root: &Path, played: &Played) -> Result<(), String> {
-    std::fs::create_dir_all(root).map_err(|error| error.to_string())?;
     let text = serde_json::to_string(played).map_err(|error| error.to_string())?;
-    std::fs::write(root.join(PLAYED), text).map_err(|error| error.to_string())
+    store::write_atomically(&root.join(PLAYED), text.as_bytes()).map_err(|error| error.to_string())
 }
 
-/// What was last played here; none before anything was.
-pub fn read_played(root: &Path) -> Option<Played> {
-    let text = std::fs::read_to_string(root.join(PLAYED)).ok()?;
-    serde_json::from_str(&text).ok()
+/// What was last played here. It is none before anything was played. A
+/// file that does not read is moved aside (`store::set_aside`), so that the
+/// next start does not read it again, and the error says why and where the
+/// file went. The caller then goes on as if nothing was played.
+pub fn read_played(root: &Path) -> Result<Option<Played>, String> {
+    let path = root.join(PLAYED);
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(None);
+    };
+    serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+        let kept = match store::set_aside(&path) {
+            Ok(aside) => format!("it was kept as {}", aside.display()),
+            Err(why) => format!("it could not be moved aside: {why}"),
+        };
+        format!("{}: {error}; {kept}", path.display())
+    })
 }
 
 /// What a player is asked when save `id` cannot be loaded exactly and has
@@ -374,7 +418,7 @@ pub fn restore_prompt(root: &Path, id: &str) -> Option<String> {
         None => version.to_string(),
     };
     Some(format!(
-        "This save was made with {made} and can't be loaded exactly. Restore your story progress? Party, items, journal and choices come back; modules you already visited may be reset."
+        "This save was made with {made} and can't be loaded as it is. Restore your story progress? You keep your party, items, journal and choices. Areas you already visited may reset."
     ))
 }
 
@@ -650,6 +694,10 @@ const MINIGAME: &str = "You cannot save during a minigame.";
 const ARENA: &str = "The combat arena is not saved.";
 
 #[cfg(feature = "probes")]
+mod checkpoint_probes;
+#[cfg(feature = "probes")]
+pub use checkpoint_probes::probes as checkpoint_probes;
+#[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
 pub use corpus::probes as corpus_probes;
@@ -657,3 +705,7 @@ pub use corpus::probes as corpus_probes;
 pub use probes::{refusal_probes, story_probes};
 #[cfg(feature = "probes")]
 pub use safety::probes as safety_probes;
+#[cfg(feature = "probes")]
+mod startup_probes;
+#[cfg(feature = "probes")]
+pub use startup_probes::probes as startup_probes;

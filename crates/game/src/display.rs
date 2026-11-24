@@ -1,17 +1,30 @@
 //! The game's window as the options have it (`settings`, `Display`): a
 //! window of a size, borderless over its whole screen, or fullscreen in
-//! one of the screen's own modes; v-sync; the samples a pixel takes on
-//! every camera drawing to the window (they share its main texture only
-//! while they agree); and the brightness, a gamma over the whole frame
-//! (`ui_composite`). Alt+Enter goes between the window and borderless.
+//! one of the screen's own modes; v-sync; a frame rate limit (`pace`); the
+//! samples a pixel takes on every camera drawing to the window (they share
+//! its main texture only while they agree); and the brightness, a gamma
+//! over the whole frame (`ui_composite`). Alt+Enter goes between the window and borderless.
 //! The screen resolution page offers (`vm.displays`) the sizes of common
 //! windows that fit the window's screen, borderless, and the screen's own
 //! modes. Sizes are the screen's pixels, not its points.
 //!
-//! macOS has no exclusive fullscreen worth the name (winit panics when the
-//! screen's mode will not change): there fullscreen is borderless, and the
-//! page offers no screen modes. Windows panics the same way when its
-//! driver refuses a mode it listed.
+//! Only Linux uses the screen's own modes (`exclusive_on`). On macOS and
+//! Windows fullscreen is borderless over the whole screen, and the page
+//! offers no screen modes. macOS has no exclusive fullscreen worth the name
+//! (winit panics when the screen's mode will not change). On Windows,
+//! winit changes the whole desktop's mode and makes the window topmost,
+//! while the render thread may still be presenting to the swapchain made
+//! for the old mode. A player on Vulkan with an NVIDIA card (v0.17.0) had
+//! the GPU device lost one second after the switch. Bevy quits on a lost
+//! device at the next frame, and its log never said so, so that frame never
+//! came. The topmost window then covered the screen at the changed mode
+//! with nothing answering, and the whole PC seemed frozen until it was
+//! forced off. Borderless changes no mode and is not topmost, and
+//! Alt+Enter's switch to it worked for both players who reported this.
+//!
+//! A change of display is put to the window once (`show`). A fullscreen
+//! mode waits for its screen to be known, with the window left as it is
+//! meanwhile, so no mode is put to the screen twice.
 //!
 //! What the settings ask is put to the screen and the GPU first
 //! (`placed`): a window bigger than the screen, or than the GPU draws, and a
@@ -21,20 +34,23 @@
 //! says so (`recover`); `kjk --reset-display` does the same by hand.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
+use bevy::app::MainScheduleOrder;
 use bevy::camera::RenderTarget;
+use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::window::{
     Monitor, MonitorSelection, OnMonitor, PresentMode, PrimaryMonitor, PrimaryWindow,
-    VideoModeSelection, WindowMode, WindowPosition,
+    VideoModeSelection, WindowMode, WindowPosition, WindowResizeConstraints,
 };
-use ui::intent::Intent;
 use ui::vm::DisplayChoice;
 
 use crate::settings::Settings;
+use crate::temporal::Antialias;
 use crate::ui_composite::UiComposite;
-use crate::ui_view::{Ui, UiIntents};
+use crate::ui_view::Ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayMode {
@@ -70,8 +86,11 @@ pub struct Display {
     /// as it is (a window), the screen's own (fullscreen).
     pub size: Option<UVec2>,
     pub vsync: bool,
-    /// Samples a pixel takes (1, 2 or 4).
-    pub samples: u32,
+    /// The most frames a second the game draws (`pace`); none: as many as
+    /// the GPU or v-sync allow.
+    pub frame_limit: Option<u32>,
+    /// Multisampling, TAA or DLSS (`temporal`).
+    pub antialias: Antialias,
     /// The frame's encoded values to the power of 1 / this.
     pub gamma: f32,
     /// The area's grass is drawn (`grass::option`).
@@ -84,7 +103,8 @@ impl Default for Display {
             mode: DisplayMode::Window,
             size: None,
             vsync: true,
-            samples: 4,
+            frame_limit: None,
+            antialias: Antialias::Msaa(4),
             gamma: 1.0,
             grass: true,
         }
@@ -113,6 +133,29 @@ fn label(mode: DisplayMode, size: Option<UVec2>) -> String {
         || name.to_string(),
         |size| format!("{name} {} x {}", size.x, size.y),
     )
+}
+
+/// The smallest window the player can drag the game's window to, in the
+/// window's points. Bevy's ambient occlusion makes a texture with 5 mip
+/// levels, which needs a frame at least 16 pixels on each side. Bevy's bloom
+/// makes a texture 512 pixels high and as wide as the frame's shape asks, so
+/// a frame 1280 pixels wide and 16 high asked for one 40,960 pixels wide.
+/// Either made the graphics device refuse the frame, and the game quit.
+/// Bevy's own smallest window is 180 by 120 points, and a window wider than
+/// 3840 points at that height still asked for a bloom texture too wide. A
+/// window at least 320 by 240 points keeps both inside the device's limits
+/// on screens up to 7680 points wide. The sizes the options offer are all
+/// larger than this. A minimized window is still 0 by 0 pixels, and Bevy
+/// draws nothing into it.
+pub const SMALLEST_WINDOW: Vec2 = Vec2::new(320.0, 240.0);
+
+/// The limits the game's window is resized within (`SMALLEST_WINDOW`).
+pub fn window_limits() -> WindowResizeConstraints {
+    WindowResizeConstraints {
+        min_width: SMALLEST_WINDOW.x,
+        min_height: SMALLEST_WINDOW.y,
+        ..default()
+    }
 }
 
 /// Whether a window of `size` fits a screen of `full`, with room for its
@@ -146,8 +189,27 @@ const WINDOWS: [(u32, u32); 16] = [
     (3840, 2160),
 ];
 
-/// Whether the screen's own modes are offered (`fullscreen`).
-const EXCLUSIVE: bool = !cfg!(target_os = "macos");
+/// Whether the screen's own modes are offered and used on the system named
+/// `os` (`std::env::consts::OS`). Windows and macOS take fullscreen as
+/// borderless (see the module's notes).
+fn exclusive_on(os: &str) -> bool {
+    !matches!(os, "windows" | "macos")
+}
+
+/// Whether this system's fullscreen uses the screen's own modes
+/// (`exclusive_on`). A resource, so a probe can try either.
+#[derive(Resource, Debug, Clone, Copy)]
+struct ScreenModes {
+    exclusive: bool,
+}
+
+impl Default for ScreenModes {
+    fn default() -> ScreenModes {
+        ScreenModes {
+            exclusive: exclusive_on(std::env::consts::OS),
+        }
+    }
+}
 
 /// The smallest fullscreen mode offered.
 const SMALLEST: UVec2 = UVec2::new(800, 600);
@@ -158,13 +220,106 @@ impl Plugin for DisplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Display>()
             .init_resource::<Trial>()
+            .init_resource::<ScreenModes>()
             .add_systems(Update, (alt_enter, offer))
             .add_systems(
                 PostUpdate,
                 cameras_in_step.before(bevy::camera::CameraUpdateSystems),
             )
-            .add_systems(Last, (show, trial_settles, samples, brightness, facts));
+            .add_systems(Last, (show, trial_settles, brightness, facts))
+            .add_systems(Pace, pace);
     }
+
+    /// `Pace` runs last of all the frame's schedules, after every plugin
+    /// has put its own in order (the vitals' `FrameEnd` among them).
+    fn finish(&self, app: &mut App) {
+        app.world_mut()
+            .resource_mut::<MainScheduleOrder>()
+            .labels
+            .push(Pace.intern());
+    }
+}
+
+/// The schedule that holds a frame for the frame rate limit. It runs after
+/// the frame's work, so the time spent waiting is not counted as work by
+/// the vitals of a dump.
+#[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
+struct Pace;
+
+/// The most frames a second the game draws in play when v-sync is off and
+/// the player set no frame rate limit. Without it a graphics card runs at
+/// its full power draw all the time, and a weak power supply can switch the
+/// whole computer off under that load (issue 318).
+const PLAY_CEILING: u32 = 240;
+
+/// The most frames a second the game draws while a screen is open or the
+/// window is in the background. A menu draws little, so without this it
+/// would draw many hundreds of frames a second for nothing.
+const RESTING_CEILING: u32 = 60;
+
+/// Whether the safety ceilings are switched off (`KJK_UNCAPPED=1`). The
+/// benchmark sets it, because it measures how fast the game can draw.
+pub(crate) fn uncapped() -> bool {
+    std::env::var("KJK_UNCAPPED").is_ok_and(|value| value == "1")
+}
+
+/// The frame rate the pacer holds frames to, or none to leave them alone.
+/// The player's own limit counts first. When v-sync is off and no limit is
+/// set, play is held to `PLAY_CEILING`. A screen or a background window is
+/// held to `RESTING_CEILING` whether v-sync is on or off.
+fn paced_rate(display: &Display, resting: bool, ceilings: bool) -> Option<u32> {
+    if !ceilings {
+        return display.frame_limit;
+    }
+    let play = display
+        .frame_limit
+        .or((!display.vsync).then_some(PLAY_CEILING));
+    if resting {
+        return Some(play.map_or(RESTING_CEILING, |rate| rate.min(RESTING_CEILING)));
+    }
+    play
+}
+
+/// Holds each frame until its time while a frame rate is due (`paced_rate`),
+/// so the GPU and CPU rest between frames. It runs in every frame the app
+/// runs, a menu's too. The ceilings apply only to a game with a window.
+/// A headless run keeps its own pace of 60 frames a second, or no limit at
+/// all with `KJK_UNCAPPED=1` (`runtime`). The sim keeps its own clock
+/// (`sim_host`), so a limit changes how many ticks a frame steps, never what
+/// a tick does.
+fn pace(
+    display: Res<Display>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    screens: Option<Res<crate::ui_view::UiOpen>>,
+    mut ceilings: Local<Option<bool>>,
+    mut next: Local<Option<Instant>>,
+) {
+    let window = windows.single().ok();
+    let resting =
+        window.is_some_and(|window| !window.focused) || screens.is_some_and(|open| open.0);
+    let ceilings = window.is_some() && *ceilings.get_or_insert_with(|| !uncapped());
+    let Some(fps) = paced_rate(&display, resting, ceilings) else {
+        *next = None;
+        return;
+    };
+    let period = Duration::from_secs_f64(1.0 / f64::from(fps));
+    let (wait, due) = paced(*next, Instant::now(), period);
+    *next = Some(due);
+    if !wait.is_zero() {
+        std::thread::sleep(wait);
+    }
+}
+
+/// How long a frame ending at `now` waits, and when the next frame is due:
+/// a period after the one before, so a frame that waited too long is made
+/// up by the next one's shorter wait. A frame later than a whole period
+/// waits for nothing and starts the count again from itself.
+fn paced(due: Option<Instant>, now: Instant, period: Duration) -> (Duration, Instant) {
+    let due = due.map_or(now, |last| last + period);
+    if due + period <= now {
+        return (Duration::ZERO, now);
+    }
+    (due.saturating_duration_since(now), due)
 }
 
 /// Every camera drawing to the window takes the window's new size in the
@@ -205,9 +360,307 @@ fn cameras_in_step(
 pub fn probes() -> sim::probe::Checks {
     vec![
         ("cameras_share_a_resize", cameras_share_a_resize()),
+        ("smallest_window_draws", smallest_window_draws()),
+        ("minimized_window_keeps_screens", minimized_keeps_screens()),
+        (
+            "minimized_frame_sizes_cameras",
+            minimized_frame_sizes_cameras(),
+        ),
         ("stored_displays_fit", stored_displays_fit()),
         ("a_start_that_failed_opens_a_window", failed_start()),
+        ("frame_limit_paces_frames", frame_limit_paces()),
+        ("frame_rate_ceilings", frame_rate_ceilings()),
+        ("display_modes_kept", display_modes_kept()),
+        (
+            "fullscreen_is_borderless_on_windows",
+            fullscreen_by_system(),
+        ),
+        ("a_display_change_is_put_once", change_put_once()),
     ]
+}
+
+/// A 1920 x 1080 screen at 60 Hz with that one mode.
+#[cfg(feature = "probes")]
+fn probe_screen() -> Monitor {
+    use bevy::window::VideoMode;
+    Monitor {
+        name: None,
+        physical_width: 1920,
+        physical_height: 1080,
+        physical_position: IVec2::ZERO,
+        refresh_rate_millihertz: Some(60_000),
+        scale_factor: 1.0,
+        video_modes: vec![VideoMode {
+            physical_size: UVec2::new(1920, 1080),
+            bit_depth: 32,
+            refresh_rate_millihertz: 60_000,
+        }],
+    }
+}
+
+/// Windows and macOS use no screen modes and Linux does. Where none are
+/// used, the resolution page offers no fullscreen rows, and a stored
+/// fullscreen of 1920 x 1080 opens borderless over the screen. Where they
+/// are used, the page offers the screen's 1920 x 1080 mode.
+#[cfg(feature = "probes")]
+fn fullscreen_by_system() -> Result<String, String> {
+    let systems = ["windows", "macos", "linux"].map(|os| (os, exclusive_on(os)));
+    let screen = probe_screen();
+    let window = Window::default();
+    let offered = |exclusive: bool| -> Vec<String> {
+        choices(&screen, &window, exclusive)
+            .into_iter()
+            .filter(|choice| choice.mode == "fullscreen")
+            .map(|choice| choice.label)
+            .collect()
+    };
+    let (without, with) = (offered(false), offered(true));
+    let stored = placed(
+        DisplayMode::Fullscreen,
+        Some(UVec2::new(1920, 1080)),
+        Some((Entity::PLACEHOLDER, &screen)),
+        u32::MAX,
+        false,
+    );
+    let borderless = Placed {
+        mode: WindowMode::BorderlessFullscreen(MonitorSelection::Current),
+        size: None,
+        settled: true,
+    };
+    sim::probe::check(
+        systems == [("windows", false), ("macos", false), ("linux", true)]
+            && without.is_empty()
+            && with == ["Fullscreen 1920 x 1080"]
+            && stored == borderless,
+        format!(
+            "screen modes used {systems:?}; fullscreen rows without {without:?}, with {with:?}; stored fullscreen {:?}",
+            stored.mode
+        ),
+    )
+}
+
+/// `show` over seven frames for each display, with the screen known only
+/// from the third: the window's mode changes once, to the display's own,
+/// and no mode is put meanwhile. Fullscreen 1920 x 1080 with the screen's
+/// modes waits for the screen and then takes its mode; fullscreen without
+/// them and borderless are borderless from the first frame. The same
+/// display asked again changes nothing, and a window after it is one
+/// change more. The trial's file names the display tried.
+#[cfg(feature = "probes")]
+fn change_put_once() -> Result<String, String> {
+    #[derive(Resource, Default)]
+    struct Seen(Vec<(u32, WindowMode)>);
+
+    fn record(
+        windows: Query<&Window, With<PrimaryWindow>>,
+        mut frame: Local<u32>,
+        mut last: Local<Option<WindowMode>>,
+        mut seen: ResMut<Seen>,
+    ) {
+        *frame += 1;
+        let Ok(window) = windows.single() else {
+            return;
+        };
+        let was = last.replace(window.mode).unwrap_or(WindowMode::Windowed);
+        if was != window.mode {
+            seen.0.push((*frame, window.mode));
+        }
+    }
+
+    let folder = std::env::temp_dir().join(format!("kjk-display-once-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let file = folder.join(TRIAL);
+    let run = |mode: DisplayMode,
+               size: Option<UVec2>,
+               exclusive: bool|
+     -> (Vec<(u32, WindowMode)>, Option<String>) {
+        let _ = std::fs::remove_file(&file);
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>()
+            .init_resource::<Seen>()
+            .insert_resource(ScreenModes { exclusive })
+            .insert_resource(Trial {
+                since: None,
+                file: Some(file.clone()),
+            })
+            .insert_resource(Display {
+                mode,
+                size,
+                ..Display::default()
+            })
+            .add_systems(Update, (show, record).chain());
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        for frame in 1..=7 {
+            if frame == 3 {
+                app.world_mut().spawn((probe_screen(), PrimaryMonitor));
+            }
+            if frame == 5 {
+                // The same display asked again.
+                app.world_mut().resource_mut::<Display>().set_changed();
+            }
+            app.update();
+        }
+        let noted = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| text.lines().nth(1).map(str::to_string));
+        app.world_mut().resource_mut::<Display>().mode = DisplayMode::Window;
+        app.update();
+        (
+            std::mem::take(&mut app.world_mut().resource_mut::<Seen>().0),
+            noted,
+        )
+    };
+    let size = Some(UVec2::new(1920, 1080));
+    let fullscreen = run(DisplayMode::Fullscreen, size, true);
+    let as_borderless = run(DisplayMode::Fullscreen, size, false);
+    let borderless = run(DisplayMode::Borderless, None, false);
+    let _ = std::fs::remove_dir_all(&folder);
+
+    let full = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+    let exclusive = |(_, mode): &(u32, WindowMode)| {
+        matches!(mode, WindowMode::Fullscreen(_, VideoModeSelection::Specific(video))
+            if video.physical_size == UVec2::new(1920, 1080))
+    };
+    let shape =
+        |seen: &[(u32, WindowMode)]| -> Vec<u32> { seen.iter().map(|(at, _)| *at).collect() };
+    let ok = shape(&fullscreen.0) == [3, 8]
+        && exclusive(&fullscreen.0[0])
+        && as_borderless.0 == [(1, full), (8, WindowMode::Windowed)]
+        && borderless.0 == [(1, full), (8, WindowMode::Windowed)]
+        && [&fullscreen.1, &as_borderless.1, &borderless.1].map(|noted| noted.as_deref())
+            == [
+                Some("Fullscreen 1920 x 1080"),
+                Some("Fullscreen 1920 x 1080"),
+                Some("Borderless"),
+            ];
+    sim::probe::check(
+        ok,
+        format!(
+            "fullscreen with modes {:?}; without {:?}; borderless {:?}; trial noted {:?}",
+            fullscreen.0,
+            as_borderless.0,
+            borderless.0,
+            [&fullscreen.1, &as_borderless.1, &borderless.1]
+        ),
+    )
+}
+
+/// Each display mode chosen on the resolution page is saved, and two starts
+/// after it, each with its trial run out, open in it: a window of 1280 x
+/// 720, borderless, and fullscreen at 1920 x 1080. Alt+Enter's choice is
+/// saved too: a window becomes borderless, and borderless and fullscreen
+/// become a window.
+#[cfg(feature = "probes")]
+fn display_modes_kept() -> Result<String, String> {
+    let folder = std::env::temp_dir().join(format!("kjk-display-modes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let (path, trial) = (folder.join("settings.json"), folder.join(TRIAL));
+    let shown = |display: &Display| (display.mode, display.size);
+    // The display a start opens in, after it ran long enough for its trial
+    // to end.
+    let start = || {
+        let mut settings = Settings::load_from(Some(path.clone()));
+        let reset = recover_from(&mut settings, &trial);
+        let display = settings.display();
+        begin_trial(&trial, &label(display.mode, display.size));
+        end_trial(&trial);
+        (reset.is_some(), shown(&display))
+    };
+    let chosen = [
+        (DisplayMode::Window, Some(UVec2::new(1280, 720))),
+        (DisplayMode::Borderless, None),
+        (DisplayMode::Fullscreen, Some(UVec2::new(1920, 1080))),
+    ];
+    let mut kept = Vec::new();
+    for (mode, size) in chosen {
+        let mut settings = Settings::load_from(Some(path.clone()));
+        settings.apply("display.size", &size.map_or_else(String::new, size_name));
+        settings.apply("display.mode", mode.name());
+        kept.push([start(), start()]);
+    }
+    let wanted = chosen.map(|display| [(false, display); 2]);
+    // Alt+Enter from fullscreen, then twice more, each read back by a start.
+    let switched: Vec<DisplayMode> = (0..3)
+        .map(|_| {
+            switch_window(&mut Settings::load_from(Some(path.clone())));
+            start().1.0
+        })
+        .collect();
+    let _ = std::fs::remove_dir_all(&folder);
+    let switches = [
+        DisplayMode::Window,
+        DisplayMode::Borderless,
+        DisplayMode::Window,
+    ];
+    sim::probe::check(
+        kept == wanted && switched == switches,
+        format!("starts {kept:?}; Alt+Enter {switched:?}"),
+    )
+}
+
+/// The frame rate limit's setting and pacing at 50 frames a second (20 ms
+/// a frame): 0 and words set no limit; a first frame waits for nothing; a
+/// frame done 5 ms after the one before waits 15 ms; one that woke 2 ms
+/// late and then took 5 ms waits 13 ms, so the rate holds; one 30 ms late
+/// waits for nothing and counts again from itself.
+#[cfg(feature = "probes")]
+fn frame_limit_paces() -> Result<String, String> {
+    let named = ["0", "", "off", "60", " 144 "].map(ui::screens::options::frame_limit);
+    let ms = Duration::from_millis;
+    let period = ms(20);
+    let start = Instant::now();
+    let first = paced(None, start, period);
+    let early = paced(Some(start), start + ms(5), period);
+    let overslept = paced(Some(start + ms(20)), start + ms(27), period);
+    let late = paced(Some(start), start + ms(50), period);
+    let wanted = (
+        [None, None, None, Some(60), Some(144)],
+        (Duration::ZERO, start),
+        (ms(15), start + ms(20)),
+        (ms(13), start + ms(40)),
+        (Duration::ZERO, start + ms(50)),
+    );
+    let got = (named, first, early, overslept, late);
+    sim::probe::check(
+        got == wanted,
+        format!("{:?}", (named, first.0, early.0, overslept.0, late.0)),
+    )
+}
+
+/// `paced_rate` for each mix of v-sync, a player's limit (none, 30 or 144),
+/// a screen or background window, and the ceilings on or off. Play with
+/// v-sync on and no limit is left alone. Play with v-sync off and no limit
+/// is held to 240. A screen is held to 60, or to the player's limit when it
+/// is lower. With the ceilings off (`KJK_UNCAPPED`), only the player's limit
+/// counts.
+#[cfg(feature = "probes")]
+fn frame_rate_ceilings() -> Result<String, String> {
+    let rows = [
+        // (vsync, limit, resting, ceilings, wanted)
+        (true, None, false, true, None),
+        (false, None, false, true, Some(PLAY_CEILING)),
+        (false, Some(144), false, true, Some(144)),
+        (true, None, true, true, Some(RESTING_CEILING)),
+        (false, None, true, true, Some(RESTING_CEILING)),
+        (false, Some(30), true, true, Some(30)),
+        (false, Some(144), true, true, Some(RESTING_CEILING)),
+        (false, None, true, false, None),
+        (true, Some(144), true, false, Some(144)),
+    ];
+    let wrong: Vec<_> = rows
+        .iter()
+        .filter(|&&(vsync, frame_limit, resting, ceilings, wanted)| {
+            let display = Display {
+                vsync,
+                frame_limit,
+                ..Display::default()
+            };
+            paced_rate(&display, resting, ceilings) != wanted
+        })
+        .collect();
+    sim::probe::check(wrong.is_empty(), format!("wrong rows {wrong:?}"))
 }
 
 /// `placed` over the displays a settings file can hold, on a 1920 x 1080
@@ -305,7 +758,7 @@ fn failed_start() -> Result<String, String> {
     let install = crate::settings::install_key(vfs::Game::Kotor1);
     let text = serde_json::json!({
         install.clone(): "C:/Games/KOTOR",
-        "key.medpac": "KeyJ",
+        "key.stealth": "KeyO",
         "display.mode": "fullscreen",
         "display.size": "1920x1080",
     });
@@ -322,7 +775,7 @@ fn failed_start() -> Result<String, String> {
     let read = Settings::load_from(Some(path));
     let display = read.display();
     let kept =
-        read.value(&install) == Some("C:/Games/KOTOR") && read.value("key.medpac") == Some("KeyJ");
+        read.value(&install) == Some("C:/Games/KOTOR") && read.value("key.stealth") == Some("KeyO");
     begin_trial(&trial, &tried);
     end_trial(&trial);
     let ended = !trial.exists();
@@ -401,6 +854,114 @@ fn cameras_share_a_resize() -> Result<String, String> {
     )
 }
 
+/// The game's window cannot be dragged smaller than a frame that Bevy's
+/// bloom and ambient occlusion can draw. Bloom's texture is 512 pixels high
+/// and as wide as the frame's shape asks, and it must fit the 16,384 pixels
+/// a device allows. Ambient occlusion needs 16 pixels a side, and the
+/// upscaler at Performance draws half the window's side.
+#[cfg(feature = "probes")]
+fn smallest_window_draws() -> Result<String, String> {
+    let limits = crate::runtime::game_window().resize_constraints;
+    let smallest = Vec2::new(limits.min_width, limits.min_height);
+    let bloom_width = |screen_width: f32| (screen_width * 512.0 / smallest.y).round();
+    let widest = [1280.0, 1920.0, 2560.0, 3840.0, 7680.0].map(bloom_width);
+    let occlusion_side = smallest.min_element() * 0.5;
+    sim::probe::check(
+        smallest == SMALLEST_WINDOW
+            && widest.iter().all(|&width| width <= 16384.0)
+            && occlusion_side >= 16.0,
+        format!(
+            "smallest window {smallest}, bloom widths {widest:?}, occlusion side {occlusion_side}"
+        ),
+    )
+}
+
+/// A minimized window is 0 by 0 pixels. The screens' image is kept at its
+/// size while the window stays minimized, rather than made again on every
+/// frame, and it is made at the window's new size once when the window comes
+/// back at another size.
+#[cfg(feature = "probes")]
+fn minimized_keeps_screens() -> Result<String, String> {
+    let shown = UVec2::new(1280, 720);
+    let frames = [shown]
+        .into_iter()
+        .chain(std::iter::repeat_n(UVec2::ZERO, 100))
+        .chain([UVec2::new(0, 720), UVec2::new(1280, 0), shown])
+        .chain(std::iter::repeat_n(UVec2::ZERO, 20))
+        .chain([UVec2::new(1600, 900)]);
+    let (mut image, mut made) = (shown, 0);
+    for pixels in frames {
+        if let Some(size) = crate::ui_view::screens_image(image, pixels) {
+            image = size;
+            made += 1;
+        }
+    }
+    sim::probe::check(
+        made == 1 && image == UVec2::new(1600, 900),
+        format!("the image was made {made} times and is {image}"),
+    )
+}
+
+/// `size 0 0` in a headless run sizes every camera drawing the frame 0 by 0,
+/// as Bevy sizes the cameras of a minimized window, and keeps their
+/// projections finite. `size` with the frame's own size brings them back.
+#[cfg(feature = "probes")]
+fn minimized_frame_sizes_cameras() -> Result<String, String> {
+    use bevy::asset::AssetEvent;
+    use bevy::render::camera::camera_system;
+    use bevy::render::texture::ManualTextureViews;
+    use bevy::window::{WindowCreated, WindowResized, WindowScaleFactorChanged};
+
+    let mut app = App::new();
+    app.add_message::<WindowResized>()
+        .add_message::<WindowCreated>()
+        .add_message::<WindowScaleFactorChanged>()
+        .add_message::<AssetEvent<Image>>()
+        .init_resource::<Assets<Image>>()
+        .init_resource::<ManualTextureViews>()
+        .init_resource::<console::FrameMinimized>()
+        .add_systems(
+            PostUpdate,
+            (
+                camera_system.in_set(bevy::camera::CameraUpdateSystems),
+                crate::scene::minimized_frame.after(bevy::camera::CameraUpdateSystems),
+            ),
+        );
+    let frame = app
+        .world_mut()
+        .resource_mut::<Assets<Image>>()
+        .add(Image::new_target_texture(
+            1280,
+            720,
+            bevy::render::render_resource::TextureFormat::Rgba8Unorm,
+            None,
+        ));
+    app.insert_resource(console::CaptureTarget::Image(frame.clone()));
+    let camera = app
+        .world_mut()
+        .spawn((Camera3d::default(), RenderTarget::Image(frame.into())))
+        .id();
+    let mut sized = |minimized: bool| -> Result<(UVec2, bool), String> {
+        app.world_mut().resource_mut::<console::FrameMinimized>().0 = minimized;
+        for _ in 0..3 {
+            app.update();
+        }
+        let camera = app.world().get::<Camera>(camera).ok_or("no camera")?;
+        let size = camera
+            .physical_target_size()
+            .ok_or("the camera has no size")?;
+        Ok((size, camera.clip_from_view().is_finite()))
+    };
+    let shown = sized(false)?;
+    let minimized = sized(true)?;
+    let restored = sized(false)?;
+    let wanted = UVec2::new(1280, 720);
+    sim::probe::check(
+        shown == (wanted, true) && minimized == (UVec2::ZERO, true) && restored == (wanted, true),
+        format!("shown {shown:?}, minimized {minimized:?}, restored {restored:?}"),
+    )
+}
+
 /// The screen the window is on, else the primary one.
 fn screen<'a>(
     window: Option<&OnMonitor>,
@@ -438,8 +999,8 @@ fn modes(monitor: &Monitor) -> Vec<UVec2> {
 
 /// What the resolution page offers: windows that fit the screen (with
 /// room for a title bar), the largest first; borderless; the screen's
-/// own modes. The one `window` is shown as now is marked.
-fn choices(monitor: &Monitor, window: &Window) -> Vec<DisplayChoice> {
+/// own modes where `exclusive`. The one `window` is shown as now is marked.
+fn choices(monitor: &Monitor, window: &Window, exclusive: bool) -> Vec<DisplayChoice> {
     let full = UVec2::new(monitor.physical_width, monitor.physical_height);
     let (shown, now) = match window.mode {
         WindowMode::Windowed => (DisplayMode::Window, Some(window.resolution.physical_size())),
@@ -463,52 +1024,82 @@ fn choices(monitor: &Monitor, window: &Window) -> Vec<DisplayChoice> {
         .filter(|size| fits_window(*size, full))
         .map(|size| choice(DisplayMode::Window, Some(size)));
     let borderless = choice(DisplayMode::Borderless, None);
-    let exclusive = if EXCLUSIVE {
+    let own = if exclusive {
         modes(monitor)
     } else {
         Vec::new()
     };
-    let fullscreen = exclusive
+    let fullscreen = own
         .into_iter()
         .map(|size| choice(DisplayMode::Fullscreen, Some(size)));
     windows.chain([borderless]).chain(fullscreen).collect()
 }
 
-/// The resolution page's choices, for the screen the window is on now.
+/// The resolution page's choices, for the screen the window is on now. Also
+/// the anti-aliasing choices and Shadows at Ultra this machine offers.
 fn offer(
     windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindow>>,
     monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
     ui: Option<ResMut<Ui>>,
+    temporal: Option<Res<crate::temporal::Temporal>>,
+    screen_modes: Res<ScreenModes>,
+    rays: Option<Res<crate::ray_structures::RayQueries>>,
 ) {
-    let (Some(mut ui), Ok((window, on))) = (ui, windows.single()) else {
+    let Some(mut ui) = ui else {
+        return;
+    };
+    // Shadows at Ultra, where the card traces rays.
+    let ultra = rays.is_some_and(|rays| rays.available);
+    if ui.vm.ultra_shadows != ultra {
+        ui.vm.ultra_shadows = ultra;
+    }
+    // The anti-aliasing choices, when what the machine offers is first known
+    // or changes.
+    if ui.vm.antialias.is_empty() || temporal.as_ref().is_some_and(|t| t.is_changed()) {
+        let dlss = temporal.is_some_and(|temporal| temporal.dlss);
+        ui.vm.antialias = crate::temporal::offered(dlss);
+    }
+    let Ok((window, on)) = windows.single() else {
         return;
     };
     let offered = screen(on, &monitors)
-        .map(|monitor| choices(monitor, window))
+        .map(|monitor| choices(monitor, window, screen_modes.exclusive))
         .unwrap_or_else(Vec::new);
     if ui.vm.displays != offered {
         ui.vm.displays = offered;
     }
 }
 
-/// Alt+Enter: the window borderless, or back to a window.
+/// Alt+Enter: the window borderless, or back to a window. The choice is
+/// saved at once and shown on the options pages. It went through the
+/// screens' intents before, which the frame could drop unheard when this
+/// system ran after the settings had taken theirs.
 fn alt_enter(
     keys: Res<ButtonInput<KeyCode>>,
-    display: Res<Display>,
-    intents: Option<ResMut<UiIntents>>,
+    settings: Option<ResMut<Settings>>,
+    mut display: ResMut<Display>,
+    ui: Option<ResMut<Ui>>,
 ) {
     let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
     let enter = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]);
-    let Some(mut intents) = intents.filter(|_| alt && enter) else {
+    let Some(mut settings) = settings.filter(|_| alt && enter) else {
         return;
     };
-    let mode = match display.mode {
+    switch_window(&mut settings);
+    display.set_if_neq(settings.display());
+    if let Some(mut ui) = ui {
+        settings.shown(&mut ui);
+    }
+}
+
+/// A window made borderless, or a borderless or fullscreen one put back to
+/// a window, and saved.
+fn switch_window(settings: &mut Settings) {
+    let mode = match DisplayMode::named(settings.value("display.mode").unwrap_or("")) {
         DisplayMode::Window => DisplayMode::Borderless,
-        _ => DisplayMode::Window,
+        DisplayMode::Borderless | DisplayMode::Fullscreen => DisplayMode::Window,
     };
-    intents
-        .0
-        .push(Intent::Setting("display.mode".into(), mode.name().into()));
+    settings.apply("display.mode", mode.name());
 }
 
 /// Where `show` puts the window: its mode, the size a window takes (none:
@@ -532,8 +1123,8 @@ struct Placed {
 /// - the screen named by its entity: winit's own idea of the window's
 ///   screen can be none, and Bevy panics then.
 ///
-/// A window's size and a fullscreen mode wait for the screen (borderless
-/// meanwhile, for fullscreen).
+/// A window's size and a fullscreen mode wait for the screen. `show` puts
+/// nothing to the window until they are settled.
 fn placed(
     mode: DisplayMode,
     size: Option<UVec2>,
@@ -596,13 +1187,17 @@ fn placed(
 }
 
 /// The window as `Display` has it: mode and size when either changed,
-/// v-sync always, put to the screen and the GPU first (`placed`). A
-/// display other than the default goes on trial (`Trial`).
+/// v-sync always, put to the screen and the GPU first (`placed`). A change
+/// is put to the window once, when its screen is known; until then the
+/// window stays as it is. A display other than the default goes on trial
+/// (`Trial`).
+#[allow(clippy::too_many_arguments)]
 fn show(
     display: Res<Display>,
     mut windows: Query<(&mut Window, Option<&OnMonitor>), With<PrimaryWindow>>,
     monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
     device: Option<Res<RenderDevice>>,
+    screen_modes: Res<ScreenModes>,
     mut trial: ResMut<Trial>,
     time: Res<Time<Real>>,
     mut shown: Local<Option<(DisplayMode, Option<UVec2>)>>,
@@ -624,14 +1219,20 @@ fn show(
     }
     let screen = screen_entity(on, &monitors);
     let limit = device.map_or(u32::MAX, |device| device.limits().max_texture_dimension_2d);
-    let place = placed(display.mode, display.size, screen, limit, EXCLUSIVE);
-    if window.mode != place.mode {
-        window.mode = place.mode;
-    }
+    let place = placed(
+        display.mode,
+        display.size,
+        screen,
+        limit,
+        screen_modes.exclusive,
+    );
     if !place.settled {
         return;
     }
     *shown = Some(wanted);
+    if window.mode != place.mode {
+        window.mode = place.mode;
+    }
     if let Some(size) = place.size {
         window.resolution.set_physical_resolution(size.x, size.y);
         window.position = WindowPosition::Centered(MonitorSelection::Current);
@@ -639,6 +1240,9 @@ fn show(
     let size = display.size;
     if size.is_some() && place.size.is_none() && display.mode == DisplayMode::Window {
         warn!(target: "display", ?size, limit, "the window's size does not fit the screen; the window stays as it is");
+    }
+    if display.mode == DisplayMode::Fullscreen && !screen_modes.exclusive {
+        info!(target: "display", "fullscreen is borderless over the whole screen on this system");
     }
     let tried = (wanted != (DisplayMode::Window, None)).then(|| label(display.mode, size));
     trial.start(tried, time.elapsed_secs_f64());
@@ -652,24 +1256,34 @@ const TRIAL: &str = "display-trial";
 const TRIAL_SECONDS: f64 = 5.0;
 
 /// The display on trial: since when (real seconds) and in which file.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct Trial {
     since: Option<f64>,
+    file: Option<PathBuf>,
+}
+
+impl Default for Trial {
+    fn default() -> Trial {
+        Trial {
+            since: None,
+            file: trial_file(),
+        }
+    }
 }
 
 impl Trial {
     /// `tried` (its label) on trial from `now`; none ends the trial.
     fn start(&mut self, tried: Option<String>, now: f64) {
-        let Some(file) = trial_file() else {
+        let Some(file) = &self.file else {
             return;
         };
         match tried {
             Some(tried) => {
-                begin_trial(&file, &tried);
+                begin_trial(file, &tried);
                 self.since = Some(now);
             }
             None => {
-                end_trial(&file);
+                end_trial(file);
                 self.since = None;
             }
         }
@@ -725,7 +1339,7 @@ pub struct DisplayReset(pub String);
 impl DisplayReset {
     pub fn notice(&self) -> String {
         format!(
-            "kjk did not get going with the screen set to {} last time, so it opens in a window. Choose another in the options' Screen Resolution.",
+            "kjk failed to start at {} last time, so it started in windowed mode. Change the resolution in Options.",
             self.0
         )
     }
@@ -758,24 +1372,6 @@ pub fn reset() {
     eprintln!("the display is back to a window");
 }
 
-/// Every camera drawing to the window takes the samples `Display` has.
-fn samples(
-    display: Res<Display>,
-    mut cameras: Query<(&mut Msaa, Option<&RenderTarget>), With<Camera>>,
-) {
-    let wanted = match display.samples {
-        1 => Msaa::Off,
-        2 => Msaa::Sample2,
-        _ => Msaa::Sample4,
-    };
-    for (mut msaa, target) in &mut cameras {
-        let window = target.is_none_or(|target| matches!(target, RenderTarget::Window(_)));
-        if window && *msaa != wanted {
-            *msaa = wanted;
-        }
-    }
-}
-
 /// The composite's gamma (the brightness slider).
 fn brightness(display: Res<Display>, mut composites: Query<&mut UiComposite>) {
     for mut composite in &mut composites {
@@ -803,7 +1399,8 @@ fn facts(
                 "physical": [window.resolution.physical_width(), window.resolution.physical_height()],
                 "scale": window.resolution.scale_factor(),
                 "present": format!("{:?}", window.present_mode),
-                "samples": display.samples,
+                "frame_limit": display.frame_limit,
+                "antialias": display.antialias.name(),
                 "gamma": display.gamma,
                 "screens": monitors
                     .iter()

@@ -1,19 +1,22 @@
 //! Which kind of item each key uses, from the player's side
-//! (`sim::combat::picks`): hold an item key and the wheel (a pad's RB) moves
-//! through the kinds carried, sending `Action::PickItem`, and a label over
-//! the slot names the one chosen; let go having moved and nothing is used.
+//! (`sim::combat::picks`). An item kind's key is the key of the action bar
+//! slot that holds the kind (`keys`). Hold that key and the mouse wheel (a
+//! pad's D-pad left and right) moves through the kinds carried, sending
+//! `Action::PickItem`, and a label over the slot names the one chosen. Let
+//! go having moved, and nothing is used.
 //!
-//! A grenade's key charges from its press, as ever; the first step drops the
-//! charge in the sim (`Pack::charge_off`). The others are used on a press,
-//! which leaves no time to scroll, so with two kinds or more the press is
-//! held back and a tap uses the kind as it is let go.
+//! A key is used on a press, which leaves no time to scroll, so with two
+//! kinds or more the press is held back and a tap uses the kind as it is let
+//! go. A grenade's tap readies the grenade or puts it away (`bar_view`), and
+//! a grenade picked with the wheel is readied (the sim's `ready_grenades`).
 
 use std::sync::Arc;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use sim::action::Action;
-use sim::combat::items::{Shelf, use_of};
+use sim::combat::bar::{Bar, Content};
+use sim::combat::items::Shelf;
 use sim::combat::{Fighter, Sheet};
 use sim::inventory::PARTY;
 use sim::notice::Notice;
@@ -21,28 +24,22 @@ use sim::{SimId, Snapshot};
 
 use crate::loot::{Outgoing, words};
 use crate::pad::Actions;
-use crate::settings::Action as Key;
+use crate::settings::{Action as Key, BAR};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
 
-/// The item keys, by `Shelf`.
-pub const KEYS: [(Shelf, Key); Shelf::ALL.len()] = [
-    (Shelf::Medpac, Key::Medpac),
-    (Shelf::Stim, Key::Stim),
-    (Shelf::Shield, Key::Shield),
-    (Shelf::Grenade, Key::Grenade),
-];
+/// How many item kinds have a key, one for each `Shelf`.
+const SHELVES: usize = Shelf::ALL.len();
+
+/// Each item kind's key, by `Shelf`: the key of the bar slot that holds
+/// the kind, if a slot does.
+pub fn keys(bar: &Bar) -> [Option<Key>; SHELVES] {
+    Shelf::ALL.map(|shelf| bar.slot_of(Content::Item(shelf)).map(|slot| BAR[slot]))
+}
 
 /// How long a tap's press is held down for the sim to see it (seconds: some
 /// of its steps, whatever the frame rate).
-const TAP: f32 = 0.04;
-/// How long a grenade's key stays down after a let-go, at most, for the sim
-/// to take the pick first: a let-go alone would throw (seconds).
-const SETTLE: f32 = 0.25;
-/// How often a pick that should have dropped the charge is sent again while
-/// the snapshots show no drop (seconds): a joined player's pick can reach the
-/// host ahead of its press, which then has no charge to drop.
-const RESEND: f32 = 0.1;
+pub(crate) const TAP: f32 = 0.04;
 /// How long a pick not yet seen in a snapshot is believed (seconds).
 const BELIEVED: f32 = 1.0;
 /// How long a label shows after the last change, and the fade at its end
@@ -86,13 +83,11 @@ struct Hold {
 /// A frame of the keys, for `Picking::frame`.
 #[derive(Debug, Clone, Copy, Default)]
 struct Frame {
-    held: [bool; KEYS.len()],
-    pressed: [bool; KEYS.len()],
+    held: [bool; SHELVES],
+    pressed: [bool; SHELVES],
     /// How many kinds each key has.
-    counts: [usize; KEYS.len()],
+    counts: [usize; SHELVES],
     steps: i32,
-    /// The sim took the pick that drops the charge (`Pack::charge_off`).
-    dropped: bool,
     seconds: f32,
 }
 
@@ -103,35 +98,100 @@ struct Keyed {
     shelf: Option<Shelf>,
     steps: i32,
     /// Each key's state where it differs from the device's.
-    set: [Option<bool>; KEYS.len()],
+    set: [Option<bool>; SHELVES],
 }
+
+/// Where a run's commands turn the view to (`ui look at`, `ui look to`).
+#[derive(Debug, Clone, PartialEq)]
+enum LookAt {
+    /// The nearest living creature with this tag.
+    Tagged(String),
+    /// A yaw and a pitch (degrees, pitch positive looking down).
+    Angles { yaw: f32, pitch: f32 },
+}
+
+/// The turn of the view (degrees, x to the right and y down, as
+/// `Look::turn` takes them) that brings the view of the body `seat` plays
+/// in `snapshot` where `at` says. For a creature it brings the body's
+/// crosshair's line onto the chest of the nearest living creature with the
+/// tag (`sim::combat::mind::chest_of`). The line starts where the body's
+/// last command put it (`mind::crosshair`), so it runs from the camera
+/// beside the shoulder.
+fn look_toward(
+    snapshot: &Snapshot,
+    seat: sim::Seat,
+    level: &sim::Level,
+    at: &LookAt,
+) -> Option<Vec2> {
+    use sim::combat::mind;
+    let me = snapshot.body(seat)?.player?;
+    let turn = |pitch: f32, yaw: f32| {
+        Vec2::new(mind::turn(me.view[1], yaw), mind::turn(pitch, me.view[0]))
+    };
+    let tag = match at {
+        LookAt::Angles { yaw, pitch } => return Some(turn(*pitch, *yaw)),
+        LookAt::Tagged(tag) => tag,
+    };
+    let objects = sim::Instances::in_snapshot(level, snapshot);
+    let apart = |them: &sim::motion::MotionState| {
+        let d = sim::math::sub(them.origin, me.origin);
+        sim::math::dot(d, d)
+    };
+    let (them, entity) = (snapshot.entities.iter())
+        .filter(|e| crate::cast::is_tagged(e, &objects, tag))
+        .filter(|e| e.fighter.is_some_and(|f| f.alive()))
+        .filter_map(|e| Some((e.player?, e)))
+        .min_by(|(a, _), (b, _)| apart(a).total_cmp(&apart(b)))?;
+    let chest = mind::chest_of(&them, sim::bulk_of(objects.of_entity(entity)));
+    let (pitch, yaw) = mind::aim(mind::crosshair(&me), chest);
+    Some(turn(pitch, yaw))
+}
+
+/// The fighting keys a run's commands can hold (`ui key hold aim`), by
+/// the word that names each: [Aim] raises a blaster, [Attack] fires it.
+const SCRIPTED_FIGHT: [(&str, Key); 2] = [("aim", Key::Aim), ("attack", Key::Attack)];
 
 /// The item key held, the presses due, what the player picked and what the
 /// label says.
 #[derive(Resource, Debug, Default)]
 pub struct Picking {
     hold: Option<Hold>,
-    tap: [f32; KEYS.len()],
-    settling: f32,
+    tap: [f32; SHELVES],
     /// What the wheel has turned short of a notch.
     spare: f32,
     /// A pick the snapshots don't show yet: its row and when (seconds).
-    sent: [Option<(u16, f32)>; KEYS.len()],
-    /// When a pick last went out (seconds).
-    last_sent: f32,
+    sent: [Option<(u16, f32)>; SHELVES],
     /// The body the keys last played.
     body: Option<SimId>,
     label: Option<(LabelOn, Vec<u8>, f32)>,
     /// The keys a run's commands hold (`ui key`), the frame before's, the
     /// wheel they turned and the next-feat key they pressed: a headless run
     /// reads no device.
-    held_by_script: [bool; KEYS.len()],
-    was_by_script: [bool; KEYS.len()],
+    held_by_script: [bool; SHELVES],
+    was_by_script: [bool; SHELVES],
     wheel_by_script: f32,
     feat_by_script: bool,
+    /// The bar slots a run's commands hold (`ui key hold slot N`), and the
+    /// frame before's.
+    slots_by_script: [bool; BAR.len()],
+    slots_were: [bool; BAR.len()],
+    /// The fighting keys a run's commands hold (`ui key hold aim`, `ui key
+    /// hold attack`, in the order of `SCRIPTED_FIGHT`), and the frame
+    /// before's.
+    fight_by_script: [bool; SCRIPTED_FIGHT.len()],
+    fight_were: [bool; SCRIPTED_FIGHT.len()],
+    /// The degrees a run's commands turn the view by next frame (`ui look
+    /// RIGHT DOWN`): x to the right, y down, as `Look::turn` takes them.
+    look_by_script: Vec2,
+    /// Where a run's commands turn the view to next: onto a creature
+    /// (`ui look at TAG`) or to a yaw and a pitch (`ui look to YAW PITCH`).
+    look_at: Option<LookAt>,
     /// A run's commands took the keys: its commands count though it has no
     /// window (`PlayerInput::read`).
     keys_scripted: bool,
+    /// Each item kind's key on the bar of the body the keys last played
+    /// (`keys`).
+    keys: [Option<Key>; SHELVES],
 }
 
 impl Picking {
@@ -140,28 +200,47 @@ impl Picking {
         self.hold.is_some()
     }
 
-    /// The key held that has kinds to choose among (`pad`: it stays held
-    /// whatever the second layer does, and RB steps).
+    /// The key held that has kinds to choose among. `pad` keeps this key
+    /// held whatever the bumpers do, and its D-pad's left and right step
+    /// through the kinds.
     pub(crate) fn choosing(&self) -> Option<Key> {
         let hold = self.hold.filter(|hold| hold.choice && !hold.cancelled)?;
-        Some(KEYS[hold.shelf as usize].1)
+        self.keys[hold.shelf as usize]
+    }
+
+    /// Medpacs on `key`, held with kinds to choose among (`pad`'s probes).
+    #[cfg(feature = "probes")]
+    pub(crate) fn choosing_medpacs(key: Key) -> Picking {
+        let mut keys = [None; SHELVES];
+        keys[Shelf::Medpac as usize] = Some(key);
+        Picking {
+            hold: Some(Hold {
+                shelf: Shelf::Medpac,
+                moved: false,
+                deferred: true,
+                choice: true,
+                cancelled: false,
+            }),
+            keys,
+            ..Picking::default()
+        }
     }
 
     /// Nothing is going on: no key held, no press due, no pick on its way.
     fn idle(&self, actions: &Actions) -> bool {
         self.hold.is_none()
-            && self.settling <= 0.0
             && self.tap.iter().all(|tap| *tap <= 0.0)
             && self.sent.iter().all(Option::is_none)
-            && KEYS.iter().all(|(_, key)| !actions.held(*key))
+            && BAR.iter().all(|key| !actions.held(*key))
     }
 
-    /// A pick should have dropped the charge, and the snapshots show it hasn't.
-    fn drop_due(&self, dropped: bool) -> bool {
-        let held = self
-            .hold
-            .is_some_and(|hold| hold.shelf == Shelf::Grenade && hold.moved && !hold.cancelled);
-        !dropped && (held || self.settling > 0.0)
+    /// The item kind whose key is held, while a screen or another body has
+    /// not come between. While the player picks among two or more items of
+    /// the kind, the key's press is held back from the bar, and the HUD
+    /// uses this to show the kind's bar slot as pressed.
+    pub fn held_shelf(&self) -> Option<Shelf> {
+        let hold = self.hold.filter(|hold| !hold.cancelled)?;
+        Some(hold.shelf)
     }
 
     /// The kind just picked for `shelf`, while the snapshots catch up.
@@ -186,8 +265,13 @@ impl Picking {
         self.keys_scripted
     }
 
-    /// A command's request: `key hold grenade`, `key up grenade`, `key feat`
-    /// or `wheel 1` (notches, down).
+    /// A command's request: `key hold grenade`, `key up grenade`, `key hold
+    /// slot 2`, `key up slot 2`, `key hold aim`, `key up attack`, `key feat`,
+    /// `wheel 1` (notches, down), `look 10 -5` (the view turned 10° to the
+    /// right and 5° up), `look to 90 -5` (the view turned to a yaw of 90°
+    /// and 5° up) or `look at g_sithtroop01` (the view turned so the
+    /// crosshair's line meets the chest of the nearest living creature with
+    /// that tag, `look_toward`).
     pub(crate) fn script(&mut self, words: &[&str]) -> bool {
         let on = |name: &str| {
             Some(match name {
@@ -200,9 +284,32 @@ impl Picking {
         };
         match words {
             ["key", "feat"] => self.feat_by_script = true,
-            ["key", verb @ ("hold" | "up"), name] => match on(name) {
-                Some(shelf) => self.held_by_script[shelf as usize] = *verb == "hold",
-                None => return false,
+            ["key", verb @ ("hold" | "up"), "slot", number] => match number.parse::<usize>() {
+                Ok(number) if (1..=BAR.len()).contains(&number) => {
+                    self.slots_by_script[number - 1] = *verb == "hold";
+                }
+                _ => return false,
+            },
+            ["key", verb @ ("hold" | "up"), name] => {
+                let fight = SCRIPTED_FIGHT.iter().position(|(word, _)| word == name);
+                match (on(name), fight) {
+                    (Some(shelf), _) => self.held_by_script[shelf as usize] = *verb == "hold",
+                    (None, Some(fight)) => self.fight_by_script[fight] = *verb == "hold",
+                    (None, None) => return false,
+                }
+            }
+            ["look", "at", tag] => self.look_at = Some(LookAt::Tagged(tag.to_string())),
+            ["look", "to", yaw, pitch] => match (yaw.parse::<f32>(), pitch.parse::<f32>()) {
+                (Ok(yaw), Ok(pitch)) if yaw.is_finite() && pitch.is_finite() => {
+                    self.look_at = Some(LookAt::Angles { yaw, pitch });
+                }
+                _ => return false,
+            },
+            ["look", right, down] => match (right.parse::<f32>(), down.parse::<f32>()) {
+                (Ok(right), Ok(down)) if right.is_finite() && down.is_finite() => {
+                    self.look_by_script += Vec2::new(right, down);
+                }
+                _ => return false,
             },
             ["wheel", notches] => match notches.parse::<f32>() {
                 Ok(notches) => self.wheel_by_script -= notches,
@@ -214,12 +321,19 @@ impl Picking {
         true
     }
 
-    /// What the run's commands hold, put in `actions`; the wheel they turned.
+    /// What the run's commands hold, put in `actions`, with the view's turn
+    /// they asked for; the wheel they turned.
     fn scripted(&mut self, actions: &mut Actions) -> f32 {
-        for ((shelf, key), held) in KEYS.into_iter().zip(self.held_by_script) {
-            if held {
+        let shelves = self.held_by_script.into_iter().zip(self.was_by_script);
+        let slots = self.slots_by_script.into_iter().zip(self.slots_were);
+        let kinds = self.keys.into_iter().zip(shelves);
+        let bar = BAR.map(Some).into_iter().zip(slots);
+        let fight = (SCRIPTED_FIGHT.map(|(_, key)| Some(key)).into_iter())
+            .zip(self.fight_by_script.into_iter().zip(self.fight_were));
+        for (key, (held, was)) in kinds.chain(bar).chain(fight) {
+            if let Some(key) = key.filter(|_| held) {
                 actions.set_held(key, true);
-                if !self.was_by_script[shelf as usize] {
+                if !was {
                     actions.set_pressed(key);
                 }
             }
@@ -228,6 +342,9 @@ impl Picking {
             actions.set_pressed(Key::NextFeat);
         }
         self.was_by_script = self.held_by_script;
+        self.slots_were = self.slots_by_script;
+        self.fight_were = self.fight_by_script;
+        actions.turn += std::mem::take(&mut self.look_by_script);
         std::mem::take(&mut self.wheel_by_script)
     }
 
@@ -242,8 +359,19 @@ impl Picking {
                 ..hold
             });
         self.tap = Default::default();
-        self.settling = 0.0;
         self.spare = 0.0;
+    }
+
+    /// One frame of the keys. `shut` says that the power wheel is open and
+    /// has the keys. While it does, whatever is due is dropped (`cancel`)
+    /// and no key is read. A key pressed meanwhile starts no hold, so
+    /// letting it go after the wheel closes makes no tap.
+    fn step(&mut self, shut: bool, frame: Frame) -> Keyed {
+        if shut {
+            self.cancel();
+            return Keyed::default();
+        }
+        self.frame(frame)
     }
 
     fn frame(&mut self, frame: Frame) -> Keyed {
@@ -252,15 +380,6 @@ impl Picking {
             if *tap > 0.0 {
                 *set = Some(true);
                 *tap -= frame.seconds;
-            }
-        }
-        let grenade = Shelf::Grenade as usize;
-        if self.settling > 0.0 {
-            if frame.dropped {
-                self.settling = 0.0;
-            } else {
-                out.set[grenade] = Some(true);
-                self.settling -= frame.seconds;
             }
         }
         match self.hold {
@@ -289,10 +408,6 @@ impl Picking {
                         self.tap[at] = TAP;
                         out.set[at] = Some(true);
                     }
-                    if at == grenade && hold.moved && !frame.dropped {
-                        self.settling = SETTLE;
-                        out.set[at] = Some(true);
-                    }
                     self.hold = None;
                 }
             }
@@ -303,15 +418,14 @@ impl Picking {
                 {
                     let at = shelf as usize;
                     let choice = frame.counts[at] >= 2;
-                    let deferred = choice && shelf != Shelf::Grenade;
                     self.hold = Some(Hold {
                         shelf,
                         moved: false,
-                        deferred,
+                        deferred: choice,
                         choice,
                         cancelled: false,
                     });
-                    if deferred {
+                    if choice {
                         out.set[at] = Some(false);
                     }
                     out.shelf = choice.then_some(shelf);
@@ -332,7 +446,7 @@ pub fn kinds(
     sheet: &Sheet,
     fighter: &Fighter,
     library: Option<&Arc<sim::script::Library>>,
-) -> [Vec<Kind>; KEYS.len()] {
+) -> [Vec<Kind>; SHELVES] {
     let held: Vec<_> = library.map_or_else(Vec::new, |library| {
         let catalog = library.items();
         snapshot
@@ -354,7 +468,7 @@ pub fn kinds(
         sim::inventory::kinds(
             sheet.race,
             held.iter().map(|(uses, facts, _)| (*uses, *facts)),
-            |row| library.impact(row).is_some(),
+            |row| library.item_row(row),
         )
     });
     let shown = sheet.items.iter().flatten().copied();
@@ -363,11 +477,9 @@ pub fn kinds(
             .clone()
             .filter(|kind| carried.iter().all(|known| known.row != kind.row)),
     );
-    let mut out: [Vec<Kind>; KEYS.len()] = Default::default();
+    let mut out: [Vec<Kind>; SHELVES] = Default::default();
     for kind in rows {
-        let Some(on) = use_of(kind.row) else {
-            continue;
-        };
+        let on = kind.kind();
         let slot = sheet
             .items
             .iter()
@@ -393,7 +505,7 @@ pub fn kinds(
 /// Which of `kinds[shelf]` the key uses now: the one just picked, or what the
 /// sim's key would take (`Pack::keyed`), else its first.
 pub fn chosen(
-    kinds: &[Vec<Kind>; KEYS.len()],
+    kinds: &[Vec<Kind>; SHELVES],
     sheet: &Sheet,
     fighter: &Fighter,
     shelf: Shelf,
@@ -412,21 +524,40 @@ pub fn chosen(
 
 /// What the label says of `kind`: its item's name and the uses left.
 fn named(ui: &mut Ui, kind: &Kind) -> Option<Vec<u8>> {
+    let mut name = item_name(ui, kind)?;
+    name.extend(format!("  x{}", kind.left).into_bytes());
+    Some(name)
+}
+
+/// The name of `kind`'s item, else the name of the power it casts.
+pub(crate) fn item_name(ui: &mut Ui, kind: &Kind) -> Option<Vec<u8>> {
     let name = kind.template.as_ref().and_then(|template| {
         let look = ui.assets.as_mut()?.item_ref(template)?;
         Some(look.name.clone())
     });
-    let mut name = name.or_else(|| {
-        let strref = ui
-            .assets
-            .as_mut()?
-            .cell("spells", usize::from(kind.row), "name")?
-            .parse()
-            .ok()?;
-        Some(words(&Notice::Line(strref), Some(ui)).into_bytes())
-    })?;
-    name.extend(format!("  x{}", kind.left).into_bytes());
-    Some(name)
+    name.or_else(|| table_name(ui, "spells", usize::from(kind.row)))
+}
+
+/// The talk table's line that row `row` of the 2DA table `table` names in
+/// its `name` column (`spells`, `feat`, `skills`).
+pub(crate) fn table_name(ui: &mut Ui, table: &str, row: usize) -> Option<Vec<u8>> {
+    let strref = ui.assets.as_mut()?.cell(table, row, "name")?.parse().ok()?;
+    Some(fmt_odyssey::code_page_bytes(&words(
+        &Notice::Line(strref),
+        Some(ui),
+    )))
+}
+
+/// How far the mouse wheel turned this frame, in notches up. A trackpad's
+/// scroll counts `NOTCH_PIXELS` pixels as a notch.
+pub(crate) fn turned(wheel: &mut MessageReader<MouseWheel>) -> f32 {
+    wheel
+        .read()
+        .map(|event| match event.unit {
+            MouseScrollUnit::Line => event.y,
+            MouseScrollUnit::Pixel => event.y / NOTCH_PIXELS,
+        })
+        .sum()
 }
 
 /// A screen, a conversation or a movie has the keys.
@@ -459,40 +590,56 @@ fn pick(
         Option<ResMut<Outgoing>>,
         Option<ResMut<Ui>>,
     ),
-    time: Res<Time<Real>>,
+    (time, power_wheel): (Res<Time<Real>>, Option<Res<crate::wheel_view::Wheel>>),
 ) {
-    let turned: f32 = wheel
-        .read()
-        .map(|event| match event.unit {
-            MouseScrollUnit::Line => event.y,
-            MouseScrollUnit::Pixel => event.y / NOTCH_PIXELS,
-        })
-        .sum();
-    let turned = turned + picking.scripted(&mut actions);
-    if picking.idle(&actions) {
-        return;
-    }
+    let turned = turned(&mut wheel);
     let busy = busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
+    // A run's `look at TAG`: the turn onto the creature, from the own body.
+    if let Some(at) = picking.look_at.take() {
+        let toward = (presented
+            .as_deref()
+            .zip(own.as_deref())
+            .zip(swap.as_deref()))
+        .and_then(|((presented, own), swap)| {
+            look_toward(presented.0.current(), own.0, &swap.level, &at)
+        });
+        match toward {
+            Some(turn) => picking.look_by_script += turn,
+            None => warn!(target: "console", "ui look: nothing to turn to for {at:?}"),
+        }
+    }
     let body = (!busy)
         .then_some(())
         .and_then(|()| Some((presented?, own?, swap?)));
     let body = body.as_ref().and_then(|(presented, own, swap)| {
         let snapshot = presented.0.current();
         let (body, sheet) = crate::cast::body_sheet(snapshot, own.0, &swap.level)?;
-        let fighter = body.fighter?;
-        let library = swap.level.scripts();
-        let kinds = kinds(snapshot, body.id, &sheet, &fighter, library);
-        Some((snapshot.time_ms, body.id, sheet, fighter, kinds))
+        Some((
+            snapshot,
+            body.id,
+            sheet,
+            body.fighter?,
+            swap.level.scripts(),
+        ))
     });
-    let Some((now_ms, id, sheet, fighter, kinds)) = body else {
+    if let Some((_, _, sheet, ..)) = &body {
+        picking.keys = keys(&sheet.bar);
+    }
+    let turned = turned + picking.scripted(&mut actions);
+    if picking.idle(&actions) {
+        return;
+    }
+    let Some((snapshot, id, sheet, fighter, library)) = body else {
         picking.cancel();
         return;
     };
+    let now_ms = snapshot.time_ms;
+    let kinds = kinds(snapshot, id, &sheet, &fighter, library);
     if picking.body.replace(id).is_some_and(|was| was != id) {
         picking.cancel();
     }
     let now = time.elapsed_secs();
-    for (shelf, _) in KEYS {
+    for shelf in Shelf::ALL {
         let sent = &mut picking.sent[shelf as usize];
         if let Some((row, at)) = *sent
             && (sheet.picks.item(shelf) == Some(row) || now - at > BELIEVED)
@@ -509,27 +656,24 @@ fn pick(
     let notches = picking.spare.trunc();
     picking.spare -= notches;
     let frame = Frame {
-        held: KEYS.map(|(_, key)| actions.held(key)),
-        pressed: KEYS.map(|(_, key)| actions.pressed(key)),
+        held: picking
+            .keys
+            .map(|key| key.is_some_and(|key| actions.held(key))),
+        pressed: picking
+            .keys
+            .map(|key| key.is_some_and(|key| actions.pressed(key))),
         counts: std::array::from_fn(|at| kinds[at].len()),
         steps: i32::from(actions.pick_step) - notches as i32,
-        dropped: fighter.pack.charge_off,
         seconds: time.delta_secs(),
     };
-    let keyed = picking.frame(frame);
-    for ((_, key), set) in KEYS.iter().zip(keyed.set) {
-        if let Some(on) = set {
-            actions.set_held(*key, on);
+    // The power wheel open has the item keys too, so a key pressed then
+    // starts nothing.
+    let wheeling = power_wheel.is_some_and(|wheel| wheel.open);
+    let keyed = picking.step(wheeling, frame);
+    for (key, set) in picking.keys.into_iter().zip(keyed.set) {
+        if let (Some(key), Some(on)) = (key, set) {
+            actions.set_held(key, on);
         }
-    }
-    let shelf = Shelf::Grenade;
-    if picking.drop_due(fighter.pack.charge_off)
-        && now - picking.last_sent > RESEND
-        && let Some(row) = picking.pending(shelf).or(sheet.picks.item(shelf))
-        && let Some(outgoing) = outgoing.as_mut()
-    {
-        outgoing.0.push(Action::PickItem { row });
-        picking.last_sent = now;
     }
     let Some(shelf) = keyed.shelf else {
         return;
@@ -546,7 +690,6 @@ fn pick(
     {
         outgoing.0.push(Action::PickItem { row: kind.row });
         picking.sent[shelf as usize] = Some((kind.row, now));
-        picking.last_sent = now;
     }
     if let Some(words) = ui.as_mut().and_then(|ui| named(ui, kind)) {
         picking.say(LabelOn::Item(shelf), words, now);
@@ -574,18 +717,102 @@ pub fn probes() -> sim::probe::Checks {
         ("two kinds use on the let-go", two_kinds_on_let_go()),
         ("scrolling uses nothing", scrolling_uses_nothing()),
         ("one kind has nothing to scroll", one_kind_no_scroll()),
-        ("a grenade charges from its press", grenade_charges()),
-        ("a grenade scrolled waits for the sim", grenade_waits()),
         ("the label fades", label_fades()),
         ("a cancelled hold does nothing more", cancelled_hold()),
+        ("a bar slot is its item kind's key", bar_slot_keys()),
+        (
+            "a slot key while the wheel is open",
+            slot_key_while_wheel_open(),
+        ),
     ]
+}
+
+/// A key of medpacs with two kinds, pressed while the power wheel is open
+/// and held for 3 frames, then held 3 frames more after the wheel closes,
+/// then let go for 3 frames, is never held down for the sim, so no medpac
+/// is used.
+#[cfg(feature = "probes")]
+fn slot_key_while_wheel_open() -> Result<String, String> {
+    let at = Shelf::Medpac as usize;
+    let script = [(true, true, true)]
+        .into_iter()
+        .chain([(true, true, false); 2])
+        .chain([(false, true, false); 3])
+        .chain([(false, false, false); 3]);
+    let mut picking = Picking::default();
+    let seen: Vec<bool> = script
+        .map(|(shut, held, pressed)| {
+            let mut frame = Frame {
+                seconds: 0.01,
+                ..Frame::default()
+            };
+            frame.held[at] = held;
+            frame.pressed[at] = pressed;
+            frame.counts[at] = 2;
+            picking.step(shut, frame).set[at] == Some(true)
+        })
+        .collect();
+    sim::probe::check(
+        seen.iter().all(|held| !held),
+        format!("the medpac key held down for the sim each frame {seen:?}"),
+    )
+}
+
+/// Grenades put in bar slot 3 and medpacs in slot 1 make those slots'
+/// keys the two kinds' keys, and the other kinds have none. A run's
+/// `key hold grenade` then holds and presses slot 3's key, and
+/// `key hold stim` holds nothing. `key hold slot 5` holds and presses slot
+/// 5's key, whatever the slot holds, and `key hold slot 11` is refused.
+/// `key hold aim` and `key hold attack` hold and press [Aim] and [Attack].
+#[cfg(feature = "probes")]
+fn bar_slot_keys() -> Result<String, String> {
+    let mut bar = Bar::default();
+    bar.put(2, Content::Item(Shelf::Grenade));
+    bar.put(0, Content::Item(Shelf::Medpac));
+    let mut picking = Picking {
+        keys: keys(&bar),
+        ..Picking::default()
+    };
+    let want = [Some(BAR[0]), None, None, Some(BAR[2])];
+    let commands: [&[&str]; 4] = [
+        &["key", "hold", "grenade"],
+        &["key", "hold", "stim"],
+        &["key", "hold", "slot", "5"],
+        &["key", "hold", "slot", "11"],
+    ];
+    let scripted = commands.map(|words| picking.script(words));
+    let mut actions = Actions::default();
+    picking.scripted(&mut actions);
+    let held = BAR.map(|key| actions.held(key));
+    let pressed = BAR.map(|key| actions.pressed(key));
+    let third_and_fifth = |seen: [bool; sim::combat::bar::SLOTS]| {
+        seen == std::array::from_fn(|slot| [2, 4].contains(&slot))
+    };
+    let mut fighting = Picking::default();
+    let fights: [&[&str]; 2] = [&["key", "hold", "aim"], &["key", "hold", "attack"]];
+    let fought = fights.map(|words| fighting.script(words));
+    let mut fight = Actions::default();
+    fighting.scripted(&mut fight);
+    let fight = [Key::Aim, Key::Attack].map(|key| (fight.held(key), fight.pressed(key)));
+    sim::probe::check(
+        picking.keys == want
+            && scripted == [true, true, true, false]
+            && third_and_fifth(held)
+            && third_and_fifth(pressed)
+            && fought == [true, true]
+            && fight == [(true, true); 2],
+        format!(
+            "keys {:?}, held {held:?}, pressed {pressed:?}, aim and attack (held, pressed) {fight:?}",
+            picking.keys
+        ),
+    )
 }
 
 /// Runs `script` (the key's state, the wheel's steps) on `shelf`'s key with
 /// `count` kinds, then two frames with the key up: what the sim sees of the
 /// key each frame, and the steps taken.
 #[cfg(feature = "probes")]
-fn run(shelf: Shelf, count: usize, script: &[(bool, i32)], dropped: bool) -> (Vec<bool>, Vec<i32>) {
+fn run(shelf: Shelf, count: usize, script: &[(bool, i32)]) -> (Vec<bool>, Vec<i32>) {
     let mut picking = Picking::default();
     let (mut seen, mut moved) = (Vec::new(), Vec::new());
     let at = shelf as usize;
@@ -593,7 +820,6 @@ fn run(shelf: Shelf, count: usize, script: &[(bool, i32)], dropped: bool) -> (Ve
     for (held, steps) in script.iter().chain(&[(false, 0); 2]) {
         let mut frame = Frame {
             steps: *steps,
-            dropped,
             seconds: 0.01,
             ..Frame::default()
         };
@@ -623,52 +849,58 @@ const TAPPED: [(bool, i32); 2] = [(true, 0), (true, 0)];
 #[cfg(feature = "probes")]
 const SCROLLED: [(bool, i32); 3] = [(true, 0), (true, 1), (true, 0)];
 
+/// Runs `script` with `count` kinds on every kind's key, grenades
+/// included: the kinds whose run `right` refuses, with what the sim saw
+/// of the key and the steps taken.
+#[cfg(feature = "probes")]
+fn every_kind(
+    count: usize,
+    script: &[(bool, i32)],
+    right: impl Fn(&[bool], &[i32]) -> bool,
+) -> Result<String, String> {
+    let wrong: Vec<String> = Shelf::ALL
+        .into_iter()
+        .filter_map(|shelf| {
+            let (seen, moved) = run(shelf, count, script);
+            (!right(&seen, &moved)).then(|| format!("{shelf:?}: {seen:?} {moved:?}"))
+        })
+        .collect();
+    sim::probe::check(
+        wrong.is_empty(),
+        format!("{} kinds, wrong {wrong:?}", Shelf::ALL.len()),
+    )
+}
+
+/// A key with one kind is pressed for the sim as it goes down. For the
+/// grenades the press readies the grenade (`bar_view`).
 #[cfg(feature = "probes")]
 fn one_kind_on_press() -> Result<String, String> {
-    let (seen, _) = run(Shelf::Medpac, 1, &TAPPED, false);
-    sim::probe::check(seen[0] && presses(&seen) == 1, format!("{seen:?}"))
+    every_kind(1, &TAPPED, |seen, _| seen[0] && presses(seen) == 1)
 }
 
+/// A key with two kinds is pressed for the sim as it is let go, since
+/// holding it lets the player scroll to another kind.
 #[cfg(feature = "probes")]
 fn two_kinds_on_let_go() -> Result<String, String> {
-    let (seen, _) = run(Shelf::Stim, 2, &TAPPED, false);
-    sim::probe::check(
-        !seen[0] && !seen[1] && seen[2] && presses(&seen) == 1,
-        format!("{seen:?}"),
-    )
+    every_kind(2, &TAPPED, |seen, _| {
+        !seen[0] && !seen[1] && seen[2] && presses(seen) == 1
+    })
 }
 
+/// A key held while the mouse wheel scrolls is never pressed for the sim.
 #[cfg(feature = "probes")]
 fn scrolling_uses_nothing() -> Result<String, String> {
-    let (seen, moved) = run(Shelf::Shield, 3, &SCROLLED, false);
-    sim::probe::check(
-        presses(&seen) == 0 && moved == [0, 1, 0, 0, 0],
-        format!("{seen:?} {moved:?}"),
-    )
+    every_kind(3, &SCROLLED, |seen, moved| {
+        presses(seen) == 0 && moved == [0, 1, 0, 0, 0]
+    })
 }
 
 #[cfg(feature = "probes")]
 fn one_kind_no_scroll() -> Result<String, String> {
-    let (seen, moved) = run(Shelf::Stim, 1, &SCROLLED, false);
+    let (seen, moved) = run(Shelf::Stim, 1, &SCROLLED);
     sim::probe::check(
         presses(&seen) == 1 && moved.iter().all(|step| *step == 0),
         format!("{seen:?} {moved:?}"),
-    )
-}
-
-#[cfg(feature = "probes")]
-fn grenade_charges() -> Result<String, String> {
-    let (seen, _) = run(Shelf::Grenade, 2, &TAPPED, false);
-    sim::probe::check(seen[0] && seen[1] && !seen[2], format!("{seen:?}"))
-}
-
-#[cfg(feature = "probes")]
-fn grenade_waits() -> Result<String, String> {
-    let (waiting, _) = run(Shelf::Grenade, 2, &SCROLLED, false);
-    let (took, _) = run(Shelf::Grenade, 2, &SCROLLED, true);
-    sim::probe::check(
-        waiting[3] && waiting[4] && !took[3],
-        format!("not yet {waiting:?}, taken {took:?}"),
     )
 }
 

@@ -45,6 +45,12 @@ fn unsupported(what: String) -> FormatError {
     }
 }
 
+/// The digits of a hexadecimal cell after its `0x` or `0X`, or `None` for a
+/// cell without that prefix.
+fn hex_digits(text: &str) -> Option<&str> {
+    text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
+}
+
 impl TwoDa {
     pub fn parse(bytes: &[u8]) -> Result<TwoDa, FormatError> {
         if !bytes.starts_with(SIGNATURE) {
@@ -207,8 +213,16 @@ impl TwoDa {
     /// The cell under `column` as an integer: its leading digits, after
     /// blanks and a sign, as reone reads a 2DA number; `None`
     /// when blank or it starts with none.
+    ///
+    /// A cell that starts with `0x` is hexadecimal and is read as its
+    /// unsigned value. The games write bit masks this way, and K1's and
+    /// TSL's `exptable.2da` end with `0xFFFFFFFF` for a level that cannot
+    /// be reached. Read as decimal digits, that cell would be 0.
     pub fn int(&self, row: usize, column: &str) -> Option<i64> {
         let text = self.text(row, column)?;
+        if let Some(digits) = hex_digits(&text) {
+            return i64::from_str_radix(digits, 16).ok();
+        }
         let end = text
             .char_indices()
             .find(|&(at, c)| !(c.is_ascii_digit() || (at == 0 && (c == '-' || c == '+'))))
@@ -230,11 +244,7 @@ impl TwoDa {
     /// (`baseitems.2da` `equipableslots`).
     pub fn hex(&self, row: usize, column: &str) -> Option<u32> {
         let text = self.text(row, column)?;
-        let digits = text
-            .strip_prefix("0x")
-            .or_else(|| text.strip_prefix("0X"))
-            .unwrap_or(&text);
-        u32::from_str_radix(digits, 16).ok()
+        u32::from_str_radix(hex_digits(&text).unwrap_or(&text), 16).ok()
     }
 
     /// The first row whose cell under `column` is `value`, ignoring case

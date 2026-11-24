@@ -143,8 +143,8 @@ leader player        # the Exile leads the fight: the Sentinel's sixth
 fight 30             # level's Force Immunity (stun) holds against the
                      # sentry droid's stun ray, which keeps Mira stunned
 use g0t0droid@27     # the mine codes
-leader 7
-to 351_Hub_Dlg       # the command centre
+leader player        # the command centre's trigger fires only for the Exile
+to 351_Hub_Dlg       # (k_351_hubdlgfire), never for Mira at the head
 talk
 fight 30             # the droids behind the minefield
 leader 8             # T3-M4 at the bridge's door
@@ -163,7 +163,9 @@ say =Run program: Shut down.
 say Log out.
 use ComputerPanel@1  # the Bridge Command Console
 talk
-unlock MilHighPlstcCylin@1 # the bridge's cylinder: the Droid Controller's
+bash MilHighPlstcCylin@1 # the bridge's cylinder, struck open: its lock
+                     # grows with the player's level (45 at level 17), past
+                     # the Exile's Security. The Droid Controller's
 use MilHighPlstcCylin@1 # access code
 save nar_shaddaa_bridge
 leader player

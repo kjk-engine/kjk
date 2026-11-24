@@ -27,6 +27,8 @@ pub mod fog;
 mod input;
 mod install;
 pub mod instance;
+#[cfg(feature = "probes")]
+pub mod instance_probes;
 pub mod inventory;
 pub mod levels;
 pub mod math;
@@ -78,7 +80,7 @@ pub mod walk;
 mod wire;
 mod world;
 
-pub use input::{Command, Seat, TickInput, buttons};
+pub use input::{Command, Seat, TickInput, buttons, holds};
 pub use install::{Announcement, InstallError, Mismatch, Restamp, WALKER_HALF_WIDTH_M, counts};
 pub use instance::Instances;
 pub use rate::{Accumulator, MAX_CATCH_UP, TICK_HZ, TickRate};
@@ -99,7 +101,11 @@ pub use world::arena;
 #[cfg(feature = "probes")]
 pub use world::arena_probes;
 #[cfg(feature = "probes")]
+pub use world::armour_force_probes;
+#[cfg(feature = "probes")]
 pub use world::arrival_probes;
+#[cfg(feature = "probes")]
+pub use world::bloom_shot_probes;
 #[cfg(feature = "probes")]
 pub use world::bulk_probes;
 pub use world::charting;
@@ -109,9 +115,13 @@ pub use world::coop_items;
 pub use world::coop_talk;
 #[cfg(feature = "probes")]
 pub use world::destroy_probes as destroys;
+#[cfg(feature = "probes")]
+pub use world::doorway_probes;
 pub use world::drivers;
 #[cfg(feature = "probes")]
 pub use world::effects_probes;
+#[cfg(feature = "probes")]
+pub use world::facing_probes;
 pub use world::falls;
 #[cfg(feature = "probes")]
 pub use world::feats;
@@ -121,8 +131,16 @@ pub use world::floor_probes;
 pub use world::force_probes;
 #[cfg(feature = "probes")]
 pub use world::galaxy;
+#[cfg(feature = "probes")]
+pub use world::held_probes;
+#[cfg(feature = "probes")]
+pub use world::hold_probes;
 pub use world::item_uses;
+#[cfg(feature = "probes")]
+pub use world::jam_probes;
 pub use world::locks;
+#[cfg(feature = "probes")]
+pub use world::made_waypoint_probes;
 #[cfg(feature = "probes")]
 pub use world::minds_probes;
 pub use world::objects;
@@ -140,7 +158,13 @@ pub use world::picks_probes;
 #[cfg(feature = "probes")]
 pub use world::player_probes;
 #[cfg(feature = "probes")]
+pub use world::power_cycle_probes;
+#[cfg(feature = "probes")]
+pub use world::power_rows_probes;
+#[cfg(feature = "probes")]
 pub use world::presentation_probes;
+#[cfg(feature = "probes")]
+pub use world::push_probes;
 #[cfg(feature = "probes")]
 pub use world::regen_probes;
 pub use world::remains;
@@ -151,11 +175,18 @@ pub use world::reputation_probes;
 #[cfg(feature = "probes")]
 pub use world::routine_probes;
 #[cfg(feature = "probes")]
+pub use world::rows_by_label_probes;
+#[cfg(feature = "probes")]
 pub use world::scene_probes;
+#[cfg(feature = "probes")]
+pub use world::scream_probes;
 #[cfg(feature = "probes")]
 pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
+pub use world::stances::{played_ids, row_set};
+#[cfg(feature = "probes")]
+pub use world::step_down_probes;
 pub use world::strikes;
 pub use world::strikes::{player_punch_apart_m, player_punch_reach_m};
 pub use world::switch;
@@ -163,6 +194,8 @@ pub use world::switch;
 pub use world::talk_end_probes;
 #[cfg(feature = "probes")]
 pub use world::tsl_probes;
+#[cfg(feature = "probes")]
+pub use world::tucked_probes;
 pub use world::uses;
 #[cfg(feature = "probes")]
 pub use world::weapon_set_probes;
@@ -170,6 +203,6 @@ pub use world::weapon_set_probes;
 pub use world::workshop_probes;
 pub use world::{
     BODY, Digests, Guests, HEARTBEAT_MS, KeyUse, Level, LevelId, MAX_SEATS, REWIND_MS, SHOT,
-    SimWorld, StepReason, UseCame, UseHeard, WorldConfig, bodies_pass, body, bulk_of, hand_muzzle,
-    lent, muzzle, party_member, seen_cuts, step,
+    SimWorld, StepReason, UseCame, UseHeard, WorkedOut, WorldConfig, bodies_pass, body, bulk_of,
+    hand_muzzle, lent, muzzle, party_member, seen_cuts, step,
 };

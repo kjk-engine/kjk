@@ -17,9 +17,11 @@ pub(super) enum Goal {
     Equip(Option<String>),
     /// The lock, and a spike's template.
     Unlock(Target, Option<String>),
-    /// A lock struck until it breaks.
+    /// A lock struck until it breaks; a placeable the party attacks
+    /// (`placeables.2da`'s `hostile`) until its look changes.
     Bash(Target),
-    /// A mine set on a door until it stands open (TSL).
+    /// A mine set on a door until it stands open, or on a placeable until
+    /// it is unlocked (TSL).
     Mine(Target),
     /// The mine the party sees nearest a place disarmed (Demolitions) from
     /// where the player stands, tried again until it is gone; recovered
@@ -28,6 +30,14 @@ pub(super) enum Goal {
     /// A power (`spells.2da` row) cast on the player from its power list,
     /// again until its effect lasts on it.
     Cast(u16),
+    /// A healing power (`spells.2da` row) cast on the player from its
+    /// power list, again until its vitality is full: what a player does
+    /// between fights that do not heal them (the Handmaiden sisters'
+    /// sparring bouts).
+    Heal(u16),
+    /// An item the party carries (its template) used on the player from
+    /// the inventory, once (Manaan's sonic emitter).
+    UseItem(String),
     /// An item's template the party carries, put into the container.
     Put(String, Target),
     /// A script global set: a number, or a boolean.
@@ -48,6 +58,9 @@ pub(super) enum Goal {
     /// Stealth mode on or off for the body the player leads (the stealth
     /// button pressed, once).
     Stealth(bool),
+    /// A mine laid at the feet of the body the player leads (the lay-mine
+    /// key pressed, once).
+    Lay,
     /// The game won and over (`EndGame`'s end screen shown).
     Credits,
     /// What the party carries sold, dearest first, to the store open to
@@ -334,6 +347,7 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                     Some("off") => false,
                     _ => return Err(format!("{part}: stealth on or stealth off")),
                 }),
+                "lay" => Goal::Lay,
                 "equip" => Goal::Equip(a.map(str::to_ascii_lowercase)),
                 "unlock" => Goal::Unlock(target(a, None)?, b.map(str::to_string)),
                 "bash" => Goal::Bash(target(a, b)?),
@@ -347,6 +361,14 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 "cast" => Goal::Cast(
                     a.and_then(|row| row.parse::<u16>().ok())
                         .ok_or(format!("{part}: cast ROW (spells.2da)"))?,
+                ),
+                "heal" => Goal::Heal(
+                    a.and_then(|row| row.parse::<u16>().ok())
+                        .ok_or(format!("{part}: heal ROW (spells.2da)"))?,
+                ),
+                "item" => Goal::UseItem(
+                    a.ok_or(format!("{part}: item TEMPLATE"))?
+                        .to_ascii_lowercase(),
                 ),
                 "put" => Goal::Put(
                     a.ok_or(format!("{part}: put TEMPLATE TAG"))?
@@ -434,7 +456,7 @@ pub(crate) fn checkpoint(game: &str, name: &str) -> PathBuf {
 /// takes this level's data as it stands and the modules it left are
 /// forgotten (met anew), so a route goes on at the chain's top while the
 /// chain is remade below it.
-pub(super) fn resume(
+pub(crate) fn resume(
     installer: &Installer,
     rate: &TickRate,
     path: &Path,
@@ -466,8 +488,5 @@ pub(super) fn resume(
         }
     }
     save.level.check(&level).map_err(|e| e.to_string())?;
-    let mut world =
-        sim::SimWorld::from_snapshot(&save.snapshot, level).map_err(|e| e.to_string())?;
-    world.set_script_state(save.script);
-    Ok(world)
+    save.world_as_saved(level).map_err(|e| e.to_string())
 }

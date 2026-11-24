@@ -11,8 +11,7 @@ use fmt_odyssey::texture::Texture;
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
-use vfs::resolver::{Resolver, TextureQuality};
-use vfs::{DirIndex, Discovery, Game};
+use vfs::{Discovery, Game};
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
@@ -90,6 +89,13 @@ fn model_node(node: &Node, depth: usize) {
         line += &format!(" controllers [{}]", kinds.join(" "));
     }
     outln!("{line}");
+    if let Some(reference) = &node.reference {
+        outln!(
+            "{pad}  reference: model {:?} reattachable {}",
+            reference.model,
+            reference.reattachable
+        );
+    }
     if let Some(emitter) = &node.emitter {
         outln!(
             "{pad}  emitter: update {} render {} blend {} texture {:?} chunk {:?} grid {:?} spawn {} two_sided {} looped {} order {} flags {:#06x}",
@@ -177,10 +183,6 @@ pub fn run(discovery: &Discovery, game: &str, resource: &str, module: Option<&st
         eprintln!("show: use k1 or tsl");
         return ExitCode::from(2);
     };
-    let Some(install) = discovery.get(game) else {
-        eprintln!("{}: not found (set {})", game.key(), game.env_var());
-        return ExitCode::FAILURE;
-    };
     let Some((resref, restype)) = resource
         .rsplit_once('.')
         .and_then(|(resref, extension)| Some((resref, ResType::from_extension(extension)?)))
@@ -188,15 +190,12 @@ pub fn run(discovery: &Discovery, game: &str, resource: &str, module: Option<&st
         eprintln!("{resource:?}: expected resref.ext with a known extension");
         return ExitCode::from(2);
     };
-    let opened = DirIndex::of_install(install)
-        .map_err(|error| error.to_string())
-        .and_then(|index| {
-            Resolver::open(game, &index, module, TextureQuality::High)
-                .map(|resolver| {
-                    let tlk = resolver.talk.get();
-                    (resolver, tlk)
-                })
-                .map_err(|error| error.to_string())
+    // As the game opens it: KOTOR 1's data with KOTOR 2's powers lent.
+    let opened = kjk_game::installs::open(discovery, game)
+        .and_then(|install| install.resolver(module))
+        .map(|resolver| {
+            let tlk = resolver.talk.get();
+            (resolver, tlk)
         });
     let (resolver, tlk) = match opened {
         Ok(opened) => opened,

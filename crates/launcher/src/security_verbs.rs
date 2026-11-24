@@ -15,10 +15,9 @@
 //!    not enough, the spike kept on a success, used up on a failure);
 //!    unlocked, the door opens (`OnOpen`, `GetLastUnlocked`).
 //! 4. Shut again by a script (`ActionCloseDoor`) and locked
-//!    (`ActionLockObject`, `GetLastLocked`) when its lock may be locked
-//!    again (`Lockable`; one that may not, the Endar Spire's room 3 door,
-//!    stays unlocked, as Citadel Station's Exchange door must for Slusk's
-//!    scene, and is locked by `SetLocked`, which takes any lock); in combat
+//!    (`ActionLockObject`, `GetLastLocked`), whether or not its template
+//!    lets it be locked again (`Lockable`), as both games' executables lock
+//!    it (a lock only its key opens is not locked by the action); in combat
 //!    the check rolls a d20.
 //! 5. Where the module has them: a lock only its key opens refuses
 //!    Security; a keyed lock opens with its key (used up when the lock
@@ -260,7 +259,7 @@ fn try_lock(probe: &mut Probe, index: u32, spike: Option<u32>) -> Tried {
     while !told_out(&told) && snapshot.time_ms < until {
         let fighter = snapshot.get(probe.me).and_then(|me| me.fighter);
         if let Some(fighter) = fighter {
-            let now = crate::weapons::armed(&fighter, snapshot.time_ms as f64, false);
+            let now = crate::weapons::armed(&fighter, snapshot.time_ms as f64, false, true);
             drawn = Some(drawn.unwrap_or(false) || now);
         }
         let (next, now) = probe.step_told(1);
@@ -362,7 +361,6 @@ pub fn security(
                         vec![me(), Call::Routine("ActionLockObject", 1)],
                     ],
                 ),
-                ("kjk_setlocked", vec![vec![int(1), me(), Call::Routine("SetLocked", 2)]]),
                 ("kjk_spike", give(SPIKE)),
             ]
             .into_iter()
@@ -418,7 +416,7 @@ pub fn security(
         // By default the first a spike's bonus with the ranks reaches.
         let reached = |object: &ObjectData| {
             object.lock.as_ref().is_none_or(|lock| {
-                !lock.key_required && i16::from(lock.open_dc) <= 30 + i16::from(ranks)
+                !lock.key_required && i16::from(lock.difficulty(0)) <= 30 + i16::from(ranks)
             })
         };
         let (index, target) = find(objects, |object| {
@@ -430,7 +428,7 @@ pub fn security(
                 }
         })
         .ok_or(format!("no locked door in {module} that Security opens"))?;
-        let dc = target.lock.as_ref().map_or(0, |lock| lock.open_dc);
+        let dc = target.lock.as_ref().map_or(0, |lock| lock.difficulty(0));
         let snapshot = probe.world.snapshot();
         let door_id = entity(&snapshot, ObjectKind::Door, index)
             .map(|entity| entity.id)
@@ -535,29 +533,22 @@ pub fn security(
             ),
         );
 
-        // 4. Shut and locked again by a script (a lock that may not be
-        // locked again stays unlocked); in combat.
+        // 4. Shut and locked again by a script, whatever its `Lockable`
+        // says; in combat.
         let lockable = target.lock.as_ref().is_some_and(|lock| lock.lockable);
         probe.queue("kjk_relock", door_id);
         let relocked = probe.step(10);
         let asked = ask(&mut probe, door_id);
-        let expect = i32::from(lockable);
         report.check(
             door_state(&relocked)
-                .is_some_and(|state| state.state == 0 && state.locked(target.opens) == lockable)
-                && asked[0] == Some(expect)
-                && asked[4] == Some(expect),
+                .is_some_and(|state| state.state == 0 && state.locked(target.opens))
+                && asked[0] == Some(1)
+                && asked[4] == Some(1),
             format!(
-                "ActionCloseDoor, ActionLockObject on a lock {} locked again (Lockable {lockable}): shut, GetLocked {:?}, GetLastLocked valid {:?}",
-                if lockable { "that may be" } else { "that may not be" },
-                asked[0],
-                asked[4]
+                "ActionCloseDoor, ActionLockObject (Lockable {lockable}): shut, GetLocked {:?}, GetLastLocked valid {:?}",
+                asked[0], asked[4]
             ),
         );
-        if !lockable {
-            probe.queue("kjk_setlocked", door_id);
-            probe.step(2);
-        }
         let now = probe.world.snapshot().time_ms;
         probe.edit_me(|me| {
             let fighter = me.fighter.as_mut().ok_or("no fighter")?;
@@ -573,7 +564,7 @@ pub fn security(
         let drawn_after = after
             .get(probe.me)
             .and_then(|me| me.fighter)
-            .is_some_and(|fighter| crate::weapons::armed(&fighter, after.time_ms as f64, false));
+            .is_some_and(|fighter| crate::weapons::armed(&fighter, after.time_ms as f64, false, true));
         report.check(
             drawn == Some(false) && drawn_after,
             format!(
@@ -697,9 +688,9 @@ pub fn security(
             format!("animations.2da hides equipped items for {hiding:?} of the clips drawn"),
         );
         let tables = &mut asset_odyssey::tables::Tables::default();
-        let portraits = crate::persona::Portraits::read(&base).ok_or("no portraits.2da")?;
+        let portraits = session::portraits::Portraits::read(&source).ok_or("no portraits.2da")?;
         let mut sets = std::collections::BTreeMap::new();
-        for portrait in portraits.rows() {
+        for portrait in portraits.all().iter().map(|portrait| portrait.row) {
             let row = asset_odyssey::creature::player_sound_set(&source, portrait, tables);
             sets.entry(row).or_insert_with(Vec::new).push(portrait);
         }
@@ -731,6 +722,7 @@ pub fn security(
             level: probe.world.level().id(),
             snapshot: snapshot.clone(),
             script: probe.world.script_state().clone(),
+            stances: probe.world.stance_ids(),
         };
         let loaded = sim::Save::decode(&save.encode()).map_err(|e| e.to_string())?;
         report.check(

@@ -7,11 +7,13 @@
 
 mod characters;
 mod check;
+mod classes;
 mod data;
 mod edits;
 mod keeping;
 mod open;
 mod party;
+mod persona;
 mod sheets;
 mod warnings;
 

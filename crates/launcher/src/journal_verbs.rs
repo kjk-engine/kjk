@@ -75,8 +75,9 @@ pub fn journal(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             )
         })?;
         let (quests, first, other, lower, higher) = quests.ok_or("no quests read")?;
-        let line =
-            |strref: u32| -> String { fmt_odyssey::code_page(talk.text(strref).unwrap_or(&[])) };
+        let line = |text: &sim::script::journal::JournalText| -> String {
+            fmt_odyssey::code_page(&text.words(|strref| talk.text(strref).map(<[u8]>::to_vec)))
+        };
         let entries: usize = quests.0.values().map(|quest| quest.entries.len()).sum();
         let ends = quests
             .0
@@ -91,8 +92,8 @@ pub fn journal(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
                 quests.len()
             ),
         );
-        let name = line(quest.name);
-        let text = line(quest.entry(higher).ok_or("its entry")?.text);
+        let name = line(&quest.name);
+        let text = line(&quest.entry(higher).ok_or("its entry")?.text);
         report.check(
             !name.is_empty() && !text.is_empty(),
             format!("{first}: {name:?}, entry {higher}: {text:?}"),
@@ -129,6 +130,7 @@ pub fn journal(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             level: probe.world.level().id(),
             snapshot: probe.world.snapshot(),
             script: state.clone(),
+            stances: probe.world.stance_ids(),
         };
         let loaded = sim::Save::decode(&save.encode()).map_err(|e| e.to_string())?;
         report.check(

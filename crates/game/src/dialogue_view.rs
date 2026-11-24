@@ -77,6 +77,17 @@ const DIGITS: [(KeyCode, KeyCode); 9] = [
 ];
 pub(crate) const CONFIRM: [KeyCode; 3] = [KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space];
 
+/// Whether the conversation screen reads `key` itself: a reply's number,
+/// a key that picks the reply in focus or moves on the line (`CONFIRM`),
+/// and the arrows that move the focus.
+pub(crate) fn reads(key: KeyCode) -> bool {
+    DIGITS
+        .iter()
+        .any(|(digit, pad)| key == *digit || key == *pad)
+        || CONFIRM.contains(&key)
+        || [KeyCode::ArrowUp, KeyCode::ArrowDown].contains(&key)
+}
+
 /// The player's way through the screen: whether it is in a conversation,
 /// the reply highlighted, and an answer made and not yet sent
 /// (`sim_host::Controls` takes it); in a session of more than one seat,
@@ -166,7 +177,7 @@ impl Plugin for DialogueViewPlugin {
             .init_resource::<Called>()
             .add_systems(
                 Update,
-                (answer, requests_keys, show)
+                (item_words, answer, requests_keys, show)
                     .chain()
                     .run_if(in_play)
                     .before(crate::ui_view::Stepped),
@@ -257,11 +268,80 @@ impl<'a> Fill<'a> {
                 sim::Kind::Avatar(seat) => Some(seat),
                 _ => entity.fighter?.mind.driver,
             });
+        Fill::seat(snapshot, seat)
+    }
+
+    /// For the player in `seat`, else (no seat, or one with no persona) the
+    /// first seat's.
+    fn seat(snapshot: &'a sim::Snapshot, seat: Option<sim::Seat>) -> Fill<'a> {
         let persona = |seat| sim::persona::of(&snapshot.personas, seat);
         Fill {
             told: &snapshot.talk,
             pc: seat.and_then(persona).or_else(|| persona(sim::Seat(0))),
         }
+    }
+
+    /// For the first seat's player, the party's own. An object's name is the
+    /// same for every player who sees it. The executable fills it from the
+    /// party table's player, as it fills a line's tokens.
+    pub fn party(snapshot: &'a sim::Snapshot) -> Fill<'a> {
+        Fill::seat(snapshot, None)
+    }
+}
+
+/// An object's name as the screens show it: the target label, a speaker, a
+/// container's title, the message log. The braced designers' notes are left
+/// out (`ui::strings::name`), and the player's tokens and `<CUSTOMn>` are
+/// filled in as a line's are (`said`). TSL's kolto tanks on Peragus are
+/// named "<FullName>'s Kolto Tank", and the game shows the player's name in
+/// the token's place.
+pub(crate) fn shown_name(name: &str, fill: Fill) -> Vec<u8> {
+    said(&ui::strings::bytes(name), fill)
+}
+
+/// What the item cache fills names and descriptions with (`said`, as
+/// `shown_name`), holding its own copy of what `fill` fills tokens with.
+fn item_filler(fill: Fill) -> ui::assets::ItemWords {
+    let told = Told {
+        tokens: fill.told.tokens.clone(),
+        ..Told::default()
+    };
+    let pc = fill.pc.cloned();
+    Arc::new(move |text| {
+        said(
+            text,
+            Fill {
+                told: &told,
+                pc: pc.as_ref(),
+            },
+        )
+    })
+}
+
+/// Items' names and descriptions on every screen are filled as names are
+/// shown (`shown_name`), for the party's player (`Fill::party`). The
+/// screens read them from the assets' item cache, which reads every item
+/// again when the player's name, gender or the custom tokens change.
+fn item_words(presented: Res<PresentedSnapshot>, ui: Option<ResMut<Ui>>) {
+    let Some(mut ui) = ui else {
+        return;
+    };
+    let fill = Fill::party(presented.0.current());
+    let key = format!(
+        "{:?} {:?}",
+        fill.pc.map(|pc| (&pc.name, pc.gender)),
+        fill.told.tokens
+    );
+    let words = item_filler(fill);
+    // The UI counts as changed only when the cache is read again, not every
+    // frame.
+    let changed = ui
+        .bypass_change_detection()
+        .assets
+        .as_mut()
+        .is_some_and(|assets| assets.fill_items(key, words));
+    if changed {
+        ui.set_changed();
     }
 }
 
@@ -421,7 +501,7 @@ pub(crate) fn shown(
 }
 
 /// What `id` is called on the screens: its template's name, a player's
-/// persona's, else nothing; without its braced notes (`ui::strings::name`).
+/// persona's, else nothing; as names are shown (`shown_name`).
 pub(crate) fn name_of(snapshot: &Snapshot, objects: &sim::Instances, id: ObjectId) -> Vec<u8> {
     let Some(entity) = snapshot.get(SimId(id.0)) else {
         return Vec::new();
@@ -436,7 +516,7 @@ pub(crate) fn name_of(snapshot: &Snapshot, objects: &sim::Instances, id: ObjectI
             }
             _ => None,
         });
-    named.map_or_else(Vec::new, |name| ui::strings::name(&name))
+    named.map_or_else(Vec::new, |name| shown_name(&name, Fill::party(snapshot)))
 }
 
 /// The conversations asking the host in (R5), in order, as the host's card
@@ -662,15 +742,16 @@ fn show(
             .find(|n| *n != name && !n.is_empty());
         Some((name.into_owned(), other.map(str::to_string)))
     });
-    // A voiceless line of an animated cut is a shot under the voice before
-    // it (Zhar's training speech runs over several): that voice and its
-    // lips play on. Any other line stops them.
+    // A voiceless line of a cut its camera model films (an animated cut or
+    // not) is a shot under the voice before it (Zhar's training speech, the
+    // sea floor survivor's death on Manaan): that voice and its lips play
+    // on. Any other line stops them.
     let carried = voice.is_none()
         && swap
             .level
             .scripts()
             .and_then(|library| library.dialogue(&talk.dialog))
-            .is_some_and(|dlg| dlg.animated_cut);
+            .is_some_and(|dlg| dlg.animated_cut || !dlg.camera_model.is_empty());
     if !carried {
         if let Some(was) = screen.speaking.take() {
             hush.0.push((was, Channel::Voice));
@@ -764,7 +845,12 @@ fn marks(
     }
     let names: Names = by_reply
         .into_iter()
-        .map(|(nth, names)| (nth, format!("< {}", names.join(", ")).into_bytes()))
+        .map(|(nth, names)| {
+            (
+                nth,
+                fmt_odyssey::code_page_bytes(&format!("< {}", names.join(", "))),
+            )
+        })
         .collect();
     screen.marks = Some((now, names.clone()));
     names
@@ -855,15 +941,13 @@ fn answer(
     });
     // Leave (R6): its key at any time, or a click on its row, while the
     // conversation may be left.
-    let leave_key = map
-        .as_deref()
-        .unwrap_or(KeyMap::defaults())
-        .key(KeyAction::LeaveTalk);
+    let map = map.as_deref().unwrap_or(KeyMap::defaults());
+    let leave_key = map.key(KeyAction::LeaveTalk);
     let on_leave = placed
         .as_ref()
         .is_some_and(|(placed, window, at)| placed.leave_at(*window, *at));
     if snapshot.may_leave(own.0, talk) == Some(true)
-        && (leave_key.is_some_and(|key| keys.just_pressed(key))
+        && (map.key_pressed(KeyAction::LeaveTalk, &keys)
             || pad.any(&[GamepadButton::East])
             || clicked && on_leave)
     {
@@ -1226,4 +1310,74 @@ pub fn voice_probes() -> sim::probe::Checks {
             format!("unplaced ({left}, {right}); placed {placed:?}"),
         ),
     )]
+}
+
+/// The names' probes (`kjk sim probes --only "shown names"`): an object's
+/// name on the screens has the player's tokens filled in and its braced
+/// notes left out (`shown_name`), and so has an item's name in the item
+/// cache (`item_filler`). Tokens are matched by their exact case, as both
+/// games' executables match them. Without a player the tokens stand as
+/// they are.
+#[cfg(feature = "probes")]
+pub fn name_probes() -> sim::probe::Checks {
+    let exile = sim::persona::Persona {
+        seat: sim::Seat(0),
+        appearance: 0,
+        gender: sim::persona::FEMALE,
+        portrait: 0,
+        name: "Exile".into(),
+    };
+    let told = Told::default();
+    let party = Fill {
+        told: &told,
+        pc: Some(&exile),
+    };
+    let alone = Fill {
+        told: &told,
+        pc: None,
+    };
+    let item = item_filler(party);
+    [
+        (
+            "the player's name in a placeable's name",
+            shown_name("<FullName>'s Kolto Tank", party),
+            "Exile's Kolto Tank",
+        ),
+        (
+            "a gender's pair in a name",
+            shown_name("<his/her> Footlocker", party),
+            "her Footlocker",
+        ),
+        (
+            "braced notes left out",
+            shown_name("Lift Controls{to 002EBO}", party),
+            "Lift Controls",
+        ),
+        (
+            "no player, the token kept",
+            shown_name("<FullName>'s Kolto Tank", alone),
+            "<FullName>'s Kolto Tank",
+        ),
+        (
+            "the player's name in an item's name",
+            item(b"<FullName>'s Starport Visa"),
+            "Exile's Starport Visa",
+        ),
+        (
+            "an item's sort key left out",
+            item(b"<FullName> Crystal{01_VD}"),
+            "Exile Crystal",
+        ),
+        (
+            "a token in another case kept",
+            shown_name("<fullname>", party),
+            "<fullname>",
+        ),
+    ]
+    .into_iter()
+    .map(|(name, got, wanted)| {
+        let got = fmt_odyssey::code_page(&got);
+        (name, sim::probe::check(got == wanted, format!("{got:?}")))
+    })
+    .collect()
 }

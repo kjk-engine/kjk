@@ -11,8 +11,10 @@
 //!   refused, one far above it unlisted; gloves of Repair +2 make the rank
 //!   reach it.
 //! - The lab station: only what its table lists outside its last group is
-//!   broken down (not a pistol, not an HK part), its yield by Treat Injury; too few chemicals is its own
-//!   line.
+//!   broken down (not a pistol, not an HK part). Its yield goes by the
+//!   maker's Treat Injury total as `GetSkillRank` reads it: 10 ranks and
+//!   the +1 of the player's Wisdom 12, so a medkit worth 20 chemicals
+//!   yields 11. Too few chemicals is its own line.
 //! - Components are a count wherever they come: taken from a container;
 //!   made on the player (none made, the game's "Acquired" line); made on a
 //!   creature outside the party, and among its starting items, its own count;
@@ -183,6 +185,10 @@ fn catalog() -> Catalog {
         item("vibroblade", 80, PLAIN, false),
         gloves,
         host("scoped", vec![4, 5, 6], slots::RIGHT_WEAPON),
+        ItemFacts {
+            stacking: 10,
+            ..host("survivor", vec![4, 5], slots::RIGHT_WEAPON)
+        },
         host(
             "saber",
             vec![0, COLOUR_SLOT, 0, 1, 2, 3],
@@ -442,10 +448,10 @@ pub fn probes() -> Checks {
     let chemicals = world.script_state().chemicals;
     let short = step(&mut world, &[create(&lab, 0)]);
     checks.push((
-        "the lab station: a pistol and an HK part refused, a medkit by Treat Injury 10 (20 / 2), too few chemicals its own line",
+        "the lab station: a pistol and an HK part refused, a medkit by Treat Injury 10 and Wisdom's +1 (20 × 11 / 20), too few chemicals its own line",
         check(
             refused == vec![vec![Notice::CannotUse]; 2]
-                && chemicals == 10
+                && chemicals == 11
                 && short.contains(&Notice::Line(116_298)),
             format!("refused {refused:?}, {chemicals} chemicals, then {short:?}"),
         ),
@@ -616,5 +622,201 @@ fn assembled(world: &mut SimWorld, me: u32) -> Checks {
             format!("{held:?}"),
         ),
     ));
+    checks.extend(stacks_upgraded(world));
+    checks.extend(lone_unscoped(&mut self::world()));
+    checks.extend(plot_pistol_unscoped(&mut self::world()));
+    checks.extend(charged_pistol_unscoped(&mut self::world()));
     checks
+}
+
+/// The survivor pistols' stacks the party carries: each stack's count and
+/// the parts in its slots, sorted.
+fn survivors(world: &SimWorld) -> Vec<(u16, Vec<String>)> {
+    let mut stacks: Vec<(u16, Vec<String>)> = world
+        .script_state()
+        .items
+        .values()
+        .filter(|held| held.template == "survivor" && held.holder == PARTY)
+        .map(|held| {
+            let parts = held.fitted.iter().filter(|part| !part.is_empty());
+            (held.stack, parts.cloned().collect())
+        })
+        .collect();
+    stacks.sort();
+    stacks
+}
+
+/// Upgrading one of a stack of pistols at the bench, and taking the
+/// upgraded ones out of a container: an item stacks only with items of the
+/// same upgrades.
+fn stacks_upgraded(world: &mut SimWorld) -> Checks {
+    let pistols = [0; 4].map(|_| give(world, "survivor", PARTY, None))[0];
+    let scopes = [0; 2].map(|_| give(world, "scope", PARTY, None));
+    let packs = give(world, "pack", PARTY, None);
+    let fit = |item, upgrade| Action::Assemble {
+        item,
+        changes: vec![Fitting::In {
+            upgrade,
+            replace: None,
+        }],
+    };
+    let with =
+        |count: u16, parts: &[&str]| (count, parts.iter().map(|part| part.to_string()).collect());
+    let mut checks: Checks = Vec::new();
+    let mut expect =
+        |world: &mut SimWorld, what, actions: &[Action], want: Vec<(u16, Vec<String>)>| {
+            step(world, actions);
+            let now = survivors(world);
+            checks.push((what, check(now == want, format!("{now:?}"))));
+        };
+    expect(
+        world,
+        "one of a stack of four upgraded at the bench: split off, three plain left",
+        &[fit(pistols, scopes[0])],
+        vec![with(1, &["scope"]), with(3, &[])],
+    );
+    expect(
+        world,
+        "a second one upgraded the same: joins the first upgraded one",
+        &[fit(pistols, scopes[1])],
+        vec![with(2, &[]), with(2, &["scope"])],
+    );
+    expect(
+        world,
+        "a third one upgraded differently: a stack of its own",
+        &[fit(pistols, packs)],
+        vec![with(1, &[]), with(1, &["pack"]), with(2, &["scope"])],
+    );
+    let scoped = world
+        .script_state()
+        .items
+        .iter()
+        .find(|(_, held)| held.template == "survivor" && held.stack == 2)
+        .map_or(0, |(id, _)| *id);
+    let crate_box = 0x7d00_0001;
+    let library = world.level().scripts().cloned();
+    let mut state = world.script_state().clone();
+    let put = state.put_in(scoped, crate_box, None);
+    if let Some(library) = library {
+        state.take_item(&library, crate_box, put, None);
+    }
+    world.set_script_state(state);
+    expect(
+        world,
+        "the upgraded ones put in a container and taken back: their upgrades kept, their own stack",
+        &[],
+        vec![with(1, &[]), with(1, &["pack"]), with(2, &["scope"])],
+    );
+    checks
+}
+
+/// A lone scoped pistol that loses its scope joins the plain pistol the
+/// party carries.
+fn lone_unscoped(world: &mut SimWorld) -> Checks {
+    let scoped = give(world, "survivor", PARTY, None);
+    let scope = give(world, "scope", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::In {
+                upgrade: scope,
+                replace: None,
+            }],
+        }],
+    );
+    give(world, "survivor", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::Out(0)],
+        }],
+    );
+    let now = survivors(world);
+    vec![(
+        "a lone scoped pistol unscoped: joins the plain pistol in one stack",
+        check(now == [(2, vec![])], format!("{now:?}")),
+    )]
+}
+
+/// A scoped pistol that is a plot item loses its scope next to a plain
+/// pistol. The two stay apart, as the games refuse to stack items whose
+/// plot flags differ. A pistol given afterwards joins the plain one.
+fn plot_pistol_unscoped(world: &mut SimWorld) -> Checks {
+    let scoped = give(world, "survivor", PARTY, None);
+    let scope = give(world, "scope", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::In {
+                upgrade: scope,
+                replace: None,
+            }],
+        }],
+    );
+    let mut state = world.script_state().clone();
+    if let Some(mut held) = state.items.get_mut(&scoped) {
+        held.plot = true;
+    }
+    world.set_script_state(state);
+    give(world, "survivor", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::Out(0)],
+        }],
+    );
+    give(world, "survivor", PARTY, None);
+    let now = survivors(world);
+    let plot = world
+        .script_state()
+        .items
+        .get(&scoped)
+        .is_some_and(|held| held.plot && held.stack == 1);
+    vec![(
+        "a plot pistol unscoped: stays its own stack beside the plain pistols, plot kept",
+        check(
+            now == [(1, vec![]), (2, vec![])] && plot,
+            format!("{now:?}, plot {plot}"),
+        ),
+    )]
+}
+
+/// A scoped pistol with 3 charges loses its scope next to a plain pistol
+/// with none. The two stay apart, as the games refuse to stack items whose
+/// charges differ.
+fn charged_pistol_unscoped(world: &mut SimWorld) -> Checks {
+    let scoped = give(world, "survivor", PARTY, None);
+    let scope = give(world, "scope", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::In {
+                upgrade: scope,
+                replace: None,
+            }],
+        }],
+    );
+    let mut state = world.script_state().clone();
+    if let Some(mut held) = state.items.get_mut(&scoped) {
+        held.charges = 3;
+    }
+    world.set_script_state(state);
+    give(world, "survivor", PARTY, None);
+    step(
+        world,
+        &[Action::Assemble {
+            item: scoped,
+            changes: vec![Fitting::Out(0)],
+        }],
+    );
+    let now = survivors(world);
+    vec![(
+        "a pistol with 3 charges unscoped: stays its own stack beside the plain pistol",
+        check(now == [(1, vec![]), (1, vec![])], format!("{now:?}")),
+    )]
 }

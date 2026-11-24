@@ -17,7 +17,8 @@
 //!
 //! Render only: the sim reads the sheets, never these models.
 
-use std::collections::BTreeMap;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -30,7 +31,7 @@ use sim::combat::sheet::Sheet;
 use sim::{Instances, Kind, SimId};
 
 use crate::lifecycle::ModuleResolver;
-use crate::scene::{LiveBlades, ModelAssets, SceneContent, SceneRoot, Spawner};
+use crate::scene::{AnimatedMaterials, LiveBlades, ModelAssets, SceneContent, SceneRoot, Spawner};
 use crate::sim_host::{PresentedSnapshot, SceneSwap};
 use crate::viewer::{self, BladeSpec, Placed};
 use crate::weapons::{self, Armed, Arms, Owner, Sabers};
@@ -198,9 +199,35 @@ pub struct Armory {
     loading: BTreeMap<Owner, Underway>,
     armed: usize,
     /// Characters armed again with a draw, and at which tick.
-    drawn: Vec<(Owner, u64)>,
+    drawn: Recent<(Owner, u64)>,
     last_ms: f64,
-    notes: Vec<String>,
+    notes: Recent<String>,
+}
+
+struct Recent<T> {
+    kept: VecDeque<T>,
+    dropped: usize,
+}
+
+const KEPT: usize = 64;
+
+impl<T> Default for Recent<T> {
+    fn default() -> Recent<T> {
+        Recent {
+            kept: VecDeque::new(),
+            dropped: 0,
+        }
+    }
+}
+
+impl<T> Recent<T> {
+    fn push(&mut self, entry: T) {
+        if self.kept.len() == KEPT {
+            self.kept.pop_front();
+            self.dropped += 1;
+        }
+        self.kept.push_back(entry);
+    }
 }
 
 impl Armory {
@@ -214,14 +241,16 @@ impl Armory {
             seen: BTreeMap::new(),
             loading: BTreeMap::new(),
             armed: 0,
-            drawn: Vec::new(),
+            drawn: Recent::default(),
             last_ms: 0.0,
-            notes: Vec::new(),
+            notes: Recent::default(),
         }
     }
 
-    fn held(&self, owner: Owner, composed: impl FnOnce() -> Holding) -> Holding {
-        self.holds.get(&owner).cloned().unwrap_or_else(composed)
+    fn held(&self, owner: Owner, composed: impl FnOnce() -> Holding) -> Cow<'_, Holding> {
+        self.holds
+            .get(&owner)
+            .map_or_else(|| Cow::Owned(composed()), Cow::Borrowed)
     }
 
     /// Follows the scene into module `name`: its resources are read from
@@ -291,7 +320,7 @@ pub fn arm(
     roots: Query<Entity, With<SceneRoot>>,
     (mut rearms, mut lives): (ResMut<Rearms>, ResMut<LiveBlades>),
     mut commands: Commands,
-    mut assets: ModelAssets,
+    (mut assets, mut animated): (ModelAssets, ResMut<AnimatedMaterials>),
     mut facts: ResMut<DumpFacts>,
 ) {
     let armory = &mut *armory;
@@ -323,22 +352,19 @@ pub fn arm(
         // The exe plays the new wield's draw as a slot's weapon changes
         // (its equip handler; players' characters draw as JA's do).
         let changed = matches!(owner, Owner::Creature(_))
-            && armory
-                .seen
-                .insert(owner, wanted.clone())
-                .is_some_and(|was| was != wanted);
+            && match armory.seen.get(&owner) {
+                Some(was) if *was == wanted => false,
+                _ => armory.seen.insert(owner, wanted.clone()).is_some(),
+            };
         let held = armory.held(owner, || match owner {
             Owner::Seat(_) => holding(&armory.setup.composed, &[None, None]),
             Owner::Creature(index) => objects.get(index).map_or([None, None], composed_creature),
         });
-        let underway = armory
-            .loading
-            .get(&owner)
-            .map(|underway| underway.holding.clone());
-        if wanted == underway.unwrap_or(held.clone()) {
+        let underway = armory.loading.get(&owner).map(|underway| &underway.holding);
+        if wanted == *underway.unwrap_or(&*held) {
             continue;
         }
-        if wanted == held {
+        if wanted == *held {
             // Back to what it holds before the other load came in.
             armory.loading.remove(&owner);
             continue;
@@ -394,7 +420,15 @@ pub fn arm(
         };
         armory.holds.insert(owner, holding);
         let (images, mut stores) = assets.split();
-        let mut spawner = Spawner::new(&ready.textures, scene.0.area_light(), images);
+        let mut spawner = Spawner::sharing(
+            &ready.textures,
+            scene.0.area_light(),
+            images,
+            &scene.0.images,
+        );
+        // Each weapon takes the number of the body it is hung on
+        // (`light_probes::Unowned`), so it is lit as the hand that holds it.
+        spawner.unowned = true;
         // Out of the scene's model indices: never a body's or a room's.
         let spawned: Vec<(Entity, Vec<Entity>)> = ready
             .models
@@ -414,6 +448,9 @@ pub fn arm(
             &mut lives,
             (&ready.blades, |model| spawned[model].0),
         );
+        // Their flip-books cycle (a mod's glowing vibroblade edge, a shipped
+        // blade's) and their scrolling textures move.
+        animated.adopt(&mut spawner);
         let arms = ready.arms.map(|held| {
             held.map(|held| {
                 let (root, nodes) = &spawned[held.model];
@@ -425,12 +462,9 @@ pub fn arm(
             armory.drawn.push((owner, current.tick));
         }
         armory.last_ms = ready.ms;
-        armory.notes.extend(
-            ready
-                .missing
-                .iter()
-                .map(|name| format!("{owner:?}: no texture {name}")),
-        );
+        for name in &ready.missing {
+            armory.notes.push(format!("{owner:?}: no texture {name}"));
+        }
         rearms.0.push(Rearm {
             owner,
             id,
@@ -440,11 +474,12 @@ pub fn arm(
             draws,
         });
     }
-    facts.0.insert(
-        "armory".into(),
-        serde_json::json!({
+    if !facts.wanted() {
+        return;
+    }
+    let mut fact = serde_json::json!({
             "armed": armory.armed,
-            "drawn": armory.drawn.iter().map(|(owner, ms)| format!("{owner:?} at tick {ms}")).collect::<Vec<_>>(),
+            "drawn": armory.drawn.kept.iter().map(|(owner, ms)| format!("{owner:?} at tick {ms}")).collect::<Vec<_>>(),
             "loading": armory.loading.len(),
             "last_load_ms": armory.last_ms,
             "holds": armory
@@ -452,7 +487,15 @@ pub fn arm(
                 .iter()
                 .map(|(owner, holding)| (format!("{owner:?}"), holding))
                 .collect::<BTreeMap<_, _>>(),
-            "notes": armory.notes,
-        }),
-    );
+            "notes": armory.notes.kept,
+    });
+    for (key, dropped) in [
+        ("drawn_dropped", armory.drawn.dropped),
+        ("notes_dropped", armory.notes.dropped),
+    ] {
+        if dropped > 0 {
+            fact[key] = dropped.into();
+        }
+    }
+    facts.0.insert("armory".into(), fact);
 }

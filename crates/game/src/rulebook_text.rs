@@ -11,12 +11,23 @@ use ui::assets::{GuiAssets, ItemLook};
 pub(crate) fn told(tags: &[String]) -> Vec<u8> {
     let mut seen: Vec<&str> = Vec::new();
     let mut text = String::new();
-    // The controls chapter is the wiki's: its keys and moves would crowd a
-    // description box.
+    // Engine, AI, and controls chapters belong to the wiki/rulebook, not
+    // in-game item/power/feat description boxes.
+    const SKIP_CHAPTERS: &[&str] = &[
+        "controls",
+        "minds",
+        "ai",
+        "scripts",
+        "world",
+        "creatures",
+        "duel",
+        "saber_moves",
+        "saber_locks",
+    ];
     let shown = tags
         .iter()
         .flat_map(|tag| rules::applying(tag))
-        .filter(|entry| entry.chapter() != "controls");
+        .filter(|entry| !SKIP_CHAPTERS.contains(&entry.chapter()));
     for entry in shown {
         if seen.contains(&entry.path) {
             continue;
@@ -42,7 +53,13 @@ pub(crate) fn row_tags(assets: &mut GuiAssets, table: &str, row: usize) -> Vec<S
         return Vec::new();
     };
     let mut tags = vec![format!("{what}:{label}")];
-    if table == "spells" && sim::combat::force::of_row(row as u16).is_some() {
+    // A power JA has a shape for, or one a menu of the game offers that its
+    // impact script alone casts (`session::codex`'s `scripted`).
+    let mut cell = |column| assets.cell_as_written(table, row, column).is_some();
+    let scripted = (cell("forcehostile") || cell("forcefriendly"))
+        && cell("impactscript")
+        && !sim::combat::saber::throw::is_throw(row as u16);
+    if table == "spells" && (sim::combat::force::of_row(row as u16).is_some() || scripted) {
         tags.push("kind:force".to_string());
     }
     tags
@@ -57,7 +74,8 @@ pub(crate) fn item_tags(assets: &mut GuiAssets, look: &ItemLook) -> Vec<String> 
     let casts = look
         .casts
         .and_then(|row| assets.cell_as_written("spells", usize::from(row), "label"));
-    session::codex::item_tags(look.base_item, &label, casts.as_deref())
+    let delivery = crate::character::delivery(assets, look.base_item);
+    session::codex::item_tags(delivery, &label, casts.as_deref())
 }
 
 /// Prose's wrapped lines as one.

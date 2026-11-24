@@ -34,30 +34,34 @@
 //! recording starts again from the reloaded world (the one before goes to
 //! `inputs-<tick>.kjkr`): a reload does not replay.
 
+use std::borrow::Cow;
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use asset_odyssey::texture::TextureIr;
+use bevy::ecs::change_detection::Tick;
 use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use console::{AnimationTime, DumpDue, DumpFacts, ModuleRequest, RunFolder, States};
+use console::{AnimationTime, DumpFacts, HeldTick, ModuleRequest, RunFolder, States, WorldTick};
 use session::Request;
 use sim::{
     Accumulator, Announcement, Command, Level, Presented, Recorder, Recording, Save, Seat,
     SimWorld, Snapshot, StepReason, TickInput, TickRate, buttons, step,
 };
 
-use crate::lifecycle::{Installer, Prepared};
+use crate::lifecycle::{HintAsk, Installer, Prepared};
 use crate::pad::Actions;
 use crate::play::BodyScene;
 use crate::scene::{Headless, SceneContent};
 use crate::settings::{Action, MouseFeel};
-use crate::sim_worker::{Stepper, WorldSlot};
+use crate::sim_worker::{Order, Prepare, Stepper, WorldSlot};
 use crate::solo::Solo;
 use net::session::LevelRequest;
+use rules::duel::slow_motion;
+use sim::combat::saber::SaberRules;
 use sim::determinism::{Setup, pilot};
 use sim::moves::{Script, view_angles};
 use sim::script::dialogue::{self, Conversation, Pick};
@@ -140,20 +144,25 @@ pub struct WorldHere {
     pub alone: bool,
 }
 
-/// The power the player's force key casts, as the HUD shows it.
+/// The power the player's action bar or script used last, as the HUD
+/// shows it.
 #[derive(Resource, Default)]
-pub struct SelectedPower(pub u8);
+pub struct SelectedPower(pub u16);
 
 /// A joined player's own predictions (only in `kjk join`): its avatar and
 /// the camera are drawn from these, ahead of the host's snapshots in
 /// `PresentedSnapshot` by the round trip and the remote delay; `fresh` has
-/// every prediction made this frame (a rewind's re-steps too), and
+/// every prediction made this frame (a rewind's from `followed` on), and
 /// `correction` (units) is added to the avatar as drawn.
 #[derive(Resource)]
 pub struct OwnView {
     pub presented: Presented,
     pub fresh: Vec<Arc<Snapshot>>,
     pub correction: [f32; 3],
+    /// The last predicted tick the view followed (`play_view`): it reads
+    /// none before it, so a rewind makes whole snapshots from it on only
+    /// (`Client::set_view_from`, issue 229).
+    pub followed: Option<u64>,
 }
 
 pub struct SimHostPlugin(Mutex<Option<SimSetup>>);
@@ -179,6 +188,63 @@ pub(crate) struct PlayerCursor;
 /// `Presented`'s are: a snapshot is too large to copy for each view.
 #[derive(Resource)]
 pub struct PresentedSnapshot(pub Presented, pub Vec<Arc<Snapshot>>);
+
+#[derive(Resource, Default)]
+pub struct PresentedDoors {
+    snapshot: Option<Arc<Snapshot>>,
+    swapped: Tick,
+    states: Option<Vec<u8>>,
+}
+
+impl PresentedDoors {
+    pub fn of<'a>(&'a self, presented: &Presented, swap: &Res<SceneSwap>) -> Option<Cow<'a, [u8]>> {
+        if self.made_for(presented.current_shared(), swap) {
+            self.states.as_deref().map(Cow::Borrowed)
+        } else {
+            swap.level.states_in(presented.current()).map(Cow::Owned)
+        }
+    }
+
+    /// Any write to the swap, even one that keeps its generation, makes them
+    /// stale.
+    fn made_for(&self, snapshot: &Arc<Snapshot>, swap: &Res<SceneSwap>) -> bool {
+        self.swapped == swap.last_changed() && is_snapshot(self.snapshot.as_ref(), snapshot)
+    }
+}
+
+/// Whether `kept` is `snapshot` itself, not merely an equal one.
+pub fn is_snapshot(kept: Option<&Arc<Snapshot>>, snapshot: &Arc<Snapshot>) -> bool {
+    kept.is_some_and(|kept| Arc::ptr_eq(kept, snapshot))
+}
+
+fn note_doors(
+    presented: Option<Res<PresentedSnapshot>>,
+    swap: Option<Res<SceneSwap>>,
+    mut doors: ResMut<PresentedDoors>,
+) {
+    let (Some(presented), Some(swap)) = (presented, swap) else {
+        if doors.snapshot.is_some() {
+            *doors = PresentedDoors::default();
+        }
+        return;
+    };
+    let current = presented.0.current_shared();
+    if doors.made_for(current, &swap) {
+        return;
+    }
+    let doors = &mut *doors;
+    doors.states = swap.level.states_in(current);
+    doors.snapshot = Some(current.clone());
+    doors.swapped = swap.last_changed();
+}
+
+/// With no world, `tick` has no tick to wait for. The tick of a world that
+/// is gone must not answer for the next one.
+fn forget_world_tick(authority: Option<Res<Authority>>, mut world_tick: ResMut<WorldTick>) {
+    if authority.is_none() && world_tick.0.is_some() {
+        world_tick.0 = None;
+    }
+}
 
 /// The moment the views show (ms): between the last two snapshots, by the
 /// blend.
@@ -282,7 +348,7 @@ enum Source {
 
 /// Where the player at the keyboard looks (degrees), from the mouse.
 #[derive(Clone, Copy)]
-pub(crate) struct Look {
+pub struct Look {
     pub pitch: f32,
     pub yaw: f32,
 }
@@ -296,18 +362,70 @@ impl Look {
     /// delta, degrees) added, stays within the sim's limit: the view
     /// reaches straight down and up whatever the delta, and turns back at
     /// once from either end.
-    pub(crate) fn turn(&mut self, degrees: Vec2, held: f32) {
+    pub fn turn(&mut self, degrees: Vec2, held: f32) {
         self.yaw -= degrees.x;
         let most = pitch_limit();
         self.pitch = (self.pitch + degrees.y).clamp(-most - held, most - held);
     }
+
+    /// The look that sends the angles the body of `seat` last took in
+    /// `snapshot` (`command_angles`). The sim adds the body's `view_offset`
+    /// to them, so the view after a load is the view the save holds. A save
+    /// keeps the angles and the offset apart, and the offset is often large:
+    /// a look started at a level pitch with that offset added turned the
+    /// view up to its limit, with the camera on the ground. `yaw` is the
+    /// look's yaw when the seat plays no body with a view.
+    pub fn resumed(snapshot: &Snapshot, seat: Seat, yaw: f32) -> Look {
+        let angles = snapshot
+            .body(seat)
+            .and_then(|body| body.player.as_ref())
+            .map(|player| player.command_angles);
+        match angles {
+            Some([pitch, yaw, _]) => Look {
+                pitch: sim::math::short_to_degrees(pitch),
+                yaw: sim::math::short_to_degrees(yaw),
+            },
+            None => Look { pitch: 0.0, yaw },
+        }
+    }
+}
+
+/// Says in the log which globals the module's scripts set that
+/// `globalcat.2da` does not declare (`Level::undeclared_globals`). KOTOR
+/// ignores those writes, as the sim does, so a mod installed without its
+/// `globalcat.2da` changes stalls where its scripts check them: K1
+/// Restoration's swoop race never starts and the screen stays black. Both
+/// executables log each such write; this names them once a module. The
+/// games' own scripts set a few such globals too (K1's Taris modules set
+/// `BenBount`, `Tar_JanicInv` and `ZelkaTk`), so it is information, not a
+/// warning.
+pub(crate) fn log_undeclared_globals(level: &sim::Level) {
+    let undeclared = level.undeclared_globals();
+    if undeclared.is_empty() {
+        return;
+    }
+    let globals: Vec<String> = undeclared
+        .iter()
+        .map(|(name, kind)| format!("{name} ({kind:?})"))
+        .collect();
+    info!(
+        target: "scripts",
+        module = level.name(),
+        globals = %globals.join(", "),
+        "the module's scripts set globals that globalcat.2da does not declare, and the game ignores those writes; a mod's globals here mean its globalcat.2da changes are missing"
+    );
 }
 
 /// The pitch delta (degrees) the sim adds to `seat`'s commands in
-/// `snapshot` (`Look::turn`), none without its player.
-pub(crate) fn held_pitch(snapshot: &Snapshot, seat: Seat) -> f32 {
+/// `snapshot` (`Look::turn`), none without a body. It is the delta of the
+/// body the seat's commands move (`Snapshot::body`). For a guest that body
+/// is the companion it drives, and for the host it is the companion leading
+/// the party while one leads. A guest has no player of its own, so the
+/// delta of the seat's own player would always be none, and the guest's
+/// view would stop short of the pitch limit by the companion's delta.
+pub fn held_pitch(snapshot: &Snapshot, seat: Seat) -> f32 {
     snapshot
-        .own(seat)
+        .body(seat)
         .and_then(|entity| entity.player.as_ref())
         .map_or(0.0, |player| {
             sim::math::short_to_degrees(player.view_offset[0])
@@ -316,13 +434,130 @@ pub(crate) fn held_pitch(snapshot: &Snapshot, seat: Seat) -> f32 {
 
 /// How far a view pitches up or down (degrees): the sim's limit
 /// (`motion::view_of`, JA's own pitch limit, about 88°).
-pub(crate) fn pitch_limit() -> f32 {
+pub fn pitch_limit() -> f32 {
     sim::motion::view_of([i16::MAX, 0, 0], [0; 3])[0]
+}
+
+/// The look's probes (`kjk sim probes --only look`). A guest drives a
+/// companion whose view carries a pitch delta of `DELTA` degrees, and the
+/// host leads through a companion with the same delta. Each seat pushes its
+/// mouse far down and then far up, its look turned as the screen turns it
+/// (`Look::turn`). The view the sim makes of each command (`view_of`) must
+/// reach the pitch limit both ways.
+#[cfg(feature = "probes")]
+pub fn look_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    const DELTA: f32 = -40.0;
+    const PUSH: f32 = 360.0;
+    let mut world = match sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena()) {
+        Ok(world) => world,
+        Err(error) => return vec![("look arena", Err(error.to_string()))],
+    };
+    let mut snapshot = world.snapshot();
+    let Some(mut host) = snapshot.own(Seat(0)).copied() else {
+        return vec![("look arena", Err("no host".into()))];
+    };
+    let delta = sim::math::degrees_to_short(DELTA);
+    let mut companion = sim::EntityState {
+        id: sim::SimId(u32::MAX - 1),
+        kind: sim::Kind::Object(sim::module::ObjectKind::Creature, 0),
+        ..host
+    };
+    if let Some(fighter) = companion.fighter.as_mut() {
+        (fighter.mind.leader, fighter.mind.driver) = (Some(Seat(0)), Some(Seat(1)));
+    }
+    if let Some(player) = companion.player.as_mut() {
+        player.view_offset[0] = delta;
+    }
+    let mut led = sim::EntityState {
+        id: sim::SimId(u32::MAX - 2),
+        ..companion
+    };
+    if let Some(fighter) = led.fighter.as_mut() {
+        fighter.mind.driver = None;
+    }
+    if let Some(player) = host.player.as_mut() {
+        player.view_offset[0] = 0;
+    }
+    snapshot.entities.retain(|entity| entity.id != host.id);
+    snapshot.entities.extend([host, led, companion]);
+    snapshot.leading = Some(led.id);
+    let limit = pitch_limit();
+    // The least and greatest pitch the view reaches as `seat` pushes down,
+    // then up.
+    let reach = |seat: Seat| {
+        // What the screen thinks the delta is, and what the sim adds.
+        let held = held_pitch(&snapshot, seat);
+        let offset = [delta, 0, 0];
+        let mut look = Look {
+            pitch: 0.0,
+            yaw: 0.0,
+        };
+        let view = |look: &Look| sim::motion::view_of(view_angles(look.pitch, look.yaw), offset)[0];
+        look.turn(Vec2::new(0.0, PUSH), held);
+        let down = view(&look);
+        look.turn(Vec2::new(0.0, -PUSH), held);
+        (view(&look), down)
+    };
+    let reaches = |(up, down): (f32, f32)| (up + limit).abs() < 0.5 && (down - limit).abs() < 0.5;
+    let mut checks: sim::probe::Checks = [
+        ("a guest's look reaches the view's limit both ways", Seat(1)),
+        (
+            "the host's look through the companion it leads reaches the limit both ways",
+            Seat(0),
+        ),
+    ]
+    .map(|(name, seat)| {
+        let (up, down) = reach(seat);
+        let told = format!("a {DELTA}° delta: up to {up:.1}°, down to {down:.1}° of ±{limit:.1}°");
+        (name, check(reaches((up, down)), told))
+    })
+    .into();
+    checks.push((
+        "a look resumed from a save keeps the save's view",
+        resumed_view(world.snapshot()),
+    ));
+    checks
+}
+
+/// A save from Hrakert Station on Manaan holds a level view as a command
+/// pitch of about 95° and a delta of about -95°, and a yaw delta of about
+/// -103°. The look resumed from it (`Look::resumed`) must give the sim the
+/// save's own view back.
+#[cfg(feature = "probes")]
+fn resumed_view(mut snapshot: Snapshot) -> Result<String, String> {
+    const ANGLES: [i16; 3] = [17317, 8509, 0];
+    const OFFSET: [i16; 3] = [-17317, -18748, 0];
+    let host = snapshot
+        .entities
+        .iter_mut()
+        .find(|entity| entity.kind == sim::Kind::Avatar(Seat(0)))
+        .and_then(|entity| entity.player.as_mut())
+        .ok_or("no host")?;
+    host.command_angles = ANGLES;
+    host.view_offset = OFFSET;
+    let saved = sim::motion::view_of(ANGLES, OFFSET);
+    let look = Look::resumed(&snapshot, Seat(0), 0.0);
+    let view = sim::motion::view_of(view_angles(look.pitch, look.yaw), OFFSET);
+    let kept = (0..2).all(|axis| (view[axis] - saved[axis]).abs() < 0.1);
+    sim::probe::check(
+        kept,
+        format!(
+            "saved view {:.1}° pitch, {:.1}° yaw; resumed {:.1}° pitch, {:.1}° yaw",
+            saved[0], saved[1], view[0], view[1]
+        ),
+    )
 }
 
 /// What a planning thread sends back.
 enum JobMessage {
-    Screen(Box<crate::lifecycle::LoadingScreen>),
+    /// The loading screen, and where the hints stand after it. The hints
+    /// are given only when the job was asked for a hint, and they have not
+    /// moved if no hint was found.
+    Screen(
+        Box<crate::lifecycle::LoadingScreen>,
+        Option<sim::script::Hints>,
+    ),
     Progress(f32),
     Prepared(Box<Result<Prepared, String>>),
 }
@@ -338,15 +573,18 @@ pub(crate) struct Job {
     expect: Option<Announcement>,
     /// A save made the world at commit, in place of the install (I30 P13).
     reload: Option<Box<Save>>,
+    /// Where the hints stand after the one the loading screen showed.
+    hints: Mutex<Option<sim::script::Hints>>,
 }
 
 impl Job {
     /// Starts planning `request` with `installer` on a thread of its own
     /// (with its scene when `scene`, `delay` late), and shows the loading
-    /// screen for it.
+    /// screen for it, with a hint when `ask` is given.
     pub(crate) fn spawn(
         installer: Arc<Installer>,
         request: Request,
+        ask: Option<HintAsk>,
         scene: bool,
         delay: Duration,
         loading: &mut Loading,
@@ -354,8 +592,10 @@ impl Job {
         let (sender, receiver) = channel();
         let job_request = request.clone();
         std::thread::spawn(move || {
-            let screen = installer.loading_screen(&job_request.module);
-            let _ = sender.send(JobMessage::Screen(Box::new(screen)));
+            let mut ask = ask;
+            let screen = installer.loading_screen(&job_request.module, ask.as_mut());
+            let hints = ask.map(|ask| ask.hints);
+            let _ = sender.send(JobMessage::Screen(Box::new(screen), hints));
             let progress = sender.clone();
             std::thread::sleep(delay);
             let prepared = installer.prepare_with(&job_request, scene, &move |done| {
@@ -384,6 +624,7 @@ impl Job {
             commanded: false,
             expect: None,
             reload: None,
+            hints: Mutex::new(None),
         }
     }
 
@@ -397,7 +638,8 @@ impl Job {
                 .expect("the job channel lock")
                 .try_recv();
             match message {
-                Ok(JobMessage::Screen(screen)) => {
+                Ok(JobMessage::Screen(screen, hints)) => {
+                    *self.hints.lock().expect("the job hints lock") = hints;
                     loading.image = screen.image;
                     loading.image_name = screen.name;
                     loading.bar = screen.bar;
@@ -406,7 +648,9 @@ impl Job {
                     loading.screen = true;
                     loading.progress = loading.progress.max(0.1);
                 }
-                Ok(JobMessage::Progress(progress)) => loading.progress = progress,
+                Ok(JobMessage::Progress(progress)) => {
+                    loading.progress = loading.progress.max(progress);
+                }
                 Ok(JobMessage::Prepared(prepared)) => return Some(*prepared),
                 Err(TryRecvError::Empty) => return None,
                 Err(TryRecvError::Disconnected) => {
@@ -429,6 +673,8 @@ struct Installed {
     scene_ms: f64,
     /// The area came from the installer's level cache.
     area_cached: bool,
+    /// A save loaded in place, not a module entered: it owes no autosave.
+    reload: bool,
     commit_ms: f64,
     live: usize,
     left_behind: usize,
@@ -438,13 +684,26 @@ struct Installed {
 /// The authority. Private: nothing outside this module can read it.
 #[derive(Resource)]
 struct Authority {
+    /// This machine's own seat (`OwnSeat`): the first, unless a co-op
+    /// lobby seated a guest there, or until the host's player takes it back
+    /// (`solo::Solo::seat`).
+    seat: Seat,
     /// At home, or being stepped beside the frame (`sim_worker`).
     world: WorldSlot,
     stepper: Option<Stepper>,
-    /// A tick stepped beside the last frame, kept until the view is shown
-    /// it (`advance`).
-    landed: Option<Landed>,
+    /// The ticks stepped beside the last frame, in order, kept until the
+    /// view is shown them (`advance`).
+    landed: Vec<Landed>,
+    /// The step thread stopped before the last tick it was handed: a tick
+    /// before it holds the world (`sim_worker`). `advance` takes the clock
+    /// back to the last tick stepped.
+    cut: bool,
     clock: Accumulator,
+    /// The clock at the end of the frame before: its tick, and how far it
+    /// was into the next one (`Accumulator::alpha`). A frame that hands
+    /// all its ticks to the step thread shows the ticks of the frame
+    /// before, so it blends them by that frame's clock.
+    before: (u64, f32),
     source: Source,
     setup: Setup,
     driver: Driver,
@@ -456,6 +715,10 @@ struct Authority {
     frames: u64,
     idle_frames: u64,
     most: usize,
+    /// Ticks stepped by `advance` itself, on the main thread, and ticks
+    /// stepped on the step thread.
+    stepped_here: u64,
+    stepped_beside: u64,
     lifecycle: Option<Lifecycle>,
     job: Option<Job>,
     /// Transitions that failed to plan, as (module, arrival): not asked
@@ -477,6 +740,55 @@ struct Authority {
     /// The music's volume a script set (`SetMusicVolume`), not yet taken by
     /// `script_music`.
     music_asked: Option<f32>,
+    /// The saber rules of a live session and whether it chose targeted
+    /// blocks, taken from the settings when its world was made (`duel`). A
+    /// world a save makes in play is set to them again, so they stay the same
+    /// for the whole session.
+    rules: Option<(SaberRules, bool)>,
+    /// The damage multipliers of a live session played here, as the
+    /// settings have them now (`duel`). A world a save makes in play is set
+    /// to them, so a changed option counts from the next load.
+    damage_taken: Option<sim::combat::damage::Taken>,
+    slowed: Slowed,
+}
+
+/// A perfect block's slow motion (`rules::duel::slow_motion`, the option
+/// on, a game played alone): when the player's last perfect block was seen
+/// (sim ms), and until when (real seconds) the world's clock runs slow.
+#[derive(Default)]
+pub(crate) struct Slowed {
+    seen: Option<(sim::SimId, u64)>,
+    until: f64,
+}
+
+impl Slowed {
+    /// Follows `seat`'s body in `snapshot` at `now` (real seconds): a
+    /// perfect block of its own new since the last look slows the world
+    /// from now, when `on`.
+    fn follow(&mut self, snapshot: &Snapshot, seat: Seat, on: bool, now: f64) {
+        let seen = snapshot
+            .body(seat)
+            .and_then(|body| Some((body.id, body.fighter?.saber.duel.perfect_at)));
+        let blocked = seen.is_some_and(|(id, at)| {
+            at != 0
+                && self
+                    .seen
+                    .is_some_and(|(was, before)| was == id && before != at)
+        });
+        if on && snapshot.saber_rules.duel() && blocked {
+            self.until = now + f64::from(slow_motion::MS) / 1000.0;
+        }
+        self.seen = seen;
+    }
+
+    /// What the clock's time is scaled by at `now` (real seconds).
+    fn scale(&self, now: f64) -> f32 {
+        if now < self.until {
+            slow_motion::SCALE
+        } else {
+            1.0
+        }
+    }
 }
 
 impl Authority {
@@ -494,6 +806,41 @@ impl Authority {
     }
 }
 
+/// The duel options followed on a live world played here (never a guest's:
+/// it plays by the host's, from its snapshots). The saber rules are fixed
+/// for a session. The world takes them from the settings when it is made
+/// or loaded, and a module change keeps them. A change of the setting
+/// waits for the next session, so this only notes the world's rules the
+/// first time, for a save loaded later. It also notes the damage
+/// multipliers as the settings have them now, for the next save loaded, and
+/// runs a perfect block's slow motion.
+fn duel(
+    options: Option<Res<crate::settings::DuelOptions>>,
+    (here, own): (Option<Res<WorldHere>>, Option<Res<OwnSeat>>),
+    settings: Option<Res<crate::settings::Settings>>,
+    time: Res<Time<Real>>,
+    mut authority: ResMut<Authority>,
+) {
+    let (Some(options), Source::Live { .. }) = (options, &authority.source) else {
+        return;
+    };
+    if let Some(settings) = settings.filter(|settings| settings.is_changed()) {
+        authority.damage_taken = Some(settings.damage_taken());
+    }
+    if authority.rules.is_none() {
+        authority.rules = Some((authority.last.saber_rules, authority.last.targeted_blocks));
+    }
+    let alone = here.is_some_and(|here| here.alone);
+    let seat = own.map_or(Seat(0), |own| own.0);
+    let authority = &mut *authority;
+    authority.slowed.follow(
+        &authority.last,
+        seat,
+        alone && options.slow_motion,
+        time.elapsed_secs_f64(),
+    );
+}
+
 /// The music's volume a script set (`SetMusicVolume`): the music bus plays
 /// at it until the settings set the volumes again, as the executables set
 /// their sound system's.
@@ -507,26 +854,34 @@ impl Plugin for SimHostPlugin {
     fn build(&self, app: &mut App) {
         // The keys and the pads play reads (`pad::Actions`), with or
         // without the screens (`kjk sim view` drives seat 0 by them).
-        app.add_plugins(crate::pad::PadPlugin)
+        app.add_plugins((crate::pad::PadPlugin, crate::camera_tune::CameraTunePlugin))
             .init_resource::<Waited>()
             .init_resource::<CameraAim>()
             .init_resource::<ReloadRequest>()
             .init_resource::<crate::save_view::SaveRequest>()
             .init_resource::<crate::save_view::SaveOutcome>()
+            .init_resource::<crate::save_view::Autosaved>()
             .init_resource::<Frozen>()
             .init_resource::<crate::swallow::Swallowed>()
+            .init_resource::<PresentedDoors>()
             .add_systems(
                 PreUpdate,
                 (
                     crate::swallow::hold_up.after(bevy::input::InputSystems),
                     (
-                        (advance, save_world, autosave, script_music)
+                        (duel, advance, save_world, autosave, script_music)
                             .chain()
                             .run_if(resource_exists::<Authority>),
-                        crate::net_join::advance.run_if(crate::net_join::joined),
+                        (crate::net_join::advance, crate::net_join::leave_ended)
+                            .chain()
+                            .run_if(crate::net_join::joined),
                     )
                         .after(crate::pad::Sampled)
-                        .after(crate::pick_view::Picked),
+                        .after(crate::pick_view::Picked)
+                        .after(crate::bar_view::Used)
+                        .after(crate::wheel_view::Released),
+                    note_doors,
+                    forget_world_tick,
                 )
                     .chain(),
             )
@@ -594,6 +949,30 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             None => SimWorld::new(setup.world, level.clone())
                 .map_err(|error| format!("a new world: {error}"))?,
         };
+        // A live world plays by the saber rules the settings choose (a
+        // save's own too); a replay by its recording's. A headless live
+        // world has no settings, so it keeps a save's saber rules and takes
+        // targeted blocks from the environment.
+        let rules = app
+            .get_resource::<crate::settings::DuelOptions>()
+            .filter(|_| recording.is_none())
+            .map(|options| (options.rules, options.targeted));
+        if let Some((rules, targeted)) = rules {
+            world.set_saber_rules(rules);
+            world.set_targeted_blocks(targeted);
+        } else if recording.is_none() {
+            world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
+        }
+        // A live world takes the damage multipliers the settings choose, a
+        // save's too; a replay keeps its recording's. A headless live world
+        // has no settings and keeps what it has.
+        let damage_taken = app
+            .get_resource::<crate::settings::Settings>()
+            .filter(|_| recording.is_none())
+            .map(crate::settings::Settings::damage_taken);
+        if let Some(taken) = damage_taken {
+            world.set_damage_taken(taken);
+        }
         let last = world.snapshot();
         let source = match recording {
             Some(recording) => Source::Replay {
@@ -604,8 +983,14 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             },
             None => Source::Live {
                 recorder: Some(Box::new(
-                    Recorder::new(rate.hz(), last.clone(), world.level().id(), RECORD_EVERY)
-                        .with_script(world.script_state().clone()),
+                    Recorder::new(
+                        rate.hz(),
+                        last.clone(),
+                        world.level().id(),
+                        RECORD_EVERY,
+                        world.stance_ids(),
+                    )
+                    .with_script(world.script_state().clone()),
                 )),
             },
         };
@@ -649,23 +1034,25 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         app.init_resource::<Loading>();
         crate::report::game_started(app);
         app.insert_resource(Authority {
+            seat,
             world: WorldSlot::new(world),
             stepper: None,
-            landed: None,
+            landed: Vec::new(),
+            cut: false,
             clock: Accumulator::new(rate, last.tick),
+            before: (last.tick, 0.0),
             source,
             setup: Setup { rate, ..setup },
             driver,
             aim,
-            look: Look {
-                pitch: 0.0,
-                yaw: setup.world.yaw,
-            },
+            look: Look::resumed(&last, seat, setup.world.yaw),
             controls: Controls::default(),
             last,
             frames: 0,
             idle_frames: 0,
             most: 0,
+            stepped_here: 0,
+            stepped_beside: 0,
             lifecycle,
             job: None,
             declined: Vec::new(),
@@ -675,6 +1062,9 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             flight,
             autosave_asked: false,
             music_asked: None,
+            rules,
+            damage_taken,
+            slowed: Slowed::default(),
         });
     }
     Ok(())
@@ -699,6 +1089,9 @@ pub(crate) struct PlayerInput<'w, 's> {
     showing: Option<Res<'w, crate::movie_view::Showing>>,
     feel: Option<Res<'w, MouseFeel>>,
     picking: Option<Res<'w, crate::pick_view::Picking>>,
+    orbit: Option<Res<'w, crate::camera_tune::Orbit>>,
+    summary: Option<Res<'w, crate::progress::SummaryHold>>,
+    wheel: Option<Res<'w, crate::wheel_view::Wheel>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -712,6 +1105,12 @@ impl PlayerInput<'_, '_> {
     /// Whether a movie is up (`movie_view::Showing`).
     pub(crate) fn movie_up(&self) -> bool {
         self.showing.as_ref().is_some_and(|showing| showing.0)
+    }
+
+    /// Whether KOTOR 2's status summary waits for its OK in a window
+    /// (`progress::SummaryHold`).
+    pub(crate) fn summary_up(&self) -> bool {
+        self.summary.as_ref().is_some_and(|summary| summary.0)
     }
 
     pub(crate) fn read(&self) -> Read {
@@ -746,10 +1145,18 @@ impl PlayerInput<'_, '_> {
                 Vec2::new(motion.delta.x, up * motion.delta.y) * MOUSE_DEGREES * feel.scale
             });
         let pad = actions.map_or(Vec2::ZERO, |actions| actions.turn);
+        // The orbit held turns the camera, not the player (`camera_tune`).
+        let orbiting = self.orbit.as_ref().is_some_and(|orbit| orbit.held);
+        // The power wheel open takes the mouse and the right stick for its
+        // pointer (`wheel_view`).
+        let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
+        let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
+        // A headless run's commands turn the view (`ui look`) through the
+        // stick's turn.
+        let scripted = headless && pad != Vec2::ZERO;
         Read {
             // The mouse while it holds the cursor, the stick while it turns.
-            turn: (!headless && !self.movie_up() && (grabbed || pad != Vec2::ZERO))
-                .then_some(mouse + pad),
+            turn: (turning && (grabbed || pad != Vec2::ZERO) || scripted).then_some(mouse + pad),
             actions,
         }
     }
@@ -808,7 +1215,7 @@ pub(crate) fn grab_cursor(
 /// Seat 0's command in `kjk sim view`: the movement keys (or the stick),
 /// jump and crouch, looking along +Y.
 pub(crate) fn keyboard(actions: &Actions) -> Command {
-    let (forward, right) = crate::pad::step(actions, false);
+    let (forward, right) = crate::pad::step(actions, false, || false);
     let axis =
         |plus, minus| 127 * i8::from(actions.held(plus)) - 127 * i8::from(actions.held(minus));
     Command {
@@ -820,13 +1227,13 @@ pub(crate) fn keyboard(actions: &Actions) -> Command {
     }
 }
 
-/// What the player chose that outlives a key press (JA's `weapon` and
-/// `forcesel`): the hand out, the power the force key casts, and its last
-/// answer to a conversation (held, `sim::script::dialogue::answer`).
-#[derive(Debug, Clone, Copy, Default)]
+/// What the player chose that outlives a key press (JA's `weapon`): the
+/// hand out, and its last answer to a conversation (held,
+/// `sim::script::dialogue::answer`). The power the force button casts
+/// comes from the action bar each frame (`bar_view::BarUse`).
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Controls {
     pub weapon: u8,
-    pub power: u8,
     pub reply: u8,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
@@ -852,14 +1259,11 @@ impl Controls {
 
     /// This frame's choices: in a conversation (`talk`) the answer the
     /// conversation screen took (`picked`, `dialogue_view::ReplyInput`);
-    /// else the right or the left hand's weapon out (their keys, 1 and 2
-    /// unless rebound). [ and ] (the D-pad's up and down) step through
-    /// `choices` (`force::choices` of the player's sheet), which starts at
-    /// its first.
+    /// else the right or the left hand's weapon out (their keys, ] and [
+    /// unless rebound).
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        choices: &[u8],
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
@@ -875,22 +1279,7 @@ impl Controls {
                 self.weapon = 1;
             }
         }
-        let step = i32::from(actions.pressed(Action::NextPower))
-            - i32::from(actions.pressed(Action::PreviousPower));
-        self.power = match choices.iter().position(|row| *row == self.power) {
-            _ if choices.is_empty() => 0,
-            None => choices[0],
-            Some(at) => choices[(at as i32 + step).rem_euclid(choices.len() as i32) as usize],
-        };
     }
-}
-
-/// The powers `seat`'s player can select in `snapshot`: its body's sheet's
-/// (`cast::body_sheet`, `level` the snapshot's).
-pub(crate) fn power_choices(snapshot: &Snapshot, seat: Seat, level: &Level) -> Vec<u8> {
-    crate::cast::body_sheet(snapshot, seat, level).map_or_else(Vec::new, |(_, sheet)| {
-        sim::combat::force::choices(&sheet.powers)
-    })
 }
 
 /// The line through the middle of the own screen as the last frame drew it
@@ -905,16 +1294,34 @@ pub struct CameraAim(pub [i8; 3]);
 /// jumps, C or Ctrl crouches, Shift walks (JA's client sends 64 for a
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
-/// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a kick
-/// or special with a saber); 1 and 2 pick the hand, L cycles the saber
-/// style, F casts the selected power ([ and ] select; grip, lightning and
-/// drain run while it is held), T charges a grenade (thrown on release), 3 uses a
-/// medpac, 4 takes a stim, 5 puts up a shield (each the kind `pick_view` has
-/// picked, the wheel choosing while its key is held), X turns stealth mode on
-/// or off, O lays the best mine carried (H holsters: `holster_view`).
-pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) -> Command {
+/// one (each rebinds as a key does) is the weapon's other mode (a throw or
+/// kata with a saber) and also aims a blaster (`Action::Aim`); G kicks; ]
+/// and [ pick the hand, L cycles the saber style, X turns stealth mode on
+/// or off (H holsters: `holster_view`).
+/// The action bar's slot in use (`bar`) adds its buttons and picks the
+/// power the force button casts.
+/// The right mouse button also blocks by default (`share_button`), by what
+/// the player's character holds (`hand`). R (`Action::DuelAltAttack`) is a
+/// blaster's feat attack with a blaster in hand. With anything else in hand
+/// it is the alternate attack, whatever the right button does. A pad's
+/// chord that is also the attack under the block
+/// (`Actions::feat_under_block`) makes only a blaster's feat attack. What is
+/// in hand is read at most once, and only when the shared button, the stick
+/// or R needs it.
+pub(crate) fn player_command(
+    actions: &Actions,
+    look: Look,
+    (controls, bar): (&Controls, &crate::bar_view::BarUse),
+    hand: impl FnOnce() -> InHand,
+) -> Command {
+    let hand = std::cell::LazyCell::new(hand);
     let held = |action| actions.held(action);
-    let (forward, right) = crate::pad::step(actions, held(Action::Walk));
+    // A mine being laid keeps the character still (`BarUse::still`).
+    let (forward, right) = if bar.still {
+        (0, 0)
+    } else {
+        crate::pad::step(actions, held(Action::Walk), || hand.blaster)
+    };
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
     let crouch = held(Action::Crouch);
     let pressed = [
@@ -922,15 +1329,9 @@ pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) 
         (held(Action::Attack), buttons::ATTACK),
         (held(Action::AltAttack), buttons::ALT_ATTACK),
         (held(Action::SaberStyle), buttons::SABER_STYLE),
-        (held(Action::Power), buttons::FORCE_POWER),
-        (held(Action::Grenade), buttons::GRENADE),
-        (held(Action::Medpac), buttons::MEDPAC),
-        (held(Action::Shield), buttons::SHIELD),
-        (held(Action::Stim), buttons::STIM),
         (held(Action::Stealth), buttons::STEALTH),
-        (held(Action::LayMine), buttons::LAY_MINE),
     ];
-    Command {
+    let command = Command {
         angles: view_angles(look.pitch, look.yaw),
         forward,
         right,
@@ -944,13 +1345,95 @@ pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) 
         buttons: pressed
             .iter()
             .filter(|(on, _)| *on)
-            .fold(0, |bits, (_, button)| bits | button),
+            .fold(bar.buttons, |bits, (_, button)| bits | button),
         weapon: controls.weapon,
-        force: controls.power,
+        force: bar.force.unwrap_or(0),
         reply: controls.reply,
         // The camera's, put in as the command is sent (`CameraAim`).
         aim: [0; 3],
+        holds: [
+            (held(Action::Block), sim::holds::BLOCK),
+            (held(Action::Kick), sim::holds::KICK),
+            (held(Action::Aim), sim::holds::AIM),
+        ]
+        .iter()
+        .filter(|(on, _)| *on)
+        .fold(0, |bits, (_, bit)| bits | bit),
+    };
+    let mut command = share_button(command, actions.block_shared, || *hand);
+    let own_key = held(Action::DuelAltAttack);
+    if (own_key || actions.feat_under_block) && hand.blaster {
+        command.holds |= sim::holds::FEAT;
+    } else if own_key {
+        // The alternate attack's own key is never the shared button's press.
+        command.buttons |= buttons::ALT_ATTACK;
     }
+    command
+}
+
+/// What the button Block shares decides by: the session's saber rules and
+/// what the body the seat moves holds.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InHand {
+    pub rules: sim::combat::saber::SaberRules,
+    /// What it holds is a blade the sim lets a block be held with
+    /// (`sim::combat::saber::duel::can_hold`): a lightsaber, lit or put
+    /// away (the block lights it), or a melee blade such as a sword, a
+    /// vibroblade or a staff.
+    pub blade: bool,
+    /// What it holds is a blaster, which aims with the alternate attack's
+    /// button (`pad::step`).
+    pub blaster: bool,
+}
+
+impl InHand {
+    /// Under the duel rules, with a lightsaber or a melee blade in hand.
+    fn blocks(self) -> bool {
+        self.rules.duel() && self.blade
+    }
+
+    /// What the body `seat` moves holds in `last` (`Snapshot::body`: its own
+    /// character, or the companion it drives or leads with). A seat with no
+    /// living body holds nothing.
+    pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
+        use sim::combat::Delivery;
+        let delivery = last
+            .body(seat)
+            .filter(|entity| entity.fighter.is_some_and(|f| f.alive()))
+            .map(|entity| {
+                crate::cast::weapon(entity, &sim::Instances::in_snapshot(level, last)).delivery
+            });
+        InHand {
+            rules: last.saber_rules,
+            blade: matches!(delivery, Some(Delivery::Saber(_) | Delivery::Melee)),
+            blaster: matches!(delivery, Some(Delivery::Blaster(_))),
+        }
+    }
+}
+
+/// Who gets a press of the one input that Block and the alternate attack
+/// are both bound to (`shared`), as they are by default on the right mouse
+/// button. Under the duel rules, while the body the player moves, their own
+/// character or a companion, holds a lightsaber or a melee blade (`hand`),
+/// lit or put away, the press blocks and sends no alternate attack.
+/// Otherwise it is the alternate attack and sends no block. When Block is
+/// bound to an input of its own, both actions work independently and the
+/// command is left as it is.
+pub(crate) fn share_button(
+    mut command: Command,
+    shared: bool,
+    hand: impl FnOnce() -> InHand,
+) -> Command {
+    let both = command.buttons & buttons::ALT_ATTACK != 0 && command.holds & sim::holds::BLOCK != 0;
+    if !shared || !both {
+        return command;
+    }
+    if hand().blocks() {
+        command.buttons &= !buttons::ALT_ATTACK;
+    } else {
+        command.holds &= !sim::holds::BLOCK;
+    }
+    command
 }
 
 /// `command` turned to look at the chest (`mind::chest_of`: a hovering
@@ -994,31 +1477,77 @@ struct Landed {
     input: TickInput,
     snapshot: Arc<Snapshot>,
     notices: Vec<(Seat, sim::notice::Notice)>,
+    for_net: Option<crate::sim_worker::ForNet>,
 }
 
 impl Authority {
-    /// The world home, if it was being stepped: its tick recorded and made
-    /// the last, the rest kept for `advance` (`landed`).
-    fn settle(&mut self) {
-        let Some(stepped) = Stepper::land(&mut self.world, &mut self.stepper) else {
-            return;
-        };
-        if let Source::Live {
+    /// A live world's recording so far kept beside (`inputs-<tick>.kjkr`)
+    /// and one started from `after`, the world now: what a replay of it
+    /// would not do happened (a save loaded).
+    fn record_anew(&mut self, after: &Snapshot, folder: &std::path::Path) {
+        let Source::Live {
             recorder: Some(recorder),
         } = &mut self.source
-        {
-            recorder.record(stepped.msec, &stepped.input, &stepped.snapshot);
+        else {
+            return;
+        };
+        let before = std::mem::replace(
+            recorder,
+            Box::new(
+                Recorder::new(
+                    self.setup.rate.hz(),
+                    after.clone(),
+                    self.world.level().id(),
+                    RECORD_EVERY,
+                    self.world.stance_ids(),
+                )
+                .with_script(self.world.script_state().clone()),
+            ),
+        );
+        let path = folder.join(format!("inputs-{}.kjkr", after.tick));
+        let ended = before.finish_encoded(&self.last);
+        if let Err(error) = std::fs::write(&path, ended) {
+            error!(target: "sim", "{}: {error}", path.display());
         }
-        if let Some(flight) = &mut self.flight {
-            flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
+    }
+
+    fn script_runs(&mut self) -> std::collections::BTreeMap<String, usize> {
+        self.settle();
+        self.world.script_report().runs.clone()
+    }
+
+    /// The world home, if it was being stepped: each of its ticks
+    /// recorded, in order, and the newest made the last. The rest is kept
+    /// for `advance` (`landed`). The actions of the ticks the step thread
+    /// did not step wait for the next tick again (`Solo::unstepped`).
+    fn settle(&mut self) {
+        let Some(away) = Stepper::land(&mut self.world, &mut self.stepper) else {
+            return;
+        };
+        self.stepped_beside += away.stepped.len() as u64;
+        for stepped in away.stepped {
+            if let Source::Live {
+                recorder: Some(recorder),
+            } = &mut self.source
+            {
+                recorder.record(stepped.msec, &stepped.input, &stepped.snapshot);
+            }
+            if let Some(flight) = &mut self.flight {
+                flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
+            }
+            let snapshot = stepped.snapshot;
+            self.last = snapshot.clone();
+            self.landed.push(Landed {
+                input: stepped.input,
+                snapshot,
+                notices: stepped.notices,
+                for_net: stepped.for_net,
+            });
         }
-        let snapshot = Arc::new(stepped.snapshot);
-        self.last = snapshot.clone();
-        self.landed = Some(Landed {
-            input: stepped.input,
-            snapshot,
-            notices: stepped.notices,
-        });
+        if !away.unstepped.is_empty() {
+            self.cut = true;
+            self.solo.unstepped(away.unstepped);
+        }
     }
 
     /// A step stepped that asks for no transition: the ones that failed
@@ -1031,14 +1560,26 @@ impl Authority {
 
     /// Starts planning `request` on a thread of its own, if the session
     /// installs modules and this transition did not fail before (a command
-    /// or a replay asks regardless).
+    /// or a replay asks regardless). Its loading screen's hint comes from
+    /// where the hints stand in `ask`, else in the world now.
     fn start(
         &mut self,
         request: Request,
         commanded: bool,
         expect: Option<Announcement>,
+        ask: Option<HintAsk>,
         loading: &mut Loading,
     ) -> bool {
+        if self.lifecycle.is_none() {
+            return false;
+        }
+        let ask = ask.unwrap_or_else(|| {
+            self.settle();
+            HintAsk {
+                hints: self.world.hints(),
+                visited: self.last.visited(&request.module),
+            }
+        });
         let Some(lifecycle) = &self.lifecycle else {
             return false;
         };
@@ -1059,7 +1600,14 @@ impl Authority {
         self.job = Some(Job {
             commanded,
             expect,
-            ..Job::spawn(installer, request, scene, Duration::ZERO, loading)
+            ..Job::spawn(
+                installer,
+                request,
+                Some(ask),
+                scene,
+                Duration::ZERO,
+                loading,
+            )
         });
         true
     }
@@ -1092,6 +1640,7 @@ impl Authority {
             Request::of(&announcement),
             false,
             Some(announcement),
+            None,
             loading,
         )
     }
@@ -1155,6 +1704,7 @@ pub(crate) fn current_save(world: &mut World) -> Option<Vec<u8>> {
         level: authority.world.level().id(),
         script: authority.world.script_state().clone(),
         snapshot,
+        stances: authority.world.stance_ids(),
     };
     Some(save.encode())
 }
@@ -1216,6 +1766,7 @@ fn store(
         level: authority.world.level().id(),
         script: authority.world.script_state().clone(),
         snapshot,
+        stances: authority.world.stance_ids(),
     };
     let world = save.encode();
     let story = saves::Story::of(&save, authority.world.level());
@@ -1233,17 +1784,19 @@ fn store(
     Ok((id, meta, world))
 }
 
-/// A session a save's story restored (`SessionIntent::Restore`): its first
-/// module owes no autosave, which would rotate the autosaves and so move or
-/// remove the slot restored from when it is one of them (the restore never
-/// writes over its slot). Taken by the autosave once seen.
+/// A session started from a save, or from a save's story
+/// (`SessionIntent::Restore`). Its first module owes no autosave, as
+/// KOTOR writes none when a game is loaded. One would rotate the autosaves
+/// and so move or remove the slot loaded from when it is one of them.
+/// Taken by the autosave once seen.
 #[derive(Resource)]
-pub struct FromStory;
+pub struct FromSave;
 
 /// An autosave owed since a module was installed (`installs` counts them;
-/// none counted yet: the first module the game starts in is owed one too,
-/// but for a game a story restored): tried each second until nothing
-/// refuses it.
+/// none counted yet: the first module the game starts in is owed one too).
+/// A module that came from a save owes none: a game loaded from the menu,
+/// or a save loaded in place (issue 643). The autosave is tried each second
+/// until nothing refuses it.
 #[derive(Default)]
 struct AutosaveDue {
     installs: Option<usize>,
@@ -1253,21 +1806,80 @@ struct AutosaveDue {
 
 impl AutosaveDue {
     /// The authority's `installs` seen (`fresh` when it was just made: a
-    /// game started or loaded, `restored` from a story); whether an
-    /// autosave became owed, which only a player's game with `eligible`
-    /// (live, Autosave on) owes.
-    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool, restored: bool) -> bool {
+    /// game started or loaded; `loaded` when the newest module came from a
+    /// save); whether an autosave became owed, which only a player's game
+    /// with `eligible` (live, Autosave on) owes.
+    fn observe(&mut self, installs: usize, fresh: bool, eligible: bool, loaded: bool) -> bool {
         if fresh {
             *self = AutosaveDue::default();
         }
         if Some(installs) == self.installs {
             return false;
         }
-        let first = self.installs.is_none();
         self.installs = Some(installs);
-        self.owed = eligible && !(first && restored);
+        self.owed = eligible && !loaded;
         self.owed
     }
+}
+
+/// A perfect block's slow motion (`Slowed`): the player's own new perfect
+/// block slows the clock for the rule's time when on; an
+/// old one seen again, the option off or JA's rules do not.
+#[cfg(feature = "probes")]
+pub fn slow_motion_probes() -> sim::probe::Checks {
+    let mut world = SimWorld::new(sim::WorldConfig::one_seat(), Level::arena()).expect("one seat");
+    let mut before = world.snapshot();
+    before.saber_rules = SaberRules::DuelAdvanced;
+    let blocked = |snapshot: &Snapshot, at: u64| {
+        let mut after = snapshot.clone();
+        if let Some(fighter) = after
+            .entities
+            .iter_mut()
+            .find(|entity| Some(entity.id) == crate::cast::me(snapshot, Seat(0)))
+            .and_then(|entity| entity.fighter.as_mut())
+        {
+            fighter.saber.duel.perfect_at = at;
+        }
+        after
+    };
+    let after = blocked(&before, 500);
+    let held = f64::from(slow_motion::MS) / 1000.0;
+    let run = |on: bool, rules: SaberRules, again: bool| {
+        let mut slowed = Slowed::default();
+        let mut first = before.clone();
+        first.saber_rules = rules;
+        let mut next = after.clone();
+        next.saber_rules = rules;
+        slowed.follow(&first, Seat(0), on, 0.0);
+        slowed.follow(&next, Seat(0), on, 10.0);
+        if again {
+            slowed.until = 0.0;
+            slowed.follow(&next, Seat(0), on, 20.0);
+        }
+        let at = if again { 20.0 } else { 10.0 };
+        (slowed.scale(at + held / 2.0), slowed.scale(at + held * 2.0))
+    };
+    let slow = run(true, SaberRules::DuelAdvanced, false);
+    let off = run(false, SaberRules::DuelAdvanced, false);
+    let ja = run(true, SaberRules::Ja, false);
+    let seen = run(true, SaberRules::DuelAdvanced, true);
+    vec![(
+        "perfect_block_slows",
+        sim::probe::check(
+            slow == (slow_motion::SCALE, 1.0)
+                && off == (1.0, 1.0)
+                && ja == (1.0, 1.0)
+                && seen == (1.0, 1.0),
+            format!("new {slow:?}, option off {off:?}, JA {ja:?}, seen again {seen:?}"),
+        ),
+    )]
+}
+
+/// The world held after an install until its area can be drawn
+/// (`lifecycle_view::Picture`, issue 410).
+#[cfg(feature = "probes")]
+pub fn loading_hold_probes() -> sim::probe::Checks {
+    crate::lifecycle_view::picture_probes()
 }
 
 /// The autosave owed at a game's first module and after each module
@@ -1284,7 +1896,9 @@ pub fn autosave_probes() -> sim::probe::Checks {
     let off = AutosaveDue::default().observe(0, true, false, false);
     let mut restored = AutosaveDue::default();
     let restored_first = restored.observe(0, true, true, true);
-    let restored_entered = restored.observe(1, false, true, true);
+    let restored_entered = restored.observe(1, false, true, false);
+    let reloaded = restored.observe(2, false, true, true);
+    let entered_after = restored.observe(3, false, true, false);
     vec![
         (
             "autosave_owed_each_game",
@@ -1296,18 +1910,28 @@ pub fn autosave_probes() -> sim::probe::Checks {
             ),
         ),
         (
-            "autosave_not_owed_on_restore",
+            "autosave_not_owed_on_load",
             sim::probe::check(
                 !restored_first && restored_entered,
                 format!("first module {restored_first}, the next entered {restored_entered}"),
             ),
         ),
+        (
+            "autosave_not_owed_on_reload",
+            sim::probe::check(
+                !reloaded && entered_after,
+                format!(
+                    "a save loaded in place {reloaded}, the next module entered {entered_after}"
+                ),
+            ),
+        ),
     ]
 }
 
-/// The autosave owed after each module installed (KOTOR's rule) and when a
-/// script asks for one, once a second until nothing refuses it: a player's game, solo or hosting (the
-/// host's world is the authority), live, not an arena, with Autosave on.
+/// The autosave owed after each module entered (KOTOR's rule, not after a
+/// save loaded) and when a script asks for one, once a second until
+/// nothing refuses it: a player's game, solo or hosting (the host's world
+/// is the authority), live, not an arena, with Autosave on.
 fn autosave(
     mut authority: ResMut<Authority>,
     mut due: Local<AutosaveDue>,
@@ -1319,17 +1943,20 @@ fn autosave(
         Option<Res<crate::movie_view::Showing>>,
         Option<Res<SceneSwap>>,
     ),
-    own: Option<Res<OwnSeat>>,
-    (made, from_story, mut commands): (
+    (own, mut autosaved): (Option<Res<OwnSeat>>, ResMut<crate::save_view::Autosaved>),
+    (made, from_save, mut commands): (
         Option<Res<crate::character::Made>>,
-        Option<Res<FromStory>>,
+        Option<Res<FromSave>>,
         Commands,
     ),
 ) {
-    let restored = from_story.is_some();
-    if restored {
-        commands.remove_resource::<FromStory>();
+    // The newest module came from a save: the game's first, loaded from
+    // the menu, or a save loaded in place.
+    let from_save = from_save.is_some();
+    if from_save {
+        commands.remove_resource::<FromSave>();
     }
+    let loaded = from_save || authority.installs.last().is_some_and(|last| last.reload);
     // An arena's level is never saved (`saves::refusal`): none owed there.
     // Read from the scene's level: the world itself may be away, being
     // stepped (`sim_worker`), until `settle` below brings it home.
@@ -1342,7 +1969,7 @@ fn autosave(
         authority.installs.len(),
         authority.is_added(),
         eligible,
-        restored,
+        loaded,
     ) {
         info!(target: "saves", installs = authority.installs.len(), "autosave owed");
     }
@@ -1378,7 +2005,10 @@ fn autosave(
         movie,
         seat,
     ) {
-        Ok(_) => due.owed = false,
+        Ok(_) => {
+            due.owed = false;
+            autosaved.0 = true;
+        }
         // KOTOR's refusals pass: the autosave waits for them.
         Err(why) if why.starts_with("You cannot save") => {
             debug!(target: "saves", "autosave waits: {why}")
@@ -1413,7 +2043,11 @@ fn reload_start(authority: &mut Authority, id: &str, loading: &mut Loading) -> R
          or the save is not in one.",
     )?;
     info!(target: "saves", id, module = %request.module, "reloading");
-    if authority.start(request, true, None, loading)
+    let ask = HintAsk {
+        hints: save.script.hints,
+        visited: save.snapshot.visited(&request.module),
+    };
+    if authority.start(request, true, None, Some(ask), loading)
         && let Some(job) = authority.job.as_mut()
     {
         job.reload = Some(Box::new(save));
@@ -1426,7 +2060,7 @@ fn reload_start(authority: &mut Authority, id: &str, loading: &mut Loading) -> R
 /// else the host's); a game played alone has none to send it to. A player
 /// with too many copies still waiting is left out, and logged.
 fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, world: &[u8]) {
-    let character = meta.character.as_ref().map(|made| made.name.trim());
+    let character = meta.character.as_ref().map(|made| made.name.trim_ascii());
     let received = saves::copies::Received {
         host,
         from: character
@@ -1449,15 +2083,41 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
     }
 }
 
+/// Whether a frame may hand all its ticks to the step thread
+/// (`sim_worker`). The view then shows the world a frame later (docs/SIM.md,
+/// "The step thread").
+fn batches() -> bool {
+    static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() != Ok("off"))
+}
+
+/// The screens that keep the world going while they are open: pazaak, whose
+/// game is played on the world's ticks, and a computer, whose conversation
+/// goes on with them. The loading screen is no menu.
+const LIVE_SCREENS: [&str; 5] = [
+    "pazaak_game",
+    "pazaak_setup",
+    "pazaak_wager",
+    "computer",
+    "loading",
+];
+
+/// Whether `stack` has a menu open that the world waits for in single
+/// player: any screen but the `LIVE_SCREENS`.
+fn holds_world(stack: &ui::screen::Stack) -> bool {
+    stack
+        .screens()
+        .any(|screen| !LIVE_SCREENS.contains(&screen.0))
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn advance(
     time: Res<Time<Real>>,
-    held: Res<AnimationTime>,
+    (held, held_tick, mut world_tick): (Res<AnimationTime>, Res<HeldTick>, ResMut<WorldTick>),
     input: PlayerInput,
     mut authority: ResMut<Authority>,
     mut presented: ResMut<PresentedSnapshot>,
     mut facts: ResMut<DumpFacts>,
-    dump_due: Res<DumpDue>,
     (mut loading, mut states, mut request, mut swap, mut commands, mut selected, mut replies): (
         ResMut<Loading>,
         ResMut<States>,
@@ -1474,22 +2134,43 @@ fn advance(
         ResMut<ReloadRequest>,
         Res<RunFolder>,
     ),
-    (mut outgoing, mut told, mut shown, mut heard, mut ui, camera_aim): (
+    (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut ui, camera_aim, picture): (
         Option<ResMut<crate::loot::Outgoing>>,
         Option<ResMut<crate::loot::Told>>,
         Option<ResMut<crate::script_screens::Shown>>,
-        Option<ResMut<crate::ambience::Heard>>,
+        (
+            Option<ResMut<crate::ambience::Heard>>,
+            Option<ResMut<crate::made::Exploded>>,
+        ),
         Option<ResMut<crate::ui_view::Ui>>,
         Res<CameraAim>,
+        Option<Res<crate::lifecycle_view::Picture>>,
+    ),
+    (bar_use, wheel): (
+        Option<Res<crate::bar_view::BarUse>>,
+        Option<Res<crate::wheel_view::Wheel>>,
     ),
 ) {
     let authority = &mut *authority;
     let rate = authority.setup.rate;
-    // The tick stepped beside the last frame: the session hears of it
-    // before this frame's commands, as it would have that frame.
+    // The ticks stepped beside the last frame: the session hears of them,
+    // in order, before this frame's commands, as it would have that frame.
     authority.settle();
-    let landed = authority.landed.take();
-    if let Some(landed) = &landed {
+    // A host publishes no tick, so `tick` holds only a game without co-op.
+    world_tick.0 = (!authority.solo.hosting()).then_some(authority.last.tick);
+    // This machine's seat as the session has it: a lobby's guest may play
+    // the main character, and the host's player takes the first seat when
+    // that guest is gone. What the screens and the controls read follows.
+    if let (Source::Live { .. }, Some(seat)) = (&authority.source, authority.solo.seat())
+        && seat != authority.seat
+    {
+        authority.seat = seat;
+        commands.insert_resource(OwnSeat(seat));
+    }
+    let own_seat = authority.seat;
+    let landed = std::mem::take(&mut authority.landed);
+    let cut = std::mem::take(&mut authority.cut);
+    for landed in &landed {
         for (seat, notice) in landed.notices.iter().cloned() {
             if authority.took(&notice) {
                 continue;
@@ -1497,13 +2178,24 @@ fn advance(
             match notice {
                 sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
                 sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
+                sim::notice::Notice::Explosion(explosion) => {
+                    authority.solo.explosion(seat, explosion)
+                }
                 notice => {
                     let text = crate::loot::words(&notice, ui.as_deref_mut());
                     authority.solo.notice(seat, &text);
                 }
             }
         }
-        authority.solo.stepped(&landed.input, &landed.snapshot);
+        match landed.for_net.as_ref() {
+            Some(for_net) => authority.solo.stepped_hashed(
+                &landed.input,
+                &landed.snapshot,
+                for_net.hash,
+                for_net.split.clone(),
+            ),
+            None => authority.solo.stepped(&landed.input, &landed.snapshot),
+        }
     }
     // The first frame keeps the starting snapshot for the views.
     if authority.frames > 0 {
@@ -1517,7 +2209,7 @@ fn advance(
                     lifecycle
                         .installer
                         .request_from(&authority.last, &module, arrival.as_deref());
-                authority.start(request, true, None, &mut loading);
+                authority.start(request, true, None, None, &mut loading);
             }
             Some(_) => request.failed = Some("a module is being installed already".into()),
             None => request.failed = Some("this run installs no modules".into()),
@@ -1542,6 +2234,7 @@ fn advance(
         let prepare_ms = job.started.elapsed().as_secs_f64() * 1000.0;
         let reloaded = job.reload.take();
         let was_reload = reloaded.is_some();
+        let shown = job.hints.lock().expect("the job hints lock").take();
         let committed = result.and_then(|prepared| {
             // A replay's install must be the recorded one, before and
             // after.
@@ -1556,8 +2249,37 @@ fn advance(
                 Some(save) => {
                     let seats = authority.last.seats();
                     let tick = authority.last.tick;
-                    let (world, first) =
+                    let (mut world, mut first) =
                         crate::play::from_save(&save, &prepared.plan.level, seats, Some(tick))?;
+                    // A headless session has no settings, so a save it
+                    // loads takes targeted blocks from the environment.
+                    let live = matches!(authority.source, Source::Live { .. });
+                    if authority.rules.is_none() && live {
+                        world.set_targeted_blocks(crate::settings::targeted_blocks_from_env());
+                    }
+                    // A live session's save takes the damage multipliers the
+                    // settings have now.
+                    let taken = authority
+                        .damage_taken
+                        .filter(|taken| live && *taken != world.damage_taken());
+                    if let Some(taken) = taken {
+                        world.set_damage_taken(taken);
+                    }
+                    if let Some((rules, targeted)) = authority.rules {
+                        world.set_saber_rules(rules);
+                        world.set_targeted_blocks(targeted);
+                    }
+                    // The rules may change the fighters' stance sets, so the
+                    // module is announced as the world stands after them and
+                    // after the damage multipliers.
+                    if taken.is_some() || authority.rules.is_some() {
+                        first =
+                            sim::Announcement::new(&prepared.plan.level, None, &world.snapshot())
+                                .ok_or("the save was not made in a module")?;
+                    }
+                    if let Some(hints) = shown {
+                        world.set_hints(hints);
+                    }
                     authority.world = WorldSlot::new(world);
                     info!(target: "saves", tick, "reloaded");
                     first
@@ -1570,6 +2292,9 @@ fn advance(
                         .plan
                         .commit(&mut authority.world)
                         .map_err(|error| error.to_string())?;
+                    if let Some(hints) = shown {
+                        authority.world.set_hints(hints);
+                    }
                     if let Some(report) = authority.world.reconciled() {
                         warn!(target: "save-migrate", "{report}");
                         for snap in &report.snaps {
@@ -1608,33 +2333,14 @@ fn advance(
                 authority
                     .solo
                     .installed(announcement.clone(), &after, authority.world.level());
-                if let Source::Live {
+                if was_reload {
+                    // A reload does not replay.
+                    authority.record_anew(&after, &folder.0);
+                } else if let Source::Live {
                     recorder: Some(recorder),
                 } = &mut authority.source
                 {
-                    if was_reload {
-                        // A reload does not replay: the recording so far
-                        // is kept beside, and one starts from here.
-                        let before = std::mem::replace(
-                            recorder,
-                            Box::new(
-                                Recorder::new(
-                                    rate.hz(),
-                                    after.clone(),
-                                    authority.world.level().id(),
-                                    RECORD_EVERY,
-                                )
-                                .with_script(authority.world.script_state().clone()),
-                            ),
-                        );
-                        let path = folder.0.join(format!("inputs-{}.kjkr", after.tick));
-                        let ended = before.finish_encoded(&authority.last);
-                        if let Err(error) = std::fs::write(&path, ended) {
-                            error!(target: "sim", "{}: {error}", path.display());
-                        }
-                    } else {
-                        recorder.install(announcement.clone());
-                    }
+                    recorder.install(announcement.clone());
                 }
                 // The flight recorder's segment for the module entered
                 // (a reload's too): it installs nothing.
@@ -1645,6 +2351,7 @@ fn advance(
                         authority.world.script_state(),
                     );
                 }
+                log_undeclared_globals(authority.world.level());
                 let census = after.census();
                 info!(
                     target: "lifecycle",
@@ -1668,6 +2375,7 @@ fn advance(
                     plan_ms: prepared.plan_ms,
                     scene_ms: prepared.scene_ms,
                     area_cached: prepared.plan.facts.cached,
+                    reload: was_reload,
                     commit_ms,
                     live: census.live_total(),
                     left_behind: census.stashed_total(),
@@ -1748,12 +2456,29 @@ fn advance(
     // The world waits while a movie is up, as KOTOR's does, or while a
     // break holds until a resume waits to be stepped (its caller's or the
     // host's ends it, another's is told no: `sim::party`); the players wait
-    // with it (`Solo::hold`). A replay steps its recorded ticks.
+    // with it (`Solo::hold`). It waits too while the status summary waits
+    // for its OK, as KOTOR 2's does, when no other player can join (a
+    // pause is a player's own). A replay steps its recorded ticks.
     let movie_up = input.movie_up();
-    let on_break = matches!(authority.source, Source::Live { .. })
-        && authority.last.paused_by.is_some()
-        && !authority.solo.resume_waiting();
-    let waiting = movie_up || on_break;
+    let live = matches!(authority.source, Source::Live { .. });
+    let on_break = live && authority.last.paused_by.is_some() && !authority.solo.resume_waiting();
+    let summary_up = live && input.summary_up() && !authority.solo.hosting();
+    // In single player the world also waits while a menu is open, as
+    // KOTOR's does. An action made on the menu (an item equipped, a
+    // purchase) still gets the ticks it needs to take effect.
+    let menu_up = live
+        && !authority.solo.hosting()
+        && matches!(authority.driver, Driver::Player(None))
+        && ui.as_deref().is_some_and(|ui| holds_world(&ui.stack))
+        && !authority.solo.action_waiting();
+    // It waits too after an install until the new area can be drawn whole
+    // behind the loading screen (`lifecycle_view::Picture`, issue 410): its
+    // scripts, conversations and fights start when the player can see them.
+    // Co-op players wait with it, as for a movie.
+    let unseen = picture
+        .as_deref()
+        .is_some_and(|picture| picture.holds(loading.committed));
+    let waiting = movie_up || on_break || summary_up || menu_up || unseen;
     authority.solo.hold(waiting);
     frozen.0 = waiting;
     // The session answers its players (the own client joins and loads
@@ -1793,30 +2518,54 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
-            None => authority.clock.advance(time.delta()),
+            // A perfect block slows the clock for a moment (`Slowed`). The
+            // power wheel slows it while it is open in a session of one
+            // seat (`wheel_view::time_scale`). The two scales never
+            // multiply. The clock runs at the slower of the two.
+            None => {
+                let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
+                let wheel = crate::wheel_view::time_scale(open, authority.last.seats());
+                let scale = authority.slowed.scale(time.elapsed_secs_f64()).min(wheel);
+                authority.clock.advance(time.delta().mul_f32(scale))
+            }
         }
+    };
+    // Only a game without co-op is held (`tick`). A host that stopped its
+    // ticks would stop the world for every guest.
+    let held_at = held_tick.0.filter(|_| !authority.solo.hosting());
+    let due = match held_at {
+        Some(at) if due.last().is_some_and(|(tick, _)| *tick > at) => {
+            authority.clock = Accumulator::new(rate, at.max(authority.last.tick));
+            due.into_iter().filter(|(tick, _)| *tick <= at).collect()
+        }
+        _ => due,
     };
     let Read { actions, turn } = input.read();
     if let (Some(degrees), Driver::Player(_)) = (turn, &authority.driver) {
-        let held = held_pitch(&authority.last, Seat(0));
+        let held = held_pitch(&authority.last, own_seat);
         authority.look.turn(degrees, held);
     }
     let picked = replies.as_deref_mut().and_then(|input| input.pick.take());
-    let scripted = matches!(authority.driver, Driver::Player(Some(_)));
+    // A scripted player, and a headless run without keys (`ui reply` in a
+    // run's commands), answer here: no key reading below takes the pick.
+    let scripted = matches!(authority.driver, Driver::Player(Some(_))) || actions.is_none();
     if let Some(pick) = picked.filter(|_| scripted)
-        && authority.last.talk_for(Seat(0)).is_some()
+        && authority.last.talk_for(own_seat).is_some()
     {
         authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let choices = power_choices(&authority.last, Seat(0), authority.world.level());
-        let talk = authority.last.talk_for(Seat(0));
+        let talk = authority.last.talk_for(own_seat);
         authority
             .controls
-            .update(actions, &choices, talk, picked.filter(|_| !scripted));
-        if let Some(selected) = selected.as_deref_mut() {
-            selected.0 = authority.controls.power;
-        }
+            .update(actions, talk, picked.filter(|_| !scripted));
+    }
+    let bar = bar_use
+        .as_deref()
+        .cloned()
+        .unwrap_or(crate::bar_view::BarUse::default());
+    if let (Some(selected), Some(power)) = (selected.as_deref_mut(), bar.force) {
+        selected.0 = power;
     }
 
     if let Some(told) = told.as_deref_mut() {
@@ -1828,13 +2577,21 @@ fn advance(
     if let Some(heard) = heard.as_deref_mut() {
         heard.0.extend(authority.solo.take_sounds());
     }
+    if let Some(exploded) = exploded.as_deref_mut() {
+        exploded.0.extend(authority.solo.take_explosions());
+    }
     // The snapshots this frame steps are pushed after the first `fresh`.
     let fresh = presented.1.len();
     let mut stepped = 0;
-    // The tick stepped beside the last frame is this frame's first; a
-    // transition or a break it asked for holds the world from it.
-    let mut held_up = false;
-    if let Some(landed) = landed {
+    // The ticks stepped beside the last frame are this frame's first; a
+    // transition or a break the last of them asked for holds the world
+    // from it. The step thread stopped at that tick (`cut`), and the
+    // clock goes back to it, so the ticks after it are due again later.
+    // There are at most `MAX_CATCH_UP` of them: the clock hands out no
+    // more in a frame.
+    let mut held_up = cut;
+    let any_landed = !landed.is_empty();
+    for landed in landed {
         stepped += 1;
         let transition = landed.snapshot.transition.clone();
         authority.forget_declined(transition.as_ref());
@@ -1847,22 +2604,55 @@ fn advance(
                 &transition.module,
                 Some(&transition.tag),
             );
-            if authority.start(request, false, None, &mut loading) {
+            if authority.start(request, false, None, None, &mut loading) {
                 states.0.insert("loading".into(), true);
                 states.0.insert("world".into(), false);
                 held_up = true;
             }
         }
+    }
+    if any_landed {
         held_up |= authority.last.paused_by.is_some();
-        if held_up {
-            authority.clock = Accumulator::new(rate, authority.last.tick);
-        }
+    }
+    if held_up {
+        authority.clock = Accumulator::new(rate, authority.last.tick);
     }
     let due = if held_up { Vec::new() } else { due };
-    // A live frame's last tick is stepped beside the next frame's work
+    // A live frame's ticks are stepped beside the next frame's work
     // (`sim_worker`); a held time's (a recording, `anim`) here, so the
     // frame shows the moment it holds.
     let beside = matches!(authority.source, Source::Live { .. }) && held_ms.is_none();
+    // The frame hands all its ticks to the step thread when it can make
+    // their commands before any of them is stepped, with nothing changed
+    // by that. It cannot in these cases, and then steps all but its last
+    // tick itself, as every frame does with `KJK_STEP_BATCH=off`:
+    // - A pilot or a minigame's bot drives. Their commands are kept as
+    //   they were, each made from the tick before it.
+    // - A break holds, and this frame's first tick may end it. The ticks
+    //   after it take the players' actions by whether it did
+    //   (`Solo::commands_for`).
+    // - A transition failed to plan (`declined`). The world goes on while
+    //   its steps still ask for it, and the step thread would stop at each.
+    // - Players can join over the network. The server takes a guest's
+    //   command for a tick when the tick's input is made, and counts a
+    //   command as late by the ticks it has been told were stepped. With
+    //   all the inputs made at the frame's start, a guest's commands would
+    //   have less time to arrive, and a late one would not be counted.
+    // A person's keys are read once a frame, so their commands are the
+    // same either way. One thing differs: which button a shared Block
+    // press stands for is decided by what the character held at the
+    // frame's start (`InHand`), for all the frame's ticks.
+    let batched = beside
+        && batches()
+        && match &authority.driver {
+            Driver::Player(None) => true,
+            Driver::Player(Some(_)) => authority.aim.is_none(),
+            Driver::Pilot => false,
+        }
+        && authority.last.paused_by.is_none()
+        && authority.declined.is_empty()
+        && !authority.solo.hosting();
+    let mut orders = Vec::new();
     let last_due = due.last().map(|(tick, _)| *tick);
     let module = authority.world.level().name().to_owned();
     for (tick, msec) in due {
@@ -1923,9 +2713,19 @@ fn advance(
                 })
             }
             (Source::Live { .. }, Driver::Player(None), Some(actions)) => {
-                Some(player_command(actions, authority.look, authority.controls))
+                let (last, level) = (&authority.last, authority.world.level());
+                Some(player_command(
+                    actions,
+                    authority.look,
+                    (&authority.controls, &bar),
+                    || InHand::of(last, level, own_seat),
+                ))
             }
-            (Source::Live { .. }, Driver::Player(None), None) => None,
+            // Headless with no keys: no command, but for an answer the
+            // console gave (`ui reply`), carried by an idle one.
+            (Source::Live { .. }, Driver::Player(None), None) => {
+                (authority.controls.reply != authority.controls.sent).then(sim::Command::default)
+            }
         };
         // A walk to a target steers in the player's place (`target_view`),
         // with no keys too (headless: the console's `ui act`).
@@ -1963,16 +2763,38 @@ fn advance(
                 // What the server has (the player's), and the pilot for the
                 // seats no client drives.
                 let mut input = authority.solo.commands_for(tick, authority.last.paused_by);
+                // Never the first seat: while its player is away, the main
+                // character waits for them, or for the host to take it.
                 for (seat, command) in pilot_input.iter().flat_map(TickInput::iter) {
-                    if !authority.solo.occupied(seat) {
+                    if !authority.solo.occupied(seat) && seat != Seat(0) {
                         input.insert(seat, *command);
                     }
                 }
-                if beside && last_due == Some(tick) {
+                if beside && (batched || last_due == Some(tick)) {
+                    // A host's tick is hashed on the step thread, and
+                    // split there when a frame can be made of it. A solo
+                    // host's tick that its own client checks is split on a
+                    // thread of its own.
+                    let hosting = authority.solo.hosting();
+                    let prepare = Prepare {
+                        hash: hosting,
+                        split: hosting && authority.solo.sends_on(tick),
+                        check: !hosting && authority.solo.checks_on(tick),
+                    };
+                    orders.push(Order {
+                        tick,
+                        input,
+                        msec,
+                        prepare,
+                    });
+                    if last_due != Some(tick) {
+                        continue;
+                    }
                     Stepper::send(
                         &mut authority.world,
                         &mut authority.stepper,
-                        (tick, input, msec),
+                        std::mem::take(&mut orders),
+                        authority.lifecycle.is_some(),
                     );
                     break;
                 }
@@ -1983,6 +2805,7 @@ fn advance(
                     msec,
                     StepReason::Authority,
                 );
+                authority.stepped_here += 1;
                 if let Some(recorder) = recorder {
                     recorder.record(msec, &input, &snapshot);
                 }
@@ -1996,6 +2819,9 @@ fn advance(
                     match notice {
                         sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
                         sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
+                        sim::notice::Notice::Explosion(explosion) => {
+                            authority.solo.explosion(seat, explosion)
+                        }
                         notice => {
                             let text = crate::loot::words(&notice, ui.as_deref_mut());
                             authority.solo.notice(seat, &text);
@@ -2017,6 +2843,7 @@ fn advance(
                     recorded.msec,
                     StepReason::Replay,
                 );
+                authority.stepped_here += 1;
                 *next += 1;
                 let recorded_hash = recording
                     .checkpoints
@@ -2059,7 +2886,7 @@ fn advance(
                 &transition.module,
                 Some(&transition.tag),
             );
-            if authority.start(request, false, None, &mut loading) {
+            if authority.start(request, false, None, None, &mut loading) {
                 authority.clock = Accumulator::new(rate, tick);
                 states.0.insert("loading".into(), true);
                 states.0.insert("world".into(), false);
@@ -2115,9 +2942,14 @@ fn advance(
             }
         }
         None if authority.job.is_some() => 1.0,
+        // The newest tick shown was the clock's at the frame before: the
+        // view is that frame's time, a tick behind, so it moves evenly
+        // however many ticks each frame hands over.
+        None if batched && presented.0.current().tick == authority.before.0 => authority.before.1,
         None => authority.clock.alpha(),
     };
     presented.0.set_alpha(alpha);
+    authority.before = (authority.clock.tick(), authority.clock.alpha());
 
     // A replay is over once its ticks and its installs are: its end must be
     // the recording's.
@@ -2138,6 +2970,11 @@ fn advance(
     authority.frames += 1;
     authority.idle_frames += u64::from(stepped == 0);
     authority.most = authority.most.max(stepped);
+    authority.solo.sample();
+    if !facts.wanted() {
+        authority.solo.note_players();
+        return;
+    }
     let (source, replay) = match &authority.source {
         Source::Live { .. } => ("live", None),
         Source::Replay { matched, .. } => ("replay", *matched),
@@ -2151,24 +2988,22 @@ fn advance(
             "hz": authority.setup.rate.hz(),
             "tick": last.tick,
             "time_ms": last.time_ms,
-            // Hashing encodes the whole state: only for a dump.
-            "hash": dump_due.0.then(|| last.hash().to_string()),
+            "hash": last.hash().to_string(),
             "entities": last.entities.len(),
             "module": last.place.as_ref().map(|place| place.module.clone()),
             "census": { "live": census.live, "left_behind": census.stashed },
-            // The games' scripts run so far, by script (for a dump).
-            "script_runs": dump_due.0.then(|| {
-                authority.settle();
-                authority.world.script_report().runs.clone()
-            }),
+            "script_runs": authority.script_runs(),
             "frames": authority.frames,
             "frames_without_tick": authority.idle_frames,
             "most_ticks_in_a_frame": authority.most,
+            // Ticks the main thread stepped itself, and ticks the step
+            // thread stepped (`sim_worker`).
+            "ticks_on_main_thread": authority.stepped_here,
+            "ticks_on_step_thread": authority.stepped_beside,
             "dropped_ms": authority.clock.dropped().as_millis() as u64,
             "replay_matched": replay,
         }),
     );
-    authority.solo.sample();
     facts.0.insert("net".into(), authority.solo.facts());
 
     let first = authority
@@ -2239,6 +3074,10 @@ fn write_transcript(
             text.push('\n');
         }
     }
+    // The file holds the letters the game's bytes stand for.
+    let text = installer
+        .code_page()
+        .readable(&fmt_odyssey::code_page_bytes(&text));
     *written = talk.len();
     let path = folder.0.join("transcript.txt");
     let appended = std::fs::OpenOptions::new()
@@ -2280,6 +3119,7 @@ fn write_session(
         level: authority.world.level().id(),
         snapshot: (*authority.last).clone(),
         script: authority.world.script_state().clone(),
+        stances: authority.world.stance_ids(),
     };
     for (name, bytes) in [("inputs.kjkr", recording), ("end.kjkv", save.encode())] {
         let path = folder.0.join(name);

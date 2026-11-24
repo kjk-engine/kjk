@@ -68,7 +68,7 @@ struct Probe<'g> {
 
 fn run(discovery: &vfs::Discovery, saber: &str, step_ms: u32) -> Result<(), String> {
     let stack = viewer_ja::stack(discovery)?;
-    let files = Files::new(&stack);
+    let files = Files::base(&stack);
     let built = Instant::now();
     let data = crate::skeleton::skeleton_data(&files, &[saber])?;
     let built_ms = built.elapsed().as_secs_f64() * 1e3;

@@ -72,6 +72,9 @@ pub struct TraceArgs<'a> {
     pub doors: Doors,
     /// Trace again this many times, both ends moved by the step each time.
     pub repeat: Option<([f32; 3], u32)>,
+    /// Trace `Contents::ROUTED_SOLID`, what stops a body walking a planned
+    /// route, in place of `Contents::PLAYER_SOLID`.
+    pub routed: bool,
 }
 
 pub fn trace(
@@ -103,6 +106,11 @@ pub fn trace(
         args.shape,
         args.doors.name()
     );
+    let mask = if args.routed {
+        Contents::ROUTED_SOLID
+    } else {
+        Contents::PLAYER_SOLID
+    };
     let (step, count) = args.repeat.unwrap_or(([0.0; 3], 0));
     let mut traces = Vec::new();
     for k in 0..=count {
@@ -111,7 +119,7 @@ pub fn trace(
         let result = loaded
             .collision
             .level
-            .sweep(from, to, &shape, Contents::PLAYER_SOLID);
+            .sweep(from, to, &shape, mask);
         outln!(
             "  ({:.3}, {:.3}, {:.3}) -> ({:.3}, {:.3}, {:.3}): {}",
             from[0],
@@ -134,6 +142,7 @@ pub fn trace(
         "module": loaded.module.name,
         "shape": args.shape,
         "doors": args.doors.name(),
+        "routed": args.routed,
         "traces": traces,
     }));
     ExitCode::SUCCESS
@@ -225,6 +234,21 @@ pub fn probes(discovery: &Discovery, target: Option<(&str, &str)>, clip: ClipCho
     let synthetic_list = collision::probes::synthetic().0;
     for probe in &synthetic_list {
         print(probe);
+    }
+    for (title, checks) in [
+        ("surface probes:", collision_odyssey::probes::probes()),
+        (
+            "surface probes awaiting the owner's approval:",
+            collision_odyssey::probes::awaiting_approval(),
+        ),
+    ] {
+        outln!("{title}");
+        for (name, result) in checks {
+            match result {
+                Ok(detail) => outln!("  ok   {name}: {detail}"),
+                Err(detail) => outln!("  FAIL {name}: {detail}"),
+            }
+        }
     }
     let mut module_facts = serde_json::Value::Null;
     let mut module_list = Vec::new();

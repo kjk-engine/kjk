@@ -24,6 +24,7 @@
 //! (`sim::seen_cuts`, the authority's sweep); each body met once a swing
 //! is a contact `combat_fx` sparks at once.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
@@ -40,8 +41,12 @@ use sim::module::ObjectKind;
 use sim::motion;
 use sim::{Instances, SimId, Snapshot};
 
+use crate::anim_audit_log::{self, AuditLog};
 use crate::armory::Rearms;
-use crate::cast::{self, BodyRig, BodyRoots, Cast, Guns, Hitboxes, Own, Rig};
+use crate::blade_fx::ClashShake;
+use crate::cast::{
+    self, BodyHeads, BodyHeights, BodyRig, BodyRoots, Cast, Guns, Hitboxes, Own, Rig,
+};
 use crate::combat_fx::{Contact, Contacts};
 use crate::first_person::{self, FirstPerson};
 use crate::going_view::{Fading, Leaves};
@@ -61,7 +66,6 @@ const STEP_MS: f64 = 1000.0 / 60.0;
 /// JA's `cg_fov` 80 across a 4:3 screen, as a vertical field of view.
 const FOV_DEGREES: f32 = 64.94;
 const CAMERA_BOX: f32 = 4.0;
-const CAMERA_BACK_OFF: f32 = 80.0;
 /// The steepest the camera looks down or up at its target (degrees): the
 /// view's own pitch limit (`follow_camera`).
 const STEEPEST: f32 = 80.0;
@@ -69,9 +73,8 @@ const STEEPEST: f32 = 80.0;
 /// heading (`ThirdPerson::last_yaw`): straight over or under it, any is
 /// noise.
 const LEVEL_NEAR: f32 = 1.0;
-const AIM_ABOVE_EYE: f32 = sim::combat::mind::CROSSHAIR_ABOVE_EYE;
-const AIM_DAMP: f32 = 0.5;
-const PLACE_DAMP: f32 = 0.3;
+/// The camera's range, aim point and damping are the options'
+/// (`camera_tune::CameraTune`, JA's by default).
 const DAMP_INTERVAL_MS: f32 = 50.0;
 /// How many frames the frame-time figures cover.
 const FRAMES_KEPT: usize = 240;
@@ -95,6 +98,11 @@ pub enum CameraMode {
     /// The same, but 1.1 m above z 0 whatever the player does (for a
     /// jump's arc).
     Arc(f32),
+    /// `distance` metres off the player's right, as JA's camera faces, and
+    /// 1.4 m above its soles, looking back at a point 0.7 m in front of it.
+    /// With `--aim` the player faces its foe, so the shot shows both
+    /// fighters side by side whichever way the fight turns (for a duel).
+    Flank(f32),
 }
 
 /// What the view draws with: the JA skeleton and its sequences, the play
@@ -123,6 +131,9 @@ pub struct PlayViewSetup {
     pub wardrobe: crate::wardrobe::Setup,
     /// Draw the sim's blades beside the drawn ones (`sim_blades`).
     pub sim_blades: bool,
+    /// Where to write each frame of the saber animation audit
+    /// (`anim_audit_log`), if anywhere.
+    pub audit_log: Option<std::path::PathBuf>,
     /// The game's base items' wields (`stance::Wields`).
     pub wields: crate::stance::Wields,
 }
@@ -130,20 +141,59 @@ pub struct PlayViewSetup {
 /// Its systems; a session comes in with `install`.
 pub struct PlayViewPlugin;
 
-/// JA's third-person camera (units, degrees).
-#[derive(Default)]
+/// JA's third-person camera (units, degrees): the aim point and the place
+/// it chases, and where the camera is shown, moved aside from that place
+/// by the shoulder as it eases to the options' (`side`).
+#[derive(Default, Clone, Copy)]
 struct ThirdPerson {
     target: [f32; 3],
     location: [f32; 3],
+    shown: [f32; 3],
+    side: f32,
+    /// How far the camera is into the gun's framing (0 to 1, `GUN_IN_MS`, `GUN_OUT_MS`)
+    /// and the framing it had this frame.
+    gun: f32,
+    framing: crate::camera_tune::Framing,
     last_yaw: f32,
     started: bool,
 }
+
+impl ThirdPerson {
+    /// Where the camera looks: from its place at its aim point, keeping its
+    /// heading when straight over or under it.
+    fn looking(&self) -> [f32; 3] {
+        let along: [f32; 3] = std::array::from_fn(|i| self.target[i] - self.location[i]);
+        let mut angles = angles::look_angles(along);
+        if along[0].hypot(along[1]) < LEVEL_NEAR {
+            angles[1] = self.last_yaw;
+        }
+        angles
+    }
+}
+
+/// How long the camera takes into the gun's framing (ms; Movie Duels'
+/// aiming camera takes 250), and back out of it once the gun is put away,
+/// slower: the fight is over.
+const GUN_IN_MS: f32 = 300.0;
+const GUN_OUT_MS: f32 = 1200.0;
+
+/// How long the camera takes to move most (63%) of the way to a new
+/// shoulder (seconds): across in about a fifth of a second.
+const SIDE_EASE: f32 = 0.07;
+/// Nearer than this (units) to the shoulder asked for, the camera is there.
+const SIDE_DONE: f32 = 0.05;
 
 /// Where the crosshair looks this frame (the third-person camera's ray,
 /// metres), none while a conversation or a fixed camera has the view
 /// (`target_view`).
 #[derive(Resource, Default)]
 pub struct Aim(pub Option<sim::target::Look>);
+
+/// Whether a conversation, a fixed camera or another player's view has the
+/// camera this frame. The player's own camera modes, a side camera
+/// included, leave it false.
+#[derive(Resource, Default)]
+pub struct CameraTaken(pub bool);
 
 /// The set the view's drawing runs in, for what reads `Aim` after it.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -172,6 +222,169 @@ fn own_body(
     }
 }
 
+/// What the screens know of the session's stances: its saber rules
+/// (`ViewModel::session_rules`) and the skeletons offered for stance picks
+/// (`ViewModel::stances`). Then the picks this player's game owes the host
+/// (`stance_sets::wishes`), sent as `Action::PickStance`.
+fn stance_picks(
+    view: Res<View>,
+    settings: Option<Res<crate::settings::Settings>>,
+    ui: Option<ResMut<crate::ui_view::Ui>>,
+    own: Option<Res<crate::sim_host::OwnSeat>>,
+    outgoing: Option<ResMut<crate::loot::Outgoing>>,
+    mut sent: Local<std::collections::BTreeMap<sim::SimId, u8>>,
+) {
+    let Some(snapshot) = view.history.last() else {
+        return;
+    };
+    let sets = view.level.anims().stances();
+    if let Some(mut ui) = ui {
+        let rules = Some(snapshot.saber_rules.name().to_string());
+        if ui.vm.session_rules != rules {
+            ui.vm.session_rules = rules;
+        }
+        let offered = sets.map_or_else(Vec::new, crate::stance_sets::offered_sets);
+        if ui.vm.stances.len() != offered.len() {
+            ui.vm.stances = offered
+                .iter()
+                .map(|folder| (folder.clone(), crate::stance_sets::title(folder)))
+                .collect();
+        }
+    }
+    let (Some(settings), Some(mut outgoing)) = (settings, outgoing) else {
+        return;
+    };
+    let seat = own.map_or(sim::Seat(0), |own| own.0);
+    let picks = crate::stance_sets::picks(settings.values());
+    outgoing.0.extend(crate::stance_sets::wishes(
+        snapshot,
+        &view.level,
+        seat,
+        &picks,
+        &mut sent,
+    ));
+}
+
+/// The set the characters' capsules are placed in for their shadows
+/// (`cast_shadows`).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ShadowsCast;
+
+/// A ragdoll's capsule is fitted to the inner 65% of its part's vertices
+/// (`ragdoll::auto`). Its shadow is cast by a capsule `SHADOW_WIDER` times
+/// as wide, and `SHADOW_WIDER_BY` metres more, so the shadow covers the
+/// body's clothes and armour.
+const SHADOW_WIDER: f32 = 1.3;
+const SHADOW_WIDER_BY: f32 = 0.02;
+
+/// A shadow capsule: the two ends of its segment and its radius.
+type Capsule = (Vec3, Vec3, f32);
+
+/// Each shown character's capsules where its bones are drawn this frame,
+/// for the shadows (`shadows::Casters`). Its ragdoll's capsules ride on
+/// their nodes. A character without a ragdoll casts as one capsule along
+/// its model's longest side, as wide as the mean of the other two sides
+/// (`shadows::capsule_of`). Each model's bounds are worked out once.
+///
+/// A body that a cut parted casts as one caster per piece: the body, and
+/// each limb the cut took off with what still hangs on it. Each piece has
+/// its own bounding sphere. As one caster, the sphere would reach from the
+/// body to wherever the limb landed, metres away. The shader would then
+/// test the body's capsules on every pixel in that wider sphere, and the
+/// lamps inside it could not be fitted with a shadow tile (issue 371).
+fn cast_shadows(
+    (view, scene): (Option<Res<View>>, Option<Res<SceneContent>>),
+    globals: Query<(&GlobalTransform, &InheritedVisibility)>,
+    nodes: Query<&GlobalTransform>,
+    mut casters: ResMut<crate::shadows::Casters>,
+    mut plain: Local<BTreeMap<usize, Option<(Vec3, Vec3)>>>,
+) {
+    if scene.as_ref().is_some_and(|scene| scene.is_changed()) {
+        plain.clear();
+    }
+    casters.bodies.clear();
+    let Some(view) = view else {
+        casters.sight = None;
+        return;
+    };
+    for (root, model, body, doll, severed) in view.cast.shadow_bodies() {
+        let Ok((placed, shown)) = globals.get(root) else {
+            continue;
+        };
+        if !shown.get() {
+            continue;
+        }
+        let capsules = match doll {
+            Some(doll) => {
+                let parts = &doll.template.parts;
+                let piece = |part| crate::ragdolls::piece_of(|p| parts[p].parent, severed, part);
+                let mut pieces: Vec<(usize, Vec<Capsule>)> = Vec::new();
+                for (index, part) in parts.iter().enumerate() {
+                    let Some(node) = body.get(part.node).and_then(|&n| nodes.get(n).ok()) else {
+                        continue;
+                    };
+                    let (a, b, radius) = crate::shadows::capsule_of(&part.solid);
+                    let scale = node.affine().matrix3.x_axis.length();
+                    let radius = radius * scale * SHADOW_WIDER + SHADOW_WIDER_BY;
+                    let capsule = (node.transform_point(a), node.transform_point(b), radius);
+                    let first = piece(index);
+                    match pieces.iter_mut().find(|(at, _)| *at == first) {
+                        Some((_, capsules)) => capsules.push(capsule),
+                        None => pieces.push((first, vec![capsule])),
+                    }
+                }
+                // The body's own piece, the one of its root part, keeps the
+                // body's root. A limb's piece is told apart from it by the
+                // node of its first part (`shadows::Caster::root`).
+                let (own, limbs): (Vec<_>, Vec<_>) =
+                    pieces.into_iter().partition(|&(first, _)| first == 0);
+                for (first, capsules) in limbs {
+                    let Some(&node) = body.get(parts[first].node) else {
+                        continue;
+                    };
+                    casters.bodies.push(crate::shadows::Caster {
+                        root: node,
+                        model,
+                        capsules,
+                        limb: true,
+                    });
+                }
+                // With no node drawn for its root part, the body casts
+                // nothing of its own.
+                own.into_iter().flat_map(|(_, capsules)| capsules).collect()
+            }
+            None => {
+                let bounds = *plain.entry(model).or_insert_with(|| {
+                    let placed = scene.as_ref()?.0.models.get(model)?;
+                    crate::scene::local_bounds(placed)
+                });
+                let Some((low, high)) = bounds else { continue };
+                let (a, b, radius) = crate::shadows::capsule_of(&ragdoll::Solid::Cuboid {
+                    centre: (low + high) * 0.5,
+                    turn: Quat::IDENTITY,
+                    half: (high - low) * 0.5,
+                });
+                let scale = placed.affine().matrix3.x_axis.length();
+                vec![(
+                    placed.transform_point(a),
+                    placed.transform_point(b),
+                    radius * scale,
+                )]
+            }
+        };
+        casters.bodies.push(crate::shadows::Caster {
+            root,
+            model,
+            capsules,
+            limb: false,
+        });
+    }
+    casters.sight = Some(crate::shadows::Sight {
+        level: view.level.clone(),
+        doors: view.history.last().and_then(|s| view.level.states_in(s)),
+    });
+}
+
 /// The lit blades in hand drawn this frame, for the walls they meet
 /// (`blade_fx`).
 fn wielders(view: Res<View>, mut wielders: ResMut<crate::blade_fx::Wielders>) {
@@ -194,6 +407,18 @@ struct View {
     render_ms: f64,
     started: bool,
     camera: ThirdPerson,
+    /// The camera the options ask for, and its turn around the watched
+    /// character while the orbit key is held (yaw, pitch over the view).
+    tune: crate::camera_tune::CameraTune,
+    /// Whether the player's options stand (`tune`, the zoom): in a window,
+    /// or a headless run named a settings file; else JA's camera.
+    tuned: bool,
+    orbit: [f32; 2],
+    /// The shoulder swapped to the other side (`Action::SwapShoulder`).
+    swapped: bool,
+    /// The third-person camera had the view last frame: the own player's,
+    /// no conversation's, the own eyes' or a fixed one's.
+    following: bool,
     first: FirstPerson,
     /// A `camera` command took the camera: it stays where it was put.
     fixed: bool,
@@ -364,9 +589,14 @@ impl Plugin for PlayViewPlugin {
     fn build(&self, app: &mut App) {
         // Empty until a session is installed; the sounds read them meanwhile.
         app.init_resource::<Guns>()
+            .init_resource::<crate::headgear::TalkHides>()
+            .init_resource::<crate::shadows::Casters>()
             .init_resource::<BodyRoots>()
-            .init_resource::<crate::made::MineTints>()
-            .init_resource::<crate::stealth_view::Shells>()
+            .init_resource::<BodyHeights>()
+            .init_resource::<BodyHeads>()
+            .init_resource::<crate::made::MineDomes>()
+            .init_resource::<crate::stealth_view::Cloaks>()
+            .init_resource::<crate::holo_view::Holograms>()
             .init_resource::<crate::going_view::Fading>()
             .init_resource::<Cues>()
             .init_resource::<crate::severing::Cuts>()
@@ -374,8 +604,17 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<OwnBody>()
             .init_resource::<OwnRemote>()
             .init_resource::<Aim>()
+            .init_resource::<CameraTaken>()
+            .init_resource::<crate::camera_tune::OwnNear>()
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
+            .add_systems(Update, stance_picks.run_if(resource_exists::<View>))
+            .add_systems(
+                PostUpdate,
+                cast_shadows
+                    .in_set(ShadowsCast)
+                    .after(bevy::transform::TransformSystems::Propagate),
+            )
             .add_systems(
                 PostUpdate,
                 wielders
@@ -389,6 +628,7 @@ impl Plugin for PlayViewPlugin {
                 (
                     crate::severing::uncut,
                     crate::armory::arm,
+                    crate::headgear::note_talks,
                     crate::made::track,
                     crate::wardrobe::dress,
                     follow_keys,
@@ -406,24 +646,27 @@ impl Plugin for PlayViewPlugin {
             )
             .add_systems(
                 PostUpdate,
-                // A mine's dome tinted, a stealth shell and a body going
-                // faded once their meshes stand.
+                // A mine's dome tinted, a stealthed character's look, a
+                // hologram's look and a body going faded once their meshes
+                // stand.
                 (
-                    crate::made::tint_mines,
-                    crate::stealth_view::shells,
+                    crate::made::light_mines,
+                    crate::stealth_view::cloaks,
+                    crate::holo_view::draw,
                     crate::going_view::fade,
                 )
                     .run_if(resource_exists::<View>)
                     .after(Drawn),
             )
             .add_systems(Update, crate::severing::cool)
-            // A sprung mine's blast, heard before the sounds are taken.
+            // A mine's blast, seen and heard as the sim tells of it.
             .add_systems(
                 Update,
-                crate::made::sprung
+                crate::made::exploded
                     .run_if(resource_exists::<View>)
                     .run_if(resource_exists::<PresentedSnapshot>)
-                    .run_if(resource_exists::<crate::ambience::Heard>),
+                    .run_if(resource_exists::<crate::made::Exploded>)
+                    .run_if(resource_exists::<crate::ambience::HeardAt>),
             )
             .add_systems(
                 PostUpdate,
@@ -438,6 +681,12 @@ impl Plugin for PlayViewPlugin {
                     .run_if(resource_exists::<SimBlades>)
                     .after(crate::scene::BladesDrawn)
                     .before(bevy::asset::AssetEventSystems),
+            )
+            .add_systems(
+                PostUpdate,
+                crate::anim_audit_log::write
+                    .run_if(resource_exists::<AuditLog>)
+                    .after(crate::scene::BladesDrawn),
             );
     }
 }
@@ -500,6 +749,11 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
             render_ms: 0.0,
             started: false,
             camera: ThirdPerson::default(),
+            tune: crate::camera_tune::CameraTune::default(),
+            tuned: windowed,
+            orbit: [0.0; 2],
+            swapped: false,
+            following: false,
             first: FirstPerson::default(),
             fixed: false,
             trace,
@@ -532,6 +786,14 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
         if setup.sim_blades {
             app.init_resource::<SimBlades>();
         }
+        if let Some(path) = &setup.audit_log {
+            match AuditLog::create(path) {
+                Ok(log) => {
+                    app.insert_resource(log);
+                }
+                Err(error) => eprintln!("--audit-log {}: {error}", path.display()),
+            }
+        }
     }
 }
 
@@ -551,7 +813,7 @@ fn stop_short(
         mins: [-CAMERA_BOX * UNIT; 3],
         maxs: [CAMERA_BOX * UNIT; 3],
     };
-    let hit = level.with(doors, |world| {
+    let hit = level.with_unremembered(doors, |world| {
         world.trace(
             metres(from),
             metres(to),
@@ -579,6 +841,53 @@ fn chase(ideal: [f32; 3], old: [f32; 3], keep: f32) -> [f32; 3] {
     std::array::from_fn(|k| ideal[k] - keep * (ideal[k] - old[k]))
 }
 
+/// The third-person camera's framing. It starts from the options' own
+/// framing and goes `gun` of the way (0 to 1, eased here) to the guns'
+/// framing. The `watched` body's raise of its gun (`Shooting::aim_share`)
+/// then takes it as far into the aimed framing (`Framing::aimed`), eased
+/// the way the aim pose eases it.
+fn watched_framing(
+    tune: &crate::camera_tune::CameraTune,
+    gun: f32,
+    watched: Option<&sim::combat::Fighter>,
+) -> crate::camera_tune::Framing {
+    let own = tune.framing;
+    let raised = watched
+        .filter(|fighter| fighter.alive())
+        .map_or(0.0, |fighter| fighter.shooting.aim_share());
+    own.toward(tune.gun.unwrap_or(own), crate::aim_pose::eased(gun))
+        .aimed(crate::aim_pose::eased(raised))
+}
+
+/// The shoulder moves the camera across its own line after the chase
+/// (`follow_camera`), easing toward `shoulder` (units, left below 0) over
+/// `frame_ms`. The move is traced from the aim point, so a wall beside the
+/// camera stops it short. What the camera looks along stays as the chase
+/// left it.
+fn to_shoulder(
+    camera: &mut ThirdPerson,
+    shoulder: f32,
+    frame_ms: f32,
+    trace: &dyn Fn([f32; 3], [f32; 3]) -> [f32; 3],
+) {
+    let ease = 1.0 - (-frame_ms / 1000.0 / SIDE_EASE).exp();
+    let left = shoulder - camera.side;
+    // The last of the way taken at once: the side reaches what was asked.
+    camera.side = if frame_ms <= 0.0 || left.abs() < SIDE_DONE {
+        shoulder
+    } else {
+        camera.side + left * ease
+    };
+    let (t, l) = (camera.target, camera.location);
+    camera.shown = if camera.side == 0.0 {
+        l
+    } else {
+        let (_, right, _) = sim::math::angle_vectors(camera.looking());
+        let aside = std::array::from_fn(|i| l[i] + camera.side * right[i]);
+        trace(t, aside)
+    };
+}
+
 /// One frame of JA's third-person camera on the player `at`, `frame_ms`
 /// after the last. The camera keeps an aim point a little above the eye
 /// and a place backed off behind it along the view; each chases where it
@@ -590,19 +899,25 @@ fn chase(ideal: [f32; 3], old: [f32; 3], keep: f32) -> [f32; 3] {
 /// lags sideways as well.
 fn follow_camera(
     camera: &mut ThirdPerson,
-    at: &cast::Blended,
+    (at, framing, damps, orbit): (
+        &cast::Blended,
+        &crate::camera_tune::Framing,
+        (f32, f32),
+        [f32; 2],
+    ),
     quirks: bool,
     frame_ms: f32,
     trace: &dyn Fn([f32; 3], [f32; 3]) -> [f32; 3],
 ) {
-    let pitch = at.view[0].clamp(-STEEPEST, STEEPEST);
-    let yaw = at.view[1];
+    let pitch = (at.view[0] + orbit[1]).clamp(-STEEPEST, STEEPEST);
+    let yaw = at.view[1] + orbit[0];
     let (ahead, _, _) = sim::math::angle_vectors([pitch, yaw, at.view[2]]);
     let [x, y, z] = at.origin;
     let focus = [x, y, z + at.state.eye_height];
-    let aim = [focus[0], focus[1], focus[2] + AIM_ABOVE_EYE];
+    let aim = [focus[0], focus[1], focus[2] + framing.height];
     let backed_from = if quirks { aim } else { trace(focus, aim) };
-    let place: [f32; 3] = std::array::from_fn(|i| backed_from[i] - CAMERA_BACK_OFF * ahead[i]);
+    let place: [f32; 3] = std::array::from_fn(|i| backed_from[i] - framing.range * ahead[i]);
+    let (aim_damp, place_damp) = damps;
     // From an aim point out to a place: straight, as JA traces it; or
     // level first and then up or down, so a ceiling stops the rise but not
     // the way back.
@@ -655,12 +970,12 @@ fn follow_camera(
         }
     };
 
-    let keep = (1.0 - AIM_DAMP).powf(intervals);
+    let keep = (1.0 - aim_damp).powf(intervals);
     let target = straighten(chase(aim, camera.target, keep), aim);
     camera.target = trace(focus, target);
 
     let p = pitch.abs() / 115.0;
-    let mut damp = (1.0 - PLACE_DAMP) * p * p + PLACE_DAMP;
+    let mut damp = (1.0 - place_damp) * p * p + place_damp;
     if stiffness > 0.0 {
         damp += (1.0 - damp) * stiffness;
     }
@@ -747,13 +1062,36 @@ impl View {
         };
         let walls = (&self.level, self.doors.as_deref());
         let trace = |from, to| stop_short(walls, from, to);
+        // A gun readied in the watched hand (drawn for a fight, not only
+        // carried) takes the camera to the gun's framing briskly, and once
+        // it is put away back at leisure (`GUN_IN_MS`, `GUN_OUT_MS`), eased
+        // in and out (smootherstep). The camera keeps following as damped
+        // throughout: no change of damping to snap at either end.
+        let gun_out =
+            self.tune.gun.is_some() && self.watched.is_some_and(|id| self.cast.gun_readied(id));
+        let blend = &mut self.camera.gun;
+        *blend = match (gun_out, frame_ms > 0.0) {
+            (true, true) => (*blend + frame_ms / GUN_IN_MS).min(1.0),
+            (false, true) => (*blend - frame_ms / GUN_OUT_MS).max(0.0),
+            (out, false) => f32::from(u8::from(out)),
+        };
+        let framing = watched_framing(&self.tune, *blend, at.fighter.as_ref());
+        let damps = self.tune.tracking.damps();
+        self.camera.framing = framing;
         follow_camera(
             &mut self.camera,
-            &at,
+            (&at, &framing, damps, self.orbit),
             self.cast.rig.quirks,
             frame_ms,
             &trace,
         );
+        // The swap key puts the shoulder on the other side.
+        let shoulder = if self.swapped {
+            -framing.shoulder
+        } else {
+            framing.shoulder
+        };
+        to_shoulder(&mut self.camera, shoulder, frame_ms, &trace);
     }
 
     /// The seat's remote droid at `ms`: from its own predictions while
@@ -803,12 +1141,20 @@ impl View {
     /// retire.
     fn reset(&mut self, swap: &SceneSwap, commands: &mut Commands) -> Vec<usize> {
         self.generation = swap.generation;
+        // The frames before were of another place, however near the camera
+        // stands to where it stood.
+        commands.insert_resource(crate::temporal::TemporalCut(true));
         let retired = self.cast.reset(swap.body.as_deref(), !swap.scene, commands);
         self.level = swap.level.clone();
         self.history.clear();
         self.followed = None;
         self.started = false;
-        self.camera = ThirdPerson::default();
+        // The shoulder stays where it was: a new module does not slide it in.
+        self.camera = ThirdPerson {
+            side: self.camera.side,
+            gun: self.camera.gun,
+            ..ThirdPerson::default()
+        };
         self.first.restart();
         self.me = None;
         self.watched = None;
@@ -831,16 +1177,21 @@ impl View {
             format!("{} / {}", legs.name(), torso.name())
         };
         // What the ticks already shown played, before the new predictions
-        // replace them.
+        // replace them: only those a new one repeats (a rewind's).
         let followed = self.own.followed.unwrap_or(0);
+        let history = &self.own.history;
         let shown: BTreeMap<u64, _> = self
             .me
             .map(|me| {
-                self.own
-                    .history
+                own.fresh
                     .iter()
-                    .filter(|held| held.tick <= followed)
-                    .filter_map(|held| Some((held.tick, parts(held, me)?)))
+                    .filter(|fresh| fresh.tick <= followed)
+                    .filter_map(|fresh| {
+                        let at = history
+                            .binary_search_by_key(&fresh.tick, |held| held.tick)
+                            .ok()?;
+                        Some((fresh.tick, parts(&history[at], me)?))
+                    })
                     .collect()
             })
             .unwrap_or_else(BTreeMap::new);
@@ -953,27 +1304,89 @@ fn follow_keys(
     }
 }
 
-/// The view key (`Action::View`, F1 unless rebound) turns between the own
-/// eyes and JA's camera; the settings keep the choice.
+/// The camera's orbit taken, and its options while the player's options
+/// stand (`View::tuned`, `camera_tune`); the zoom asked for moves the
+/// camera's range, past its nearest into the own eyes and back out of
+/// them. The view key (`Action::View`, F1 unless rebound) turns between
+/// the own eyes and JA's camera. The settings keep the choices.
+#[allow(clippy::too_many_arguments)]
 fn view_keys(
     actions: Option<Res<crate::pad::Actions>>,
     screens: Option<Res<crate::ui_view::UiOpen>>,
-    settings: Option<ResMut<crate::settings::Settings>>,
+    mut tune: Option<ResMut<crate::camera_tune::CameraTune>>,
+    orbit: Option<ResMut<crate::camera_tune::Orbit>>,
+    ui: Option<ResMut<crate::ui_view::Ui>>,
+    mut settings: Option<ResMut<crate::settings::Settings>>,
     mut view: ResMut<View>,
 ) {
+    if let Some(tune) = tune.as_deref().filter(|_| view.tuned) {
+        view.tune = *tune;
+    }
+    let zoom = orbit.map_or(0.0, |mut orbit| {
+        orbit.free = view.following;
+        view.orbit = [orbit.yaw, orbit.pitch];
+        view.swapped = orbit.swapped;
+        let zoom = orbit.take_zoom();
+        if view.tuned { zoom } else { 0.0 }
+    });
     let Some(actions) = actions else {
         return;
     };
-    if screens.is_some_and(|open| open.0) || !actions.pressed(crate::settings::Action::View) {
+    if screens.is_some_and(|open| open.0) {
         return;
     }
-    view.camera_mode = match view.camera_mode {
-        CameraMode::Third => CameraMode::First,
-        CameraMode::First => CameraMode::Third,
+    let mut first = view.camera_mode == CameraMode::First;
+    // The zoom moves the range of the camera in use: the guns' while one
+    // is readied (most of the way into their framing), else the camera's own.
+    let range = if view.camera.gun >= 0.5 && view.tune.gun.is_some() {
+        crate::camera_tune::GUN_RANGE_KEY
+    } else {
+        crate::camera_tune::RANGE_KEY
+    };
+    let mut ranged = None;
+    match view.camera_mode {
+        CameraMode::Third if zoom != 0.0 => {
+            let now = settings.as_ref().and_then(|settings| settings.value(range));
+            match crate::camera_tune::zoomed(now, zoom) {
+                Some(share) => ranged = Some(share).filter(|share| Some(share.as_str()) != now),
+                None => first = true,
+            }
+        }
+        CameraMode::First if zoom < 0.0 => {
+            first = false;
+            ranged = Some(crate::camera_tune::NEAREST.to_string());
+        }
+        _ => {}
+    }
+    if actions.pressed(crate::settings::Action::View) {
+        first = match view.camera_mode {
+            CameraMode::Third => true,
+            CameraMode::First => false,
+            _ => first,
+        };
+    }
+    // Kept at once (the view runs after the screens' settings are taken),
+    // the camera and the screens' copy brought up to date.
+    if let (Some(share), Some(settings)) = (ranged, settings.as_mut()) {
+        settings.apply(range, &share);
+        view.tune = settings.camera();
+        if let Some(tune) = tune.as_mut() {
+            **tune = view.tune;
+        }
+        if let Some(mut ui) = ui {
+            settings.shown(&mut ui);
+        }
+    }
+    let mode = match view.camera_mode {
+        CameraMode::Third | CameraMode::First if first => CameraMode::First,
+        CameraMode::Third | CameraMode::First => CameraMode::Third,
         other => other,
     };
-    if let Some(mut settings) = settings {
-        settings.keep_first_person(view.camera_mode == CameraMode::First);
+    if mode != view.camera_mode {
+        view.camera_mode = mode;
+        if let Some(settings) = settings.as_mut() {
+            settings.keep_first_person(first);
+        }
     }
 }
 
@@ -995,27 +1408,33 @@ type Family<'w, 's> = (
     Query<'w, 's, &'static Children>,
 );
 
-/// Real time, a script's screen up, and KOTOR's weapon sounds.
+/// Real time, the player's screen as scripts set it, the camera shake of
+/// the player's own perfect block, and KOTOR's weapon sounds.
 type Pace<'w> = (
     Res<'w, Time<Real>>,
-    Option<Res<'w, OwnScreen>>,
+    (Option<Res<'w, OwnScreen>>, Option<Res<'w, ClashShake>>),
     Option<Res<'w, WeaponSounds>>,
 );
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
     presented: Res<PresentedSnapshot>,
-    (seat, own, mut contacts): (Res<OwnSeat>, Option<Res<OwnView>>, Option<ResMut<Contacts>>),
+    (seat, mut own, mut contacts, bolt_hits): (
+        Res<OwnSeat>,
+        Option<ResMut<OwnView>>,
+        Option<ResMut<Contacts>>,
+        Option<Res<crate::bolt_hits::BoltHits>>,
+    ),
     (mut rearms, mut retired, mut fire, mut made, mut wardrobe, mut fading): Handovers,
     swap: Res<SceneSwap>,
     request: Res<CameraRequest>,
     scene: Res<SceneContent>,
-    (time, screen, kotor): Pace,
+    (time, (screen, clash), kotor): Pace,
     mut view: ResMut<View>,
-    (mut hitboxes, mut guns, mut roots, mut eyes, mut own_remote): (
+    (mut hitboxes, mut guns, (mut roots, mut heights, mut heads), mut eyes, mut own_remote): (
         ResMut<Hitboxes>,
         ResMut<Guns>,
-        ResMut<BodyRoots>,
+        (ResMut<BodyRoots>, ResMut<BodyHeights>, ResMut<BodyHeads>),
         ResMut<first_person::Eyes>,
         ResMut<OwnRemote>,
     ),
@@ -1027,14 +1446,24 @@ fn draw(
         Query<&GlobalTransform>,
         Family,
     ),
-    (mut lives, mut sim_blades, (mut aim, mut camera_aim), watching): (
+    (
+        mut lives,
+        (mut sim_blades, mut audit),
+        (mut aim, mut camera_aim, mut near, mut taken),
+        watching,
+    ): (
         ResMut<LiveBlades>,
-        Option<ResMut<SimBlades>>,
-        (ResMut<Aim>, ResMut<crate::sim_host::CameraAim>),
+        (Option<ResMut<SimBlades>>, Option<ResMut<AuditLog>>),
+        (
+            ResMut<Aim>,
+            ResMut<crate::sim_host::CameraAim>,
+            ResMut<crate::camera_tune::OwnNear>,
+            ResMut<CameraTaken>,
+        ),
         Option<ResMut<crate::dialogue_view::Watching>>,
     ),
     mut cameras: Query<(Entity, &mut Projection), SceneCamera>,
-    (mut facts, dump_due, mut cues, mut cuts, mut hooks, mut body_clips, mut steps): (
+    (mut facts, dump_due, mut cues, mut cuts, mut hooks, mut body_clips, mut steps, doors): (
         ResMut<DumpFacts>,
         Res<DumpDue>,
         ResMut<Cues>,
@@ -1042,12 +1471,16 @@ fn draw(
         Option<ResMut<crate::script_fx::HookVisuals>>,
         Option<ResMut<crate::own_fx::BodyClips>>,
         ResMut<crate::ambience::ClipSteps>,
+        Res<crate::sim_host::PresentedDoors>,
     ),
     mut commands: Commands,
 ) {
     let view = &mut *view;
-    // No ray until the camera is placed this frame.
+    // No ray, nor a camera near the own body, until it is placed this frame.
     aim.0 = None;
+    near.0 = None;
+    taken.0 = false;
+    view.following = false;
     if request.is_changed() && !request.is_added() {
         view.fixed = true;
     }
@@ -1089,7 +1522,7 @@ fn draw(
             leaving.push(Leaves::Made(gone));
         }
     }
-    view.doors = view.level.states_in(presented.0.current());
+    view.doors = doors.of(&presented.0, &swap).map(Cow::into_owned);
     for snapshot in &presented.1 {
         if view.history.last().is_none_or(|s| s.tick < snapshot.tick) {
             if let Some(sim) = sim_blades.as_deref_mut() {
@@ -1222,8 +1655,10 @@ fn draw(
     let seat_bodies = view.cast.show_seats(newest, &view.models, &mut visibility);
     guns.0 = view.cast.guns();
     roots.0 = view.cast.roots();
+    heights.0 = view.cast.heights();
+    heads.0 = view.cast.heads();
     let target = crate::sim_host::view_ms(&presented.0);
-    if let Some(own) = &own {
+    if let Some(own) = own.as_deref() {
         view.take_own(own, target);
     }
     if !view.started {
@@ -1238,13 +1673,22 @@ fn draw(
     }
     // Who is posed this frame, chosen before the steps: they read their
     // torso's motion as they steer. The camera where it was last frame, in
-    // game space (metres).
-    let eye = cameras
+    // game space (metres), and what it saw.
+    let camera = cameras
         .iter()
         .next()
-        .and_then(|(entity, _)| transforms.get(entity).ok())
-        .map_or(Vec3::ZERO, |t| game_to_bevy().inverse() * t.translation);
-    view.close = view.cast.nearest(&view.history, target, eye, view.me);
+        .and_then(|(entity, projection)| Some((*transforms.get(entity).ok()?, projection)));
+    let eye = camera.map_or(Vec3::ZERO, |(t, _)| {
+        game_to_bevy().inverse() * t.translation
+    });
+    let sees = camera.map(|(t, projection)| projection.compute_frustum(&GlobalTransform::from(t)));
+    let zoom = camera.and_then(|(_, projection)| match projection {
+        Projection::Perspective(perspective) => Some(1.0 / (perspective.fov / 2.0).tan()),
+        _ => None,
+    });
+    view.close = view
+        .cast
+        .nearest(&view.history, target, (eye, sees.as_ref(), zoom), view.me);
     let shown_ms = view.render_ms;
     while view.render_ms + 1e-6 < target {
         let next = (view.render_ms + STEP_MS).min(target);
@@ -1253,6 +1697,9 @@ fn draw(
         view.advance(next, frame);
     }
     own_remote.0 = view.own_remote(view.render_ms);
+    if let Some(own) = own.as_deref_mut() {
+        own.followed = view.own.followed;
+    }
     // Each figure's whooshes as its weapon sounds (`weapon_sounds`).
     if let Some(newest) = view.history.last() {
         let objects = Instances::in_snapshot(&view.level, newest);
@@ -1301,6 +1748,8 @@ fn draw(
     // The own gun held up before the eyes the player looked through last
     // frame (`first_person`).
     view.cast.eye = view.first.shown();
+    // The bolts that struck bodies lately: the bodies flinch from them.
+    view.cast.bolt_hits = bolt_hits.map_or_else(Vec::new, |hits| hits.0.clone());
     let posed = view.cast.draw(
         (&view.history, &view.level),
         ms,
@@ -1360,15 +1809,18 @@ fn draw(
     // The cuts the deaths drawn just now made: parted this frame, as their
     // limbs first fly (`severing::apply`, after this system).
     cuts.0.append(&mut view.cast.cuts);
-    if let Some(sim) = sim_blades.as_deref_mut() {
-        sim.ms = ms;
-        sim.shown = sim_blades::in_hand(
+    let shown_blades = (sim_blades.is_some() || audit.is_some()).then(|| {
+        sim_blades::in_hand(
             &view.cast,
             &view.level,
             (&view.history, ms),
             own.as_ref(),
             &view.close,
-        );
+        )
+    });
+    if let Some(sim) = sim_blades.as_deref_mut() {
+        sim.ms = ms;
+        sim.shown = shown_blades.clone().unwrap_or_else(Vec::new);
     }
     let Some(at) = view.subject(ms, own.as_ref()) else {
         // No one to look through: the own head shown, its flashes whole.
@@ -1384,19 +1836,46 @@ fn draw(
         let correction = Vec3::from_array(view.own.correction).length();
         write_trace(file, traced, rig, posed, (soles, ms, correction), &at.state);
     }
+    if let (Some(audit), Some(posed), Some(rig), Some(id)) = (
+        audit.as_deref_mut(),
+        &posed,
+        view.cast.player_rig(),
+        view.me,
+    ) {
+        let world = posed_world(rig, posed, soles);
+        let drawn: Vec<(&str, Transform)> = anim_audit_log::audited_nodes(&rig.node_names())
+            .into_iter()
+            .filter_map(|(name, node)| Some((name, *world.get(node)?)))
+            .collect();
+        audit.begin(
+            (&view.cast, &view.history, ms),
+            own.as_ref(),
+            id,
+            &drawn,
+            shown_blades.as_deref().unwrap_or(&[]),
+        );
+    }
     // A watching seat (no body of its own, or down) aims at nothing.
     let watching = view.watched != view.me;
-    // Knight and Master Speed widen the view (`script_fx::OwnScreen`); a
-    // screen shake turns it.
-    let fov = screen
-        .as_ref()
-        .map_or(FOV_DEGREES, |screen| screen.fov(FOV_DEGREES, ms));
-    let shaken = screen
-        .and_then(|screen| screen.shake)
-        .map_or([0.0; 2], |shake| {
-            let roll = crate::view_rng::mix32_salted(ms.to_bits() as u32, 0x5ac3);
-            shake.angles(ms, [roll & 1 == 1, roll & 2 == 2])
+    // Knight and Master Speed widen the view (`script_fx::OwnScreen`). A
+    // script's screen shake turns it, and so does the shake of the player's
+    // own perfect block (`blade_fx::ClashShake`).
+    let wide = framed_fov(&view.camera, &view.tune);
+    let fov = screen.as_ref().map_or(wide, |screen| screen.fov(wide, ms));
+    let roll = crate::view_rng::mix32_salted(ms.to_bits() as u32, 0x5ac3);
+    // A script's shake runs on the world's clock, the perfect block's on the
+    // real one, so that the perfect block's slow motion does not stretch it.
+    let real_ms = time.elapsed().as_secs_f64() * 1000.0;
+    let shakes = [
+        (screen.as_ref().and_then(|screen| screen.shake), ms),
+        (clash.and_then(|clash| clash.0), real_ms),
+    ];
+    let shaken = (shakes.into_iter()).fold([0.0; 2], |[pitch, yaw], (shake, now)| {
+        let [p, y] = shake.map_or([0.0; 2], |shake| {
+            shake.angles(now, [roll & 1 == 1, roll & 2 == 2])
         });
+        [pitch + p, yaw + y]
+    });
     let talk = (!view.fixed)
         .then(|| {
             talk_camera(
@@ -1459,14 +1938,48 @@ fn draw(
         view.first.show(&mut visibility);
     }
     eyes.0 = view.me.filter(|_| first.is_some());
-    // The own gun's shots turn the view up a touch; as a shake does, not
-    // where it aims. Up is a smaller pitch.
-    let kicked = view
+    // The own gun's kick turns the view with the line its shots leave
+    // along (`sim::combat::bloom`).
+    let own = view
         .me
         .filter(|_| !watching && talk.is_none())
-        .and_then(|me| view.cast.figure(me))
-        .map_or(0.0, cast::Figure::camera_kick);
-    let shaken = [shaken[0] - kicked, shaken[1]];
+        .and_then(|me| own_shooting(view, me));
+    // The own blaster's crosshair, through this frame's field of view.
+    if let Some(fire) = fire.as_deref_mut() {
+        let own = view
+            .me
+            .filter(|_| !watching && talk.is_none())
+            .and_then(|me| own_at(view, me));
+        fire.reticle = own.and_then(|(own, ms)| crate::reticle_view::of(own, &objects, ms, fov));
+        fire.melee_out =
+            own.is_some_and(|(own, ms)| crate::reticle_view::melee_out(own, &objects, ms));
+    }
+    let shaken = camera_turn(
+        shaken,
+        own.as_ref().map(|(s, _)| s),
+        own.map_or(0.0, |(_, ms)| ms),
+    );
+    // The third-person camera's nearness to the own eye, for the own body's
+    // fade (`camera_tune::fade_near`), while that camera has the view.
+    // While the player's options stand (a headless run keeps JA's camera,
+    // its body whole).
+    let following = talk.is_none()
+        && first.is_none()
+        && !view.fixed
+        && !watching
+        && view.camera_mode == CameraMode::Third;
+    view.following = following;
+    near.0 = view.me.filter(|_| following && view.tuned).map(|me| {
+        let eye = [
+            at.origin[0],
+            at.origin[1],
+            at.origin[2] + at.state.eye_height,
+        ];
+        let shown = view.camera.shown;
+        let apart: [f32; 3] = std::array::from_fn(|i| shown[i] - eye[i]);
+        (me, sim::math::dot(apart, apart).sqrt())
+    });
+    taken.0 = talk.is_some() || view.fixed || watching;
     aim.0 = place_camera(
         view,
         (talk, first),
@@ -1517,6 +2030,25 @@ fn draw(
                     && cast::remote_in(&view.own.history, view.cast.seat, ms + view.own.shift).is_some(),
                 "own_rewrites": view.own.rewrites,
                 "own_rewritten": view.own.rewritten,
+                // The own gun against the point under the crosshair.
+                "sight": view.cast.sight.map(|sight| serde_json::json!({
+                    "raise": sight.raise,
+                    "muzzle_m": sight.muzzle.to_array(),
+                    "target_m": sight.target.to_array(),
+                    "target_distance_m": sight.muzzle.distance(sight.target),
+                    "barrel_off_deg": sight.barrel_off_deg,
+                    "head_off_gun_deg": sight.head_off_gun_deg,
+                    "head_off_target_deg": sight.head_off_target_deg,
+                    "push_back_m": sight.push_back_m,
+                    "shoulder_deg": sight.shoulder_deg,
+                    "stock_from_shoulder_m": sight.stock_m,
+                    "aside_of_middle_m": sight.aside_m,
+                    "support_gap_m": sight.support_gap_m,
+                    "face_off_target_deg": sight.face_off_target_deg,
+                    "face_roll_deg": sight.face_roll_deg,
+                    "face_from_seat_m": sight.face_from_seat_m,
+                    "jaw_over_seat_m": sight.jaw_over_seat_m,
+                })),
             }),
         );
     }
@@ -1531,6 +2063,9 @@ fn draw(
                 "blades_lit": blades_lit,
                 "posed": view.cast.posed,
                 "pose_ms": view.cast.pose_ms,
+                "posed_sum": view.cast.totals.posed,
+                "pose_ms_sum": view.cast.totals.ms,
+                "pose_frames": view.cast.totals.frames,
                 "arms_ms": view.cast.arms_ms,
                 "ragdolls": view.cast.ragdolls.counts(),
                 "lying": fading.lying(),
@@ -1544,6 +2079,348 @@ fn draw(
             }),
         );
     }
+}
+
+/// The camera's turn: the screen's shake, and the own aim's kick
+/// (`sim::combat::bloom`) at `own_ms`, so the screen's middle stays on the
+/// line the shots leave along. Up is a smaller pitch, in both.
+fn camera_turn(
+    shaken: [f32; 2],
+    own: Option<&sim::combat::specials::Shooting>,
+    own_ms: f64,
+) -> [f32; 2] {
+    let kick = own.map_or([0.0; 2], |shooting| {
+        sim::combat::bloom::kick_at(shooting, own_ms.max(0.0) as u64)
+    });
+    [shaken[0] + kick[0], shaken[1] + kick[1]]
+}
+
+/// The own character as the own time shows it, and that time: a joined
+/// player's newest prediction by then, else (the host, one alone) the
+/// view's own snapshots at the view's time.
+fn own_at(view: &View, me: SimId) -> Option<(&sim::EntityState, f64)> {
+    let (history, ms) = if view.own.active {
+        (&view.own.history, view.render_ms + view.own.shift)
+    } else {
+        (&view.history, view.render_ms)
+    };
+    let shown = history
+        .iter()
+        .rev()
+        .find(|s| s.time_ms as f64 <= ms)
+        .or(history.first())?;
+    Some((cast::entity(shown, me)?, ms))
+}
+
+/// The own character's shooting as the own time shows it, and that time.
+fn own_shooting(view: &View, me: SimId) -> Option<(sim::combat::specials::Shooting, f64)> {
+    let (own, ms) = own_at(view, me)?;
+    Some((own.fighter.as_ref()?.shooting, ms))
+}
+
+/// The probes of the camera's kick (`kjk sim probes --only "camera kick"`):
+/// it turns with the sim's kick of the own aim, on top of a shake; with no
+/// own aim to follow (watching, talking) only the shake turns it.
+#[cfg(feature = "probes")]
+pub fn kick_probes() -> sim::probe::Checks {
+    let shooting = sim::combat::specials::Shooting {
+        kick_mdeg: [-1200, 300],
+        fired_at: 5000,
+        ..Default::default()
+    };
+    let kicked = camera_turn([0.5, -0.25], Some(&shooting), 5000.0);
+    let alone = camera_turn([0.5, -0.25], None, 5000.0);
+    let near = |a: [f32; 2], b: [f32; 2]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4);
+    vec![
+        (
+            "camera_takes_sim_kick",
+            sim::probe::check(
+                near(kicked, [-0.7, 0.05]),
+                format!("{kicked:?} (want [-0.7, 0.05])"),
+            ),
+        ),
+        (
+            "camera_without_own_aim",
+            sim::probe::check(
+                near(alone, [0.5, -0.25]),
+                format!("{alone:?} (want the shake)"),
+            ),
+        ),
+    ]
+}
+
+/// The probes of the camera while the watched character aims (run with
+/// the aim pose's, `kjk sim probes --only "aim pose"`). The aimed framing
+/// comes in closer, moves out over the shoulder and narrows the field of
+/// view to 75%. The camera eases there with the sim's raise and never
+/// jumps, and the crosshair line the sim shoots along still runs through
+/// the camera along its view. In first person only the field of view
+/// narrows, and the eye stays where it was.
+#[cfg(feature = "probes")]
+pub fn aim_camera_probes() -> sim::probe::Checks {
+    vec![
+        ("aim_framing", aim_framing()),
+        ("aim_camera_eases", aim_camera_eases()),
+        ("aim_camera_on_line", aim_camera_on_line()),
+        ("aim_first_person", aim_first_person()),
+    ]
+}
+
+/// One sim step (ms): the camera probes take a frame per step.
+#[cfg(feature = "probes")]
+const AIM_STEP_MS: u32 = 8;
+
+/// The largest share of the whole narrowing one frame may make.
+#[cfg(feature = "probes")]
+const AIM_FRAME_MOST: f32 = 0.15;
+
+/// JA's camera aimed: closer, wider over the shoulder, narrower, no higher.
+#[cfg(feature = "probes")]
+fn aim_framing() -> Result<String, String> {
+    use crate::camera_tune::{AIM_FOV, AIM_RANGE, AIM_SHOULDER, Framing};
+    let ja = Framing {
+        range: 80.0,
+        height: 16.0,
+        shoulder: 20.0,
+        fov: 80.0,
+    };
+    // `share` of the way from JA's camera to its aimed framing, each
+    // number worked out on its own.
+    let want = |share: f32| {
+        let toward = |from: f32, factor: f32| from + (from * factor - from) * share;
+        Framing {
+            range: toward(ja.range, AIM_RANGE),
+            height: ja.height,
+            shoulder: toward(ja.shoulder, AIM_SHOULDER),
+            fov: toward(ja.fov, AIM_FOV),
+        }
+    };
+    let near = |a: Framing, b: Framing| {
+        let [a, b] = [a, b].map(|f| [f.range, f.height, f.shoulder, f.fov]);
+        a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4)
+    };
+    let wrong: Vec<String> = [1.0, 0.0, 0.5]
+        .into_iter()
+        .filter(|&share| !near(ja.aimed(share), want(share)))
+        .map(|share| {
+            format!(
+                "aimed({share}) is {:?}, not {:?}",
+                ja.aimed(share),
+                want(share)
+            )
+        })
+        .collect();
+    let full = want(1.0);
+    sim::probe::check(
+        wrong.is_empty(),
+        if wrong.is_empty() {
+            format!(
+                "aimed fully, JA's camera stands {} back and {} to the side and sees {}°",
+                full.range, full.shoulder, full.fov
+            )
+        } else {
+            wrong.join("; ")
+        },
+    )
+}
+
+/// The arena's player body: where it stands and how it fights.
+#[cfg(feature = "probes")]
+fn arena_body() -> Result<(cast::Blended, sim::combat::Fighter), String> {
+    let mut world = sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena())
+        .map_err(|error| error.to_string())?;
+    let body = *world
+        .snapshot()
+        .body(sim::Seat(0))
+        .ok_or("the arena has no body")?;
+    let (Some(state), Some(fighter)) = (body.player, body.fighter) else {
+        return Err("the arena's body is no fighter".into());
+    };
+    let at = cast::Blended {
+        state,
+        origin: state.origin,
+        view: state.view,
+        alive: true,
+        dead: false,
+        fighter: Some(fighter),
+        taken_ms: 0.0,
+        thrown_at: None,
+    };
+    Ok((at, fighter))
+}
+
+/// The third-person camera with the guns' framing, a frame per sim step
+/// while the body holds [Aim] for 400 ms after standing 2 s with its gun
+/// readied. Each frame says the framing and the camera after it moved.
+#[cfg(feature = "probes")]
+fn aim_frames() -> Result<Vec<(crate::camera_tune::Framing, ThirdPerson)>, String> {
+    let (mut at, mut fighter) = arena_body()?;
+    let tune = crate::camera_tune::CameraTune::default();
+    let mut camera = ThirdPerson::default();
+    let open = |_: [f32; 3], to: [f32; 3]| to;
+    let settle = 2000 / AIM_STEP_MS;
+    let aim = 2 * rules::weapons::aim::IN_MS / AIM_STEP_MS;
+    let mut frames = Vec::new();
+    for step in 0..settle + aim {
+        fighter.shooting.aim_step(step >= settle, AIM_STEP_MS);
+        at.fighter = Some(fighter);
+        let framing = watched_framing(&tune, 1.0, at.fighter.as_ref());
+        let frame_ms = AIM_STEP_MS as f32;
+        let damps = tune.tracking.damps();
+        follow_camera(
+            &mut camera,
+            (&at, &framing, damps, [0.0; 2]),
+            false,
+            frame_ms,
+            &open,
+        );
+        to_shoulder(&mut camera, framing.shoulder, frame_ms, &open);
+        // As `View::third_person` keeps it, for the field of view's lookup.
+        camera.framing = framing;
+        if step + 1 >= settle {
+            frames.push((framing, camera));
+        }
+    }
+    Ok(frames)
+}
+
+/// The body raises its gun over 200 ms: the field of view narrows at every
+/// frame, ends at 75% of the guns' framing's, and no frame narrows it by
+/// more than `AIM_FRAME_MOST` of the whole way.
+#[cfg(feature = "probes")]
+fn aim_camera_eases() -> Result<String, String> {
+    let fovs: Vec<f32> = aim_frames()?
+        .iter()
+        .map(|(framing, _)| framing.fov)
+        .collect();
+    let (Some(&from), Some(&to)) = (fovs.first(), fovs.last()) else {
+        return Err("no frames".into());
+    };
+    let travel = from - to;
+    let widens = fovs.windows(2).filter(|w| w[1] > w[0] + 1e-4).count();
+    let most = (fovs.windows(2).map(|w| w[0] - w[1])).fold(0.0, f32::max);
+    let gun = crate::camera_tune::CameraTune::default()
+        .gun
+        .ok_or("no guns' framing")?
+        .fov;
+    let share = to / gun;
+    sim::probe::check(
+        widens == 0
+            && (share - crate::camera_tune::AIM_FOV).abs() < 1e-3
+            && most <= travel * AIM_FRAME_MOST,
+        format!(
+            "{from:.1}° narrows to {to:.1}° ({:.0}% of the guns' {gun:.0}°); {widens} frames widen it; the largest frame narrows it {most:.2}° ({:.0}% of the way)",
+            100.0 * share,
+            100.0 * most / travel.max(1e-6)
+        ),
+    )
+}
+
+/// At every frame of the raise, the crosshair line the sim shoots along
+/// (the camera's place turned into the command's aim) runs within a
+/// rounding step of the camera, along the camera's own view. So a shot
+/// fired while the camera moves goes where the reticle shows. The camera
+/// also comes in by a third and goes out over the shoulder.
+#[cfg(feature = "probes")]
+fn aim_camera_on_line() -> Result<String, String> {
+    let (at, _) = arena_body()?;
+    let frames = aim_frames()?;
+    let player = at.state;
+    let (forward, ..) = sim::math::angle_vectors(player.view);
+    let mut most_off = 0.0f32;
+    let mut most_turn = 0.0f32;
+    let mut aimless = 0;
+    for (_, camera) in &frames {
+        let (_, aim) = camera_shot(
+            (camera, [0.0; 2], CameraMode::Third),
+            (None, None),
+            (Vec3::ZERO, 0.0),
+        );
+        let Some(look) = aim else {
+            aimless += 1;
+            continue;
+        };
+        let from = look.from.map(|metres| metres / UNIT);
+        let command_aim = sim::combat::mind::aim_for(&player, from);
+        let line = sim::combat::mind::crosshair(&motion::MotionState {
+            command_aim,
+            ..player
+        });
+        let off = sim::math::sub(from, line);
+        let across = sim::math::mad(off, -sim::math::dot(off, forward), forward);
+        most_off = most_off.max(sim::math::length(across));
+        // The angle from the look's part across the view, which keeps its
+        // precision where an arc cosine near 1 would not.
+        let along = sim::math::dot(look.forward, forward);
+        let aside = sim::math::mad(look.forward, -along, forward);
+        let turn = sim::math::length(aside).atan2(along).to_degrees();
+        most_turn = most_turn.max(turn);
+    }
+    let reach = |camera: &ThirdPerson| {
+        let apart: [f32; 3] = std::array::from_fn(|i| camera.location[i] - camera.target[i]);
+        (sim::math::length(apart), camera.side)
+    };
+    let ((first_range, first_side), (last_range, last_side)) = match (frames.first(), frames.last())
+    {
+        (Some((_, first)), Some((_, last))) => (reach(first), reach(last)),
+        _ => return Err("no frames".into()),
+    };
+    let rounding = sim::combat::mind::AIM_STEP * 0.5 * 3f32.sqrt();
+    sim::probe::check(
+        aimless == 0
+            && most_off <= rounding
+            && most_turn < 0.01
+            && last_range < first_range
+            && last_side > first_side,
+        format!(
+            "the camera goes from {first_range:.1} back and {first_side:.1} aside to {last_range:.1} and {last_side:.1}; the sim's line runs at most {most_off:.2} units off it (a rounding step is {rounding:.2}) and turns {most_turn:.4}° from its view; {aimless} frames aim at nothing"
+        ),
+    )
+}
+
+/// In first person, the field of view at full aim is 75% of the guns'
+/// framing's, and the camera stays at the eyes. The field of view comes
+/// through the same lookup the frame's camera uses (`framed_fov`), from the
+/// camera as it follows the raise, so a lookup that skipped the aimed
+/// framing would show no narrowing.
+#[cfg(feature = "probes")]
+fn aim_first_person() -> Result<String, String> {
+    let frames = aim_frames()?;
+    let (Some((lowered, low_camera)), Some((raised, high_camera))) =
+        (frames.first(), frames.last())
+    else {
+        return Err("no frames".into());
+    };
+    let tune = crate::camera_tune::CameraTune::default();
+    let eye = [1.0, 2.0, 1.6];
+    let looking = [5.0, 30.0, 0.0];
+    let shot = |camera: &ThirdPerson| {
+        camera_shot(
+            (camera, [0.0; 2], CameraMode::First),
+            (None, Some((eye, looking))),
+            (Vec3::ZERO, framed_fov(camera, &tune)),
+        )
+    };
+    let ((low_at, _, low_fov), _) = shot(low_camera);
+    let ((high_at, _, high_fov), _) = shot(high_camera);
+    let wanted = [lowered, raised].map(|framing| framing.vertical_fov(FOV_DEGREES));
+    let share = raised.fov / lowered.fov;
+    sim::probe::check(
+        (share - crate::camera_tune::AIM_FOV).abs() < 1e-3
+            && (low_fov - wanted[0]).abs() < 1e-3
+            && (high_fov - wanted[1]).abs() < 1e-3
+            && high_fov < low_fov
+            && low_at == eye
+            && high_at == eye,
+        format!(
+            "the field of view goes from {:.1}° to {:.1}° across ({:.0}%), {low_fov:.1}° to {high_fov:.1}° up and down (the framings give {:.1}° and {:.1}°); the eye stands at {low_at:?}, then {high_at:?}",
+            lowered.fov,
+            raised.fov,
+            100.0 * share,
+            wanted[0],
+            wanted[1]
+        ),
+    )
 }
 
 /// Hands `combat_fx` the own shots and bolts found since the last frame,
@@ -1571,20 +2448,18 @@ fn publish_fire(view: &mut View, fire: &mut OwnFire) {
     }
 }
 
-/// One line of the trace: the body's traced nodes in the world, as the
-/// scene places them, and a joined player's correction (units).
-fn write_trace(
-    file: &mut std::io::BufWriter<std::fs::File>,
-    traced: &[usize],
-    rig: &BodyRig,
-    posed: &asset_ja::rig::Posed,
-    (soles, ms, correction): (Vec3, f64, f32),
-    state: &motion::MotionState,
-) {
-    use std::io::Write as _;
+/// Where a body's model stands with its soles at `soles` (game space,
+/// metres), turned as the scene turns it.
+fn body_base(soles: Vec3) -> Transform {
+    Transform::from_translation(soles)
+        .with_rotation(Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2))
+}
+
+/// Each node of `rig`'s body in the world in the pose `posed`, standing at
+/// `soles`, as the scene places them (game space, metres).
+fn posed_world(rig: &BodyRig, posed: &asset_ja::rig::Posed, soles: Vec3) -> Vec<Transform> {
     let rotations: BTreeMap<usize, Quat> = posed.rotations.iter().copied().collect();
-    let base = Transform::from_translation(soles)
-        .with_rotation(Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2));
+    let base = body_base(soles);
     let mut world: Vec<Transform> = Vec::with_capacity(rig.rest.len());
     for (index, &(parent, rest, rest_rotation)) in rig.rest.iter().enumerate() {
         let mut local = Transform::from_translation(rest)
@@ -1600,6 +2475,22 @@ fn write_trace(
         let parent = parent.and_then(|p| world.get(p).copied()).unwrap_or(base);
         world.push(parent * local);
     }
+    world
+}
+
+/// One line of the trace: the body's traced nodes in the world, as the
+/// scene places them, and a joined player's correction (units).
+fn write_trace(
+    file: &mut std::io::BufWriter<std::fs::File>,
+    traced: &[usize],
+    rig: &BodyRig,
+    posed: &asset_ja::rig::Posed,
+    (soles, ms, correction): (Vec3, f64, f32),
+    state: &motion::MotionState,
+) {
+    use std::io::Write as _;
+    let world = posed_world(rig, posed, soles);
+    let base = body_base(soles);
     let drawn = traced
         .iter()
         .map(|&n| world.get(n).map_or(Vec3::ZERO, |t| t.translation));
@@ -2130,14 +3021,16 @@ fn blocked_lines(
 /// `eye` to `to` (game space, metres). The level holds no creatures, so
 /// the line passes through bodies, as KOTOR's ignores the pair's.
 fn blocked(view: &View, eye: Vec3, to: Vec3) -> bool {
-    let hit = view.level.with(view.doors.as_deref(), |world| {
-        world.trace(
-            eye.to_array(),
-            to.to_array(),
-            &Extents::default(),
-            Contents::SOLID,
-        )
-    });
+    let hit = view
+        .level
+        .with_unremembered(view.doors.as_deref(), |world| {
+            world.trace(
+                eye.to_array(),
+                to.to_array(),
+                &Extents::default(),
+                Contents::SOLID,
+            )
+        });
     hit.fraction < 1.0
 }
 
@@ -2900,41 +3793,11 @@ fn place_camera(
     if view.fixed {
         return None;
     }
-    let mut aim = None;
-    let (location, angles, fov) = match (talk, first, view.camera_mode) {
-        (Some(talking), ..) => talking,
-        (None, Some((eye, angles)), _) => {
-            aim = Some(sim::target::Look {
-                from: eye,
-                forward: sim::math::angle_vectors(angles).0,
-            });
-            (eye, angles, fov)
-        }
-        (None, None, CameraMode::Third | CameraMode::First) => {
-            let (t, l) = (view.camera.target, view.camera.location);
-            let mut look: [f32; 3] = std::array::from_fn(|i| t[i] - l[i]);
-            let from = l.map(|x| x * UNIT);
-            let mut angles = angles::look_angles(look);
-            if look[0].hypot(look[1]) < LEVEL_NEAR {
-                angles[1] = view.camera.last_yaw;
-            }
-            if sim::math::normalize(&mut look) > 0.0 {
-                aim = Some(sim::target::Look {
-                    from,
-                    forward: look,
-                });
-            }
-            (from, angles, fov)
-        }
-        (None, None, CameraMode::Side(distance)) => (
-            [soles.x + distance, soles.y, soles.z + 1.5],
-            [14.0, 180.0, 0.0],
-            fov,
-        ),
-        (None, None, CameraMode::Arc(distance)) => {
-            ([soles.x + distance, soles.y, 1.1], [4.0, 180.0, 0.0], fov)
-        }
-    };
+    let ((location, angles, fov), aim) = camera_shot(
+        (&view.camera, view.orbit, view.camera_mode),
+        (talk, first),
+        (soles, fov),
+    );
     // A screen shake turns the camera, not where it aims.
     let angles = [angles[0] + shaken[0], angles[1] + shaken[1], angles[2]];
     let rotation = game_to_bevy();
@@ -2952,4 +3815,70 @@ fn place_camera(
         }
     }
     aim
+}
+
+/// How wide the camera sees (degrees up and down) before the screen's own
+/// effects widen it: by the framing the camera had this frame, which narrows
+/// while the watched character aims, or by the options' framing before the
+/// camera first moved.
+fn framed_fov(camera: &ThirdPerson, tune: &crate::camera_tune::CameraTune) -> f32 {
+    let framing = if camera.started {
+        camera.framing
+    } else {
+        tune.framing
+    };
+    framing.vertical_fov(FOV_DEGREES)
+}
+
+/// Where the camera stands, how it is turned and how wide it sees (degrees
+/// up and down, `fov` unless a conversation's shot says otherwise), and the
+/// line the player aims along from it. A conversation's `talk` shot comes
+/// first. In first person the camera stands at the eyes (`first`). In
+/// third person it stands where the follow camera (`camera`) put it. The
+/// other modes stand at a fixed place by the body's `soles`.
+fn camera_shot(
+    (camera, orbit, mode): (&ThirdPerson, [f32; 2], CameraMode),
+    (talk, first): (Option<TalkShot>, Option<EyeShot>),
+    (soles, fov): (Vec3, f32),
+) -> (TalkShot, Option<sim::target::Look>) {
+    let mut aim = None;
+    let shot = match (talk, first, mode) {
+        (Some(talking), ..) => talking,
+        (None, Some((eye, angles)), _) => {
+            aim = Some(sim::target::Look {
+                from: eye,
+                forward: sim::math::angle_vectors(angles).0,
+            });
+            (eye, angles, fov)
+        }
+        (None, None, CameraMode::Third | CameraMode::First) => {
+            let (t, l) = (camera.target, camera.location);
+            let mut look: [f32; 3] = std::array::from_fn(|i| t[i] - l[i]);
+            let from = camera.shown.map(|x| x * UNIT);
+            // Turned around the character, the camera aims at nothing:
+            // the attacks go where the character faces.
+            if sim::math::normalize(&mut look) > 0.0 && orbit == [0.0; 2] {
+                aim = Some(sim::target::Look {
+                    from,
+                    forward: look,
+                });
+            }
+            (from, camera.looking(), fov)
+        }
+        (None, None, CameraMode::Side(distance)) => (
+            [soles.x + distance, soles.y, soles.z + 1.5],
+            [14.0, 180.0, 0.0],
+            fov,
+        ),
+        (None, None, CameraMode::Arc(distance)) => {
+            ([soles.x + distance, soles.y, 1.1], [4.0, 180.0, 0.0], fov)
+        }
+        (None, None, CameraMode::Flank(distance)) => {
+            let yaw = camera.looking()[1];
+            let (forward, right, _) = sim::math::angle_vectors([0.0, yaw, 0.0]);
+            let at = |i: usize| soles[i] + forward[i] * 0.7 + right[i] * distance;
+            ([at(0), at(1), soles.z + 1.4], [10.0, yaw + 90.0, 0.0], fov)
+        }
+    };
+    (shot, aim)
 }

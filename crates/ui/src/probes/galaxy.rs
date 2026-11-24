@@ -28,10 +28,15 @@ fn layouts(assets: &mut Fake) {
     .map(|(at, tag)| button(tag, [400, 10 + at as i32 * 30, 24, 24], b""))
     .collect();
     controls.extend(
-        ["LBL_PLANETNAME", "LBL_DESC", "3D_PlanetModel"]
-            .iter()
-            .enumerate()
-            .map(|(at, tag)| label(tag, 200 + at as i32 * 20)),
+        [
+            "LBL_PLANETNAME",
+            "LBL_DESC",
+            "3D_PlanetModel",
+            "3D_PlanetDisplay",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(at, tag)| label(tag, 200 + at as i32 * 20)),
     );
     assets.layouts.insert("galaxymap", root(640, 480, controls));
     assets
@@ -89,6 +94,8 @@ fn galaxy_map() -> Check {
         map.state_of("LBL_Planet_Dantooine", &vm)
             .is_some_and(|state| state.selected),
         map.focused().map(str::to_string),
+        map.state_of("3D_PlanetDisplay", &vm)
+            .and_then(|state| state.scene),
     );
     presses(&mut map, &mut assets, &vm, &["LBL_Planet_Taris"]);
     let chosen = (
@@ -105,8 +112,17 @@ fn galaxy_map() -> Check {
     let back = presses(&mut theirs, &mut assets, &guest, &["BTN_BACK"]);
     check("galaxy_map", {
         expect(
-            &format!("Korriban hidden, Taris greyed, Dantooine chosen and focused: {shown:?}"),
-            shown == (true, true, true, Some("LBL_Planet_Dantooine".into())),
+            &format!(
+                "Korriban hidden, Taris greyed, Dantooine chosen and focused, the galaxy behind: {shown:?}"
+            ),
+            shown
+                == (
+                    true,
+                    true,
+                    true,
+                    Some("LBL_Planet_Dantooine".into()),
+                    Some(SceneView::Model("galaxy".into())),
+                ),
         )
         .and_then(|()| {
             expect(

@@ -315,13 +315,18 @@ impl Step<'_> {
                 entry,
             });
             self.out.statuses.push(crate::snapshot::StatusKind::Journal);
-            let xp = self.library.quest_xp(&node.quest, entry);
+            let xp = crate::script::xp::mentor(
+                self.view,
+                self.state,
+                self.library.quest_xp(&node.quest, entry),
+            );
             self.out.story_xp(self.state, xp);
             crate::script::xp::tell_pc_level(self.library, self.view, self.state);
         }
         if let Some(xp) = self.library.experience().plot(node.plot_index) {
-            self.out
-                .story_xp(self.state, (xp as f32 * node.plot_xp) as i32);
+            let share =
+                crate::script::xp::mentor(self.view, self.state, (xp as f32 * node.plot_xp) as i32);
+            self.out.story_xp(self.state, share);
             crate::script::xp::tell_pc_level(self.library, self.view, self.state);
         }
     }

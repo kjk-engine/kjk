@@ -42,7 +42,10 @@ one call; its GIT instances are sim entities; doors and triggers lead on.
   move inside, so it fires (reone's rule; the Awaken trigger).
 - It returns an `Announcement` (`KJKA` v4: game, module, arrival, tick,
   seats, players, digests of module facts, collision, animation lengths, the
-  navigation mesh, the hash after). A client plans from it alone (`Request::of`), `Plan::check`s it
+  navigation mesh and the script library, the hash after). The script
+  library's digest comes with two of its parts, the game text it reads and
+  its voiced lines' lengths, so a guest is told when its `dialog.tlk` or
+  its voice files are not the host's. A client plans from it alone (`Request::of`), `Plan::check`s it
   (a `Mismatch` names what differs), commits, `check_after`s. The host sends it to clients.
 
 ## In the sim (every step)
@@ -61,9 +64,12 @@ Locks). Entering an open exit door's
 doorway (the box a unit larger overlaps the door's own closed shape:
 `collision::Level::entity_overlaps`) or a trigger that leads out (over its
 outline, on its floor: `ObjectData::contains`, below) asks once. Any module link leads out, its own included (reone
-reinstalls it), unless its `LinkedToFlags` is 0 (links to nothing,
-xoreos): the Taris hideout's door names its module, but its own `OnOpen`
-and the party screen take the player out. The ask goes to the ready check
+reinstalls it). A door whose `LinkedToFlags` is 0 links to nothing
+(xoreos): the Taris hideout's door names its module, but its own `OnOpen`
+and the party screen take the player out. A trigger leads out by its
+module and tag whatever its flags say, as K1's executable reads them only
+for the script routine that asks where a transition leads (Mission to
+Sleheyron's trigger back onto the Ebon Hawk has flags 0). The ask goes to the ready check
 (`PARTY.md`): the party goes when everyone is ready, and the move is in
 that step's snapshot for the host to install; a script's `StartNewModule`
 skips the check.
@@ -77,7 +83,9 @@ skips the check.
   --replay` makes the recording's installs, checked against it.
 - Console: `module <name> [<tag>]` (`travel` to go on while it loads); `wait world`,
   `wait loading(_screen)`. Where the game's screens are drawn, the loading screen is
-  theirs (KOTOR 2's `loadscreen_p`, `ui::screens::loading`).
+  theirs (the campaign's own `loadscreen`, KOTOR 2's `loadscreen_p`,
+  `ui::screens::loading`). KOTOR 1's shows a hint under "Loading": the next row of
+  `loadscreenhints.2da`, its story hint for a module already visited.
 
 ```bash
 kjk lifecycle plan k1 end_m01ab [--arrive TAG]   # host commit, client from the bytes

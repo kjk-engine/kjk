@@ -9,6 +9,7 @@
 //! compile: shaders compile in the background, and a frame captured before
 //! they finish shows nothing of the scene.
 
+mod gpu_times;
 mod script;
 mod video;
 mod vitals;
@@ -21,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use bevy::app::{AppExit, MainScheduleOrder};
 use bevy::prelude::*;
-use bevy::render::render_resource::{CachedPipelineState, PipelineCache};
+use bevy::render::render_resource::{CachedPipelineState, Extent3d, PipelineCache};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
@@ -78,14 +79,45 @@ impl Default for DumpDue {
     }
 }
 
+/// Whether a headless run's frame stands for a minimized window (`size 0 0`).
+/// A minimized window on Windows is 0 by 0 pixels, and every camera drawing
+/// to it is sized 0 by 0. A headless run's image cannot be 0 by 0, so the
+/// cameras drawing the image are sized 0 by 0 instead (`scene`).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrameMinimized(pub bool);
+
 /// Animation time held fixed by `anim <seconds>`; `None` runs with the clock.
 #[derive(Resource, Default, Debug)]
 pub struct AnimationTime(pub Option<f32>);
+
+#[derive(Resource, Default, Debug)]
+pub struct HeldTick(pub Option<u64>);
+
+#[derive(Resource, Default, Debug)]
+pub struct WorldTick(pub Option<u64>);
 
 /// The game's time the view shows (ms), once there is a game: what `clip`
 /// stamps its frames with, on the clock of the run's sound.
 #[derive(Resource, Default, Debug)]
 pub struct GameClock(pub Option<f64>);
+
+/// Where the run's `audio.wav` takes up the game's clock. Each mark is a
+/// game time (ms) and the second of the file that time is at. The first
+/// mark is where the capture began. A later mark is where the game's clock
+/// jumped, such as when a save was loaded in the middle of the run.
+#[derive(Resource, Default, Debug, Clone)]
+pub struct AudioMarks(pub Vec<(f64, f64)>);
+
+impl AudioMarks {
+    /// The second of `audio.wav` that the game's time `ms` is at. Without
+    /// marks the file is taken to start at the game's 0 ms.
+    pub fn file_seconds(&self, ms: f64) -> f64 {
+        let mark = self.0.iter().rev().find(|(at, _)| *at <= ms);
+        mark.or(self.0.first()).map_or(ms / 1000.0, |(at, second)| {
+            (second + (ms - at) / 1000.0).max(0.0)
+        })
+    }
+}
 
 /// A camera placement the scene applies on its next frame, then clears.
 #[derive(Resource, Default, Debug)]
@@ -155,7 +187,11 @@ impl Plugin for ConsolePlugin {
         .init_resource::<DumpFacts>()
         .init_resource::<CameraRequest>()
         .init_resource::<AnimationTime>()
+        .init_resource::<HeldTick>()
+        .init_resource::<WorldTick>()
+        .init_resource::<FrameMinimized>()
         .init_resource::<GameClock>()
+        .init_resource::<AudioMarks>()
         .init_resource::<States>()
         .init_resource::<ModuleRequest>()
         .init_resource::<UiRequests>()
@@ -167,7 +203,10 @@ impl Plugin for ConsolePlugin {
         .init_resource::<vitals::MainTimes>()
         .add_systems(First, vitals::time_frames)
         .add_systems(vitals::FrameStart, vitals::main_started)
-        .add_systems(vitals::FrameEnd, vitals::main_ended)
+        .add_systems(
+            vitals::FrameEnd,
+            (vitals::main_ended, vitals::census).chain(),
+        )
         .add_systems(
             Update,
             (vitals::publish, run_queue, dump_due)
@@ -178,6 +217,9 @@ impl Plugin for ConsolePlugin {
         let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
         order.insert_before(First, vitals::FrameStart);
         order.insert_after(Last, vitals::FrameEnd);
+        if gpu_times::wanted() {
+            app.add_plugins(gpu_times::GpuTimesPlugin);
+        }
         let render_times = vitals::RenderTimes::default();
         app.insert_resource(render_times.clone());
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
@@ -194,7 +236,12 @@ impl Plugin for ConsolePlugin {
                         vitals::graph_ended
                             .in_set(RenderSystems::Render)
                             .after(bevy::render::renderer::render_system),
-                        (count_pipelines, vitals::render_views).in_set(RenderSystems::Cleanup),
+                        (
+                            count_pipelines,
+                            vitals::render_views,
+                            vitals::count_gpu_objects,
+                        )
+                            .in_set(RenderSystems::Cleanup),
                         vitals::render_ended.in_set(RenderSystems::PostCleanup),
                     ),
                 );
@@ -324,7 +371,11 @@ fn run_queue(
     target: Option<Res<CaptureTarget>>,
     mut facts: ResMut<DumpFacts>,
     mut camera: ResMut<CameraRequest>,
-    mut animation: ResMut<AnimationTime>,
+    (mut animation, mut held, world_tick): (
+        ResMut<AnimationTime>,
+        ResMut<HeldTick>,
+        Res<WorldTick>,
+    ),
     (pipelines, states): (Res<Pipelines>, Res<States>),
     (mut module, mut screens, mut visuals, mut arena): (
         ResMut<ModuleRequest>,
@@ -332,22 +383,25 @@ fn run_queue(
         ResMut<VfxRequests>,
         ResMut<ArenaRequests>,
     ),
-    clock: Res<GameClock>,
+    (clock, marks): (Res<GameClock>, Res<AudioMarks>),
     entities: Query<Entity>,
+    (mut images, mut minimized): (ResMut<Assets<Image>>, ResMut<FrameMinimized>),
 ) {
     queue.frame += 1;
     let frame = queue.frame;
     let waiting = pipelines.waiting.load(Ordering::Acquire);
     let failed = pipelines.failed.load(Ordering::Acquire);
     queue.settled = if waiting == 0 { queue.settled + 1 } else { 0 };
-    facts.0.insert(
-        "pipelines".into(),
-        serde_json::json!({
-            "total": pipelines.total.load(Ordering::Acquire),
-            "waiting": waiting,
-            "failed": failed,
-        }),
-    );
+    if facts.wanted() {
+        facts.0.insert(
+            "pipelines".into(),
+            serde_json::json!({
+                "total": pipelines.total.load(Ordering::Acquire),
+                "waiting": waiting,
+                "failed": failed,
+            }),
+        );
+    }
 
     if queue.active.is_none() {
         let Some(command) = queue.pending.pop_front() else {
@@ -405,13 +459,42 @@ fn run_queue(
                     *times = queue.clip.take().map_or(Vec::new(), |(_, times)| times);
                 }
                 let folder = folder.0.clone();
+                let marks = marks.clone();
                 queue.active = Some(Active {
-                    making: Some(std::thread::spawn(move || video::make(&folder, &video))),
+                    making: Some(std::thread::spawn(move || {
+                        video::make(&folder, &video, &marks)
+                    })),
                     ..active
                 });
                 return;
             }
             Command::Anim(seconds) => animation.0 = *seconds,
+            Command::Tick(tick) => held.0 = *tick,
+            Command::Size(width, height) => {
+                // A run with a window draws into the window itself, and only
+                // the player resizes the window. A headless run draws into an
+                // image, which this command resizes.
+                let frame = match target.as_deref() {
+                    Some(CaptureTarget::Image(handle)) => images.get_mut(handle),
+                    _ => None,
+                };
+                let Some(mut frame) = frame else {
+                    fail(
+                        &mut exit,
+                        &command,
+                        "only a headless run's frame can be sized",
+                    );
+                    return;
+                };
+                minimized.0 = (*width, *height) == (0, 0);
+                if !minimized.0 {
+                    frame.resize(Extent3d {
+                        width: *width,
+                        height: *height,
+                        depth_or_array_layers: 1,
+                    });
+                }
+            }
             Command::Module {
                 module: name,
                 arrival,
@@ -493,7 +576,8 @@ fn run_queue(
         | Command::Clip
         | Command::Ui(_)
         | Command::Vfx(_)
-        | Command::Arena(_) => true,
+        | Command::Arena(_)
+        | Command::Size(..) => true,
         Command::ClipAt(ms) => match (clipping, clock.0) {
             (Some(start), Some(now)) => now >= start + ms,
             _ => true,
@@ -577,6 +661,30 @@ fn run_queue(
             }
         }
 
+        Command::Tick(None) => true,
+        Command::Tick(Some(tick)) => {
+            if let Some(now) = world_tick.0.filter(|now| now > tick) {
+                let command = active.command.clone();
+                fail(
+                    &mut exit,
+                    &command,
+                    &format!("the world was at tick {now} already"),
+                );
+                false
+            } else if world_tick.0 == Some(*tick) {
+                true
+            } else if active.since.elapsed() > STATE_LIMIT {
+                let command = active.command.clone();
+                fail(
+                    &mut exit,
+                    &command,
+                    "the world did not reach the tick within 120 s",
+                );
+                false
+            } else {
+                false
+            }
+        }
         Command::Until(state) => {
             if states.0.get(state).copied().unwrap_or(false) {
                 true

@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::core_pipeline::{Core3d, Core3dSystems, FullscreenShader};
 use bevy::prelude::*;
+use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer_sized};
@@ -46,6 +47,9 @@ pub struct UiComposite {
     pub direction: f32,
     /// Accent glow colour along the wipe edge.
     pub tint: [f32; 3],
+    /// The screens are held back, and the window shows the world alone
+    /// (the main menu waits for its 3D view: `gui_scene::hold_menu`).
+    pub held: bool,
 }
 
 impl UiComposite {
@@ -58,6 +62,7 @@ impl UiComposite {
             progress: -1.0,
             direction: 1.0,
             tint: [0.0; 3],
+            held: false,
         }
     }
 }
@@ -66,7 +71,7 @@ pub struct UiCompositePlugin;
 
 impl Plugin for UiCompositePlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "ui_composite.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "ui_composite.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(ExtractComponentPlugin::<UiComposite>::default());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
@@ -163,6 +168,9 @@ fn composite(
     mut ctx: RenderContext,
 ) {
     let (target, composite, id) = view.into_inner();
+    if composite.held {
+        return;
+    }
     let (Some(render), Some(screens), Some(previous)) = (
         cache.get_render_pipeline(id.0),
         images.get(&composite.screens),
@@ -217,22 +225,30 @@ fn composite(
             settings.as_entire_binding(),
         )),
     );
-    let mut pass = ctx
-        .command_encoder()
-        .begin_render_pass(&RenderPassDescriptor {
-            label: Some("ui_composite"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: post.destination,
-                depth_slice: None,
-                resolve_target: None,
-                ops: Operations::default(),
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-    pass.set_pipeline(render);
-    pass.set_bind_group(0, &bindings, &[]);
-    pass.draw(0..3, 0..1);
+    // The pass's time on the GPU, where a run measures it
+    // (`console::gpu_times`).
+    let diagnostics = ctx.diagnostic_recorder();
+    let diagnostics = diagnostics.as_deref();
+    let time_span = diagnostics.time_span(ctx.command_encoder(), "ui_composite");
+    {
+        let mut pass = ctx
+            .command_encoder()
+            .begin_render_pass(&RenderPassDescriptor {
+                label: Some("ui_composite"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: post.destination,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: Operations::default(),
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        pass.set_pipeline(render);
+        pass.set_bind_group(0, &bindings, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    time_span.end(ctx.command_encoder());
 }

@@ -1,0 +1,769 @@
+//! The arcs of targeted blocks around the centre of the screen
+//! (`ui::screens::hud::block_arcs`), from the presented snapshot. They show
+//! while the player holds the block button and the body the player controls
+//! holds a lightsaber or a melee weapon out in hand, and only when the
+//! snapshot says targeted blocks apply. They stay while the body cannot
+//! guard for a moment, in a parry, a bounce or a stagger, as long as the
+//! button is down. The body the player controls is the companion the player
+//! leads, if any, and otherwise the player's own character
+//! (`Snapshot::body`). The local setting is never read: a guest plays by the
+//! host's choice.
+//!
+//! The aim arc sits at the direction of the body's last camera turn, which
+//! the snapshot keeps (`sim::combat::saber::duel::aim::Turn`). The swing
+//! arc shows the swing of the threat, the hostile fighter whose blow will
+//! arrive first (`aim::threat`). The view reads both sides from
+//! `aim::sides`, as the block rule does, so the colours and the rule always
+//! agree.
+//!
+//! The perfect block mark is on for 600 ms after the body the player
+//! controls makes a perfect block under the Advanced rules (`perfect_mark`).
+//! While the arcs show, they show the mark. Otherwise a ring around the
+//! centre of the screen shows it (`ui_view`): with targeted blocks off,
+//! with the block button released, or under a camera that shows no crosshair.
+
+use std::collections::HashMap;
+
+use bevy::prelude::*;
+use sim::combat::saber::duel::{self, aim};
+use sim::{EntityState, Instances, Snapshot, math};
+use ui::vm::{BlockReticleView, Side, Swing};
+
+use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
+use crate::ui_view::Ui;
+
+pub struct BlockReticlePlugin;
+
+impl Plugin for BlockReticlePlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<crate::block_verdict::Verdicts>();
+        app.add_systems(
+            Update,
+            show.run_if(resource_exists::<PresentedSnapshot>)
+                .before(crate::ui_view::Stepped),
+        );
+    }
+}
+
+/// The arcs shown, from the body the presented snapshot's seat controls
+/// and the fighters hostile to it. Nothing is looked up in a session that
+/// does not play targeted blocks, or while that body is down or the
+/// player does not hold the block button. The verdict on each of the body's
+/// blocks (`block_verdict`) is read from the same snapshot and goes to the
+/// game log.
+fn show(
+    presented: Res<PresentedSnapshot>,
+    (swap, seat): (Option<Res<SceneSwap>>, Option<Res<OwnSeat>>),
+    mut verdicts: ResMut<crate::block_verdict::Verdicts>,
+    taken: Option<Res<crate::play_view::CameraTaken>>,
+    mut ui: ResMut<Ui>,
+) {
+    let snapshot = presented.0.current();
+    let seat = seat.map_or(sim::Seat(0), |seat| seat.0);
+    for said in verdicts.step(snapshot, seat, ui.vm.block_reticle) {
+        info!("{said}");
+    }
+    let shown: Option<BlockReticleView> = swap
+        .as_ref()
+        .filter(|_| snapshot.targeted())
+        .zip(snapshot.body(seat).filter(|own| button_and_blade(own)))
+        .and_then(|(swap, own)| {
+            let objects = Instances::in_snapshot(&swap.level, snapshot);
+            let standing = swap.level.module().map(|module| snapshot.standings(module));
+            let hostile = crate::battle_music::hostility(standing);
+            let (bodies, _) = crate::battle_music::bodies_and_blows(snapshot, &objects);
+            let by_id: HashMap<u32, _> = bodies.iter().map(|body| (body.id, body)).collect();
+            let mine = by_id.get(&own.id.0)?;
+            let foes: Vec<&EntityState> = snapshot
+                .entities
+                .iter()
+                .filter(|entity| {
+                    by_id
+                        .get(&entity.id.0)
+                        .is_some_and(|it| it.alive && hostile(it, mine))
+                })
+                .collect();
+            of(snapshot, own, &objects, &foes)
+        });
+    // The mark hides with the crosshair while a conversation, a fixed
+    // camera, a screen or a status summary covers the view. A camera mode
+    // of the player's own, a side camera included, keeps it.
+    let summary = ui.vm.summaries.iter().any(|view| view.ok.is_some());
+    let covered = taken.is_some_and(|taken| taken.0)
+        || ui.vm.dialog.is_some()
+        || ui.stack.is_open()
+        || summary;
+    ui.vm.perfect_mark = !covered
+        && snapshot
+            .body(seat)
+            .is_some_and(|own| perfect_mark(snapshot, own));
+    ui.vm.block_reticle = shown;
+}
+
+/// How long the perfect block mark stays on after a perfect block (ms).
+/// The sim keeps no mark that ends when the blocker lets go of block,
+/// bounces or attacks, so the view shows the mark for this long instead.
+pub const PERFECT_MARK_MS: u64 = 600;
+
+/// Whether the perfect block mark is on for `own` in `snapshot`. It is on
+/// under the Advanced rules for 600 ms from `own`'s last perfect block
+/// (`Duel::perfect_at`), while `own` is alive.
+pub fn perfect_mark(snapshot: &Snapshot, own: &EntityState) -> bool {
+    own.fighter.is_some_and(|fighter| {
+        let at = fighter.saber.duel.perfect_at;
+        snapshot.saber_rules.duel()
+            && fighter.alive()
+            && at != 0
+            && (at..at + PERFECT_MARK_MS).contains(&snapshot.time_ms)
+    })
+}
+
+/// The last perfect block of the body that `seat` controls in `snapshot`
+/// (`Duel::perfect_at`), 0 for none. The probes of the perfect block's
+/// mark and of its sound, flare and shake read it.
+#[cfg(feature = "probes")]
+pub(crate) fn perfect_at(snapshot: &Snapshot, seat: sim::Seat) -> u64 {
+    (snapshot.body(seat))
+        .and_then(|own| own.fighter)
+        .map_or(0, |fighter| fighter.saber.duel.perfect_at)
+}
+
+/// Whether `own` is alive, the player holds the block button
+/// (`aim::Turn::held`), and the blade is out in hand. The blade is out when
+/// it is lit or drawn (`SaberState::on`, which a put-away turns off for any
+/// blade) and not thrown or knocked out of the hand (`SaberState::thrown`).
+/// The body need not be able to guard.
+fn button_and_blade(own: &EntityState) -> bool {
+    own.fighter.is_some_and(|fighter| {
+        let saber = fighter.saber;
+        fighter.alive() && saber.turn.held && saber.on && saber.thrown.is_none()
+    })
+}
+
+/// The side as the HUD names it.
+fn side(side: aim::Side) -> Side {
+    match side {
+        aim::Side::Left => Side::Left,
+        aim::Side::Right => Side::Right,
+        aim::Side::Above => Side::Above,
+    }
+}
+
+/// What the HUD draws around the centre of the screen for `own`, the body
+/// the player controls in `snapshot` (the companion the player leads, if
+/// any, else the player's own character), with `objects` holding the
+/// snapshot's sheets, against the hostile fighters `foes`. None while
+/// targeted blocks do not apply, while `own` is down or holds no blade out,
+/// and while the player does not hold the block button. The aim comes from
+/// `own`'s last camera turn, whether or not there is a threat. The arcs are
+/// marked while the perfect block mark is on (`perfect_mark`). The view says
+/// the guard is down (`unguarded`) while the button is down but `own`
+/// cannot guard (`Duel::block_held` false).
+pub fn of(
+    snapshot: &Snapshot,
+    own: &EntityState,
+    objects: &Instances,
+    foes: &[&EntityState],
+) -> Option<BlockReticleView> {
+    let (ps, saber) = (own.player?, own.fighter?.saber);
+    let turn = saber.turn;
+    if !(snapshot.targeted() && button_and_blade(own) && crate::duel_view::blade_user(own, objects))
+    {
+        return None;
+    }
+    let unthreatened = BlockReticleView {
+        aim: turn.aim,
+        turned: turn.side().map(side),
+        swing: None,
+        marked: perfect_mark(snapshot, own),
+        unguarded: !saber.duel.block_held,
+    };
+    let foes: Vec<_> = foes
+        .iter()
+        .filter_map(|foe| Some((foe.player?, foe.fighter?.saber)))
+        .collect();
+    let near: Vec<aim::Near> = foes
+        .iter()
+        .map(|(foe, saber)| aim::Near {
+            distance: math::length(math::sub(foe.origin, ps.origin)),
+            in_front: duel::in_front(ps.origin, ps.view[1], foe.origin),
+            swing_began: aim::swinging(saber.current_move).then_some(saber.duel.swing_began),
+        })
+        .collect();
+    let Some(threat) = aim::threat(&near) else {
+        return Some(unthreatened);
+    };
+    let (foe, saber) = &foes[threat];
+    let (swing, turned) = aim::sides(&ps, &turn, foe, saber.current_move);
+    Some(BlockReticleView {
+        turned: turned.map(side),
+        swing: near[threat]
+            .swing_began
+            .map(|_| swing.map_or(Swing::Any, |s| Swing::Side(side(s)))),
+        ..unthreatened
+    })
+}
+
+/// The probes (`kjk sim probes --only "block reticle view"`): when the view
+/// shows, that it follows the snapshot's flag and not the local setting,
+/// and the sides it shows in a staged fight.
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    use sim::trace::duelling_probes::targeted::{Stage, staged};
+    let views_of = |stage| -> Staged {
+        let views = staged(stage)?.into_iter().filter_map(|snapshot| {
+            let mv = snapshot.body(sim::Seat(0))?.fighter?.saber.current_move;
+            let view = seat_view(&snapshot);
+            Some((snapshot, view, mv))
+        });
+        Ok(views.collect())
+    };
+    let left = views_of(Stage::TurnedLeft);
+    let unturned = views_of(Stage::Unturned);
+    let spin = views_of(Stage::Spin);
+    let restricted = views_of(Stage::Restricted).and_then(|views| {
+        let pressed = views.into_iter().find(|(s, ..)| {
+            let own = s.body(sim::Seat(1)).and_then(|own| own.fighter);
+            own.is_some_and(|fighter| fighter.saber.turn.held)
+        });
+        Ok(pressed
+            .ok_or("seat 1 never holds the block button in the restrict mode")?
+            .0)
+    });
+    let shown = left.as_ref().map_err(Clone::clone).and_then(|left| {
+        let (snapshot, ..) = left
+            .iter()
+            .find(|(_, view, _)| view.is_some_and(|view| view.swing.is_some()))
+            .ok_or("no tick shows a swing")?;
+        Ok(snapshot.clone())
+    });
+    vec![
+        (
+            "view_shown",
+            shown.clone().and_then(|s| view_shown(&s, restricted?)),
+        ),
+        (
+            "guest_reads_snapshot",
+            shown.and_then(|s| guest_reads_snapshot(&s)),
+        ),
+        (
+            "perfect_mark",
+            perfect_mark_shown(left.clone(), unturned.clone()),
+        ),
+        ("arcs_through_parry", arcs_through_parry(left.clone())),
+        (
+            "swing_dim_while_unguarded",
+            swing_dim_while_unguarded(left.clone()),
+        ),
+        ("view_sides", view_sides(left, unturned, spin)),
+        ("dot_hidden_while_blocking", dot_hidden_while_blocking()),
+        ("block_verdict", crate::block_verdict::probe()),
+    ]
+}
+
+/// The arcs stay while the block button stays down. In the staged fight
+/// where seat 1 turned its camera to the left, seat 1 keeps the block
+/// button down and makes a perfect block. Its perfect parry leaves it
+/// unable to guard for some steps (`Duel::block_held` false). Every view in
+/// the 600 ms after the perfect block still shows the arcs, marked, with
+/// the aim to the left.
+#[cfg(feature = "probes")]
+fn arcs_through_parry(left: Staged) -> Result<String, String> {
+    let left = left?;
+    let at = (left.iter())
+        .map(|(s, ..)| perfect_at(s, sim::Seat(1)))
+        .find(|&at| at != 0)
+        .ok_or("seat 1 makes no perfect block")?;
+    let after: Vec<&(Snapshot, Option<BlockReticleView>, _)> = (left.iter())
+        .filter(|(s, ..)| (at..at + PERFECT_MARK_MS).contains(&s.time_ms))
+        .collect();
+    let unguarded = (after.iter())
+        .filter(|(s, ..)| {
+            let own = s.body(sim::Seat(1)).and_then(|own| own.fighter);
+            own.is_some_and(|fighter| !fighter.saber.duel.block_held)
+        })
+        .count();
+    let wrong: Vec<String> = (after.iter())
+        .filter(|(_, view, _)| {
+            !view.is_some_and(|view| view.marked && view.turned == Some(Side::Left))
+        })
+        .map(|(s, view, _)| format!("{} ms: {view:?}", s.time_ms))
+        .collect();
+    match (unguarded > 0 && !after.is_empty(), wrong.is_empty()) {
+        (true, true) => Ok(format!(
+            "the perfect block at {at} ms; all {} views of the 600 ms after it show the marked arcs with the aim to the left, {unguarded} of them while seat 1 cannot guard",
+            after.len()
+        )),
+        _ => Err(format!(
+            "the perfect block at {at} ms; {} views after it, {unguarded} while seat 1 cannot guard; these without the marked arcs aimed left: {}",
+            after.len(),
+            wrong.join("; ")
+        )),
+    }
+}
+
+/// The swing arc gives no verdict while the body cannot guard. In the staged
+/// fight where seat 1 turned its camera to the left, seat 1 keeps the block
+/// button down and makes a perfect block, and its knockaway leaves it unable
+/// to guard for some steps. Seat 0 does not swing again during that time,
+/// so the probe starts a swing from seat 1's left (`A_R2L`) in two of its
+/// snapshots. On the first step of the knockaway, the view says the guard is
+/// down (`unguarded`), so the swing arc is drawn dim. On the first later
+/// step where seat 1 can guard again, the view says the guard is up, so the
+/// swing arc is red or green again. On every step of the 600 ms after the
+/// perfect block, the view's `unguarded` is the opposite of
+/// `Duel::block_held`.
+#[cfg(feature = "probes")]
+fn swing_dim_while_unguarded(left: Staged) -> Result<String, String> {
+    use sim::combat::saber::Move;
+    let left = left?;
+    let at = (left.iter())
+        .map(|(s, ..)| perfect_at(s, sim::Seat(1)))
+        .find(|&at| at != 0)
+        .ok_or("seat 1 makes no perfect block")?;
+    let guards = |s: &Snapshot| {
+        let own = s.body(sim::Seat(1)).and_then(|own| own.fighter);
+        own.is_some_and(|fighter| fighter.saber.duel.block_held)
+    };
+    let after: Vec<&Snapshot> = (left.iter())
+        .map(|(s, ..)| s)
+        .filter(|s| s.time_ms >= at)
+        .collect();
+    let down = (after.iter())
+        .find(|s| !guards(s))
+        .ok_or("seat 1 can always guard")?;
+    let up = (after.iter())
+        .find(|s| s.time_ms > down.time_ms && guards(s))
+        .ok_or("seat 1 never guards again")?;
+    let swung = |s: &Snapshot| {
+        view_in(s, |s| {
+            let time = s.time_ms;
+            let attacker = s.body(sim::Seat(0)).map(|own| own.id);
+            let foe = s.entities.iter_mut().find(|e| Some(e.id) == attacker);
+            if let Some(fighter) = foe.and_then(|foe| foe.fighter.as_mut()) {
+                fighter.saber.current_move = Move::A_R2L;
+                fighter.saber.duel.swing_began = time;
+            }
+        })
+    };
+    let seen = |view: Option<BlockReticleView>| view.map(|view| (view.unguarded, view.swing));
+    let left_swing = Some(Swing::Side(Side::Left));
+    let mismatched: Vec<u64> = (left.iter())
+        .filter(|(s, ..)| (at..at + PERFECT_MARK_MS).contains(&s.time_ms))
+        .filter(|(s, view, _)| view.is_none_or(|view| view.unguarded == guards(s)))
+        .map(|(s, ..)| s.time_ms)
+        .collect();
+    let rows = [
+        (
+            format!("a swing in the knockaway, at {} ms", down.time_ms),
+            seen(swung(down)),
+            Some((true, left_swing)),
+        ),
+        (
+            format!("a swing with the guard up again, at {} ms", up.time_ms),
+            seen(swung(up)),
+            Some((false, left_swing)),
+        ),
+    ];
+    let wrong: Vec<String> = (rows.iter())
+        .filter(|(_, got, want)| got != want)
+        .map(|(name, got, want)| format!("{name}: {got:?}, expected {want:?}"))
+        .chain(
+            (!mismatched.is_empty())
+                .then(|| format!("the steps whose view disagrees with the guard: {mismatched:?}")),
+        )
+        .collect();
+    match wrong.is_empty() {
+        true => Ok(format!(
+            "the perfect block at {at} ms; {} rows right, and every view of the 600 ms after it agrees with the guard",
+            rows.len()
+        )),
+        false => Err(wrong.join("; ")),
+    }
+}
+
+/// The perfect block mark (`perfect_mark`) that a seat's player sees: the
+/// arcs marked, or, with the mark on and no arcs, the ring. In the staged
+/// fight where seat 1 turned its camera to the left, seat 1 makes a perfect
+/// block. From that snapshot seat 1's arcs are marked until 600 ms have
+/// passed. Letting go of the block button within that time does not end the mark, and
+/// the ring shows it in place of the arcs, as it does with the flag off.
+/// Seat 0, the attacker, sees no mark. A dead body has no mark. Under Jedi
+/// Academy's rules nothing shows. A guest's decoded snapshot shows the same
+/// as the host's. In the fight where seat 1 has not turned its camera, the
+/// block is ordinary, and no snapshot shows the mark.
+#[cfg(feature = "probes")]
+fn perfect_mark_shown(left: Staged, unturned: Staged) -> Result<String, String> {
+    use sim::Seat;
+    use sim::combat::saber::SaberRules;
+    /// Whether the arcs are marked (None: no arcs), and whether the ring
+    /// shows.
+    type Seen = (Option<bool>, bool);
+    let seen = |s: &Snapshot, seat: Seat| -> Seen {
+        let objects = Instances::in_snapshot(&sim::Level::arena(), s);
+        let (own, foe) = (s.body(seat), s.body(Seat(1 - seat.0)));
+        let view = own
+            .zip(foe)
+            .and_then(|(own, foe)| of(s, own, &objects, &[foe]));
+        let mark = own.is_some_and(|own| perfect_mark(s, own));
+        (view.map(|view| view.marked), mark && view.is_none())
+    };
+    let (blocked, at) = left?
+        .into_iter()
+        .find_map(|(s, ..)| {
+            Some((
+                s.clone(),
+                Some(perfect_at(&s, Seat(1))).filter(|&at| at != 0)?,
+            ))
+        })
+        .ok_or("seat 1 makes no perfect block")?;
+    let later = |ms: u64| move |s: &mut Snapshot| s.time_ms = at + ms;
+    let released = |s: &mut Snapshot| {
+        later(100)(s);
+        if let Some(fighter) = blocker(s).fighter.as_mut() {
+            fighter.saber.duel.block_held = false;
+            fighter.saber.turn = sim::combat::saber::duel::aim::Turn::KEYED;
+        }
+    };
+    let dead = |s: &mut Snapshot| {
+        if let Some(fighter) = blocker(s).fighter.as_mut() {
+            fighter.life = sim::combat::Life::Dead;
+        }
+    };
+    type Change<'a> = &'a dyn Fn(&mut Snapshot);
+    let (blocker_seat, attacker_seat) = (Seat(1), Seat(0));
+    let rows: [(&str, Seat, Change, Seen); 8] = [
+        (
+            "the perfect block",
+            blocker_seat,
+            &|_| {},
+            (Some(true), false),
+        ),
+        (
+            "599 ms after it",
+            blocker_seat,
+            &later(599),
+            (Some(true), false),
+        ),
+        (
+            "600 ms after it",
+            blocker_seat,
+            &later(600),
+            (Some(false), false),
+        ),
+        (
+            "block released 100 ms after it",
+            blocker_seat,
+            &released,
+            (None, true),
+        ),
+        (
+            "the flag off",
+            blocker_seat,
+            &|s| s.targeted_blocks = false,
+            (None, true),
+        ),
+        ("the blocker dead", blocker_seat, &dead, (None, false)),
+        ("the attacker's view", attacker_seat, &|_| {}, (None, false)),
+        (
+            "Jedi Academy's rules",
+            blocker_seat,
+            &|s| s.saber_rules = SaberRules::Ja,
+            (None, false),
+        ),
+    ];
+    let guest = Snapshot::decode(&blocked.encode()).map_err(|e| format!("{e:?}"))?;
+    let got: Vec<(String, Seen, Seen)> = (rows.iter())
+        .map(|(name, seat, change, want)| {
+            let mut s = blocked.clone();
+            change(&mut s);
+            (name.to_string(), seen(&s, *seat), *want)
+        })
+        .chain([(
+            "the guest's snapshot".into(),
+            seen(&guest, blocker_seat),
+            (Some(true), false),
+        )])
+        .collect();
+    let ordinary: Vec<Seen> = (unturned?.iter())
+        .map(|(s, ..)| seen(s, blocker_seat))
+        .filter(|&(marked, ring)| marked == Some(true) || ring)
+        .collect();
+    let wrong: Vec<String> = (got.iter())
+        .filter(|(_, got, want)| got != want)
+        .map(|(name, got, want)| format!("{name}: {got:?}, expected {want:?}"))
+        .chain(
+            (!ordinary.is_empty())
+                .then(|| format!("the ordinary block's fight shows the mark: {ordinary:?}")),
+        )
+        .collect();
+    match wrong.is_empty() {
+        true => Ok(format!(
+            "the perfect block at {at} ms, {} rows right, and no mark in the ordinary block's fight",
+            got.len()
+        )),
+        false => Err(wrong.join("; ")),
+    }
+}
+
+/// The HUD's crosshair dot (`ui_view::dot_shown`). With no arcs it shows
+/// while the crosshair is up, no blaster's crosshair takes its place and no
+/// melee weapon is readied. With the arcs it never shows. The
+/// HUD's redraw key holds the same value as `dot_shown`, so the key changes
+/// too when blocking starts and stops.
+#[cfg(feature = "probes")]
+fn dot_hidden_while_blocking() -> Result<String, String> {
+    use ui::vm::{ReticleView, ViewModel};
+    let blaster = ReticleView {
+        family: ui::screens::hud::Family::Cross,
+        cone: 1.0,
+        fov: 70.0,
+    };
+    let mut rows = Vec::new();
+    for crosshair in [false, true] {
+        for reticle in [None, Some(blaster)] {
+            for arcs in [None, Some(BlockReticleView::default())] {
+                for melee_out in [false, true] {
+                    let vm = ViewModel {
+                        crosshair,
+                        reticle,
+                        block_reticle: arcs,
+                        melee_out,
+                        ..ViewModel::default()
+                    };
+                    let before_arcs = crosshair && reticle.is_none() && !melee_out;
+                    let want = arcs.is_none() && before_arcs;
+                    let got = crate::ui_view::dot_shown(&vm);
+                    let shown = (reticle.is_some(), arcs.is_some(), melee_out);
+                    rows.push((crosshair, shown, got, want));
+                }
+            }
+        }
+    }
+    let wrong: Vec<String> = (rows.iter())
+        .filter(|(.., got, want)| got != want)
+        .map(|(crosshair, (blaster, arcs, melee_out), got, _)| {
+            format!(
+                "crosshair {crosshair}, a blaster {blaster}, the arcs {arcs}, a melee weapon readied {melee_out}: shown {got}"
+            )
+        })
+        .collect();
+    match wrong.is_empty() {
+        true => Ok(format!(
+            "{} rows right; the dot shows with no weapon readied, and never with a melee weapon readied or while the arcs show",
+            rows.len()
+        )),
+        false => Err(wrong.join("; ")),
+    }
+}
+
+/// The views of seat 1's character against seat 0's in a staged fight, each
+/// with its snapshot and seat 0's move.
+#[cfg(feature = "probes")]
+type Staged = Result<Vec<(Snapshot, Option<BlockReticleView>, sim::combat::saber::Move)>, String>;
+
+/// The view of seat 1's character in a snapshot of the staged fight,
+/// against seat 0's.
+#[cfg(feature = "probes")]
+fn seat_view(snapshot: &Snapshot) -> Option<BlockReticleView> {
+    let objects = Instances::in_snapshot(&sim::Level::arena(), snapshot);
+    let blocker = snapshot.body(sim::Seat(1))?;
+    let attacker = snapshot.body(sim::Seat(0))?;
+    of(snapshot, blocker, &objects, &[attacker])
+}
+
+/// The view of seat 1's character in a snapshot of the staged fight
+/// changed by `change` (`seat_view`).
+#[cfg(feature = "probes")]
+fn view_in(snapshot: &Snapshot, change: impl Fn(&mut Snapshot)) -> Option<BlockReticleView> {
+    let mut snapshot = snapshot.clone();
+    change(&mut snapshot);
+    seat_view(&snapshot)
+}
+
+/// Seat 1's character in `snapshot`, to change.
+#[cfg(feature = "probes")]
+fn blocker(snapshot: &mut Snapshot) -> &mut EntityState {
+    let id = snapshot.body(sim::Seat(1)).map(|entity| entity.id);
+    snapshot
+        .entities
+        .iter_mut()
+        .find(|entity| Some(entity.id) == id)
+        .expect("seat 1 has a character")
+}
+
+/// The view shows only while the player holds the block button with the
+/// blade out in hand, the snapshot's flag is set and the rules are
+/// Advanced. With the button down it does not show while the lightsaber is
+/// put away or knocked out of the hand. In the player restrict mode the
+/// held block keeps the lightsaber lit (`restricted`, a snapshot of the
+/// staged fight in that mode with the button down), so it shows there.
+#[cfg(feature = "probes")]
+fn view_shown(snapshot: &Snapshot, restricted: Snapshot) -> Result<String, String> {
+    use sim::combat::{Delivery, saber::SaberRules, sheet::Blaster};
+    let blaster = |s: &mut Snapshot| {
+        let own = blocker(s);
+        let hand = usize::from(own.fighter.map_or(0, |f| f.hand.min(1)));
+        if let Some(sheet) = own.sheet.as_mut() {
+            sheet.weapons[hand] = Some(sim::combat::Weapon {
+                delivery: Delivery::Blaster(Blaster::Pistol),
+                ..sim::combat::Weapon::UNARMED
+            });
+        }
+    };
+    let released = |s: &mut Snapshot| {
+        if let Some(fighter) = blocker(s).fighter.as_mut() {
+            fighter.saber.duel.block_held = false;
+            fighter.saber.turn = sim::combat::saber::duel::aim::Turn::KEYED;
+        }
+    };
+    let holstered = |s: &mut Snapshot| {
+        if let Some(fighter) = blocker(s).fighter.as_mut() {
+            fighter.sheath = sim::combat::Sheath::Holstered;
+            fighter.saber.on = false;
+            fighter.saber.duel.block_held = false;
+        }
+    };
+    let disarmed = |s: &mut Snapshot| {
+        let now = s.time_ms;
+        if let Some(fighter) = blocker(s).fighter.as_mut() {
+            fighter.saber.thrown = Some(sim::combat::saber::Thrown::leaving(0, now));
+            fighter.saber.duel.block_held = false;
+        }
+    };
+    type Change<'a> = &'a dyn Fn(&mut Snapshot);
+    let rows: [(&str, Change, bool); 7] = [
+        ("blocking", &|_| {}, true),
+        (
+            "Jedi Academy's rules",
+            &|s| s.saber_rules = SaberRules::Ja,
+            false,
+        ),
+        ("the flag off", &|s| s.targeted_blocks = false, false),
+        ("a blaster in hand", &blaster, false),
+        ("block released", &released, false),
+        ("holstered, button down", &holstered, false),
+        ("disarmed, button down", &disarmed, false),
+    ];
+    let restrict = (
+        "restrict mode, button down",
+        seat_view(&restricted).is_some(),
+    );
+    let got: Vec<(&str, bool)> = rows
+        .iter()
+        .map(|(name, change, _)| (*name, view_in(snapshot, change).is_some()))
+        .chain([restrict])
+        .collect();
+    let want: Vec<(&str, bool)> = (rows.iter())
+        .map(|(name, _, want)| (*name, *want))
+        .chain([(restrict.0, true)])
+        .collect();
+    match got == want {
+        true => Ok(format!("shown as expected: {got:?}")),
+        false => Err(format!("shown {got:?}, expected {want:?}")),
+    }
+}
+
+/// The view follows the flag of the snapshot a guest decodes. `of` takes
+/// no setting at all, so the guest's own setting cannot change what it
+/// shows: a guest sees the arcs of a host who chose them, and none from a
+/// host who did not. The guest's view, its angle included, equals the view
+/// of the snapshot the host encoded. With the flag on, the angle of both
+/// views is the angle of the last camera turn that the snapshot keeps for
+/// seat 1's character.
+#[cfg(feature = "probes")]
+fn guest_reads_snapshot(snapshot: &Snapshot) -> Result<String, String> {
+    let kept = (snapshot.body(sim::Seat(1)))
+        .and_then(|own| own.fighter)
+        .and_then(|fighter| fighter.saber.turn.aim);
+    let views: Vec<(bool, Option<BlockReticleView>, Result<_, String>)> = [true, false]
+        .into_iter()
+        .map(|flag| {
+            let mut host = snapshot.clone();
+            host.targeted_blocks = flag;
+            let decoded = Snapshot::decode(&host.encode()).map_err(|e| format!("{e:?}"));
+            (
+                flag,
+                seat_view(&host),
+                decoded.map(|guest| seat_view(&guest)),
+            )
+        })
+        .collect();
+    let wrong: Vec<String> = views
+        .iter()
+        .filter(|(flag, hosted, guest)| {
+            let angled = hosted.is_some_and(|view| view.aim.is_some() && view.aim == kept);
+            *guest != Ok(*hosted) || hosted.is_some() != *flag || angled != *flag
+        })
+        .map(|(flag, hosted, guest)| {
+            format!("snapshot flag {flag}: the host's view {hosted:?}, the guest's {guest:?}")
+        })
+        .collect();
+    match wrong.is_empty() {
+        true => Ok(format!(
+            "`of` takes no setting, and the guest's view equals the host's, at the kept angle {kept:?}: {:?}",
+            views
+                .iter()
+                .map(|(flag, _, guest)| (flag, guest))
+                .collect::<Vec<_>>()
+        )),
+        false => Err(wrong.join("; ")),
+    }
+}
+
+/// The sides and the angle in the staged fights (`targeted::staged`).
+///
+/// Seat 0 swings from seat 1's left after seat 1 turned its camera to the
+/// left as it raised its guard. The first view to show a swing has the
+/// turn and the swing on the left, and the angle of the turn that the
+/// snapshot keeps, which is from 225 to 315 degrees, the left quarter of
+/// the circle. In the fight where seat 1 has not turned its camera since it
+/// raised its guard, every view shown has no side and no angle, and at
+/// least one of them shows a swing. A spin attack has no side: every view
+/// while it plays shows a swing with no side.
+#[cfg(feature = "probes")]
+fn view_sides(left: Staged, unturned: Staged, spin: Staged) -> Result<String, String> {
+    let kept = |snapshot: &Snapshot| {
+        let own = snapshot.body(sim::Seat(1))?;
+        own.fighter?.saber.turn.aim
+    };
+    let first_swing = left?.into_iter().find_map(|(snapshot, view, _)| {
+        Some((view.filter(|view| view.swing.is_some())?, kept(&snapshot)))
+    });
+    let left_ok = first_swing.is_some_and(|(view, kept)| {
+        view.turned == Some(Side::Left)
+            && view.swing == Some(Swing::Side(Side::Left))
+            && view.aim == kept
+            && view.aim.is_some_and(|aim| (225.0..=315.0).contains(&aim))
+    });
+    let still: Vec<BlockReticleView> = unturned?
+        .into_iter()
+        .filter_map(|(_, view, _)| view)
+        .collect();
+    let still_swings = still.iter().filter(|view| view.swing.is_some()).count();
+    let aimed: Vec<&BlockReticleView> = (still.iter())
+        .filter(|view| view.aim.is_some() || view.turned.is_some())
+        .collect();
+    let spun: Vec<Option<BlockReticleView>> = spin?
+        .into_iter()
+        .filter(|(_, _, mv)| duel::unblockable(*mv) && aim::swinging(*mv))
+        .map(|(_, view, _)| view)
+        .collect();
+    let spun_wrong: Vec<&Option<BlockReticleView>> = (spun.iter())
+        .filter(|view| !view.is_some_and(|view| view.swing == Some(Swing::Any)))
+        .collect();
+    let still_ok = still_swings > 0 && aimed.is_empty();
+    let spins_any = !spun.is_empty() && spun_wrong.is_empty();
+    match (left_ok, still_ok, spins_any) {
+        (true, true, true) => Ok(format!(
+            "the swing from the left, and the view and the kept angle: {first_swing:?}; {} views with no turn since block was raised, {still_swings} of them with a swing, show no side and no angle; {} ticks of the spin show a swing with no side",
+            still.len(),
+            spun.len()
+        )),
+        _ => Err(format!(
+            "the swing from the left, and the view and the kept angle: {first_swing:?}, expected the left side and the kept angle, from 225 to 315; with no turn since block was raised, {} views shown, {still_swings} with a swing, and these with a side or an angle: {aimed:?}; the spin: {} ticks, these without a swing with no side: {spun_wrong:?}",
+            still.len(),
+            spun.len()
+        )),
+    }
+}

@@ -20,12 +20,13 @@ use super::anim::{
     play_flags,
 };
 use super::{Anim, Ground, Move, events};
+use crate::combat::saber::duel::aim::Turn;
 use crate::combat::saber::{
-    Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, SaberState, Style,
+    Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, SaberRules, SaberState,
+    Style,
 };
-use crate::combat::sheet::Blaster;
 use crate::combat::{Fighter, Sheath};
-use crate::input::buttons;
+use crate::input::{buttons, holds};
 use crate::math;
 use crate::rng::SimRng;
 use crate::world::{BODY, COMBAT_MS};
@@ -36,6 +37,29 @@ use rules::weapons_in_hand::saber_speed;
 use Anim::*;
 use SaberMove::*;
 
+/// The torso's ready pose with a gun out. A gun held in one hand (any
+/// pistol, `Weapon::one_handed`) takes JA's Bryar pistol pose,
+/// `TORSO_WEAPONREADY2`. A gun held in both hands takes JA's rifle pose,
+/// `TORSO_WEAPONREADY3`.
+pub fn gun_ready(one_handed: bool) -> Anim {
+    if one_handed {
+        TORSO_WEAPONREADY2
+    } else {
+        TORSO_WEAPONREADY3
+    }
+}
+
+/// The torso's shot with a gun (`gun_ready`): JA's Bryar pistol shot,
+/// `BOTH_ATTACK2`, for a gun held in one hand, and its rifle shot,
+/// `BOTH_ATTACK3`, for one held in both.
+pub fn gun_shot(one_handed: bool) -> Anim {
+    if one_handed {
+        BOTH_ATTACK2
+    } else {
+        BOTH_ATTACK3
+    }
+}
+
 /// What move_body's weapon step works on: the character's fight (its saber,
 /// Force pool, weapon timer and hand), what its sheet gives it, the other
 /// characters its moves' checks may meet, and the stream synced rolls draw
@@ -45,6 +69,9 @@ pub struct Arms<'a> {
     pub kit: &'a Kit,
     /// A player's arms (a few rules differ for players).
     pub player: bool,
+    /// A seat's keys act through this body: a player's own character, or
+    /// the companion its player leads.
+    pub keyed: bool,
     /// Sorted by entity number.
     pub others: &'a [Other],
     pub rng: &'a mut SimRng,
@@ -53,6 +80,17 @@ pub struct Arms<'a> {
     /// A conversation has this party member and it fights no one: its blade
     /// goes away and stays away, whatever its 8 s say.
     pub at_rest: bool,
+    /// Its player's draw or holster key drew its weapon this step
+    /// (`Sheath::Drawn`): a gun is raised as an attack raises one.
+    pub drew: bool,
+    /// The rules the blades play by (the session's, `world::Rules`).
+    pub rules: SaberRules,
+    /// Targeted blocks apply to this body (`SaberRules::targeted`): its
+    /// perfect block window is longer (`duel::aim::window_ms`), and its
+    /// camera turns are kept while it holds block (`track_turn`). The flag
+    /// is set for every body, but only a keyed body uses it, because
+    /// `duel_block` and `track_turn` act only when `keyed` is set.
+    pub targeted: bool,
 }
 
 /// Another character, as a saber move's check meets it: its body's entity
@@ -68,6 +106,7 @@ pub struct Other {
 pub fn shrugs_off_pain(ps: &super::MotionState) -> bool {
     let legs = ps.legs.anim;
     is_spin(legs)
+        || anim::is_grapple(legs)
         || is_special_move(ps.torso.anim)
         || (is_knockdown(legs) && ps.legs.timer != 0)
         || anim::is_roll(legs)
@@ -113,6 +152,19 @@ fn flying_attack(current: SaberMove) -> bool {
     )
 }
 
+/// Keeps the weapon in hand out until `COMBAT_MS` after `now`, and takes it
+/// out of the holster. An attack does this, and so does a duel mode's held
+/// block (`Move::duel_block`), which lights the saber for itself. Without
+/// it the game's put-away (`Move::sheathes`) turned the held block's saber
+/// off every step and the block lit it again, so its put-away flourish
+/// played over and over.
+pub(super) fn keep_out(fighter: &mut Fighter, now: u64) {
+    fighter.saber.out_until = now + COMBAT_MS;
+    if matches!(fighter.sheath, Sheath::Holstered | Sheath::Holstering) {
+        fighter.sheath = Sheath::Fight;
+    }
+}
+
 impl Move<'_, '_> {
     /// The saber state, when the step has arms.
     fn saber(&self) -> Option<&SaberState> {
@@ -152,7 +204,15 @@ impl Move<'_, '_> {
 
         let mut still = false;
         let mut hold_view = false;
-        if saber.lock_until >= self.time_ms {
+        // A grab: still while it reaches or misses, and held whole, the view
+        // too, while a finisher plays (JA holds a grappler's view, bg_pangles.cpp:829).
+        let grappled = arms.fighter.grapple.is_some();
+        if grappled || matches!(torso.anim, BOTH_KYLE_GRAB | BOTH_KYLE_MISS) {
+            still = true;
+            hold_view = grappled;
+            self.cmd.buttons = 0;
+            self.cmd.holds = 0;
+        } else if saber.lock_until >= self.time_ms {
             // At or after: a kept quirk against the blade step's strict
             // test (COMMON.md).
             still = true;
@@ -458,11 +518,51 @@ impl Move<'_, '_> {
             return;
         };
         self.armed_step(arms);
+        self.track_turn(arms);
         self.arms = Some(arms);
+    }
+
+    /// The camera turn of targeted blocks (`Turn`). It is kept while
+    /// targeted blocks apply to a body the player controls and the player
+    /// holds the block button (`holds::BLOCK` in the command as it came), and
+    /// cleared otherwise. Whether the body can guard does not matter, so a
+    /// parry, a bounce or a stagger with the button down keeps the aim. A
+    /// body whose button has just gone down starts with no aim, and so does
+    /// a body that the player has just taken over. The change of the
+    /// command's angles on the first step of a takeover is no turn, because
+    /// the angles before it were another mind's. The turn is read from the
+    /// command's angles alone, so a view the game turns by itself
+    /// (`MotionState::set_view`) is no turn. The blade does not matter
+    /// either. An aim kept while the blade is away or out of the hand changes
+    /// nothing, because no guard is held then, and the arcs do not show.
+    fn track_turn(&self, arms: &mut Arms) {
+        let saber = &mut arms.fighter.saber;
+        if !(arms.targeted && arms.keyed) {
+            saber.turn = Turn::NONE;
+        } else if self.raw.holds & holds::BLOCK == 0 {
+            saber.turn = Turn::KEYED;
+        } else {
+            let counts = saber.turn.keyed;
+            if !saber.turn.held {
+                saber.turn = Turn::HELD;
+            }
+            if counts {
+                let (from, to) = (self.angles_before, self.raw.angles);
+                saber.turn.step(self.time_ms, from, to);
+            }
+        }
     }
 
     fn armed_step(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
+        // A left hand emptied some other way than a change of hands (its
+        // weapon taken off in the equip screen, a script's unequip) gives
+        // the fight back to the right hand. Left out, the right hand's gun
+        // fired from the empty hand: with no shot played and its timer run
+        // down twice a step, both here and by the trigger (issue 356).
+        if arms.fighter.hand == 1 && arms.kit.held(1) == Held::Nothing {
+            arms.fighter.hand = 0;
+        }
         let hand = arms.fighter.hand;
         let held = arms.kit.held(hand);
         let gun = matches!(held, Held::Blaster(_));
@@ -472,26 +572,47 @@ impl Move<'_, '_> {
         {
             arms.fighter.saber.on = false;
         }
+        // Held only while the blade's step finds it may be
+        // (`saber::duel_block`); never under JA, whose rules may have
+        // replaced a duel mode's since.
+        let state = &mut arms.fighter.saber.duel;
+        state.block_held = false;
         if arms.fighter.force.hand_out(now) || self.hand_state(arms) {
+            // The keys still count while the hands are busy: a kick or an
+            // aimed block wants a fresh press once they are free.
+            // Under JA's rules the duel state is never touched.
+            let kick = arms.rules.duel() && self.cmd.holds & holds::KICK != 0;
+            let attack = self.attack_held();
+            let state = &mut arms.fighter.saber.duel;
+            state.kick_held = kick;
+            state.aimed &= attack;
+            return;
+        }
+        if arms.rules.duel() && (self.duel_kick(arms) || self.duel_grab(arms)) {
             return;
         }
 
-        // An attack draws the weapon and keeps it out.
-        if self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) != 0 {
-            if gun && arms.fighter.weapon_away(now) {
-                self.animator.play(
-                    self.ps,
-                    Parts::UPPER,
-                    TORSO_RAISEWEAP1,
-                    play_flags::OVER_ANY,
-                );
-                let timer = arms.fighter.weapon_wait_ms.max(0);
-                arms.fighter.weapon_wait_ms = timer + rules::weapons_in_hand::change::RAISE_MS;
-            }
-            arms.fighter.saber.out_until = now + COMBAT_MS;
-            if matches!(arms.fighter.sheath, Sheath::Holstered | Sheath::Holstering) {
-                arms.fighter.sheath = Sheath::Fight;
-            }
+        // An attack draws the weapon and keeps it out. A gun put away is
+        // raised first, and so is one its player's key drew this step. A
+        // weapon its player drew stays `Sheath::Drawn`. With a gun,
+        // [Feat attack] is an attack too.
+        let feat = gun && self.cmd.holds & holds::FEAT != 0;
+        let attack = feat || self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) != 0;
+        if gun && (arms.drew || (attack && arms.fighter.weapon_away(now))) {
+            self.animator.play(
+                self.ps,
+                Parts::UPPER,
+                TORSO_RAISEWEAP1,
+                play_flags::OVER_ANY,
+            );
+            let timer = arms.fighter.weapon_wait_ms.max(0);
+            arms.fighter.weapon_wait_ms = timer + rules::weapons_in_hand::change::RAISE_MS;
+            // The gun was down, so a Sniper Shot that was steadying is
+            // dropped.
+            arms.fighter.shooting.lower();
+        }
+        if attack {
+            keep_out(arms.fighter, now);
         }
 
         // The game lowers a gun once the fight has been over for a step.
@@ -523,13 +644,182 @@ impl Move<'_, '_> {
             // No change of weapons mid-move.
             self.cmd.weapon = hand;
         }
+        if blade.saber && self.goes_dark(arms) {
+            // The blade goes off with no put-away flourish, and the hilt
+            // stays in hand. It counts as the player's draw only on a body
+            // a seat's keys act through. On any other body, such as a
+            // creature a script put in Stealth Mode, it stays a fight's.
+            arms.fighter.saber.on = false;
+            if arms.keyed {
+                arms.fighter.sheath = Sheath::Drawn;
+            }
+        }
         if self.sheathes(arms) {
             self.put_away(arms);
         }
-        if blade.saber && self.draws(arms) {
-            self.light(arms);
+        if self.draws(arms, blade.saber) {
+            if blade.saber && arms.fighter.covert.stealth && arms.fighter.sheath == Sheath::Drawn {
+                // The attack that ends Stealth Mode swings at once.
+                self.ignite(arms);
+            } else {
+                self.light(arms);
+            }
         }
         self.saber_step(arms, blade);
+    }
+
+    /// The duel modes' kick key (`holds::KICK`, `docs/SABER-RULES.md` 9.2):
+    /// on a press, standing free on the ground, a kick the way the keys
+    /// point (ahead without one), with any weapon in hand: a lit blade
+    /// kicks as its move, anything else plays the kick on the whole body.
+    /// A fighter with too little Stamina does not kick (`meter::can_kick`).
+    /// Whether it kicked.
+    fn duel_kick(&mut self, arms: &mut Arms) -> bool {
+        let held = self.cmd.holds & holds::KICK != 0;
+        // Kick just after a punch's hit spins, the punch's round still
+        // running.
+        let spin = self.spin_combo(arms);
+        let saber = &mut arms.fighter.saber;
+        let pressed = held && !saber.duel.kick_held;
+        saber.duel.kick_held = held;
+        let busy = (arms.fighter.weapon_wait_ms > 0 && !spin)
+            || is_kick(self.ps.legs.anim)
+            || is_kick(self.ps.torso.anim)
+            || saber.lock_until > self.time_ms
+            || saber.floored()
+            || self.ps.ground.is_none()
+            || !crate::combat::saber::duel::meter::can_kick(i32::from(saber.duel.points));
+        if !pressed || busy {
+            return false;
+        }
+        let kick = match spin {
+            true => SaberMove::KICK_S,
+            false => self.kick_choice(arms),
+        };
+        let wait = arms.fighter.weapon_wait_ms;
+        let lit = arms.kit.blade(arms.fighter.hand).is_some() && arms.fighter.saber.on;
+        if lit {
+            self.begin_saber_move(arms, kick);
+            self.slow_kick(kick.data().anim);
+            arms.fighter.weapon_wait_ms = self.ps.torso.timer;
+        } else {
+            let set = play_flags::OVER_ANY | play_flags::HOLD_FULL;
+            self.animator
+                .play(self.ps, Parts::WHOLE, kick.data().anim, set);
+            self.slow_kick(kick.data().anim);
+            // After a spin kick out of a punch, the next punch waits for
+            // whichever ends later, the kick or the punch's round (which
+            // stays below the punch's hit mark, so `strikes` deals no
+            // second blow).
+            arms.fighter.weapon_wait_ms = self.ps.legs.timer.max(wait);
+            // A lit blade's kick loses its Stamina as its move begins
+            // (`meter::started`). Any other kick loses it here.
+            let cap = crate::combat::saber::duel::standing::cap(arms.kit.level);
+            crate::combat::saber::duel::meter::kicked(arms.fighter, cap);
+        }
+        self.still();
+        true
+    }
+
+    /// The kick the keys ask for under the Advanced rules: to a side, ahead
+    /// or behind. A kick to a side with someone standing on each side is
+    /// the split kick, which strikes both, as the dual sabers' sideways
+    /// swing turns two-sided (`saber::Move::DUAL_LR`, the same reach).
+    fn kick_choice(&self, arms: &Arms) -> SaberMove {
+        use super::saber::Way;
+        use rules::saber_moves::specials;
+        let side = match (self.cmd.forward.signum(), self.cmd.right.signum()) {
+            (_, 1) => SaberMove::KICK_R,
+            (_, -1) => SaberMove::KICK_L,
+            (-1, _) => return SaberMove::KICK_B,
+            _ => return SaberMove::KICK_F,
+        };
+        let half = [specials::MIRROR_BOX; 3];
+        let beside = |way| {
+            self.someone(arms, way, specials::MIRROR_REACH, half)
+                .is_some()
+        };
+        match beside(Way::Right) && beside(Way::Left) {
+            true => SaberMove::KICK_RL,
+            false => side,
+        }
+    }
+
+    /// Whether a kick now is the spin kick out of a punch: the hands
+    /// empty, a punch begun (`Fighter::punched_at`), and now between its
+    /// blow (`strikes::punch_hit_ms`) and `kicks::SPIN_WINDOW_MS` past its
+    /// clip's end.
+    pub(super) fn spin_combo(&self, arms: &Arms) -> bool {
+        let fighter = &*arms.fighter;
+        if fighter.punched_at == 0 || arms.kit.blade(fighter.hand).is_some() {
+            return false;
+        }
+        // The punch thrown last: the chain has turned past it.
+        let punch = crate::world::strikes::punch(fighter.saber.chain ^ 1);
+        let table = self.animator.table;
+        let hit = i64::from(crate::world::strikes::punch_hit_ms(table, punch));
+        let end =
+            i64::from(table.get(punch).length_ms()) + i64::from(rules::duel::kicks::SPIN_WINDOW_MS);
+        let since = self.time_ms as i64 - fighter.punched_at as i64;
+        (hit..=end).contains(&since)
+    }
+
+    /// A kick that plays slower than JA's (`clip_speed`, the split kick) is
+    /// held that much longer on the legs and the torso.
+    fn slow_kick(&mut self, anim: Anim) {
+        let speed = super::clip_speed(anim);
+        if speed < 1.0 {
+            for part in [&mut self.ps.legs, &mut self.ps.torso] {
+                if part.anim == anim && part.timer > 0 {
+                    part.timer = (part.timer as f32 / speed).round() as i32;
+                }
+            }
+        }
+    }
+
+    /// The grab under the Advanced rules (`world::grapples`): with bare
+    /// hands and alt attack held, standing free on the ground with the
+    /// weapon timer out and Stamina enough, the grab plays on the whole body
+    /// (`BOTH_KYLE_GRAB`), held `grab::REACH_LEFT_MS[0]` past its end as JA
+    /// holds it (bg_pmove.cpp:11323), and the grabber loses `grab::USES`
+    /// Stamina. The
+    /// world reaches for the victim near its end. Whether it grabbed.
+    fn duel_grab(&mut self, arms: &mut Arms) -> bool {
+        use crate::combat::saber::duel::{meter, standing};
+        let fighter = &*arms.fighter;
+        let saber = &fighter.saber;
+        let (legs, torso) = (self.ps.legs.anim, self.ps.torso.anim);
+        let free = arms.kit.bare
+            && fighter.hand == 0
+            && fighter.weapon_wait_ms <= 0
+            && fighter.grapple.is_none()
+            && !(is_kick(legs) || is_kick(torso) || anim::is_grapple(torso))
+            && saber.lock_until <= self.time_ms
+            && !saber.floored()
+            && self.ps.ground.is_some()
+            && meter::can_grab(i32::from(saber.duel.points));
+        if self.cmd.buttons & buttons::ALT_ATTACK == 0 || !free {
+            return false;
+        }
+        let set = play_flags::OVER_ANY | play_flags::HOLD_FULL | play_flags::ANEW;
+        self.animator
+            .play(self.ps, Parts::WHOLE, BOTH_KYLE_GRAB, set);
+        if self.ps.torso.anim != BOTH_KYLE_GRAB {
+            return false;
+        }
+        let held = rules::duel::grab::REACH_LEFT_MS[0];
+        self.ps.legs.timer += held;
+        self.ps.torso.timer += held;
+        self.ps.velocity[0] = 0.0;
+        self.ps.velocity[1] = 0.0;
+        arms.fighter.weapon_wait_ms = self.ps.torso.timer;
+        // The movement key held now picks the finisher if none is held as
+        // the grab reaches (`world::grapples::finisher`).
+        arms.fighter.grab_pick =
+            crate::world::grapples::keyed_finisher(self.cmd.forward, self.cmd.right).unwrap_or(0);
+        meter::grabbed(arms.fighter, standing::cap(arms.kit.level));
+        self.still();
+        true
     }
 
     /// The gun goes down: its lowering played and held.
@@ -579,22 +869,56 @@ impl Move<'_, '_> {
         }
     }
 
-    /// Whether the lightsaber in hand lights without an attack: KOTOR draws
-    /// weapons as a fight begins, so one in combat or fighting someone
-    /// (`Sheath::Fight`) comes up lit before its first swing (an AI closing
-    /// in under fire turns bolts), as one in TSL's fake combat does (a
-    /// scene's staging, a flourish: `Fighter::fake_until`), unless its
-    /// player put it away. Not while it changes weapons, throws its saber,
-    /// or is gripped.
-    fn draws(&self, arms: &Arms) -> bool {
+    /// Whether the blade in hand (a lightsaber when `saber`) comes out
+    /// without an attack. KOTOR draws weapons as a fight begins, so a
+    /// lightsaber in combat or fighting someone (`Sheath::Fight`) comes up
+    /// lit before its first swing (an AI closing in under fire turns bolts),
+    /// as one in TSL's fake combat does (a scene's staging, a flourish:
+    /// `Fighter::fake_until`), unless its player put it away. Any blade its
+    /// player drew (`Sheath::Drawn`) comes out at once. Not while it changes
+    /// weapons, throws its saber, or is gripped, and a lightsaber not while
+    /// it is kept unlit in Stealth Mode (`dark`).
+    fn draws(&self, arms: &Arms, saber: bool) -> bool {
         let fighter = &*arms.fighter;
+        let wanted = match fighter.sheath {
+            Sheath::Fight => saber && (fighter.target.is_some() || fighter.in_combat(self.time_ms)),
+            Sheath::Drawn => true,
+            Sheath::Holstered | Sheath::Holstering | Sheath::Lit => false,
+        };
         !arms.at_rest
+            && !(saber && self.dark(arms))
             && !fighter.saber.on
-            && fighter.sheath == Sheath::Fight
-            && (fighter.target.is_some() || fighter.in_combat(self.time_ms))
+            && wanted
             && fighter.saber.change == Change::None
             && fighter.saber.thrown.is_none()
             && fighter.force.gripped_by.is_none()
+    }
+
+    /// Whether a lightsaber in hand is kept unlit: the fighter is in Stealth
+    /// Mode, neither attack button is down this step, and its saber stands
+    /// ready or plays its draw or put-away (a weapon taken in hand by a
+    /// change of weapons plays the draw). A swing that has begun keeps its
+    /// blade lit.
+    pub(super) fn dark(&self, arms: &Arms) -> bool {
+        arms.fighter.covert.stealth
+            && self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) == 0
+            && matches!(
+                arms.fighter.saber.current_move,
+                READY | NONE | DRAW | PUTAWAY
+            )
+    }
+
+    /// Whether a lit blade in hand goes off as its fighter is in Stealth
+    /// Mode (`dark`). A blade lit for a fight or by its player's draw goes
+    /// off. One a script holds lit (`Sheath::Lit`), one thrown, and one
+    /// that changes weapons do not.
+    fn goes_dark(&self, arms: &Arms) -> bool {
+        let saber = &arms.fighter.saber;
+        saber.on
+            && matches!(arms.fighter.sheath, Sheath::Fight | Sheath::Drawn)
+            && saber.change == Change::None
+            && saber.thrown.is_none()
+            && self.dark(arms)
     }
 
     /// The knockdown's hand state: lying, getting up, and the weapon raised
@@ -630,7 +954,15 @@ impl Move<'_, '_> {
                 false
             }
             Hand::Knockdown => {
+                // A grapple finisher's victim lies as the finisher left it:
+                // knocked into `BOTH_KNOCKDOWN2`, on its back at the second's
+                // end, or landed from the third's flight (`world::grapples`).
+                let thrown = matches!(
+                    self.ps.legs.anim,
+                    BOTH_KNOCKDOWN2 | BOTH_PLAYER_PA_2 | BOTH_PLAYER_PA_3_FLY
+                );
                 let anim = match saber.getup {
+                    Getup::Down if thrown => self.ps.legs.anim,
                     Getup::Down => BOTH_KNOCKDOWN1,
                     Getup::Plain => BOTH_GETUP1,
                     Getup::Force => BOTH_FORCE_GETUP_B1,
@@ -652,6 +984,10 @@ impl Move<'_, '_> {
     fn get_up(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
         let keys = self.raw;
+        // Under the Advanced rules a tired player cannot use the Force
+        // get-up or the acrobatic get-up (`rules::duel::meters::TIRED`).
+        // A tired player can still roll away from the ground.
+        let weary = arms.rules.duel() && arms.keyed && arms.fighter.saber.duel.tired();
         let saber = &mut arms.fighter.saber;
         let acrobatic = |saber: &mut SaberState, ps: &mut super::MotionState| {
             saber.getup = Getup::Quick;
@@ -672,9 +1008,9 @@ impl Move<'_, '_> {
                 play_flags::OVER_ANY | play_flags::HOLD_FULL,
             );
             saber.hand = Hand::None;
-        } else if keys.up != 0 && arms.kit.force_jump > 1 {
+        } else if !weary && keys.up != 0 && arms.kit.force_jump > 1 {
             acrobatic(saber, self.ps);
-        } else if keys.up != 0 {
+        } else if !weary && keys.up != 0 {
             saber.getup = Getup::Force;
             saber.hand_until = now + knockdown::FORCE_GETUP_MS;
         } else if now - saber.hand_until > knockdown::LIE_MS {
@@ -710,8 +1046,7 @@ impl Move<'_, '_> {
         // timer runs here (the trigger's runs only for a gun out).
         let ready = match arms.kit.held(arms.fighter.hand) {
             _ if arms.fighter.weapon_away(self.time_ms) => None,
-            Held::Blaster(Blaster::Pistol) => Some(TORSO_WEAPONREADY2),
-            Held::Blaster(_) => Some(TORSO_WEAPONREADY3),
+            Held::Blaster(gun) => Some(gun_ready(gun.one_handed)),
             _ => None,
         };
         let changing = arms.fighter.saber.change != Change::None;
@@ -774,10 +1109,13 @@ impl Move<'_, '_> {
 
     /// The lowered weapon is gone: the wanted one comes up. A blade takes
     /// up its style and is drawn (a lightsaber lights on its first
-    /// attack); anything else is raised.
+    /// attack); anything else is raised. A weapon its player drew
+    /// (`Sheath::Drawn`) stays drawn, so the new one is in hand.
     pub(super) fn raise_weapon(&mut self, arms: &mut Arms) {
         let wanted = self.cmd.weapon;
-        arms.fighter.sheath = Sheath::Fight;
+        if arms.fighter.sheath != Sheath::Drawn {
+            arms.fighter.sheath = Sheath::Fight;
+        }
         if arms.kit.held(wanted) != Held::Nothing {
             arms.fighter.hand = wanted;
         }

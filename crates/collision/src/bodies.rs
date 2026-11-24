@@ -54,6 +54,21 @@ impl<'a> Bodies<'a> {
         Bodies { skip, ..self }
     }
 
+    /// `trace`, as a shot or a Force power's line is traced: one that starts
+    /// inside a body and leaves it meets that body where it starts, as JA's
+    /// missiles take the entity they start in as the one they hit
+    /// (`G_RunMissile`). A body met by its model's box (a wraid's, a
+    /// rancor's) is wider than the room it keeps round it, so one standing
+    /// close to it can have its eyes or its gun inside that box.
+    pub fn shot(&self, start: [f32; 3], end: [f32; 3], extents: &Extents, mask: Contents) -> Trace {
+        let met = self.trace(start, end, extents, mask);
+        if !met.start_solid || met.entity.is_some() {
+            return met;
+        }
+        let inside = self.trace(start, start, extents, mask);
+        if inside.entity.is_some() { inside } else { met }
+    }
+
     fn solid(&self, body: &Body, mask: Contents) -> bool {
         body.contents.intersects(mask) && !self.skip.contains(&Some(body.entity))
     }
@@ -156,6 +171,18 @@ impl CollisionWorld for Bodies<'_> {
         }
     }
 
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        let (extents, round) = match shape {
+            Shape::Box(extents) => (extents, false),
+            Shape::Upright(extents) => (extents, true),
+            Shape::Capsule(_) => return !self.sweep(at, at, shape, mask).all_solid,
+        };
+        self.world.fits(at, shape, mask)
+            && !self
+                .bodies_after(Trace::clear(at), at, at, extents, mask, round)
+                .all_solid
+    }
+
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {
         self.bodies
             .iter()
@@ -164,6 +191,69 @@ impl CollisionWorld for Bodies<'_> {
             .fold(self.world.point_contents(point, mask), |all, body| {
                 all | body.contents
             })
+    }
+
+    fn level(&self) -> Option<&Level> {
+        self.world.level()
+    }
+}
+
+/// A world traced with some contents left out of every mask, and others
+/// put in their place. A body walking a planned route traces with
+/// `Contents::SHAPE` swapped for `Contents::FOOTPRINT_CLIP`
+/// (`Contents::ROUTED_SOLID`). It passes through placeables' drawn shapes
+/// and is stopped by the walls round their footprints.
+pub struct Masked<'a> {
+    world: &'a dyn CollisionWorld,
+    off: Contents,
+    on: Contents,
+}
+
+impl<'a> Masked<'a> {
+    pub fn new(world: &'a dyn CollisionWorld, off: Contents) -> Masked<'a> {
+        Masked {
+            world,
+            off,
+            on: Contents::NONE,
+        }
+    }
+
+    /// A world in which every mask that holds `off` holds `on` instead.
+    pub fn swapping(world: &'a dyn CollisionWorld, off: Contents, on: Contents) -> Masked<'a> {
+        Masked { world, off, on }
+    }
+
+    /// The world a body walking a planned route traces
+    /// (`Contents::ROUTED_SOLID`).
+    pub fn routed(world: &'a dyn CollisionWorld) -> Masked<'a> {
+        Masked::swapping(world, Contents::SHAPE, Contents::FOOTPRINT_CLIP)
+    }
+
+    fn mask(&self, mask: Contents) -> Contents {
+        let on = if mask.intersects(self.off) {
+            self.on
+        } else {
+            Contents::NONE
+        };
+        Contents((mask.0 & !self.off.0) | on.0)
+    }
+}
+
+impl CollisionWorld for Masked<'_> {
+    fn trace(&self, start: [f32; 3], end: [f32; 3], extents: &Extents, mask: Contents) -> Trace {
+        self.world.trace(start, end, extents, self.mask(mask))
+    }
+
+    fn sweep(&self, start: [f32; 3], end: [f32; 3], shape: &Shape, mask: Contents) -> Trace {
+        self.world.sweep(start, end, shape, self.mask(mask))
+    }
+
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        self.world.fits(at, shape, self.mask(mask))
+    }
+
+    fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {
+        self.world.point_contents(point, self.mask(mask))
     }
 
     fn level(&self) -> Option<&Level> {

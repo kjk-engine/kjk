@@ -15,6 +15,7 @@ const GROUPS: &[Group] = &[
     ("coop talk", sim::coop_talk::probes),
     ("coop items", sim::coop_items::probes),
     ("scaling", sim::scaling::probes),
+    ("enemy scaling", sim::combat::balance_probes::probes),
     ("encounter count", session::encounters::probes),
     ("speeds", speeds),
     ("creature_blades", creature_blades),
@@ -22,17 +23,39 @@ const GROUPS: &[Group] = &[
     ("dialog camera", crate::play_view::shot_probes),
     ("clip events", kjk_game::clip_events::probes),
     ("grunts", kjk_game::grunts::probes),
+    ("sound pause", kjk_game::sound::pause_probes),
     ("battle music", kjk_game::battle_music::probes),
+    ("destroyed placeables", kjk_game::going_view::probes),
+    ("conversation music", kjk_game::ambience::talk_music_probes),
+    ("sound groups", asset_odyssey::sound::group_probes),
     ("pad", kjk_game::pad::probes),
     ("camera sizes", kjk_game::display::probes),
+    ("gpu load check", kjk_game::load_check_probes),
+    ("ui material", kjk_game::ui_material::probes),
+    ("cut-out surfaces", kjk_game::material::cutout_probes),
+    ("texture sort key", kjk_game::material::sort_key_probes),
+    ("transparency hints", kjk_game::material::hint_probes),
     ("item_keys", kjk_game::pick_view::probes),
+    ("action_bar", kjk_game::bar_view::probes::probes),
+    ("power_wheel", kjk_game::wheel_view::probes::probes),
     ("bindings", kjk_game::settings::binding_probes),
+    ("hide interface", kjk_game::hide_probes),
+    ("stance sets table", kjk_game::stance_sets::probes),
     ("flinch", kjk_game::acting::flinch_probes),
     ("kept on", kjk_game::acting::kept_probes),
     ("creature_attack", kjk_game::acting::attack_probes),
+    ("baton swing view", kjk_game::acting::baton_swing_probes),
     ("damage numbers", kjk_game::floaty_view::damage_probes),
+    (
+        "status summary option",
+        kjk_game::progress::summary_option_probes,
+    ),
     ("screen shake", kjk_game::script_fx::shake_probes),
     ("effect head node", kjk_game::script_fx::head_node_probes),
+    ("effect aim", kjk_game::script_fx::aim_probes),
+    ("beam source", kjk_game::script_fx::beam_source_probes),
+    ("holograms", kjk_game::glow_shell::hologram_probes),
+    ("hologram templates", hologram_templates),
     ("line video effect", kjk_game::video_effect::line_probes),
     ("stunt events", crate::play_view::stunt_heard_probes),
     (
@@ -40,6 +63,8 @@ const GROUPS: &[Group] = &[
         kjk_game::lifecycle::module_resolver_probes,
     ),
     ("conversation voice", kjk_game::dialogue_view::voice_probes),
+    ("shown names", kjk_game::dialogue_view::name_probes),
+    ("bark range", kjk_game::bark_view::probes),
     ("transcript tokens", kjk_game::transcript::probes),
     ("dialogue check", crate::scene_check::probes),
     ("falls", sim::falls::probes),
@@ -47,22 +72,39 @@ const GROUPS: &[Group] = &[
     ("remote", sim::remote_probes),
     ("arena", sim::arena_probes::probes),
     ("party", sim::party::probes),
+    ("party choice", sim::script::party_choice::probes),
+    ("lobby", session::lobby::probes),
+    ("lobby host", kjk_game::lobby_host::probes),
     ("save copies", saves::copies::probes),
     ("save refusals", saves::refusal_probes),
     ("save safety", saves::safety_probes),
     ("save story", saves::story_probes),
+    ("startup files", saves::startup_probes),
+    ("checkpoint saves", saves::checkpoint_probes),
+    ("settings file", kjk_game::settings::file_probes),
+    ("seat tokens", kjk_game::seat_tokens::probes),
     ("flight", sim::flight::probes),
     ("crash", kjk_game::crash::probes),
+    ("shader bounds", kjk_game::shader_checks::probes),
+    ("render facts", kjk_game::render_facts::probes),
     ("autosave", kjk_game::sim_host::autosave_probes),
+    ("solo reload", kjk_game::solo_reload_probes),
+    ("perfect-block slow motion", kjk_game::sim_host::slow_motion_probes),
+    ("look", kjk_game::sim_host::look_probes),
+    ("loading hold", kjk_game::sim_host::loading_hold_probes),
+    ("duel bars", kjk_game::duel_view::probes),
     ("report", kjk_game::report::probes),
     ("report verbs", crate::report_verbs::probes),
     ("minigame", sim::minigame::probes::probes),
     ("minigame tsl", sim::minigame::tsl_probes::probes),
+    ("minigame swoop", sim::minigame::swoop_probes::probes),
     ("minigame tracks", session::minigame_probes),
     ("galaxy and end", sim::galaxy::probes),
     ("pazaak", sim::pazaak::probes::probes),
     ("pazaak view", crate::pazaak_view::probes),
     ("feats", sim::feats::probes),
+    ("feat list", kjk_game::character::feat_list_probes),
+    ("muzzles", kjk_game::cast::muzzle_probes),
     ("destroys", sim::destroys::probes),
     ("remains by tag", sim::remains::wave_probes),
     ("floor items", sim::floor_probes::probes),
@@ -71,27 +113,69 @@ const GROUPS: &[Group] = &[
     ("tsl party", sim::tsl_probes::party_probes),
     ("mod routines", sim::routine_probes::probes),
     ("regeneration", sim::regen_probes::probes),
+    ("min1hp damaged", sim::held_probes::probes),
+    ("duel rules", sim::trace::duel_probes::probes),
+    ("grab", sim::combat::grab::grab_probes),
+    ("grapples", sim::trace::grapple_probes::probes),
+    ("grapple contacts", kjk_game::grapple_view::probes),
+    ("duelling", sim::trace::duelling_probes::probes),
+    ("targeted", sim::trace::duelling_probes::targeted::probes),
+    ("deflection", sim::trace::deflection_probes::probes),
+    ("stance sets", sim::trace::stance_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),
+    ("bloom", sim::combat::bloom_probes::probes),
+    ("bloom shots", sim::bloom_shot_probes::probes),
+    ("camera kick", crate::play_view::kick_probes),
+    ("firing motion", kjk_game::recoil::probes),
+    ("bolt hits", kjk_game::bolt_hits::probes),
+    ("bolt burns", kjk_game::body_marks::probes),
+    ("armour burns", kjk_game::body_marks::armour_probes::probes),
+    ("reticle view", kjk_game::reticle_view::probes),
+    ("disruptor beams", kjk_game::shot_fx::probes),
+    ("block reticle view", kjk_game::block_reticle_view::probes),
+    ("equip numbers", kjk_game::character::probes),
+    ("target block point", kjk_game::target_view::menu_node_probes),
+    ("hitmarkers", kjk_game::hitmarker_view::probes),
+    ("perfect block feedback", kjk_game::blade_fx::probes),
     ("bulks", sim::bulk_probes::probes),
+    ("instances", sim::instance_probes::probes),
+    ("tucked", sim::tucked_probes::probes),
+    ("jam", sim::jam_probes::probes),
+    ("push", sim::push_probes::probes),
+    ("facing", sim::facing_probes::probes),
+    ("made_waypoint", sim::made_waypoint_probes::probes),
+    ("step down", sim::step_down_probes::probes),
+    ("doorway", sim::doorway_probes::probes),
     ("bulks in the games", bulks),
     ("dual pistols", sim::pair_probes::probes),
     ("tsl effects", sim::effects_probes::probes),
     ("tsl force", sim::force_probes::probes),
+    ("force scream", sim::scream_probes::probes),
+    ("holds", sim::hold_probes::probes),
+    ("power and feat cycle", sim::power_cycle_probes::probes),
+    ("power rows", sim::power_rows_probes::probes),
+    ("armour bars powers", sim::armour_force_probes::probes),
     ("ute encounters", sim::spawner_probes::probes),
     (
         "ute encounters in the games",
         crate::ute_encounter_probes::probes,
     ),
+    ("talk walks in the games", crate::talk_walk_probes::probes),
     ("influence", sim::script::influence::probes),
     ("presentation", sim::presentation_probes::probes),
     ("sheath", sim::strikes::sheath_probes),
     ("blade taken", sim::strikes::blade_taken_probes),
+    ("bystander", sim::strikes::bystander_probes),
+    ("fists", sim::strikes::fist_probes),
+    ("baton", sim::strikes::baton_probes),
     ("minds", sim::minds_probes),
     ("pace", sim::pace_probes::probes),
     ("party fights", sim::party_fights_probes::probes),
     ("downed switch", sim::party_fights_probes::passing),
     ("body", sim::motion::body_probes::probes),
+    ("prop steps", sim::motion::prop_step_probes::probes),
+    ("heap flank", sim::motion::prop_step_probes::heap_probes),
     ("talk ends", sim::talk_end_probes::probes),
     ("speakers", sim::speaker_probes::probes),
     ("harness chase", crate::playthrough::probes),
@@ -101,6 +185,7 @@ const GROUPS: &[Group] = &[
     ("harness straggle", crate::playthrough::straggle_probes),
     ("harness draw", crate::playthrough::draw_probes),
     ("creation", crate::creation_probes::probes),
+    ("item text", crate::item_text_probes::probes),
     ("workbench", sim::workshop_probes::probes),
     ("own items", sim::own_item_probes::probes),
     ("tsl workbench", crate::workbench_probes::probes),
@@ -108,14 +193,56 @@ const GROUPS: &[Group] = &[
     ("seat models", kjk_game::play::seat_probes),
     ("held states", kjk_game::held_probes::probes),
     ("up again", kjk_game::rise_probes::probes),
+    ("aim pose", kjk_game::aim_pose_probes::probes),
+    ("mod apart", kjk_game::stage::mod_probes),
     ("clips", clips),
+    ("sound sets", sound_sets),
     ("gathering", gathering),
+    ("kotor2 powers", crate::kotor2_powers_probes::probes),
+    ("kotor2 feats", crate::kotor2_feats_probes::probes),
+    ("kotor1 level 50", crate::kotor1_level_50_probes::probes),
+    ("rows by label", crate::rows_by_label_probes::probes),
+    ("real mods", crate::real_mods_probes::probes),
 ];
 
 /// The scripts' and conversations' clips (`session::clip_probes`), on K1's
 /// and TSL's data where this machine has the installs.
 fn clips() -> sim::probe::Checks {
     on_installs(session::clip_probes)
+}
+
+/// Every sound set's lines in its own voice
+/// (`asset_odyssey::creature::sound_set_probes`), on the installs this
+/// machine has.
+fn sound_sets() -> sim::probe::Checks {
+    on_installs(asset_odyssey::creature::sound_set_probes)
+}
+
+/// The `Hologram` byte read from creature templates
+/// (`asset_odyssey::creature::CreatureLook::hologram`): TSL's medical
+/// officer of 101PER's recorded logs (`n_commf001`) is a hologram, T3-M4
+/// (`p_t3m4`) is not. Skipped without a TSL install.
+fn hologram_templates() -> sim::probe::Checks {
+    use sim::probe::check;
+    let install = kjk_game::installs::open(&kjk_game::discover(), vfs::Game::Kotor2);
+    let Ok(resolver) = install.and_then(|install| install.resolver(Some("101per"))) else {
+        return vec![("hologram templates", Ok("no TSL install: skipped".into()))];
+    };
+    let source = crate::modules::ResolverSource(&resolver);
+    let hologram = |template: &str| {
+        asset_odyssey::creature::resolve(&source, template).map(|look| look.hologram)
+    };
+    let (officer, droid) = (hologram("n_commf001"), hologram("p_t3m4"));
+    vec![
+        (
+            "a recorded log's officer is a hologram",
+            check(officer == Ok(true), format!("{officer:?}")),
+        ),
+        (
+            "T3-M4 is no hologram",
+            check(droid == Ok(false), format!("{droid:?}")),
+        ),
+    ]
 }
 
 /// Creature models on JA's skeleton holding a blade

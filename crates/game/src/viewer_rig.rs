@@ -148,7 +148,8 @@ fn load_with(
 ) -> Result<(LoadedScene, Vec<f32>, Vec<f32>), String> {
     let resolver = viewer::resolver(discovery, Game::Kotor1, None)?;
     let stack = viewer_ja::stack(discovery)?;
-    let files = Files::new(&stack);
+    // JA's own, as the sim's (`Files::base`).
+    let files = Files::base(&stack);
     let (glm, gla, gla_path) = viewer_ja::glm_and_gla(&files, JA_BODY)?;
     let mut notes = Vec::new();
     let mut cache = BTreeMap::new();
@@ -298,6 +299,7 @@ fn load_with(
                 &asset_ja::rig::Options {
                     ground: Some(&offset),
                     grips: grips.iter().collect(),
+                    off_bolt: None,
                     hold,
                     ja_sole: sole_height(&glm),
                 },
@@ -379,6 +381,7 @@ fn load_with(
                 hook: None,
                 hook_local: None,
                 clip: clip.clone(),
+                envmap: None,
             });
             models.push(Placed {
                 ir: head,
@@ -389,6 +392,7 @@ fn load_with(
                 hook: Some((0, hook_node)),
                 hook_local: None,
                 clip,
+                envmap: None,
             });
             // A KOTOR hilt hangs at its weapon node as K1 hangs it; a JA
             // one turned to match (the hand's turn is the same either way).
@@ -415,6 +419,7 @@ fn load_with(
                     hook: Some((0, grip.weapon)),
                     hook_local: local,
                     clip: None,
+                    envmap: None,
                 });
                 hilts.push((models.len() - 1, blades, ja, Some((grip.weapon, local))));
             }
@@ -457,6 +462,7 @@ fn load_with(
                 hook: None,
                 hook_local: None,
                 clip,
+                envmap: None,
             });
             for h in &held {
                 models.push(Placed {
@@ -468,6 +474,7 @@ fn load_with(
                     hook: Some((0, h.bolt.bone + 1)),
                     hook_local: Some(h.bolt.matrix),
                     clip: None,
+                    envmap: None,
                 });
                 hilts.push((models.len() - 1, h.ja_blades.clone(), true, None));
             }
@@ -650,6 +657,7 @@ fn load_with(
                 hook: None,
                 hook_local: None,
                 clip: None,
+                envmap: None,
             });
             if *ja {
                 flying_ja.push(model);
@@ -738,6 +746,7 @@ fn load_with(
         hook: None,
         hook_local: None,
         clip: None,
+        envmap: None,
     });
     let scene = LoadedScene {
         name: format!("rig {} {}", options.probe, options.body),
@@ -745,6 +754,8 @@ fn load_with(
         textures,
         missing,
         missing_body_textures: Vec::new(),
+        default_envmap: None,
+        probes: Default::default(),
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),
@@ -937,6 +948,7 @@ fn floor() -> (ModelIr, asset_odyssey::texture::TextureIr) {
             lightmap: None,
             transparency_hint: 0,
             skinned: false,
+            shadow: false,
             self_illum: [0.0; 3],
             alpha: 1.0,
             ambient: [1.0; 3],
@@ -951,6 +963,7 @@ fn floor() -> (ModelIr, asset_odyssey::texture::TextureIr) {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals: Vec::new(),
+        folded: Vec::new(),
     };
     // Two 1 m checks per texture repeat (the quad's UVs run half a unit a
     // metre).

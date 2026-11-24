@@ -32,7 +32,11 @@ const MSEC: u32 = 8;
 const ALLY: &str = "probe_sets_ally";
 /// The script that swaps its caller's sets, then waits (`probe_swap`).
 const SWAP: &str = "probe_swap";
-const CATALOG: &str = "// 0\nvoid ActionSwitchWeapons();\n// 1\nvoid ActionWait(float fSeconds);\n";
+/// The script that equips its caller's most damaging melee weapon
+/// (`probe_melee`).
+const MELEE: &str = "probe_melee";
+const CATALOG: &str = "// 0\nvoid ActionSwitchWeapons();\n// 1\nvoid ActionWait(float fSeconds);\n\
+                       // 2\nvoid ActionEquipMostDamagingMelee(object oVersus, int bOffHand);\n";
 /// The guard the sword gives (`DAMAGE_TYPES` row 0, percent).
 const SWORD_GUARD: i8 = 25;
 
@@ -95,7 +99,17 @@ fn library() -> crate::script::Library {
         args: 1,
     })
     .op(Op::Retn);
-    crate::probe::library(CATALOG, [(SWAP, asm.build())]).with_items(catalog())
+    let mut melee = script_ncs::probes::Asm::default();
+    melee
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::Object(1)))
+        .op(Op::Action {
+            routine: 2,
+            args: 2,
+        })
+        .op(Op::Retn);
+    crate::probe::library(CATALOG, [(SWAP, asm.build()), (MELEE, melee.build())])
+        .with_items(catalog())
 }
 
 /// The proving ground with a companion of the party beside the player,
@@ -107,6 +121,11 @@ struct Ground {
 }
 
 fn ground() -> Result<Ground, String> {
+    ground_with(None)
+}
+
+/// `ground`, its animations `anims` where given.
+fn ground_with(anims: Option<crate::motion::AnimTable>) -> Result<Ground, String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let entry = data.entry.position;
@@ -120,7 +139,10 @@ fn ground() -> Result<Ground, String> {
                 [entry[0] + 1.5, entry[1], entry[2]],
             )
         }));
-    let level: Level = ground.with_module(data).with_scripts(library());
+    let mut level: Level = ground.with_module(data).with_scripts(library());
+    if let Some(anims) = anims {
+        level.anims = std::sync::Arc::new(anims);
+    }
     let mut world =
         SimWorld::new(WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
     let start = world.snapshot();
@@ -217,11 +239,85 @@ impl Ground {
     }
 }
 
+/// The ground with the grapple finishers' clips 10 s long (the ground's own
+/// table has none, so a grab let go at once): the player holds the
+/// companion in the first finisher from the next step on.
+fn grappling() -> Result<Ground, String> {
+    use crate::combat::grab::Grapple;
+    use crate::motion::{Anim, AnimInfo, AnimTable};
+    let finishers = [Anim::BOTH_KYLE_PA_1, Anim::BOTH_PLAYER_PA_1].map(Anim::name);
+    let anims = AnimTable::from_lookup(|name| {
+        finishers.contains(&name).then_some(AnimInfo {
+            first_frame: 0,
+            frames: 100,
+            frame_lerp: 100,
+            feet: None,
+            looping: false,
+        })
+    });
+    let mut ground = ground_with(Some(anims))?;
+    let since = ground.world.snapshot().time_ms;
+    let (me, ally) = (SimId(ground.me), SimId(ground.ally));
+    for (who, partner, grabber) in [(me, ally, true), (ally, me, false)] {
+        ground.fighter(who.0, |fighter| {
+            fighter.grapple = Some(Grapple {
+                partner,
+                finisher: 1,
+                grabber,
+                since,
+                ..Grapple::BLANK
+            });
+        });
+    }
+    Ok(ground)
+}
+
+/// In a grapple finisher nothing changes the weapons in either one's
+/// hands: the player's swap, the held companion's `ActionSwitchWeapons`,
+/// and its `ActionEquipMostDamagingMelee`. Out of one, that equip puts
+/// the sword in its hand.
+fn none_in_a_grapple() -> Result<String, String> {
+    let run = |held: bool| -> Result<[[&'static str; 4]; 2], String> {
+        let mut ground = if held { grappling()? } else { ground()? };
+        let (ally, me) = (ground.ally, ground.me);
+        ground.make(me, &[("sword", Some(slots::RIGHT_WEAPON_2))]);
+        ground.make(
+            ally,
+            &[
+                ("blaster", Some(slots::RIGHT_WEAPON)),
+                ("staff", Some(slots::RIGHT_WEAPON_2)),
+                ("sword", None),
+            ],
+        );
+        let mut state = ground.world.script_state().clone();
+        state.pending.push(Pending::new(MELEE, ObjectId(ally)));
+        ground.world.set_script_state(state);
+        ground.step(&[Action::SwitchWeapons]);
+        let mut state = ground.world.script_state().clone();
+        state.pending.push(Pending::new(SWAP, ObjectId(ally)));
+        ground.world.set_script_state(state);
+        ground.step(&[]);
+        ground.step(&[]);
+        Ok([ground.sets(me), ground.sets(ally)])
+    };
+    let held = run(true)?;
+    let [_, free] = run(false)?;
+    let kept = [["-", "-", "sword", "-"], ["blaster", "-", "staff", "-"]];
+    check(
+        held == kept && free[0] != "blaster",
+        format!(
+            "held: the player's {:?}, the companion's {:?}; free, the companion's {free:?}",
+            held[0], held[1]
+        ),
+    )
+}
+
 /// A check run on its own.
 type Case = fn() -> Result<String, String>;
 
 pub fn probes() -> Checks {
-    let cases: [(&'static str, Case); 9] = [
+    let cases: [(&'static str, Case); 10] = [
+        ("none_in_a_grapple", none_in_a_grapple),
         ("set_two_takes_set_one_rules", rules),
         ("hands_pair", hands),
         ("set_two_is_not_worn", not_worn),
@@ -531,6 +627,7 @@ fn saved() -> Result<String, String> {
         level: level.id(),
         snapshot: ground.world.snapshot(),
         script: ground.world.script_state().clone(),
+        stances: ground.world.stance_ids(),
     };
     let loaded = crate::Save::decode(&save.encode()).map_err(|error| error.to_string())?;
     let queued = loaded.script.actions.get(&ally).is_some_and(|queue| {

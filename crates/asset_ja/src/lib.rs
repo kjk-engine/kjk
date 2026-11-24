@@ -27,6 +27,7 @@ mod bolt;
 pub mod events;
 pub mod fx;
 pub mod g2;
+pub mod grapple;
 mod playback;
 pub mod rig;
 mod rules;
@@ -145,6 +146,7 @@ pub fn model(glm: &Glm, gla: &Gla, skin: &BTreeMap<String, String>) -> ModelIr {
             lightmap: None,
             transparency_hint: 0,
             skinned: true,
+            shadow: false,
             self_illum: [0.0; 3],
             alpha: 1.0,
             ambient: [1.0; 3],
@@ -171,6 +173,7 @@ pub fn model(glm: &Glm, gla: &Gla, skin: &BTreeMap<String, String>) -> ModelIr {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals,
+        folded: Vec::new(),
     }
 }
 
@@ -208,6 +211,9 @@ pub struct Saber {
     pub model: String,
     /// Each blade's length (`numBlades`, 1 to 8).
     pub lengths: Vec<f32>,
+    /// Each blade's colour as the file names it (`saberColor` sets every
+    /// blade, `saberColor2`… their own); empty where it names none.
+    pub colors: Vec<String>,
     pub radius: f32,
     /// What it sounds lighting, lit (a loop) and going out
     /// (`soundOn`, `soundLoop`, `soundOff`).
@@ -226,6 +232,20 @@ pub const SABER_SPIN: &str = "sound/weapons/saber/saberspin.wav";
 
 /// A thrown saber caught back in the hand (`w_saber.c`).
 pub const SABER_CATCH: &str = "sound/weapons/saber/saber_catch.wav";
+
+/// The names of a `.sab` file's sabers (its blocks), in the file's order.
+pub fn saber_names(bytes: &[u8]) -> Vec<String> {
+    fmt_ja::script::parse(bytes).map_or_else(
+        |_| Vec::new(),
+        |root| {
+            root.children
+                .iter()
+                .filter(|block| block.name.len() == 1)
+                .map(|block| block.name[0].to_ascii_lowercase())
+                .collect()
+        },
+    )
+}
 
 pub fn saber(bytes: &[u8], name: &str) -> Option<Saber> {
     let root = fmt_ja::script::parse(bytes).ok()?;
@@ -258,10 +278,18 @@ pub fn saber(bytes: &[u8], name: &str) -> Option<Saber> {
             }
         })
         .collect();
+    let first_color = value("saberColor").unwrap_or_else(String::new);
+    let colors = (1..=count)
+        .map(|i| match i {
+            1 => first_color.clone(),
+            _ => value(&format!("saberColor{i}")).unwrap_or_else(|| first_color.clone()),
+        })
+        .collect();
     Some(Saber {
         name: name.to_ascii_lowercase(),
         model: fmt_ja::game_path(&value("saberModel")?),
         lengths,
+        colors,
         radius: value("saberRadius")
             .and_then(|v| v.parse().ok())
             .unwrap_or(3.0),

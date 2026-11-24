@@ -30,7 +30,7 @@ fn cost(stage: &Stage, row: u16) -> i32 {
 }
 
 /// Presses the power button with `row` selected on the first step only.
-fn tap(row: u8) -> impl FnMut(u64) -> (u16, u8, i8) {
+fn tap(row: u16) -> impl FnMut(u64) -> (u16, u16, i8) {
     move |ms| {
         if ms == 0 {
             (buttons::FORCE_POWER, row, 0)
@@ -63,6 +63,7 @@ fn fixed_quirks(stage: &Stage, start: &Snapshot, target: usize, report: &mut Rep
             location: Location::None,
             direction: Some([1.0, 0.0, 0.0]),
             sneak: 0,
+            aim: 0,
         };
         let mut rng = SimRng::new(1, 0);
         damage::assess(
@@ -172,6 +173,7 @@ fn fixed_quirks(stage: &Stage, start: &Snapshot, target: usize, report: &mut Rep
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct Marks {
     target_hp: i32,
+    target_fp: i32,
     target_lasting: usize,
     target_least: usize,
     target_held: bool,
@@ -189,6 +191,7 @@ impl Marks {
     fn of(run: &crate::scenes::Run, me: usize, target: usize) -> Marks {
         let mut marks = Marks {
             target_hp: i32::MAX,
+            target_fp: i32::MAX,
             target_least: usize::MAX,
             ..Marks::default()
         };
@@ -199,6 +202,7 @@ impl Marks {
             let force = theirs.force;
             let velocity = player(snapshot, target).velocity;
             marks.target_hp = marks.target_hp.min(theirs.hp);
+            marks.target_fp = marks.target_fp.min(theirs.fp);
             marks.target_lasting = marks.target_lasting.max(lasting(&theirs));
             marks.target_least = marks.target_least.min(lasting(&theirs));
             marks.target_held |= force.stunned(now) || force.gripped_by.is_some();
@@ -237,6 +241,13 @@ impl Marks {
             format!(
                 "target hurt {:.0} HP",
                 f64::from(baseline.target_hp - self.target_hp) / 100.0
+            ),
+        );
+        note(
+            self.target_fp < baseline.target_fp,
+            format!(
+                "target drained {:.0} FP",
+                f64::from(baseline.target_fp - self.target_fp) / 100.0
             ),
         );
         note(
@@ -301,11 +312,14 @@ fn cast_alone(
     stage: &Stage,
     target: usize,
     row: Option<u16>,
-    buffed: bool,
+    (buffed, level): (bool, Option<u8>),
 ) -> Option<(Marks, i32, bool)> {
     use sim::combat::sheet::flags;
     use sim::combat::spells::*;
     let mut caster = Sheet::dev_jedi();
+    if let Some(level) = level {
+        caster.level = caster.level.max(level);
+    }
     caster.powers = row
         .into_iter()
         .fold(sim::combat::sheet::Rows::default(), |known, row| known.with(row));
@@ -314,6 +328,11 @@ fn cast_alone(
     let me = seat0(&start);
     if let Some(mine) = start.entities[me].fighter.as_mut() {
         mine.hp = 1000;
+        // A high-level mod power may cost more than the Jedi's pool holds.
+        // The Jedi then has exactly enough Force points to cast it.
+        if let Some(row) = row {
+            mine.fp = mine.fp.max(cost(stage, row));
+        }
     }
     let time = start.time_ms;
     let own = start.entities[target].id.0;
@@ -338,7 +357,7 @@ fn cast_alone(
         row,
         Some(FORCE_POWER_LIGHT_SABER_THROW | FORCE_POWER_LIGHT_SABER_THROW_ADVANCED)
     );
-    let selected = row.and_then(|row| u8::try_from(row).ok()).unwrap_or(0);
+    let selected = row.unwrap_or(0);
     // The first alternate lights the saber; held on past the draw, it
     // throws.
     let (button, for_ms) = if throw {
@@ -366,7 +385,7 @@ fn every_power(stage: &Stage, target: usize, report: &mut Report) {
     // (target a droid, target buffed): the scene for `row`.
     let scene = |(droid, buffed): (bool, bool), row: Option<u16>| {
         let stage = stages[usize::from(droid)].as_ref()?;
-        cast_alone(stage, target, row, buffed).map(|(marks, paid, replayed)| (marks, paid, replayed, stage))
+        cast_alone(stage, target, row, (buffed, None)).map(|(marks, paid, replayed)| (marks, paid, replayed, stage))
     };
     let kinds = [(false, false), (true, false), (false, true)];
     let baselines = kinds.map(|kind| scene(kind, None).map(|(marks, ..)| marks));
@@ -415,6 +434,96 @@ fn every_power(stage: &Stage, target: usize, report: &mut Report) {
     );
 }
 
+/// The rows of KOTOR 2's powers lent to `stage`'s KOTOR 1 data that are
+/// cast (`vfs::lent`): those past KOTOR 1's own rows with an impact
+/// script. Force Deflection and Force Redirection have none: they are
+/// always in effect and never cast.
+pub(crate) fn lent_rows(stage: &Stage) -> Vec<u16> {
+    let Some(library) = stage.level.scripts() else {
+        return Vec::new();
+    };
+    let first = sim::combat::spells::K1_SPELL_ROWS;
+    (first..sim::combat::sheet::Powers::ROWS)
+        .filter(|&row| library.impact(row).is_some_and(|script| !script.is_empty()))
+        .collect()
+}
+
+/// What KOTOR 2 power `row`, lent to KOTOR 1, did cast alone at `stage`'s
+/// target (failing every save) by an immortal Jedi who knows only it,
+/// against the same scene without it: what was seen, what it paid and
+/// cost (hundredths), and whether the recording replayed. `None` without a
+/// scene.
+pub(crate) fn lent_scene(stage: &Stage, target: usize, row: u16) -> Option<(Vec<String>, i32, i32, bool)> {
+    lent_scene_at(stage, target, row, None)
+}
+
+/// `lent_scene` cast by a Jedi of at least `level`: a mod's high-level
+/// power's script may scale with the caster's level and do nothing below
+/// the level its row offers it at.
+pub(crate) fn lent_scene_at(
+    stage: &Stage,
+    target: usize,
+    row: u16,
+    level: Option<u8>,
+) -> Option<(Vec<String>, i32, i32, bool)> {
+    let [weak, _] = weak_targets(stage, target, None);
+    let weak = weak?;
+    let (baseline, ..) = cast_alone(&weak, target, None, (false, level))?;
+    let (marks, paid, replayed) = cast_alone(&weak, target, Some(row), (false, level))?;
+    Some((marks.against(&baseline), paid, cost(&weak, row), replayed))
+}
+
+/// Every KOTOR 2 power lent to KOTOR 1 (`lent_rows`) cast alone: each must
+/// pay its cost and do something the scene without it does not. Drain
+/// Force is cast at `drained`, a Force user, since it takes Force points.
+/// Revitalize raises the fallen of the caster's party, and a scene has
+/// none, so it is listed but not judged.
+fn every_lent_power(stage: &Stage, target: usize, drained: usize, report: &mut Report) {
+    use sim::combat::spells::{
+        FORCE_POWER_DRAIN_FORCE, FORCE_POWER_IMPROVED_DRAIN_FORCE, FORCE_POWER_MASTER_DRAIN_FORCE,
+    };
+    let drains = [
+        FORCE_POWER_DRAIN_FORCE,
+        FORCE_POWER_IMPROVED_DRAIN_FORCE,
+        FORCE_POWER_MASTER_DRAIN_FORCE,
+    ];
+    let rows = lent_rows(stage);
+    if rows.is_empty() {
+        return;
+    }
+    outln!("  every KOTOR 2 power lent to KOTOR 1 alone, 2.5 s each, against a scene without it");
+    let mut failed = Vec::new();
+    for &row in &rows {
+        let at = if drains.contains(&row) { drained } else { target };
+        let Some((seen, paid, cost, replayed)) = lent_scene(stage, at, row) else {
+            failed.push(row);
+            outln!("    {row:>3}: no scene");
+            continue;
+        };
+        let judged = !sim::combat::spells::RAISES_THE_FALLEN.contains(&row);
+        let works = (paid >= cost || cost == 0) && (!seen.is_empty() || !judged) && replayed;
+        if !works {
+            failed.push(row);
+        }
+        outln!(
+            "    {} {row:>3} {:<40} paid {:>3} FP (costs {:>2}): {}",
+            if works { "ok " } else { "BAD" },
+            label(row),
+            paid / 100,
+            cost / 100,
+            if seen.is_empty() { "nothing seen".to_string() } else { seen.join(", ") }
+        );
+    }
+    report.check(
+        failed.is_empty(),
+        format!(
+            "{} of {} lent KOTOR 2 powers do something; not: {failed:?}",
+            rows.len() - failed.len(),
+            rows.len()
+        ),
+    );
+}
+
 /// Every hostile K1 power (`spells.2da` `hostilesetting`) cast alone at the
 /// target turned neutral (a Dantooine Jedi), then friendly: none may touch
 /// it. KOTOR offers them on enemies alone, and `k_sp1_generic` trusts that
@@ -433,7 +542,7 @@ fn spared_powers(stage: &Stage, target: usize, report: &mut Report) {
         let stages = weak_targets(stage, target, Some(faction));
         let scene = |droid: bool, row: Option<u16>| {
             let stage = stages[usize::from(droid)].as_ref()?;
-            cast_alone(stage, target, row, false).map(|(marks, ..)| marks)
+            cast_alone(stage, target, row, (false, None)).map(|(marks, ..)| marks)
         };
         let baselines = [false, true].map(|droid| scene(droid, None));
         let mut touched = Vec::new();
@@ -525,7 +634,7 @@ pub fn force(
         .iter()
         .find(|snapshot| fighter(snapshot, me).fp >= 6000)
         .map(|snapshot| snapshot.time_ms - start.time_ms);
-    let every = force::regen_every(60);
+    let every = force::regen_every(&sim::combat::sheet::Feats::default(), 60);
     report.check(
         full.is_some_and(|ms| ms.abs_diff(20_000) <= every + 8),
         format!("0 to 60 FP in {full:?} ms (C13: the pool in 20 s, a point every {every} ms)"),
@@ -554,7 +663,7 @@ pub fn force(
 
     // Push and pull at level 3 (Force Wave): the shove's speed.
     for (name, row, pull) in [
-        ("push (Force Wave, row 26)", 26u8, false),
+        ("push (Force Wave, row 26)", 26u16, false),
         ("pull (JA's, known with push)", force::PULL, true),
     ] {
         outln!("  {name}");
@@ -718,6 +827,34 @@ pub fn force(
     );
     report.replayed("grip", scene.replayed);
 
+    // Wound, Choke, Kill and Crush take only the living. A grip aimed at a
+    // droid never latches and costs nothing.
+    outln!("  grip (Kill) at a droid, held 1 s");
+    match weak_targets(&stage, target, None)[1].as_ref() {
+        Some(droid) => {
+            let scene = droid.run(
+                &droid.start,
+                target,
+                1000,
+                &mut hold(buttons::FORCE_GRIP, 1000),
+            );
+            let latched = scene
+                .snapshots
+                .iter()
+                .any(|snapshot| fighter(snapshot, target).force.gripped_by.is_some());
+            let paid = scene
+                .snapshots
+                .last()
+                .is_some_and(|last| fighter(last, me).fp < fighter(&droid.start, me).fp);
+            report.check(
+                !latched && !paid,
+                format!("the droid is never gripped ({latched}), no Force points spent ({paid})"),
+            );
+            report.replayed("grip at a droid", scene.replayed);
+        }
+        None => report.check(false, "no droid scene".to_string()),
+    }
+
     // The grip is the damage: Kill's script ticks from code its impact
     // deferred (its iterative damage, 1, 3 and 5 s in), and the grip let go
     // takes those still to come with it.
@@ -852,7 +989,7 @@ pub fn force(
     report.replayed("protect", scene.replayed);
     fixed_quirks(&stage, &start, target, &mut report);
 
-    // Stun: cast until one lands (a Will save), then the cap and immunity.
+    // Stun: cast until one lands (a Will save), then its time and immunity.
     outln!("  stun (row 46): cast every 1.1 s until it lands");
     let scene = stage.run(&start, target, 4000, &mut |ms| {
         if ms % 1104 == 0 {
@@ -876,10 +1013,11 @@ pub fn force(
         Some(snapshot) => {
             let theirs = fighter(snapshot, target).force;
             report.check(
-                theirs.stunned_until == snapshot.time_ms + 3000
-                    && theirs.immune_until == snapshot.time_ms + 4000,
+                theirs.stunned_until == snapshot.time_ms + 9000
+                    && theirs.immune_until == snapshot.time_ms + 10_000
+                    && theirs.save.is_some(),
                 format!(
-                    "stunned at {} ms for 3 s, immune a second after (C11)",
+                    "stunned at {} ms for Stun's 9 s, its save rolled each round, immune a second after (C11)",
                     snapshot.time_ms - start.time_ms
                 ),
             );
@@ -991,7 +1129,7 @@ pub fn force(
         (state, effects::sheet_now(jedi, &state, now_of(scene)))
     };
     // The second cast once the first's hand is put away.
-    let casts = |rows: [u8; 2]| {
+    let casts = |rows: [u16; 2]| {
         move |ms: u64| match ms {
             0 => (buttons::FORCE_POWER, rows[0], 0),
             1104 => (buttons::FORCE_POWER, rows[1], 0),
@@ -1236,6 +1374,8 @@ pub fn force(
     );
 
     every_power(&stage, target, &mut report);
+    let force_user = stage.creature(drained_tag).unwrap_or(target);
+    every_lent_power(&stage, target, force_user, &mut report);
     spared_powers(&stage, target, &mut report);
 
     report.finish(serde_json::json!({

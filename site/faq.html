@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kjk FAQ</title>
+<meta name="description" content="Answers to the questions players ask most often about kjk: installing, co-op, combat, mods, performance and bug reports.">
+<link rel="icon" href="kjk.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&family=Jost:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="mark" href="./"><span class="ring"><img src="kjk.svg" alt=""></span>kjk-engine</a>
+    <nav>
+      <a href="faq.html" aria-current="page">FAQ</a>
+      <a href="https://github.com/kjk-engine/kjk" aria-label="GitHub" title="GitHub"><svg aria-hidden="true"><use href="icons.svg#github"/></svg></a>
+      <a href="https://discord.gg/23bAu2wvH" aria-label="Discord" title="Discord"><svg aria-hidden="true"><use href="icons.svg#discord"/></svg></a>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Frequently asked questions</h1>
+    <p>These are the questions players ask most often on the kjk Discord. If your question is not here, ask it in the <a href="https://discord.gg/23bAu2wvH">Discord</a>.</p>
+    <ul class="toc">
+      <li><a href="#start">Getting started</a></li>
+      <li><a href="#coop">Co-op</a></li>
+      <li><a href="#combat">Combat and controls</a></li>
+      <li><a href="#mods">Mods and Movie Duels</a></li>
+      <li><a href="#performance">Performance and graphics</a></li>
+      <li><a href="#saves">Saves and updates</a></li>
+      <li><a href="#bugs">Bugs and problems</a></li>
+      <li><a href="#project">The project</a></li>
+    </ul>
+  </div>
+
+  <main class="faq">
+    <section id="start">
+      <h2>Getting started</h2>
+
+      <details id="what-do-i-need">
+        <summary>Which games do I need?</summary>
+        <div class="a">
+          <p>You need KOTOR, KOTOR II and Jedi Academy, all three installed. kjk uses KOTOR's and KOTOR II's worlds and stories, KOTOR II's interface and Jedi Academy's combat animations.</p>
+          <p>Copies from Steam and GOG are found automatically. kjk includes no game files, so you need your own copies.</p>
+        </div>
+      </details>
+
+      <details id="install">
+        <summary>How do I install kjk?</summary>
+        <div class="a">
+          <p>Download the kjk launcher from the <a href="./#play">home page</a> and unpack it. Open the launcher and press Play. The launcher finds your games, downloads the newest version of kjk and keeps it up to date.</p>
+          <p>You can also download kjk itself from the <a href="https://github.com/kjk-engine/kjk/releases">GitHub releases page</a>. Pick the file for your computer, not "Source code". The source code has no program in it. You don't need the <code>SHA256SUMS</code> file to play. It only checks that the download is not damaged.</p>
+        </div>
+      </details>
+
+      <details id="clean-install">
+        <summary>Do my games have to be clean installs?</summary>
+        <div class="a">
+          <p>A clean install is the safest choice. Some mods break character creation, the interface or story scenes. If something looks broken, test the game without mods first.</p>
+          <p>To keep your mods for the original game, copy the game folder. Remove the <code>Override</code> folder from the copy, and point kjk at the copy.</p>
+        </div>
+      </details>
+
+      <details id="movies">
+        <summary>The movies don't play.</summary>
+        <div class="a">
+          <p>kjk plays the games' movies by itself, so you do not need to install anything else. This includes high-resolution movies from mods.</p>
+          <p>If a movie still does not play, update kjk to the latest version. Then check that the game's Movies folder has the movie files.</p>
+        </div>
+      </details>
+
+      <details id="kotor2">
+        <summary>How do I play KOTOR II instead of KOTOR?</summary>
+        <div class="a">
+          <p>Start a new game and choose KOTOR II on the first screen.</p>
+        </div>
+      </details>
+
+      <details id="safe">
+        <summary>Is kjk safe? My antivirus flagged it.</summary>
+        <div class="a">
+          <p>The downloads are not signed, and new unsigned programs often trigger antivirus warnings. kjk's code is public under the MIT licence, and the downloads are built by public GitHub workflows. Anyone can read the code or build kjk themselves.</p>
+          <p>Only download kjk from this site, from GitHub or from the kjk page on Nexus Mods. Nexus sometimes holds the Windows download for a check. When that happens, use GitHub.</p>
+        </div>
+      </details>
+
+      <details id="platforms">
+        <summary>Does it run on Mac, Linux and the Steam Deck?</summary>
+        <div class="a">
+          <p>Yes. kjk runs on Windows, on Macs with Apple silicon and on Linux. Mac downloads sometimes come out a little later than the others, because GitHub's Mac build machines are often busy.</p>
+          <p>On the Steam Deck, add kjk to Steam as a non-Steam game and start it from Game Mode. Steam then hands kjk the Deck's controls as a gamepad.</p>
+          <p>On Linux, if kjk does not find KOTOR II, set the <code>KJK_KOTOR2</code> environment variable to the game's <code>steamassets</code> folder.</p>
+          <p>There is no Android version. The controls need a keyboard and mouse or a gamepad.</p>
+        </div>
+      </details>
+
+      <details id="steam-time">
+        <summary>Can Steam count my play time?</summary>
+        <div class="a">
+          <p>Yes. Open the launcher's Settings page and copy the line under "Steam play time". In Steam, open KOTOR's or KOTOR II's Properties and paste the line into Launch options. When you press Play in Steam, Steam starts kjk through the launcher and counts the time.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="coop">
+      <h2>Co-op</h2>
+
+      <details id="coop-setup">
+        <summary>How do I play with friends?</summary>
+        <div class="a">
+          <p>Up to three players can play together. The host plays the main character and keeps the save. Each friend plays a companion.</p>
+          <ul>
+            <li>To host, choose Host on the main menu, then start a new game or load a save.</li>
+            <li>To join, choose Join on the main menu, type the host's IP address, then your name.</li>
+          </ul>
+          <p>Everyone needs the same version of kjk and the same mods.</p>
+        </div>
+      </details>
+
+      <details id="coop-connect">
+        <summary>My friend can't connect to me.</summary>
+        <div class="a">
+          <p>On the same network, join with the host's local IP address. The host can find it by running <code>ipconfig</code> in a command window.</p>
+          <p>Over the internet, the host must open UDP port 29170 on their router and allow kjk through their firewall. Friends then join with the host's public IP address.</p>
+          <p>Some networks can't open ports. Then use a virtual network such as Tailscale, Radmin VPN or ZeroTier, and join with the host's address on that network. If it still fails, try swapping who hosts.</p>
+        </div>
+      </details>
+
+      <details id="coop-override">
+        <summary>It says my override folder differs from the host's.</summary>
+        <div class="a">
+          <p>kjk checks that every player has the same game files, because different files make the game run differently for each player. Make sure every player has the same kjk version and the same mods, with identical <code>Override</code> and <code>modules</code> folders.</p>
+        </div>
+      </details>
+
+      <details id="coop-roles">
+        <summary>What do the other players control?</summary>
+        <div class="a">
+          <p>Each friend picks a companion in the co-op lobby before the game starts. If no companion is free, the friend controls a small remote droid instead.</p>
+          <p>The party shares one inventory. Each player levels up the companion they play, and any player can start a conversation. A main character for every player is planned for a later version.</p>
+          <p>In co-op, Z takes a break, Y says you are ready to leave an area, and N follows the next party member while you watch.</p>
+        </div>
+      </details>
+
+      <details id="coop-steam">
+        <summary>Can I join through Steam instead of an IP address?</summary>
+        <div class="a">
+          <p>Not in the downloads. Joining through Steam needs Steam's networking, which kjk's downloads do not include. Use an IP address or a virtual network such as Tailscale.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="combat">
+      <h2>Combat and controls</h2>
+
+      <details id="damage">
+        <summary>Why do I deal no damage, or die in one hit?</summary>
+        <div class="a">
+          <p>KOTOR's character sheet still sets the numbers behind every swing and shot. Your level, attributes, feats and equipment decide your chance to hit and how much damage you deal. Dual-wielding without the two-weapon feats, or a character with a low level, does much less damage.</p>
+          <p>In version 0.20 and later, the Combat options have damage multipliers for the party and for enemies, from 10% to 800%. Use them to make fights easier or harder.</p>
+        </div>
+      </details>
+
+      <details id="block">
+        <summary>How do I block?</summary>
+        <div class="a">
+          <p>A lit lightsaber blocks blows and deflects blaster bolts by itself, as in Jedi Academy. Jedi Defense decides how often a character deflects.</p>
+          <p>Under the Advanced combat rules, hold the right mouse button to block with a melee weapon. A block that starts just before the blow lands is a perfect block. On a controller, hold LB to block, and press the right trigger while holding LB for a perfect block.</p>
+          <p>The bars above characters show their block points, not their health. You can turn them off under Options, Gameplay, Sabers.</p>
+        </div>
+      </details>
+
+      <details id="feats">
+        <summary>How do the saber styles and melee feats work?</summary>
+        <div class="a">
+          <p>Press L to change the saber style. With one lightsaber, Flurry is the fast style, Critical Strike is the medium style and Power Attack is the strong style. Two lightsabers and double-bladed lightsabers have the fast and medium styles only, and their melee feats work as passive bonuses.</p>
+          <p>Press T to change the feat attack of the weapon in your hands. This works with guns, two blades, double-bladed lightsabers, fists and stun batons.</p>
+        </div>
+      </details>
+
+      <details id="powers">
+        <summary>How do I use Force powers, medpacs and grenades?</summary>
+        <div class="a">
+          <p>Hold F to open the power wheel. The wheel lists your Force powers, medpacs, stims and grenades. On a controller, hold RB.</p>
+          <p>The action bar has ten slots. Keys 1 to 9 use the first nine slots, and key 0 uses the tenth. To fill the bar, press K to open the Abilities page and press the Action bar button.</p>
+          <p>Every key and button can be changed under Options, Gameplay, Keymap.</p>
+        </div>
+      </details>
+
+      <details id="greyed-power">
+        <summary>Why is one of my Force powers greyed out?</summary>
+        <div class="a">
+          <p>Armor blocks some Force powers, as in the original games. Take off the armor, or wear Jedi robes, to use them.</p>
+        </div>
+      </details>
+
+      <details id="solo">
+        <summary>My companions don't follow me.</summary>
+        <div class="a">
+          <p>Solo mode is probably on. In solo mode, companions stay where they stand instead of following you. Press the Solo mode key, Q by default, to turn it off.</p>
+        </div>
+      </details>
+
+      <details id="pause">
+        <summary>Can I pause the game?</summary>
+        <div class="a">
+          <p>Yes. Press Z to pause. In co-op, Z asks every player for a break.</p>
+        </div>
+      </details>
+
+      <details id="mines">
+        <summary>How do I pick up a mine?</summary>
+        <div class="a">
+          <p>Your character needs at least one rank in Demolitions. Walk close to the mine and point at it. Turn the mouse wheel to choose the action, then press E.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="mods">
+      <h2>Mods and Movie Duels</h2>
+
+      <details id="install-mods">
+        <summary>How do I install KOTOR mods?</summary>
+        <div class="a">
+          <p>Install mods into the original game folder, in the usual way. Copy them into <code>Override</code>, or run their installer, such as TSLPatcher or HoloPatcher. For KOTOR II you can also subscribe to mods on the Steam Workshop.</p>
+          <p>Nothing is installed into kjk itself. kjk reads the game's files when it starts, so it picks up new mods by itself.</p>
+        </div>
+      </details>
+
+      <details id="which-mods">
+        <summary>Which mods work?</summary>
+        <div class="a">
+          <p>Most mods work. Players have reported these as working:</p>
+          <ul>
+            <li>texture, model, armor and robe mods</li>
+            <li>the KOTOR 1 Community Patch</li>
+            <li>KOTOR 1 Restoration and the KOTOR II restored content mod (TSLRCM)</li>
+            <li>HQ Skyboxes II and High Quality Blasters</li>
+          </ul>
+          <p>These do not work, or only partly:</p>
+          <ul>
+            <li>Interface mods. Only KOTOR II interface mods are expected to work. Widescreen and larger-font mods are not needed, because kjk already supports any screen size.</li>
+            <li>Jedi Academy mods, apart from saber blade mods and Movie Duels.</li>
+            <li>Animation mods, because kjk uses Jedi Academy's animations.</li>
+          </ul>
+          <p>The <a href="https://discord.gg/23bAu2wvH">Discord</a> has a mod-support forum with one post per mod. Search it before you try a mod.</p>
+        </div>
+      </details>
+
+      <details id="movie-duels">
+        <summary>What is Movie Duels, and do I need it?</summary>
+        <div class="a">
+          <p>Movie Duels is a Jedi Academy mod with lightsaber stances from the films. You don't need it. kjk's Advanced combat rules are kjk's own and work without Movie Duels. Movie Duels only adds its stances and its lightsaber hilts.</p>
+          <p>To use it, install Movie Duels into Jedi Academy, so that its <code>MD</code> folder sits next to Jedi Academy's <code>base</code> folder. Do not put it next to kjk. Then turn the stances on under Options, Gameplay, Sabers.</p>
+          <p>Movie Battles II is a different mod and is not supported.</p>
+        </div>
+      </details>
+
+      <details id="reshade">
+        <summary>Does ReShade work?</summary>
+        <div class="a">
+          <p>Yes, on Windows, with launcher 0.3.1 or newer. ReShade 5.8.0 and 6.8.0 both work. You set ReShade up once, and it stays set up when kjk updates.</p>
+          <ol>
+            <li>Run ReShade's setup.</li>
+            <li>When it asks for a game, choose <code>kjk-launcher.exe</code>, not <code>kjk.exe</code>.</li>
+            <li>When it asks for the rendering API, choose Vulkan. kjk draws with Vulkan, so the other choices do nothing.</li>
+            <li>Start kjk with the launcher's Play button.</li>
+          </ol>
+          <p>If you set ReShade up on <code>kjk.exe</code> instead, ReShade 6 stops kjk from starting.</p>
+          <p>Tools that change the original game's program do not work, because kjk does not run that program.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="performance">
+      <h2>Performance and graphics</h2>
+
+      <details id="fps">
+        <summary>The game runs slowly.</summary>
+        <div class="a">
+          <p>Try these steps in order:</p>
+          <ol>
+            <li>Update your graphics driver. kjk uses Vulkan, which needs a recent driver.</li>
+            <li>Set the shadows to Low or Off in the graphics options.</li>
+            <li>Lower the effects quality.</li>
+          </ol>
+          <p>kjk needs a graphics card that supports Vulkan. Without one it falls back to drawing on the processor, which is far too slow to play.</p>
+          <p>If a place stays slow, press F12 there and post the bug report. Large fights are not fully optimised yet.</p>
+        </div>
+      </details>
+
+      <details id="fullscreen">
+        <summary>How do I play in fullscreen, and what if the game won't start after I change the screen size?</summary>
+        <div class="a">
+          <p>Press Alt + Enter to switch between borderless fullscreen and a window.</p>
+          <p>If kjk no longer starts after you changed the screen size, open kjk's <code>settings.json</code>. On Windows it is in <code>%APPDATA%\kjk</code>. Set <code>"display.mode"</code> to <code>"window"</code> and <code>"display.size"</code> to <code>""</code>. Don't delete the whole file, because it also holds your game folders and key bindings.</p>
+        </div>
+      </details>
+
+      <details id="dlss">
+        <summary>Does kjk have DLSS, FSR or HDR?</summary>
+        <div class="a">
+          <p>kjk has TAA anti-aliasing. DLSS is in the code, but it will only be in the downloads once NVIDIA approves it. Until then, DLSS works only in a build made from source. FSR is not supported. HDR is available when enhanced lighting is on.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="saves">
+      <h2>Saves and updates</h2>
+
+      <details id="update">
+        <summary>How do I update kjk?</summary>
+        <div class="a">
+          <p>The launcher checks for a new version each time it opens and tells you when one is out. Click the update button to install it. The launcher backs up your saves and settings before a new version starts for the first time.</p>
+          <p>To try pre-releases, turn them on in the launcher's settings.</p>
+        </div>
+      </details>
+
+      <details id="saves-carry">
+        <summary>Do updates break my saves?</summary>
+        <div class="a">
+          <p>No. Saves carry over to new versions. Saves from the original KOTOR games can't be loaded.</p>
+        </div>
+      </details>
+
+      <details id="editor">
+        <summary>Can I spawn items or change my character?</summary>
+        <div class="a">
+          <p>There is no cheat console. kjk comes with a save editor that can add items and change your character, such as their head and their companions' influence.</p>
+          <p>Older KOTOR save editors, such as KSE, can't read kjk's saves.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="bugs">
+      <h2>Bugs and problems</h2>
+
+      <details id="report">
+        <summary>How do I report a bug?</summary>
+        <div class="a">
+          <p>Press F12 in the game the moment something goes wrong. kjk saves a bug report zip with a screenshot. Post the zip in the bug-reports forum on the <a href="https://discord.gg/23bAu2wvH">Discord</a>, one post per bug, or attach it to a <a href="https://github.com/kjk-engine/kjk/issues">GitHub issue</a>. Please list the mods you use.</p>
+          <p>If the game crashes, attach the files from kjk's <code>logs</code> folder. On Windows it is in <code>%APPDATA%\kjk\logs</code>.</p>
+          <p>Known problems are listed in <a href="https://github.com/kjk-engine/kjk/blob/main/KNOWN-ISSUES.md">KNOWN-ISSUES.md</a>.</p>
+        </div>
+      </details>
+
+      <details id="black-screen">
+        <summary>The screen goes black, or a story scene gets stuck.</summary>
+        <div class="a">
+          <p>This is usually a mod conflict. Test the scene with a clean install of the game. A black screen at the Taris swoop race usually comes from a partly removed KOTOR 1 Restoration. Install the mod fully again, or use a clean install of KOTOR.</p>
+          <p>If it happens with a clean install, press F12 and report it.</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="project">
+      <h2>The project</h2>
+
+      <details id="playable">
+        <summary>How playable is it?</summary>
+        <div class="a">
+          <p>KOTOR plays from the Endar Spire to the credits, with some problems along the way. KOTOR II plays from Peragus to the credits, but far fewer players have tested it. Cutscenes are rebuilt rather than played back, so some still look wrong.</p>
+        </div>
+      </details>
+
+      <details id="cost">
+        <summary>Will kjk cost money?</summary>
+        <div class="a">
+          <p>No. kjk is free. Its code is released under the MIT licence, so anyone can read it, change it and build on it.</p>
+        </div>
+      </details>
+
+      <details id="other-projects">
+        <summary>Is kjk the same as other KOTOR remake projects?</summary>
+        <div class="a">
+          <p>Probably not. kjk is its own engine, not a mod for Jedi Academy or for KOTOR. Some other projects are built on kjk's open code, but they are made by other people.</p>
+        </div>
+      </details>
+
+      <details id="ai">
+        <summary>Was kjk made with AI?</summary>
+        <div class="a">
+          <p>Yes. kjk's code was written with heavy help from AI coding tools. kjk uses no AI-made art. Every model, texture and sound comes from your own copies of the games.</p>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>kjk is released under the MIT licence. <a href="https://github.com/kjk-engine/kjk">Source code</a> · <a href="https://github.com/kjk-engine/kjk-launcher">Launcher</a> · <a href="https://discord.gg/23bAu2wvH">Discord</a></p>
+    <p>kjk is a fan project. It is not made, endorsed or supported by Lucasfilm, Disney, BioWare, Obsidian, Raven Software or Aspyr. Star Wars and Knights of the Old Republic are trademarks of their owners.</p>
+  </footer>
+</div>
+
+<script>
+  // A link to a question (faq.html#block) opens that answer.
+  function openFromHash() {
+    var d = location.hash && document.querySelector("details" + location.hash);
+    if (d) d.open = true;
+  }
+  addEventListener("hashchange", openFromHash);
+  openFromHash();
+</script>
+</body>
+</html>

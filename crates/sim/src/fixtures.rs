@@ -5,6 +5,8 @@
 //! build of the day, so a bump whose old saves no longer read fails in CI
 //! (docs/superpowers/specs/2026-10-28-save-migrations-design.md, 2a).
 
+use std::sync::Arc;
+
 use crate::determinism::{GROUND, Run, Setup, pilot, proving_ground, proving_ground_named};
 use crate::script::State;
 use crate::script::party::Npc;
@@ -113,6 +115,7 @@ pub fn kitchen_sink() -> (Level, Save) {
         level: ground.id(),
         snapshot: run.world.snapshot(),
         script: run.world.script_state().clone(),
+        stances: run.world.stance_ids(),
     };
     fill(&mut save, &ground);
     (ground, save)
@@ -139,6 +142,12 @@ fn fill(save: &mut Save, ground: &Level) {
         .map(|entity| entity.id)
         .into_iter()
         .collect();
+    snapshot.waiting = snapshot
+        .entities
+        .get(1)
+        .map(|entity| entity.id)
+        .into_iter()
+        .collect();
     snapshot.personas.push(crate::persona::Persona {
         seat: crate::Seat(0),
         appearance: 91,
@@ -146,7 +155,7 @@ fn fill(save: &mut Save, ground: &Level) {
         portrait: 7,
         name: "Fixture".into(),
     });
-    snapshot.spawned.push(crate::snapshot::Spawned {
+    Arc::make_mut(&mut snapshot.spawned).push(crate::snapshot::Spawned {
         kind: crate::module::ObjectKind::Placeable,
         template: "plc_fixture".into(),
         yaw: 10.0,
@@ -160,6 +169,19 @@ fn fill(save: &mut Save, ground: &Level) {
     snapshot.goods.gold = 250;
     snapshot.screens.map_disabled = true;
     snapshot.standing.insert((0, 7), 50);
+    snapshot.saber_rules = crate::combat::saber::SaberRules::DuelAdvanced;
+    snapshot.targeted_blocks = true;
+    snapshot.damage_taken = crate::combat::damage::Taken::new(50, 200);
+    let fighter = snapshot
+        .entities
+        .iter_mut()
+        .find_map(|entity| entity.fighter.as_mut())
+        .expect("the kitchen sink has a fighter");
+    fighter.stance_set = 1;
+    fighter.stance_queued = Some(2);
+    // The proving ground has no stance sets. A made-up one gives a later
+    // build a save that names a set to read.
+    save.stances.push(("fixture_set".into(), [7; 32]));
 
     let script = &mut save.script;
     script.numbers.insert("K_FIXTURE_NUMBER".into(), 7);
@@ -177,6 +199,8 @@ fn fill(save: &mut Save, ground: &Level) {
     script.journal.push(("k_fixture_quest".into(), 20));
     script.xp.insert(crate::inventory::PARTY, 1_500);
     script.gold = 250;
+    script.hints.gameplay = 4;
+    script.hints.story[0] = 2;
     script.purses.insert(2, 15);
     script.components = 4;
     script.chemicals = 6;
@@ -279,6 +303,7 @@ pub const LEFT_AT_START: &[&str] = &[
     // The scripts' running state: needs scripts run.
     "script.pending",
     "script.delayed",
+    "script.bench_up",
     "script.actions",
     "script.perceived",
     "script.effects",
@@ -306,6 +331,7 @@ pub const LEFT_AT_START: &[&str] = &[
     "script.traps",
     "script.skill_uses",
     "script.door_mines",
+    "script.factions",
     "script.pazaak",
     "script.floor",
     // Not saved (KOTOR's client keeps them).
@@ -366,6 +392,10 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         remotes: _,
         standing: _,
         puppets: _,
+        saber_rules: _,
+        targeted_blocks: _,
+        waiting: _,
+        damage_taken: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -374,8 +404,8 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         tick, time_ms, place, entities, transition, stash, area_sound, fade,
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, solo, minigame,
-        pazaak, explored, visuals, departing, screens, remotes, standing, puppets,
-        shared, authority, next_id,
+        pazaak, explored, visuals, departing, screens, remotes, standing, puppets, saber_rules,
+        targeted_blocks, waiting, damage_taken, shared, authority, next_id,
     );
     let State {
         numbers: _,
@@ -388,6 +418,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         pending: _,
         delayed: _,
         next: _,
+        bench_up: _,
         actions: _,
         locations: _,
         last: _,
@@ -433,6 +464,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         skill_uses: _,
         door_mines: _,
         last_detect_ms: _,
+        factions: _,
         perception: _,
         stealth_xp: _,
         stealth_loss: _,
@@ -455,19 +487,20 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         cost_multipliers: _,
         button_mash: _,
         subscreen: _,
+        hints: _,
     } = &save.script;
     check!("script", save.script, blank;
         numbers, booleans, strings, places, unescapable, left, locals, pending,
-        delayed, next, actions, locations, last, uncommandable, unoriented,
+        delayed, next, bench_up, actions, locations, last, uncommandable, unoriented,
         always_update, occupants, spawned, perceived, rounds, effects, spell_events, applied,
         removed, bashes, next_effect, listening, patterns, items, next_item,
         gold, purses, party, talk, heartless, trades, journal, xp, careers,
         unspent, levelling, strikes, swung, known, kept, galaxy, corpses, goals, intents,
-        watch, reputation, traps, skill_uses, door_mines, last_detect_ms,
+        watch, reputation, traps, skill_uses, door_mines, last_detect_ms, factions,
         perception, stealth_xp, stealth_loss, pazaak, pazaak_won, components,
         chemicals, hoards, beats, transit, movies, movie_runs, no_clicks_until,
         keep_stealth, summary_owed, return_button, encounters, encounter_creatures, floor,
-        cost_multipliers, button_mash, subscreen,
+        cost_multipliers, button_mash, subscreen, hints,
     );
     out
 }

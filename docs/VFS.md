@@ -12,6 +12,7 @@ kjk check k1|tsl|ja                # every archive parsed; typed problems; exit 
 kjk ls k1 'm01aa.*' --module end_m01aa [--shadowed]
 kjk extract k1 m01aa.git --module end_m01aa   # to kjk-artifacts/extract/<game>/
 kjk fingerprint [game] [--no-cache]
+kjk sabers ['vader*']              # JA's .sab blocks after precedence
 ```
 
 An install's folder is named by `KJK_KOTOR1`, `KJK_KOTOR2` or `KJK_JA`, in
@@ -47,6 +48,72 @@ settings) and is not read; the co-op fingerprint covers exactly the
 override files that are (`resolver::read_from_override`). On the
 unmodded installs this order picks the same file as the order kjk used
 before for every name in every module (checked 2026-11-05).
+
+## A texture held as both a TPC and a TGA
+
+A texture can be held as a TPC in one place and as a TGA in another. Both
+games' executables choose between them in the same way, and
+`Resolver::find_any` follows them. First, the copy of each type is found
+as a lookup of that type alone finds it. Then the type whose copy comes
+from the better kind of source is loaded. The kinds are, best first, a
+folder (`override/`, its subfolders and every Workshop item's
+`override/`), a RIM, an ERF (`patch.erf`, a texture pack, lips and a
+module's `.mod`) and a BIF. When both copies come from sources of one
+kind, the TPC is loaded.
+
+So a TGA in `override/` replaces a texture pack's TPC, as players expect.
+A TPC and a TGA of one name both in `override/` load the TPC, and its
+pixels are drawn whatever the TGA holds. A TGA in a Workshop item's
+`override/` loses to a TPC in the game's own `override/`, because both are
+folders. A TGA in a module's `.mod` or in `patch.erf` loses to the texture
+pack's TPC, because all three are ERFs. The TXI is looked up on its own, by
+name, as any other resource (`fmt_odyssey::texture::texture_txi`). On the
+unmodded installs, and on TSL with TSLRCM from the Workshop, this rule picks
+the same copy as kjk's earlier rule for every texture of every module
+(checked 2026-11-24).
+
+## kjk's layers over the game's
+
+Three layers of kjk's own sit over every source above. Each is made from
+what the sources below it resolve, and each is made again when a module's
+archives are added.
+
+1. The rulebook's layer (`resolver::RULEBOOK`) holds the tables whose cells
+   the rulebook changes.
+2. The lent layers (`vfs::lent`) give a KOTOR 1 install KOTOR 2's Force
+   powers and feats. KOTOR 1's `spells.2da` and `feat.2da` get the rows of
+   KOTOR 2 that KOTOR 1's classes may pick, and that KOTOR 1's table has no
+   row of the same label for. A mod that already brings KOTOR 2's Master
+   Heal keeps its own, and KOTOR 2's is not lent a second time. Each lent
+   row is placed at its KOTOR 2 number when that number is past the table's
+   own rows, and otherwise right after the rows before it. On an install
+   without mods every lent row is therefore at its KOTOR 2 number. On an
+   install whose mods added rows, the lent rows come after the mods' rows.
+   A lent row's prerequisites name the install rows of the same labels.
+   KOTOR 2's impact scripts, models, textures, icons and sounds come with
+   the rows. A table gets no rows only when a table does not read.
+3. The rows-by-label layer (`vfs::rows`, rules in `rules::rows`) serves
+   `spells.2da` and `feat.2da` in canonical order. The engine names powers
+   and feats by canonical numbers, which are KOTOR 2's own row numbers. A
+   patcher such as TSLPatcher appends a mod's rows wherever the table ends,
+   so a mod's Master Heal may be row 132 of a KOTOR 1 install although the
+   engine names it 134. The layer gives each row its canonical number: a
+   row of a label the engine names gets that name's number, a lent row its
+   KOTOR 2 number, and every other row its own number, unless that number
+   is taken or belongs to KOTOR 2's own rows that KOTOR 1 lacks. Such a row
+   is moved past KOTOR 2's own table (282 rows of powers, 245 of feats).
+   The layer also serves the cells of other tables that hold these rows
+   (`baseitems.2da`'s required feats, `feat.2da`'s prerequisites and the
+   rest, `vfs::rows::LINKS`) as canonical numbers. Each served row keeps its
+   install number in the column `kjk_install_row`. A creature template, an
+   item's properties and a script name install rows, and kjk translates
+   them with that column. KOTOR 2's lent impact scripts name KOTOR 2's
+   numbers, which are the canonical ones. Without a mod's rows every row
+   keeps its number, and the layer serves nothing.
+
+The digest of the lent rows and of the rows-by-label maps is part of the
+world digest that co-op compares (`fingerprint::WorldData::with_lent`), so
+two machines whose maps differ do not play together.
 
 ## Steam Workshop items (TSL)
 
@@ -101,6 +168,79 @@ The references this was measured against are credited in `NOTICE`.
 loose files in `base/` are below every PK3. Within one PK3 the later entry of
 a name wins.
 
+### A mod folder (Movie Duels)
+
+A JA mod such as Movie Duels installs as a folder of its own beside
+`base/` (`GameData/MD/`), holding PK3s and perhaps loose files. Movie
+Duels' is found by itself: an `MD` folder beside `base/` (any case)
+holding its archives (`MD_*.pk3`) is read without a setting
+(`Install::ja_mod_folder`, `Install::movie_duels`). Another folder is read
+only when named, and a name wins over the found one: `KJK_JA_MOD=MD` in the
+environment or `.env`, or the setting `ja.mod` (`settings.json`), the
+variable winning. The name is one folder beside `base/`, in any case (not
+`base`, no separators); one that is not there is said by `kjk games` and
+the log, and `base/` alone is played. `kjk games` and the run's log say the
+folder read and whether it is Movie Duels. When a session loads, the log
+also names every archive of `base/` or the mod folder that could not be
+opened, the hilt each lightsaber is drawn with or why KOTOR's stays, and a
+line when no archive read holds a Movie Duels character skeleton. A
+player's report then shows why Movie Duels' hilts or stances are missing.
+
+Movie Duels counts as installed only when its archives hold the two kinds
+of file kjk reads from it: a character's skeleton
+(`models/players/_humanoid_*/_humanoid.gla`) and a hilt
+(`ext_data/sabers/*.sab`). Movie Duels comes as more than one download.
+In Update 8, the first part holds both kinds (`MD_Assets2.pk3`,
+`MD_Hilts.pk3`), and the second part holds neither. A player with only
+the second part has Movie Duels' folder and archives, but no stances or
+hilts (issue 548). Such an install is incomplete
+(`Install::movie_duels_found`, `vfs::MovieDuels`). Its folder is still
+read, but its stances and hilts are not offered. The sabers' page says
+that Movie Duels is missing some of its files, and `kjk games` and the
+log say which kind of file no archive holds. An archive that cannot be
+opened counts as holding neither kind.
+
+Some players copy Movie Duels' archives into `base/` itself, as mods are
+often installed on Linux. Movie Duels' archives are never Jedi Academy's
+own, wherever they lie: one rule (`vfs::movie_duels_archive`, any case)
+finds them for detection and for loading. Without an `MD` folder, `base/`
+holding them counts as Movie Duels installed. `JaStack::open` leaves them
+out of `base/`'s folder and loads them in a folder of their own right
+after it, so such an install reads exactly as one with an `MD` folder
+(`kjk ls ja` names them `base/MD_Assets2.pk3`). A mod folder that is a
+link to a folder elsewhere is indexed through the link
+(`DirIndex::of_install`), as detection follows it.
+
+The engine adds a mod folder after `base/` the way it adds `base/`: the
+folder's loose files, then its PK3s in the same sort over them. So,
+lowest first: `base/`'s loose files, `base/`'s PK3s, the mod's loose files,
+the mod's PK3s. Every name a mod holds beats `base/`'s, a loose one too.
+The game's own libraries and settings a mod folder ships (its
+`jampgamex86.dll`, its `.cfg`s at the root) are not data, as in `base/`.
+
+`kjk check ja` prints each folder's load order, `kjk ls ja` names a mod
+archive by its folder (`md/zz_md.pk3`, `md/ (loose)`), and `kjk sabers`
+lists every `.sab` block the stack reads, the mod's ~170 hilts with
+`base/`'s (a saber two files name is read from the first file by path,
+as `viewer_ja::saber_and_hilt` searches; the listing marks the other
+hidden). A run reads the mod's folder for two things alone. The first is
+the hilts KOTOR's lightsabers may be drawn with (a hilt `base/` has is read
+from `base/`), which only the view uses. The second is the skeletons of the
+characters' stances, which become the stance sets (`game::stance_sets`,
+`docs/SKELETON.md`). Their frames are lent after the skeleton's own, to the
+sim's skeleton and to the view's. The sim plays them only under MDA, and
+no level or animation digest covers them. Everything else reads `base/` alone
+(`viewer_ja::Files::base`, `JaStack::base`): the sim's body, skeleton,
+`animation.cfg`, hands and blades, and the view's body, effects, powers,
+blades and sounds. Movie Duels has a `_humanoid` skeleton and
+`animation.cfg` of its own over `base/`'s (`md/MD_Assets2.pk3`); read, they
+changed the sim's animation table. The probe `kjk sim probes --only "mod
+apart"` builds the table with the mod folder and without and finds the
+same digest (skipped where JA has no Movie Duels beside it).
+
+Nothing of a mod is shipped or copied: kjk reads the player's own
+install, as it reads `base/`.
+
 ## Reads
 
 A resource whose span runs past its file's end is an error before anything
@@ -110,7 +250,15 @@ inflates to at most its directory size.
 ## Fingerprint
 
 BLAKE3 over every file the resolvers read (not saves, configs or exes), with
-one digest per top-level folder so a mismatch names what differs. Workshop
+one digest per top-level folder so a mismatch names what differs. A JA
+mod folder is not covered: the world is built from `base/` alone, so a
+host with Movie Duels and a guest without it share a world under JA's
+rules (each draws its own hilts). A host that plays Movie Duels' stance
+sets (under MDA) names them in its credentials as one more game entry
+(`net::wire::STANCE_GAME`, the sets' digest). A guest then needs the same
+sets to join, and a guest without them is told which sets it lacks. The
+host's welcome says whether it plays stance sets, and a guest builds its
+levels with its own sets only then (`Welcome::stances`). Workshop
 items' files are covered under `workshop/<id>/` (`covered_in_item`), with
 the items' order; co-op compares each item's world files as one group
 (`workshop/<id>`, in id order). An item's digest has the items loaded

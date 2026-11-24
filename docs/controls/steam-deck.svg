@@ -66,11 +66,11 @@
 <text x="1130" y="495" class="glyph" text-anchor="middle">R4</text>
 <rect class="hole" x="1160" y="486" width="40" height="16" rx="6"/>
 <text x="1180" y="495" class="glyph" text-anchor="middle">R5</text>
-<text x="270" y="90" class="main" text-anchor="end"><tspan class="key">L2</tspan>  Alt attack (kick, special)</text>
+<text x="270" y="90" class="main" text-anchor="end"><tspan class="key">L2</tspan>  Alt attack (saber throw, kata) · aim a blaster</text>
 <text x="270" y="108" class="sub" text-anchor="end">L1+L2: solo mode</text>
 <polyline class="lead" points="278,86 350,158"/>
 <circle class="dot" cx="350" cy="158" r="3"/>
-<text x="270" y="145" class="main" text-anchor="end"><tspan class="key">L1</tspan>  Hold: the second layer (L1+…)</text>
+<text x="270" y="145" class="main" text-anchor="end"><tspan class="key">L1</tspan>  Hold: block · the second layer (L1+…)</text>
 <text x="270" y="163" class="sub" text-anchor="end">Menus: previous tab</text>
 <polyline class="lead" points="278,141 334,190"/>
 <circle class="dot" cx="334" cy="190" r="3"/>
@@ -79,17 +79,17 @@
 <polyline class="lead" points="278,201 466,216"/>
 <circle class="dot" cx="466" cy="216" r="3"/>
 <text x="245" y="260" class="glyph" style="font-size:15px">↑</text>
-<text x="226" y="265" class="main" text-anchor="end">Next Force power</text>
-<text x="226" y="283" class="sub" text-anchor="end">L1: energy shield</text>
+<text x="226" y="265" class="main" text-anchor="end">Next feat attack</text>
+<text x="226" y="283" class="sub" text-anchor="end">L1: switch weapons</text>
 <text x="245" y="300" class="glyph" style="font-size:15px">↓</text>
-<text x="226" y="305" class="main" text-anchor="end">Previous Force power</text>
-<text x="226" y="323" class="sub" text-anchor="end">L1: stim</text>
+<text x="226" y="305" class="main" text-anchor="end">Draw or holster</text>
+<text x="226" y="323" class="sub" text-anchor="end">L1: Security</text>
 <text x="245" y="340" class="glyph" style="font-size:15px">←</text>
-<text x="226" y="345" class="main" text-anchor="end">Medpac</text>
-<text x="226" y="363" class="sub" text-anchor="end">L1: target&#x27;s action back</text>
+<text x="226" y="345" class="main" text-anchor="end">Target&#x27;s action back</text>
+<text x="226" y="363" class="sub" text-anchor="end">Item slot held: item back</text>
 <text x="245" y="380" class="glyph" style="font-size:15px">→</text>
-<text x="226" y="385" class="main" text-anchor="end">Grenade (hold to charge)</text>
-<text x="226" y="403" class="sub" text-anchor="end">L1: target&#x27;s action on</text>
+<text x="226" y="385" class="main" text-anchor="end">Target&#x27;s action on</text>
+<text x="226" y="403" class="sub" text-anchor="end">Item slot held: next item</text>
 <polyline class="lead" points="278,262 354,262"/>
 <circle class="dot" cx="354" cy="262" r="3"/>
 <text x="270" y="435" class="main" text-anchor="end"><tspan class="key">Left stick</tspan>  Move: push further to run</text>
@@ -100,10 +100,11 @@
 <polyline class="lead" points="278,491 382,400"/>
 <circle class="dot" cx="382" cy="400" r="3"/>
 <text x="1290" y="90" class="main" text-anchor="start"><tspan class="key">R2</tspan>  Attack</text>
+<text x="1290" y="108" class="sub" text-anchor="start">L1+R2: blaster feat attack · attack while blocking (Advanced rules)</text>
 <polyline class="lead" points="1282,86 1210,158"/>
 <circle class="dot" cx="1210" cy="158" r="3"/>
-<text x="1290" y="145" class="main" text-anchor="start"><tspan class="key">R1</tspan>  Force power: cast the selected one</text>
-<text x="1290" y="163" class="sub" text-anchor="start">Hold: grip, lightning, drain · L1+R1: next feat</text>
+<text x="1290" y="145" class="main" text-anchor="start"><tspan class="key">R1</tspan>  Power wheel (hold)</text>
+<text x="1290" y="163" class="sub" text-anchor="start">Wheel open: L1 steps on · menus: next tab</text>
 <polyline class="lead" points="1282,141 1226,190"/>
 <circle class="dot" cx="1226" cy="190" r="3"/>
 <text x="1290" y="205" class="main" text-anchor="start"><tspan class="key">Menu</tspan>  Game menu</text>
@@ -113,23 +114,24 @@
 <circle cx="1315" cy="260" r="10" fill="var(--a)" fill-opacity="0.22" stroke="var(--a)" stroke-width="1.6"/>
 <text x="1315" y="260" class="glyph">A</text>
 <text x="1334" y="265" class="main" text-anchor="start">Jump</text>
-<text x="1334" y="283" class="sub" text-anchor="start">L1: holster</text>
+<text x="1334" y="283" class="sub" text-anchor="start">L1: bar slot 1</text>
 <circle cx="1315" cy="300" r="10" fill="var(--b)" fill-opacity="0.22" stroke="var(--b)" stroke-width="1.6"/>
 <text x="1315" y="300" class="glyph">B</text>
 <text x="1334" y="305" class="main" text-anchor="start">Crouch (hold) · leave a talk</text>
-<text x="1334" y="323" class="sub" text-anchor="start">L1: lay a mine</text>
+<text x="1334" y="323" class="sub" text-anchor="start">L1: bar slot 2</text>
 <circle cx="1315" cy="340" r="10" fill="var(--x)" fill-opacity="0.22" stroke="var(--x)" stroke-width="1.6"/>
 <text x="1315" y="340" class="glyph">X</text>
 <text x="1334" y="345" class="main" text-anchor="start">Use: the target&#x27;s action</text>
-<text x="1334" y="363" class="sub" text-anchor="start">L1: Security</text>
+<text x="1334" y="363" class="sub" text-anchor="start">L1: bar slot 3</text>
 <circle cx="1315" cy="380" r="10" fill="var(--y)" fill-opacity="0.22" stroke="var(--y)" stroke-width="1.6"/>
 <text x="1315" y="380" class="glyph">Y</text>
 <text x="1334" y="385" class="main" text-anchor="start">Switch party leader</text>
-<text x="1334" y="403" class="sub" text-anchor="start">L1: switch weapons</text>
+<text x="1334" y="403" class="sub" text-anchor="start">L1: bar slot 4</text>
 <polyline class="lead" points="1282,262 1194,262"/>
 <circle class="dot" cx="1194" cy="262" r="3"/>
 <text x="1290" y="435" class="main" text-anchor="start"><tspan class="key">Right stick</tspan>  Look and aim</text>
 <text x="1290" y="453" class="sub" text-anchor="start">R3: saber style · L1+R3: follow / end a join</text>
+<text x="1290" y="471" class="sub" text-anchor="start">Hold R3: orbit the camera (stick up/down zooms)</text>
 <polyline class="lead" points="1282,431 1104,292"/>
 <circle class="dot" cx="1104" cy="292" r="3"/>
 <text x="1290" y="495" class="main" text-anchor="start"><tspan class="key">Right trackpad</tspan>  Menu pointer (Steam)</text>

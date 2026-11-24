@@ -161,7 +161,7 @@ pub fn feat_swing(feat: u16, class: u8) -> Option<String> {
     use crate::combat::sheet::feats;
     let n = if feats::CRITICAL_STRIKE.contains(&feat) {
         1
-    } else if feats::FLURRY.contains(&feat) || feat == feats::MASTER_FLURRY {
+    } else if feats::FLURRY_RANKS.contains(&feat) {
         2
     } else if feats::POWER_ATTACK.contains(&feat) {
         3

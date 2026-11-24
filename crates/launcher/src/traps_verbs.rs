@@ -389,12 +389,11 @@ pub fn traps(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             level: level.id(),
             snapshot: snapshot.clone(),
             script: probe.world.script_state().clone(),
+            stances: probe.world.stance_ids(),
         };
         let loaded = sim::Save::decode(&save.encode()).map_err(|e| e.to_string())?;
         let kept = loaded.snapshot == snapshot && armed(&loaded.snapshot, laid.0);
-        probe.world =
-            sim::SimWorld::from_snapshot(&loaded.snapshot, level.clone()).map_err(|e| e.to_string())?;
-        probe.world.set_script_state(loaded.script);
+        probe.world = loaded.world_as_saved(level.clone()).map_err(|e| e.to_string())?;
         stand(&mut probe, first.1.as_ref(), x + 8.0, y)?;
         turn(&mut probe, sith, factions::HOSTILE_1)?;
         let before = (runs(&probe, &row.script), hp(&probe.world.snapshot(), sith));

@@ -212,7 +212,12 @@ where they part, the choice is ours and named.
 - **Timing.** A line lasts its voice's length (`Sound`, else `VO_ResRef`,
   as the install has them; reone's order); with no voice, or one under
   0.15 s, 0.1125 s a character of the text it shows (its own string, else
-  its talk-table line's; developer notes and tokens counted [verify]). An
+  its talk-table line's), its developer notes left out and the spaces before
+  and after its text trimmed, as TSL's executable parses the line before it
+  times one of a conversation the player is in; a line that is only a note
+  lasts the shortest line. The rule applies to both games; it is read from
+  TSL's executable, and K1's is not checked yet [verify in K1's exe]
+  (tokens counted as written [verify]). An
   explicit `Delay` (seconds) raises that to the `Delay`; wait flag 2 holds
   it for the voice; the least is 10 ms. In an `AnimatedCut` a line with no
   wait flags lasts nothing (a `Delay` counts as a flag, and a voiced line
@@ -290,6 +295,18 @@ where they part, the choice is ours and named.
   Spire's reinforcements, made hostile in the conversation, attack as it
   ends (`k_def_endconv` → `k_ai_master`); the Leviathan's brig computer
   takes back the spikes it lent (`k_plev_resspikes`).
+- **`BeginConversation` naming no one** talks to the caller's last
+  speaker (`GetLastSpeaker`): the one whose click or heard line ran its
+  dialogue script. With none, it talks to whoever set the script off (a
+  pazaak player, through the match's end script). A caller nobody has
+  spoken to and no one set off has no one to talk to, and nothing begins
+  (the transcript notes it). TSL's restored Handmaiden
+  fight (TSLRCM) gives two of the sisters `k_def_dialogue01` as their
+  end-of-conversation script. As the sisters' conversation ends, its
+  `k_ai_master` dialogue branch calls `BeginConversation()`. When the
+  first PC stood in for the missing speaker, the sisters' own
+  conversation began again after every ending, and the player could not
+  leave it.
 - **Routines bound:** `ActionStartConversation`, `BeginConversation`,
   `SpeakOneLinerConversation`, `BarkString`, `GetIsInConversation` (its
   owner, a body standing in it, its speaker; the host's character also
@@ -449,13 +466,16 @@ restored when it ends.
   fighting as the talk begins, or turned hostile by a line, stands too
   (Taris's Sith base turrets and assault droid, `tar09_trap_dlg`). A bolt
   in flight still lands. A script's `CutsceneAttack` is no action and
-  plays; one not commandable keeps its queue and its fight.
+  plays; one not commandable keeps its queue and its fight. While a
+  companion leads, a conversation a script starts with the main character
+  (`GetFirstPC()`) still holds the hostiles, in the same way as when the
+  main character leads (Darth Bandon's on Manaan, `k_pman_survivex`).
 - **Walks**: a body walking a route moves on KOTOR's walker at its
   `creaturespeed.2da` rates (`MOVEMENT.md`, `NAV.md`).
 - **Spaces**: the party keeps its personal spaces, as KOTOR's creatures
-  always do. Its bodies pass through each other out of a scene (friendly
-  fire off), so two companions can stand inside each other when a
-  conversation stops them; one of each such pair standing (a companion
+  always do. Two companions can still stand inside each other when a
+  conversation stops them (one walked through the other after being stuck
+  against it, `MOVEMENT.md`); one of each such pair standing (a companion
   before a seat's player) is pushed aside as KOTOR's walker pushes an idle
   creature it meets, out to their two `perspace`s and the push's margin
   (`world::movement::spaced`, `walk::pushed_aside`).
@@ -468,20 +488,29 @@ restored when it ends.
   `scene::Held::scene` (`COMBAT.md`). A
   companion neither follows, chases nor joins a fight of its own accord; a
   script's move still moves it. A party member uses and opens nothing: a
-  click, a door it walks into, and the queue's `Door`, `UseObject` and
-  `Lock`, which end failed. It rolls no attack, power or throw but a
+  click, a door it walks into, and the queue's `UseObject` and `Lock`,
+  which end failed. Its queue's `Door` still opens or closes the door, as
+  TSL's exe has no conversation check there: the Exile opens the Korriban
+  secret tomb's first door in its entrance scene (`a_entrance_cs`). A
+  player's walk begun in the conversation walks on after it ends, as TSL's
+  queue does. It rolls no attack, power or throw but a
   `CutsceneAttack`'s (`scene::ROLLS`). Heartbeats, perception, combat
   rounds and every queue run on (those taking part in the conversation
   hear no end of their rounds, `EVENTS.md`).
 - **Lines**: the turns at a line's start, its timing and
   pauses, its gestures and heads (above, "Lines", "Timing", "Gestures"),
   and its camera (the conversation screen, below).
-- **Items** (view only): a DLG's `UnequipItems` hides every item model
-  of each line's speaker and listener until the conversation ends, its
-  `UnequipHItem` only the held ones (`weapons::Hide`; a body in two such
-  conversations takes the larger). Nothing is unequipped. A held weapon
-  `UnequipHItem` hides is drawn nowhere, neither in the hand nor where it
-  is carried; the body's other carried models stay.
+- **Items** (view only): a DLG's `UnequipItems` hides every weapon model
+  of each line's speaker and listener until the conversation ends
+  (`weapons::Hide`), in the hand, carried or belted. Nothing is
+  unequipped. A DLG's `UnequipHItem` hides the head item, not the weapons:
+  TSL's executable hides each one's equipped head item for it. Dantooine's
+  training spar (`k_player_dialog`) is such a conversation, and its script
+  puts a practice sword in the player's hand. kjk hides the head item (a
+  mask, a helmet) of each line's speaker and listener from that line until
+  the conversation ends (`headgear::TalkHides`), and dresses them in it
+  again after. KOTOR 1's executable reads the flag into the same place as
+  KOTOR 2's [verify: where K1 acts on it].
 - **Start and end**: only more than one seat gathers the party ("A
   party conversation", below). At the end the facings and places stay where
   the scene left them, hidden items show again and the camera cuts back.
@@ -575,7 +604,7 @@ The checks:
    `StackSize` is a note); and a
    creature holding any draws one at least in a hand as the view places
    them (`weapons::Hold::place`), unless the conversation's
-   `UnequipHItem`/`UnequipItems` or an animation hides them. A weapon in
+   `UnequipItems` or an animation hides them. A weapon in
    the left hand alone stays there, in a fight too: reone hangs the left
    slot's model on `lhand` whatever the creature wields (its wield is the
    right hand's, fists).
@@ -988,7 +1017,12 @@ conversation).
   timer (its voice or text, `Delay` and other waits) raised to what is
   left of the clip (the library's `camera_clips`, read from the models'
   clip lengths), as the K1 and TSL executables end a line once its timer
-  and every flagged wait are done (reone takes the clip alone). The camera
+  and every flagged wait are done (reone takes the clip alone). A voiced
+  line that waits on its clip has no timer of its own: the clip times it,
+  and its voice plays on under the voiceless lines after it, in an
+  animated cut or not (Manaan's sea floor survivor, `m28ab_c01`: one voice
+  over three shots, the next two lines repeating its words as text with a
+  `Delay` of 0). The camera
   keeps the hook's roll. A line with no clip (no `CameraAnimation`, or one
   its model lacks) has an ordinary shot, as KOTOR's does (reone keeps the
   camera where the last clip left it), the placed camera or the dialog

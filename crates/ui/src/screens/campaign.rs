@@ -82,8 +82,8 @@ impl Screen for Campaign {
 
     /// The box grown to its question, its buttons as wide as the question
     /// for the campaigns' names.
-    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
-        self.asked.fit(gui, textures, source);
+    fn fit_drawn(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit_drawn(gui, textures, source);
         let Some(across) = gui
             .find("LB_MESSAGE")
             .map(|list| (list.extent.left, list.extent.width))

@@ -42,7 +42,7 @@ pub struct SpeedBlurPlugin;
 
 impl Plugin for SpeedBlurPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(app, SHADER, "speed_blur.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, SHADER, "speed_blur.wgsl", crate::shader_checks::wgsl);
         app.add_plugins(MaterialPlugin::<SpeedBlurMaterial>::default())
             .add_systems(
                 PostUpdate,

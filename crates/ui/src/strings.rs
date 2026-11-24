@@ -2,14 +2,20 @@
 //! layout's own text says something else. One table, so it can be
 //! translated.
 
+/// What a build with DLSS adds to the main menu's build line (NVIDIA's
+/// DLSS licence: the SDK credited where the game names itself).
+pub const DLSS_CREDIT: &str = "with NVIDIA DLSS";
+/// The credits' last block in a build with DLSS.
+pub const DLSS_CREDITS: &str =
+    "NVIDIA DLSS\n\nNVIDIA, RTX and DLSS are trademarks of NVIDIA Corporation.";
+
 pub const SOLO: &str = "Solo";
 pub const HOST: &str = "Host";
 pub const JOIN: &str = "Join";
 pub const OPTIONS: &str = "Options";
 pub const EXIT: &str = "Exit";
-pub const JOIN_ADDRESS: &str =
-    "Join a game: the host's address (host or host:port), or a Steam friend's name";
-pub const JOIN_NAME: &str = "Your name in the game";
+pub const JOIN_ADDRESS: &str = "Enter the host's IP address or a Steam friend's name.";
+pub const JOIN_NAME: &str = "Your name";
 pub const DEFAULT_NAME: &str = "Player";
 pub const OK: &str = "OK";
 pub const QUIT_TO_MENU: &str = "Quit to the main menu";
@@ -21,11 +27,7 @@ pub const INVERT_CAMERA: &str = "Invert camera";
 pub const DEBUG: &str = "Debug";
 pub const CONTROLLER: &str = "Controller";
 pub const CONTROLLER_OPTIONS: &str = "Controller Options";
-pub const PRESS_KEY: &str = "Press a key or a mouse button. Escape cancels.";
-/// `{shift}` and `{menu}` the pad's own names for its left bumper and
-/// its menu button.
-pub const PRESS_BUTTON: &str =
-    "Press a button; hold {shift} first for a {shift} chord. {menu} cancels.";
+pub const PRESS_KEY: &str = "Press a key or mouse button. Press Escape to cancel.";
 pub const NOW_ON: &str = "Now:";
 pub const UNBOUND: &str = "-";
 pub const KEYS_TITLE: &str = "Keyboard and Mouse";
@@ -36,29 +38,197 @@ pub const VIBRATION: &str = "Vibration";
 pub const DEAD_ZONE_SMALL: &str = "Stick Dead Zone: Small";
 pub const DEAD_ZONE_MEDIUM: &str = "Stick Dead Zone: Medium";
 pub const DEAD_ZONE_LARGE: &str = "Stick Dead Zone: Large";
+pub const CAMERA: &str = "Camera";
+pub const CAMERA_OPTIONS: &str = "Camera Options";
+pub const CAMERA_DISTANCE: &str = "Distance";
+pub const CAMERA_HEIGHT: &str = "Height";
+pub const CAMERA_SHOULDER: &str = "Shoulder: Left - Right";
+pub const CAMERA_FOV: &str = "Field of View";
+pub const CAMERA_JA: &str = "Camera: Jedi Academy";
+pub const CAMERA_SHOULDER_PRESET: &str = "Camera: Over the Shoulder";
+pub const CAMERA_KOTOR: &str = "Camera: KOTOR";
+pub const CAMERA_CLOSE: &str = "Camera: Close";
+pub const CAMERA_CUSTOM: &str = "Camera: Custom";
+pub const CAMERA_LAG_JA: &str = "Camera Follow: Loose";
+pub const CAMERA_LAG_TIGHT: &str = "Camera Follow: Tight";
+pub const CAMERA_LAG_OFF: &str = "Camera Follow: Locked";
+pub const CAMERA_HELP: &str = "Camera distance, height, shoulder side and FOV. Hold {orbit} to look around your character. Press {zoom_in} to zoom in and {zoom_out} to zoom out.";
+pub const CAMERA_DISTANCE_HELP: &str = "The camera's distance to your character.";
+pub const CAMERA_HEIGHT_HELP: &str = "The camera's height.";
+pub const CAMERA_SHOULDER_HELP: &str =
+    "Moves the camera to the left or right of your character. Press {swap_shoulder} to swap sides.";
+pub const CAMERA_FOV_HELP: &str = "The camera's viewing angle.";
+pub const CAMERA_FOLLOW_HELP: &str =
+    "Camera smoothing. Loose lags slightly behind your character. Locked has no lag.";
+pub const BODY_FADE_HELP: &str = "Fades your character when a wall pushes the camera up close.";
+pub const CAMERA_PRESET_HELP: &str =
+    "Camera presets. Changing a slider switches the preset to Custom.";
+pub const GUN_CAMERA_SHOULDER: &str = "Guns: Over the Shoulder";
+pub const GUN_CAMERA_CLOSE: &str = "Guns: Close";
+pub const GUN_CAMERA_KOTOR: &str = "Guns: KOTOR";
+pub const GUN_CAMERA_SAME: &str = "Guns: Default Camera";
+pub const GUN_CAMERA_JA: &str = "Guns: Jedi Academy";
+pub const GUN_CAMERA_CUSTOM: &str = "Guns: Custom";
+pub const GUN_CAMERA: &str = "Guns Camera";
+pub const GUN_CAMERA_OPTIONS: &str = "Guns Camera Options";
+pub const GUN_CAMERA_HELP: &str = "The camera while a ranged weapon is ready.";
+pub const BODY_FADE_ON: &str = "Body Fade Up Close: On";
+pub const BODY_FADE_OFF: &str = "Body Fade Up Close: Off";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
+pub const ANTI_ALIASING_TAA: &str = "Anti-Aliasing: TAA";
+pub const ANTI_ALIASING_TAA_QUALITY: &str = "TAA: Quality";
+pub const ANTI_ALIASING_TAA_BALANCED: &str = "TAA: Balanced";
+pub const ANTI_ALIASING_TAA_PERFORMANCE: &str = "TAA: Performance";
+pub const ANTI_ALIASING_TAA_ULTRA_PERFORMANCE: &str = "TAA: Ultra Performance";
+pub const ANTI_ALIASING_DLAA: &str = "Anti-Aliasing: DLAA";
+pub const ANTI_ALIASING_DLSS_QUALITY: &str = "DLSS: Quality";
+pub const ANTI_ALIASING_DLSS_BALANCED: &str = "DLSS: Balanced";
+pub const ANTI_ALIASING_DLSS_PERFORMANCE: &str = "DLSS: Performance";
+pub const ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE: &str = "DLSS: Ultra Performance";
+/// kjk's combat page, which KOTOR 2's options do not have. These are the
+/// gameplay page's button that opens it, its title, the names of its rows
+/// and the words of their values. A stepped row shows its name and its
+/// value ("Combat rules: Jedi Academy", "Damage taken by party: 400%").
+pub const SABERS: &str = "Combat";
+pub const SABER_OPTIONS: &str = "Combat Options";
+pub const DAMAGE_PARTY: &str = "Damage taken by party";
+pub const DAMAGE_ENEMIES: &str = "Damage taken by enemies";
+pub const SABER_RULES: &str = "Combat rules";
+pub const SABER_RULES_JA: &str = "Jedi Academy";
+pub const SABER_RULES_ADVANCED: &str = "Advanced";
+pub const STANCE_SETS: &str = "Movie Duels stances";
+pub const DUEL_BARS: &str = "Overhead Stamina bars";
+pub const DUEL_WARNING: &str = "Unblockable warning";
+pub const DUEL_SLOW_MOTION: &str = "Perfect block slow motion";
+pub const HILT: &str = "Hilt";
+pub const STAFF: &str = "Double-bladed hilt";
+pub const HILT_KOTOR: &str = "KOTOR";
+pub const HILT_JA: &str = "Jedi Academy";
+pub const HILT_LUKE: &str = "Luke (ROTJ)";
+pub const HILT_OBI_WAN: &str = "Obi-Wan (ANH)";
+pub const HILT_VADER: &str = "Vader";
+pub const HILT_AHSOKA: &str = "Ahsoka";
+pub const HILT_DOOKU: &str = "Dooku";
+pub const HILT_DARKSABER: &str = "Darksaber";
+pub const STAFF_BASTILA: &str = "Bastila";
+pub const STAFF_MAUL: &str = "Maul";
+pub const STAFF_INQUISITOR: &str = "Inquisitor";
+pub const STAFF_CAL: &str = "Cal Kestis";
+/// The character page's Stance (`pages::Character`), which KOTOR 2's page
+/// does not have: its name, what it shows while no stance is picked, and
+/// its tips.
+pub const STANCE: &str = "Stance";
+pub const STANCE_OWN: &str = "Default";
+pub const STANCE_HELP: &str =
+    "This character's lightsaber stance. It sets how the character stands, walks and blocks.";
+pub const STANCE_NEEDS: &str =
+    "Stances come from Movie Duels. Turn on the Movie Duels stances setting to use them.";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
-pub const INVERT_CAMERA_HELP: &str = "ON: Moving the mouse up turns the view downwards.\n\nOFF: Moving the mouse up turns the view upwards.";
-pub const AUTOSAVE_HELP: &str = "ON: The game saves each time you enter a new area.\nYou should still save often.\n\nOFF: Only your own saves are kept.";
-pub const CONTROLLER_HELP: &str =
-    "Look speed, stick dead zone, inverted look and vibration for a controller.";
-pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the view.";
-pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
-pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
-pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
+pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
+pub const AUTOSAVE_HELP: &str = "Saves the game automatically when you enter a new area.";
+pub const COLLISION_RESTRICTED: &str = "Collision: Restricted";
+pub const COLLISION_LIMITED: &str = "Collision: Limited";
+pub const COLLISION_HELP: &str = "Restricted: Characters collide with the world as in the original game. A jump cannot land on furniture or containers.\n\nLimited: A jump can land on tables, crates, containers and other objects.\n\nA change applies when you next start or load a game. In co-op, the host's collision applies.";
+pub const CONTROLLER_HELP: &str = "Controller settings.";
+pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
+pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";
+pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.\n\nQuality, Balanced, Performance and Ultra Performance draw the game smaller and enlarge it to fit the screen. The game runs faster, and looks softer.";
+pub const ADVANCED_GRAPHICS_HELP: &str =
+    "Anti-aliasing, Ambient Occlusion, Lighting, V-Sync and Effects Quality.";
+pub const V_SYNC: &str = "V-Sync";
+pub const SHADOWS_OFF: &str = "Shadows: Off";
+pub const SHADOWS_LOW: &str = "Shadows: Low";
+pub const SHADOWS_HIGH: &str = "Shadows: High";
+pub const SHADOWS_ULTRA: &str = "Shadows: Ultra";
+pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws only the nearest characters' shadows, with hard edges.\n\nUltra shows the full shape of every character and object in its shadow. Ultra needs a graphics card with ray tracing, and TAA or DLSS anti-aliasing. With other anti-aliasing, Ultra looks the same as High.";
+pub const DAMAGE_PARTY_HELP: &str = "The damage you, your companions and other players take, as a percentage of the normal damage.\n\nA change applies when you next start or load a game. In co-op, the host's setting applies.";
+pub const DAMAGE_ENEMIES_HELP: &str = "The damage enemies and other characters outside your party take, as a percentage of the normal damage.\n\nA change applies when you next start or load a game. In co-op, the host's setting applies.";
+/// The combat page's descriptions. `{block}` and `{attack}` are the keys
+/// of the block and attack actions.
+pub const SABERS_HELP: &str =
+    "Combat rules, Stamina bars, lightsaber hilts and damage multipliers.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with a melee weapon, such as a lightsaber, a sword, a vibroblade or a staff. A blaster, a stun baton and bare fists cannot block. While blocking, press {attack} just before an attack lands for a perfect block. Every character has Stamina. Blocking, attacking and special moves use it.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
+pub const DUEL_BARS_HELP: &str = "Shows a health bar and a Stamina bar above each enemy that is fighting you or your party, or that you have targeted. Companions and characters who are not fighting never show bars. You always see your own Stamina bar next to your portrait, whether or not this option is on. Advanced rules only.";
+pub const DUEL_WARNING_HELP: &str =
+    "Highlights attacks that only a perfect block can stop in red. Advanced rules only.";
+pub const DUEL_SLOW_MOTION_HELP: &str =
+    "Slows time briefly after your perfect block. Advanced rules only, and not in co-op.";
+/// What the sabers' page says of the saber rules while a game runs.
+pub const SABER_RULES_FIXED: &str =
+    "The combat rules are chosen before a game starts. Change them from the main menu.";
+pub const STANCE_SETS_FIXED: &str =
+    "The stances are chosen before a game starts. Change them from the main menu.";
+/// What the sabers' page says of Movie Duels' choices without it.
+pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
+pub const MOVIE_DUELS_HILTS: &str =
+    "Movie Duels' hilts need Movie Duels installed beside Jedi Academy.";
+/// What it says of them when Movie Duels' archives are there but its
+/// stances or hilts are not in them.
+pub const MOVIE_DUELS_INCOMPLETE: &str =
+    "Movie Duels is missing some of its files. Reinstall Movie Duels to use its stances and hilts.";
+pub const STANCE_SETS_HELP: &str = "Characters use Movie Duels stances and guards. In co-op, every player needs Movie Duels when this is on.";
+pub const HILT_HELP: &str = "The hilt model for single-bladed lightsabers.";
+pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";
+pub const LIGHTING_CLASSIC: &str = "Lighting: Classic";
+pub const LIGHTING_ENHANCED: &str = "Lighting: Enhanced";
+pub const LIGHTING_HELP: &str = "Classic uses the original game's lighting.\n\nEnhanced adds glow to lightsabers, blaster bolts and muzzle flashes.";
+pub const EFFECTS_LOW: &str = "Effects Quality: Low";
+pub const EFFECTS_HIGH: &str = "Effects Quality: High";
+pub const EFFECTS_HELP: &str = "Low draws smoke and mist at half resolution, which raises the frame rate on slower graphics cards.";
+pub const AMBIENT_OCCLUSION_OFF: &str = "Ambient Occlusion: Off";
+pub const AMBIENT_OCCLUSION_ON: &str = "Ambient Occlusion: On";
+pub const AMBIENT_OCCLUSION_HELP: &str = "Adds soft shade in corners, and where characters and objects stand close to each other, to walls or to the floor.
+
+Ambient Occlusion needs Enhanced lighting, and TAA or DLSS anti-aliasing. With other settings it has no effect.";
+pub const ANISOTROPY_OFF: &str = "Anisotropic Filtering: Off";
+pub const ANISOTROPY_2X: &str = "Anisotropic Filtering: 2x";
+pub const ANISOTROPY_4X: &str = "Anisotropic Filtering: 4x";
+pub const ANISOTROPY_8X: &str = "Anisotropic Filtering: 8x";
+pub const ANISOTROPY_16X: &str = "Anisotropic Filtering: 16x";
+pub const ANISOTROPY_HELP: &str = "Keeps floors and walls sharp when the camera sees them at a shallow angle. Higher values are sharper. Lower values can raise the frame rate on slower graphics cards.
+
+A change applies when the next area loads.";
+/// kjk's Interface page, which KOTOR 2's options do not have. These are
+/// its title, the names of its stepped rows and the words of their values,
+/// the names of its check boxes, and its descriptions.
+pub const INTERFACE: &str = "Interface";
+pub const INTERFACE_HELP: &str = "Sets how wide the menus are drawn, whether their pictures keep their shape and how large their text is. It also turns on kjk's own changes to the original game's notifications and target block, and sets a frame rate limit.";
+pub const MENU_WIDTH: &str = "Menu width";
+pub const MENU_WIDTH_FILL: &str = "Fill the screen";
+pub const MENU_WIDTH_16X9: &str = "Up to 16:9";
+pub const MENU_WIDTH_4X3: &str = "4:3";
+pub const IMAGE_ASPECT: &str = "Maintain image aspect ratio";
+pub const TEXT_SIZE: &str = "Text size";
+pub const TEXT_SIZE_AUTO: &str = "Auto";
+pub const TEXT_SIZE_SMALL: &str = "Small";
+pub const TEXT_SIZE_LARGE: &str = "Large";
+pub const TEXT_SCALE: &str = "Text scale";
+pub const TEXT_SCALE_HELP: &str = "How large the text of the menus, the HUD, the notifications and the conversations is drawn. 100% is the original game's size. The scale goes from 80% to 150% in steps of 10%.";
+pub const MENU_WIDTH_HELP: &str = "How wide the menus are drawn. Fill the screen stretches them to the window's edges, as the original game does. Up to 16:9 stretches them no wider than a 16:9 screen and adds black bars beyond it. 4:3 keeps their original shape.";
+pub const IMAGE_ASPECT_HELP: &str = "Icons, portraits, logos and character views keep their original shape when the menus are stretched to fill the screen. Turn this off to stretch them as the original game does.";
+pub const TEXT_SIZE_HELP: &str = "Auto picks the larger text in windows 1280 pixels wide or more, as the original game does. Small and Large always use one size.";
+pub const CORNER_NOTICES: &str = "Notifications in the corner";
+pub const CORNER_NOTICES_HELP: &str = "ON: Notifications such as \"Game saved\", experience gained and a journal entry added slide in at the top right of the screen, under the menu buttons. A datapad you pick up gets a notification of its own there, with the key that reads it.\n\nOFF: Notifications show in the middle of the screen, as in the original game. The status summary of experience, credits and journal entries pauses the game until you press its OK button.";
+pub const TARGET_TOP: &str = "Target block at the top centre";
+pub const TARGET_TOP_HELP: &str = "ON: The target's name, health bar and actions stay at the top centre of the screen, and the chosen action is named under them.\n\nOFF: The target's name, health bar and actions float above the target, as in the original game.";
+pub const FRAME_LIMIT: &str = "Frame rate limit";
+pub const FRAME_LIMIT_OFF: &str = "Off";
+pub const FRAME_LIMIT_HELP: &str = "Limits the frames per second the game draws. A lower limit keeps the graphics card cooler and quieter. With V-Sync off, Off still stops at 240.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";
 pub const CONTAINER: &str = "Container";
+/// The words beside the journal key in a picked-up datapad's box.
+pub const READ_DATAPAD: &str = "Read datapad";
 pub const CLOSE: &str = "Close";
 pub const BACK: &str = "Back";
 pub const START: &str = "Start";
 pub const SEATS: &str = "Seats:";
 pub const NEW_GAME: &str = "New game";
-pub const CAMPAIGN: &str = "Which story does the new game begin?";
+pub const CAMPAIGN: &str = "Select game";
 pub const KOTOR: &str = "KOTOR";
 pub const SITH_LORDS: &str = "The Sith Lords";
 pub const KOTOR_1: &str = "KOTOR 1";
@@ -69,14 +239,11 @@ pub const PORT_HINT: &str = "Port: type to change";
 pub const CANCEL: &str = "Cancel";
 pub const SELECT: &str = "Select";
 pub const TABS: &str = "Tabs";
-pub const SCREENS: &str = "Screens";
+pub const MENU: &str = "Menu";
 pub const FALLEN: &str = "You have fallen.";
 pub const REVIVING: &str = "Reviving";
 pub const PARTY_FALLEN: &str = "Your party has fallen.";
-pub const WAIT_FOR_HOST: &str = "Your party has fallen. The host loads the last save.";
-pub const BUY: &str = "Buy";
-pub const SELL: &str = "Sell";
-pub const SHOW_BUY_LIST: &str = "Show Buy List";
+pub const WAIT_FOR_HOST: &str = "Your party has fallen. Waiting for the host.";
 pub const SAVE_TITLE: &str = "Save the game";
 pub const LOAD_TITLE: &str = "Load a game";
 pub const NEW_SAVE: &str = "New save";
@@ -94,11 +261,105 @@ pub const ANSWER_AFTER_TALK: &str = "Answer once your conversation ends";
 /// A reply that says nothing (xoreos's reading).
 pub const CONTINUE: &str = "[CONTINUE]";
 
+/// An option's name and its chosen value as a list's row shows them:
+/// "Menu width: Up to 16:9".
+pub fn option(name: &str, value: &str) -> Vec<u8> {
+    bytes(&format!("{name}: {value}"))
+}
+
+/// A percentage as an option's row shows it: "100%".
+pub fn percent(value: &str) -> String {
+    format!("{value}%")
+}
+
+/// A frame rate as an option's row shows it: "60 FPS".
+pub fn fps(value: &str) -> String {
+    format!("{value} FPS")
+}
+
+/// The co-op lobby's words (`screens::lobby`).
+pub const LOBBY_TITLE: &str = "Co-op Lobby";
+pub const LOBBY_PLAYERS: &str = "Players";
+pub const LOBBY_GAME: &str = "Game";
+pub const LOBBY_COMPANIONS: &str = "Companions";
+pub const LOBBY_HOST: &str = "Host";
+pub const LOBBY_CHOOSING: &str = "Choosing";
+pub const LOBBY_READY: &str = "Ready";
+pub const LOBBY_CONNECTING: &str = "Connecting";
+pub const LOBBY_OPEN: &str = "Open";
+pub const LOBBY_WAITING: &str = "Waiting for a player";
+pub const LOBBY_DROID: &str = "Remote droid";
+pub const LOBBY_SAVE: &str = "Save";
+pub const LOBBY_AREA: &str = "Area";
+pub const LOBBY_GAME_ROW: &str = "Game";
+pub const LOBBY_SAVED: &str = "Saved";
+pub const LOBBY_PARTY: &str = "Party";
+pub const LOBBY_CHOOSING_SAVE: &str = "The host is choosing a save.";
+pub const LOBBY_FREE: &str = "Free";
+pub const LOBBY_WITH_PARTY: &str = "With the party";
+pub const LOBBY_LEAVE: &str = "Leave";
+pub const LOBBY_INVITE: &str = "Invite Friends";
+pub const LOBBY_CHANGE_SAVE: &str = "Change Save";
+pub const LOBBY_START: &str = "Start Game";
+pub const LOBBY_LOADING_HOST: &str = "The host is loading the game.";
+pub const LOBBY_CLOSED: &str = "The host closed the lobby.";
+pub const LOBBY_SETTINGS_GUEST: &str = "The host chooses the saber rules and the collision.";
+pub const LOBBY_OTHER_GAME: &str =
+    "Choose a save of the same game. To host the other game, leave the lobby and host again.";
+/// The word before a character's level in a lobby slot ("Soldier, level 4").
+pub const LOBBY_LEVEL: &str = "level";
+pub const GAME_KOTOR: &str = "Knights of the Old Republic";
+pub const GAME_KOTOR2: &str = "Knights of the Old Republic II";
+
+/// The lobby's address line: "Friends join at 192.168.1.20 : 7777".
+pub fn lobby_address(address: &str) -> String {
+    format!("Friends join at {address}")
+}
+
+/// The lobby's description of a companion the story has taken away.
+pub fn lobby_unavailable(name: &str) -> String {
+    format!("{name} is not available in this part of the story.")
+}
+
+/// The lobby's description of a companion another player plays.
+pub fn lobby_swap(name: &str, player: &str) -> String {
+    format!("{name} is played by {player}. Choose them to swap characters with {player}.")
+}
+
+/// The lobby's description of a companion a player plays, where choosing
+/// them does nothing: the host's view, and a guest's own companion.
+pub fn lobby_played(name: &str, player: &str) -> String {
+    format!("{name} is played by {player}.")
+}
+
+/// The lobby's description of the story's character to a player who does
+/// not play it.
+pub fn lobby_hero(hero: &str, player: &str) -> String {
+    format!(
+        "{hero} is the main character, played by {player}. Choose them to swap characters with {player}. The main character's player answers the story's dialogue."
+    )
+}
+
+/// The lobby's description of the story's character to its own player.
+pub fn lobby_hero_own(hero: &str) -> String {
+    format!("You play {hero}, the main character. You answer the story's dialogue.")
+}
+
+/// The lobby's description of a free companion, to a guest.
+pub fn lobby_free(name: &str) -> String {
+    format!("{name} is free. Choose them to play as {name}.")
+}
+
+/// The lobby's description of a free companion, to the host.
+pub fn lobby_fill(name: &str) -> String {
+    format!(
+        "Choose {name} to add them to the party. The game controls a companion no player has chosen."
+    )
+}
+
 /// `text` as the game's bytes.
 pub fn bytes(text: &str) -> Vec<u8> {
-    text.chars()
-        .map(|character| u8::try_from(u32::from(character)).unwrap_or(b'?'))
-        .collect()
+    fmt_odyssey::code_page_bytes(text)
 }
 
 /// An object's name as the game's screens show it (the target label, a

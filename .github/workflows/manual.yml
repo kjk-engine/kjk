@@ -51,6 +51,12 @@ jobs:
       - name: approved tests
         run: cargo test --release -p approved_tests
 
+      # On Windows `--all-features` takes in `dlss`, which builds against
+      # NVIDIA's SDK; on macOS the feature builds nothing.
+      - name: DLSS SDK
+        if: github.event_name != 'schedule' && runner.os == 'Windows'
+        uses: ./.github/actions/dlss-sdk
+
       - name: clippy
         if: github.event_name != 'schedule'
         run: cargo clippy --workspace --exclude save_editor --all-targets --all-features -- -D warnings

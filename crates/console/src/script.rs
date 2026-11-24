@@ -24,6 +24,7 @@ pub enum Command {
     /// Freezes animation time (scrolling textures, flip-books) at a number
     /// of seconds, or lets it run again (`anim run`), so shots repeat.
     Anim(Option<f32>),
+    Tick(Option<u64>),
     /// Waits until a state the runtime publishes is true (`wait world`: no
     /// module is loading and the scene is up; `wait loading`: one is;
     /// `wait arrived`: the world has reached an `anim` time).
@@ -56,6 +57,11 @@ pub enum Command {
     Clip,
     /// Waits until the game's time is this many ms past the clip's start.
     ClipAt(f64),
+    /// Resizes a headless run's frame to a width and a height in pixels
+    /// (`size 1920 1080`), as a player resizing the game's window would.
+    /// `size 0 0` shows the run as a minimized window shows it: every camera
+    /// drawing the frame is sized 0 by 0, and the frame keeps its image.
+    Size(u32, u32),
     /// Ends the run with success.
     Quit,
     /// Panics, to prove what a crash leaves in the run's folder.
@@ -88,6 +94,8 @@ const CLIP_USAGE: &str = "clip takes a name, seconds of game time and fps";
 const CLIP_FPS: u32 = 12;
 
 const CAMERA_USAGE: &str = "camera takes five or six numbers: x y z yaw pitch [fov]";
+const SIZE_USAGE: &str =
+    "size takes a width and a height in pixels, each from 1 to 8192, or 0 0 for a minimized window";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraPose {
@@ -127,6 +135,8 @@ impl fmt::Display for Command {
             }
             Command::Anim(Some(seconds)) => write!(f, "anim {seconds}"),
             Command::Anim(None) => f.write_str("anim run"),
+            Command::Tick(Some(tick)) => write!(f, "tick {tick}"),
+            Command::Tick(None) => f.write_str("tick run"),
             Command::Until(state) => write!(f, "wait {state}"),
             Command::Module {
                 module,
@@ -156,6 +166,7 @@ impl fmt::Display for Command {
             }) => write!(f, "video {name} (clipped)"),
             Command::Clip => f.write_str("clip"),
             Command::ClipAt(ms) => write!(f, "clip at {ms} ms"),
+            Command::Size(width, height) => write!(f, "size {width} {height}"),
             Command::Quit => f.write_str("quit"),
             Command::Crash => f.write_str("crash"),
         }
@@ -250,6 +261,16 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
             ("dump", [name]) => Command::Dump(
                 file_stem(name).ok_or_else(|| error("names use letters, digits, '-' and '_'"))?,
             ),
+            ("size", [width, height]) => {
+                let side = |word: &str| word.parse::<u32>().ok().filter(|n| (1..=8192).contains(n));
+                match (side(width), side(height)) {
+                    (Some(width), Some(height)) => Command::Size(width, height),
+                    // A size of 0 by 0 stands for a minimized window.
+                    _ if (*width, *height) == ("0", "0") => Command::Size(0, 0),
+                    _ => return Err(error(SIZE_USAGE)),
+                }
+            }
+            ("size", _) => return Err(error(SIZE_USAGE)),
             ("quit", []) => Command::Quit,
             ("crash", []) => Command::Crash,
             ("ui", words) if !words.is_empty() => {
@@ -304,6 +325,12 @@ pub fn parse(script: &str) -> Result<Vec<Command>, ParseError> {
                     .ok_or_else(|| error("anim takes seconds (0 or more) or `run`"))?,
             )),
             ("anim", _) => return Err(error("anim takes seconds (0 or more) or `run`")),
+            ("tick", ["run"]) => Command::Tick(None),
+            ("tick", [tick]) => Command::Tick(Some(
+                tick.parse::<u64>()
+                    .map_err(|_| error("tick takes a tick of the sim or `run`"))?,
+            )),
+            ("tick", _) => return Err(error("tick takes a tick of the sim or `run`")),
             ("record", [name, from, to, fps @ ..]) if fps.len() <= 1 => {
                 let name = file_stem(name)
                     .ok_or_else(|| error("names use letters, digits, '-' and '_'"))?;

@@ -1,8 +1,8 @@
 //! KOTOR's HUD (`mipc28x6`, KOTOR 2's `mipc28x6_p` with the skin), drawn
 //! under the screens in play and not a screen: nothing on it takes the
-//! focus. Its controls keep to the window's corners as the game places
-//! them: a control whose left is in the frame's right half moves with the
-//! right edge, one whose top is in the lower half with the bottom.
+//! focus. It is placed as KOTOR 2 places it on any window (`place`): the
+//! layout is stretched to the window, and then each control is narrowed
+//! towards the window's side it stands on, so that it keeps its shape.
 //!
 //! It shows the player's portrait, vitality and Force bars (the Force bar
 //! only for a character with Force points), the action slots (a slot's
@@ -14,12 +14,19 @@
 //! The companions show beside the portrait, each its portrait and bars;
 //! a click on one makes it lead (`portrait_at`).
 //! The target block (its name, a creature's vitality, up to three
-//! actions, the chosen one lit and spelt out beneath) stands at the top
-//! centre while there is a target (`docs/UI.md`), and
+//! actions) floats over the target while there is one, as KOTOR 2 moves it
+//! each frame (`floated`), and the chosen action is spelt out where KOTOR
+//! 2's layout puts its action words. With kjk's Interface option "Target
+//! block at the top centre", the block stands at the top centre instead,
+//! its action spelt out beneath it (`to_top`, `docs/UI.md`). There is also
 //! a crosshair dot at the middle in play; a downed party member's block
 //! offers Revive, and while one is revived (I30 P11) its bar is how far
 //! along, "Reviving" beneath (the downed player's own block too, its
 //! reviver named).
+//! While the Advanced rules are played (`docs/SABER-RULES.md` section 12),
+//! the player's Stamina stands left of its portrait's vitality bar as a
+//! thin copy of it, KOTOR 2's framed bar art upright and as tall
+//! (`duel_bars`).
 //! In co-op each player's portrait carries an icon for what it is in
 //! (R10: talking, trading, pazaak, asking the host in; `busy`).
 //! Each portrait shows its effects' icons where KOTOR stacks its arrows
@@ -29,20 +36,40 @@
 //! The stealth toggle shows, lit, while the character is in stealth mode.
 //! The minimap shows the area's picture where it has one, the player's
 //! place at its middle, the arrow turned the player's way. The combat
-//! queue and messages, solo and pause are hidden: none has its data yet.
-//! KOTOR 2's six slots show those with an action. Its weapon swap button
-//! shows in both games (TSL's second weapon set; a remaster liberty in
-//! KOTOR): a click on it swaps the player's sets (`swap_at`). A break's or
-//! ready check's banner is its own layer (`banner`), in the combat
-//! message's place.
+//! queue and messages and pause are hidden: none has its data yet. The
+//! solo mode button shows, lit, beside the portrait while the party
+//! is in solo mode, and a click on it ends solo mode (`SOLO`).
+//! KOTOR 2's six action slots show the action bar (`HudView::bar`): all six
+//! while the keyboard is in use, and the first four while a controller is
+//! in use. The bar has ten slots. The four after the sixth are copies of
+//! the sixth (`bar_extra`), and the keyboard's bar shows them up to the
+//! last one that holds something. A slot the character cannot use now has its icon dimmed. A slot
+//! whose key is held, or whose stealth mode or feat attack is on, is lit.
+//! An empty slot shows its frame and its key only. KOTOR 2's weapon swap
+//! button is hidden. The swap key still swaps the player's weapon sets. A
+//! break's or ready check's banner is its own layer (`banner`), in the combat
+//! message's place. KOTOR 2's feedback option "Hide Quick Menu Buttons"
+//! hides the eight menu buttons and their backing (`MENU_BUTTONS`).
+//! A character who knows a lightsaber Form or a Force Form has KOTOR 2's
+//! Form slot at the right end of the action bar, inside its frame: the icon
+//! of the Form in use and the next-Form key (`FORM`, `HudView::form`).
+//! A character whose weapon has a choice of feat attacks has a feat slot
+//! after it, drawn the same way: the icon of the feat attack in use and the
+//! next-feat key (`FEAT`, `HudView::feat`).
 
-use fmt_odyssey::gui::{Control, Gui, align};
+use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
-use crate::draw::{DrawList, Quad, Textures};
+use crate::draw::{DrawList, Quad, TextureId, Textures};
 use crate::paint::{ControlState, Painter, rect_of};
+use crate::screen::{is_picture, stretched};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
-use crate::vm::{Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
+use crate::vm::{
+    Bar, BarSlot, BlockReticleView, Busy, HudView, KeyLabel, MemberView, MinimapView, Swing,
+    TargetView, ViewModel,
+};
+// The side of an enemy that a swing comes from or that the crosshair is on.
+use crate::vm::Side as EnemySide;
 
 pub const LAYOUT: &str = "mipc28x6";
 
@@ -62,13 +89,34 @@ const HIDDEN: [&str; 12] = [
     "BTN_ACTIONDOWN",
 ];
 
+/// The eight menu buttons in the top right corner and their backing, which
+/// KOTOR 2's feedback option "Hide Quick Menu Buttons" hides.
+const MENU_BUTTONS: [&str; 9] = [
+    "BTN_EQU",
+    "BTN_INV",
+    "BTN_CHAR",
+    "BTN_ABI",
+    "BTN_MSG",
+    "BTN_JOU",
+    "BTN_MAP",
+    "BTN_OPT",
+    "LBL_MENUBG",
+];
+
 /// The target block's controls, by prefix (in the layout's top left), and
 /// the chosen action's words.
 const BLOCK: [&str; 4] = ["LBL_NAME", "LBL_HEALTHBG", "PB_HEALTH", "BTN_TARGET"];
-/// How far below the window's top the block stands, and its words below
-/// it (layout pixels).
+/// How far below the window's top the block stands at the top centre
+/// (`to_top`), and its words below it (layout pixels).
 const BLOCK_TOP: i32 = 4;
 const WORDS_GAP: i32 = 1;
+/// How far KOTOR 2 keeps the floating block from its menu point, and the
+/// menu point from the top and bottom of the area the block floats in
+/// (`floated`), in physical pixels.
+const FLOAT_GAP: f32 = 32.0;
+/// The HUD controls that bound the area the floating block stays in: the
+/// left of the first, the bottom of the second and the top of the third.
+const FLOAT_AREA: [&str; 3] = ["LBL_ARROW_MARGIN", "LBL_MENUBG", "TB_PAUSE"];
 
 /// A foe's name, its backing and its vitality bar (KOTOR's red).
 const HOSTILE: [f32; 3] = [0.86, 0.16, 0.12];
@@ -89,7 +137,8 @@ fn vitality((hp, poisoned): ((i32, i32), bool)) -> ControlState {
     }
 }
 
-fn in_block(tag: &str) -> bool {
+/// Whether the control tagged `tag` belongs to the target block.
+pub fn in_block(tag: &str) -> bool {
     BLOCK.iter().any(|prefix| tag.starts_with(prefix)) || tag.starts_with("LBL_TARGET")
 }
 
@@ -138,6 +187,20 @@ const STATUS: [&str; 8] = [
     "LBL_DARKSHIFT",
     "LBL_STEALTHXP",
 ];
+
+/// `gui` (a mod's HUD) without the controls whose tags `stock` (the
+/// game's own HUD) does not have. KOTOR 2 makes only the HUD controls it
+/// knows by tag, so a mod removes one by renaming its tag. UI Redesign
+/// writes `*LBL_CMBTMODEMSG`, and KOTOR 2 never shows that combat message.
+pub fn known(gui: &mut Gui, stock: &Gui) {
+    fn keep(controls: &mut Vec<Control>, stock: &Gui) {
+        controls.retain(|control| stock.find(&control.tag).is_some());
+        for control in controls {
+            keep(&mut control.children, stock);
+        }
+    }
+    keep(&mut gui.controls, stock);
+}
 
 /// `gui` (the skin's HUD) with the backing `campaign`'s HUD keeps under
 /// each level-up mark (`LBL_LVLUPBG<n>` under `LBL_LEVELUP<n>`) where it
@@ -190,47 +253,198 @@ fn block_reach(gui: &Gui) -> (i32, i32) {
         })
 }
 
-/// `gui` placed for a window of `window` pixels: its frame the window
-/// (`fitted`), each control moved with the edges of its quadrant.
-pub fn anchor(gui: &mut Gui, window: (f32, f32)) {
-    let (width, height) = gui.frame();
-    let (wide, tall) = fitted(gui, window);
-    let (dx, dy) = (wide - width, tall - height);
-    fn place(control: &mut Control, half: (i32, i32), by: (i32, i32)) {
-        let shift = (
-            if control.extent.left >= half.0 {
-                by.0
-            } else {
-                0
-            },
-            if control.extent.top >= half.1 {
-                by.1
-            } else {
-                0
-            },
-        );
-        shift_all(control, shift);
-        for child in &mut control.children {
-            place(child, half, by);
+/// The HUD controls KOTOR 2 narrows about the window's middle, by prefix:
+/// the combat queue, its backings and its clear buttons, and the action
+/// description and its backing. It narrows every other control towards a
+/// side of the window (`Narrowing::side`).
+const MIDDLE: [&str; 4] = ["LBL_QUEUE", "LBL_COMBATBG", "BTN_CLEAR", "LBL_ACTIONDESC"];
+
+/// The band across the middle of the window's lower half, in shares of the
+/// window's width, where KOTOR 2 narrows an edge about the window's middle
+/// instead of towards a side.
+const MIDDLE_BAND: [f32; 2] = [0.4375, 0.5625];
+
+/// The point KOTOR 2 narrows an edge of a HUD control towards.
+#[derive(Clone, Copy)]
+enum Side {
+    Left,
+    Middle,
+    Right,
+}
+
+/// How KOTOR 2's executable narrows the HUD's controls after it has
+/// stretched the layout to a frame `frame` big (`place`).
+struct Narrowing {
+    frame: (f32, f32),
+    /// The layout's shape (4:3) over the frame's: 1 in a 4:3 window, 0.75
+    /// at 16:9, more than 1 in a window narrower than 4:3. It is also the
+    /// stretch down over the stretch across.
+    by: f32,
+}
+
+impl Narrowing {
+    /// The side an edge at `x` is narrowed towards. `y` is the height of the
+    /// control's end that the edge belongs to: its top for its left edge,
+    /// its bottom for its right edge. `middle` says the control is one KOTOR
+    /// 2 always narrows about the middle (`MIDDLE`).
+    fn side(&self, x: f32, y: f32, middle: bool) -> Side {
+        let (wide, tall) = self.frame;
+        let banded = y >= tall / 2.0 && (MIDDLE_BAND[0]..=MIDDLE_BAND[1]).contains(&(x / wide));
+        if middle || banded {
+            Side::Middle
+        } else if x < wide / 2.0 {
+            Side::Left
+        } else {
+            Side::Right
         }
     }
-    fn shift_all(control: &mut Control, (dx, dy): (i32, i32)) {
-        control.extent.left += dx;
-        control.extent.top += dy;
+
+    /// Where an edge at `x` goes when it is narrowed towards `side`.
+    fn towards(&self, x: f32, side: Side) -> f32 {
+        let wide = self.frame.0;
+        match side {
+            Side::Left => x * self.by,
+            Side::Middle => wide / 2.0 + (x - wide / 2.0) * self.by,
+            Side::Right => wide - (wide - x) * self.by,
+        }
+    }
+
+    /// `rect`, already stretched, with its left and right edges moved as
+    /// KOTOR 2 moves them. Its top and height stay as the stretch left them.
+    fn narrowed(&self, rect: &mut Rect, middle: bool) {
+        let edge = |x: i32, y: i32| {
+            let (x, y) = (x as f32, y as f32);
+            self.towards(x, self.side(x, y, middle)).round() as i32
+        };
+        let left = edge(rect.left, rect.top);
+        let right = edge(rect.left + rect.width, rect.top + rect.height);
+        rect.left = left;
+        rect.width = right - left;
+    }
+
+    /// `placed` (a picture narrowed by `narrowed` from `stretched`) made
+    /// `width` wide, so that it keeps its shape. KOTOR 2's narrowing already
+    /// keeps the shape of a picture whose two edges go towards the same
+    /// point, but it widens one whose edges go different ways, such as one
+    /// that spans the window's middle. The picture stays pinned where its
+    /// centre is narrowed towards: its left edge stays put on the left, its
+    /// right edge on the right, and its centre in the middle.
+    fn in_shape(&self, placed: &mut Rect, stretched: Rect, width: f32, middle: bool) {
+        let centre = (
+            stretched.left as f32 + stretched.width as f32 / 2.0,
+            stretched.top as f32 + stretched.height as f32 / 2.0,
+        );
+        let width = width.round() as i32;
+        placed.left = match self.side(centre.0, centre.1, middle) {
+            Side::Left => placed.left,
+            Side::Right => placed.left + placed.width - width,
+            Side::Middle => {
+                (self.towards(centre.0, Side::Middle) - width as f32 / 2.0).round() as i32
+            }
+        };
+        placed.width = width;
+    }
+}
+
+/// `control`, with its list's rows and its scrollbar, moved by `dx` across
+/// and `dy` down.
+fn shift_all(control: &mut Control, (dx, dy): (i32, i32)) {
+    control.extent.left += dx;
+    control.extent.top += dy;
+    for inner in control
+        .proto
+        .as_deref_mut()
+        .into_iter()
+        .chain(control.scrollbar.as_deref_mut())
+    {
+        shift_all(inner, (dx, dy));
+    }
+}
+
+/// `gui` (the HUD's layout) placed for a window of `window` pixels, in a
+/// frame that is the window at kjk's scale (`fitted`).
+///
+/// This is KOTOR 2's placement. KOTOR 2's executable first stretches the
+/// HUD's 800 × 600 layout to the window, as it does every screen: each
+/// control's left and width are multiplied by the window's width over 800,
+/// and its top and height by the window's height over 600. Aspyr's version
+/// then narrows each control on a window of any other shape than 4:3. It
+/// moves the control's left and right edges, each on its own, by the
+/// window's shape over 4:3 (0.75 at 16:9) towards a point. An edge in the
+/// window's left half goes towards the left side, and one in its right half
+/// towards the right side. An edge whose end lies in the window's lower half
+/// and within the middle eighth of its width (`MIDDLE_BAND`) goes towards
+/// the window's middle, and so do both edges of the combat queue and the
+/// action description (`MIDDLE`). The heights are left as stretched. A
+/// control in one half of the window therefore keeps its shape, at the
+/// window's height over 600 times its size in the layout, and stays as far
+/// from its side of the window, in the same measure. At 4:3 nothing moves.
+///
+/// With `pictures` (the game's own layout, with the Interface option
+/// "Maintain image aspect ratio" on), each picture (`screen::is_picture`)
+/// also keeps its shape where KOTOR 2's narrowing would widen it
+/// (`Narrowing::in_shape`). That is kjk's deliberate change, the same one
+/// the menus make. A mod's layout is placed as KOTOR 2 places it, with no
+/// picture kept in shape.
+///
+/// kjk's Interface option "Menu width" does not narrow the HUD: the HUD
+/// always spans the window, as KOTOR 2's does.
+///
+/// The target block is left in the layout's top left, stretched and
+/// narrowed as the rest, because KOTOR 2 moves it over the target each
+/// frame (`floated`). kjk's own placement at the top centre is `to_top`.
+///
+/// Returns how much the layout was stretched down: the frame's height over
+/// the layout's. Every piece in one half of the window is that many times
+/// its size in the layout.
+pub fn place(gui: &mut Gui, window: (f32, f32), pictures: bool) -> f32 {
+    let (width, height) = gui.frame();
+    let (wide, tall) = fitted(gui, window);
+    let by = (wide as f32 / width as f32, tall as f32 / height as f32);
+    let narrowing = Narrowing {
+        frame: (wide as f32, tall as f32),
+        by: by.1 / by.0,
+    };
+    /// `pictures` is false inside a list's rows and scrollbar, which are
+    /// never pictures.
+    fn walk(control: &mut Control, by: (f32, f32), narrowing: &Narrowing, pictures: bool) {
+        let read = control.extent;
+        let middle = MIDDLE.iter().any(|prefix| control.tag.starts_with(prefix));
+        stretched(&mut control.extent, by);
+        let stretched = control.extent;
+        narrowing.narrowed(&mut control.extent, middle);
+        if pictures && is_picture(control, read) {
+            let width = read.width as f32 * by.1;
+            narrowing.in_shape(&mut control.extent, stretched, width, middle);
+        }
+        for inner in &mut control.children {
+            walk(inner, by, narrowing, pictures);
+        }
         for inner in control
             .proto
             .as_deref_mut()
             .into_iter()
             .chain(control.scrollbar.as_deref_mut())
         {
-            shift_all(inner, (dx, dy));
+            walk(inner, by, narrowing, false);
         }
     }
     for control in &mut gui.controls {
-        place(control, (width / 2, height / 2), (dx, dy));
+        walk(control, by, &narrowing, pictures);
     }
-    // The target block to the top centre, its words beneath it.
-    let centre = wide / 2;
+    gui.extent.left = 0;
+    gui.extent.top = 0;
+    gui.extent.width = wide;
+    gui.extent.height = tall;
+    by.1
+}
+
+/// `gui` (placed by `place`) with kjk's own placement of the target block,
+/// the Interface option "Target block at the top centre": the block stands
+/// 4 pixels under the frame's top, centred across, and the chosen action's
+/// words stand a pixel under it, centred too.
+pub fn to_top(gui: &mut Gui) {
+    let centre = gui.extent.width / 2;
     let (block_width, block_bottom) = block_reach(gui);
     for control in &mut gui.controls {
         let tag = control.tag.as_str();
@@ -247,13 +461,210 @@ pub fn anchor(gui: &mut Gui, window: (f32, f32)) {
             );
         }
     }
-    gui.extent.left = 0;
-    gui.extent.top = 0;
-    gui.extent.width = wide;
-    gui.extent.height = tall;
 }
 
-/// Where the target block ends in `gui` (placed by `anchor`): the bottom
+/// The area the floating target block stays in, in `gui` (placed by
+/// `place`): from the left of the arrow's margin to as far in from the
+/// frame's right, and from the bottom of the menu buttons' backing down to
+/// the top of the pause button (`FLOAT_AREA`). A layout without one of them
+/// gives the frame's edge in its place.
+fn float_area(gui: &Gui) -> Rect {
+    let find = |tag: &str| gui.find(tag).map(|control| control.extent);
+    let left = find(FLOAT_AREA[0]).map_or(0, |margin| margin.left);
+    let top = find(FLOAT_AREA[1]).map_or(0, |menu| menu.top + menu.height);
+    let bottom = find(FLOAT_AREA[2]).map_or(gui.extent.height, |pause| pause.top);
+    Rect {
+        left,
+        top,
+        width: gui.extent.width - 2 * left,
+        height: bottom - top,
+    }
+}
+
+/// The block's height as KOTOR 2 takes it: down to the bottom of the first
+/// action's button while the target offers actions, else down to the bottom
+/// of the vitality bar.
+fn block_height(gui: &Gui, actions: bool) -> i32 {
+    let bottom = |tag: &str| {
+        gui.find(tag)
+            .map(|control| control.extent.top + control.extent.height)
+    };
+    let shown = if actions { "BTN_TARGET0" } else { "PB_HEALTH" };
+    bottom(shown).unwrap_or_else(|| block_reach(gui).1)
+}
+
+/// Where KOTOR 2 puts the floating target block's top left, for a block
+/// `size` big, a menu point `point` (frame pixels, and whether it is behind
+/// the camera), the area `area` it stays in and the frame's size `frame`.
+/// `gap` is `FLOAT_GAP` in frame pixels.
+///
+/// For a point in front of the camera, the block is centred across on the
+/// point, and its bottom stands `gap` above it. A block that would cross the
+/// area's left or right side stands against that side instead. A point less
+/// than `gap` under the area's top puts the block at the area's top, and a
+/// point less than `gap` over the area's bottom puts the block's bottom
+/// `gap` over the area's bottom.
+///
+/// For a point behind the camera, whose place on the screen comes out
+/// mirrored, the block stands against the area's right side when the point
+/// is in the frame's left half, else against its left side. A point less
+/// than `gap` under the area's top puts the block's bottom `gap` over the
+/// area's bottom, and a point less than `gap` over the area's bottom puts
+/// the block at the area's top. Between them, a point in the frame's upper
+/// half puts the block's bottom as far over the frame's bottom as the point
+/// stands `gap` under the frame's top, and a point in its lower half puts
+/// the block's bottom `gap` over the point.
+///
+/// Last, the block is kept inside the area.
+pub fn float_at(
+    size: (i32, i32),
+    (point, behind): ([f32; 2], bool),
+    area: Rect,
+    frame: (i32, i32),
+    gap: f32,
+) -> (i32, i32) {
+    let (width, height) = size;
+    let [x, y] = point;
+    let (near_top, near_bottom) = (
+        y < (area.top as f32 + gap),
+        y > ((area.top + area.height) as f32 - gap),
+    );
+    let low = area.top + area.height - gap as i32 - height;
+    let (left, top) = if behind {
+        let left = if x < (frame.0 / 2) as f32 {
+            area.left + area.width - width
+        } else {
+            area.left
+        };
+        let top = if near_top {
+            low
+        } else if near_bottom {
+            area.top
+        } else if y < (frame.1 / 2) as f32 {
+            frame.1 - (y + gap + height as f32) as i32
+        } else {
+            (y - gap - height as f32) as i32
+        };
+        (left, top)
+    } else {
+        let half = (width / 2) as f32;
+        let left = if x - half < area.left as f32 {
+            area.left
+        } else if x + half > (area.left + area.width) as f32 {
+            area.left + area.width - width
+        } else if near_top || near_bottom {
+            (x - half) as i32
+        } else {
+            x as i32 - width / 2
+        };
+        let top = if near_top {
+            area.top
+        } else if near_bottom {
+            low
+        } else {
+            (y - gap - height as f32) as i32
+        };
+        (left, top)
+    };
+    let left = left.min(area.left + area.width - width).max(area.left);
+    let top = top.min(area.top + area.height - height).max(area.top);
+    (left, top)
+}
+
+/// How long KOTOR 2's floating block keeps its place after the pointer
+/// leaves it (seconds).
+pub const FLOAT_LINGER: f32 = 0.5;
+
+/// What the floating target block keeps from frame to frame, as KOTOR 2's
+/// does: where it was last placed (its left, top and height in frame
+/// pixels), whether the pointer is over it, and how many seconds it still
+/// keeps its place after the pointer left it.
+///
+/// While the pointer is over the block, and for `FLOAT_LINGER` seconds
+/// after it leaves, the block does not follow its target. Its bottom stays
+/// where it was, so only its top moves when its height changes. The pointer
+/// is over the block when it is over the target's name, its vitality bar, or
+/// one of its action buttons.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FloatHold {
+    pub placed: Option<(i32, i32, i32)>,
+    pub over: bool,
+    pub linger: f32,
+}
+
+impl FloatHold {
+    /// `seconds` gone by: the time the block lingers runs down.
+    pub fn tick(&mut self, seconds: f32) {
+        self.linger = (self.linger - seconds).max(0.0);
+    }
+
+    /// The pointer at `pointer` (frame pixels; `None` without a free
+    /// pointer) over `block`, the HUD as last floated for its target
+    /// (`None` while there is no target, and so no block). A pointer that
+    /// leaves the block starts its linger.
+    pub fn point(&mut self, block: Option<(&Gui, &TargetView)>, pointer: Option<[f32; 2]>) {
+        let over = block
+            .zip(pointer)
+            .is_some_and(|((gui, target), at)| over_block(gui, target, at));
+        if self.over && !over {
+            self.linger = FLOAT_LINGER;
+        }
+        self.over = over;
+    }
+
+    fn holds(&self) -> bool {
+        self.over || self.linger > 0.0
+    }
+}
+
+/// Whether `point` (frame pixels) is over `gui`'s floated block for
+/// `target`: over the name, the vitality bar while it shows, or an action
+/// button that shows.
+fn over_block(gui: &Gui, target: &TargetView, point: [f32; 2]) -> bool {
+    let acting = !target.busy;
+    let shows = |tag: &str| match tag {
+        "LBL_NAME" => true,
+        "PB_HEALTH" => target.progress.is_some() || target.hp.is_some(),
+        _ => tag
+            .strip_prefix("BTN_TARGET")
+            .and_then(|n| n.parse::<usize>().ok())
+            .is_some_and(|n| acting && n < target.actions.len()),
+    };
+    gui.controls
+        .iter()
+        .any(|control| shows(&control.tag) && within(rect_of(control), point))
+}
+
+/// `gui` (placed by `place`) with the target block floated over `target`'s
+/// menu point, as KOTOR 2's executable moves it each frame (`float_at`).
+/// `pixel` is a physical pixel in frame pixels. With no menu point known
+/// the block stands at the area's top left, where KOTOR 2's starts. While
+/// `hold` holds the block (`FloatHold`), it keeps its bottom where it was
+/// last placed.
+pub fn floated(gui: &mut Gui, target: &TargetView, pixel: f32, hold: &mut FloatHold) {
+    let area = float_area(gui);
+    let size = (
+        block_reach(gui).0,
+        block_height(gui, !target.actions.is_empty() && !target.busy),
+    );
+    let frame = (gui.extent.width, gui.extent.height);
+    let (left, top) = match (hold.placed.filter(|_| hold.holds()), target.point) {
+        (Some((left, top, height)), _) => (left, top + height - size.1),
+        (None, Some(point)) => {
+            let at = [point.at[0] * frame.0 as f32, point.at[1] * frame.1 as f32];
+            float_at(size, (at, point.behind), area, frame, FLOAT_GAP * pixel)
+        }
+        (None, None) => (area.left, area.top),
+    };
+    hold.placed = Some((left, top, size.1));
+    for control in &mut gui.controls {
+        if in_block(&control.tag) {
+            shift_all(control, (left, top));
+        }
+    }
+}
+
+/// Where the target block ends in `gui` (placed by `place`): the bottom
 /// of its words, else of the block itself (layout pixels).
 pub fn block_bottom(gui: &Gui) -> i32 {
     gui.controls
@@ -290,16 +701,437 @@ pub fn shaped(gui: &Gui, window: (f32, f32)) -> (i32, i32) {
     }
 }
 
-/// The crosshair: a light dot ringed dark at the middle of `gui` (placed
-/// by `anchor`).
-pub fn crosshair(gui: &Gui) -> [Quad; 2] {
-    let (width, height) = gui.frame();
-    let (x, y) = (width as f32 / 2.0, height as f32 / 2.0);
+/// The radius of the crosshair's dot while no weapon is readied, in pixels
+/// at a 1080-high layout.
+pub const DOT_RADIUS: f32 = 3.0;
+/// The radius of the dot at the middle of a blaster's crosshair, in pixels
+/// at a 1080-high layout.
+const RETICLE_DOT_RADIUS: f32 = 1.0;
+
+/// The crosshair while no weapon is readied: a round dot at the middle of
+/// `gui` (placed by `place`), in the interface colour `tint` over a dark
+/// edge (`dot`). `pixel` is one of the display's physical pixels in layout
+/// pixels (`draw::Sizing::pixel`).
+pub fn crosshair(gui: &Gui, pixel: f32, tint: [f32; 3]) -> Vec<Quad> {
+    dot(gui.frame(), DOT_RADIUS, pixel, tint)
+}
+
+/// A filled circle around `middle` in `color`, `radius` physical pixels in
+/// radius (a whole number). `pixel` is one physical pixel in layout pixels.
+/// The circle is built from rows one physical pixel high. Each row is a
+/// whole number of physical pixels wide and is centred on `middle`, so the
+/// circle is the same on its left and right, and on its top and bottom.
+/// The rows do not overlap, so a see-through colour stays even.
+fn disc(middle: [f32; 2], radius: f32, pixel: f32, color: [f32; 4]) -> Vec<Quad> {
+    (0..(2.0 * radius) as usize)
+        .map(|row| {
+            let y = row as f32 + 0.5 - radius;
+            let half = (radius * radius - y * y).sqrt().round();
+            Quad::solid(
+                [
+                    middle[0] - half * pixel,
+                    middle[1] + (y - 0.5) * pixel,
+                    2.0 * half * pixel,
+                    pixel,
+                ],
+                color,
+            )
+        })
+        .collect()
+}
+
+/// A round dot at the middle of a layout `frame` (width, height) big. Its
+/// radius is `radius` pixels at a 1080-high layout, rounded to a whole
+/// number of the display's physical pixels and never under one. `pixel` is
+/// one physical pixel in layout pixels. The dot is drawn in the interface
+/// colour `tint`, over a dark edge that is wider all round by one pixel of
+/// a 1080-high layout, also rounded to whole physical pixels. The edge's
+/// quads come first.
+pub fn dot(frame: (i32, i32), radius: f32, pixel: f32, tint: [f32; 3]) -> Vec<Quad> {
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    dot_at(middle, height as f32, radius, pixel, tint)
+}
+
+/// The round dot of `dot`, centred on `middle` in a layout `tall` pixels
+/// high.
+pub fn dot_at(middle: [f32; 2], tall: f32, radius: f32, pixel: f32, tint: [f32; 3]) -> Vec<Quad> {
+    let scale = tall / 1080.0;
+    let whole = |layout: f32| (layout * scale / pixel).round().max(1.0);
+    let core = whole(radius);
+    let mut quads = disc(middle, core + whole(1.0), pixel, RETICLE_EDGE);
+    quads.extend(disc(middle, core, pixel, tinted(tint)));
+    quads
+}
+
+/// The shape of a blaster's crosshair: it tells the kind of gun apart, and
+/// its gap is the spread the next shot may stray by (`gap_px`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    /// A dot and four bars: pistols and rifles.
+    Cross,
+    /// A dot and three bars, two up and one down: repeaters.
+    Prongs,
+    /// A dot and two arcs, left and right: bowcasters.
+    Brackets,
+    /// A dot and four long thin bars: disruptors.
+    Lines,
+    /// A dot and a ring broken in four: ion weapons.
+    Ring,
+    /// A dot and a ring of eight dashes: sonic weapons.
+    Dashes,
+}
+
+/// The smallest gap at a 1080-high layout (pixels): the bars stay clear of
+/// the dot when the spread is none.
+pub const MIN_GAP: f32 = 4.0;
+
+/// The gap a spread of `cone_deg` makes on a layout `layout_height` high,
+/// seen through a vertical field of view of `vfov_deg`: where a shot that
+/// strays the whole spread lands on the screen, never under `MIN_GAP`.
+pub fn gap_px(cone_deg: f32, vfov_deg: f32, layout_height: f32) -> f32 {
+    let half = layout_height / 2.0;
+    let gap = cone_deg.to_radians().tan() / (vfov_deg / 2.0).to_radians().tan() * half;
+    gap.max(MIN_GAP * layout_height / 1080.0)
+}
+
+/// The aim arc of targeted blocks: white, a touch see-through.
+pub(crate) const RETICLE_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
+/// The colour of a crosshair's strokes and dot: the interface colour `tint`
+/// (`skin::interface_colour`, blue in KOTOR 1 and green in KOTOR 2), solid.
+fn tinted([red, green, blue]: [f32; 3]) -> [f32; 4] {
+    [red, green, blue, 1.0]
+}
+/// The dark edge under each of its strokes, so it reads on bright ground.
+const RETICLE_EDGE: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
+
+/// A stroke `width` wide from `from` to `to` pixels out of `middle`, turned
+/// `angle` radians clockwise from straight up, in `color`, over its dark
+/// edge one pixel (`scale`) wider all round: the edge first.
+pub fn stroke(
+    middle: [f32; 2],
+    (from, to): (f32, f32),
+    angle: f32,
+    (width, scale): (f32, f32),
+    color: [f32; 4],
+) -> [Quad; 2] {
+    let (sin, cos) = angle.sin_cos();
+    let reach = (from + to) / 2.0;
+    let centre = [middle[0] + sin * reach, middle[1] - cos * reach];
+    let bar = |width: f32, length: f32, color| Quad {
+        spin: angle,
+        ..Quad::solid(
+            [
+                centre[0] - width / 2.0,
+                centre[1] - length / 2.0,
+                width,
+                length,
+            ],
+            color,
+        )
+    };
+    let length = to - from;
+    let edge = [
+        RETICLE_EDGE[0],
+        RETICLE_EDGE[1],
+        RETICLE_EDGE[2],
+        RETICLE_EDGE[3] * color[3],
+    ];
     [
-        Quad::solid([x - 3.0, y - 3.0, 6.0, 6.0], [0.0, 0.0, 0.0, 0.6]),
-        Quad::solid([x - 2.0, y - 2.0, 4.0, 4.0], [1.0, 1.0, 1.0, 0.9]),
+        bar(width + 2.0 * scale, length + 2.0 * scale, edge),
+        bar(width, length, color),
     ]
 }
+
+/// An arc `radius` out of `middle`, from `start` to `end` degrees clockwise
+/// from straight up, as `pieces` short strokes along it in `color`. Each
+/// piece is its dark edge and its stroke, in that order (`stroke`).
+fn arc(
+    middle: [f32; 2],
+    radius: f32,
+    (start, end): (f32, f32),
+    pieces: usize,
+    (width, scale): (f32, f32),
+    color: [f32; 4],
+) -> Vec<[Quad; 2]> {
+    let span = (end - start) / pieces as f32;
+    (0..pieces)
+        .map(|piece| {
+            let at = (start + span * (piece as f32 + 0.5)).to_radians();
+            let long = radius * span.to_radians();
+            // Along the circle: a radial stroke turned a quarter, its middle
+            // on the circle.
+            let (sin, cos) = at.sin_cos();
+            let on = [middle[0] + sin * radius, middle[1] - cos * radius];
+            let turned = at + std::f32::consts::FRAC_PI_2;
+            stroke(on, (-long / 2.0, long / 2.0), turned, (width, scale), color)
+        })
+        .collect()
+}
+
+/// A blaster's crosshair of `family` at the middle of a layout `frame`
+/// (width, height) big, its gap `gap` layout pixels from the middle. Its
+/// strokes come first, each over its dark edge and two pixels wide at a
+/// 1080-high layout. Its round dot comes last (`dot`). The strokes and the
+/// dot are drawn in the interface colour `tint`.
+/// `pixel` is one of the display's physical pixels in layout pixels.
+pub fn reticle(
+    frame: (i32, i32),
+    family: Family,
+    gap: f32,
+    pixel: f32,
+    tint: [f32; 3],
+) -> Vec<Quad> {
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let thick = (2.0 * scale, scale);
+    let gap = gap.max(MIN_GAP * scale);
+    let light = tinted(tint);
+    let bars = |angles: &[f32], long: f32| -> Vec<Quad> {
+        angles
+            .iter()
+            .flat_map(|angle| {
+                stroke(
+                    middle,
+                    (gap, gap + long * scale),
+                    angle.to_radians(),
+                    thick,
+                    light,
+                )
+            })
+            .collect()
+    };
+    let arcs = |centres: &[f32], span: f32, pieces: usize| -> Vec<Quad> {
+        centres
+            .iter()
+            .flat_map(|at| {
+                arc(
+                    middle,
+                    gap,
+                    (at - span / 2.0, at + span / 2.0),
+                    pieces,
+                    thick,
+                    light,
+                )
+                .into_iter()
+                .flatten()
+            })
+            .collect()
+    };
+    let mut quads = match family {
+        Family::Cross => bars(&[0.0, 90.0, 180.0, 270.0], 6.0),
+        Family::Prongs => bars(&[-60.0, 60.0, 180.0], 6.0),
+        Family::Brackets => arcs(&[90.0, 270.0], 80.0, 3),
+        Family::Lines => bars(&[0.0, 90.0, 180.0, 270.0], 14.0),
+        Family::Ring => arcs(&[45.0, 135.0, 225.0, 315.0], 60.0, 3),
+        Family::Dashes => arcs(
+            &[0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0],
+            20.0,
+            1,
+        ),
+    };
+    quads.extend(dot(frame, RETICLE_DOT_RADIUS, pixel, tint));
+    quads
+}
+
+/// The aim arc of targeted blocks while the last camera turn points at no
+/// side: the crosshair's white, dimmed.
+pub(crate) const BLOCK_MARK_UNLIT: [f32; 4] = [1.0, 1.0, 1.0, 0.35];
+/// The swing arc of targeted blocks: the HUD's red for a foe while the last
+/// camera turn points toward another side, and its green once it points
+/// toward the swing's side.
+pub(crate) const BLOCK_MARK_WARNING: [f32; 4] = [HOSTILE[0], HOSTILE[1], HOSTILE[2], 1.0];
+pub(crate) const BLOCK_MARK_CONFIRM: [f32; 4] = [POISONED[0], POISONED[1], POISONED[2], 1.0];
+
+/// The radius of the circle of the arcs of targeted blocks, in pixels at a
+/// 1080-high layout.
+const BLOCK_ARC_RADIUS: f32 = 27.0;
+/// How long the aim arc is (degrees).
+const AIM_ARC_DEG: f32 = 40.0;
+/// The longest straight piece an arc is built from (degrees).
+const ARC_PIECE_DEG: f32 = 5.0;
+
+/// The part of the circle that the swing arc of `side` covers, in degrees
+/// clockwise from straight up. These are the angles that the block rule
+/// gives each side (`sim::combat::saber::duel::aim::aim_side`). Above is the
+/// top quarter, right the quarter from 45 to 135 degrees, and left the
+/// quarter from 225 to 315 degrees. The bottom quarter belongs to no side.
+fn swing_arc(side: EnemySide) -> (f32, f32) {
+    match side {
+        EnemySide::Above => (-45.0, 45.0),
+        EnemySide::Right => (45.0, 135.0),
+        EnemySide::Left => (225.0, 315.0),
+    }
+}
+
+/// How much thicker the arcs of targeted blocks are drawn while the perfect
+/// block mark is on, in pixels at a 1080-high layout.
+const MARKED_THICKER: f32 = 1.0;
+/// How thick the ring of the perfect block mark is, in pixels at a
+/// 1080-high layout.
+const RING_THICK: f32 = 2.0;
+
+/// One arc on the circle of the arcs of targeted blocks, around the middle
+/// of a layout `frame` big. It runs from `start` to `end` degrees clockwise
+/// from straight up and is `thick` pixels thick at a 1080-high layout. The
+/// dark edges of its pieces come first and its strokes after them, so that
+/// the edge of one piece does not darken the end of the piece before it.
+fn circle_arc(
+    frame: (i32, i32),
+    (start, end): (f32, f32),
+    thick: f32,
+    color: [f32; 4],
+) -> Vec<Quad> {
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let pieces = ((end - start) / ARC_PIECE_DEG).ceil() as usize;
+    let drawn = arc(
+        middle,
+        BLOCK_ARC_RADIUS * scale,
+        (start, end),
+        pieces,
+        (thick * scale, scale),
+        color,
+    );
+    let (edges, strokes): (Vec<Quad>, Vec<Quad>) = drawn
+        .into_iter()
+        .map(|[edge, stroke]| (edge, stroke))
+        .unzip();
+    edges.into_iter().chain(strokes).collect()
+}
+
+/// The perfect block mark when no arcs of targeted blocks show it: a green
+/// ring 2 pixels thick (at a 1080-high layout) on the circle of the arcs,
+/// 27 pixels around the middle of a layout `frame` big.
+pub fn perfect_ring(frame: (i32, i32)) -> Vec<Quad> {
+    circle_arc(frame, (0.0, 360.0), RING_THICK, BLOCK_MARK_CONFIRM)
+}
+
+/// The arcs of targeted blocks on a circle 27 pixels (at a 1080-high
+/// layout) around the middle of a layout `frame` big. Each arc is drawn
+/// over its dark edge.
+///
+/// The swing arc is 2 pixels thick and covers the swing's side. It is red,
+/// and green while the side of the last camera turn is the swing's side. A
+/// swing with no side draws all three swing arcs in green. No swing arc is
+/// drawn before a swing starts. While the body cannot guard
+/// (`BlockReticleView::unguarded`), every swing arc is drawn dim, with no
+/// red or green verdict.
+///
+/// The aim arc is 3 pixels thick and 40 degrees long, centred on the
+/// direction of the last camera turn. It is white, and dim while that turn
+/// points at no side. It is drawn after the swing arc, so it lies on top.
+/// No aim arc is drawn before the camera turns.
+///
+/// While the perfect block mark is on, every arc is one pixel thicker.
+/// Each swing arc keeps its own colour, so that a new swing from a side
+/// that the aim does not cover still shows red. The aim arc turns green.
+/// When the mark is on and no aim arc is drawn, the mark's ring
+/// (`perfect_ring`) is drawn first, and the swing arcs over it.
+pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
+    let thicker = if view.marked { MARKED_THICKER } else { 0.0 };
+    let along = |span: (f32, f32), thick: f32, color: [f32; 4]| {
+        circle_arc(frame, span, thick + thicker, color)
+    };
+    let swings: Vec<(EnemySide, [f32; 4])> = match view.swing {
+        None => Vec::new(),
+        Some(Swing::Any) => [EnemySide::Above, EnemySide::Right, EnemySide::Left]
+            .into_iter()
+            .map(|side| (side, BLOCK_MARK_CONFIRM))
+            .collect(),
+        Some(Swing::Side(side)) if view.turned == Some(side) => {
+            vec![(side, BLOCK_MARK_CONFIRM)]
+        }
+        Some(Swing::Side(side)) => vec![(side, BLOCK_MARK_WARNING)],
+    };
+    // While the body cannot guard, the swing arcs show the side but no
+    // verdict.
+    let swings = swings
+        .into_iter()
+        .map(|(side, color)| match view.unguarded {
+            true => (side, BLOCK_MARK_UNLIT),
+            false => (side, color),
+        });
+    let mut quads = match (view.marked, view.aim) {
+        (true, None) => perfect_ring(frame),
+        _ => Vec::new(),
+    };
+    quads.extend(swings.flat_map(|(side, color)| along(swing_arc(side), 2.0, color)));
+    if let Some(at) = view.aim {
+        let color = match (view.marked, view.turned) {
+            (true, _) => BLOCK_MARK_CONFIRM,
+            (false, Some(_)) => RETICLE_LIGHT,
+            (false, None) => BLOCK_MARK_UNLIT,
+        };
+        let half = AIM_ARC_DEG / 2.0;
+        quads.extend(along((at - half, at + half), 3.0, color));
+    }
+    quads
+}
+
+/// What a blaster shot the player landed did, as the mark flashed about
+/// the crosshair shows it: the colour tells a hit from a strong one, a
+/// kill adds red ticks, a bolt a blade turned a grey mark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    Turned,
+    Hit,
+    Strong,
+    Kill { strong: bool },
+}
+
+/// How long a mark shows (ms), and how much of that it fades over.
+pub const MARK_SHOWN_MS: f32 = 140.0;
+const MARK_FADE_MS: f32 = 80.0;
+
+/// The mark of `mark` `age_ms` after it came, about a crosshair whose gap
+/// is `gap` at the middle of a layout `frame` big: four strokes on the
+/// diagonals outside the gap, growing a little and fading; none once
+/// `MARK_SHOWN_MS` has passed.
+pub fn hitmarker(frame: (i32, i32), mark: Mark, gap: f32, age_ms: f32) -> Vec<Quad> {
+    if !(0.0..=MARK_SHOWN_MS).contains(&age_ms) {
+        return Vec::new();
+    }
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let grown = 1.0 + 0.15 * age_ms / MARK_SHOWN_MS;
+    let alpha = ((MARK_SHOWN_MS - age_ms) / MARK_FADE_MS).min(1.0);
+    let tint = |[r, g, b]: [f32; 3]| [r, g, b, alpha];
+    let (color, long) = match mark {
+        Mark::Turned => (MARK_GREY, 4.0),
+        Mark::Hit | Mark::Kill { strong: false } => (MARK_WHITE, 8.0),
+        Mark::Strong | Mark::Kill { strong: true } => (MARK_GOLD, 8.0),
+    };
+    let diagonals = [45.0f32, 135.0, 225.0, 315.0];
+    let ring = |(from, to): (f32, f32), color: [f32; 3]| -> Vec<Quad> {
+        diagonals
+            .iter()
+            .flat_map(|angle| {
+                stroke(
+                    middle,
+                    ((gap + from * scale) * grown, (gap + to * scale) * grown),
+                    angle.to_radians(),
+                    (2.0 * scale, scale),
+                    tint(color),
+                )
+            })
+            .collect()
+    };
+    let mut quads = ring((6.0, 6.0 + long), color);
+    if matches!(mark, Mark::Kill { .. }) {
+        quads.extend(ring((18.0, 24.0), MARK_RED));
+    }
+    quads
+}
+
+/// The marks' colours: a hit, a strong hit, a kill's ticks, a turned bolt.
+const MARK_WHITE: [f32; 3] = [1.0, 1.0, 1.0];
+const MARK_GOLD: [f32; 3] = [0.95, 0.72, 0.2];
+const MARK_RED: [f32; 3] = [0.85, 0.15, 0.1];
+const MARK_GREY: [f32; 3] = [0.6, 0.6, 0.6];
 
 /// The minimap's quads: the view's black, the area's picture over it and
 /// black over what is unexplored, under the layout; the arrow over it.
@@ -322,8 +1154,11 @@ impl Minimap {
     }
 }
 
-/// The minimap of `view` in `gui` (placed by `anchor`; its own art read
-/// from `source`): the area's picture at its own size, moved so the
+/// The minimap of `view` in `gui` (placed by `place`, which stretched it
+/// down by `stretch`; its own art read from `source`): the area's picture
+/// at its own size times `stretch`, so that the minimap's view shows as
+/// much of the area in any window as in KOTOR 2's 800 × 600 layout. The
+/// picture is moved so the
 /// player's place is at `LBL_MAPVIEW`'s centre and clipped to it, and
 /// `LBL_ARROW`'s texture at its size at the centre, turned; the cells the
 /// party has not explored dark over the picture's used part (`map::fog`; its
@@ -333,6 +1168,7 @@ impl Minimap {
 pub fn minimap(
     gui: &Gui,
     view: &MinimapView,
+    stretch: f32,
     textures: &mut dyn Textures,
     source: Source,
 ) -> Option<Minimap> {
@@ -349,6 +1185,7 @@ pub fn minimap(
         Some((quad, [width as f32, height as f32]))
     };
     let (picture, [width, height]) = image(Source::Campaign, &view.picture)?;
+    let (width, height) = (width * stretch, height * stretch);
     let [across, down] = view.at;
     let picture = Quad {
         rect: [
@@ -484,7 +1321,7 @@ fn companion(tag: &str) -> Option<(usize, &'static str)> {
 }
 
 /// The companion (its body, `MemberView::id`) whose portrait is at
-/// `point` (layout pixels of `gui`, placed by `anchor`): the second or
+/// `point` (layout pixels of `gui`, placed by `place`): the second or
 /// third portrait, when shown (KOTOR's click there makes that one lead).
 pub fn portrait_at(gui: &Gui, vm: &ViewModel, [x, y]: [f32; 2]) -> Option<u32> {
     (1..=2usize)
@@ -498,7 +1335,7 @@ pub fn portrait_at(gui: &Gui, vm: &ViewModel, [x, y]: [f32; 2]) -> Option<u32> {
         .and_then(|place| Some(vm.party.get(place)?.id))
 }
 
-/// Whether `point` (layout pixels of `gui`, placed by `anchor`) is on the
+/// Whether `point` (layout pixels of `gui`, placed by `place`) is on the
 /// minimap, when it shows: KOTOR's click there (`BTN_MINIMAP`) opens the
 /// map page.
 pub fn minimap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
@@ -508,17 +1345,51 @@ pub fn minimap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
             .is_some_and(|control| within(rect_of(control), point))
 }
 
-/// The weapon swap button (TSL's, `CSWGuiMainInterface::OnSwapWeaponsPressed`).
-pub const SWAP: &str = "BTN_SWAPWEAPONS";
+/// KOTOR's solo mode button. The HUD shows it, lit, only while the
+/// party is in solo mode, beside the portrait (`solo_beside_portrait`).
+/// A click on it ends solo mode (`solo_at`).
+pub const SOLO: &str = "TB_SOLO";
 
-/// Whether `point` (layout pixels of `gui`, placed by `anchor`) is on the
-/// weapon swap button, shown while the HUD has a character.
-pub fn swap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
-    vm.hud.is_some()
+/// The solo mode button's size, as a part of the portrait's height.
+const SOLO_SIZE: f32 = 0.5;
+
+/// `gui` (placed by `place`) with the solo mode button (`SOLO`) moved
+/// beside the portrait. The button is square, `SOLO_SIZE` of the
+/// portrait's height. It stands just left of the vitality bar, and its
+/// bottom is level with the portrait's bottom. The vitality bar's control
+/// (`PB_VIT1`) is twice as wide as the bar it draws, and the bar is drawn
+/// in its right half, so the button's right edge is a quarter of the way
+/// into the control.
+pub fn solo_beside_portrait(gui: &mut Gui) {
+    let extent = |tag: &str| gui.find(tag).map(|control| control.extent);
+    let (Some(portrait), Some(bar)) = (extent("LBL_CHAR1"), extent("PB_VIT1")) else {
+        return;
+    };
+    let size = (portrait.height as f32 * SOLO_SIZE).round() as i32;
+    let right = bar.left + bar.width / 4;
+    let bottom = portrait.top + portrait.height;
+    if let Some(solo) = (gui.controls.iter_mut()).find(|control| control.tag == SOLO) {
+        solo.extent = Rect {
+            left: right - size,
+            top: bottom - size,
+            width: size,
+            height: size,
+        };
+    }
+}
+
+/// Whether `point` (layout pixels of `gui`, placed by `place`) is on the
+/// solo mode button, which shows only while the party is in solo mode.
+pub fn solo_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
+    vm.hud.as_ref().is_some_and(|hud| hud.solo)
         && gui
-            .find(SWAP)
+            .find(SOLO)
             .is_some_and(|control| within(rect_of(control), point))
 }
+
+/// KOTOR 2's weapon swap button. The HUD hides it, and the feat slot
+/// (`FEAT`) stands on the action bar instead.
+pub const SWAP: &str = "BTN_SWAPWEAPONS";
 
 /// Whether `point` is inside `rect` (left, top, width, height).
 fn within([left, top, width, height]: [f32; 4], [x, y]: [f32; 2]) -> bool {
@@ -586,7 +1457,7 @@ fn placed_marks(gui: &Gui, vm: &ViewModel) -> Vec<(usize, Busy, [f32; 4])> {
         .collect()
 }
 
-/// The busy icons over `gui`'s portraits (placed by `anchor`): the
+/// The busy icons over `gui`'s portraits (placed by `place`): the
 /// player's own (`HudView::busy`, `LBL_CHAR1`) and its companions'
 /// (`MemberView::busy`, `LBL_CHAR2` and `3`), each at its portrait's top
 /// right. On the host's screen (a request card up) a guest asking it in
@@ -735,6 +1606,122 @@ pub fn effects(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawL
     }
 }
 
+/// The player's vitality and Force bars, whose art the duel bars wear.
+const VITALITY_BAR: &str = "PB_VIT1";
+const FORCE_BAR: &str = "PB_FORCE1";
+/// Where KOTOR 2's portrait bars stand in their art (`uibit_bar_vp_p` and
+/// `uibit_bar_fp_p`, 64 × 128): u0, v0, u1, v1 round the frame, opaque,
+/// round an inside a third opaque, its corners sloped on the side away
+/// from the portrait (the vitality bar's left, the Force bar's right). The
+/// rest of each texture is clear.
+const VITALITY_UV: [f32; 4] = [29.0 / 64.0, 2.0 / 128.0, 49.0 / 64.0, 126.0 / 128.0];
+const FORCE_UV: [f32; 4] = [15.0 / 64.0, 2.0 / 128.0, 35.0 / 64.0, 126.0 / 128.0];
+/// A duel bar beside the portrait: its width (layout pixels; the vitality
+/// bar's is 12) and the gap between bars.
+const DUEL_WIDE: f32 = 7.0;
+const DUEL_GAP: f32 = 2.0;
+
+/// The art a duel bar is drawn with, as one of the HUD's portrait bars is:
+/// its texture, where the bar stands in it (`VITALITY_UV`, `FORCE_UV`),
+/// and its backing's colour (the layout's border colour, as recoloured
+/// with the skin).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarArt {
+    pub texture: TextureId,
+    pub uv: [f32; 4],
+    pub back: [f32; 3],
+}
+
+impl BarArt {
+    /// The vitality bar's art in `gui` (the HUD's layout), drawn by
+    /// `painter` (its source the layout's): sloped at its left.
+    pub fn vitality(gui: &Gui, painter: &mut Painter) -> Option<BarArt> {
+        BarArt::of(gui, painter, VITALITY_BAR, VITALITY_UV)
+    }
+
+    /// The Force bar's art, the vitality bar's mirror: sloped at its right.
+    pub fn force(gui: &Gui, painter: &mut Painter) -> Option<BarArt> {
+        BarArt::of(gui, painter, FORCE_BAR, FORCE_UV)
+    }
+
+    fn of(gui: &Gui, painter: &mut Painter, tag: &str, uv: [f32; 4]) -> Option<BarArt> {
+        let bar = gui.find(tag)?;
+        let fill = &bar.progress.as_ref()?.fill;
+        let texture = painter.textures.texture(painter.source, fill)?;
+        let back = painter.color(bar.border.as_ref().and_then(|border| border.color));
+        Some(BarArt { texture, uv, back })
+    }
+}
+
+/// How a duel bar stands: upright, filling up from its bottom (beside a
+/// portrait, as KOTOR 2's own bars), or lying, filling rightward (over a
+/// head; the art turned a quarter clockwise, so the vitality bar's sloped
+/// side is up and the Force bar's down).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Stand {
+    Upright,
+    Lying,
+}
+
+/// `bar` drawn over `rect` as KOTOR 2 draws a portrait's bar: its art
+/// tinted with the backing's colour over the whole bar, then tinted the
+/// bar's colour over its share, cut (not squeezed) so the frame keeps its
+/// shape; `alpha` fades both.
+pub fn meter(art: BarArt, bar: &Bar, rect: [f32; 4], stand: Stand, alpha: f32) -> Vec<Quad> {
+    let turns = match stand {
+        Stand::Upright => 0,
+        Stand::Lying => 1,
+    };
+    let [u0, v0, u1, v1] = art.uv;
+    let [r, g, b] = art.back;
+    let mut quads = vec![Quad {
+        uv: art.uv,
+        turns,
+        ..Quad::image(rect, art.texture, [r, g, b, alpha])
+    }];
+    let share = bar.share.clamp(0.0, 1.0);
+    let mut color = bar.color;
+    color[3] *= alpha;
+    if color[3] > 0.0 && share > 0.0 {
+        let [left, top, width, height] = rect;
+        // Either way the bar fills from the art's bottom end.
+        let filled = match stand {
+            Stand::Upright => [left, top + height * (1.0 - share), width, height * share],
+            Stand::Lying => [left, top, width * share, height],
+        };
+        quads.push(Quad {
+            uv: [u0, v1 - (v1 - v0) * share, u1, v1],
+            turns,
+            ..Quad::image(filled, art.texture, color)
+        });
+    }
+    quads
+}
+
+/// The player's Stamina bar (`HudView::duel`) as a thin copy of KOTOR 2's
+/// portrait bars, upright left of its vitality bar and as tall, level with
+/// it. `gui` is the HUD's layout as placed (`place`, which stretched it
+/// down by `stretch`). The bar's width and the gap between it and the
+/// vitality bar are stretched as much, so that it keeps its shape beside
+/// the vitality bar. The bar is kjk's own: KOTOR 2's HUD has none.
+pub fn duel_bars(gui: &Gui, vm: &ViewModel, art: BarArt, stretch: f32, out: &mut DrawList) {
+    let (Some(bars), Some(vitality)) = (
+        vm.hud.as_ref().and_then(|hud| hud.duel.as_ref()),
+        gui.find(VITALITY_BAR),
+    ) else {
+        return;
+    };
+    // The vitality bar's frame within its control, as its art places it.
+    let [left, top, width, height] = rect_of(vitality);
+    let [u0, v0, _, v1] = VITALITY_UV;
+    let (frame_left, frame_top) = (left + width * u0, top + height * v0);
+    let tall = height * (v1 - v0);
+    let x = frame_left - (DUEL_GAP + DUEL_WIDE) * stretch;
+    let rect = [x, frame_top, DUEL_WIDE * stretch, tall];
+    out.quads
+        .extend(meter(art, &bars.points, rect, Stand::Upright, 1.0));
+}
+
 /// The busy icons drawn (`busy_marks`).
 pub fn busy(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList) {
     for mark in busy_marks(gui, vm) {
@@ -753,7 +1740,26 @@ pub fn busy(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList
 }
 
 /// A pad's buttons' height over an action slot (layout pixels).
-const BADGE_TALL: f32 = 14.0;
+pub(crate) const BADGE_TALL: f32 = 14.0;
+
+/// Writes `words` small (`EXCLAIM_FONT`) in `color`, ringed in black so
+/// they read over any icon. They are placed in `rect` by `place`.
+pub(crate) fn ringed(
+    painter: &mut Painter,
+    words: &[u8],
+    rect: [f32; 4],
+    place: i32,
+    color: [f32; 3],
+    out: &mut DrawList,
+) {
+    let [x, y, w, h] = rect;
+    for [dx, dy] in [[-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0]] {
+        let moved = [x + dx, y + dy, w, h];
+        painter.text(EXCLAIM_FONT, words, moved, place, [0.0, 0.0, 0.0, 1.0], out);
+    }
+    let [r, g, b] = color;
+    painter.text(EXCLAIM_FONT, words, rect, place, [r, g, b, 1.0], out);
+}
 
 /// Each action slot's key at the top of its button and the uses left at
 /// its bottom right, small and ringed in black (the layout's own count
@@ -762,66 +1768,305 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     let Some(hud) = vm.hud.as_ref() else {
         return;
     };
-    let palette = painter.palette;
-    let ring = [[-1.0, 0.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0]];
-    let mut write =
-        |words: &[u8], rect: &dyn Fn(f32, f32) -> [f32; 4], place: i32, color: [f32; 3]| {
-            for [dx, dy] in ring {
-                painter.text(
-                    EXCLAIM_FONT,
-                    words,
-                    rect(dx, dy),
-                    place,
-                    [0.0, 0.0, 0.0, 1.0],
-                    out,
-                );
-            }
-            let [r, g, b] = color;
-            painter.text(
-                EXCLAIM_FONT,
-                words,
-                rect(0.0, 0.0),
-                place,
-                [r, g, b, 1.0],
-                out,
-            );
-        };
-    let mut badges = Vec::new();
-    for (nth, (_, left)) in hud.actions.iter().enumerate() {
-        let Some(button) = gui.find(&format!("BTN_ACTION{nth}")) else {
+    let slots = (hud.bar.iter().enumerate()).map(|(nth, slot)| (nth.to_string(), slot));
+    let extra =
+        (EXTRA.iter().zip(hud.extra())).filter_map(|(tag, slot)| Some((tag.to_string(), slot?)));
+    let controls = slots.chain(extra).filter_map(|(nth, slot)| {
+        let button = gui.find(&format!("BTN_ACTION{nth}"))?;
+        let icon = gui.find(&format!("LBL_ACTION{nth}"))?;
+        Some((slot, [button, icon]))
+    });
+    let controls: Vec<_> = controls.collect();
+    slot_stacks(
+        controls.iter().map(|(slot, drawn)| {
+            let [button, icon] = drawn.map(|control| (control, state(control, vm)));
+            (*slot, [button, icon])
+        }),
+        painter,
+        out,
+    );
+    let frames = controls
+        .iter()
+        .map(|(slot, [button, _])| (*slot, rect_of(button)));
+    slot_marks(frames, painter, out);
+    action_label(gui, hud, painter, out);
+}
+
+/// How many action slots a controller uses. They stand in a cross.
+pub(crate) const CROSS_SLOTS: usize = 4;
+
+/// Where the first four action slots stand while a controller plays. They
+/// stand in a cross, as the controller's four face buttons do. Slot 1 (A) is
+/// at the bottom, slot 2 (B) at the right, slot 3 (X) at the left and slot 4
+/// (Y) at the top. Each slot is `wide` by `tall` and `gap` from the next.
+/// Returns each slot's left and top, measured from the cross's top left
+/// corner, and the cross's width and height.
+pub(crate) fn cross([wide, tall]: [i32; 2], gap: i32) -> ([[i32; 2]; CROSS_SLOTS], [i32; 2]) {
+    let (across, down) = (wide + gap, tall + gap);
+    let places = [
+        [across, down],
+        [2 * across, down / 2],
+        [0, down / 2],
+        [across, 0],
+    ];
+    (places, [2 * across + wide, down + tall])
+}
+
+/// How many action slots the HUD's layout has. KOTOR 2's layout has six.
+const LAYOUT_SLOTS: usize = 6;
+
+/// How many action slots the bar has (`sim::combat::bar::SLOTS`).
+const BAR_SLOTS: usize = 10;
+
+/// `gui` with the action slots the layout does not have. KOTOR 2's layout
+/// has six action slots, and the bar has ten. Each slot after the sixth is
+/// a copy of the sixth slot's frame and icon, and stands one slot's step
+/// to the right of the slot before it. A slot's step is how far the second
+/// slot stands from the first. The HUD draws a slot only while the view
+/// lists it (`state`). The Form slot and the feat slot (`EXTRA`) are copies
+/// too. They stand after the last of the `shown` slots, in that order, and
+/// `extras` tells which of them the HUD draws. The frame round the row
+/// (`BAR_FRAME`) is one step wider for each slot after the sixth that the
+/// HUD draws, so it stands round every one of them.
+pub fn bar_extra(gui: &mut Gui, shown: usize, extras: [bool; EXTRA.len()]) {
+    let left = |nth: usize| {
+        gui.find(&format!("BTN_ACTION{nth}"))
+            .map(|slot| slot.extent.left)
+    };
+    let (Some(first), Some(second)) = (left(0), left(1)) else {
+        return;
+    };
+    let step = second - first;
+    let last = LAYOUT_SLOTS - 1;
+    let row = shown.clamp(LAYOUT_SLOTS, BAR_SLOTS);
+    // Each extra slot stands one step after the last slot drawn before it.
+    let places: Vec<usize> = (0..EXTRA.len())
+        .map(|nth| row + extras[..nth].iter().filter(|drawn| **drawn).count())
+        .collect();
+    for prefix in ["BTN_ACTION", "LBL_ACTION"] {
+        let Some(at) =
+            (gui.controls.iter()).position(|control| control.tag == format!("{prefix}{last}"))
+        else {
             continue;
         };
-        let [x, y, w, h] = rect_of(button);
-        match hud.action_keys.get(nth) {
-            // A pad's buttons, as large as fit the slot's top.
-            Some(KeyLabel {
-                badge: Some(badge), ..
-            }) => badges.push((badge, [x + 2.0, y + 2.0, w - 4.0, BADGE_TALL])),
-            Some(key) => {
-                let rect = |dx: f32, dy: f32| [x + 2.0 + dx, y + 2.0 + dy, w - 4.0, 18.0];
-                write(
-                    &key.words,
-                    &rect,
-                    align::CENTRE | align::TOP,
-                    palette.hilight,
-                );
-            }
-            None => {}
+        let copy = |tag: String, nth: usize| {
+            let mut copy = gui.controls[at].clone();
+            copy.tag = tag;
+            shift_all(&mut copy, (step * (nth - last) as i32, 0));
+            copy
+        };
+        let mut copies: Vec<Control> = (LAYOUT_SLOTS..BAR_SLOTS)
+            .map(|nth| copy(format!("{prefix}{nth}"), nth))
+            .collect();
+        copies.extend(
+            (EXTRA.iter().zip(&places)).map(|(tag, nth)| copy(format!("{prefix}{tag}"), *nth)),
+        );
+        gui.controls.splice(at + 1..at + 1, copies);
+    }
+    let more = row - LAYOUT_SLOTS + extras.iter().filter(|drawn| **drawn).count();
+    if let Some(frame) = (gui.controls.iter_mut()).find(|control| control.tag == BAR_FRAME) {
+        frame.extent.width += step * more as i32;
+    }
+}
+
+/// The tag ending of KOTOR 2's Form slot (`BTN_ACTIONFORM` and
+/// `LBL_ACTIONFORM`), which `bar_extra` makes from the sixth slot's frame
+/// and icon. It shows the Form in use (`HudView::form`).
+pub const FORM: &str = "FORM";
+
+/// The tag ending of the feat slot (`BTN_ACTIONFEAT` and `LBL_ACTIONFEAT`),
+/// made as the Form slot is. It shows the feat attack in use
+/// (`HudView::feat`).
+pub const FEAT: &str = "FEAT";
+
+/// The slots after the action bar's own, in the order they stand: the Form
+/// slot, then the feat slot (`HudView::extra`).
+pub const EXTRA: [&str; 2] = [FORM, FEAT];
+
+/// The extra slot (`EXTRA`) that `tag` is a frame or an icon of, by its
+/// place in `EXTRA`, and whether it is the icon.
+fn extra_of(tag: &str) -> Option<(usize, bool)> {
+    ["BTN_ACTION", "LBL_ACTION"]
+        .iter()
+        .enumerate()
+        .find_map(|(icon, prefix)| {
+            let ending = tag.strip_prefix(prefix)?;
+            let nth = EXTRA.iter().position(|extra| *extra == ending)?;
+            Some((nth, icon == 1))
+        })
+}
+
+/// The frame round the row of action slots.
+const BAR_FRAME: &str = "LBL_MOULDING3";
+
+/// `gui` (placed by `place`) with the first four action slots in a cross,
+/// for a player who plays with a controller (`cross`). The cross keeps the
+/// row's left edge and its bottom edge, so it stays in the window's bottom
+/// left corner. Two slots of the cross are as far apart as two slots of the
+/// row are. The frame round the row is drawn only round a row
+/// (`state` hides it while a controller plays).
+pub fn bar_cross(gui: &mut Gui) {
+    let extent = |nth: usize| {
+        gui.find(&format!("BTN_ACTION{nth}"))
+            .map(|slot| slot.extent)
+    };
+    let (Some(first), Some(second)) = (extent(0), extent(1)) else {
+        return;
+    };
+    let gap = (second.left - first.left - first.width).max(0);
+    let (places, [wide, tall]) = cross([first.width, first.height], gap);
+    let top = first.top + first.height - tall;
+    // The Form slot stands right of the cross, level with its middle row.
+    // The feat slot moves with it, so it keeps its place beside the Form slot.
+    let form = (gui.find(&format!("BTN_ACTION{FORM}")))
+        .map(|slot| slot.extent)
+        .map(|from| {
+            (
+                first.left + wide + gap - from.left,
+                top + places[1][1] - from.top,
+            )
+        });
+    let moves: Vec<(i32, i32)> = (0..CROSS_SLOTS)
+        .map(|nth| {
+            let from = extent(nth).unwrap_or(first);
+            let [across, down] = places[nth];
+            (first.left + across - from.left, top + down - from.top)
+        })
+        .collect();
+    for control in &mut gui.controls {
+        let slot = ["BTN_ACTION", "LBL_ACTION"]
+            .iter()
+            .find_map(|prefix| control.tag.strip_prefix(prefix)?.parse::<usize>().ok());
+        if let Some(by) = slot.and_then(|slot| moves.get(slot)) {
+            shift_all(control, *by);
         }
-        if let Some(left) = left {
-            let rect = |dx: f32, dy: f32| [x + dx, y + h - 20.0 + dy, w - 4.0, 18.0];
-            write(
+        if let Some(by) = form.filter(|_| extra_of(&control.tag).is_some()) {
+            shift_all(control, by);
+        }
+    }
+}
+
+/// Draws the frames stacked behind each slot whose kind of item has two or
+/// more different items carried (`BarSlot::kinds`), as the power wheel
+/// stacks them behind its entry (`wheel::stacked`). The frames stand out
+/// above the slot. The slot's own frame and icon are then drawn again over
+/// them, each control with how it is drawn. The HUD and the action bar
+/// setup screen both mark their shared slots so.
+pub(crate) fn slot_stacks<'a>(
+    slots: impl IntoIterator<Item = (&'a BarSlot, [(&'a Control, ControlState); 2])>,
+    painter: &mut Painter,
+    out: &mut DrawList,
+) {
+    for (slot, [(frame, framed), (icon, iconed)]) in slots {
+        if slot.kinds < 2 {
+            continue;
+        }
+        let marks = (slot.kinds, slot.dim);
+        let place = (rect_of(frame), [0.0, -1.0]);
+        crate::screens::wheel::stacked(frame, marks, place, painter, out);
+        painter.control(frame, &framed, out);
+        painter.control(icon, &iconed, out);
+    }
+}
+
+/// Draws each action slot's key at the top of its frame and the uses left
+/// at the frame's bottom right, small and ringed in black. Each slot comes
+/// with its frame's rectangle. A controller's buttons are drawn after every
+/// slot's words. The HUD and the action bar setup screen both draw their
+/// slots' marks so.
+pub(crate) fn slot_marks<'a>(
+    slots: impl IntoIterator<Item = (&'a BarSlot, [f32; 4])>,
+    painter: &mut Painter,
+    out: &mut DrawList,
+) {
+    let palette = painter.palette;
+    let mut badges = Vec::new();
+    for (slot, [x, y, w, h]) in slots {
+        match &slot.key {
+            // A pad's buttons, as large as fit the slot's top.
+            KeyLabel {
+                badge: Some(badge), ..
+            } => badges.push((badge, [x + 2.0, y + 2.0, w - 4.0, BADGE_TALL])),
+            // A key left unbound in Key Mapping has no words, and nothing
+            // is drawn for it.
+            key => ringed(
+                painter,
+                &key.words,
+                [x + 2.0, y + 2.0, w - 4.0, 18.0],
+                align::CENTRE | align::TOP,
+                palette.hilight,
+                out,
+            ),
+        }
+        if let Some(left) = slot.count {
+            ringed(
+                painter,
                 left.to_string().as_bytes(),
-                &rect,
+                [x, y + h - 20.0, w - 4.0, 18.0],
                 align::RIGHT | align::BOTTOM,
                 palette.base,
+                out,
             );
         }
     }
     for (badge, area) in badges {
         painter.badge(badge, area, out);
     }
-    action_label(gui, hud, painter, out);
+}
+
+/// The gap between a target slot and the pad's buttons beside it (layout
+/// pixels).
+const CYCLE_GAP: f32 = 2.0;
+
+/// The height of the pad's buttons beside the target slots (layout pixels).
+/// They are drawn taller than an action slot's key: a bumper and a D-pad
+/// arm drawn 14 pixels tall are too small to read beside the slots.
+const CYCLE_TALL: f32 = 26.0;
+
+/// The pad's buttons that move the target's chosen action
+/// (`TargetView::cycle`), each with where it is drawn in `gui` (placed by
+/// `place`, the block floated or not). The button that moves it back
+/// stands left of the first slot. The button that moves it on stands
+/// right of the last slot that shows an action. Both are level with the
+/// slots' middle. There are none while the player walks to the target or
+/// revives it, and none without a hint to show.
+pub fn cycle_badges(gui: &Gui, target: &TargetView) -> Vec<(String, [f32; 4])> {
+    let (Some([back, on]), false) = (target.cycle.as_ref(), target.busy) else {
+        return Vec::new();
+    };
+    let last = target.actions.len().saturating_sub(1);
+    let (Some(first), Some(end)) = (
+        gui.find("BTN_TARGET0"),
+        gui.find(&format!("BTN_TARGET{last}")),
+    ) else {
+        return Vec::new();
+    };
+    let ([x, y, _, h], [ex, _, ew, _]) = (rect_of(first), rect_of(end));
+    let top = y + (h - CYCLE_TALL) / 2.0;
+    let wide = CYCLE_TALL * 3.0;
+    vec![
+        (back.clone(), [x - CYCLE_GAP - wide, top, wide, CYCLE_TALL]),
+        (on.clone(), [ex + ew + CYCLE_GAP, top, wide, CYCLE_TALL]),
+    ]
+}
+
+/// Draws the target block's `cycle_badges`: the back button right-aligned
+/// against the first slot, the on button left-aligned against the last.
+pub fn target_cycle(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList) {
+    let Some(target) = vm.target.as_ref() else {
+        return;
+    };
+    for (nth, (badge, area)) in cycle_badges(gui, target).into_iter().enumerate() {
+        if nth == 0 {
+            // Measured at its own shape first, then moved flush to the slot.
+            let mut measure = DrawList::default();
+            let wide = painter.badge_left(&badge, area, &mut measure);
+            let [x, y, w, h] = area;
+            painter.badge_left(&badge, [x + w - wide, y, wide, h], out);
+        } else {
+            painter.badge_left(&badge, area, out);
+        }
+    }
 }
 
 /// The label's padding round its words, and its gap over the slot (layout
@@ -829,34 +2074,56 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
 const LABEL_PAD: [f32; 2] = [10.0, 4.0];
 const LABEL_GAP: f32 = 4.0;
 
-/// What is being chosen over its action slot, fading (`HudView::action_label`),
+/// What is being chosen over its action slot, fading (`HudView::bar_label`),
 /// in the HUD's own look: the target's action words (`LBL_ACTIONDESC`: its
 /// font and colour) in the frame round the action bar (`LBL_MOULDING3`, else
 /// the words' own backing), sized to the words, at least the frame's corners
 /// tall, and kept inside the layout.
 fn action_label(gui: &Gui, hud: &HudView, painter: &mut Painter, out: &mut DrawList) {
-    let Some((nth, words, alpha)) = hud.action_label.as_ref() else {
+    let Some((nth, words, alpha)) = hud.bar_label.as_ref() else {
         return;
     };
-    let (Some(button), Some(backing), Some(desc)) = (
-        gui.find(&format!("BTN_ACTION{nth}")),
-        gui.find("LBL_MOULDING3")
-            .or_else(|| gui.find("LBL_ACTIONDESCBG")),
-        gui.find("LBL_ACTIONDESC"),
-    ) else {
-        return;
-    };
-    let source = painter.source;
-    let Some((width, line)) = desc
-        .text
-        .as_ref()
-        .and_then(|text| painter.textures.font(source, &text.font))
-        .map(|(_, font)| (font.measure(words), font.line_height()))
-    else {
+    let Some(button) = gui.find(&format!("BTN_ACTION{nth}")) else {
         return;
     };
     let [x, y, w, _] = rect_of(button);
     let right = gui.extent.width as f32;
+    let over_slot = |[wide, tall]: [f32; 2]| {
+        let left =
+            (x + (w - wide) / 2.0).clamp(LABEL_GAP, (right - wide - LABEL_GAP).max(LABEL_GAP));
+        [left, y - LABEL_GAP - tall]
+    };
+    let from = out.quads.len();
+    label(gui, words, &over_slot, painter, out);
+    for quad in &mut out.quads[from..] {
+        quad.color[3] *= alpha;
+    }
+}
+
+/// Draws `words` in the HUD's own label look: the target's action words
+/// (`LBL_ACTIONDESC`, its font and colour) in the frame round the action
+/// bar (`LBL_MOULDING3`, else the words' own backing). The label is sized
+/// to the words and is at least the frame's corners tall. `place` takes
+/// the label's width and height and gives its top left corner. The
+/// function returns the rectangle the label took, or none when the layout
+/// lacks the controls or their font.
+pub(crate) fn label(
+    gui: &Gui,
+    words: &[u8],
+    place: &dyn Fn([f32; 2]) -> [f32; 2],
+    painter: &mut Painter,
+    out: &mut DrawList,
+) -> Option<[f32; 4]> {
+    let backing = gui
+        .find("LBL_MOULDING3")
+        .or_else(|| gui.find("LBL_ACTIONDESCBG"))?;
+    let desc = gui.find("LBL_ACTIONDESC")?;
+    let source = painter.source;
+    let (width, line) = desc
+        .text
+        .as_ref()
+        .and_then(|text| painter.textures.font(source, &text.font))
+        .map(|(_, font)| (font.measure(words), font.line_height()))?;
     let corners = backing
         .border
         .as_ref()
@@ -865,27 +2132,23 @@ fn action_label(gui: &Gui, hud: &HudView, painter: &mut Painter, out: &mut DrawL
         (width + 2.0 * LABEL_PAD[0]).max(corners),
         (line + 2.0 * LABEL_PAD[1]).max(corners),
     ];
-    let left =
-        (x + (w - size[0]) / 2.0).clamp(LABEL_GAP, (right - size[0] - LABEL_GAP).max(LABEL_GAP));
-    let top = y - LABEL_GAP - size[1];
+    let [left, top] = place(size);
+    let rect = [left.round(), top.round(), size[0].round(), size[1].round()];
     let placed = |control: &Control| {
         let mut control = control.clone();
-        control.extent.left = left.round() as i32;
-        control.extent.top = top.round() as i32;
-        control.extent.width = size[0].round() as i32;
-        control.extent.height = size[1].round() as i32;
+        control.extent.left = rect[0] as i32;
+        control.extent.top = rect[1] as i32;
+        control.extent.width = rect[2] as i32;
+        control.extent.height = rect[3] as i32;
         control
     };
-    let from = out.quads.len();
     painter.control(&placed(backing), &ControlState::default(), out);
     let state = ControlState {
-        text: Some(words.clone()),
+        text: Some(words.to_vec()),
         ..ControlState::default()
     };
     painter.control(&placed(desc), &state, out);
-    for quad in &mut out.quads[from..] {
-        quad.color[3] *= alpha;
-    }
+    Some(rect)
 }
 
 /// How the banner layer shows `control`: the line in KOTOR's combat message
@@ -934,10 +2197,15 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
         let member = place.and_then(|place| vm.party.get(place));
         return shown(vm.hud.is_some() && member.is_some_and(|member| member.debilitated));
     }
+    if MENU_BUTTONS.contains(&tag)
+        && crate::feedback::on(&vm.settings, crate::feedback::HIDE_MENU_BUTTONS)
+    {
+        return hidden;
+    }
     match tag {
         "LBL_MAPBORDER" => return shown(hud.minimap.is_some()),
         "TB_STEALTH" if hud.stealth => return lit(),
-        "TB_SOLO" if hud.solo => return lit(),
+        SOLO if hud.solo => return lit(),
         _ => {}
     }
     if let Some(shown) = target_state(tag, vm.target.as_ref()) {
@@ -949,30 +2217,54 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
     if STATUS.contains(&tag) {
         return shown(hud.lit.contains(&tag));
     }
-    // The swap button answers only while a character is on the HUD
-    // (`swap_at`).
-    if HIDDEN.iter().any(|prefix| tag.starts_with(prefix)) || (tag == SWAP && vm.hud.is_none()) {
+    if HIDDEN.iter().any(|prefix| tag.starts_with(prefix)) || tag == SWAP {
         return hidden;
     }
     let slot = |prefix: &str| {
         tag.strip_prefix(prefix)
             .and_then(|slot| slot.parse::<usize>().ok())
     };
-    if let Some(slot) = slot("BTN_ACTION") {
-        return if slot < hud.actions.len() {
-            ControlState::default()
-        } else {
-            hidden
-        };
+    if tag == BAR_FRAME && vm.pad_playing {
+        return hidden;
     }
-    if let Some(slot) = slot("LBL_ACTION") {
-        return match hud.actions.get(slot) {
-            Some((icon, _)) => ControlState {
+    if let Some((nth, label)) = extra_of(tag) {
+        return match hud.extra()[nth] {
+            Some(BarSlot {
+                icon: Some(icon),
+                dim,
+                ..
+            }) if label => ControlState {
                 fill: Some(icon.clone()),
                 text: Some(Vec::new()),
+                dimmed: *dim,
+                ..ControlState::default()
+            },
+            Some(_) if !label => ControlState::default(),
+            _ => hidden,
+        };
+    }
+    if let Some(slot) = slot("BTN_ACTION") {
+        return match hud.bar.get(slot) {
+            Some(BarSlot { lit, .. }) => ControlState {
+                selected: *lit,
                 ..ControlState::default()
             },
             None => hidden,
+        };
+    }
+    if let Some(slot) = slot("LBL_ACTION") {
+        return match hud.bar.get(slot) {
+            Some(BarSlot {
+                icon: Some(icon),
+                dim,
+                ..
+            }) => ControlState {
+                fill: Some(icon.clone()),
+                text: Some(Vec::new()),
+                dimmed: *dim,
+                ..ControlState::default()
+            },
+            _ => hidden,
         };
     }
     match tag {

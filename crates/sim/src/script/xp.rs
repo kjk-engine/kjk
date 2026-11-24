@@ -15,6 +15,7 @@ use script_ncs::vm::{ObjectId, Value};
 use super::engine::{Bound, Engine, int, object, text};
 use super::state::State;
 use super::{Library, Out, View, items};
+use crate::combat::balance::Balance;
 use crate::inventory::PARTY;
 use crate::notice::Notice;
 use crate::snapshot::StatusKind;
@@ -24,13 +25,15 @@ use crate::wire::Writer;
 /// death gives by the party's level (row) and the challenge rating
 /// (column `c0`, `c1`, …); TSL's `autobalance.2da` `CRMod` by row, and
 /// `npc.2da`'s `PercentXP` of its rows 13 (`GAME_XP_General`) and 14
-/// (`PER_NPC_Bonus`), which TSL's executable scales a death's XP by.
+/// (`PER_NPC_Bonus`), which TSL's executable scales a death's XP by; and
+/// `autobalance.2da`'s multipliers by row (`combat::balance`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Experience {
     pub plots: Vec<(String, i32)>,
     pub kills: Vec<Vec<i32>>,
     pub balance_cr: Vec<i32>,
     pub percent: Option<(i32, i32)>,
+    pub balance: Vec<Balance>,
 }
 
 /// The highest row and challenge rating TSL's `CalculateDeathExperience`
@@ -100,6 +103,12 @@ impl Experience {
         xp.ceil() as i32
     }
 
+    /// Scaling set `set`'s multipliers (`ObjectData::multiplier_set`): none
+    /// for set 0 (no scaling) or a row the table lacks.
+    pub fn balance(&self, set: u8) -> Option<&Balance> {
+        self.balance.get(usize::from(set)).filter(|_| set != 0)
+    }
+
     pub(crate) fn digest_into(&self, out: &mut Writer) {
         out.u32(self.plots.len() as u32);
         for (label, xp) in &self.plots {
@@ -122,6 +131,11 @@ impl Experience {
             let (general, per_npc) = self.percent.unwrap_or((100, 0));
             out.u32(general as u32);
             out.u32(per_npc as u32);
+            for set in &self.balance {
+                for column in set.columns() {
+                    out.u32(column.to_bits());
+                }
+            }
         }
     }
 }
@@ -155,6 +169,100 @@ pub fn holder(view: &View, state: &State, who: ObjectId) -> u32 {
     } else {
         items::holder(view, who)
     }
+}
+
+/// A use of a skill that TSL rewards with experience.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillXp {
+    /// A mine (or a trapped door or placeable) disarmed or recovered.
+    Mine,
+    /// A lock opened with Security.
+    Lock,
+}
+
+impl SkillXp {
+    /// What TSL's executable gives the party for this use against `dc`
+    /// when the main character is of level `level`
+    /// (`CSWSCreature::AIActionDisarmMine`, `AIActionRecoverMine`,
+    /// `CSWSObject::AIActionUnlockObject`). The reward is a multiple of the
+    /// level. The higher multiple counts when `dc` is at least the level +
+    /// `HARD_OVER`.
+    pub fn worth(self, level: u8, dc: i16) -> i32 {
+        let [easier, hard] = match self {
+            SkillXp::Mine => rules::progression::skill_xp::MINE,
+            SkillXp::Lock => rules::progression::skill_xp::LOCK,
+        };
+        let level = i16::from(level);
+        let hard_at = level + rules::progression::skill_xp::HARD_OVER;
+        let per_level = if dc >= hard_at { hard } else { easier };
+        per_level * i32::from(level)
+    }
+}
+
+/// The party gains what a party member's successful use of a skill
+/// against `dc` is worth (`SkillXp::worth`), at the first PC's level, and
+/// every player is told. Only TSL rewards these uses. K1's executable
+/// gives no experience for a disarmed or recovered mine or an opened lock.
+pub(crate) fn reward_skill(
+    library: &Library,
+    view: &View,
+    state: &mut State,
+    out: &mut Out,
+    used: SkillXp,
+    dc: i16,
+) {
+    use crate::combat::passive::Game;
+    if Game::named(&view.module.game) != Game::Tsl {
+        return;
+    }
+    let level = view
+        .thing(view.first_main_character(&state.party))
+        .and_then(|pc| pc.character)
+        .map(|character| character.level);
+    let Some(level) = level else {
+        return;
+    };
+    out.reward(state, mentor(view, state, used.worth(level, dc)));
+    tell_pc_level(library, view, state);
+}
+
+/// `amount` with the first active party member's Mentor bonus added, rounded
+/// up (`CSWPartyTable::DistributeExperience`: 3 % up to level 6, 5 % up to
+/// 12, 7 % above that).
+pub(crate) fn mentor(view: &View, state: &State, amount: i32) -> i32 {
+    if amount <= 0 {
+        return amount;
+    }
+    let level = view
+        .party
+        .iter()
+        .copied()
+        .chain(state.party.creatures().map(ObjectId))
+        .filter_map(|id| view.thing(id)?.character)
+        .find(|character| character.worn.knows(crate::combat::sheet::feats::MENTOR))
+        .map(|character| character.worn.level)
+        .unwrap_or(0);
+    if level == 0 {
+        return amount;
+    }
+    mentor_bonus(amount, level)
+}
+
+/// `amount` with the Mentor bonus for `level` added, rounded up.
+fn mentor_bonus(amount: i32, level: u8) -> i32 {
+    if amount <= 0 || level == 0 {
+        return amount;
+    }
+    let [first, second] = rules::progression::experience::MENTOR_LEVELS;
+    let [one, two, three] = rules::progression::experience::MENTOR_SHARE;
+    let share = if level <= first {
+        one
+    } else if level <= second {
+        two
+    } else {
+        three
+    };
+    amount.saturating_add((amount as f32 * share).ceil() as i32)
 }
 
 /// The global TSL's scripts read the player's level from.
@@ -244,6 +352,7 @@ impl Engine<'_> {
                     _ => amount,
                 };
                 if holder == PARTY && bound == Bound::GiveXPToCreature {
+                    let amount = mentor(self.view, self.state, amount);
                     // Told only when it is given a player's character.
                     if self.is_pc(object(args, 0)) {
                         self.out.story_xp(self.state, amount);
@@ -264,6 +373,7 @@ impl Engine<'_> {
                 let xp = experience.plot_named(text(args, 0)).unwrap_or(0);
                 let share = i64::from(xp) * i64::from(int(args, 1)) / 100;
                 let share = share.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+                let share = mentor(self.view, self.state, share);
                 self.out.story_xp(self.state, share);
                 tell_pc_level(self.library, self.view, self.state);
                 Value::Int(0)

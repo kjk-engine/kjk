@@ -74,7 +74,7 @@ impl Hint {
             seconds: self.seconds,
             arrive: self.arrive.clone(),
             globals: self.globals.clone(),
-            talk: self.talk.clone(),
+            talk: crate::by_hand::talk(self.talk.clone(), None),
             items: self.items.clone(),
             skills: self
                 .skills
@@ -295,7 +295,7 @@ fn film(
         .status()
         .map_err(|error| error.to_string())?;
     let log = std::fs::read_to_string(&log_path).unwrap_or_else(|_| String::new());
-    let child = crate::tour::run_folder(&log).ok_or(format!("{name}: no run folder ({status})"))?;
+    let child = crate::run_folder::run_folder(&log).ok_or(format!("{name}: no run folder ({status})"))?;
     let video = format!("{name}.mp4");
     let copied = std::fs::copy(child.join(&video), folder.join(&video))
         .map(|_| video)

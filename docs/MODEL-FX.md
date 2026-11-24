@@ -97,18 +97,25 @@ lightning and how to see them).
   for an upside-down camera): the star map's glyphs and `plc_holoart` turn
   to every walker yet stay upright, and are edge-on from above.
   `Aligned_to_Particle_Dir` (the surf's waves and splash) lays each long
-  along where its particle is going, as wide as it is long, unspun, its
-  side the emitter's x turned square to that [verify: the executable keeps
-  each particle's heading as a quaternion, and its roll about the heading
-  is not read]. Quads are added by their texture's alpha (`Lighten`:
+  along the way its particle was sent at its birth, as wide as it is long,
+  unspun, its side the emitter's x turned square to that. K1's executable
+  gives each particle the emitter's turn when it is born (tilted by the
+  spread) and builds the quad from that turn's x and z for the rest of
+  its life. Gravity, drag and a reference node change where the particle
+  goes, but never how its quad lies. Manaan's surf (`m26aa_se2`'s
+  `Wave_0…` emitters) shows why it matters: each wave is sent towards the
+  city and pulled back to a node behind its emitter. Drawn along its
+  current way, a wave stood up as a 30 m sheet of spray where it stopped
+  and turned, through the walkways above (issue 326). The roll about the
+  heading is not read [verify]. Quads are added by their texture's alpha (`Lighten`:
   KOTOR's flares and sparks are white, their shape in alpha) or blended in
   encoded values as the game did (`scene::encoded_view`); a chunk emitter
   draws its model; `fx_distortion` with punch-through is a heat haze
   (`heat_haze`) [verify by eye]; any other punch-through emitter is drawn
   whole, unblended, where its alpha is above nothing, as the executable
   draws it (blending off, its alpha test at its default `GL_GREATER` 0).
-  `Aligned_to_World_Z` and `Aligned_to_Particle_Dir` follow TSL's
-  executable (K1's [verify]).
+  `Aligned_to_World_Z` follows TSL's executable (K1's [verify]).
+  `Aligned_to_Particle_Dir`'s birth turn was read in K1's executable.
 
 ## Weapons drawn solid (`material::weapon_surface`)
 - A kjk choice, not KOTOR's (`weapons_in_hand.look.solid`, issue 171): a
@@ -117,11 +124,20 @@ lightning and how to see them).
   blending, decal or animation) is drawn opaque. KOTOR's executable blends
   it by that alpha over what was drawn before it: its opaque pass keeps
   blending on (source alpha) and draws textures by their mean alpha, the
-  solid ones first, so a weapon whose TGA carries a shine mask without its
-  TXI (High Quality Blasters) shows the room through it. A loose TXI is
-  the only one a TGA gets (never the replaced TPC's), and a weapon has no
-  env map of its own. Saber blades (additive), glows, effects, bodies,
-  rooms and placeables keep KOTOR's rule.
+  solid ones first, so a weapon whose texture carries a shine mask with no
+  TXI at all shows the room through it. A weapon has no env map of its
+  own. Saber blades (additive), glows, effects, bodies, rooms and
+  placeables keep KOTOR's rule.
+- A texture's TXI is picked as KOTOR 2's executable picks it
+  (`CAuroraInterface::GetResource`; `fmt_odyssey::texture::texture_txi`).
+  A loose `.txi` of the texture's name comes first, even an empty one.
+  Without one, the TXI stored in the TPC of that name is used. A mod's TGA
+  that replaces a stock TPC and ships no TXI therefore keeps the stock
+  TPC's TXI. High Quality Blasters ships TXIs only for its new textures.
+  Its TGAs that replace stock guns take the stock TXI's
+  `envmaptexture CM_Baremetal`, so their alpha is a shine mask and they are
+  drawn solid without the rule above. The rule still covers a weapon
+  texture that has no TXI anywhere.
 
 ## Rooms and placeables (`own_fx`, `viewer::OwnFx`)
 - `viewer::module_scene` reads each room's and placeable's MDL once for
@@ -158,7 +174,9 @@ lightning and how to see them).
   4 `on`, 5 `off`), then a script's `PlayAnimation` /
   `ActionPlayAnimation` (200 on, 201 off, 202 open, 203 closed, 204–213
   `animloop01`–`10`), a container opened (open) and let go (closed),
-  broken by blows (a container open, any other dead). Each look loops its
+  broken by blows (a container open, any other dead), killed by a death
+  effect (dead even when it holds items, then removed from the area 2 s
+  later, as the executables remove it). Each look loops its
   clip; a change plays its way there once first: to on `off2on`, to off
   `on2off`, to open `close2open`, to closed `open2close` (from open only),
   to dead `die`, back to default the way it came; none to a loop. A look
@@ -228,9 +246,10 @@ kjk play --stage sta_m45ad --arrive sta_way_captive2 --run k_psta_cutdrain2 --he
   (following it): `duration` (else their own clip, the shields' `default`)
   round and round while it lasts, `SoundDuration` held, then `cessation`
   once, its end models (`Ces_*_Node`) and `SoundCessastion` as it ends.
-  An added mesh is drawn unlit, in its self-illumination's colour (the
-  shield spheres' grey `fx_tex_13` red or blue, as the games show them;
-  `material::OdysseyMaterial::new`).
+  An added mesh with a self-illumination is lit. Its texture is scaled by
+  the self-illumination plus the light of the place, up to full light. In
+  a dark place the shield spheres' grey `fx_tex_13` shows red or blue, as
+  the games show them (`material::OdysseyMaterial::new`).
 - A beam (`ProgFX_Duration` 608 to 621) draws the model the game's
   executable picks for it (`BEAMS`, read off the Mac build: lightning
   small and large, the droids' disable, destroy and stun, the death

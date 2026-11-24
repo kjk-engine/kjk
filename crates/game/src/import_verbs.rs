@@ -89,7 +89,7 @@ pub(crate) fn area_cache(install: &Install, from_store: bool) -> session::AreaCa
     };
     cache.with_bakes(session::Bakes {
         store,
-        world: print.world().digest,
+        world: install.world(print).digest,
     })
 }
 

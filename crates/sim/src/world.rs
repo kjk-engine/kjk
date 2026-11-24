@@ -39,7 +39,7 @@ use crate::input::{Command, Seat, TickInput, buttons};
 use crate::install::InstallError;
 use crate::math::{self, scale};
 use crate::module::{Bulk, Global, ModuleData, ObjectData, ObjectKind, Side};
-use crate::motion::{self, AnimTable, MotionState, Touches};
+use crate::motion::{self, AnimTable, MotionState};
 use crate::rng::SimRng;
 use crate::walk;
 pub mod arena;
@@ -49,6 +49,7 @@ pub mod arena;
     reason = "checks and traces set up their own cases on one machine"
 )]
 pub mod arena_probes;
+mod bars;
 pub mod charting;
 pub mod containers;
 #[cfg(feature = "probes")]
@@ -82,7 +83,15 @@ pub use minds::probes as minds_probes;
 )]
 pub mod aim_probes;
 #[cfg(feature = "probes")]
+pub mod armour_force_probes;
+#[cfg(feature = "probes")]
 pub mod arrival_probes;
+#[cfg(feature = "probes")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "checks and traces set up their own cases on one machine"
+)]
+pub mod bloom_shot_probes;
 #[cfg(feature = "probes")]
 pub mod bulk_probes;
 #[cfg(feature = "probes")]
@@ -91,6 +100,10 @@ pub mod effects_probes;
 pub mod floor_probes;
 #[cfg(feature = "probes")]
 pub mod force_probes;
+#[cfg(feature = "probes")]
+pub mod held_probes;
+#[cfg(feature = "probes")]
+pub mod hold_probes;
 mod minigame;
 #[cfg(feature = "probes")]
 pub mod own_item_probes;
@@ -105,6 +118,10 @@ pub mod party_fights_probes;
 pub mod picks_probes;
 #[cfg(feature = "probes")]
 pub mod player_probes;
+#[cfg(feature = "probes")]
+pub mod power_cycle_probes;
+#[cfg(feature = "probes")]
+pub mod power_rows_probes;
 mod powers;
 #[cfg(feature = "probes")]
 pub mod presentation_probes;
@@ -115,10 +132,15 @@ pub mod remains;
 pub mod reputation_probes;
 #[cfg(feature = "probes")]
 pub mod routine_probes;
+#[cfg(feature = "probes")]
+pub mod rows_by_label_probes;
 mod sabers;
 mod scene;
 #[cfg(feature = "probes")]
+pub mod scream_probes;
+#[cfg(feature = "probes")]
 pub mod speaker_probes;
+pub(crate) mod stances;
 #[cfg(feature = "probes")]
 pub mod talk_end_probes;
 #[cfg(feature = "probes")]
@@ -142,13 +164,32 @@ pub(crate) mod traps;
 // The world's own parts, each a file of its own so parallel changes meet
 // less, their names taken here as they were before the split.
 mod bolts;
+#[cfg(feature = "probes")]
+pub mod doorway_probes;
+#[cfg(feature = "probes")]
+pub mod facing_probes;
 mod firing;
+pub mod grapples;
 mod harm;
 mod interaction;
+#[cfg(feature = "probes")]
+pub mod jam_probes;
+mod jams;
+#[cfg(feature = "probes")]
+pub mod made_waypoint_probes;
+use jams::Jams;
 mod level;
 mod movement;
+#[cfg(feature = "probes")]
+pub mod push_probes;
 mod state;
+#[cfg(feature = "probes")]
+pub mod step_down_probes;
+#[cfg(feature = "probes")]
+pub mod tucked_probes;
 pub(crate) use movement::*;
+#[cfg(feature = "probes")]
+pub(crate) use sabers::parries_held;
 pub use sabers::seen_cuts;
 use {bolts::*, harm::*, state::*};
 pub use {firing::*, interaction::*, level::*};
@@ -271,6 +312,24 @@ struct NextId(u32);
 #[derive(Resource)]
 struct SeatsHeld(u8);
 
+/// The rules the blades play by (`Snapshot::saber_rules`), the session's,
+/// and whether the session chose targeted blocks
+/// (`Snapshot::targeted_blocks`).
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct Rules(pub(crate) crate::combat::saber::SaberRules, pub(crate) bool);
+
+impl Rules {
+    /// Whether targeted blocks apply (`SaberRules::targeted`).
+    pub(crate) fn targeted(self) -> bool {
+        self.0.targeted(self.1)
+    }
+}
+
+/// The share of the normal damage each side takes, the session's
+/// (`Snapshot::damage_taken`).
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct DamageTaken(pub(crate) crate::combat::damage::Taken);
+
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
 
@@ -335,6 +394,10 @@ struct Module {
     /// The saved continuations dropped as the world loaded or entered the
     /// module, one line each (`reconcile::drop_stale_code`): not state.
     dropped_code: Vec<String>,
+    /// The names of the stance sets the save named and the level lacks, as
+    /// the world loaded from a save (`SimWorld::stances_gone`). This is not
+    /// state.
+    stances_gone: Vec<String>,
     /// Where the party stood instead of an arrival over no floor, as it
     /// entered the module (`SimWorld::arrival_fallback`): not state.
     arrival_fallback: Option<String>,
@@ -344,11 +407,6 @@ struct Module {
     /// (`crate::visuals`).
     visuals: Vec<crate::visuals::OnObject>,
 }
-
-/// What each seat's move ran into this step (in seat order). Filled by
-/// `move_players`, read by `interact`; not state.
-#[derive(Resource, Default)]
-struct Touched(Vec<(Seat, Touches)>);
 
 /// Who ran into which entity this step, in move order: a closed door
 /// that opens opens for that creature, its opener (`interact`). Not state.
@@ -361,6 +419,13 @@ struct Bumped(Vec<(SimId, u32)>);
 /// client works it out from the same placeables.
 #[derive(Resource, Default)]
 struct MadeFaces(Arc<[bool]>, walk::MadeWalls);
+
+/// What a world worked out and keeps across steps without it being state
+/// (`SimWorld::worked_out`), for another world in the same level.
+pub struct WorkedOut {
+    placed: Arc<[Arc<crate::module::ObjectData>]>,
+    faces: MadeFaces,
+}
 
 /// The players a script walks this step (a move it queued while they are
 /// held in a conversation, a cinematic's), their minds' commands in place
@@ -467,12 +532,22 @@ struct Hit {
 /// `by` at `now`: holds as C11 holds the Force's (fear's ends on damage),
 /// confusion, Slow's first level, a point of an ability drained, a
 /// `poison.2da` row's poison (the level's table; none where it has none), a
-/// knockdown as a thermal detonator's.
-fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, level: &Level) {
+/// knockdown as a thermal detonator's. Whether a hold was refused for the
+/// target's recent holds (`ForceState::weary`).
+fn struck_by(
+    fighter: &mut Fighter,
+    effect: gear::Struck,
+    by: SimId,
+    now: u64,
+    level: &Level,
+) -> bool {
     match effect {
-        gear::Struck::Hold { ms, fear } => {
-            if fighter.force.hold(now, ms) {
+        gear::Struck::Hold { ms, fear, save } => {
+            let kind = crate::combat::force::HoldKind::Combat(Some(save));
+            if fighter.force.hold(now, ms, kind) {
                 fighter.force.hold = if fear { Hold::Fear } else { Hold::Stun };
+            } else {
+                return fighter.force.weary(now);
             }
         }
         gear::Struck::Confuse(ms) => {
@@ -504,6 +579,7 @@ fn struck_by(fighter: &mut Fighter, effect: gear::Struck, by: SimId, now: u64, l
         }
         gear::Struck::Death => {}
     }
+    false
 }
 
 /// A script's push (`EffectForcePushed`, `EffectForcePushTargeted` outside
@@ -618,6 +694,25 @@ fn drive_walk(level: &Level, appearance: u16) -> Option<f32> {
     level
         .scripts()
         .and_then(|library| library.drive_walk(appearance))
+}
+
+/// Whether a body of `appearance.2da` row `appearance` has no legs to jump
+/// with (`script::Library::legless`).
+fn legless(level: &Level, appearance: u16) -> bool {
+    (level.scripts()).is_some_and(|library| library.legless(appearance))
+}
+
+/// The walk and run (m/s) a body disguised as `appearance.2da` row
+/// `appearance` moves at: the row's `creaturespeed.2da` rates, its walk the
+/// row's `driveanimwalk` while its player drives it (`driven`, as a body's
+/// own appearance's, `walk::rates`). None for a row the tables don't give.
+fn disguise_rates(level: &Level, appearance: u16, driven: bool) -> Option<(f32, f32)> {
+    let library = level.scripts()?;
+    let (walk, run) = library.appearance_rates(appearance)?;
+    let walk = (library.drive_walk(appearance))
+        .filter(|_| driven)
+        .unwrap_or(walk);
+    Some((walk, run))
 }
 
 /// Where a standing body's box (`body`, `blocking`) puts its origin (units).
@@ -776,10 +871,100 @@ impl SimWorld {
         *self.world.resource_mut::<MadeFaces>() = faces;
     }
 
+    /// A copy of what `keep_worked_out` takes over, for a world made from a
+    /// snapshot on another thread while this one goes on (a client's rewind
+    /// beside its frame, issue 229): `use_worked_out` puts it in.
+    pub fn worked_out(&self) -> WorkedOut {
+        let made = self.world.resource::<MadeFaces>();
+        WorkedOut {
+            placed: self.world.resource::<Static>().0.placed.clone(),
+            faces: MadeFaces(made.0.clone(), made.1.clone()),
+        }
+    }
+
+    /// `keep_worked_out` from a copy (`worked_out`), when both stand in the
+    /// same level.
+    pub fn use_worked_out(&mut self, worked: WorkedOut) {
+        let placed = self.world.resource::<Static>().0.placed.clone();
+        if Arc::ptr_eq(&placed, &worked.placed) {
+            *self.world.resource_mut::<MadeFaces>() = worked.faces;
+        }
+    }
+
+    /// One entity's state now, as the next snapshot will hold it: what a
+    /// rewind that makes no snapshot for a tick keeps of the seat's own body
+    /// (issue 229).
+    pub fn entity_state(&mut self, id: SimId) -> Option<EntityState> {
+        let time_ms = self.world.resource::<Clock>().time_ms;
+        let row = self.rows.iter(&self.world).find(|row| row.0.0 == id)?;
+        Some(state::entity_state(row, time_ms))
+    }
+
+    /// The missiles in flight now, as the next snapshot will hold them.
+    pub fn missiles(&mut self) -> Vec<EntityState> {
+        let time_ms = self.world.resource::<Clock>().time_ms;
+        self.rows
+            .iter(&self.world)
+            .filter(|row| row.10.is_some())
+            .map(|row| state::entity_state(row, time_ms))
+            .collect()
+    }
+
+    /// One tick as `step` takes it, with no snapshot made of the result: a
+    /// rewind's ticks that nothing will draw (issue 229). The world is the
+    /// same after it as after `step`.
+    pub fn advance_only(&mut self, tick: u64, input: &TickInput, msec: u32, reason: StepReason) {
+        self.advance(tick, input, msec, reason);
+    }
+
     /// Seat `persona.seat`'s player is `persona` from now on (character
     /// creation's, or the host's default for a seat without one).
     pub fn set_persona(&mut self, persona: crate::persona::Persona) {
         crate::persona::put(&mut self.world.resource_mut::<Personas>().0, persona);
+    }
+
+    /// The blades play by `rules` from now on (the session's choice, on the
+    /// host: a guest's world takes the host's from its snapshots). A module
+    /// change and a save keep them. When the rules change between JA's and
+    /// MDA, every fighter then takes the stance set the rules allow
+    /// (`restance`). A call that sets the rules the world already plays by
+    /// changes nothing.
+    pub fn set_saber_rules(&mut self, rules: crate::combat::saber::SaberRules) {
+        let before = self.saber_rules();
+        self.world.resource_mut::<Rules>().0 = rules;
+        if before.duel() != rules.duel() {
+            self.restance();
+        }
+    }
+
+    /// The rules the blades play by.
+    pub fn saber_rules(&self) -> crate::combat::saber::SaberRules {
+        self.world.resource::<Rules>().0
+    }
+
+    /// The session plays with targeted blocks from now on when `on` is true
+    /// (the session's choice, on the host: a guest's world takes the host's
+    /// from its snapshots). A module change and a save keep the choice.
+    pub fn set_targeted_blocks(&mut self, on: bool) {
+        self.world.resource_mut::<Rules>().1 = on;
+    }
+
+    /// The party and the enemies take `taken` of the normal damage from now
+    /// on (the options' choice, on the host: a guest's world takes the
+    /// host's from its snapshots). A module change and a save keep it.
+    pub fn set_damage_taken(&mut self, taken: crate::combat::damage::Taken) {
+        self.world.resource_mut::<DamageTaken>().0 = taken;
+    }
+
+    /// The share of the normal damage each side takes.
+    pub fn damage_taken(&self) -> crate::combat::damage::Taken {
+        self.world.resource::<DamageTaken>().0
+    }
+
+    /// Whether targeted blocks apply. They apply only under the Advanced
+    /// rules when the session chose them, and never under Jedi Academy's.
+    pub fn targeted(&self) -> bool {
+        self.world.resource::<Rules>().targeted()
     }
 
     /// Seat `creation.persona.seat`'s player becomes the character made
@@ -795,6 +980,8 @@ impl SimWorld {
             .map(|library| library.classes().clone())
             .filter(|classes| !classes.classes.is_empty())
             .ok_or("no classes in this level")?;
+        // The made character starts in the stance set its table row gives.
+        let stance = stances::made_with(self.saber_rules(), self.level(), stances::SEAT);
         let mut players = self
             .world
             .query::<(&Id, &Avatar, &mut PlayerSheet, &mut Fighting)>();
@@ -808,6 +995,7 @@ impl SimWorld {
                 .map_err(|refused| format!("creation refused: {refused:?}"))?;
         sheet.0 = made;
         fighting.0 = Fighter::of(&made);
+        fighting.0.stance_set = stance;
         let mut state = self.script_state().clone();
         state.careers.insert(id.0, career);
         if unspent > 0 {
@@ -832,6 +1020,89 @@ impl SimWorld {
         }
         self.set_script_state(state);
         self.set_persona(creation.persona.clone());
+        Ok(())
+    }
+
+    /// Seat 0's character of a loaded world made again by `creation`, as a
+    /// new game makes it (`create`), wearing `gear` (each a template and its
+    /// slot, made for it): a run that measures the fights with another
+    /// build than its checkpoint's (the balance bench). What the story put
+    /// on the sheet is kept (its flags, alignment, bonus Force points and
+    /// save bonuses), and so are the scripts' globals for its level and
+    /// alignment. What it wore in a slot `gear` fills goes back to the
+    /// party's pack. It is level 1 again, its XP kept: the levels are taken
+    /// anew.
+    pub fn remake(
+        &mut self,
+        creation: &crate::creation::Creation,
+        gear: &[(&str, u8)],
+    ) -> Result<(), String> {
+        let seat = creation.persona.seat;
+        let library = self
+            .level()
+            .scripts()
+            .cloned()
+            .ok_or("the level has no scripts")?;
+        let before = {
+            let mut players = self.world.query::<(&Id, &Avatar, &PlayerSheet)>();
+            players
+                .iter(&self.world)
+                .find(|(_, avatar, _)| avatar.0 == seat)
+                .map(|(id, _, sheet)| (id.0, sheet.0))
+                .ok_or(format!("seat {} has no character", seat.0))?
+        };
+        let (id, was) = before;
+        let globals = ["G_PC_LEVEL", "G_PC_Align_Val"]
+            .map(|name| (name, self.script_state().numbers.get(name).copied()));
+        self.create(creation)?;
+        let mut state = self.script_state().clone();
+        for (name, value) in globals {
+            if let Some(value) = value {
+                crate::script::set_global(&mut state.numbers, name, value);
+            }
+        }
+        for &(template, slot) in gear {
+            let worn: Vec<u32> = state
+                .items
+                .held_by(id.0)
+                .filter(|(_, item)| item.slot == Some(slot))
+                .map(|(item, _)| item)
+                .collect();
+            for item in worn {
+                if let Some(mut item) = state.items.get_mut(&item) {
+                    item.slot = None;
+                    item.holder = crate::inventory::PARTY;
+                }
+            }
+            state
+                .item_facts(library.items(), template)
+                .ok_or(format!("{template}: no such item template"))?;
+            state.make_item(library.items(), template, id.0, 1, Some(slot));
+        }
+        let worn: Vec<(u8, crate::inventory::ItemFacts)> = state
+            .items
+            .held_by(id.0)
+            .filter_map(|(_, item)| {
+                let facts = state.item_facts(library.items(), &item.template)?;
+                Some((item.slot?, facts.clone()))
+            })
+            .collect();
+        let mut players = self
+            .world
+            .query::<(&Avatar, &mut PlayerSheet, &mut Fighting)>();
+        let (mut sheet, mut fighting) = players
+            .iter_mut(&mut self.world)
+            .find(|(avatar, ..)| avatar.0 == seat)
+            .map(|(_, sheet, fighting)| (sheet, fighting))
+            .ok_or(format!("seat {} has no character", seat.0))?;
+        let mut made = sheet.0;
+        made.flags = was.flags;
+        made.good_evil = was.good_evil;
+        made.bonus_fp = was.bonus_fp;
+        made.save_bonus = was.save_bonus;
+        sheet.0 = crate::inventory::dress(made, worn.iter().map(|(slot, facts)| (*slot, facts)));
+        fighting.0 = Fighter::of(&sheet.0);
+        self.set_script_state(state);
         Ok(())
     }
 
@@ -884,6 +1155,15 @@ impl SimWorld {
         let mut players = self.world.query::<(&Avatar, &mut PlayerSheet)>();
         for (_, mut sheet) in players.iter_mut(&mut self.world) {
             sheet.0.flags |= flags;
+        }
+    }
+
+    /// Clears `flags` on every player's sheet (a test aid a checkpoint was
+    /// made with, taken off again).
+    pub fn drop_player_flags(&mut self, flags: u8) {
+        let mut players = self.world.query::<(&Avatar, &mut PlayerSheet)>();
+        for (_, mut sheet) in players.iter_mut(&mut self.world) {
+            sheet.0.flags &= !flags;
         }
     }
 
@@ -1076,6 +1356,19 @@ impl SimWorld {
         &self.world.resource::<Static>().0
     }
 
+    /// Where a script's jump to `to` (soles, metres) would land as the
+    /// doors stand now, with no other body in the way. It is none where
+    /// there is no free place at `to` or near it, and the jump would not
+    /// happen.
+    pub fn jump_landing(&mut self, to: [f32; 3]) -> Option<[f32; 3]> {
+        let snapshot = self.snapshot();
+        let level = self.level();
+        let states = level.states_in(&snapshot);
+        level.with(states.as_deref(), |world| {
+            crate::install::jump_place(level, world, to, &[], (0.0, crate::install::JUMP))
+        })
+    }
+
     /// The modules left behind, as they were left (`Snapshot::stash`).
     pub fn stash(&self) -> &Stash {
         &self.world.resource::<Module>().stash
@@ -1139,11 +1432,12 @@ pub fn party_member(entity: &EntityState) -> bool {
             .is_some_and(|f| f.mind.leader.is_some() || f.mind.driver.is_some())
 }
 
-/// Whether two characters' bodies pass through each other as `move_actors`
-/// moves them: both of the party, with friendly fire off. A walk goes round
-/// only the bodies it would run into (`walk::Walker::around`): a party's
-/// walk that stepped aside from its own companions stood stuck between
-/// them and a wall it could have walked through them past.
+/// Whether a walk leaves another character's body out of the ones it goes
+/// round (`walk::Walker::around`): both of the party, with friendly fire
+/// off. A party's walk that stepped aside from its own companions stood
+/// stuck between them and a wall. Since the party is solid to itself
+/// (`move_actors`), such a walk runs into the companion instead, and
+/// walks through it once stuck for long enough (`jams`).
 pub fn bodies_pass(level: &Level, mine: bool, theirs: bool) -> bool {
     mine && theirs && level.friendly_fire == FriendlyFire::Off
 }
@@ -1168,11 +1462,38 @@ pub fn lent(party: &crate::script::party::Party) -> Option<SimId> {
         .map(SimId)
 }
 
+/// Whether a seat plays the body `id`, which carries `avatar`. A seat
+/// plays it when a seat's commands act through it (`keyed_by`). Those
+/// bodies are a seat's own character, a companion a seat drives or is
+/// switched to, and the companion leading the party (`lent`).
+///
+/// While a companion leads, the leader's own character is not played. Its
+/// mind plays it. A played body acts as its player does. It shoots along
+/// its crosshair line, its bolts break what a player's bolts break, and
+/// its blows on a placeable count as aimed. Every other body is a creature
+/// its mind plays. The views read the same from a snapshot
+/// (`Snapshot::played`).
+fn played(id: SimId, avatar: Option<&Avatar>, lent: Option<SimId>) -> bool {
+    keyed_by(avatar.map(|avatar| avatar.0), id, lent).is_some()
+}
+
 /// The body seat `seat`'s commands act through: its own (`own`: its
 /// avatar, or the companion it drives), or, for the leader's seat, the
 /// companion leading the party (`lent`).
 pub(crate) fn acting_body(seat: Seat, own: SimId, lent: Option<SimId>) -> SimId {
     lent.filter(|_| seat == LEADER_SEAT).unwrap_or(own)
+}
+
+/// The seat whose commands act through the body `id`, if a seat's do. This
+/// is `acting_body` read the other way. The companion leading the party
+/// (`lent`) answers to the leader's seat. The leader's own character
+/// answers to no seat while a companion leads. Every other body answers to
+/// the seat it carries (`avatar`), if it carries one.
+pub(crate) fn keyed_by(avatar: Option<Seat>, id: SimId, lent: Option<SimId>) -> Option<Seat> {
+    if lent == Some(id) {
+        return Some(LEADER_SEAT);
+    }
+    avatar.filter(|seat| !(*seat == LEADER_SEAT && lent.is_some()))
 }
 
 /// The host's two bodies as the scripts' `View::host` has them, from the
@@ -1207,14 +1528,29 @@ fn command_for(
         angles: player.command_angles,
         ..Command::default()
     };
-    let mut command = match avatar {
+    match avatar {
         _ if !fighter.alive() || fighter.force.stunned(now) => idle,
         Some(_) if fighter.mind.steered => fighter.last_command,
         Some(avatar) => inputs.get(avatar.0).copied().unwrap_or(idle),
         None => fighter.last_command,
-    };
-    // No jumping while aiming a Sniper Shot (JA's disruptor zoom).
-    if fighter.shooting.aiming {
+    }
+}
+
+/// `command` as the body of `fighter` moves by it. While the gun is raised
+/// to aim, or a Sniper Shot steadies, the character walks and cannot jump.
+/// A roll needs a run, so none starts. The step on which [Aim] is pressed
+/// counts too (`firing::aims`), so a jump pressed with it never leaves the
+/// ground. `sheet` is the body's sheet, as `firing::aims` reads it, or none
+/// for a creature, which never aims.
+fn slowed_to_aim(
+    mut command: Command,
+    fighter: &Fighter,
+    sheet: Option<&Sheet>,
+    now: u64,
+) -> Command {
+    let aims = sheet.is_some_and(|sheet| firing::aims(&command, fighter, sheet, false, now));
+    if fighter.shooting.slowed() || aims {
+        command.walk();
         command.up = command.up.min(0);
     }
     command

@@ -7,18 +7,8 @@ use crate::{by_hand, discover, installs, launch, persona, play, play_view, runti
 
 #[derive(clap::Args)]
 pub(crate) struct PlayArgs {
-    /// The stage: `course`, `duel` (two players facing off), a KOTOR 1
-    /// module such as `end_m01aa`, `arena` (the grey-box arena), or
-    /// `arena@MODULE`, the arena's Jedi and keys on a real area (lit
-    /// `end_m01ab`, dark `lev_m40ac`: the combat lights' test beds), or
-    /// `sandbox`, the same in the Star Forge's partly lit hall (the main
-    /// menu options' Debug)
-    #[arg(long, default_value = "course")]
-    stage: String,
-    /// On a module stage: arrive at this door or waypoint (by tag)
-    /// instead of the module's entry
-    #[arg(long)]
-    arrive: Option<String>,
+    #[command(flatten)]
+    start: Start,
     /// Each seat's KOTOR body model in turn (a comma list), `ja` for
     /// JA's own player model, or `roster` for the party's bodies
     /// (`play::ROSTER`: Carth, Bastila, Canderous, …); by default each
@@ -26,14 +16,6 @@ pub(crate) struct PlayArgs {
     /// body), dressed in the body armour it wears
     #[arg(long, default_value = "")]
     body: String,
-    /// Play as a character made by quick creation:
-    /// CLASS:PORTRAIT[:NAME], the class `soldier`, `scout` or
-    /// `scoundrel` (K1's), `guardian`, `consular` or `sentinel` (TSL's
-    /// Jedi), a player portrait (`portraits.2da`, e.g. `po_pfha2`):
-    /// the class's recommended scores and skills, its first level as
-    /// the game makes it (the sheet `--class` names is not used)
-    #[arg(long, value_parser = parse_made)]
-    made: Option<(u8, String, String)>,
     /// Each body's KOTOR head model (a comma list); a party body's own
     /// by default
     #[arg(long, default_value = "")]
@@ -44,7 +26,8 @@ pub(crate) struct PlayArgs {
     moves: Option<String>,
     /// `third` (JA's camera), `first` (the player's own eyes; F1 turns
     /// between them), `side` to film the gait from 3 m, `arc` the same
-    /// at a fixed height (a jump's arc)
+    /// at a fixed height (a jump's arc), `flank` 3 m off the player's
+    /// right as it faces (a duel filmed with `--aim`)
     #[arg(long)]
     camera: Option<String>,
     /// Reproduce the jolting reference quirks (QUIRKS.md): playback's
@@ -84,6 +67,13 @@ pub(crate) struct PlayArgs {
     /// `blade-gap.csv`
     #[arg(long)]
     sim_blades: bool,
+    /// Write the saber animation audit's log of the player, one JSON object
+    /// per frame. Each frame holds the sequences the sim and the drawn body
+    /// play. It also holds the drawn body's nodes, the matching JA bones,
+    /// and each blade in hand three ways: as drawn, as JA's skeleton holds
+    /// it and as the sim has it. It writes nothing with `--replay`
+    #[arg(long)]
+    audit_log: Option<std::path::PathBuf>,
     /// Play this recording back on its own stage and seats (a probe's
     /// bout, `kjk combat duel`'s `*.kjkr`; a session's `inputs.kjkr`
     /// made off a module) instead of `--stage` and `--moves`
@@ -99,43 +89,97 @@ pub(crate) struct PlayArgs {
     /// `race` or `turrets`: the playthrough's bot plays the minigame
     #[arg(long)]
     aim: Option<String>,
+    /// The saber rules this run plays by, over the setting: `ja` (Jedi
+    /// Academy's) or `advanced` (kjk's Advanced rules; docs/SABER-RULES.md)
+    #[arg(long, value_parser = parse_saber_rules)]
+    saber_rules: Option<sim::combat::saber::SaberRules>,
+}
+
+/// Where a run starts, and the state it starts in, set by hand. `kjk play`
+/// takes these options. `kjk original` takes the same ones, to start the
+/// original game the same way.
+#[derive(clap::Args, Clone, Default)]
+pub(crate) struct Start {
+    /// The stage: `course`, `duel` (two players facing off), a KOTOR 1
+    /// module such as `end_m01aa`, `arena` (the grey-box arena), or
+    /// `arena@MODULE`, the arena's Jedi and keys on a real area (lit
+    /// `end_m01ab`, dark `lev_m40ac`: the combat lights' test beds), or
+    /// `sandbox`, the same in the Star Forge's partly lit hall (the main
+    /// menu options' Debug). `kjk play`'s is `course` when it is left
+    /// out
+    #[arg(long)]
+    pub(crate) stage: Option<String>,
+    /// On a module stage: arrive at this door or waypoint (by tag)
+    /// instead of the module's entry
+    #[arg(long)]
+    pub(crate) arrive: Option<String>,
+    /// The place where the player stands at the start, on a module stage.
+    /// It is X,Y,Z or X,Y,Z,FACING. X, Y and Z are the player's soles in
+    /// game space, in metres. FACING is in degrees from +X, turning left,
+    /// and is 0 when left out. A place with nowhere to stand is refused
+    #[arg(long, value_parser = by_hand::parse_at)]
+    pub(crate) at: Option<by_hand::Spot>,
+    /// Play as a character made by quick creation:
+    /// CLASS:PORTRAIT[:NAME], the class `soldier`, `scout` or
+    /// `scoundrel` (K1's), `guardian`, `consular` or `sentinel` (TSL's
+    /// Jedi), a player portrait (`portraits.2da`, e.g. `po_pfha2`):
+    /// the class's recommended scores and skills, its first level as
+    /// the game makes it (the sheet `--class` names is not used)
+    #[arg(long, value_parser = parse_made)]
+    pub(crate) made: Option<(u8, String, String)>,
     /// A script global set before the first step, NAME=NUMBER (a story's
     /// state by hand, until saves carry it); repeatable
     #[arg(long = "global", value_parser = by_hand::parse_global)]
-    globals: Vec<(String, i32)>,
+    pub(crate) globals: Vec<(String, i32)>,
     /// A script of the first module run for the player at the end of
     /// the first step, by resref (a story's moment by hand: e.g.
     /// `k_ptar_carth01x` wakes Carth in `tar_m02aa`); repeatable
     #[arg(long = "run")]
-    scripts: Vec<String>,
+    pub(crate) scripts: Vec<String>,
     /// The first module's creatures with this tag follow the player from
     /// the start, as party members (a party by hand, until saves carry
     /// one), into the next module too; repeatable
     #[arg(long = "follow")]
-    followers: Vec<String>,
+    pub(crate) followers: Vec<String>,
     /// The party's gold at the start (credits by hand, until saves
     /// load)
     #[arg(long)]
-    gold: Option<i32>,
+    pub(crate) gold: Option<i32>,
     /// The player's alignment at the start, 0 (dark) to 100 (light),
     /// as scripts' `SetGoodEvilValue` (the character sheet's backdrop)
     #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
-    alignment: Option<u8>,
+    pub(crate) alignment: Option<u8>,
     /// The party's XP at the start (by hand, until saves load)
     #[arg(long)]
-    xp: Option<i32>,
+    pub(crate) xp: Option<i32>,
     #[command(flatten)]
-    by_hand: Box<ByHand>,
+    pub(crate) by_hand: Box<ByHand>,
 }
 
 /// A player's ranks and the party's items by hand (`kjk play`, `kjk
 /// dialogue run`).
-#[derive(clap::Args)]
+#[derive(clap::Args, Clone, Default)]
 pub(crate) struct ByHand {
     /// Every player's rank in a skill, NAME=RANK (computer, demolitions,
     /// stealth, awareness, persuade, repair, security, treat); repeatable
     #[arg(long = "skill", value_parser = by_hand::parse_skill)]
     pub(crate) skills: Vec<(usize, u8)>,
+    /// A feat every player knows from the start, by its `feat.2da` row
+    /// (e.g. 197, KOTOR 2's Stealth Run, which KOTOR 1 is lent); repeatable.
+    /// Like `--skill`, it applies to `--class`'s sheet, not to `--made`'s
+    #[arg(long = "feat")]
+    pub(crate) feats: Vec<u16>,
+    /// A Force power every player knows from the start, by its `spells.2da`
+    /// row as the game's data serves it (e.g. 282, a mod's power appended
+    /// to KOTOR 2's table); repeatable. Like `--feat`, it applies to
+    /// `--class`'s sheet, not to `--made`'s
+    #[arg(long = "power")]
+    pub(crate) powers: Vec<u16>,
+    /// Every player's most Force points from the start, in whole points
+    /// (a mod's power may cost more than a low-level Jedi's pool holds).
+    /// Like `--power`, it applies to `--class`'s sheet, not to `--made`'s
+    #[arg(long = "force-points")]
+    pub(crate) force_points: Option<u16>,
     /// Items the party carries from the start, TEMPLATE or TEMPLATE=COUNT
     /// (e.g. g_i_progspike01=5); repeatable
     #[arg(long = "item", value_parser = by_hand::parse_item)]
@@ -145,9 +189,15 @@ pub(crate) struct ByHand {
     /// range, then its dialogue hook (a terminal's conversation)
     #[arg(long)]
     pub(crate) talk: Option<String>,
+    /// The conversation that `--talk`'s object starts with the player, by
+    /// resref, in place of its own. For example, `banter` is the party's
+    /// banter
+    #[arg(long, requires = "talk")]
+    pub(crate) dialog: Option<String>,
     /// A companion made from this creature template joined to the party
     /// at the start, as the party selection screen leaves it (e.g.
-    /// `p_cand`, Canderous); repeatable, two at most
+    /// `p_cand`, Canderous); repeatable, two at most. `@ROW` puts the gun
+    /// of that `baseitems.2da` row in its right hand, e.g. `p_mission@21`
     #[arg(long = "party")]
     pub(crate) party: Vec<String>,
 }
@@ -162,6 +212,12 @@ const MADE_CLASSES: [&str; 6] = [
     "consular",
     "sentinel",
 ];
+
+/// `--saber-rules`' name (`SaberRules::name`), held for the run over the
+/// setting (`settings::hold_saber_rules`).
+pub(crate) fn parse_saber_rules(text: &str) -> Result<sim::combat::saber::SaberRules, String> {
+    sim::combat::saber::SaberRules::named(text).ok_or(format!("{text}: ja or advanced"))
+}
 
 /// `--made`'s CLASS:PORTRAIT[:NAME] (`classes.2da` rows 0 to 5).
 pub(crate) fn parse_made(text: &str) -> Result<(u8, String, String), String> {
@@ -182,10 +238,8 @@ pub(crate) fn parse_made(text: &str) -> Result<(u8, String, String), String> {
 /// `kjk play`: the stage (or a recording) loaded while the window opens.
 pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
     let PlayArgs {
-        stage,
-        arrive,
+        start,
         body,
-        made,
         head,
         moves,
         camera,
@@ -197,9 +251,17 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         cmds,
         headless,
         sim_blades,
+        audit_log,
         replay,
         seat,
         aim,
+        saber_rules,
+    } = args;
+    let Start {
+        stage,
+        arrive,
+        at,
+        made,
         globals,
         scripts,
         followers,
@@ -207,13 +269,25 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         alignment,
         xp,
         by_hand,
-    } = args;
+    } = start;
+    let stage = stage.unwrap_or_else(|| "course".to_string());
+    if let Some(rules) = saber_rules {
+        kjk_game::settings::hold_saber_rules(rules);
+    }
     let ByHand {
         skills,
+        feats,
+        powers,
+        force_points,
         items,
         talk,
+        dialog,
         party,
     } = *by_hand;
+    if replay.is_some() && at.is_some() {
+        eprintln!("--at: a recording starts where it was made, so --replay takes no --at");
+        return ExitCode::from(2);
+    }
     let replay = match replay.map(|path| read_recording(&path)).transpose() {
         Ok(replay) => replay,
         Err(error) => {
@@ -221,14 +295,18 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if replay.is_some() && audit_log.is_some() {
+        eprintln!("--audit-log writes nothing with --replay, so no log is made");
+    }
     let camera = match camera.as_deref() {
         None => None,
         Some("third") => Some(play_view::CameraMode::Third),
         Some("first") => Some(play_view::CameraMode::First),
         Some("side") => Some(play_view::CameraMode::Side(3.0)),
         Some("arc") => Some(play_view::CameraMode::Arc(3.0)),
+        Some("flank") => Some(play_view::CameraMode::Flank(3.0)),
         Some(other) => {
-            eprintln!("--camera {other}: use third, first, side or arc");
+            eprintln!("--camera {other}: use third, first, side, arc or flank");
             return ExitCode::from(2);
         }
     };
@@ -265,7 +343,13 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         } {
             Ok(sheet) => sim::combat::Sheet {
                 good_evil: alignment.unwrap_or(sheet.good_evil),
-                ..by_hand::with_skills(sheet, &skills)
+                ..by_hand::with_force_points(
+                    by_hand::with_powers(
+                        by_hand::with_feats(by_hand::with_skills(sheet, &skills), &feats),
+                        &powers,
+                    ),
+                    force_points,
+                )
             },
             Err(error) => {
                 eprintln!("{error}");
@@ -281,7 +365,8 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         gold,
         xp,
         items: &items,
-        talk: talk.as_deref(),
+        talk: by_hand::talk(talk, dialog),
+        at,
         party: &party,
         save: None,
         inexact: None,
@@ -300,7 +385,12 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         headless,
         size,
         Some(options.stage),
-        || play::load(&discover(), &options),
+        || {
+            play::load(&discover(), &options).map(|mut loaded| {
+                loaded.view.audit_log = audit_log;
+                loaded
+            })
+        },
     )
 }
 
@@ -310,20 +400,35 @@ pub(crate) fn read_recording(path: &std::path::Path) -> Result<sim::Recording, S
     sim::Recording::from_file(&bytes).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// The arena's player for `--class`: its own Jedi for `soldier`, the same
-/// Jedi with a gun in each hand `@ROW,ROW` names (`soldier@12,12`, a pair of
-/// pistols; `soldier@77`, a rifle) to try the guns' feats with, and after a
-/// `+` the feat attack the gun takes (`blast`, `rapid` or `sniper`:
-/// `soldier@77+sniper`), else the class's own sheet (`player_sheet`).
+/// The arena's player for `--class`.
+///
+/// `soldier` gives the arena's own Jedi. `soldier@ROW,ROW` gives the same
+/// Jedi with the guns those rows name, one in each hand, to try the guns'
+/// feats with. `soldier@12,12` is a pair of pistols, and `soldier@77` is a
+/// rifle. A `+` after the rows names the feat attack the gun takes. That
+/// feat is `blast`, `rapid` or `sniper`, as in `soldier@77+sniper`. The
+/// feat can also be `sneak`, which gives Sneak Attack I. `soldier+sneak`
+/// keeps the lightsaber. Any other class gives the class's own sheet
+/// (`player_sheet`).
 fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
     use sim::combat::sheet::feats;
     let (rows, feat) = match class.strip_prefix("soldier") {
         Some("") => ("", None),
-        Some(rest) if rest.starts_with('@') => match rest[1..].split_once('+') {
-            Some((rows, feat)) => (rows, Some(feat)),
-            None => (&rest[1..], None),
-        },
-        _ => return player_sheet(class),
+        Some(rest) if rest.starts_with(['@', '+']) => {
+            match rest.trim_start_matches('@').split_once('+') {
+                Some((rows, feat)) => (rows, Some(feat)),
+                None => (&rest[1..], None),
+            }
+        }
+        // The duels' fighter (`duelist`) is built neutral. A creature that is
+        // called in fights only the player's side, so on the arena the
+        // duelist joins the player's faction, as the arena's own Jedi has.
+        _ => {
+            return player_sheet(class).map(|sheet| sim::combat::Sheet {
+                faction: sim::combat::sheet::factions::PLAYER,
+                ..sheet
+            });
+        }
     };
     let mut sheet = kjk_game::arena::sheet();
     for (hand, row) in rows
@@ -339,7 +444,15 @@ fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
             "blast" => feats::POWER_BLAST[0],
             "rapid" => feats::RAPID_SHOT[0],
             "sniper" => feats::SNIPER_SHOT[0],
-            _ => return Err(format!("--class {class}: +blast, +rapid or +sniper")),
+            "sneak" => {
+                sheet.feats = sheet.feats.with(feats::SNEAK_ATTACK[0]);
+                return Ok(sheet);
+            }
+            _ => {
+                return Err(format!(
+                    "--class {class}: +blast, +rapid, +sniper or +sneak"
+                ));
+            }
         };
         sim::combat::picks::Picks::choose(&mut sheet, 0, row);
     }

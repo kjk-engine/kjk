@@ -24,7 +24,7 @@ use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use sim::combat::Sheet;
 use sim::combat::damage::ROUND_MS;
-use sim::combat::sheet::{Guards, Rows, flags, races};
+use sim::combat::sheet::{Guards, flags, races};
 use sim::inventory::{self, Held, ItemFacts, slots};
 use sim::module::{
     Bulk, Global, ModuleData, ObjectData, ObjectKind, Opens, Placement, Repute, Senses, Strike,
@@ -53,6 +53,9 @@ pub(crate) struct Tables<'a> {
     attacks: BTreeMap<String, Attacks>,
     rigs: BTreeMap<String, bool>,
     bulks: BTreeMap<String, Option<Bulk>>,
+    /// The rows-by-label maps of the source's tables, read when first
+    /// asked for (`rows`).
+    rows: Option<rules::rows::RowMaps>,
 }
 
 /// A creature model's attacks (`Tables::attacks`).
@@ -71,7 +74,22 @@ impl<'a> Tables<'a> {
             attacks: BTreeMap::new(),
             rigs: BTreeMap::new(),
             bulks: BTreeMap::new(),
+            rows: None,
         }
+    }
+
+    /// The rows-by-label maps of the source's tables (`crate::rows`): what
+    /// turns an install row a template names into a canonical number.
+    pub(crate) fn rows(&mut self) -> &rules::rows::RowMaps {
+        let source = self.source;
+        self.rows
+            .get_or_insert_with(|| crate::rows::row_maps(source))
+    }
+
+    /// Install row `row` of `table`, as a template names it, as a canonical
+    /// number; none when the row has no number.
+    pub(crate) fn canonical(&mut self, table: rules::rows::Table, row: i64) -> Option<u16> {
+        self.rows().get(table).canonical(u16::try_from(row).ok()?)
     }
 
     /// Model `name` as it is drawn standing (`sim::module::Bulk`): its
@@ -245,6 +263,7 @@ pub(crate) fn fill(
 ) -> usize {
     module.repute = repute(tables);
     module.force_costs = force_costs(tables);
+    module.force_items = force_items(tables);
     if tables.tsl() {
         module.force = force_rules(tables);
     }
@@ -883,6 +902,7 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         link: None,
         geometry: Vec::new(),
         use_points: Vec::new(),
+        transitions: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: sim::module::Ways::One,
@@ -912,21 +932,23 @@ pub(crate) fn creature_template(tables: &mut Tables, template: &str) -> Option<O
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
     };
     creature(tables, &utc.root, &mut object);
     Some(object)
 }
 
 /// A placeable's facts from its UTP alone, as a script makes one
-/// (`CreateObject`): its tag, name, scripts, conversation, whether it holds
-/// items (and those), is used, and its lock. Its place is the script's.
+/// (`CreateObject`): its tag, name, scripts, conversation, look, whether it
+/// holds items (and those), is used, and its lock. Its place is the
+/// script's.
 pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
     let utp = Gff::parse(&tables.source.read(template, ResType::UTP)?).ok()?;
     let root = &utp.root;
     let held = asset_odyssey::module::Lock::read(&[root]);
     let locked = root.int("Locked").is_some_and(|locked| locked != 0);
     let talk = tables.source.talk();
-    let lower = |bytes: &[u8]| String::from_utf8_lossy(bytes).to_ascii_lowercase();
+    let tsl = tables.tsl();
     Some(ObjectData {
         kind: ObjectKind::Placeable,
         tag: root.resref("Tag").unwrap_or_else(String::new),
@@ -940,8 +962,18 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
             .map_or_else(Vec::new, |model| {
                 crate::doors::use_points(tables.source, &model)
             }),
+        transitions: placeable_model(tables, root.int("Appearance"))
+            .map_or_else(Vec::new, |model| {
+                crate::doors::transitions(tables.source, &model)
+            }),
         opens: if locked { Opens::Locked } else { Opens::Never },
-        state: 0,
+        // The look its `AnimationState` places it in, as KOTOR's template
+        // load reads it: a "Sitting" body lies dead.
+        state: sim::look::placed(
+            root.int("AnimationState")
+                .and_then(|state| u32::try_from(state).ok())
+                .unwrap_or(0),
+        ),
         ways: sim::module::Ways::One,
         scripts: asset_odyssey::module::scripts(root),
         sheet: None,
@@ -958,14 +990,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         container: asset_odyssey::module::container(root) == Some(true),
         useable: root.int("Useable").is_some_and(|useable| useable != 0),
         store: None,
-        lock: (held != asset_odyssey::module::Lock::default()).then(|| sim::module::Lock {
-            lockable: held.lockable,
-            open_dc: held.open_dc,
-            close_dc: held.close_dc,
-            key: lower(&held.key),
-            key_required: held.key_required,
-            auto_remove_key: held.auto_remove_key,
-        }),
+        lock: crate::objects::lock(&held, tsl, locked),
         trap: asset_odyssey::module::TrapIr::read(&[root])
             .map(|found| crate::objects::trap(found, &held)),
         conversation: root.resref("Conversation").unwrap_or_else(String::new),
@@ -985,6 +1010,89 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
+    })
+}
+
+/// A waypoint's facts from its UTW alone, as a script makes one
+/// (`CreateObject`): its tag, name and map note. Its place is the script's.
+pub(crate) fn waypoint_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
+    let utw = Gff::parse(&tables.source.read(template, ResType::UTW)?).ok()?;
+    let root = &utw.root;
+    let talk = tables.source.talk();
+    let shown = |label| crate::objects::shown(&localized(root.get(label)), talk.as_deref());
+    let noted = root.int("HasMapNote").is_some_and(|has| has != 0);
+    Some(ObjectData {
+        name: shown("LocalizedName"),
+        map_note: noted.then(|| sim::module::MapNote {
+            text: shown("MapNote"),
+            enabled: root.int("MapNoteEnabled").is_some_and(|on| on != 0),
+        }),
+        ..marker(ObjectKind::Waypoint, template, root)
+    })
+}
+
+/// A waypoint's or a store's facts from its template's `root` before what
+/// is its kind's own: its tag and template, with no body, scripts, items or
+/// name.
+fn marker(kind: ObjectKind, template: &str, root: &GffStruct) -> ObjectData {
+    ObjectData {
+        kind,
+        tag: root.resref("Tag").unwrap_or_else(String::new),
+        cased_tag: cased(root.bytes("Tag").unwrap_or(&[])),
+        template: template.to_string(),
+        position: [0.0; 3],
+        yaw: 0.0,
+        link: None,
+        geometry: Vec::new(),
+        use_points: Vec::new(),
+        opens: Opens::Never,
+        state: 0,
+        ways: sim::module::Ways::One,
+        transitions: Vec::new(),
+        scripts: Vec::new(),
+        sheet: None,
+        senses: None,
+        classes: Vec::new(),
+        gender: 0,
+        subrace: 0,
+        personal_space: 0.0,
+        strike: None,
+        challenge: 0.0,
+        multiplier_set: 0,
+        name: String::new(),
+        inventory: Vec::new(),
+        container: false,
+        useable: false,
+        store: None,
+        lock: None,
+        trap: None,
+        conversation: String::new(),
+        hit_points: None,
+        toughness: sim::module::Toughness::default(),
+        faction: 0,
+        body: None,
+        map_note: None,
+        interruptable: true,
+        pitch_variation: 0.0,
+        encounter: None,
+        spared_locks: Vec::new(),
+    }
+}
+
+/// A store's facts from its UTM alone, as a script makes one
+/// (`CreateObject`): its tag, name, scripts, stock and terms. Its place is
+/// the script's.
+pub(crate) fn store_template(tables: &mut Tables, template: &str) -> Option<ObjectData> {
+    let utm = Gff::parse(&tables.source.read(template, ResType::UTM)?).ok()?;
+    let root = &utm.root;
+    let talk = tables.source.talk();
+    Some(ObjectData {
+        scripts: asset_odyssey::module::scripts(root),
+        name: crate::objects::shown(&localized(root.get("LocName")), talk.as_deref()),
+        inventory: crate::items::held(tables, root, true),
+        store: Some(crate::items::terms(root)),
+        ..marker(ObjectKind::Store, template, root)
     })
 }
 
@@ -1167,6 +1275,7 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
                     .unwrap_or(0),
                 maxcr: tables.int(name, row, "maxcr").unwrap_or(0).clamp(0, 255) as u8,
                 hostile: tables.int(name, row, "hostilesetting") == Some(1),
+                on_user: tables.int(name, row, "itemtargeting") == Some(1),
                 reach_dm: tables
                     .text(name, row, "range")
                     .and_then(|range| {
@@ -1192,6 +1301,17 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
                     let (once, looped) = cast_rows(&word);
                     [ONCE + once, looped.map_or(0, |row| LOOPED + row)]
                 }),
+                shown: tables
+                    .int(name, row, "name")
+                    .is_some_and(|strref| strref != 0)
+                    && tables.text(name, row, "iconresref").is_some(),
+                menu: if tables.int(name, row, "forcehostile").is_some() {
+                    sim::script::Menu::Hostile
+                } else if tables.int(name, row, "forcefriendly").is_some() {
+                    sim::script::Menu::Friendly
+                } else {
+                    sim::script::Menu::None
+                },
             })
             .collect()
     };
@@ -1291,6 +1411,24 @@ fn force_costs(tables: &mut Tables) -> Vec<u16> {
         .collect()
 }
 
+/// `spells.2da`'s `forbiditemmask` and `requireitemmask` by row (hex, as
+/// `0x003f`; none where a row has none), which both games' tables have.
+fn force_items(tables: &mut Tables) -> Vec<(u8, u8)> {
+    let rows = tables.table("spells").map_or(0, |table| table.cells.len());
+    let mut mask = |row: usize, column: &str| {
+        tables
+            .text("spells", row, column)
+            .and_then(|mask| {
+                let digits = mask.trim_start_matches("0x").trim_start_matches("0X");
+                u16::from_str_radix(digits, 16).ok()
+            })
+            .map_or(0, |mask| (mask & 0xff) as u8)
+    };
+    (0..rows)
+        .map(|row| (mask(row, "forbiditemmask"), mask(row, "requireitemmask")))
+        .collect()
+}
+
 /// TSL's Force facts from its tables (`sim::module::ForceRules`, rooms
 /// aside): each `spells.2da` row's side (`goodevil` `G`, `E`) and
 /// `formmask`, and `forceadjust.2da`'s `goodcost` and `evilcost` by row.
@@ -1385,22 +1523,66 @@ fn encounter_tables(tables: &mut Tables) -> sim::spawner::Tables {
     }
 }
 
+/// The most letters a global's name may have in KOTOR 2's catalogue.
+const GLOBAL_NAME_LETTERS: usize = 21;
+
+/// Where a kind of global is counted in `globals`, and how many globals of
+/// that kind KOTOR 2's catalogue holds. Its executable keeps 900 booleans,
+/// 1000 numbers, 100 locations and 5 strings.
+fn global_room(kind: Global) -> (usize, usize) {
+    match kind {
+        Global::Boolean => (0, 900),
+        Global::Number => (1, 1000),
+        Global::Location => (2, 100),
+        Global::String => (3, 5),
+    }
+}
+
 /// `globalcat.2da`: each declared global's kind by its lowercase name.
-fn globals(tables: &mut Tables) -> BTreeMap<String, Global> {
+///
+/// KOTOR 2's executable reads the table from its first row to its last. It
+/// skips a row whose name has more than 21 letters, a row whose name an
+/// earlier row already declared (in any case), and a row of a kind whose
+/// room is full (`global_room`). So the first row of a name decides its
+/// kind. A mod's table that declares a name first as a number and then
+/// again as a boolean keeps the number, and scripts may set and read that
+/// number. KOTOR 1's table is read without these limits, as its executable
+/// has not been checked for them.
+pub(crate) fn globals(tables: &mut Tables) -> BTreeMap<String, Global> {
+    let tsl = tables.tsl();
     let rows = tables
         .table("globalcat")
         .map_or(0, |table| table.cells.len());
-    (0..rows)
-        .filter_map(|row| {
-            let name = tables.text("globalcat", row, "name")?;
-            let kind = Global::named(&tables.text("globalcat", row, "type")?)?;
-            Some((name.to_ascii_lowercase(), kind))
-        })
-        .collect()
+    let mut globals = BTreeMap::new();
+    let mut counts = [0usize; 4];
+    for row in 0..rows {
+        let Some(name) = tables.text("globalcat", row, "name") else {
+            continue;
+        };
+        let Some(kind) = tables
+            .text("globalcat", row, "type")
+            .and_then(|kind| Global::named(&kind))
+        else {
+            continue;
+        };
+        let name = name.to_ascii_lowercase();
+        if !tsl {
+            globals.insert(name, kind);
+            continue;
+        }
+        let (count, room) = global_room(kind);
+        if name.len() > GLOBAL_NAME_LETTERS || globals.contains_key(&name) || counts[count] >= room
+        {
+            continue;
+        }
+        counts[count] += 1;
+        globals.insert(name, kind);
+    }
+    globals
 }
 
 /// The rows of `ranges.2da` the rules read by label (`PartyCombat`,
-/// `TrapRadius`); K1's for any the table lacks.
+/// `TrapRadius`, `PercepRngPlayer`); K1's for any the table lacks.
 fn ranges(tables: &mut Tables) -> sim::module::Ranges {
     let mut ranges = sim::module::Ranges::K1;
     let rows = tables.table("ranges").map_or(0, |table| table.cells.len());
@@ -1415,6 +1597,11 @@ fn ranges(tables: &mut Tables) -> sim::module::Ranges {
             ranges.party_combat_m = metres;
         } else if label.eq_ignore_ascii_case("TrapRadius") {
             ranges.trap_radius_m = metres;
+        } else if label.eq_ignore_ascii_case("PercepRngPlayer") {
+            ranges.player.sight = metres;
+            if let Some(hearing) = tables.float("ranges", row, "secondaryrange") {
+                ranges.player.hearing = hearing;
+            }
         }
     }
     ranges
@@ -1433,30 +1620,36 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
     let score = |label: &str| root.int(label).unwrap_or(10).clamp(0, 255) as u8;
     let abilities = ["Str", "Dex", "Con", "Int", "Wis", "Cha"].map(score);
     let (mut level, mut bab, mut saves, mut class_ac) = (0i64, 0i64, [0i64; 3], 0i64);
-    let mut powers = Rows::<5>::default();
+    let mut has_force = false;
+    let mut powers = sim::combat::sheet::Powers::default();
     for class in root.list("ClassList") {
         let (Some(row), Some(levels)) = (class.int("Class"), class.int("ClassLevel")) else {
             continue;
         };
         let (row, levels) = (usize::try_from(row).ok()?, levels.max(0));
         level += levels;
-        let at = usize::try_from(levels - 1).unwrap_or(0);
+        has_force |= tables.int("classes", row, "forcedie").unwrap_or(0) > 0;
+        let cell = |tables: &mut Tables, table: &str, column: &str| {
+            crate::classes::level_cell(tables, table, column, levels).unwrap_or(0)
+        };
         // The class's defence bonus: its `acbonus.2da` column at its level.
         if let Some(column) = tables.text("classes", row, "armorclasscolumn") {
-            class_ac += tables
-                .int("acbonus", at, &column.to_ascii_lowercase())
-                .unwrap_or(0);
+            class_ac += cell(tables, "acbonus", &column.to_ascii_lowercase());
         }
         if let Some(table) = tables.text("classes", row, "attackbonustable") {
-            bab += tables.int(&table, at, "bab").unwrap_or(0);
+            bab += cell(tables, &table, "bab");
         }
         if let Some(table) = tables.text("classes", row, "savingthrowtable") {
             for (save, column) in saves.iter_mut().zip(["fortsave", "refsave", "willsave"]) {
-                *save += tables.int(&table, at, column).unwrap_or(0);
+                *save += cell(tables, &table, column);
             }
         }
+        // A template names install rows (`rules::rows`).
         for known in class.list("KnownList0") {
-            if let Some(spell) = known.int("Spell").and_then(|v| u16::try_from(v).ok()) {
+            if let Some(spell) = known
+                .int("Spell")
+                .and_then(|row| tables.canonical(rules::rows::Table::Spells, row))
+            {
                 powers.insert(spell);
             }
         }
@@ -1464,8 +1657,10 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
     let feats = root
         .list("FeatList")
         .iter()
-        .filter_map(|feat| feat.int("Feat").and_then(|v| u16::try_from(v).ok()))
-        .fold(Rows::<4>::default(), |rows, feat| rows.with(feat));
+        .filter_map(|feat| tables.canonical(rules::rows::Table::Feats, feat.int("Feat")?))
+        .fold(sim::combat::sheet::Feats::default(), |rows, feat| {
+            rows.with(feat)
+        });
     let defence = root.int("NaturalAC").unwrap_or(0) + class_ac;
     let mut flag = 0;
     if root.int("Plot").unwrap_or(0) != 0 {
@@ -1489,6 +1684,17 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             .unwrap_or(0)
             .clamp(0, i64::from(u16::MAX)) as u16
     };
+    let force_sensitive = feats.has(sim::combat::sheet::feats::FORCE_SENSITIVE);
+    let max_fp = if (has_force || force_sensitive) && race != races::DROID {
+        let sensitive = if force_sensitive {
+            rules::feats::force_sensitive::POINTS
+        } else {
+            0
+        };
+        points("ForcePoints", "CurrentForce").saturating_add(sensitive)
+    } else {
+        0
+    };
     // The sheet without its items, then what they add (`sim::inventory`).
     let naked = Sheet {
         abilities,
@@ -1496,7 +1702,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
         bab: bab.clamp(0, 255) as u8,
         saves: saves.map(|save| save.clamp(-128, 127) as i8),
         max_hp: points("MaxHitPoints", "HitPoints").max(1),
-        max_fp: points("ForcePoints", "CurrentForce"),
+        max_fp,
         defence: defence.clamp(-128, 127) as i8,
         dex_cap: None,
         feats,
@@ -1531,6 +1737,7 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             .map(|label| root.int(label).unwrap_or(0).clamp(-128, 127) as i8),
         form: root.int("CurrentForm").unwrap_or(0).clamp(0, 65535) as u16,
         picks: Default::default(),
+        bar: Default::default(),
     };
     let mut worn = Vec::new();
     let mut usable = Vec::new();
@@ -1545,21 +1752,33 @@ fn sheet(tables: &mut Tables, root: &GffStruct, held: &[Held]) -> Option<Sheet> 
             worn.push((slot, facts));
         }
     }
-    // Consumables cast a spell whose row names an impact script.
-    let scripted: Vec<u16> = usable
+    // Consumables cast a spell whose row names an impact script, as
+    // `sim::script::Library::item_row` reads the row.
+    let rows: BTreeMap<u16, inventory::RowUse> = usable
         .iter()
         .filter_map(|(_, facts)| facts.combat_row())
-        .filter(|row| {
-            tables
-                .text("spells", usize::from(*row), "impactscript")
-                .is_some_and(|script| !script.is_empty())
+        .map(|row| {
+            let at = usize::from(row);
+            let data = inventory::RowUse {
+                scripted: tables
+                    .text("spells", at, "impactscript")
+                    .is_some_and(|script| !script.is_empty()),
+                on_user: tables.int("spells", at, "hostilesetting") != Some(1)
+                    || tables.int("spells", at, "itemtargeting") == Some(1),
+            };
+            (row, data)
         })
         .collect();
     Some(Sheet {
         items: inventory::usable(
             race,
             usable.iter().map(|(uses, facts)| (*uses, facts)),
-            |row| scripted.contains(&row),
+            |row| {
+                rows.get(&row).copied().unwrap_or(inventory::RowUse {
+                    scripted: false,
+                    on_user: false,
+                })
+            },
             None,
         ),
         ..inventory::dress(naked, worn.iter().map(|(slot, facts)| (*slot, facts)))

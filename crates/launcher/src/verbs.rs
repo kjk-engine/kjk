@@ -64,6 +64,35 @@ pub(crate) enum Verb {
         /// k1 or tsl
         game: String,
     },
+    /// The rooms' own light in every area: the lamps by kind, the surfaces
+    /// that glow, and the lightmap layouts (docs/LIGHTING-PLAN.md, step 7).
+    /// Writes room-lights.json and room-lights.txt.
+    RoomLights {
+        /// k1, tsl or all
+        #[arg(default_value = "all")]
+        game: String,
+        /// The folder the files are written to
+        #[arg(long, default_value_os_t = room_lights::default_out())]
+        out: std::path::PathBuf,
+    },
+    /// Lights fitted to one area's lightmaps: the lamps and the glowing
+    /// panels as candidates, their strengths solved to match the bake
+    /// (docs/LIGHTING-PLAN.md, step 7c). Writes a JSON file, a text file
+    /// and two pictures for each area of the module.
+    RoomLightFit {
+        /// The module, for example tar_m03ae
+        module: String,
+        /// k1 or tsl; both are searched when left out
+        #[arg(long)]
+        game: Option<String>,
+        /// Take every glowing mesh of a room or a placeable as a panel, not
+        /// only those that look like a light
+        #[arg(long)]
+        every_glow: bool,
+        /// The folder the files are written to
+        #[arg(long, default_value_os_t = room_light_fit::default_out())]
+        out: std::path::PathBuf,
+    },
     /// KOTOR's screens without a window: the UI's probes, one layout
     /// drawn to a PNG, a sweep of every layout, a contact sheet.
     Gui {
@@ -140,10 +169,23 @@ pub(crate) enum Verb {
         /// walk that tests what the scripts do, not the fights' balance
         #[arg(long)]
         god: bool,
-        /// The player's blows count ten times over: a playtest's fights end
-        /// quickly (a test aid, as `--god`)
+        /// The player's blows count ten times over, in KOTOR 2 each with the
+        /// greatest chance to hit: a playtest's fights end quickly (a test
+        /// aid, as `--god`)
         #[arg(long)]
         mighty: bool,
+        /// The player's blows count once, though the checkpoint was made
+        /// with `--mighty`: a run that measures the fights (`facts.json`'s
+        /// `fights`, each beside KOTOR's forecast for it)
+        #[arg(long, conflicts_with = "mighty")]
+        fair: bool,
+        /// From a checkpoint: the player's character made again by
+        /// `--build`'s creation, wearing the build's `wear` items for its
+        /// level, and its levels taken again by the build's plan before
+        /// the first goal (the balance bench's reference character; the
+        /// story's state is the checkpoint's)
+        #[arg(long, requires = "build")]
+        remake: bool,
         /// Starts from a checkpoint made with other level data than this
         /// build's (a dev aid while the chain is remade: the checkpoint's
         /// module takes this build's data, the other modules it left are
@@ -239,6 +281,20 @@ pub(crate) enum Verb {
         #[command(subcommand)]
         verb: DialogueVerb,
     },
+    /// Starts the original KOTOR 1 or KOTOR 2 with `kjk play`'s start
+    /// options, to see whether a bug seen in kjk is in the original game
+    /// too. The game is the one whose modules hold --stage. The game goes
+    /// from its main menu to the module by itself, with its default player.
+    /// The tool writes scripts into a copy of the game. It turns the cheat
+    /// console on and runs the game in a window. Only the Mac ports on macOS
+    /// and the Windows builds on Windows are handled. A run on Linux, or
+    /// under Wine, is not
+    Original {
+        #[command(flatten)]
+        start: Box<crate::cli_play::Start>,
+        #[command(flatten)]
+        run: OriginalRun,
+    },
     /// Scripts: the games' compiled scripts and the routines they call
     Script {
         #[command(subcommand)]
@@ -260,11 +316,20 @@ pub(crate) enum Verb {
         /// Another `kjk` to measure (a release's), run from here
         #[arg(long)]
         exe: Option<std::path::PathBuf>,
-        /// `default`, `low` (no MSAA, no shadows) or `high`
+        /// `default`, `low` (no MSAA, no shadows) or `high`. Also
+        /// `shadows-off`, `shadows-hard` and `shadows-soft`, then
+        /// `shadows-ultra` and `shadows-high-taa` over TAA, and `classic`
+        /// and `enhanced` for the Lighting setting. `effects-high` and
+        /// `effects-low` set the Effects Quality setting alone. `ao-off`
+        /// and `ao-on` set Ambient Occlusion alone, over TAA and Enhanced
+        /// lighting. `taa`,
+        /// `taa-quality`, `taa-balanced`, `taa-performance`,
+        /// `taa-ultra-performance` and `dlss-performance` set the
+        /// anti-aliasing alone
         #[arg(long, default_value = "default")]
         preset: String,
         /// Only these scenes (a comma list); all but the held-out ones
-        /// (`bench::HELD_OUT`) by default
+        /// (`Scene::held_out`) by default
         #[arg(long, value_delimiter = ',')]
         scenes: Vec<String>,
         /// Seconds after the world is up before measuring
@@ -285,6 +350,33 @@ pub(crate) enum Verb {
         /// Keep each scene's Perfetto trace (`KJK_PERF=1`) beside its results
         #[arg(long)]
         trace: bool,
+        /// Time the render passes on the GPU (`KJK_GPU_TIMES=1`): the
+        /// shadow maps and main passes, in the table and the results
+        #[arg(long)]
+        gpu: bool,
+        /// Run each scene with no window. Its frames are not paced, so it
+        /// measures the frame rate as a run in a window does
+        #[arg(long)]
+        headless: bool,
+    },
+    /// How far two pictures of one size differ: the largest and the mean
+    /// difference of a channel, and the share of pixels that changed. Two
+    /// pictures of one scene under two settings are compared this way
+    ComparePictures {
+        first: std::path::PathBuf,
+        second: std::path::PathBuf,
+        /// A second picture taken the same way as the first. Only the
+        /// pixels that are exactly the same in both are compared. This
+        /// leaves out whatever moved between the two runs
+        #[arg(long)]
+        still: Option<std::path::PathBuf>,
+        /// Compare only the channels whose value in the first picture is
+        /// at most this, of 255
+        #[arg(long, default_value_t = 255)]
+        up_to: u8,
+        /// Write a picture of the differences here
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
     },
     /// Launches `kjk play` headless a few times and tables where each
     /// launch's time went (its loading phases, and when it was loaded, built,
@@ -376,6 +468,13 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
         Verb::Check { game } => check::run(&discover(), &game),
         Verb::Formats { game } => formats::run(&discover(), &game),
         Verb::Materials { game } => materials::run(&discover(), &game),
+        Verb::RoomLights { game, out } => room_lights::run(&discover(), &game, &out),
+        Verb::RoomLightFit {
+            module,
+            game,
+            every_glow,
+            out,
+        } => room_light_fit::run(&discover(), &module, game.as_deref(), every_glow, &out),
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {
             game,
@@ -467,6 +566,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             goal_seconds,
             god,
             mighty,
+            fair,
+            remake,
             stale,
             listen,
             listen_to,
@@ -518,6 +619,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         scripts,
                         followers,
                         goal_seconds,
+                        fair,
+                        remake,
                         stale,
                         listen,
                         listen_to,
@@ -585,8 +688,12 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             } => {
                 let ByHand {
                     skills,
+                    feats: _,
+                    powers: _,
+                    force_points: _,
                     items,
                     talk,
+                    dialog,
                     party,
                 } = *by_hand;
                 dialogue_verbs::run(
@@ -598,7 +705,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         picks,
                         arrive,
                         globals,
-                        talk,
+                        talk: by_hand::talk(talk, dialog),
                         skills,
                         items,
                         made,
@@ -641,6 +748,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             label,
             out,
             trace,
+            gpu,
+            headless,
         } => bench::bench(bench::BenchOptions {
             exe,
             preset,
@@ -651,8 +760,27 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             label,
             out,
             trace,
+            gpu,
+            // The frame's size from `--size`, in place of the presets'
+            // 1920x1080.
+            size: size.map(|(width, height)| format!("{width}x{height}")),
+            headless,
         }),
+        Verb::ComparePictures {
+            first,
+            second,
+            still,
+            up_to,
+            out,
+        } => bench::compare_pictures(
+            &first,
+            &second,
+            &bench::CompareOptions { still, up_to, out },
+        ),
         Verb::LaunchReport { stage, runs } => launch_report::launch_report(&stage, runs),
+        Verb::Original { start, run } => {
+            original_verbs::original(&discover(), *start, &run.options())
+        }
         Verb::Script { verb } => match verb {
             ScriptVerb::Dis {
                 game,
@@ -683,6 +811,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 ranks,
             } => security_verbs::security(&discover(), &game, &module, door.as_deref(), ranks),
             ScriptVerb::Traps { game, module } => traps_verbs::traps(&discover(), &game, &module),
+            ScriptVerb::Locks { game } => lock_census::census(&discover(), &game),
             ScriptVerb::Stores {
                 game,
                 module,
@@ -807,6 +936,21 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 (&hostile, &ally),
                 &scripts,
             ),
+            CombatVerb::Coop {
+                game,
+                module,
+                arrive,
+                seconds,
+                hostile,
+                follow,
+            } => coop_fight_verbs::coop(
+                &discover(),
+                &game,
+                &module,
+                arrive.as_deref(),
+                seconds,
+                (&hostile, &follow),
+            ),
             CombatVerb::Brawls {
                 game,
                 modules,
@@ -872,6 +1016,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             CombatVerb::DuelLag { seconds, seeds } => {
                 duel_lag_verbs::duel_lag(&discover(), seconds, seeds)
             }
+            CombatVerb::Balance(options) => balance_verbs::balance(&discover(), &options),
         },
         Verb::Net { verb } => match verb {
             NetVerb::Probes => net_verbs::probes(),
@@ -931,7 +1076,7 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down at the window middle), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`) or `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`)
+        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down where the pointer is, the window middle at first), `point X Y` (the pointer moved to that pixel of the frame, which hovers what is there), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`), `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`) or `level CLASS N` (the member a level N character of that classes.2da row with the experience for the next level, so `levelup` opens on level N + 1)
         #[arg(long = "step")]
         steps: Vec<String>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>
@@ -1100,6 +1245,11 @@ pub(crate) enum CollisionVerb {
         /// dx,dy,dz,N
         #[arg(long, value_parser = parse_repeat)]
         repeat: Option<([f32; 3], u32)>,
+        /// Trace what stops a body walking a planned route (the walls
+        /// round placeables' footprints in place of their drawn shapes),
+        /// not what stops the player moved by their keys
+        #[arg(long)]
+        routed: bool,
     },
     /// Probes with known answers: the clip on made-up levels (and against
     /// BoxWorld), then, given a module, traces through its collision.
@@ -1177,6 +1327,27 @@ pub(crate) enum CombatVerb {
         /// fight); repeatable
         #[arg(long = "run")]
         scripts: Vec<String>,
+    },
+    /// A host and a guest fighting in a module: the guest's seat drives the
+    /// first companion that follows, looking up and down all fight long;
+    /// fails when the companion leaves its player's hands
+    Coop {
+        /// k1 or tsl
+        game: String,
+        /// Module, e.g. end_m01aa
+        module: String,
+        /// Door or waypoint tag to arrive at
+        #[arg(long)]
+        arrive: Option<String>,
+        /// Sim seconds to step
+        #[arg(long, default_value_t = 30)]
+        seconds: u64,
+        /// Turn the creatures with this tag hostile first (repeatable)
+        #[arg(long)]
+        hostile: Vec<String>,
+        /// Put the creatures with this tag in the party (repeatable)
+        #[arg(long)]
+        follow: Vec<String>,
     },
     /// The fights the games stage between creatures outside the party
     /// (enemies placed near each other, or turned so by a module's script),
@@ -1342,6 +1513,12 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value_t = 4)]
         seeds: u64,
     },
+    /// Saber duel balance: many fights of two fighters on the arena's
+    /// floor, stepped headless under each saber rule set, side a played by
+    /// the creature AI or a bot with a player's controls; win rates, time
+    /// to kill, swings, hits, blocks by kind, reactions, kicks, locks and
+    /// meters per matchup and rules, and every fight in `facts.json`
+    Balance(balance_verbs::Options),
 }
 
 #[derive(Subcommand)]
@@ -1493,6 +1670,47 @@ pub(crate) enum RemoteVerb {
     },
 }
 
+/// How a run of the original game goes, besides its start (`kjk original`,
+/// `kjk report original`).
+#[derive(clap::Args)]
+pub(crate) struct OriginalRun {
+    /// Writes the copy and its scripts, and prints them, without starting
+    /// the game
+    #[arg(long)]
+    no_launch: bool,
+    /// Plays as a character made by the player, from the kept start save,
+    /// in place of the game's default player. The first run with it starts
+    /// a new game to make that save. While the game runs, the player's own
+    /// autosave folder is renamed with ".kjk-aside" added to its name. When
+    /// the game quits, kjk copies the new autosave into its own folder,
+    /// deletes that autosave from the game's saves, and renames the
+    /// player's autosave back. Later runs add the kept save to the game's
+    /// saves as "900000 - kjk start" for the player to load, and delete it
+    /// when the game quits. kjk deletes or overwrites none of the player's
+    /// own saves. It has been tried only for KOTOR 1 on the Mac. It has not
+    /// been tried for KOTOR 2 or on Windows
+    #[arg(long)]
+    created: bool,
+    /// Forgets the kept start save, so that the next new game makes it
+    /// again. It goes with --created
+    #[arg(long, requires = "created")]
+    new_start: bool,
+}
+
+impl OriginalRun {
+    pub(crate) fn options(&self) -> original_verbs::Options {
+        original_verbs::Options {
+            launch: !self.no_launch,
+            route: if self.created {
+                original_verbs::Route::Created
+            } else {
+                original_verbs::Route::Warp
+            },
+            new_start: self.new_start,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub(crate) enum ScriptVerb {
     /// The listing of one compiled script, its routines named
@@ -1603,6 +1821,13 @@ pub(crate) enum ScriptVerb {
         game: String,
         #[arg(default_value = "tar_m09aa")]
         module: String,
+    },
+    /// The lock census: every module's own locked door and placeable
+    /// templates whose difficulty in play differs from the DC written on
+    /// the lock (KOTOR 2's difficulty classes), and a count of every step
+    Locks {
+        /// k1 or tsl
+        game: String,
     },
     /// Stores checked end to end: their terms and stock, the game's own
     /// script opening one, buying and selling with the party's gold,
@@ -1937,6 +2162,7 @@ fn collision(verb: CollisionVerb) -> ExitCode {
             shape,
             doors,
             repeat,
+            routed,
         } => {
             let Some(doors) = doors_of(&doors) else {
                 eprintln!("--doors {doors}: use openable, closed or all");
@@ -1953,6 +2179,7 @@ fn collision(verb: CollisionVerb) -> ExitCode {
                     shape: &shape,
                     doors,
                     repeat,
+                    routed,
                 },
             )
         }

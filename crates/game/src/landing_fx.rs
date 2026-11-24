@@ -207,7 +207,7 @@ fn jump_eased(force: f32, z: f32, takeoff: f32, level: u8) -> f32 {
 /// and its facing; none off dirt, sand, snow, mud and gravel.
 fn ground(level: &Level, snapshot: &Snapshot, at: Vec3) -> Option<(&'static str, Vec3, Vec3)> {
     let states = level.states_in(snapshot);
-    let met = level.with(states.as_deref(), |world| {
+    let met = level.with_unremembered(states.as_deref(), |world| {
         world.trace(
             (at * UNIT).to_array(),
             ((at - Vec3::Z * GROUND) * UNIT).to_array(),

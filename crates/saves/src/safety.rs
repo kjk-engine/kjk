@@ -106,7 +106,7 @@ pub fn backup_on_new_version(
         Some(to)
     };
     std::fs::create_dir_all(root).map_err(at(root))?;
-    std::fs::write(&stamp, ours).map_err(at(&stamp))?;
+    store::write_atomically(&stamp, ours.as_bytes()).map_err(at(&stamp))?;
     Ok(made)
 }
 

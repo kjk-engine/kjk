@@ -27,6 +27,13 @@ pub(super) fn seat_actions(
         let Some(&(_, player)) = party.iter().find(|(of, _)| of == seat) else {
             continue;
         };
+        if state.party.restrict && refused(state, catalog, action) {
+            notices.push((
+                Some(player),
+                crate::notice::Notice::Line(crate::world::SUITED),
+            ));
+            continue;
+        }
         let done = match action {
             Action::Equip { .. } | Action::Unequip(_) => {
                 let wearer = script::items::wearer(library, view, state, out, player);
@@ -56,12 +63,11 @@ pub(super) fn seat_actions(
                     .map(|()| state.levelling.push((*who, choices.clone())))
             }
             // The table told to the seat: as a script's open screen shows
-            // it, else to look at.
+            // it, else as the screen opened in play, with why it may not
+            // change the party, if it may not.
             Action::ShowParty => {
-                let roster = match &state.party.selection {
-                    Some(open) => state.party.roster(&open.forced, true, &state.items),
-                    None => state.party.roster(&[], false, &state.items),
-                };
+                let refusal = script::party_refusal(view, state, player);
+                let roster = state.party.roster(refusal, &state.items);
                 let screen = crate::notice::Screen::PartySelection(roster);
                 notices.push((Some(player), crate::notice::Notice::Show(screen)));
                 continue;
@@ -79,13 +85,21 @@ pub(super) fn seat_actions(
             Action::Break | Action::Resume | Action::Ready | Action::Force => continue,
             // A revive is `world::falls`'.
             // Traps' (`world::traps`).
-            Action::Revive(_) | Action::Disarm(_) | Action::Recover(_) | Action::Mine(_) => {
+            Action::Revive(_) | Action::Disarm(_) | Action::Recover(_) | Action::Mine { .. } => {
                 continue;
             }
             // The holster key is the moves' (`world::move_actors`), a race's
             // quit the minigame's (`world::minigame`).
             // The arena's orders are `world::arena`'s.
-            Action::Holster | Action::Forfeit | Action::Arena(_) => continue,
+            // A stance set's pick is `world::stances`'.
+            // A readied grenade is the moves' (`movement::ready_grenades`).
+            Action::Holster
+            | Action::Forfeit
+            | Action::Arena(_)
+            | Action::PickStance { .. }
+            | Action::Grenade(_) => {
+                continue;
+            }
             // The seat's acting body's sets, or a member's it dresses.
             Action::SwitchWeapons => {
                 swap(library, view, state, out, acting(view, seat.0, player));
@@ -123,15 +137,31 @@ pub(super) fn seat_actions(
             // body's, at once; the HUD shows it.
             Action::NextFeat { hand } => {
                 let body = acting(view, seat.0, player);
-                let Some(worn) = view.thing(body).and_then(|thing| thing.character) else {
-                    continue;
-                };
-                let mut sheet = out.sheet(body, worn.worn);
-                if !crate::combat::picks::Picks::next(&mut sheet, *hand) {
+                let next = |sheet: &mut Sheet| crate::combat::picks::Picks::next(sheet, *hand);
+                if !changed(view, out, body, next) {
                     continue;
                 }
-                out.changes.push(Change::Sheet { who: body, sheet });
                 Ok(())
+            }
+            // A feat attack chosen from the action bar (`Picks::set`): the
+            // seat's acting body's, at once.
+            Action::Feat { hand, line } => {
+                let body = acting(view, seat.0, player);
+                let set = |sheet: &mut Sheet| crate::combat::picks::Picks::set(sheet, *hand, *line);
+                if !changed(view, out, body, set) {
+                    continue;
+                }
+                Ok(())
+            }
+            // An action bar's edit: a party member's the seat may dress, at
+            // once. An edit the bar refuses changes nothing and tells nothing.
+            Action::Bar { who, edit } => {
+                let who = ObjectId(*who);
+                match script::items::may_dress(view, state, *seat, player, who) {
+                    Err(notice) => Err(notice),
+                    Ok(()) if edit_bar(library, view, state, out, who, *edit) => Ok(()),
+                    Ok(()) => continue,
+                }
             }
             // The kind an item key uses (`combat::picks`): the seat's acting
             // body's, at once. One not carried is never found by the key.
@@ -141,7 +171,7 @@ pub(super) fn seat_actions(
                     continue;
                 };
                 let mut sheet = out.sheet(body, worn.worn);
-                let Some(shelf) = sheet.picks.pick_item(*row) else {
+                let Some(shelf) = sheet.picks.pick_item(*row, &sheet.items) else {
                     continue;
                 };
                 out.changes.push(Change::Sheet { who: body, sheet });
@@ -162,6 +192,14 @@ pub(super) fn seat_actions(
                 };
                 state.queue(acting(view, seat.0, player), cast);
                 Ok(())
+            }
+            // The upgrade bench a script showed, closed by the first seat:
+            // what that script deferred after showing it runs on.
+            Action::ScreenClosed => {
+                if *seat == crate::world::LEADER_SEAT {
+                    state.bench_closed(view.now_ms);
+                }
+                continue;
             }
             // KOTOR runs its screen script each time an in-game screen opens.
             Action::ScreenOpened => {
@@ -235,8 +273,10 @@ pub(super) fn seat_actions(
                     })
                     .map(|cast| casts.extend(cast))
             }
+            // A trade is the body's the seat acts through (`open_store`): the
+            // companion leading, for the first seat while one leads.
             _ => state
-                .trade(library, player.0, action.clone())
+                .trade(library, acting(view, seat.0, player).0, action.clone())
                 .map(|got| notices.extend(got.told().map(|notice| (None, notice)))),
         };
         match done {
@@ -245,6 +285,92 @@ pub(super) fn seat_actions(
         }
     }
     (handled, casts)
+}
+
+/// Whether the player restrict mode (`world::restrict_seats`) refuses
+/// `action`: both executables let the player change no equipment nor
+/// weapon set, cast no power from its list, and use only plot items on
+/// the user itself (the Manaan sea floor's sonic emitter). Medpacs, stims,
+/// other items and any item used on a foe are refused.
+fn refused(state: &State, catalog: &crate::inventory::Catalog, action: &Action) -> bool {
+    match action {
+        Action::Equip { .. }
+        | Action::Unequip(_)
+        | Action::EquipOn { .. }
+        | Action::UnequipFrom { .. }
+        | Action::SwitchWeapons
+        | Action::SwitchWeaponsOn { .. }
+        | Action::Cast { .. } => true,
+        Action::UseItem { who, item, target } => {
+            let plot = state
+                .items
+                .get(item)
+                .and_then(|held| state.item_facts(catalog, &held.template))
+                .is_some_and(|facts| facts.plot);
+            !plot || who != target
+        }
+        _ => false,
+    }
+}
+
+/// Runs `change` on the sheet of `who` and keeps the sheet when `change`
+/// says it changed it. Whether it did. A body that is not a character
+/// changes nothing.
+fn changed(
+    view: &View,
+    out: &mut Out,
+    who: ObjectId,
+    change: impl FnOnce(&mut Sheet) -> bool,
+) -> bool {
+    let Some(character) = view.thing(who).and_then(|thing| thing.character) else {
+        return false;
+    };
+    let mut sheet = out.sheet(who, character.worn);
+    let changed = change(&mut sheet);
+    if changed {
+        out.changes.push(Change::Sheet { who, sheet });
+    }
+    changed
+}
+
+/// Makes `edit` to the action bar of `who`; whether the bar changed. A
+/// content is put on the bar only when `bar::assignable` lists it, and a
+/// power is hidden or shown only when it lists that power. Mines count as
+/// carried when the party has a trap kit (`world::traps`), and devices when
+/// the party carries them (`item_uses::party_devices`).
+fn edit_bar(
+    library: &script::Library,
+    view: &View,
+    state: &State,
+    out: &mut Out,
+    who: ObjectId,
+    edit: crate::action::BarEdit,
+) -> bool {
+    use crate::action::BarEdit;
+    use crate::combat::bar::{Content, Rules, assignable};
+    let mines = !crate::world::traps::kits(state, library.items()).is_empty();
+    changed(view, out, who, |sheet| {
+        let mut bar = sheet.bar;
+        let devices = crate::world::item_uses::party_devices(state, library, sheet.race);
+        Rules::with(Some(library), (mines, &devices), |rules| {
+            let listed = |content| assignable(sheet, rules).contains(&content);
+            match edit {
+                BarEdit::Put { slot, content } if listed(content) => {
+                    bar.put(usize::from(slot), content);
+                }
+                BarEdit::Clear { slot } => {
+                    bar.clear(usize::from(slot));
+                }
+                BarEdit::Hide { row, hide } if listed(Content::Power(row)) => {
+                    bar.hide(sheet, rules, row, hide);
+                }
+                BarEdit::Put { .. } | BarEdit::Hide { .. } => {}
+            }
+        });
+        let edited = bar != sheet.bar;
+        sheet.bar = bar;
+        edited
+    })
 }
 
 /// The body seat `seat` acts through: the companion it leads, else

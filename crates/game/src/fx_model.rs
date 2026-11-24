@@ -6,6 +6,7 @@
 //! and turns: its meshes' alpha and self-illumination and its emitters'
 //! particles (`effects`, `model_fx`).
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -20,6 +21,7 @@ use crate::heat_haze::HeatHazeMaterial;
 use crate::material::{AreaLight, OdysseyMaterial, Surface};
 use crate::model_fx::{self, Chunk, Lit, ModelFx, Spray};
 use crate::scene::{SceneModel, Spawner, Stores};
+use crate::transforms::Transforms;
 use crate::viewer::{self, Placed};
 
 /// A model read: its placement, whether it turns with its thing's offset
@@ -29,6 +31,7 @@ pub struct Model {
     pub placed: Placed,
     pub rotating: bool,
     pub clips: BTreeMap<String, Arc<AnimationIr>>,
+    pub bound: Arc<BTreeMap<String, Vec<Option<usize>>>>,
     pub fx: Arc<ModelFx>,
     pub chunks: Arc<BTreeMap<String, Chunk>>,
     /// Its lowest point at rest (model space; the swoop's shadow lies on
@@ -43,6 +46,7 @@ impl Model {
             placed: Placed::at(self.placed.ir.clone(), [0.0; 3]),
             rotating: self.rotating,
             clips: self.clips.clone(),
+            bound: self.bound.clone(),
             fx: self.fx.clone(),
             chunks: self.chunks.clone(),
             floor: self.floor,
@@ -53,10 +57,14 @@ impl Model {
 /// Model `name` read from `resolver`; `None` where the install lacks it.
 pub fn load(resolver: &Resolver, name: &str, rotating: bool) -> Option<Model> {
     let ir = viewer::model(resolver, name).ok()??;
-    let clips = ir
+    let clips: BTreeMap<String, Arc<AnimationIr>> = ir
         .animations
         .iter()
         .map(|clip| (clip.name.clone(), Arc::new(clip.clone())))
+        .collect();
+    let bound = clips
+        .iter()
+        .map(|(name, clip)| (name.clone(), clip.bind(&ir)))
         .collect();
     let fx = viewer::parsed(resolver, name)
         .ok()
@@ -77,6 +85,7 @@ pub fn load(resolver: &Resolver, name: &str, rotating: bool) -> Option<Model> {
         placed: Placed::at(ir, [0.0; 3]),
         rotating,
         clips,
+        bound: Arc::new(bound),
         fx: Arc::new(fx),
         chunks: Arc::new(chunks),
         floor: if floor.is_finite() { floor } else { 0.0 },
@@ -135,9 +144,40 @@ pub struct Spawned {
     /// What its sprays' glowing particles lit as last drawn
     /// (`model_fx::Spray::glow`, `Drawing::effects`).
     pub glowing: Vec<model_fx::Glow>,
+    posing: Vec<NodeKeys>,
+    spaces: Vec<Mat4>,
+    playing: Vec<Playing<'static>>,
+    steps: Vec<SprayStep>,
+    /// Whether the model was shown when `Drawing::begin_effects` ran.
+    /// `step_sprays` reads it after the visibility has changed again.
+    shown_now: bool,
+}
+
+/// One spray's work for this frame. `Drawing::begin_effects` sets
+/// `detonated` and `runs`. `step_sprays` sets `laid` and `glow`, and
+/// `Drawing::finish_effects` uses them.
+struct SprayStep {
+    detonated: bool,
+    runs: bool,
+    laid: Option<model_fx::Laid>,
+    glow: Option<model_fx::Glow>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct NodeKeys {
+    pose: (Vec3, Quat),
+    over: (Option<Vec3>, Option<Quat>),
+    young: Option<(f32, f32)>,
+    scale: Option<f32>,
 }
 
 impl Spawned {
+    pub fn with_anims(&mut self, run: impl FnOnce(&mut Spawned, &[Anim])) {
+        let anims = std::mem::take(&mut self.anims);
+        run(self, &anims);
+        self.anims = anims;
+    }
+
     /// What its glowing particles light, all its sprays' as one: their
     /// colour on average, weighted by how much of each there is, and how much
     /// there is; none with none. (Where is its drawer's to say: its sprays'
@@ -161,6 +201,7 @@ impl Spawned {
         self.bank = 0.0;
         self.engine.clear();
         self.glowing.clear();
+        self.steps.clear();
         let ir = &self.model.placed.ir;
         for lit in self.lit.iter_mut().flatten() {
             lit.reset(ir);
@@ -255,6 +296,11 @@ impl Spawning<'_, '_, '_> {
             engine: Vec::new(),
             glows,
             glowing: Vec::new(),
+            posing: Vec::new(),
+            spaces: Vec::new(),
+            playing: Vec::new(),
+            steps: Vec::new(),
+            shown_now: false,
         }
     }
 }
@@ -283,63 +329,68 @@ pub struct Playing<'m> {
     pub overlay: bool,
 }
 
-/// The clips playing on a model at `now_ms`: the last one not over the
-/// others that the model has (a clip plays on the models that have it:
-/// the turret's compass on its radar, its hull bar on its own), else the
-/// model's `ready…` clip, looping; then the overlays in the order they
-/// began.
-pub fn active<'m>(model: &'m Model, anims: &[Anim], now_ms: f64) -> Vec<Playing<'m>> {
-    let base = anims.iter().rposition(|anim| {
-        !anim.overlay && model.clips.contains_key(&anim.name.to_ascii_lowercase())
-    });
-    let mut playing = Vec::new();
+fn clip_named<'m>(model: &'m Model, name: &str) -> Option<(&'m String, &'m Arc<AnimationIr>)> {
+    if name.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        model.clips.get_key_value(&name.to_ascii_lowercase())
+    } else {
+        model.clips.get_key_value(name)
+    }
+}
+
+pub fn plays(model: &Model, anims: &[Anim], now_ms: f64) -> bool {
+    playing(model, anims, now_ms).next().is_some()
+}
+
+fn playing<'m, 'a>(
+    model: &'m Model,
+    anims: &'a [Anim],
+    now_ms: f64,
+) -> impl Iterator<Item = Playing<'m>> + use<'m, 'a> {
+    let base = anims
+        .iter()
+        .rposition(|anim| !anim.overlay && clip_named(model, &anim.name).is_some());
     // Idling when nothing plays in place of the others (or it is over).
     let base_plays = base.is_some_and(|k| {
         let anim = &anims[k];
-        model
-            .clips
-            .get(&anim.name.to_ascii_lowercase())
-            .is_some_and(|clip| {
-                let seconds = ((now_ms - anim.since as f64) / 1000.0).max(0.0) as f32;
-                moment(clip, anim.looping, seconds).is_some()
-            })
+        clip_named(model, &anim.name).is_some_and(|(_, clip)| {
+            let seconds = ((now_ms - anim.since as f64) / 1000.0).max(0.0) as f32;
+            moment(clip, anim.looping, seconds).is_some()
+        })
     });
-    if !base_plays
-        && let Some((name, clip)) = model
-            .clips
-            .iter()
-            .find(|(name, _)| name.starts_with("ready"))
-        && let Some(at) = moment(clip, true, (now_ms / 1000.0) as f32)
-    {
-        playing.push(Playing {
-            name,
-            clip,
-            at,
-            elapsed: (now_ms / 1000.0) as f32,
-            since: 0.0,
-            overlay: false,
-        });
-    }
-    for (k, anim) in anims.iter().enumerate() {
-        if !anim.overlay && Some(k) != base {
-            continue;
-        }
-        let Some((name, clip)) = model.clips.get_key_value(&anim.name.to_ascii_lowercase()) else {
-            continue;
-        };
-        let seconds = ((now_ms - anim.since as f64) / 1000.0).max(0.0) as f32;
-        if let Some(at) = moment(clip, anim.looping, seconds) {
-            playing.push(Playing {
+    let ready = (!base_plays)
+        .then(|| {
+            let (name, clip) = model
+                .clips
+                .iter()
+                .find(|(name, _)| name.starts_with("ready"))?;
+            let at = moment(clip, true, (now_ms / 1000.0) as f32)?;
+            Some(Playing {
                 name,
                 clip,
                 at,
-                elapsed: seconds,
-                since: anim.since as f64,
-                overlay: anim.overlay,
-            });
+                elapsed: (now_ms / 1000.0) as f32,
+                since: 0.0,
+                overlay: false,
+            })
+        })
+        .flatten();
+    let others = anims.iter().enumerate().filter_map(move |(k, anim)| {
+        if !anim.overlay && Some(k) != base {
+            return None;
         }
-    }
-    playing
+        let (name, clip) = clip_named(model, &anim.name)?;
+        let seconds = ((now_ms - anim.since as f64) / 1000.0).max(0.0) as f32;
+        let at = moment(clip, anim.looping, seconds)?;
+        Some(Playing {
+            name,
+            clip,
+            at,
+            elapsed: seconds,
+            since: anim.since as f64,
+            overlay: anim.overlay,
+        })
+    });
+    ready.into_iter().chain(others)
 }
 
 /// The clips played once that have ended since the last frame, at their
@@ -359,7 +410,7 @@ pub fn ended_since<'m>(
     });
     let mut landed = Vec::new();
     for anim in anims.iter().filter(|anim| !anim.looping) {
-        let Some((name, clip)) = model.clips.get_key_value(&anim.name.to_ascii_lowercase()) else {
+        let Some((name, clip)) = clip_named(model, &anim.name) else {
             continue;
         };
         let seconds = ((now_ms - anim.since as f64) / 1000.0) as f32;
@@ -396,31 +447,24 @@ pub fn animate(
     q: &mut Query<&mut Transform>,
 ) {
     let ir = &spawned.model.placed.ir;
-    let rest: Vec<(Vec3, Quat)> = ir
-        .nodes
-        .iter()
-        .map(|node| {
-            let [x, y, z, w] = node.rotation;
-            (
-                Vec3::from_array(node.translation),
-                Quat::from_xyzw(x, y, z, w),
-            )
-        })
-        .collect();
-    // Where the clips in place of the others left each node.
-    let mut pose = if spawned.kept.len() == rest.len() {
-        spawned.kept.clone()
-    } else {
-        rest.clone()
+    let rest = |k: usize| {
+        let node = &ir.nodes[k];
+        let [x, y, z, w] = node.rotation;
+        (
+            Vec3::from_array(node.translation),
+            Quat::from_xyzw(x, y, z, w),
+        )
     };
-    let mut over: Vec<(Option<Vec3>, Option<Quat>)> = vec![(None, None); rest.len()];
-    // The youngest clip keying each node: how long it has played, its
-    // transition.
-    let mut young: Vec<Option<(f32, f32)>> = vec![None; rest.len()];
-    // The scale the clips key on a node (a shield's sphere drawn in), the
-    // last to key it.
-    let mut scales: Vec<Option<f32>> = vec![None; rest.len()];
-    for playing in active(&spawned.model, anims, now_ms) {
+    let count = ir.nodes.len();
+    if spawned.kept.len() != count {
+        spawned.kept.clear();
+        spawned.kept.extend((0..count).map(rest));
+    }
+    let pose = &mut spawned.kept;
+    let keys = &mut spawned.posing;
+    keys.clear();
+    keys.resize(count, NodeKeys::default());
+    for playing in playing(&spawned.model, anims, now_ms) {
         for (node, surface) in spawned
             .model
             .fx
@@ -433,12 +477,15 @@ pub fn animate(
                 ir.node_index(node),
                 model_fx::sample_alpha(&surface.scale, playing.at),
             ) {
-                scales[k] = Some(scale);
+                keys[k].scale = Some(scale);
             }
         }
         let age = ((now_ms - playing.since) / 1000.0) as f32;
         // The nodes the clip poses (`AnimationIr::bind`), each by its keys.
-        let bound = playing.clip.bind(ir);
+        let bound = match spawned.model.bound.get(playing.name) {
+            Some(bound) => Cow::Borrowed(bound.as_slice()),
+            None => Cow::Owned(playing.clip.bind(ir)),
+        };
         for (k, track) in bound
             .iter()
             .enumerate()
@@ -451,36 +498,39 @@ pub fn animate(
             if place.is_none() && turn.is_none() {
                 continue;
             }
+            let node = &mut keys[k];
             if playing.overlay {
-                over[k].0 = place.or(over[k].0);
-                over[k].1 = turn.or(over[k].1);
+                node.over.0 = place.or(node.over.0);
+                node.over.1 = turn.or(node.over.1);
             } else {
                 if let Some(place) = place {
-                    pose[k].0 = rest[k].0 + place;
+                    pose[k].0 = rest(k).0 + place;
                 }
                 if let Some(turn) = turn {
                     pose[k].1 = turn;
                 }
             }
-            if young[k].is_none_or(|(was, _)| age < was) {
-                young[k] = Some((age, playing.clip.transition));
+            if node.young.is_none_or(|(was, _)| age < was) {
+                node.young = Some((age, playing.clip.transition));
             }
         }
     }
-    spawned.kept = pose.clone();
-    for (k, (place, turn)) in over.into_iter().enumerate() {
-        if let Some(place) = place {
-            pose[k].0 += place;
+    for (k, node) in keys.iter_mut().enumerate() {
+        node.pose = pose[k];
+        if let Some(place) = node.over.0 {
+            node.pose.0 += place;
         }
-        if let Some(turn) = turn {
-            pose[k].1 = pose[k].1 * rest[k].1.inverse() * turn;
+        if let Some(turn) = node.over.1 {
+            node.pose.1 = node.pose.1 * rest(k).1.inverse() * turn;
         }
     }
     for (k, turn) in turns {
-        pose[k].1 *= turn;
+        keys[k].pose.1 *= turn;
     }
-    for (k, (mut place, mut turn)) in pose.into_iter().enumerate() {
-        if let (Some((age, transition)), Some((was_place, was_turn))) = (young[k], spawned.shown[k])
+    for (k, node) in keys.iter().enumerate() {
+        let (mut place, mut turn) = node.pose;
+        if let (Some((age, transition)), Some((was_place, was_turn))) =
+            (node.young, spawned.shown[k])
             && age < transition
         {
             let f = (dt / (transition - age + dt).max(f32::EPSILON)).clamp(0.0, 1.0);
@@ -488,13 +538,11 @@ pub fn animate(
             turn = was_turn.slerp(turn, f);
         }
         spawned.shown[k] = Some((place, turn));
-        if let Ok(mut transform) = q.get_mut(spawned.nodes[k]) {
-            transform.translation = place;
-            transform.rotation = turn;
-            if let Some(scale) = scales[k] {
-                transform.scale = Vec3::splat(scale);
-            }
-        }
+        q.set(spawned.nodes[k], |now| Transform {
+            translation: place,
+            rotation: turn,
+            scale: node.scale.map_or(now.scale, Vec3::splat),
+        });
     }
 }
 
@@ -543,10 +591,7 @@ impl Drawing<'_, '_> {
                 continue;
             };
             faded.params.tint.w *= alpha;
-            if matches!(
-                faded.surface,
-                Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-            ) {
+            if faded.surface.is_opaque() {
                 faded.surface = Surface::Blend;
             }
             handle.0 = self.materials.add(faded);
@@ -570,9 +615,33 @@ impl Drawing<'_, '_> {
         (now_ms, dt): (f64, f32),
         facing: (Vec3, Vec3),
     ) {
-        let anims = spawned.anims.clone();
-        let ended = ended_since(&spawned.model, &anims, now_ms, &mut spawned.ended);
-        let playing = active(&spawned.model, &anims, now_ms);
+        let mut begun = self.begin_effects(spawned, (now_ms, dt));
+        step_sprays(&mut begun, surfaces, dt, facing);
+        self.finish_effects(begun);
+    }
+
+    /// Does the first part of `effects`. It keys the clips on the model's
+    /// meshes and emitters, and it finds where each emitter stands.
+    pub fn begin_effects<'a>(
+        &mut self,
+        spawned: &'a mut Spawned,
+        (now_ms, dt): (f64, f32),
+    ) -> Begun<'a> {
+        spawned.with_anims(|spawned, anims| {
+            self.begin_effects_of(spawned, anims, (now_ms, dt));
+        });
+        Begun { spawned }
+    }
+
+    fn begin_effects_of(
+        &mut self,
+        spawned: &mut Spawned,
+        anims: &[Anim],
+        (now_ms, dt): (f64, f32),
+    ) {
+        let ended = ended_since(&spawned.model, anims, now_ms, &mut spawned.ended);
+        let mut playing = std::mem::take(&mut spawned.playing);
+        playing.extend(self::playing(&spawned.model, anims, now_ms));
         let shown = self
             .visibility
             .get(spawned.root)
@@ -600,15 +669,13 @@ impl Drawing<'_, '_> {
         let transforms = &self.transforms;
         let local = |e: Entity| transforms.get(e).ok().map(|t| t.to_matrix());
         let root = local(spawned.root).unwrap_or(Mat4::IDENTITY);
-        let spaces: Vec<Mat4> = spawned
-            .sprays
-            .iter()
-            .map(|spray| {
-                root * spray
-                    .node
-                    .map_or(Mat4::IDENTITY, |node| node_matrix(spawned, node, local))
-            })
-            .collect();
+        let mut spaces = std::mem::take(&mut spawned.spaces);
+        spaces.clear();
+        spaces.extend(spawned.sprays.iter().map(|spray| {
+            root * spray
+                .node
+                .map_or(Mat4::IDENTITY, |node| node_matrix(spawned, node, local))
+        }));
         // A lightning emitter's bolts end at its reference node.
         model_fx::aim(
             &mut spawned.sprays,
@@ -616,9 +683,9 @@ impl Drawing<'_, '_> {
             (&spawned.model.placed.ir, &spawned.nodes, root),
             local,
         );
-        let (fx, chunks) = (&*spawned.model.fx, &*spawned.model.chunks);
-        spawned.glowing.clear();
-        for (spray, space) in spawned.sprays.iter_mut().zip(spaces) {
+        let fx = &*spawned.model.fx;
+        spawned.steps.clear();
+        for spray in &mut spawned.sprays {
             let mut detonated = false;
             for playing in &ended {
                 spray.key(fx, playing.name, playing.at);
@@ -628,27 +695,80 @@ impl Drawing<'_, '_> {
                 detonated |=
                     model_fx::detonates_over(playing.clip, (playing.at, playing.elapsed), dt);
             }
-            let lingering = !shown && spray.particles() > 0;
-            if shown || lingering {
-                spray.step(fx, (dt, detonated && shown), (space, surfaces), shown);
+            spawned.steps.push(SprayStep {
+                detonated: detonated && shown,
+                runs: shown || spray.particles() > 0,
+                laid: None,
+                glow: None,
+            });
+        }
+        spawned.shown_now = shown;
+        spawned.spaces = spaces;
+        spawned.playing = crate::emptied(playing);
+    }
+
+    /// Does the last part of `effects`. It puts each spray's mesh in
+    /// place, keeps what its glowing particles light, and shows or hides
+    /// the spray.
+    pub fn finish_effects(&mut self, Begun { spawned }: Begun) {
+        spawned.glowing.clear();
+        for (spray, step) in spawned.sprays.iter_mut().zip(&mut spawned.steps) {
+            if let Some(laid) = step.laid.take() {
+                spray.put(
+                    laid,
+                    (&mut self.meshes, &mut self.buffers, &mut self.materials),
+                );
             }
-            spray.fill(
-                (fx, chunks),
-                space,
-                facing,
-                shown || lingering,
-                (&mut self.meshes, &mut self.buffers, &mut self.materials),
-            );
-            if shown || lingering {
-                spawned.glowing.extend(spray.glow(fx));
-            }
+            spawned.glowing.extend(step.glow.take());
+            let drawn = if step.runs {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
             if let Ok(mut visible) = self.visibility.get_mut(spray.entity) {
-                *visible = if shown || lingering {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                };
+                visible.set_if_neq(drawn);
             }
+        }
+    }
+}
+
+/// A model whose effects `Drawing::begin_effects` began this frame. The
+/// sprays step in `step_sprays`, which reads and writes nothing but the
+/// model, so the sprays of many models can step at the same time on other
+/// threads. `Drawing::finish_effects` then takes it.
+pub struct Begun<'a> {
+    spawned: &'a mut Spawned,
+}
+
+impl Begun<'_> {
+    pub(crate) fn particles(&self) -> usize {
+        (self.spawned.sprays.iter())
+            .map(model_fx::Spray::particles)
+            .sum()
+    }
+}
+
+/// Does the middle part of `Drawing::effects`. Each spray's particles move
+/// on by `dt` seconds and bounce off `surfaces`. Then the spray lays out
+/// its mesh to face the camera (`facing`) and sums up what its glowing
+/// particles light. A model gone from view bears no new particles, and its
+/// particles live out their lives.
+pub(crate) fn step_sprays(
+    Begun { spawned }: &mut Begun,
+    surfaces: Option<model_fx::Surfaces>,
+    dt: f32,
+    facing: (Vec3, Vec3),
+) {
+    let (fx, chunks) = (&*spawned.model.fx, &*spawned.model.chunks);
+    let shown = spawned.shown_now;
+    let sprays = spawned.sprays.iter_mut().zip(&spawned.spaces);
+    for ((spray, &space), step) in sprays.zip(&mut spawned.steps) {
+        if step.runs {
+            spray.step(fx, (dt, step.detonated), (space, surfaces), shown);
+        }
+        step.laid = spray.build((fx, chunks), space, facing, step.runs);
+        if step.runs {
+            step.glow = spray.glow(fx);
         }
     }
 }

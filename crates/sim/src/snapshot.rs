@@ -250,7 +250,161 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 91: the area's sound carries the clip scripts play on each room
 /// (`AreaSound::rooms`), not only the last one played. Old saves: old saves
 /// read as before: the one room clip's flag byte reads as a count of one.
-pub const VERSION: u32 = 91 + crate::pending::SNAPSHOT;
+/// 92: shooting carries its bloom, kick and last shot's time (`combat::bloom`).
+/// Old saves: old saves read no bloom and no kick: no shot in a save is
+/// mid-burst.
+/// 93: a body keeps the character it keeps running into and those it walks
+/// through (`MotionState::jam`). Old saves: old saves read an empty `jam`:
+/// nobody is running into anyone, and nobody walks through anyone.
+/// 94: the goods list the module's empty containers (`Goods::empty`). Old
+/// saves: old saves read no container as empty; the next step that gathers the
+/// goods lists them again.
+/// 95: the world keeps the session's saber rules (`Snapshot::saber_rules`) and
+/// a saber its duel meters and timers (`SaberState::duel`: points, mishaps, the
+/// block and perfect window, fakes, stance, wear, the refill and guard timers);
+/// a command its held duel bits (`Command::holds`). Old saves: old saves read
+/// JA's rules and full, unhurried duel meters: no save was made under a duel
+/// mode, and a kept command held no duel bits; a snapshot or replay naming the
+/// plain duel mode MD (number 1, no longer offered) reads MDA.
+/// 96: a fighter carries its stance set and the one it waits for
+/// (`Fighter::stance_set`, `stance_queued`), and each part of its pose the
+/// sequence it plays in place of its animation's own (`Shown::plays`). Old
+/// saves: old saves read no stance set, none waited for and every part playing
+/// its animation's own sequence: no save was made with stance sets in the sim.
+/// 97: a saber keeps the perfect parry it plays with its start and end
+/// (`Duel::parry`, `parry_at`, `parry_until`) and no sprint fuel (`Duel::fuel`,
+/// `fuel_at`), and a stance set numbers 61 sequences, the moving guards and the
+/// perfect parries after the first 28 (`Shown::plays`). Old saves: old saves
+/// (the pre-release v0.17.1-md-rc.1's) read no perfect parry playing and drop
+/// the sprint's fuel and its timer; a sequence of a stance set keeps its set
+/// and its place among the first 28.
+/// 98: a fighter's weapon may be drawn by its player (`Sheath::Drawn`, byte 4).
+/// Old saves: old saves never hold byte 4 and read unchanged: no weapon in them
+/// was drawn by its player.
+/// 99: a command's selected power is a `spells.2da` row of two bytes
+/// (`Command::force`), and a sheet's picks keep the melee line chosen for fists
+/// and a stun baton (`Picks::hands`). Old saves: old snapshots read the
+/// selected power's one byte as the same row, and no melee line chosen for
+/// fists.
+/// 100: a sheet keeps its action bar: six slots, the powers hidden from the
+/// power wheel, the lower tiers shown on it, what the bar's own fill has seen,
+/// and whether that fill has run (`Sheet::bar`). Old saves: old snapshots read
+/// an empty action bar that has not been filled yet.
+/// 101: a fighter's pack keeps whether its player has a grenade readied, and
+/// whether readying it holstered the weapon (`Pack::readied`, `Pack::redraw`).
+/// Old saves: old snapshots read no grenade readied.
+/// 102: a sheet's worn gear keeps the kinds of item worn that bar or allow
+/// Force powers (`Gear::force_items`). Old saves: old snapshots read no item
+/// worn that bars a power; the mask is set again the next time the character's
+/// equipment changes.
+/// 103: a bolt keeps whether a Power Blast fired it (`Missile::power`). Old
+/// saves: old saves read `power = false`: a bolt in flight in a save is drawn
+/// as a plain bolt.
+/// 104: a saber keeps one bar of block points (`Duel::points`) and no mishap
+/// count, fatigued mark, drained mark or decay time (`Duel::mishap`,
+/// `fatigued`, `drained`, `decay_at`). Old saves: old saves drop the mishap
+/// count, the fatigued and drained flags and the decay time; block points are
+/// kept.
+/// 105: a blade wielder's pace keeps when its target began to back away, when
+/// it last did and when the pace last thought, its sidestep's end and side, and
+/// when its choice may change again, since when its target has held a block,
+/// when it won its last saber lock, and whether it was in a lock, is backing
+/// off or has rested (`Pace::receding_since`, `receding_last`, `last_look`,
+/// `sidestep_until`, `sidestep_side`, `decided_until`, `decided_way`,
+/// `block_since`, `lock_won_at`, and one byte of flags for `locked`,
+/// `backing_off` and `rested`) and its keys for crouching or jumping, the
+/// alternate attack and the kick (`Keys::up`, `Keys::alt`, `Keys::kick`, and
+/// how many kicks it has pressed against the held block and when it pressed the
+/// last, and when it last waited for its own swing to end before a kick
+/// (`Pace::kick_tries`, `Pace::kick_last`, `Pace::kick_wait`), and since when
+/// its target has stood off the walkable floor and on it again, the jumps it
+/// tried, when it may try the next, whether it backs off for a run at the
+/// perch, the spot it hides at and when it looks again, and whether it switched
+/// to its ranged weapon (`Pace::off_floor_since`, `floor_since`, `jump_tries`,
+/// `jump_at`, `run_up`, `hide_at`, `look_at`, `swapped`), and its tier, the
+/// tier the bench forced on it, its chain limit, when its rest between attacks
+/// ends, whether its swing was under way, the special move it presses the keys
+/// of and since when, the last one it started and when it may start one again
+/// (`Pace::tier`, `forced`, `chain_limit`, `rest_until`, `swung`, `special`,
+/// `special_since`, `last_special`, `special_after`), when it may start its
+/// next Force power and whether the Force Push it started is the first half of
+/// a boss's push and charge (`Pace::power_at`, `Pace::push_then_charge`), and
+/// its charge: how far it has come, when its wind-up ends or the run is given
+/// up, whom it is at, whether it ends with the lunge and when it may charge
+/// again (`Pace::charge`, `Pace::charge_until`, `Pace::charge_foe`,
+/// `Pace::charge_lunge`, `Pace::again_at`). A blade wielder's duel also keeps
+/// when its wind-up ends and whether its charge is under way and when its swing
+/// under way began, its wind-up included (`Duel::windup_until`,
+/// `Duel::charging`, `Duel::swing_began`). Old saves: old saves read the
+/// forty-two new pace fields and the three new duel fields as zero: no
+/// sidestep, no kept choice, no backing target, no block, no won lock, no rest,
+/// no kick, no kick count, no wait for a swing, no charge, no wait before one,
+/// no tier, no rest and no special move, no wait before a Force power, no push
+/// before a charge, no swing begun, no target off the floor, no jump tried, no
+/// hiding spot and no switch of weapon.
+/// 106: the world keeps whether the session plays with targeted blocks
+/// (`Snapshot::targeted_blocks`), the player's choice at the start of a game,
+/// which counts only under the Advanced rules. Each saber keeps the last camera
+/// turn of the body that holds block (`SaberState::turn`), which targeted
+/// blocks read as the player's aim. Each hit a fighter's grace holds back keeps
+/// the striker's move when the blade met the body (`Held::swung`), which
+/// targeted blocks read the swing's side from. Each saber keeps the move of the
+/// swing whose ordinary block a late press of attack may still make perfect
+/// (`Duel::late_swing`). Old saves: old saves read the flag as off, so a game
+/// started before this update plays without targeted blocks, every saber reads
+/// with no camera turn, every held hit reads with the ready move, which has no
+/// side, and every saber reads with no late swing.
+/// 107: the tail names the companions standing out of the party in one of the
+/// party's bases (`waiting`), for the in-game pages; and a part's played number
+/// counts 68 places for each stance set instead of 61 (`stance::Played`). Old
+/// saves: old saves read no companions waiting: the next step makes them again
+/// from the scripts' party table; and old saves read each set's place at the
+/// same place of the same set, and JA's broken parries and attempts after the
+/// last set keep their meaning (`Played::of_sets_without_gaits`).
+/// 108: a character's Force state keeps when its ears were last uncovered
+/// (`ForceState::ears_until`), and a hold may be the ear covering
+/// (`Hold::Ears`). Old saves: old saves read `ears_until = 0`: no character in
+/// them has covered its ears.
+/// 109: a character's Force state keeps the looped clip of a scripted power's
+/// cast (`ForceState::cast_loop`), and a hand may be that cast's
+/// (`Gesture::Cast`); a sheet knows 512 power rows and 512 feat rows
+/// (`sheet::Powers`, `sheet::Feats`), and what its items give 512 feat rows.
+/// Old saves: old saves read `cast_loop = None`, as no character in them is
+/// casting a scripted power; their sheets read 256 feat rows and 320 power
+/// rows, and the rows past those are empty.
+/// 110: a sheet's action bar has ten slots (`bar::SLOTS`). Old saves: old saves
+/// read six slots, and slots 7 to 10 are empty.
+/// 111: a fighter's event keeps whether a bolt only met a blade that was not
+/// blocking (`Event::wild`). Old saves: old saves read `wild = false`: a bolt
+/// turned wildly in the 2 seconds before the save counts as a deflection after
+/// loading.
+/// 112: the world keeps the share of the normal damage the party and the
+/// enemies take, in percent (`Snapshot::damage_taken`). Old saves: old saves
+/// read 100% for both sides; a loaded game then takes the options' values.
+/// 113: a fighter carries how far its gun is raised to aim and whether it
+/// steadies a Sniper Shot (`Shooting::aim`, `Shooting::steadying`). Old saves:
+/// Old saves read the gun lowered and no Sniper Shot steadying. The old Sniper
+/// Shot aim flag is dropped. A player who holds [Aim] after loading raises the
+/// gun again..
+/// 114: a fighter keeps the grab it is in, holding or held
+/// (`Fighter::grapple`). Old saves: old saves read `grapple = None`: no
+/// character in a save is in a grab.
+/// 115: a fighter keeps when its last punch with bare hands began
+/// (`Fighter::punched_at`). Old saves: old saves read `punched_at = 0`: a punch
+/// under way when the game was saved cannot be followed by a spin kick after
+/// loading.
+/// 116: a fighter keeps its attack button as its punches read it
+/// (`Fighter::fists`) and the finisher its keys picked as its grab began
+/// (`Fighter::grab_pick`). Old saves: old saves read no attack held or kept and
+/// no picked finisher: a punch or a grab under way when the game was saved goes
+/// on as though no key was held.
+/// 117: a fighter's hold keeps its save, its next roll and its recent holds
+/// (`ForceState::save`). Old saves: old saves read no save and no recent holds,
+/// so a running hold keeps its end and rolls nothing.
+/// 118: a fighter keeps when its last stun baton swing began
+/// (`Fighter::swung_at`). Old saves: old saves read `swung_at = 0`: a baton
+/// swing under way when the game was saved deals no blow after loading.
+pub const VERSION: u32 = 118 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -258,6 +412,43 @@ pub const FORMAT: u32 = VERSION;
 /// since keeps its old read (`crate::since::snapshot`, `bumps/README.md`).
 /// The network's snapshots are this build's alone (`Snapshot::decode`).
 pub const OLDEST: u32 = crate::wire::later(72, crate::pending::oldest::SNAPSHOT);
+
+/// The pre-releases whose saves' snapshot version `main` later gave to
+/// another change. A save that does not read as `main`'s layout of its
+/// version is read again as each of these (`Save::decode_versioned`).
+pub(crate) const PRERELEASES: &[crate::wire::Prerelease] = &[
+    crate::wire::Prerelease {
+        // Movie Duels' first saber rules, built on v0.15.0 (93). Its snapshot
+        // version 94 is `main`'s EMPTY_CONTAINERS, which it does not hold.
+        name: "v0.15.0-md-rc.1",
+        snapshot: 94,
+        base: 93,
+        save: None,
+        holds: &[crate::since::snapshot::SABER_MODES],
+        early: &[],
+    },
+    crate::wire::Prerelease {
+        // The Advanced rules branch as of 14 November (commit 6b2ea2a),
+        // which reports itself as v0.18.1 and which players played. It was
+        // built on a `main` with snapshot 97 and save 82, and numbered its
+        // three pending snapshot bumps 98 to 100 and its three pending save
+        // bumps 83 to 85. Snapshot 98 (Stealth Mode's drawn weapon) and
+        // save 83 (issue 366's factions) mean the same on `main`. Snapshot
+        // 99 and 100 and save 84 and 85 are other changes on `main`, which
+        // its saves do not hold. Its pacing changed after this build, so
+        // its saves hold an earlier layout of it.
+        name: "v0.18.1-6b2ea2a",
+        snapshot: 100,
+        base: 98,
+        save: Some((85, 83)),
+        holds: &[
+            crate::since::snapshot::FEAT_ADVANCED_COMBAT,
+            crate::since::save::FEAT_ADVANCED_COMBAT,
+            crate::since::save::FEAT_ADVANCED_PACING,
+        ],
+        early: &[crate::wire::Early::FirstPacing],
+    },
+];
 
 /// An entity's identity in the sim, stable across save, load and replay.
 /// Handed out in order and never reused, so ordering by it is canonical.
@@ -428,6 +619,16 @@ pub mod look {
     const ACTIVATE: u16 = 200;
     const ANIMLOOPS: u16 = 10;
 
+    /// The transition clip each `ANIMATION_PLACEABLE_*` constant plays on
+    /// its way to its look. Activate plays `off2on`, deactivate `on2off`,
+    /// open `close2open` and close `open2close`.
+    pub const TRANSITIONS: [(u16, &str); 4] = [
+        (ACTIVATE, "off2on"),
+        (ACTIVATE + 1, "on2off"),
+        (ACTIVATE + 2, "close2open"),
+        (ACTIVATE + 3, "open2close"),
+    ];
+
     /// The look `ANIMATION_PLACEABLE_*` constant `animation` leaves a
     /// placeable in: activate, deactivate, open, close, then its ten loops.
     pub fn of_animation(animation: u16) -> Option<u8> {
@@ -546,6 +747,15 @@ impl AreaSound {
         {
             Ok(at) => self.rooms[at] = clip,
             Err(at) => self.rooms.insert(at, clip),
+        }
+    }
+
+    /// Each track back to playing as placed: what a script started or
+    /// stopped is forgotten, while the rows and volumes scripts chose stay.
+    /// This is how a save loads (`Save::world`).
+    pub fn play_as_placed(&mut self) {
+        for track in [&mut self.music, &mut self.battle, &mut self.ambient] {
+            track.state = sound::AS_PLACED;
         }
     }
 
@@ -1251,8 +1461,7 @@ pub struct Snapshot {
     pub talk: Told,
     /// The party's gold and items, the trades under way and their stock.
     pub goods: Goods,
-    /// The objects made in play in this module.
-    pub spawned: Vec<Spawned>,
+    pub spawned: Arc<Vec<Spawned>>,
     /// The module's placements as first installed, which a changed module
     /// is matched against (`crate::reconcile`); none for a module whose
     /// save did not keep them.
@@ -1315,6 +1524,20 @@ pub struct Snapshot {
     /// party member it lists or leads (`follows`). Made each step from the
     /// scripts' party table.
     pub puppets: Vec<SimId>,
+    /// The rules the blades play by, the session's (`saber::duel`).
+    pub saber_rules: crate::combat::saber::SaberRules,
+    /// Whether the session plays with targeted blocks, the player's choice
+    /// when the game started. It counts only under the Advanced rules
+    /// (`SimWorld::targeted`).
+    pub targeted_blocks: bool,
+    /// In one of the party's bases (`script::party::BASES`), the creatures
+    /// of the party table's available companions that stand out of the
+    /// party (`Party::waiting_creatures`). The in-game pages show them
+    /// after the party (`cast::pages_of`). Elsewhere it is empty.
+    pub waiting: Vec<SimId>,
+    /// The share of the normal damage the party and the enemies take, the
+    /// session's (`combat::damage::Taken`).
+    pub damage_taken: crate::combat::damage::Taken,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1360,6 +1583,88 @@ impl Snapshot {
     /// the tail), so it costs the live state, however many modules are left.
     pub fn hash(&self) -> SnapshotHash {
         SnapshotHash(*blake3::hash(&self.encode_state()).as_bytes())
+    }
+
+    /// The screen as a loaded game shows it: a covering fade lifts over
+    /// `LIFT_MS`, as it does when a module has loaded, and no fade in waits
+    /// for a conversation any more. The games keep neither in a save. The
+    /// fade lives in the game's screen, and when a save has loaded, the
+    /// game fades the area in unless a conversation holds the fade.
+    /// `HoldWorldFadeInForDialog`'s hold is the screen's too, so a save
+    /// made on a black screen loads showing the area (issue 645). A fade
+    /// that a script locked (`SetFadeUntilScript`) stays, and a
+    /// conversation under way keeps the fades its lines set.
+    pub fn fade_in_as_loaded(&mut self) {
+        if !self.talk.conversations.is_empty() {
+            return;
+        }
+        self.fade = self.fade.map(|fade| fade.lifted(self.time_ms));
+        self.world_fade_in = WorldFadeIn::Done;
+    }
+
+    /// Fits a snapshot made with the sets `was` to the sets `now`. A
+    /// fighter's set keeps its meaning where `now` has a set of the same
+    /// digest, and becomes 0 elsewhere. The set of the same name and digest
+    /// is taken first, so a fighter in the second of two sets with equal
+    /// digests stays in it. Without one, the first set of the same digest is
+    /// taken. A queued set that becomes 0 is no longer queued, and a queued
+    /// set 0 stays queued. When any number changed, or the two lists differ at
+    /// all, every pose drops its played parts and every part that names a
+    /// frame at or past `lent` (`Posed::drop_played`). `lent` is the first
+    /// frame the new level's skeleton does not own, so no part is left on a
+    /// frame the old sets lent. The fighters in the area, those departing
+    /// and those in the modules left are all fitted. Returns the names of
+    /// the sets that are gone.
+    pub fn fit_stances(
+        &mut self,
+        was: &[(String, [u8; 32])],
+        now: &[(String, [u8; 32])],
+        lent: i32,
+    ) -> Vec<String> {
+        let kept = |(name, digest): &(String, [u8; 32])| {
+            now.iter()
+                .position(|(n, d)| n == name && d == digest)
+                .or_else(|| now.iter().position(|(_, d)| d == digest))
+        };
+        let gone = was
+            .iter()
+            .filter(|&set| kept(set).is_none())
+            .map(|(name, _)| name.clone())
+            .collect();
+        let number = |set: u8| {
+            usize::from(set)
+                .checked_sub(1)
+                .and_then(|at| was.get(at))
+                .and_then(kept)
+                .and_then(|at| u8::try_from(at + 1).ok())
+                .unwrap_or(0)
+        };
+        let mut stashed = self.stash.to_vec();
+        let mut fighters: Vec<&mut Fighter> = self
+            .entities
+            .iter_mut()
+            .chain(self.departing.iter_mut().map(|going| &mut going.entity))
+            .chain(stashed.iter_mut().flat_map(|left| left.entities.iter_mut()))
+            .filter_map(|entity| entity.fighter.as_mut())
+            .collect();
+        let mut changed = was != now;
+        for f in fighters.iter_mut() {
+            let set = number(f.stance_set);
+            let queued = f
+                .stance_queued
+                .map(number)
+                .filter(|&queued| queued != 0 || f.stance_queued == Some(0));
+            changed |= set != f.stance_set || queued != f.stance_queued;
+            f.stance_set = set;
+            f.stance_queued = queued;
+        }
+        if changed {
+            for f in fighters {
+                f.pose.drop_played(lent);
+            }
+            self.stash = Stash::new(stashed);
+        }
+        gone
     }
 
     pub fn get(&self, id: SimId) -> Option<&EntityState> {
@@ -1432,6 +1737,32 @@ impl Snapshot {
             .or_else(|| self.own(seat))
     }
 
+    /// The seat whose commands act through `entity`, if any. It is worked
+    /// out by the sim's own rule (`world::keyed_by`) from the seat the body
+    /// carries (`carried`) and the companion leading the party (`leading`).
+    /// A creature its mind plays has none. The leader's own character has
+    /// none while a companion leads or while it is benched.
+    pub fn seat_of(&self, entity: &EntityState) -> Option<Seat> {
+        crate::world::keyed_by(self.carried(entity), entity.id, self.leading)
+    }
+
+    /// The seat `entity` carries, as the sim's `Avatar` component has it. A
+    /// companion carries the seat that drives it, a guest's or the first
+    /// seat's after a switch. A seat's own character carries its seat
+    /// unless that seat drives another body, which leaves it benched.
+    fn carried(&self, entity: &EntityState) -> Option<Seat> {
+        let driver = entity.fighter.and_then(|fighter| fighter.mind.driver);
+        driver.or(match entity.kind {
+            Kind::Avatar(seat) if self.driven(seat).is_none() => Some(seat),
+            _ => None,
+        })
+    }
+
+    /// Whether a seat plays `entity` (`seat_of`).
+    pub fn played(&self, entity: &EntityState) -> bool {
+        self.seat_of(entity).is_some()
+    }
+
     /// Whether a conversation holds the world (S1, `Told::holds_world` of
     /// `seat_bodies`), as the sim's step had it.
     pub fn holds_world(&self) -> bool {
@@ -1456,12 +1787,59 @@ impl Snapshot {
         })
     }
 
+    /// Whether targeted blocks apply in this session, as the world has it
+    /// (`SimWorld::targeted`): only under the Advanced rules, with the flag
+    /// set.
+    pub fn targeted(&self) -> bool {
+        self.saber_rules.targeted(self.targeted_blocks)
+    }
+
     /// Whether `entity` is in the party as the sim has it
     /// (`world::party_member`): a seat's own character benched while the
     /// seat plays another (`world::switch`) is not; one standing while a
     /// companion leads is.
     pub fn in_party(&self, entity: &EntityState) -> bool {
         crate::world::party_member(entity) && !self.benched(entity)
+    }
+
+    /// Whether a shot that `shooter` fires may stop on `target`'s body, as
+    /// the sim decides it for its shots (`world::firing`): its crosshair's
+    /// line passes through every other body. With friendly fire off, a
+    /// party member's shot passes through the party (`Targets::met_by`).
+    /// A shot stops on a character only if the shooter's mind attacks it,
+    /// both are in the party, or the two are hostile by faction
+    /// (`Sides::met`). So it passes through a neutral, such as a bantha,
+    /// and through an ally that is not in the party. A body with no side
+    /// (no fight or no sheet) stops it. `instances` is
+    /// `Instances::in_snapshot` of this snapshot in `level`.
+    pub fn shot_stops_on(
+        &self,
+        (level, instances): (&crate::Level, &crate::Instances),
+        shooter: &EntityState,
+        target: &EntityState,
+    ) -> bool {
+        use crate::combat::{FriendlyFire, Relation};
+        let party = [shooter, target].map(|entity| self.in_party(entity));
+        if level.friendly_fire() == FriendlyFire::Off && party == [true, true] {
+            return false;
+        }
+        let side = |entity: &EntityState, party: bool| {
+            let fighter = entity.fighter.as_ref()?;
+            let sheet = (entity.sheet)
+                .or_else(|| instances.of_entity(entity).and_then(|facts| facts.sheet))?;
+            Some(crate::module::Side {
+                id: entity.id.0,
+                faction: fighter.faction.unwrap_or(sheet.faction),
+                party,
+            })
+        };
+        let (Some(from), Some(to)) = (side(shooter, party[0]), side(target, party[1])) else {
+            return true;
+        };
+        let standing = level.module().map(|module| self.standings(module));
+        shooter.fighter.as_ref().and_then(|fighter| fighter.target) == Some(target.id)
+            || (from.party && to.party)
+            || crate::module::relation(standing, from, to) == Relation::Hostile
     }
 
     /// Why the map page's return to the Ebon Hawk is refused now, as K1's
@@ -1717,10 +2095,34 @@ impl Snapshot {
         u8::try_from(avatars).unwrap_or(u8::MAX)
     }
 
+    /// Whether the party has been in `module`. That is true when it is in
+    /// the module now, and when it left the module and the stash keeps it.
+    pub fn visited(&self, module: &str) -> bool {
+        let named = |place: &Place| place.module.eq_ignore_ascii_case(module);
+        self.place.as_ref().is_some_and(named)
+            || self.stash.iter().any(|stashed| named(&stashed.place))
+    }
+
     /// The seats the session holds (`seats_held`): how many the server
     /// admits and an install makes room for.
     pub fn seats(&self) -> u8 {
         self.seats_held
+    }
+
+    /// Takes the test aids off every player's sheet, a benched one's too.
+    /// The aids are god mode (`sheet::flags::IMMORTAL`) and ten times the
+    /// damage (`sheet::flags::MIGHTY`), which `--god` and `--mighty` set.
+    /// A playthrough's checkpoint keeps them, and a save made for a player
+    /// from one has them taken off here.
+    pub fn without_test_aids(&mut self) {
+        use crate::combat::sheet::flags;
+        let players = self
+            .entities
+            .iter_mut()
+            .filter(|entity| matches!(entity.kind, Kind::Avatar(_)));
+        for sheet in players.filter_map(|entity| entity.sheet.as_mut()) {
+            sheet.flags &= !(flags::IMMORTAL | flags::MIGHTY);
+        }
     }
 
     /// The players driving a body (I30 P21): the host, always one, and
@@ -1914,6 +2316,14 @@ impl Snapshot {
         for puppet in &self.puppets {
             out.u32(puppet.0);
         }
+        self.saber_rules.encode(out);
+        out.u8(u8::from(self.targeted_blocks));
+        out.u8(u8::try_from(self.waiting.len()).expect("fewer than 256 companions"));
+        for waiting in &self.waiting {
+            out.u32(waiting.0);
+        }
+        out.u16(self.damage_taken.party());
+        out.u16(self.damage_taken.enemies());
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -1973,7 +2383,7 @@ impl Snapshot {
         let digest_at = input.at();
         let digest: [u8; 32] = input.array()?;
         let talk = Told::decode(&mut input)?;
-        let spawned = decode_spawned(&mut input)?;
+        let spawned = Arc::new(decode_spawned(&mut input)?);
         let goods = Goods::decode(&mut input)?;
         let progress = Progress::decode(&mut input)?;
         let personas = crate::persona::decode(&mut input)?;
@@ -2083,6 +2493,26 @@ impl Snapshot {
                 puppets.push(SimId(input.u32()?));
             }
         }
+        let saber_rules = if input.since(crate::since::snapshot::SABER_MODES) {
+            crate::combat::saber::SaberRules::decode(&mut input)?
+        } else {
+            crate::combat::saber::SaberRules::Ja
+        };
+        let targeted_blocks = decode_targeted(&mut input)?;
+        // Older snapshots carried none: the next step makes them again from
+        // the scripts' party table.
+        let mut waiting: Vec<SimId> = Vec::new();
+        if input.since(crate::since::snapshot::FIX_BUG_REPORTS_2026_11_17) {
+            for _ in 0..input.u8()? {
+                waiting.push(SimId(input.u32()?));
+            }
+        }
+        // Older snapshots carried none: both sides take the normal damage.
+        let damage_taken = if input.since(crate::since::snapshot::FEAT_DAMAGE_MULTIPLIERS) {
+            crate::combat::damage::Taken::new(input.u16()?, input.u16()?)
+        } else {
+            Default::default()
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2129,6 +2559,10 @@ impl Snapshot {
             remotes,
             standing,
             puppets,
+            saber_rules,
+            targeted_blocks,
+            waiting,
+            damage_taken,
             shared,
             authority,
             next_id,
@@ -2601,6 +3035,21 @@ fn encode_place(place: Option<&Place>, out: &mut Writer) {
     }
 }
 
+/// Whether the session plays with targeted blocks
+/// (`Snapshot::targeted_blocks`). A snapshot from before the flag reads it as
+/// off.
+pub(crate) fn decode_targeted(input: &mut Reader) -> Result<bool, DecodeError> {
+    if !input.since(crate::since::snapshot::FEAT_TARGETED_BLOCKS) {
+        return Ok(false);
+    }
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(input.invalid("targeted blocks flag", at)),
+    }
+}
+
 fn decode_place(input: &mut Reader) -> Result<Option<Place>, DecodeError> {
     let at = input.at();
     Ok(match input.u8()? {
@@ -2698,8 +3147,7 @@ fn encode_entity(entity: &EntityState, out: &mut Writer) {
     match &entity.sheet {
         Some(sheet) => {
             out.u8(1);
-            sheet.encode(out);
-            sheet.picks.encode(out);
+            encode_sheet(sheet, out);
         }
         None => out.u8(0),
     }
@@ -2720,6 +3168,31 @@ fn decode_entities(input: &mut Reader, next_id: u32) -> Result<Vec<EntityState>,
         entities.push(entity);
     }
     Ok(entities)
+}
+
+/// An entity's sheet, then its picks and its action bar.
+pub(crate) fn encode_sheet(sheet: &Sheet, out: &mut Writer) {
+    sheet.encode(out);
+    sheet.picks.encode(out);
+    sheet.bar.encode(out);
+}
+
+/// Reads what `encode_sheet` wrote. A snapshot older than a part reads
+/// that part as empty.
+pub(crate) fn decode_sheet(input: &mut Reader) -> Result<Sheet, DecodeError> {
+    let mut sheet = Sheet::decode(input)?;
+    if input.since(crate::since::snapshot::FEAT_CYCLE) {
+        let items = input.since(crate::since::snapshot::ITEM_CYCLE);
+        sheet.picks = crate::combat::picks::Picks::decode(
+            input,
+            items,
+            input.since(crate::since::snapshot::FIX_FORCE_CYCLE),
+        )?;
+    }
+    if input.since(crate::since::snapshot::FEAT_ACTION_BAR) {
+        sheet.bar = crate::combat::bar::Bar::decode(input)?;
+    }
+    Ok(sheet)
 }
 
 /// One entity, its id after `last`'s and below `next_id`.
@@ -2812,14 +3285,7 @@ fn decode_entity(
     let at = input.at();
     let sheet = match input.u8()? {
         0 => None,
-        1 => {
-            let mut sheet = Sheet::decode(input)?;
-            if input.since(crate::since::snapshot::FEAT_CYCLE) {
-                let items = input.since(crate::since::snapshot::ITEM_CYCLE);
-                sheet.picks = crate::combat::picks::Picks::decode(input, items)?;
-            }
-            Some(sheet)
-        }
+        1 => Some(decode_sheet(input)?),
         _ => return Err(input.invalid("sheet flag", at)),
     };
     // A player always has one; a creature has one once its equipment
@@ -2920,6 +3386,10 @@ fn encode_player(player: &MotionState, out: &mut Writer) {
     out.u64(player.slope_next_ms);
     out.u8(player.events);
     out.u64(player.next_use_ms);
+    let jam = &player.jam;
+    for value in [jam.by, jam.ms, jam.passing[0], jam.passing[1]] {
+        out.u32(value);
+    }
 }
 
 fn decode_player(input: &mut Reader) -> Result<MotionState, DecodeError> {
@@ -2961,6 +3431,15 @@ fn decode_player(input: &mut Reader) -> Result<MotionState, DecodeError> {
     let slope_next_ms = input.u64()?;
     let events = input.u8()?;
     let next_use_ms = input.u64()?;
+    let jam = if input.since(crate::since::snapshot::FIX_ISSUE_280) {
+        crate::motion::Jam {
+            by: input.u32()?,
+            ms: input.u32()?,
+            passing: [input.u32()?, input.u32()?],
+        }
+    } else {
+        crate::motion::Jam::default()
+    };
     Ok(MotionState {
         origin: [vectors[0], vectors[1], vectors[2]],
         velocity: [vectors[3], vectors[4], vectors[5]],
@@ -2984,6 +3463,7 @@ fn decode_player(input: &mut Reader) -> Result<MotionState, DecodeError> {
         slope_next_ms,
         events,
         next_use_ms,
+        jam,
     })
 }
 

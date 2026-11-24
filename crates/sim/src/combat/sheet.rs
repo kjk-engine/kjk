@@ -60,21 +60,72 @@ impl<const WORDS: usize> Rows<WORDS> {
     pub fn count(&self, rows: &[u16]) -> u8 {
         rows.iter().filter(|row| self.has(**row)).count() as u8
     }
+
+    /// Writes the set's first `words` words: a format from before the set
+    /// grew holds fewer (`OLD_FEAT_WORDS`, `OLD_POWER_WORDS`).
+    pub(crate) fn encode_words(&self, out: &mut Writer, words: usize) {
+        for word in self.0.iter().take(words) {
+            out.u64(*word);
+        }
+    }
+
+    /// Reads what `encode_words` wrote, the words past them empty.
+    pub(crate) fn decode_words(input: &mut Reader, words: usize) -> Result<Self, DecodeError> {
+        let mut rows = Self::default();
+        for word in rows.0.iter_mut().take(words) {
+            *word = input.u64()?;
+        }
+        Ok(rows)
+    }
+}
+
+/// The `spells.2da` rows a character knows: 512 of them, room for TSL's 282
+/// rows and the rows mods add.
+pub type Powers = Rows<8>;
+/// The `feat.2da` rows a character knows: 512 of them, room for TSL's 245
+/// rows and the rows mods add.
+pub type Feats = Rows<8>;
+/// How many words of feats and of powers the formats from before
+/// `Feats` and `Powers` held 512 rows kept (256 and 320 rows).
+pub(crate) const OLD_FEAT_WORDS: usize = 4;
+pub(crate) const OLD_POWER_WORDS: usize = 5;
+
+/// How many words of feats and powers a sheet holds: all of them in a
+/// format that has 512 rows of each (`new`), else the old counts.
+pub(crate) fn row_words(new: bool) -> (usize, usize) {
+    if new {
+        (Feats::ROWS as usize / 64, Powers::ROWS as usize / 64)
+    } else {
+        (OLD_FEAT_WORDS, OLD_POWER_WORDS)
+    }
 }
 
 /// Feat rows (`feat.2da`) combat and the skills read.
 pub mod feats {
     pub const TWO_WEAPON_FIGHTING: [u16; 3] = [3, 9, 85];
+    /// TSL's Superior Two-Weapon Fighting I to III (the Weapon Master's
+    /// and the Marauder's).
+    pub const SUPERIOR_TWO_WEAPON: [u16; 3] = [159, 160, 161];
     pub const CRITICAL_STRIKE: [u16; 3] = [8, 19, 81];
     pub const FLURRY: [u16; 2] = [11, 91];
     /// Master Flurry (`WHIRLWIND_ATTACK`), Flurry's third line.
     pub const MASTER_FLURRY: u16 = 53;
+    /// Flurry's three ranks, as the `successor` column of `feat.2da` chains
+    /// them in both games. The choice of a feat attack (`combat::picks`)
+    /// and a script's talent match a feat against all three ranks.
+    /// `FLURRY` keeps two ranks because the fast style's offence level
+    /// counts its ranks, and Master Flurry does not raise that level.
+    pub const FLURRY_RANKS: [u16; 3] = [FLURRY[0], FLURRY[1], MASTER_FLURRY];
     pub const POWER_ATTACK: [u16; 3] = [28, 17, 83];
     pub const POWER_BLAST: [u16; 3] = [29, 18, 82];
     pub const RAPID_SHOT: [u16; 3] = [30, 92, 26];
     pub const SNIPER_SHOT: [u16; 3] = [31, 20, 77];
     /// TSL's HK droids' Shield Breaker.
     pub const SHIELD_BREAKER: u16 = 220;
+    /// TSL's G0-T0's Mine Immunity and Mira's Point Guard
+    /// (`world::traps::immune`).
+    pub const MINE_IMMUNITY: u16 = 238;
+    pub const POINT_GUARD: u16 = 239;
     pub const JEDI_DEFENSE: [u16; 3] = [55, 1, 24];
     pub const DUELING: [u16; 3] = [113, 114, 115];
     pub const FORCE_JUMP: [u16; 3] = [101, 102, 103];
@@ -147,6 +198,33 @@ pub mod feats {
     pub const FORCE_IMMUNITY_FEAR: u16 = 98;
     pub const FORCE_IMMUNITY_STUN: u16 = 99;
     pub const FORCE_IMMUNITY_PARALYSIS: u16 = 100;
+    /// How many rows KOTOR 1's own `feat.2da` has. KOTOR 2's feats lent to
+    /// KOTOR 1 (`vfs::lent`) come after them, by their KOTOR 2 numbers.
+    pub const K1_FEAT_ROWS: u16 = EVASION;
+    // KOTOR 2's feats, which KOTOR 1 gets lent (`vfs::lent`). A Scout and
+    // a Jedi are granted some tiers at class levels without the tiers
+    // before them, so each line's rule reads the highest tier held
+    // (`passive::best_tier`).
+    pub const EVASION: u16 = 125;
+    /// Targeting I to VIII.
+    pub const TARGETING: [u16; 8] = [126, 127, 128, 129, 130, 131, 132, 133];
+    /// Close Combat and Improved Close Combat.
+    pub const CLOSE_COMBAT: [u16; 2] = [139, 140];
+    /// Regenerate Force Points (`force::REGENERATE_FEAT`) and Regenerate
+    /// Vitality Points.
+    pub const REGENERATE_FORCE_POINTS: u16 = 143;
+    pub const REGENERATE_VITALITY_POINTS: u16 = 196;
+    /// Dual Strike, Improved and Master.
+    pub const DUAL_STRIKE: [u16; 3] = [190, 191, 192];
+    pub const FINESSE_LIGHTSABERS: u16 = 193;
+    pub const FINESSE_MELEE_WEAPONS: u16 = 194;
+    pub const STEALTH_RUN: u16 = 197;
+    pub const MENTOR: u16 = 202;
+    /// Unarmed Specialist I to VIII.
+    pub const UNARMED_SPECIALIST: [u16; 8] = [212, 213, 214, 215, 216, 217, 218, 219];
+    /// Precise Shot I to V (KOTOR 2's rows in use; its unused `XXX` rows
+    /// of the same names are left alone).
+    pub const PRECISE_SHOT: [u16; 5] = [240, 241, 242, 243, 244];
 }
 
 /// Sheet flags.
@@ -160,8 +238,9 @@ pub mod flags {
     /// clears the player's Min1HP on arriving at its second deck).
     pub const IMMORTAL: u8 = 16;
     /// A test's mighty player (`kjk playthrough --mighty`): its blows
-    /// count many times over (`damage::MIGHTY_TIMES`), so a playtest's
-    /// fights end quickly; what the scripts do is unchanged.
+    /// count many times over (`damage::MIGHTY_TIMES`), in KOTOR II
+    /// each with the greatest chance to hit, so a playtest's fights end
+    /// quickly; what the scripts do is unchanged.
     pub const MIGHTY: u8 = 32;
     /// A droid (`races::DROID`): no pain animations by chance; droid powers
     /// work on it and the living's do not.
@@ -241,6 +320,40 @@ pub enum Blaster {
     Sonic,
 }
 
+/// The `baseitems.2da` columns that say how a weapon delivers its hits
+/// (`Delivery::of_columns`), each `None` where the row's cell is empty.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WeaponColumns {
+    /// `weaponwield`: 1 a stun baton, 2 a one-handed blade, 3 a two-handed
+    /// or double-bladed one, 4 a pistol, 5 a rifle, 6 a heavy weapon.
+    pub wield: Option<i64>,
+    /// `weapontype`: the kind of damage it deals.
+    pub kind: Option<i64>,
+    /// `damageflags`: its damage types (`damage_types`).
+    pub damage: Option<i64>,
+    /// `weaponsize`.
+    pub size: Option<i64>,
+    /// `rangedweapon` set: it fires.
+    pub ranged: bool,
+    /// `ammunitiontype`: its `ammunitiontypes.2da` row, the bolt it fires.
+    pub ammunition: Option<i64>,
+}
+
+impl WeaponColumns {
+    /// The columns of one `baseitems.2da` row, each cell read by `int` (a
+    /// column's name to its number, `None` for an empty cell).
+    pub fn read(mut int: impl FnMut(&str) -> Option<i64>) -> WeaponColumns {
+        WeaponColumns {
+            wield: int("weaponwield"),
+            kind: int("weapontype"),
+            damage: int("damageflags"),
+            size: int("weaponsize"),
+            ranged: int("rangedweapon").is_some_and(|ranged| ranged != 0),
+            ammunition: int("ammunitiontype"),
+        }
+    }
+}
+
 /// The `baseitems.2da` rows of the melee weapons held in both hands
 /// (`weaponwield` 3 in K1 and TSL): the quarterstaff, the double-bladed
 /// sword and vibro double blade, the gaffi stick, the Wookiee warblade.
@@ -266,6 +379,57 @@ impl Delivery {
             19 => Delivery::Blaster(Bowcaster),
             20 | 77 => Delivery::Blaster(Rifle),
             23 | 24 => Delivery::Blaster(Repeater),
+            _ => return None,
+        })
+    }
+
+    /// The delivery of `baseitems.2da` row `row` with `columns`: by the
+    /// rows the games share (`of_base_item`), else by its columns
+    /// (`of_columns`).
+    pub fn of_row(row: u16, columns: &WeaponColumns) -> Option<Delivery> {
+        Delivery::of_base_item(row).or_else(|| Delivery::of_columns(columns))
+    }
+
+    /// The delivery of a `baseitems.2da` row read from its columns, for a
+    /// row `of_base_item` does not know: a row a mod adds (K2CP's mining
+    /// lasers), or one the table leaves out (TSL's force pike). The
+    /// executables know a weapon by these columns, not by its row's number,
+    /// so a mod's new row fights as its columns say. On the rows the games
+    /// share, this reading gives what `of_base_item` gives. `None` for a
+    /// row that is no weapon.
+    pub fn of_columns(row: &WeaponColumns) -> Option<Delivery> {
+        use Blaster::*;
+        if row.ranged {
+            // `weaponwield` 6 is a heavy weapon; otherwise the bolt
+            // (`ammunitiontypes.2da`) says the kind, and an ordinary blaster
+            // bolt fires as a pistol or, held in both hands (`weaponwield`
+            // 5), a rifle.
+            return Some(Delivery::Blaster(match (row.wield, row.ammunition) {
+                (Some(6), _) => Repeater,
+                (_, Some(2)) => Ion,
+                (_, Some(3)) => Disruptor,
+                (_, Some(4)) => Sonic,
+                (_, Some(5)) => Bowcaster,
+                (Some(5), _) => Rifle,
+                _ => Pistol,
+            }));
+        }
+        let energy = row.damage.is_some_and(|flags| {
+            u16::try_from(flags).is_ok_and(|flags| flags & damage_types::ENERGY != 0)
+        });
+        Some(match row.wield {
+            Some(1) => Delivery::Baton,
+            // A blade of energy damage is a lightsaber: `weaponwield` 3 a
+            // double-bladed one, `weaponsize` 2 or less a short one.
+            Some(3) if energy => Delivery::Saber(SaberShape::Staff),
+            Some(2) if energy && row.size.is_some_and(|size| size <= 2) => {
+                Delivery::Saber(SaberShape::Short)
+            }
+            Some(2) if energy => Delivery::Saber(SaberShape::Single),
+            Some(2 | 3) => Delivery::Melee,
+            // A creature's weapon has a damage type but no wield: it strikes
+            // in melee, as KOTOR's creature weapons do.
+            None if row.kind.is_some() => Delivery::Melee,
             _ => return None,
         })
     }
@@ -429,8 +593,9 @@ pub struct Weapon {
     pub massive: Roll,
     /// What its hits may do besides damage (32, `OnHit`).
     pub on_hit: [Option<OnHit>; ON_HITS],
-    /// Mighty (30): held ranged in the right hand, the most STR adds to its
-    /// damage; without it a ranged weapon takes only STR's penalty.
+    /// Mighty (30), the most STR a ranged weapon would add to its damage.
+    /// Kept as the item has it, but TSL's damage roll adds no STR to a gun
+    /// (`damage::strength`), so it changes nothing.
     pub mighty: Option<u8>,
     /// Its enhancement (Enhancement's, 5): what overcomes a soak.
     pub enhancement: u8,
@@ -455,24 +620,24 @@ pub mod build {
     pub const ONE_HANDED: u8 = 1;
     /// `weaponsize` 2 or less: balanced in the off hand.
     pub const SMALL: u8 = 2;
-    /// Double-bladed (its `label`): fought with as two weapons. No column
-    /// says so: `weaponwield` 3 (reone's double-bladed wield) also holds the
-    /// quarterstaff, the gaffi stick and the warblade [verify: whether
-    /// KOTOR fights those as two weapons].
+    /// `weaponwield` 3: fought with as two weapons, the weapon being its
+    /// own balanced off-hand weapon. Both games' attack rolls treat every
+    /// such weapon this way. These are the double-bladed sword, vibroblade
+    /// and lightsaber, the quarterstaff, the gaffi stick, the Wookiee
+    /// warblade and TSL's force pike.
     pub const DOUBLE: u8 = 4;
 
-    /// The bits of a `baseitems.2da` row's `weaponwield`, `weaponsize` and
-    /// `label`.
-    pub fn of(wield: Option<i64>, size: Option<i64>, label: &str) -> u8 {
+    /// The bits of a `baseitems.2da` row's `weaponwield` and `weaponsize`.
+    pub fn of(wield: Option<i64>, size: Option<i64>) -> u8 {
         let mut bits = 0;
         if matches!(wield, Some(1 | 2 | 4)) {
             bits |= ONE_HANDED;
         }
+        if wield == Some(3) {
+            bits |= DOUBLE;
+        }
         if size.is_some_and(|size| (1..=2).contains(&size)) {
             bits |= SMALL;
-        }
-        if label.to_ascii_lowercase().contains("double") {
-            bits |= DOUBLE;
         }
         bits
     }
@@ -506,12 +671,15 @@ impl Weapon {
             23 | 24 => (6, 4),
             _ => return 0,
         };
-        let double = if matches!(row, 6 | 7 | 9) {
-            "double"
-        } else {
-            ""
-        };
-        build::of(Some(wield), Some(size), double)
+        build::of(Some(wield), Some(size))
+    }
+
+    /// Whether it is held in one hand, as its base item's `weaponwield`
+    /// says (`build::ONE_HANDED`). Every pistol is: the blaster pistol, the
+    /// heavy and hold-out blasters, and the ion, disruptor and sonic
+    /// pistols. Their rifles share their bolts but are held in both hands.
+    pub fn one_handed(&self) -> bool {
+        self.build & build::ONE_HANDED != 0
     }
 
     /// A plain weapon of base item `row` with `baseitems.2da`'s numbers and
@@ -613,10 +781,10 @@ pub struct Sheet {
     /// The most DEX may add to defence (the armour's `dexbonus`), if the
     /// armour caps it.
     pub dex_cap: Option<u8>,
-    /// `feat.2da` rows known (256 rows).
-    pub feats: Rows<4>,
-    /// `spells.2da` rows known (320 rows: TSL's table has 283).
-    pub powers: Rows<5>,
+    /// `feat.2da` rows known (`Feats`).
+    pub feats: Feats,
+    /// `spells.2da` rows known (`Powers`).
+    pub powers: Powers,
     /// The standard faction (`repute.2da` row).
     pub faction: u8,
     /// `racialtypes.2da` row (`races`).
@@ -656,9 +824,20 @@ pub struct Sheet {
     /// The feat attacks its weapons carry (`combat::picks`), encoded beside
     /// the sheet.
     pub picks: crate::combat::picks::Picks,
+    /// The action bar and the powers hidden from the power wheel
+    /// (`combat::bar`), encoded beside the sheet after the picks.
+    pub bar: crate::combat::bar::Bar,
 }
 
 impl Sheet {
+    /// Whether the character has feat `row`: one it learned, or one a worn
+    /// item gives it (a Bonus Feat property, as Davik's Visor gives Improved
+    /// Power Blast). A sheet `effects::sheet_now` made has both in `feats`;
+    /// a worn sheet keeps the items' in its gear.
+    pub fn knows(&self, row: u16) -> bool {
+        self.feats.has(row) || self.gear.feats.has(row)
+    }
+
     /// An ability's modifier: (score − 10) / 2, rounded down.
     pub fn modifier(&self, ability: Ability) -> i32 {
         (i32::from(self.abilities[ability as usize]) - 10).div_euclid(2)
@@ -679,15 +858,26 @@ impl Sheet {
         }
     }
 
-    /// Its most FP (`GetMaxForcePoints`): the sheet's with TSL's bonus
-    /// (`bonus_fp`, a plain add as its executable makes it), never below 0.
-    /// The bonus counts only for a Force user: anyone else's bar is
-    /// stamina (`pool`).
+    /// Its most FP (`GetMaxForcePoints`), worked out as both executables
+    /// do each time it is asked: the sheet's own (`max_fp`: the force dice
+    /// its levels rolled, a template's `ForcePoints`, Force Sensitive's)
+    /// plus the Wisdom modifier a level, and in K1 the Charisma modifier a
+    /// level too (TSL counts Wisdom alone), plus TSL's bonus (`bonus_fp`);
+    /// never below its level. So an ability raised, by a level or an
+    /// item, moves it at once, as it does there. It counts only for a
+    /// Force user: anyone else's bar is stamina (`pool`).
     pub fn force_points(&self) -> u16 {
         if self.max_fp == 0 {
             return 0;
         }
-        (i32::from(self.max_fp) + i32::from(self.bonus_fp)).clamp(0, i32::from(u16::MAX)) as u16
+        let mut per_level = self.modifier(Ability::Wisdom);
+        if self.flags & flags::TSL == 0 {
+            per_level += self.modifier(Ability::Charisma);
+        }
+        let level = i32::from(self.level);
+        (i32::from(self.max_fp) + per_level * level + i32::from(self.bonus_fp))
+            .max(level)
+            .clamp(0, i32::from(u16::MAX)) as u16
     }
 
     /// The weapon in the right hand, else fists.
@@ -738,14 +928,16 @@ impl Sheet {
     /// with nothing in the left): a gun's shot clip goes by it.
     pub fn right_class(&self) -> u8 {
         let main = self.main_weapon();
+        // Held in one hand by its `weaponwield` (`build::of`).
+        let one_handed = main.build & build::ONE_HANDED != 0;
         match (main.delivery, main.base_item) {
             (Delivery::Unarmed, _) => crate::combat::rounds::UNARMED,
             (Delivery::Baton, _) => 1,
             (Delivery::Saber(SaberShape::Staff), _) => 3,
             (Delivery::Melee, row) if TWO_HANDED_MELEE.contains(&row) => 3,
-            (Delivery::Blaster(_), 23 | 24) => 9,
-            (Delivery::Blaster(_), 18..=22 | 77) => 7,
-            (Delivery::Blaster(_), _) => 5,
+            (Delivery::Blaster(Blaster::Repeater), _) => 9,
+            (Delivery::Blaster(_), _) if one_handed => 5,
+            (Delivery::Blaster(_), _) => 7,
             _ => 2,
         }
     }
@@ -777,11 +969,12 @@ impl Sheet {
             + passive::save_bonus(&self.feats)
     }
 
-    /// A skill's ranks with what feats add (`skills` row; its ability is
-    /// the caller's).
+    /// A skill's ranks with what feats add (`skills` row). The key
+    /// ability's modifier, and the rule that a skill only the trained may
+    /// use is 0 without ranks, are the caller's (`stealth::total`).
     pub fn skill(&self, skill: usize) -> i32 {
         let ranks = self.skills.get(skill).copied().unwrap_or(0);
-        i32::from(ranks) + passive::skill_bonus(&self.feats, skill, ranks)
+        i32::from(ranks) + passive::skill_bonus(&self.feats, skill)
     }
 
     /// What a creature whose sheet could not be read fights as: level 1,
@@ -812,6 +1005,7 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
@@ -885,6 +1079,7 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
@@ -970,10 +1165,18 @@ impl Sheet {
             save_bonus: [0; 3],
             form: 0,
             picks: Default::default(),
+            bar: Default::default(),
         }
     }
 
     pub(crate) fn encode(&self, out: &mut Writer) {
+        self.encode_as(out, crate::wire::Versions::THIS_BUILD);
+    }
+
+    /// `encode` as the build of snapshot format `versions` wrote it: a
+    /// field that format did not have yet is left out (a probe's old
+    /// bytes).
+    pub(crate) fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
         out.bytes(&self.abilities);
         out.u8(self.level);
         out.u8(self.bab);
@@ -984,9 +1187,10 @@ impl Sheet {
         out.u16(self.max_fp);
         out.i8(self.defence);
         out.u8(self.dex_cap.unwrap_or(u8::MAX));
-        for word in self.feats.0.iter().chain(&self.powers.0) {
-            out.u64(*word);
-        }
+        let (feat_words, power_words) =
+            row_words(versions.snapshot >= crate::since::snapshot::FEAT_POWER_ROWS.1);
+        self.feats.encode_words(out, feat_words);
+        self.powers.encode_words(out, power_words);
         out.u8(self.faction);
         out.u8(self.race);
         for immunity in self.guards.immunity {
@@ -1001,7 +1205,7 @@ impl Sheet {
             write_fixed(out, carried.as_ref(), &Carried::BLANK, Carried::encode);
         }
         out.bytes(&self.skills);
-        self.gear.encode(out);
+        self.gear.encode_as(out, versions);
         out.i8(self.attack);
         out.u8(self.good_evil);
         out.u16(self.bonus_fp as u16);
@@ -1020,14 +1224,10 @@ impl Sheet {
         let max_fp = input.u16()?;
         let defence = input.i8()?;
         let dex_cap = Some(input.u8()?).filter(|cap| *cap != u8::MAX);
-        let mut feats = Rows::<4>::default();
-        for word in &mut feats.0 {
-            *word = input.u64()?;
-        }
-        let mut powers = Rows::<5>::default();
-        for word in &mut powers.0 {
-            *word = input.u64()?;
-        }
+        let (feat_words, power_words) =
+            row_words(input.since(crate::since::snapshot::FEAT_POWER_ROWS));
+        let feats = Feats::decode_words(input, feat_words)?;
+        let powers = Powers::decode_words(input, power_words)?;
         let faction = input.u8()?;
         let race = input.u8()?;
         let mut guards = Guards::default();
@@ -1076,6 +1276,7 @@ impl Sheet {
             save_bonus,
             form,
             picks: Default::default(),
+            bar: Default::default(),
         })
     }
 }

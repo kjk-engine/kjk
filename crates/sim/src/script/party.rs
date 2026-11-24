@@ -15,8 +15,9 @@ pub const FOLLOWERS: usize = rules::progression::party::FOLLOWERS;
 
 /// A companion the party table knows: the template it is made from, the
 /// creature it is in this module, if one, what the table kept of it, and,
-/// made available by template, that template as the module naming it read
-/// it (`sim::pack`'s creature encoding): KOTOR's table keeps the creature,
+/// made available by template (or by object, from a module change on), that
+/// template as the module naming it read it (`sim::pack`'s creature
+/// encoding): KOTOR's table keeps the creature,
 /// so a module without the template makes it all the same (the dark side's
 /// Bastila, of the Unknown World summit's own `p_bastilla00N`, in the Star
 /// Forge's arrival scene).
@@ -30,7 +31,9 @@ pub struct Npc {
 
 impl Npc {
     /// The template the table kept, as `make_npc` makes it when the module
-    /// lacks it; none for a companion made available by object.
+    /// lacks it. A companion made available by object has none until a
+    /// module change takes it to a module that lacks its template
+    /// (`install`'s `kept_templates`).
     pub fn template_facts(&self) -> Option<crate::module::ObjectData> {
         crate::pack::creature_of(
             self.template_data.as_deref()?,
@@ -61,18 +64,35 @@ pub struct Kept {
 }
 
 /// The party selection screen a script showed (`ShowPartySelectionGUI`),
-/// until a player closes it: the script run then (KOTOR's exit script)
-/// and the companions it puts in the party whatever the player picks.
+/// until a player closes it: the script run then (KOTOR's exit script),
+/// the companions it puts in the party whatever the player picks, and
+/// whether the player may back out of it (TSL's `nAllowCancel`; KOTOR 1's
+/// screens never allow it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selection {
     pub exit: String,
     pub forced: Vec<u8>,
+    pub cancel: bool,
+}
+
+impl Selection {
+    /// The screen a player opened in play: no script, nobody forced, and
+    /// backing out keeps the party.
+    pub fn in_play() -> Selection {
+        Selection {
+            exit: String::new(),
+            forced: Vec::new(),
+            cancel: true,
+        }
+    }
 }
 
 /// The screen's exit script's `GetRunScriptVar` once a player accepted
-/// the party; 0 is the screen cancelled (TSL's `nAllowCancel`): the Ebon
-/// Hawk's ramp (`check_party_gui`) leaves on the one, stays on the other.
+/// the party, and once a player backed out of it (TSL's `nAllowCancel`):
+/// the Ebon Hawk's ramp (`check_party_gui`) leaves on the one, stays on the
+/// other.
 pub const ACCEPTED: i32 = 1;
+pub const CANCELLED: i32 = 0;
 
 /// A puppet the party table knows (TSL's `AddAvailablePUP*`): the template
 /// it is made from, its creature in this module if one, the companion it
@@ -148,6 +168,24 @@ pub mod forfeit {
             .find(|&(rule, breaks)| rules & rule != 0 && breaks)
             .map(|(rule, _)| rule)
     }
+}
+
+/// The party's bases, where the companions out of the party stand around
+/// and the in-game pages show them as well (`Snapshot::waiting`). In K1
+/// these are the Ebon Hawk (`ebo_m12aa`), the Taris apartment
+/// (`tar_m02af`) and the Ebon Hawk on the Leviathan (`ebo_m40ad`). K1's
+/// executable names these three modules, and in them its pages' buttons
+/// for another character step through the party table's available
+/// companions whose creature is in the area. Their scripts take every
+/// companion out of the party on arrival (`k_pebn_pophawk`). In TSL the
+/// base is the Ebon Hawk (`003ebo`). There TSL's equipment page shows its
+/// previous and next companion buttons, which step through the available
+/// companions found in the area by tag.
+pub const BASES: [&str; 4] = ["ebo_m12aa", "tar_m02af", "ebo_m40ad", "003ebo"];
+
+/// Whether `module` is one of the party's bases (`BASES`).
+pub fn at_base(module: &str) -> bool {
+    BASES.iter().any(|base| base.eq_ignore_ascii_case(module))
 }
 
 /// What scripts keep about the party (a save carries it).
@@ -256,6 +294,16 @@ impl Party {
             .filter_map(|npc| self.available.get(npc)?.object)
     }
 
+    /// The creatures of the available companions that are not in the
+    /// party, by `NPC_*` number. A companion the first seat is switched to
+    /// is not one of them.
+    pub fn waiting_creatures(&self) -> impl Iterator<Item = u32> + '_ {
+        self.available
+            .iter()
+            .filter(|(npc, _)| !self.members.contains(npc) && self.switched != Some(**npc))
+            .filter_map(|(_, slot)| slot.object)
+    }
+
     /// `npc` joins, on `object`, if it is available, not in yet and there
     /// is room; whether it did.
     pub fn join(&mut self, npc: u8, object: u32) -> bool {
@@ -270,22 +318,27 @@ impl Party {
         true
     }
 
-    /// The table as a party selection screen shows it: `forced` the
-    /// companions its script puts in, `open` whether a script showed it;
-    /// what each companion wears on its body among `items`, held by its
-    /// creature (in the party) or the one the table kept it from.
+    /// The table as a party selection screen shows it: the script's open
+    /// screen (`self.selection`), else the one a player opened in play,
+    /// which `refusal` keeps from changing the party (none: it may); what
+    /// each companion wears on its body among `items`, held by its creature
+    /// (in the party) or the one the table kept it from.
     pub fn roster(
         &self,
-        forced: &[u8],
-        open: bool,
+        refusal: Option<crate::notice::Refusal>,
         items: &crate::inventory::Items,
     ) -> crate::notice::Roster {
         use crate::notice::Roster;
+        let in_play = Selection::in_play();
+        let selection = self.selection.as_ref().unwrap_or(&in_play);
+        let open = self.selection.is_some();
         let mut roster = Roster {
             unselectable: Roster::bits(self.unselectable.iter().copied()),
             members: Roster::bits(self.members.iter().copied()),
-            forced: Roster::bits(forced.iter().copied()),
+            forced: Roster::bits(selection.forced.iter().copied()),
             open,
+            cancel: selection.cancel,
+            refusal: refusal.filter(|_| !open),
             ..Roster::default()
         };
         for (npc, slot) in &self.available {
@@ -301,13 +354,32 @@ impl Party {
         roster
     }
 
+    /// Whom the selection screen opens with picked (`Roster::opening`):
+    /// the forced alone when its script forces any, else the party as it
+    /// stands.
+    pub fn opening(&self, selection: &Selection) -> Vec<u8> {
+        if selection.forced.is_empty() {
+            self.members.clone()
+        } else {
+            selection.forced.clone()
+        }
+    }
+
     /// Who a choice from the selection screen puts in the party: the
-    /// forced first, then those `picks` names that are available and
-    /// selectable, each once, `FOLLOWERS` at most.
+    /// forced first, then the companions the player may not pick
+    /// (`SetNPCSelectability`) where the screen opened with them, then
+    /// those `picks` names that are available and selectable, each once,
+    /// `FOLLOWERS` at most. KOTOR's screen lets no click move a companion
+    /// the player may not pick, so it stays in or out as it opened.
     pub fn chosen(&self, selection: &Selection, picks: &[u8]) -> Vec<u8> {
         let mut party = Vec::new();
+        let kept = self
+            .opening(selection)
+            .into_iter()
+            .filter(|npc| self.unselectable.contains(npc));
         let picked = picks.iter().filter(|npc| !self.unselectable.contains(npc));
-        for &npc in selection.forced.iter().chain(picked) {
+        let forced = selection.forced.iter().copied();
+        for npc in forced.chain(kept).chain(picked.copied()) {
             if self.available.contains_key(&npc) && !party.contains(&npc) && party.len() < FOLLOWERS
             {
                 party.push(npc);
@@ -373,6 +445,7 @@ impl Party {
                     out.u32(kept.from);
                     kept.sheet.encode(out);
                     kept.sheet.picks.encode(out);
+                    kept.sheet.bar.encode(out);
                     out.u32(kept.hp as u32);
                     out.u32(kept.fp as u32);
                     out.u8(u8::from(kept.worn.is_some()));
@@ -403,6 +476,7 @@ impl Party {
         if let Some(selection) = &self.selection {
             out.string(&selection.exit);
             out.section(&selection.forced);
+            out.u8(u8::from(selection.cancel));
         }
         out.u32(self.influence.len() as u32);
         for (npc, influence) in &self.influence {
@@ -439,7 +513,14 @@ impl Party {
                         let mut sheet = Sheet::decode(input)?;
                         if input.since(crate::since::save::FEAT_CYCLE) {
                             let items = input.since(crate::since::save::ITEM_CYCLE);
-                            sheet.picks = crate::combat::picks::Picks::decode(input, items)?;
+                            sheet.picks = crate::combat::picks::Picks::decode(
+                                input,
+                                items,
+                                input.since(crate::since::save::FIX_FORCE_CYCLE),
+                            )?;
+                        }
+                        if input.since(crate::since::save::FEAT_ACTION_BAR) {
+                            sheet.bar = crate::combat::bar::Bar::decode(input)?;
                         }
                         sheet
                     },
@@ -494,6 +575,7 @@ impl Party {
             party.selection = Some(Selection {
                 exit: input.string()?,
                 forced: input.section()?.to_vec(),
+                cancel: input.since(crate::since::save::ISSUE_317) && input.u8()? != 0,
             });
         }
         for _ in 0..input.u32()? {

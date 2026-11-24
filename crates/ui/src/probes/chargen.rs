@@ -61,6 +61,7 @@ pub(super) fn layouts(assets: &mut Fake) {
     let picker = |extra: Vec<String>| {
         let mut tags: Vec<&str> = extra.iter().map(String::as_str).collect();
         tags.extend([
+            "MAIN_TITLE_LBL",
             "REMAINING_SELECTIONS_LBL",
             "BTN_RECOMMENDED",
             "BTN_ACCEPT",
@@ -201,6 +202,7 @@ pub(super) fn chargen_vm() -> ViewModel {
         hit_die: 10,
         skill_points: 2,
         abilities,
+        primary: 0,
         saves: [2, 0, 0],
         class_skills: [true, false, false, false, false, false, false, false],
         skill_order: vec![1, 0],
@@ -226,6 +228,7 @@ pub(super) fn chargen_vm() -> ViewModel {
             ],
             skill_text: [244, 246, 248, 250, 252, 254, 256, 258],
             names: None,
+            seed: 0,
             whole_skill_points: false,
         }),
         ..ViewModel::default()
@@ -290,12 +293,14 @@ fn text(stack: &Stack, vm: &ViewModel, tag: &str) -> String {
 /// square it is over, the keys moving along a row and between rows; Add
 /// picking an open feat and dropping it, refusing one not open;
 /// Recommended taking the first offered.
-fn feat_chart() -> Check {
+/// A custom soldier made up to the feats step, its first level offering
+/// `picks`.
+fn at_feats(picks: PicksView) -> (Stack, Fake, ViewModel) {
     let mut assets = Fake::new();
     layouts(&mut assets);
     let mut vm = chargen_vm();
     if let Some(chargen) = vm.chargen.as_mut() {
-        chargen.classes[0].picks = feat_picks();
+        chargen.classes[0].picks = picks;
     }
     let mut stack = Stack::new(crate::screens::open);
     stack.open("chargen:solo", &vm);
@@ -317,16 +322,32 @@ fn feat_chart() -> Check {
             "BTN_STEPNAME4",
         ],
     );
+    (stack, assets, vm)
+}
+
+/// Each chain's feats as the chart draws them.
+fn chart_looks(stack: &Stack, vm: &ViewModel) -> Vec<Vec<CellLook>> {
+    let list = stack.state_of("LB_FEATS", vm).and_then(|state| state.list);
+    list.map_or(Vec::new(), |list| {
+        list.rows
+            .iter()
+            .map(|row| row.cells.iter().map(|cell| cell.look).collect())
+            .collect()
+    })
+}
+
+/// The chart's first chain as it draws.
+fn first_chain(stack: &Stack, vm: &ViewModel) -> Vec<CellLook> {
+    chart_looks(stack, vm)
+        .into_iter()
+        .next()
+        .unwrap_or(Vec::new())
+}
+
+fn feat_chart() -> Check {
+    let (mut stack, mut assets, vm) = at_feats(feat_picks());
     let name = |stack: &Stack| text(stack, &vm, "LBL_NAME");
-    let looks = |stack: &Stack| -> Vec<Vec<CellLook>> {
-        let list = stack.state_of("LB_FEATS", &vm).and_then(|state| state.list);
-        list.map_or(Vec::new(), |list| {
-            list.rows
-                .iter()
-                .map(|row| row.cells.iter().map(|cell| cell.look).collect())
-                .collect()
-        })
-    };
+    let looks = |stack: &Stack| chart_looks(stack, &vm);
     let addable = |stack: &Stack| {
         stack
             .state_of("BTN_SELECT", &vm)
@@ -441,6 +462,260 @@ fn feat_chart() -> Check {
             )
         })
         .map(|()| "chains, pointer, keys, Add, a double click, Recommended".into())
+    })
+}
+
+/// A feat whose prerequisite is another pick of the same level opens once
+/// that pick is made, as in both games' level-up screens: with two picks,
+/// Improved Flurry opens when Flurry is picked and is picked after it.
+/// Flurry dropped takes Improved Flurry with it. Recommended picks both, in
+/// turn.
+fn feat_after_pick() -> Check {
+    let mut picks = feat_picks();
+    picks.feat_count = 2;
+    // Recommended order: Flurry, Improved Flurry, Toughness.
+    if let Some(improved) = picks.chart[0][1].clone() {
+        picks.feats.insert(1, improved);
+    }
+    picks.feat_needs = vec![(91, vec![11])];
+    let (mut stack, mut assets, vm) = at_feats(picks);
+    // A double click on a square is Add on its feat: Flurry's is the
+    // chain's first, Improved Flurry's 109 along.
+    let mut double = |stack: &mut Stack, along: f32| {
+        let click = UiInput {
+            click: true,
+            ..pointing([20.0 + along + 20.0, 20.0 + 2.0 + 20.0])
+        };
+        stack.step(&mut assets, &vm, &click);
+        stack.step(&mut assets, &vm, &click);
+        first_chain(stack, &vm)
+    };
+    let opened = first_chain(&stack, &vm);
+    let flurry = double(&mut stack, 0.0);
+    let improved = double(&mut stack, 109.0);
+    let dropped = double(&mut stack, 0.0);
+    stack.press("BTN_RECOMMENDED");
+    stack.step(&mut assets, &vm, &keys(&[]));
+    let recommended = first_chain(&stack, &vm);
+    use CellLook::{Closed, Open, Picked};
+    let seen = [opened, flurry, improved, dropped, recommended];
+    check("feat_after_pick", {
+        expect(
+            &format!("Flurry's chain at each step: {seen:?}"),
+            seen == [
+                vec![Open, Closed, Closed],
+                vec![Picked, Open, Closed],
+                vec![Picked, Picked, Closed],
+                vec![Open, Closed, Closed],
+                vec![Picked, Picked, Closed],
+            ],
+        )
+        .map(|()| "opened by the pick before it, dropped with it, recommended in turn".into())
+    })
+}
+
+/// Accept on the feat page with a pick left and a feat still on offer
+/// keeps the page open and shows KOTOR's message, as both games do. With
+/// the pick made, Accept moves on. With nothing left on offer, Accept
+/// moves on with the pick unmade, as in both games.
+fn feats_owed() -> Check {
+    // The screen on top after Accept, and whether the feat page is still
+    // there under it (its chart drawn once the message box is closed).
+    let accepted = |picks: PicksView, tags: &[&str]| {
+        let (mut stack, mut assets, vm) = at_feats(picks);
+        // No quiet frame after: the probes' assets have no `confirm`
+        // layout, so a message box drawn is closed again.
+        for tag in tags {
+            stack.press(tag);
+            stack.step(&mut assets, &vm, &keys(&[]));
+        }
+        let top = stack.top().map(|id| id.0);
+        if top == Some("message") {
+            stack.pop();
+        }
+        (top, !chart_looks(&stack, &vm).is_empty())
+    };
+    let mut none_offered = feat_picks();
+    none_offered.feats.clear();
+    let seen = [
+        accepted(feat_picks(), &["BTN_ACCEPT"]),
+        accepted(feat_picks(), &["BTN_RECOMMENDED", "BTN_ACCEPT"]),
+        accepted(none_offered, &["BTN_ACCEPT"]),
+    ];
+    let on = (Some("chargen"), false);
+    check("feats_owed", {
+        expect(
+            &format!("unpicked, picked, nothing offered: {seen:?}"),
+            seen == [(Some("message"), true), on, on],
+        )
+        .map(|()| "kept open and told while a feat is owed, else on".into())
+    })
+}
+
+/// KOTOR 2's class selection tiles as `classsel_p` lays them out: six
+/// buttons 100 pixels apart, each with its 3D view inside, the first one
+/// grown 10 pixels on every side.
+fn tiles_layout() -> Gui {
+    let controls = (0..6)
+        .flat_map(|at| {
+            let grown = if at == 0 { 10 } else { 0 };
+            let left = 107 + 100 * at - grown;
+            let view = Control {
+                kind: Kind::Label,
+                ..button(
+                    &format!("3D_MODEL{}", at + 1),
+                    [left + 3, 170 - grown, 79 + 2 * grown, 197 + 2 * grown],
+                    b"",
+                )
+            };
+            let tile = button(
+                &format!("BTN_SEL{}", at + 1),
+                [left, 167 - grown, 85 + 2 * grown, 203 + 2 * grown],
+                b"",
+            );
+            [view, tile]
+        })
+        .collect();
+    root(800, 600, controls)
+}
+
+/// The class tiles' growth, in a window of `window` pixels: where the
+/// first tile, the second and the second's 3D view are as the focus moves
+/// from the first tile to the second, then 0.125 and 0.25 seconds later.
+fn tiles_growing(window: (f32, f32)) -> Vec<[[i32; 4]; 3]> {
+    tiles_after(
+        window,
+        &[(&[Key::Right], 0.0), (&[], 0.125), (&[], 0.125)],
+        ["BTN_SEL1", "BTN_SEL2", "3D_MODEL2"],
+    )
+}
+
+/// Where the controls `tags` are (left, top, width and height) after each
+/// of `steps` (the keys pressed and the seconds gone by) on class selection
+/// in a window of `window` pixels.
+fn tiles_after(window: (f32, f32), steps: &[(&[Key], f32)], tags: [&str; 3]) -> Vec<[[i32; 4]; 3]> {
+    let mut assets = Fake::new();
+    assets.layouts.insert("classsel", tiles_layout());
+    let mut vm = chargen_vm();
+    // KOTOR 2's stretch to the whole window: kjk's default menu width would
+    // stop the twice as wide window's stretch at 16:9.
+    vm.settings
+        .insert(crate::draw::MenuWidth::SETTING.into(), "fill".into());
+    let mut stack = Stack::new(crate::screens::open);
+    stack.open("chargen:solo", &vm);
+    let at = |keys: &[Key], dt: f32| UiInput {
+        window,
+        dt,
+        ..super::menus::keys(keys)
+    };
+    stack.step(&mut assets, &vm, &at(&[], 0.0));
+    steps
+        .iter()
+        .map(|&(keys, dt)| {
+            stack.step(&mut assets, &vm, &at(keys, dt));
+            tags.map(|tag| {
+                stack.extent_of(tag).map_or([0; 4], |extent| {
+                    [extent.left, extent.top, extent.width, extent.height]
+                })
+            })
+        })
+        .collect()
+}
+
+/// KOTOR 2's turn-back of a class tile that loses the focus while it is
+/// still growing. The second tile grows 2 pixels in 1/16 s. The focus
+/// moves on to the third, and the second jumps to 8 pixels grown, as if it
+/// had been shrinking from fully grown for that 1/16 s. Then it shrinks
+/// 40 pixels a second while the third grows from its start.
+fn class_tiles_turn_back() -> Check {
+    let steps: [(&[Key], f32); 5] = [
+        (&[Key::Right], 0.0),
+        (&[], 0.0625),
+        (&[Key::Right], 0.0),
+        (&[], 0.0625),
+        (&[], 0.125),
+    ];
+    let seen = tiles_after(
+        (800.0, 600.0),
+        &steps,
+        ["BTN_SEL2", "BTN_SEL3", "3D_MODEL3"],
+    );
+    check("class_tiles_turn_back", {
+        expect(
+            &format!("the second tile and the third, frame by frame: {seen:?}"),
+            seen == vec![
+                [
+                    [207, 167, 85, 203],
+                    [307, 167, 85, 203],
+                    [310, 170, 79, 197],
+                ],
+                [
+                    [205, 165, 89, 207],
+                    [307, 167, 85, 203],
+                    [310, 170, 79, 197],
+                ],
+                [
+                    [199, 159, 101, 219],
+                    [307, 167, 85, 203],
+                    [310, 170, 79, 197],
+                ],
+                [
+                    [202, 162, 95, 213],
+                    [305, 165, 89, 207],
+                    [308, 168, 83, 201],
+                ],
+                [
+                    [207, 167, 85, 203],
+                    [300, 160, 99, 217],
+                    [303, 163, 93, 211],
+                ],
+            ],
+        )
+        .map(|()| "grown 2, jumps to 8, then shrinks as the next grows".into())
+    })
+}
+
+/// KOTOR 2's growing class tiles: the focused tile grows 10 layout pixels
+/// on every side in 0.25 s, its 3D view with it, while the tile that had
+/// the focus shrinks back; in a window twice as wide, the stretched layout
+/// grows twice as far across.
+fn class_tiles() -> Check {
+    let plain = tiles_growing((800.0, 600.0));
+    let wide = tiles_growing((1600.0, 600.0));
+    check("class_tiles", {
+        expect(
+            &format!("the second tile grows as the first shrinks: {plain:?}"),
+            plain
+                == vec![
+                    [
+                        [97, 157, 105, 223],
+                        [207, 167, 85, 203],
+                        [210, 170, 79, 197],
+                    ],
+                    [
+                        [102, 162, 95, 213],
+                        [202, 162, 95, 213],
+                        [205, 165, 89, 207],
+                    ],
+                    [
+                        [107, 167, 85, 203],
+                        [197, 157, 105, 223],
+                        [200, 160, 99, 217],
+                    ],
+                ],
+        )
+        .and_then(|()| {
+            expect(
+                &format!("stretched twice as wide: {wide:?}"),
+                wide.iter().map(|tiles| tiles[1]).collect::<Vec<_>>()
+                    == vec![
+                        [414, 167, 170, 203],
+                        [404, 162, 190, 213],
+                        [394, 157, 210, 223],
+                    ],
+            )
+        })
+        .map(|()| "normal, half-way and grown at 0, 0.125 and 0.25 s".into())
     })
 }
 
@@ -592,5 +867,9 @@ pub(super) fn all() -> Vec<Check> {
             .map(|()| "class, quick walk, point buys, back and cancel".into())
         }),
         feat_chart(),
+        feat_after_pick(),
+        feats_owed(),
+        class_tiles(),
+        class_tiles_turn_back(),
     ]
 }

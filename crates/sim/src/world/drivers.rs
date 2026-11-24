@@ -284,4 +284,4 @@ pub(super) fn assign(world: &mut World) {
 )]
 pub(in crate::world) mod probes;
 #[cfg(feature = "probes")]
-pub use probes::probes;
+pub use probes::{led_party, probes};

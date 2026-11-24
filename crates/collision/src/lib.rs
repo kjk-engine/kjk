@@ -47,7 +47,7 @@ pub mod probes;
 pub mod trig;
 pub mod vector;
 
-pub use bodies::{Bodies, Body};
+pub use bodies::{Bodies, Body, Masked};
 pub use boxes::{BoxWorld, Solid};
 pub use brushes::{Brush, BrushWorld};
 pub use digester::Digester;
@@ -72,6 +72,8 @@ pub mod player {
     pub const SOLE_Z: f32 = rules::movement::body::SOLE_Z;
     pub const STAND_HEIGHT: f32 = rules::movement::body::STAND_HEIGHT;
     pub const WALKABLE_NORMAL_Z: f32 = rules::movement::ground::WALKABLE_NORMAL_Z;
+    /// How high a plain jump rises.
+    pub const JUMP_HEIGHT: f32 = rules::force::jump::HEIGHTS[0];
 }
 
 /// How far a trace stops short of the plane it hits, so the next trace
@@ -100,10 +102,29 @@ impl Contents {
     /// face whose material is not walkable: a table's top, a console). A
     /// step up does not land on it (`sim::motion`).
     pub const NONWALK: Contents = Contents(1 << 4);
+    /// A placeable's drawn shape (`collision_odyssey`): what a walker's
+    /// own moves meet (`PLAYER_SOLID`), never shots, sight or the camera,
+    /// as before placeables had shapes. Routes are planned as KOTOR plans
+    /// them, over the walkmesh round the placeable's footprint: the
+    /// navigation mesh's marking passes a shape by (`nav::NavMesh::mark`),
+    /// and a body walking a planned route passes through it
+    /// ([`Masked`], `ROUTED_SOLID`).
+    pub const SHAPE: Contents = Contents(1 << 5);
+    /// The lower part of the walls round the footprint of a placeable with
+    /// a drawn shape (`collision_odyssey`). A body walking a planned route
+    /// passes the shape and meets these walls in its place, as KOTOR's
+    /// walker meets the placeable's walkmesh (`ROUTED_SOLID`). The player
+    /// moving by their own keys meets the shape and not these walls.
+    pub const FOOTPRINT_CLIP: Contents = Contents(1 << 6);
 
     /// What stops a player or creature (`MASK_PLAYERSOLID`, and the walkmesh
     /// edge walls).
-    pub const PLAYER_SOLID: Contents = Contents(1 | (1 << 1) | (1 << 2) | (1 << 3));
+    pub const PLAYER_SOLID: Contents = Contents(1 | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5));
+    /// What stops a body walking a planned route: `PLAYER_SOLID` with the
+    /// walls round a placeable's footprint (`FOOTPRINT_CLIP`) in place of
+    /// its drawn shape (`SHAPE`), as KOTOR's walker meets only the walkmesh.
+    pub const ROUTED_SOLID: Contents =
+        Contents((Contents::PLAYER_SOLID.0 & !Contents::SHAPE.0) | Contents::FOOTPRINT_CLIP.0);
 
     pub fn intersects(self, other: Contents) -> bool {
         self.0 & other.0 != 0
@@ -324,6 +345,11 @@ pub trait CollisionWorld {
             Shape::Box(extents) | Shape::Upright(extents) => self.trace(start, end, extents, mask),
             Shape::Capsule(capsule) => self.trace(start, end, &capsule.bounds(), mask),
         }
+    }
+
+    /// Must answer as `!sweep(at, at, ..).all_solid` does.
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        !self.sweep(at, at, shape, mask).all_solid
     }
 
     /// The contents at `point`, among those in `mask`.

@@ -38,10 +38,11 @@ use crate::fx_model::{self, Drawing, Model, Spawned, Spawning};
 use crate::heat_haze::HeatHazeMaterial;
 use crate::lifecycle::Installer;
 use crate::lifecycle_view::SceneCamera;
-use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+use crate::material::{GpuLight, LIGHT_COMBAT, fight_kind};
 use crate::scene::{ModelAssets, SceneContent, SceneRoot, Spawner, game_to_bevy};
 use crate::script_fx::Loaded;
 use crate::sim_host::{PresentedSnapshot, SceneSwap, view_ms};
+use crate::transforms::Transforms;
 
 /// How fast a tracer is drawn flying (metres a second): a disruptor's
 /// bolt, its shot a hitscan, about twice a rifle's bolt.
@@ -53,7 +54,7 @@ const COPIES: usize = 48;
 /// each frame's visibility, transforms and extraction pass over, so a
 /// pool grows only as far as the fire needs.
 const SPARE: usize = 4;
-/// A bolt's clip in flight, a flash's, a sprung mine's (`made::sprung`).
+/// A bolt's clip in flight, a flash's, a mine's blast (`made::exploded`).
 const TRAVEL: &str = "travel01";
 pub(crate) const IMPACT: &str = "impact";
 pub(crate) const ACTIVATE: &str = "activate";
@@ -92,6 +93,10 @@ pub struct BoltShown {
     /// light shows where its model's light is plain white (KOTOR's ion,
     /// sonic, bowcaster and disruptor bolts), so a blue bolt lights blue.
     pub tint: Vec3,
+    /// How far it has flown from the gun, and how far it has left to fly
+    /// before it stops (metres).
+    pub flown: f32,
+    pub left: f32,
 }
 
 /// What a flash shows: a model by name, or a feat's row.
@@ -101,7 +106,7 @@ pub enum Flashed {
 }
 
 /// A flash on `by`'s gun in `hand` (`cast::Guns`) from `ms` (the view's),
-/// playing `clip` once: where the gun is not drawn (a sprung mine has
+/// playing `clip` once: where the gun is not drawn (a mine that went off has
 /// none), at `at` (game space, metres); along `way`, `scale` times its
 /// size. Cut at `until` (the view's ms), its clip stands at its end, its
 /// births over, its particles left to die out (`DIE_OUT_MS`). With a `glow`
@@ -130,8 +135,19 @@ const DIE_OUT_MS: f64 = 400.0;
 /// (metres).
 const GLOW_MS: f64 = 90.0;
 const GLOW_RADIUS: f32 = 4.0;
+/// How far (metres) the light of a flying bolt or tracer reaches along its
+/// flight on each side of it. The light shines from that line, so its pool
+/// on the floor stretches the way it flies. This is our chosen length,
+/// about half a bolt's drawn streak.
+const STREAK_HALF: f32 = 0.75;
 /// How far apart a light's channels may be for it to count as plain white.
 const WHITE_LIGHT_SPREAD: f32 = 0.05;
+/// How many times as bright a flying bolt or tracer and a muzzle flash are
+/// drawn under the options' Enhanced lighting (`rolloff`). Above 1 they
+/// pass white, and bloom spreads a glow around them. These are our chosen
+/// values. Under Classic lighting both are 1.
+const BOLT_GLOW: f32 = 3.0;
+const FLASH_GLOW: f32 = 2.0;
 
 /// A light that flares and dies at `at` (game space, metres) from `ms` (the
 /// view's): `colour` × `strength` reaching `radius` metres, fading as
@@ -158,7 +174,8 @@ impl Pulse {
         Some(GpuLight {
             position_radius: (game_to_bevy() * self.at).extend(self.radius),
             color_multiplier: self.colour.extend(self.strength * left),
-            kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+            kind: fight_kind(false),
+            ..Default::default()
         })
     }
 }
@@ -459,7 +476,12 @@ fn spawn(
         }
         let (images, stores) = assets.split();
         let mut spawning = Spawning {
-            spawner: Spawner::new(&read.textures, scene.0.area_light(), images),
+            spawner: Spawner::sharing(
+                &read.textures,
+                scene.0.area_light(),
+                images,
+                &scene.0.images,
+            ),
             stores,
             hazes: &mut hazes,
             textures: &read.textures,
@@ -496,6 +518,46 @@ struct Shown {
     tint: Vec3,
     /// The colour its model's light takes where that light is white.
     light: Vec3,
+    /// The line its light lights from (a flying bolt's or tracer's). `None`
+    /// for a light at a point.
+    line: Option<Line>,
+}
+
+/// The line a flying shot's light lights from. It runs along `way` (game
+/// space, a unit direction) from `back` metres behind the shot to `ahead`
+/// metres in front of it. Each end is at most `STREAK_HALF` from the shot.
+/// The line never reaches behind the gun it left or past where it stops, so
+/// it does not light the far side of a wall it is about to hit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Line {
+    way: Vec3,
+    back: f32,
+    ahead: f32,
+}
+
+impl Line {
+    /// A shot's line along `way`, `flown` metres from its start and `left`
+    /// metres from its end.
+    fn of(way: Vec3, flown: f32, left: f32) -> Line {
+        Line {
+            way: way.normalize_or_zero(),
+            back: STREAK_HALF.min(flown.max(0.0)),
+            ahead: STREAK_HALF.min(left.max(0.0)),
+        }
+    }
+}
+
+/// One thing placed this frame whose model's light may shine. It holds the
+/// model and the copy shown, where it is (game space), when its clip began
+/// (the view's ms), the colour its white light takes, and the line it
+/// lights from.
+struct Placing {
+    model: String,
+    copy: usize,
+    at: Vec3,
+    since: f64,
+    white_as: Vec3,
+    line: Option<Line>,
 }
 
 /// The copy of `copies` to show `key` in: the one that showed it last,
@@ -529,9 +591,13 @@ fn draw(
     cameras: Query<Entity, SceneCamera>,
     mut posing: ParamSet<(Query<&mut Transform>, Drawing)>,
     (mut lights, mut facts): (ResMut<ShotLights>, ResMut<console::DumpFacts>),
+    lighting: Option<Res<crate::rolloff::LightingMode>>,
 ) {
     let view = &mut *view;
     let shots = std::mem::take(&mut *shots);
+    let enhanced = lighting.is_some_and(|lighting| lighting.enhanced());
+    let bolt_glow = if enhanced { BOLT_GLOW } else { 1.0 };
+    let flash_glow = if enhanced { FLASH_GLOW } else { 1.0 };
     let now = view_ms(&presented.0);
     let dt = view
         .drawn_ms
@@ -543,7 +609,7 @@ fn draw(
         _ => BTreeMap::new(),
     };
     // The new flashes and tracers join those in play. A feat's visual shows
-    // once on a gun: the next shot's starts it over (Sniper Shot's scope),
+    // once on a gun: the next shot's starts it over (Rapid Shot's flames),
     // never a second copy over the first.
     for flash in shots.flashes {
         let feat = matches!(flash.shows, Flashed::Row(_));
@@ -620,8 +686,9 @@ fn draw(
             hold_ms: None,
             ended_by: None,
             reach: None,
-            tint: Vec3::ONE,
+            tint: Vec3::splat(bolt_glow),
             light: bolt.tint,
+            line: Some(Line::of(bolt.way, bolt.flown, bolt.left)),
         })
         .collect();
     let mut counts = [shown.len(), 0, 0];
@@ -644,6 +711,7 @@ fn draw(
             reach: held.reach,
             tint: Vec3::ONE,
             light: Vec3::ONE,
+            line: None,
         })
     }));
     // A flash lasts its clip, one cut short until its particles die out; a
@@ -691,7 +759,8 @@ fn draw(
                         position_radius: (game_to_bevy() * at).extend(GLOW_RADIUS),
                         color_multiplier: tint.extend(glow * fading as f32),
                         // Ambient: at the muzzle, it would only graze the gun.
-                        kind: UVec4::new(1, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+                        kind: fight_kind(true),
+                        ..Default::default()
                     });
                 }
                 Shown {
@@ -707,11 +776,14 @@ fn draw(
                     ended_by: until
                         .filter(|until| now >= *until)
                         .map(|_| now - clip_ms(&live.model, clip)),
-                    // Its line folded: a Sniper Shot's sight is the aim's
-                    // (`aim_fx`), not drawn again by the shot.
+                    // Its line folded: a feat's sight is drawn by the aim
+                    // (`aim_fx`), never by a flash.
                     reach: Some(0.0),
-                    tint,
+                    // A muzzle flash glows. A feat's visual (no light of
+                    // its own) is drawn as it is.
+                    tint: tint * if glow > 0.0 { flash_glow } else { 1.0 },
                     light: Vec3::ONE,
+                    line: None,
                 }
             }
             LiveKind::Tracer { from, to } => {
@@ -729,8 +801,9 @@ fn draw(
                     hold_ms: None,
                     ended_by: None,
                     reach: None,
-                    tint: Vec3::ONE,
+                    tint: Vec3::splat(bolt_glow),
                     light: Vec3::ONE,
+                    line: Some(Line::of(way, flown, from.distance(to) - flown)),
                 }
             }
         });
@@ -740,7 +813,7 @@ fn draw(
     }
     // Each in the copy that showed it last, else a free one, else the
     // oldest; made new for a new key, placed and posed.
-    let mut placed: Vec<(String, usize, Vec3, f64, Vec3)> = Vec::new();
+    let mut placed: Vec<Placing> = Vec::new();
     let mut used: BTreeMap<String, Vec<bool>> = BTreeMap::new();
     {
         let mut transforms = posing.p0();
@@ -769,11 +842,10 @@ fn draw(
             let since = item.hold_ms.map_or(since, |hold| since.max(now - hold));
             let since = item.ended_by.map_or(since, |most| since.min(most));
             let copy = &mut pooled.spawned;
-            if let Ok(mut transform) = transforms.get_mut(copy.root) {
-                *transform = Transform::from_translation(item.at)
-                    .with_rotation(crate::minigame_view::heading(item.way))
-                    .with_scale(Vec3::splat(item.scale));
-            }
+            let shown = Transform::from_translation(item.at)
+                .with_rotation(crate::minigame_view::heading(item.way))
+                .with_scale(Vec3::splat(item.scale));
+            transforms.set(copy.root, |_| shown);
             copy.anims = vec![Anim {
                 name: item.clip.to_string(),
                 looping: false,
@@ -799,7 +871,14 @@ fn draw(
                     }
                 }
             }
-            placed.push((item.model, k, item.at, since, item.light));
+            placed.push(Placing {
+                model: item.model,
+                copy: k,
+                at: item.at,
+                since,
+                white_as: item.light,
+                line: item.line,
+            });
         }
     }
     let mut drawing = posing.p1();
@@ -809,7 +888,15 @@ fn draw(
         .and_then(|camera| drawing.transforms.get(camera).ok())
         .map_or(Quat::IDENTITY, |t| t.rotation);
     let facing = fx_model::facing(turn);
-    for (model, k, at, since, white_as) in placed {
+    for placing in placed {
+        let Placing {
+            model,
+            copy: k,
+            at,
+            since,
+            white_as,
+            line,
+        } = placing;
         let Some(copy) = view
             .pools
             .get_mut(&model)
@@ -825,7 +912,7 @@ fn draw(
             lit.extend(light(
                 read,
                 copy,
-                (at, white_as),
+                (at, white_as, line),
                 ((now - since) / 1000.0) as f32,
             ));
         }
@@ -873,11 +960,12 @@ fn draw(
 
 /// The light of `read`'s model on `copy` at `at` (game space), `seconds`
 /// into its clip, as its clip keys its colour; none once out. A plain white
-/// light (grey: no channel apart from the others) takes `white_as`.
+/// light (grey: no channel apart from the others) takes `white_as`. A shot
+/// in flight lights from its `line`, anything else from `at`.
 fn light(
     read: &Read,
     copy: &Spawned,
-    (at, white_as): (Vec3, Vec3),
+    (at, white_as, line): (Vec3, Vec3, Option<Line>),
     seconds: f32,
 ) -> Option<GpuLight> {
     let ir = &copy.model.placed.ir;
@@ -888,8 +976,13 @@ fn light(
     }
     let grey = colour.max_element() - colour.min_element() < WHITE_LIGHT_SPREAD;
     let colour = if grey { colour * white_as } else { colour };
+    // The line's middle, and half its length.
+    let (centre, way, half) = line.map_or((at, Vec3::ZERO, 0.0), |line| {
+        let middle = at + line.way * ((line.ahead - line.back) / 2.0);
+        (middle, line.way, (line.ahead + line.back) / 2.0)
+    });
     Some(GpuLight {
-        position_radius: (game_to_bevy() * at).extend(light.radius),
+        position_radius: (game_to_bevy() * centre).extend(light.radius),
         color_multiplier: colour.extend(light.multiplier),
         kind: UVec4::new(
             u32::from(light.ambient_only),
@@ -897,5 +990,7 @@ fn light(
             LIGHT_COMBAT,
             0,
         ),
+        way: (game_to_bevy() * way).extend(half),
+        ..Default::default()
     })
 }

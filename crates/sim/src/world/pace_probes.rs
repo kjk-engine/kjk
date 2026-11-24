@@ -3,12 +3,15 @@
 //! `creaturespeed.2da` rows `PLAYER` (3.20 m/s walk, 5.40 run) and
 //! `DEFAULT`, and its persona's `appearance.2da` row walking at 1.813
 //! (`driveanimwalk`, K1's men), no install. The player runs at 5.40 m/s out
-//! of a fight and walks at 1.813, its body's walk as KOTOR drives it; in one (its weapon out) it runs at JA's 6.35, and leaving
-//! it eases back to 5.40 over about half a second; a companion following
+//! of a fight and walks at 1.813, its body's walk as KOTOR drives it; in one
+//! (its weapon out) it runs at 5.40 too (`walking.pace.in_combat`; without
+//! it at JA's 6.35, easing back to 5.40 over about half a second leaving
+//! the fight); a companion following
 //! it runs at its own body's run, 5.40. A body with HUGE's rates walks
 //! at 5.00 playing the walk and runs at 10.00. Two companions put on one
 //! spot part, and following the player each keeps its own side of it
-//! (`world::minds::follow_slot`).
+//! (`world::minds::follow_slot`). A companion keeps following a player in
+//! the air of a Force jump.
 
 use super::SimWorld;
 use crate::combat::Sheet;
@@ -63,10 +66,22 @@ impl Run {
         Run::with_body(player, (count, MAN_WALK), body())
     }
 
+    /// `new`'s, the persona's body stepping with `footstepsounds.2da` row
+    /// `footstep`.
+    fn footed(footstep: u8) -> Result<Run, String> {
+        Run::built(((3.2, 5.4), footstep), (1, MAN_WALK), body())
+    }
+
     /// `with`'s (with the persona's body's walk, `drive`), the companions'
     /// bodies `made`.
-    fn with_body(
-        player: (f32, f32),
+    fn with_body(player: (f32, f32), count: (usize, f32), made: Body) -> Result<Run, String> {
+        Run::built((player, crate::script::NO_FOOTSTEPS), count, made)
+    }
+
+    /// `with_body`'s, the persona's body stepping with `footstepsounds.2da`
+    /// row `footstep`.
+    fn built(
+        (player, footstep): ((f32, f32), u8),
         (count, drive): (usize, f32),
         made: Body,
     ) -> Result<Run, String> {
@@ -91,6 +106,14 @@ impl Run {
             .with_drive_walks(
                 (0..=PLAYER_APPEARANCE)
                     .map(|row| if row == PLAYER_APPEARANCE { drive } else { 0.0 })
+                    .collect(),
+            )
+            .with_footsteps(
+                (0..=PLAYER_APPEARANCE)
+                    .map(|row| match row {
+                        PLAYER_APPEARANCE => footstep,
+                        _ => crate::script::NO_FOOTSTEPS,
+                    })
                     .collect(),
             );
         // The navigation mesh over the half the player arrives in.
@@ -301,10 +324,11 @@ pub fn probes() -> Checks {
     }
     run.hold(keys(back, 127, false), 304);
     let fighting = run.speed(run.host);
+    let want = combat_run(5.4);
     put(
-        "player_runs_at_ja_pace_in_a_fight",
-        near(fighting, 250.0 * collision::UNIT),
-        format!("{fighting:.2} m/s, JA's run 6.35"),
+        "player_runs_at_combat_pace_in_a_fight",
+        near(fighting, want),
+        format!("{fighting:.2} m/s, the combat run {want:.2}"),
     );
     if let Err(error) = run.fight_for(0) {
         put("pace_calm", false, error);
@@ -313,9 +337,15 @@ pub fn probes() -> Checks {
     let easing = run.speed(run.host);
     run.hold(keys(back, 127, false), 448);
     let eased = run.speed(run.host);
+    // With the same pace in a fight there is nothing to ease down from.
+    let eases = if rules::walking::pace::IN_COMBAT {
+        near(easing, 5.4)
+    } else {
+        easing > 5.6 && easing < 6.35
+    };
     put(
         "player_eases_to_kotor_pace_leaving_a_fight",
-        easing > 5.6 && easing < 6.35 && near(eased, 5.4),
+        eases && near(eased, 5.4),
         format!("{easing:.2} m/s 0.1 s after, {eased:.2} m/s 0.55 s after"),
     );
     // A body as fast as `creaturespeed.2da`'s HUGE row (5.00 walk, 10.00
@@ -342,14 +372,65 @@ pub fn probes() -> Checks {
     formation(&mut put);
     speed_power(&mut put);
     keeps_pace(&mut put);
+    follows_through_force_jump(&mut put);
+    legless(&mut put);
     checks
+}
+
+/// A player driving a droid that rolls (T3-M4, `footstepsounds.2da` row 8)
+/// or floats (a probe droid, row 9) presses jump, then crouch: it never
+/// leaves the ground and never crouches, so it cannot roll either
+/// (`movement.body.legless_footsteps`). A player driving a droid that walks
+/// on legs (HK-47, row 2) jumps and crouches as a man does. The Discord
+/// report "T3 can jump" (Peragus): T3-M4 jumped at the jump key.
+fn legless(put: &mut impl FnMut(&'static str, bool, String)) {
+    const BODIES: [(&str, u8, bool); 3] = [
+        ("rolling_droid_stays_down", 8, false),
+        ("floating_droid_stays_down", 9, false),
+        ("walking_droid_jumps", 2, true),
+    ];
+    for (name, footstep, legs) in BODIES {
+        let mut run = match Run::footed(footstep) {
+            Ok(run) => run,
+            Err(error) => return put(name, false, error),
+        };
+        run.hold(keys(0.0, 0, false), 304);
+        let ground = run.origin(run.host).map_or(0.0, |at| at[2]);
+        let (mut highest, mut crouched) = (ground, false);
+        let up = |up| Command {
+            up,
+            ..keys(0.0, 0, false)
+        };
+        for (command, ms) in [(up(127), 600), (up(0), 600), (up(-127), 400)] {
+            for _ in 0..ms / STEP_MS {
+                run.hold(command, STEP_MS);
+                let ps = run
+                    .last
+                    .entities
+                    .iter()
+                    .find(|entity| entity.id == run.host);
+                let ps = ps.and_then(|entity| entity.player);
+                highest = highest.max(ps.map_or(ground, |ps| ps.origin[2]));
+                crouched |= ps.is_some_and(|ps| ps.ducked());
+            }
+        }
+        let rise = highest - ground;
+        put(
+            name,
+            (rise > 8.0) == legs && crouched == legs,
+            format!(
+                "footsteps row {footstep}: rose {rise:.1} units at the jump key, crouched {crouched}; wanted both {legs}"
+            ),
+        );
+    }
 }
 
 /// Burst of Speed on the player as K1's `k_sp1_generic` leaves it: JA's
 /// speed toggle running and the power's own +99 % movement effect. Out of
 /// a fight it runs at KOTOR's 5.40 m/s run times the fastest movement
 /// (`walking.pace.most_multiplier`), as the executables hold +99 % to it;
-/// in one at JA's run times JA's speed (`force.speed.scale`). Issue 194:
+/// in one at the combat run (`combat_run`) times JA's speed
+/// (`force.speed.scale`). Issue 194:
 /// out of a fight it ran at JA's speed over KOTOR's run, hardly faster.
 fn speed_power(put: &mut impl FnMut(&'static str, bool, String)) {
     let mut run = match Run::new((3.2, 5.4)) {
@@ -394,12 +475,22 @@ fn speed_power(put: &mut impl FnMut(&'static str, bool, String)) {
     }
     run.hold(keys(270.0, 127, false), 304);
     let fighting = run.speed(run.host);
-    let want = 250.0 * collision::UNIT * crate::combat::force::ja::SPEED_SCALE;
+    let want = combat_run(5.4) * crate::combat::force::ja::SPEED_SCALE;
     put(
-        "speed_power_runs_at_ja_speed_in_a_fight",
+        "speed_power_runs_at_combat_speed_in_a_fight",
         near(fighting, want),
-        format!("{fighting:.2} m/s, JA's run 6.35 × its speed: {want:.2}"),
+        format!("{fighting:.2} m/s, the combat run × its speed: {want:.2}"),
     );
+}
+
+/// The run (m/s) in a fight of a body whose own run is `run`: that run with
+/// `walking.pace.in_combat`, JA's 6.35 without.
+fn combat_run(run: f32) -> f32 {
+    if rules::walking::pace::IN_COMBAT {
+        run
+    } else {
+        rules::movement::ground::BASE_SPEED * collision::UNIT
+    }
 }
 
 /// The player walks off from its companion, 3 m behind: the companion
@@ -424,6 +515,56 @@ fn keeps_pace(put: &mut impl FnMut(&'static str, bool, String)) {
         fastest < 0.6 * 5.4 && (pace - MAN_WALK).abs() < 0.25,
         format!(
             "at most {fastest:.2} m/s, {pace:.2} m/s on average once going; the player's walk 1.813"
+        ),
+    );
+}
+
+/// The player, with a Force pool (a rank 1 Force jump), runs off and
+/// stands with its companion behind it, then Force jumps back past it. The
+/// companion keeps moving while the player is higher than the drop a walk
+/// allows (`walk::stands`).
+fn follows_through_force_jump(put: &mut impl FnMut(&'static str, bool, String)) {
+    let mut run = match Run::new((3.2, 5.4)) {
+        Ok(run) => run,
+        Err(error) => return put("force_jump_world", false, error),
+    };
+    let mut snapshot = run.last.clone();
+    for entity in &mut snapshot.entities {
+        if entity.id == run.host
+            && let (Some(sheet), Some(fighter)) = (entity.sheet.as_mut(), entity.fighter.as_mut())
+        {
+            sheet.max_fp = 20;
+            fighter.fp = 100;
+        }
+    }
+    match SimWorld::from_snapshot(&snapshot, run.level.clone()) {
+        Ok(world) => (run.world, run.last) = (world, snapshot),
+        Err(error) => return put("force_jump_world", false, error.to_string()),
+    }
+    // Where the player arrives the room's ceiling holds a Force jump down.
+    run.hold(keys(90.0, 127, false), 704);
+    run.hold(keys(90.0, 0, false), 2000);
+    let drop = rules::walking::route::DROP_STEPS * crate::motion::STEP_HEIGHT + 1.0;
+    let floor = run.origin(run.host).map_or(0.0, |at| at[2]);
+    let mut jump = keys(270.0, 127, false);
+    jump.up = 127;
+    let (mut peak, mut moved) = (0.0_f32, 0.0_f32);
+    for _ in 0..1200 / STEP_MS {
+        let was = run.origin(run.buddy);
+        run.hold(jump, STEP_MS);
+        let height = run.origin(run.host).map_or(0.0, |at| at[2] - floor);
+        peak = peak.max(height);
+        if height > drop
+            && let (Some(was), Some(now)) = (was, run.origin(run.buddy))
+        {
+            moved += crate::math::flat_distance(was, now) * collision::UNIT;
+        }
+    }
+    put(
+        "companion_follows_through_a_force_jump",
+        peak > drop && moved > 1.0,
+        format!(
+            "the companion moved {moved:.2} m while the player was over {drop:.0} units up, {peak:.0} at the top"
         ),
     );
 }

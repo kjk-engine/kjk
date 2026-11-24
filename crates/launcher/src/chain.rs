@@ -779,20 +779,9 @@ fn write_saves(game: &str) -> Result<(Vec<String>, Vec<String>), String> {
             missing.push(name.clone());
             continue;
         };
-        let save = sim::Save::decode(&bytes).map_err(|error| format!("{name}: {error}"))?;
-        let meta = saves::Meta {
-            name: format!("{} {title}", id.to_ascii_uppercase()),
-            module: save
-                .snapshot
-                .place
-                .as_ref()
-                .map_or_else(|| save.level.name.clone(), |place| place.module.clone()),
-            area: title.clone(),
-            saved: now.saturating_sub(index as u64),
-            seats: save.snapshot.seats(),
-            ..saves::Meta::default()
-        };
-        saves::write_encoded(&root, Some(&id), &bytes, &meta, None)?;
+        let name = format!("{} {title}", id.to_ascii_uppercase());
+        saves::write_checkpoint(&root, &id, &bytes, (&name, title), now.saturating_sub(index as u64))
+            .map_err(|error| format!("{name}: {error}"))?;
         written.push(id);
     }
     // Numbers past the list's end, left by a longer list.

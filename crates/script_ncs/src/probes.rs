@@ -36,6 +36,26 @@ float Half(float f);
 
 pub use crate::asm::Asm;
 
+/// The catalog the built scripts' probes call: real routines' prototypes,
+/// in `nwscript.nss`'s form, their numbers their order here.
+const BUILT_CATALOG: &str = r#"
+int TRUE = 1;
+int FALSE = 0;
+int CONVERSATION_TYPE_CINEMATIC = 0;
+// 0
+object GetFirstPC();
+// 1
+object GetObjectByTag(string sTag, int nNth = 0);
+// 2
+void AssignCommand(object oActionSubject, action aActionToAssign);
+// 3
+void ActionStartConversation(object oObjectToConverse, string sDialogResRef = "", int bPrivateConversation = FALSE, int nConversationType = CONVERSATION_TYPE_CINEMATIC, int bIgnoreStartRange = FALSE, float fDelay = 0.5f);
+// 4
+object CreateItemOnObject(string sItemTemplate, object oTarget = OBJECT_SELF, int nStackSize = 1);
+// 5
+void DelayCommand(float fSeconds, action aActionToDelay);
+"#;
+
 /// The probes' host: records each call, returns fixed answers.
 #[derive(Default)]
 struct Recorder {
@@ -61,7 +81,8 @@ impl Host for Recorder {
                 Value::Float(f) => Value::Float(f / 2.0),
                 _ => return Err("bad argument".into()),
             },
-            _ => Value::Int(0),
+            // Any other routine: the empty value of its return type.
+            _ => Value::empty(routine.ret),
         };
         for arg in &args {
             if let Value::Action(deferred) = arg {
@@ -511,6 +532,7 @@ pub fn all() -> Vec<Check> {
         Asm::default().label("spin").to(Jmp, "spin"),
         "budget",
     );
+    built(&mut p);
     // Every probe's program writes back as it reads.
     let sample = conditional(&[int(1), float(2.0), string("x")]).build();
     let again = Ncs::parse(&sample.write());
@@ -520,6 +542,187 @@ pub fn all() -> Vec<Check> {
         format!("{again:?}"),
     );
     p.checks
+}
+
+/// Scripts built from calls by name (`asm::script`), as `kjk original` puts
+/// them in an original game's `override`: each written as the games'
+/// compiler writes it, and run here.
+fn built(p: &mut Probes) {
+    use crate::asm::{self, Expr, action, call, constant, not, text, when};
+    use Op::*;
+    let catalog = Catalog::parse(BUILT_CATALOG).expect("the built probes' catalog reads");
+    let routines = Routines::new(std::sync::Arc::new(catalog.clone()));
+    let ops = |ncs: &Ncs| ncs.code.iter().map(|i| i.op.clone()).collect::<Vec<Op>>();
+    let names = |host: &Recorder| {
+        host.calls
+            .iter()
+            .map(|(name, _, _)| name.clone())
+            .collect::<Vec<_>>()
+    };
+    // A call: its defaults written, the last argument pushed first, its
+    // value popped.
+    let glow = asm::script(
+        &catalog,
+        &[call("CreateItemOnObject", [text("g_i_glowrod01")])],
+    );
+    let wanted = [
+        Jsr(8),
+        Retn,
+        int(1),
+        object(0),
+        string("g_i_glowrod01"),
+        Action {
+            routine: 4,
+            args: 3,
+        },
+        MovSp(-4),
+        Retn,
+    ];
+    p.check(
+        "a built call writes its defaults and pops its value",
+        glow.as_ref().map(ops) == Ok(wanted.to_vec()),
+        format!("{glow:?}"),
+    );
+    // `AssignCommand` with an action: `STORESTATE 0, 0` and a jump over its
+    // code; run, then its saved code resumed for the one assigned.
+    let assigned = asm::script(
+        &catalog,
+        &[call(
+            "AssignCommand",
+            [
+                call("GetObjectByTag", [text("Carth")]),
+                action([call(
+                    "ActionStartConversation",
+                    [call("GetFirstPC", []), text("banter")],
+                )]),
+            ],
+        )],
+    );
+    let laid_out = assigned.as_ref().is_ok_and(|ncs| {
+        let code = ops(ncs);
+        code.iter()
+            .position(|op| *op == StoreState { bp: 0, sp: 0 })
+            .is_some_and(|at| {
+                let Jmp(over) = code[at + 1] else {
+                    return false;
+                };
+                let landing = ncs.code[at + 1].offset as i32 + over;
+                ncs.at(landing as u32).is_some_and(|to| {
+                    code[to - 1] == Retn
+                        && code[to..]
+                            == [
+                                int(0),
+                                string("Carth"),
+                                Action {
+                                    routine: 1,
+                                    args: 2,
+                                },
+                                Action {
+                                    routine: 2,
+                                    args: 2,
+                                },
+                                Retn,
+                            ]
+                })
+            })
+    });
+    p.check(
+        "a built action is stored state and a jump over its code",
+        laid_out,
+        format!("{assigned:?}"),
+    );
+    let (now, later) = match &assigned {
+        Ok(ncs) => {
+            let program = Program::new(ncs.clone());
+            let mut host = Recorder::default();
+            let first = vm::run(&program, &routines, CALLER, &mut host);
+            let mut then = Recorder::default();
+            let resumed = host
+                .deferred
+                .first()
+                .map(|saved| vm::resume(&program, &routines, ObjectId(5), saved, &mut then));
+            let fine = first.is_ok() && matches!(resumed, Some(Ok(_)));
+            (
+                fine.then(|| names(&host)),
+                fine.then(|| (names(&then), then.calls)),
+            )
+        }
+        Err(_) => (None, None),
+    };
+    let talk = later.as_ref().and_then(|(_, calls)| calls.get(1));
+    p.check(
+        "a built action runs later for the one assigned",
+        now.as_deref() == Some(&["GetObjectByTag".to_string(), "AssignCommand".to_string()][..])
+            && later.as_ref().map(|(names, _)| names.as_slice())
+                == Some(
+                    &[
+                        "GetFirstPC".to_string(),
+                        "ActionStartConversation".to_string(),
+                    ][..],
+                )
+            && talk.is_some_and(|(_, _, args)| {
+                args.get(1) == Some(&Value::String("banter".into()))
+                    && args.get(5) == Some(&Value::Float(0.5))
+            }),
+        format!("{now:?} {later:?}"),
+    );
+    // `if` and `not`: the body runs only where the condition holds.
+    let ran = |condition: Expr| {
+        let ncs = asm::script(
+            &catalog,
+            &[
+                when(
+                    condition,
+                    [call("CreateItemOnObject", [text("g_i_glowrod01")])],
+                ),
+                call("GetFirstPC", []),
+            ],
+        )
+        .ok()?;
+        let mut host = Recorder::default();
+        vm::run(&Program::new(ncs), &routines, CALLER, &mut host).ok()?;
+        Some(names(&host).len())
+    };
+    let counts = [
+        ran(Expr::Int(0)),
+        ran(Expr::Int(1)),
+        ran(not(Expr::Int(1))),
+        ran(not(Expr::Int(0))),
+    ];
+    p.check(
+        "a built if runs its body where its condition holds, and not turns it",
+        counts == [Some(1), Some(2), Some(1), Some(2)],
+        format!("{counts:?}"),
+    );
+    // A conditional script answering a constant.
+    let answer = asm::conditional(&catalog, &constant("TRUE"));
+    let wanted = [
+        Rsadd(Ty::Int),
+        Jsr(8),
+        Retn,
+        int(1),
+        CpDownSp {
+            offset: -8,
+            size: 4,
+        },
+        MovSp(-4),
+        Retn,
+    ];
+    p.check(
+        "a built conditional answers its constant",
+        answer.as_ref().map(ops) == Ok(wanted.to_vec()),
+        format!("{answer:?}"),
+    );
+    // Wrong types and unknown names are refused while building.
+    let wrong = asm::script(&catalog, &[call("GetObjectByTag", [Expr::Int(3)])]);
+    p.check(
+        "a built call of a wrong type or unknown name is refused",
+        wrong.as_ref().err().map(String::as_str)
+            == Some("GetObjectByTag: argument 1 (sTag) is string, given int")
+            && asm::script(&catalog, &[call("NoSuch", [])]).is_err()
+            && asm::script(&catalog, &[call("DelayCommand", [Expr::Float(1.0)])]).is_err(),
+        format!("{wrong:?}"),
+    );
 }
 
 /// What an install's scripts came to (`install`).

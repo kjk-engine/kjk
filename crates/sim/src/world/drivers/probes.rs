@@ -18,10 +18,10 @@ use std::sync::Arc;
 /// The companions' templates, in the party's joining order.
 const COMPANIONS: [&str; 2] = ["probe_comp_a", "probe_comp_b"];
 
-/// The party check's script (`pcs_script`).
-const PCS: &str = "probe_pcs";
+/// The party check's script (`party_script`).
+const PARTY: &str = "probe_party";
 /// The first companion's end-of-round hook, and a story's script: each
-/// moves the first companion to the second (`pcs_script`).
+/// moves the first companion to the second (`party_script`).
 const AI: &str = "probe_ai";
 const STORY: &str = "probe_story";
 /// The first companion's heartbeat (an AI hook) and a story's script: each
@@ -35,6 +35,12 @@ const USER: &str = "probe_user";
 /// its attacks.
 const AI_DELAY: &str = "probe_ai_delay";
 const STORY_DELAY: &str = "probe_story_delay";
+/// The second companion's combat shout (`SpeakString(HEARD)`), as K1's
+/// `k_ai_master` shouts "GEN_I_WAS_ATTACKED". The first companion listens
+/// for it, and its dialogue hook (`USER`) moves it, as K1's companions
+/// answer the shout with an attack.
+const SHOUT: &str = "probe_shout";
+const HEARD: &str = "PROBE_I_WAS_ATTACKED";
 /// A locked door's fail-to-open script: the global `LED` set to whether
 /// the party's leader (`GetPartyMemberByIndex(0)`) is the first companion,
 /// as the Endar Spire's first door asks whether Trask leads
@@ -62,10 +68,18 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("own_ai_skipped_when_driven", own_ai()));
     checks.push(("leader_is_seat_0s_body", leader_body()));
     checks.push(("seat_bodies_agree", seat_bodies_agree()));
+    checks.push(("played_bodies_agree", played_bodies_agree()));
+    checks.push(("leader_bolts_break_a_crate", leader_bolts_break_a_crate()));
+    checks.push((
+        "leader_blows_on_a_tank_count",
+        leader_blows_on_a_tank_count(),
+    ));
     checks.push(("leader_by_body_seat_0s_only", leader_by_body()));
+    checks.push(("leader_while_paused", leader_while_paused()));
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
     checks.push(("leader_walks_out", leader_walks_out()));
+    checks.push(("led_own_walked_by_script", led_own_walked()));
     checks.push(("leader_casts_its_powers", leader_casts()));
     checks.push(("area_entered_by_the_party", entered_by_the_party()));
     checks.push(("guest_leads_its_acts", guest_leads()));
@@ -109,7 +123,7 @@ fn companion(template: &str, at: [f32; 3]) -> ObjectData {
     ObjectData::creature(template, template, at, Sheet::dev_soldier())
 }
 
-/// The probes' scripts (the party check, `PCS`) and the companions'
+/// The probes' scripts (the party check, `PARTY`) and the companions'
 /// templates (what an install makes them again from).
 fn library() -> crate::script::Library {
     let creatures = COMPANIONS
@@ -121,15 +135,15 @@ fn library() -> crate::script::Library {
             )
         })
         .collect();
-    pcs_script().with_creatures(creatures)
+    party_script().with_creatures(creatures)
 }
 
-/// The party check, run by the module (`PCS`): three message boxes for
-/// every player, numbered `GetIsPC(GetPartyMemberByIndex(1))`,
+/// The party check, run by the module (`PARTY`): three message boxes for
+/// every seat, numbered `GetIsPC(GetPartyMemberByIndex(1))`,
 /// `GetPartyMemberCount()` and `GetIsObjectValid(GetNextPC())` after
-/// `GetFirstPC()`: 0, 3 and 0 when the scripts see one player and two
-/// companions.
-fn pcs_script() -> crate::script::Library {
+/// `GetFirstPC()`: 0, 3 and 0 when the scripts see one main character
+/// and two companions.
+fn party_script() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     const CATALOG: &str = r#"
 // 0
@@ -164,6 +178,16 @@ object GetEnteringObject();
 object GetExitingObject();
 // 15
 void DelayCommand(float fSeconds, action aActionToDelay);
+// 16
+void SpeakString(string sStringToSpeak, int nTalkVolume=TALKVOLUME_TALK);
+// 17
+location GetLocation(object oObject);
+// 18
+object SpawnAvailableNPC(int nNPC, location lPosition);
+// 19
+int AddPartyMember(int nNPC, object oCreature);
+// 20
+int RemovePartyMember(int nNPC);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let icon = || Op::Const(Const::String(Vec::new()));
@@ -221,6 +245,13 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         .op(Op::Const(Const::Object(0)))
         .op(call(9, 2))
         .op(Op::Retn);
+    // `SpeakString(HEARD, 0)`.
+    let mut shout = script_ncs::probes::Asm::default();
+    shout
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(HEARD.as_bytes().to_vec())))
+        .op(call(16, 2))
+        .op(Op::Retn);
     // `SetGlobalNumber(LED, GetPartyMemberByIndex(0) ==
     // GetObjectByTag(the first companion))`.
     let mut leads = script_ncs::probes::Asm::default();
@@ -267,7 +298,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
     crate::probe::library(
         CATALOG,
         [
-            (PCS, asm.build()),
+            (PARTY, asm.build()),
             (ENTERED_SCRIPT, entered.build()),
             (CAME_SCRIPT, comings(13, CAME)),
             (WENT_SCRIPT, comings(14, WENT)),
@@ -279,34 +310,55 @@ void DelayCommand(float fSeconds, action aActionToDelay);
             (STORY_SIGNAL, signals.build()),
             (AI_DELAY, delays.build()),
             (STORY_DELAY, delays.build()),
+            (SHOUT, shout.build()),
         ],
     )
 }
 
 /// The proving ground with the two companions standing 1.5 and 3 m ahead
 /// of its entry, facing its way, and `library`: the level, and the
-/// companions' object numbers.
+/// companions' object numbers. The second stands 1.5 m to the side, so the
+/// first can run forward without meeting its body.
 fn ground() -> Result<(Level, [u32; 2]), String> {
+    ground_with(Vec::new(), None)
+}
+
+/// `ground` with `extra` objects placed after the companions, and the
+/// factions' standings `repute` in place of the ground's own, if given.
+fn ground_with(
+    extra: Vec<ObjectData>,
+    repute: Option<crate::module::Repute>,
+) -> Result<(Level, [u32; 2]), String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    if let Some(repute) = repute {
+        data.repute = repute;
+    }
     let entry = data.entry;
     let (sin, cos) = crate::math::sin_cos_deg(entry.yaw);
     let [x, y, z] = entry.position;
     let first = u32::try_from(data.placements.len()).map_err(|error| error.to_string())?;
-    data.placements.extend(
-        COMPANIONS
-            .iter()
-            .zip([1.5f32, 3.0])
-            .map(|(template, ahead)| {
-                let made = companion(template, [x + ahead * cos, y + ahead * sin, z]);
+    data.placements
+        .extend(COMPANIONS.iter().zip([(1.5f32, 0.0f32), (3.0, 1.5)]).map(
+            |(template, (ahead, side))| {
+                let made = companion(
+                    template,
+                    [
+                        x + ahead * cos - side * sin,
+                        y + ahead * sin + side * cos,
+                        z,
+                    ],
+                );
                 // The first's end of round moves it (`AI`), its heartbeat
-                // signals its user-defined event (`AI_SIGNAL`, `USER`).
+                // signals its user-defined event (`AI_SIGNAL`, `USER`), and
+                // a line it hears moves it (`SHOUT`, `USER`).
                 let scripts = if *template == COMPANIONS[0] {
                     vec![
                         ("ScriptEndRound".to_string(), AI.to_string()),
                         ("ScriptHeartbeat".to_string(), AI_SIGNAL.to_string()),
                         ("ScriptUserDefine".to_string(), USER.to_string()),
                         ("ScriptOnNotice".to_string(), AI_DELAY.to_string()),
+                        ("ScriptDialogue".to_string(), USER.to_string()),
                     ]
                 } else {
                     Vec::new()
@@ -316,12 +368,31 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
                     scripts,
                     ..made
                 })
-            }),
-    );
+            },
+        ));
+    data.placements
+        .extend(extra.into_iter().map(Placement::Own));
     Ok((
         ground.with_module(data).with_scripts(library()),
         [first, first + 1],
     ))
+}
+
+/// A navigation mesh over a lane of the ground's arrival half, 4 m across
+/// the doorway's way and 11 m along the wall (metres from the doorway's
+/// middle: x from -4.5 to -0.5, y from -5.5 to 5.5), for the walks a
+/// script's move plans.
+fn lane_nav(level: &Level) -> collision::nav::NavMesh {
+    let at = |[x, y]: [f32; 2]| crate::determinism::ground_point(x, y, 0.0);
+    let [p, q, r, t] = [[-4.5, -5.5], [-0.5, -5.5], [-0.5, 5.5], [-4.5, 5.5]].map(at);
+    let mut nav = collision::nav::NavMesh::build(
+        &[[p, q, r], [p, r, t]],
+        crate::walk::CLEARANCE * collision::UNIT,
+    );
+    if let Some(floor) = level.collision().level() {
+        nav.mark(floor);
+    }
+    nav
 }
 
 /// A world of `seats` on the ground, guests playing as `guests`, the two
@@ -436,6 +507,7 @@ fn hosted_save() -> Result<String, String> {
         level: level.id(),
         snapshot: alone.snapshot(),
         script: alone.script_state().clone(),
+        stances: alone.stance_ids(),
     };
     let mut hosted = save.world(&level, 3, None)?;
     let host = save
@@ -483,6 +555,252 @@ fn seat_bodies_agree() -> Result<String, String> {
         format!(
             "the sim's {ids:?}, the snapshot's {:?} (driven {a:?}, lent {b:?})",
             view.iter().map(|id| id.0).collect::<Vec<_>>()
+        ),
+    )
+}
+
+/// A party for the views' probes: seat 0's own character, the first
+/// companion driven by seat 1 and the second leading the party. The
+/// snapshot after a step, and the companion leading.
+pub fn led_party() -> Result<(Snapshot, SimId), String> {
+    let (mut world, _, [_, b]) = party_world(Guests::Companions, 2)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    Ok((run(&mut world, &[(0, 0), (1, 0)]), b))
+}
+
+/// Who a seat plays agrees between the sim and its views. Seat 1 drives
+/// the first companion throughout. The sim's `world::played` reads its
+/// `Avatar` seats and `lent`, and the snapshot's `Snapshot::played` reads
+/// what its bodies carry and `leading`. Both pick the same fighters in two
+/// states. Before the second companion leads, those are seat 0's own
+/// character and the driven companion. While the second companion leads,
+/// those are both companions. Seat 0's own character, standing meanwhile,
+/// is not played, because its mind plays it.
+fn played_bodies_agree() -> Result<String, String> {
+    let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
+    let mut states = Vec::new();
+    for leads in [false, true] {
+        if leads {
+            scripts_of(&mut world).state.party.leader = Some(1);
+        }
+        let after = run(&mut world, &[(0, 0), (1, 0)]);
+        let lent = super::super::lent(&scripts_of(&mut world).state.party);
+        let mut fighters = world.world.query::<(&Id, Option<&Avatar>, &Fighting)>();
+        let mut sim: Vec<u32> = fighters
+            .iter(&world.world)
+            .filter(|(id, avatar, _)| super::super::played(id.0, *avatar, lent))
+            .map(|(id, ..)| id.0.0)
+            .collect();
+        let mut view: Vec<u32> = after
+            .entities
+            .iter()
+            .filter(|entity| entity.fighter.is_some() && after.played(entity))
+            .map(|entity| entity.id.0)
+            .collect();
+        let own = after
+            .own(Seat(0))
+            .map(|own| own.id.0)
+            .ok_or("seat 0 has no character")?;
+        let mut expected = if leads {
+            vec![a.0, b.0]
+        } else {
+            vec![own, a.0]
+        };
+        sim.sort_unstable();
+        view.sort_unstable();
+        expected.sort_unstable();
+        states.push((leads, sim, view, expected));
+    }
+    check(
+        states
+            .iter()
+            .all(|(_, sim, view, expected)| sim == view && view == expected),
+        format!(
+            "(leads, the sim plays, the snapshot, expected): {states:?} (driven {a:?}, lent {b:?})"
+        ),
+    )
+}
+
+/// What a placeable probe strikes. A locked crate may be bashed by a
+/// player's blow or bolt. A hostile stasis tank is one the party attacks.
+#[derive(Clone, Copy)]
+enum Mark {
+    Crate,
+    Tank,
+}
+
+/// Who seat 0 acts through while it strikes: its own character, or the
+/// second companion leading the party.
+#[derive(Clone, Copy)]
+enum Through {
+    Own,
+    Leader,
+}
+
+/// How seat 0 strikes: by holding the attack button, so its blaster
+/// fires, or by a weapon's blow pushed each step as `objects` takes one.
+#[derive(Clone, Copy)]
+enum Strike {
+    Fire,
+    Blow,
+}
+
+/// The placeable `mark`, with 30 hit points. It stands 2.5 m ahead of the
+/// ground's entry and 1.5 m to the side away from the second companion.
+/// There it is short of the wall ahead, and seat 0's own character and the
+/// second companion both see it past the other bodies.
+fn target(mark: Mark) -> Result<ObjectData, String> {
+    let ground = crate::determinism::proving_ground();
+    let entry = ground.module().ok_or("the ground has no module")?.entry;
+    let (sin, cos) = crate::math::sin_cos_deg(entry.yaw);
+    let [x, y, z] = entry.position;
+    let (ahead, side) = (2.5, -1.5);
+    let at = [
+        x + ahead * cos - side * sin,
+        y + ahead * sin + side * cos,
+        z,
+    ];
+    let (tag, opens, faction, hostile) = match mark {
+        Mark::Crate => (
+            "crate",
+            crate::module::Opens::Locked,
+            crate::combat::sheet::factions::NEUTRAL,
+            false,
+        ),
+        Mark::Tank => (
+            "tank",
+            crate::module::Opens::Never,
+            crate::combat::sheet::factions::HOSTILE_1,
+            true,
+        ),
+    };
+    Ok(ObjectData {
+        kind: ObjectKind::Placeable,
+        tag: tag.into(),
+        opens,
+        hit_points: Some((30, 30)),
+        faction,
+        toughness: crate::module::Toughness {
+            hostile,
+            ..crate::module::Toughness::default()
+        },
+        ..ObjectData::unknown(tag, at, 0.0)
+    })
+}
+
+/// Seat 0's command turning the body it acts through toward the placeable
+/// `facts`, with `buttons` held. It aims a fifth of the way up the
+/// placeable. The crosshair line runs above the eyes, so it meets the
+/// placeable's box there.
+fn aim_at(snapshot: &Snapshot, facts: &ObjectData, buttons: u16) -> Result<Command, String> {
+    let body = snapshot.body(Seat(0)).ok_or("seat 0 has no body")?;
+    let player = body.player.ok_or("seat 0's body has no motion")?;
+    let eyes = crate::math::scale(
+        crate::math::add(player.origin, [0.0, 0.0, player.eye_height]),
+        collision::UNIT,
+    );
+    let [x, y, z] = facts.position;
+    let below = z + crate::target::PLACEABLE_HEIGHT * 0.2 - eyes[2];
+    let (dx, dy) = (x - eyes[0], y - eyes[1]);
+    let yaw = crate::math::atan2_deg(dy, dx);
+    let pitch = -crate::math::atan2_deg(below, (dx * dx + dy * dy).sqrt());
+    let wanted = [pitch, yaw, 0.0].map(crate::math::degrees_to_short);
+    Ok(Command {
+        angles: std::array::from_fn(|axis| wanted[axis].wrapping_sub(player.view_offset[axis])),
+        buttons,
+        ..Command::default()
+    })
+}
+
+/// The damage the placeable `mark` took after `steps` steps of seat 0
+/// striking it as `strike` says, acting `through` its own character or the
+/// companion leading. The player's faction is at war with the tank's.
+fn struck(mark: Mark, through: Through, strike: Strike, steps: usize) -> Result<u16, String> {
+    let facts = target(mark)?;
+    let repute = crate::module::Repute::at_war([
+        crate::combat::sheet::factions::PLAYER,
+        crate::combat::sheet::factions::HOSTILE_1,
+    ]);
+    let ground = ground_with(vec![facts.clone()], Some(repute))?;
+    let (mut world, _, _) = party_on(ground, Guests::Companions, 1)?;
+    if let Through::Leader = through {
+        scripts_of(&mut world).state.party.leader = Some(1);
+    }
+    let mut last = run(&mut world, &[(0, 0)]);
+    let placed = last
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, Kind::Object(ObjectKind::Placeable, _)))
+        .map(|entity| entity.id)
+        .ok_or("the placeable is not in the world")?;
+    let buttons = match strike {
+        Strike::Fire => crate::input::buttons::ATTACK,
+        Strike::Blow => 0,
+    };
+    for _ in 0..steps {
+        let mut input = TickInput::default();
+        input.insert(Seat(0), aim_at(&last, &facts, buttons)?);
+        if let Strike::Blow = strike {
+            let attacker = last.body(Seat(0)).ok_or("seat 0 has no body")?.id;
+            world
+                .world
+                .resource_mut::<super::super::Hits>()
+                .0
+                .push(super::super::Hit {
+                    attacker,
+                    target: placed,
+                    source: crate::combat::damage::Source::Weapon {
+                        weapon: crate::combat::Weapon {
+                            damage_bonus: 5,
+                            ..crate::combat::Weapon::UNARMED
+                        },
+                        cadence_ms: crate::combat::damage::ROUND_MS as u32,
+                        share: 1000,
+                        area: false,
+                        second: None,
+                        sure: true,
+                    },
+                    point: None,
+                    direction: None,
+                });
+        }
+        let tick = world.tick() + 1;
+        last = crate::step(&mut world, tick, &input, 8, StepReason::Authority);
+    }
+    last.get(placed)
+        .and_then(|entity| entity.object)
+        .map(|state| state.damage)
+        .ok_or("the placeable left the world".into())
+}
+
+/// A companion leading the party shoots as its player. Its blaster's bolts
+/// break a locked crate it aims at, as seat 0's own character's bolts do.
+/// Bolts only meet what may be bashed when a seat plays their shooter
+/// (`world::played`).
+fn leader_bolts_break_a_crate() -> Result<String, String> {
+    let own = struck(Mark::Crate, Through::Own, Strike::Fire, 250)?;
+    let led = struck(Mark::Crate, Through::Leader, Strike::Fire, 250)?;
+    check(
+        own > 0 && led > 0,
+        format!(
+            "the crate lost {own} to the player's own character's bolts and {led} to the leading companion's"
+        ),
+    )
+}
+
+/// A companion leading the party attacks as its player. Its blows on a
+/// hostile stasis tank it aims at count as an attack, so they hurt the
+/// tank, as seat 0's own character's blows do. The probe pushes the blows
+/// itself, so it checks the gate on a blow at a placeable, not a swing. A
+/// blow on a placeable counts only when a seat plays the body that struck
+/// it (`world::played`).
+fn leader_blows_on_a_tank_count() -> Result<String, String> {
+    let own = struck(Mark::Tank, Through::Own, Strike::Blow, 5)?;
+    let led = struck(Mark::Tank, Through::Leader, Strike::Blow, 5)?;
+    check(
+        own > 0 && led > 0,
+        format!(
+            "the tank lost {own} to the player's own character's blows and {led} to the leading companion's"
         ),
     )
 }
@@ -635,7 +953,7 @@ fn casts_speed(leading: bool) -> Result<(bool, String), String> {
         Seat(0),
         Command {
             buttons: crate::input::buttons::FORCE_POWER,
-            force: FORCE_POWER_SPEED_BURST as u8,
+            force: FORCE_POWER_SPEED_BURST,
             ..command(0)
         },
     );
@@ -694,12 +1012,81 @@ fn leader_walks_out() -> Result<String, String> {
     )
 }
 
-/// The area's OnEnter runs for the player and for each companion the
-/// party brings in: arriving in a module whose area counts its entries,
-/// the player and the two companions make three, as the executables raise
-/// the area's entered event for every creature added to it (TSL's
-/// `k_232_enter` gives the Exile back when the one entering is the leader
-/// `GetFirstPC` names, Bao-Dur after the landing pad).
+/// A script's move of the player's own character while a companion leads
+/// walks it, as it walks any other party member. With the player leading,
+/// the same move is dropped, because a player's legs are its seat's. In
+/// K1's Undercity, Hendar's gate (`k_ptar_opengate`) moves party member 1
+/// through the gate, and the strip behind it (`k_ptar_closegate`) waits for
+/// the last party member. With Carth leading, party member 1 is the
+/// player's own character. Its move was dropped as a player's, and the
+/// scene waited for ever.
+fn led_own_walked() -> Result<String, String> {
+    /// Where the player's own character and the two companions stand, the
+    /// second leading, and where the script sends the player's own (metres
+    /// from the ground's doorway, on `lane_nav`'s lane).
+    const OWN: [f32; 2] = [-4.0, -3.0];
+    const FIRST: [f32; 2] = [-1.5, 3.0];
+    const LEADER: [f32; 2] = [-4.0, 3.0];
+    const SPOT: [f32; 2] = [-1.5, -3.0];
+    const STEPS: usize = 500;
+    let walk = |leading: bool| -> Result<(f32, f32), String> {
+        let (level, numbers) = ground()?;
+        let nav = lane_nav(&level);
+        let (mut world, _, [a, b]) =
+            party_on((level.with_nav(nav), numbers), Guests::Companions, 1)?;
+        scripts_of(&mut world).state.party.leader = leading.then_some(1);
+        let own = world.snapshot().own(Seat(0)).map(|entity| entity.id);
+        let own = own.ok_or("seat 0 has no own character")?;
+        for (id, [x, y]) in [(a, FIRST), (b, LEADER), (own, OWN)] {
+            let at = crate::determinism::ground_point(x, y, 0.0);
+            poke(&mut world, id, |_, ps| {
+                ps.origin[0] = at[0] / collision::UNIT;
+                ps.origin[1] = at[1] / collision::UNIT;
+            });
+        }
+        let [x, y] = SPOT;
+        let spot = crate::determinism::ground_point(x, y, 0.0);
+        let before = run(&mut world, &[(0, 0)]);
+        scripts_of(&mut world).state.queue(
+            script_ncs::vm::ObjectId(own.0),
+            crate::script::actions::Action::Move {
+                to: crate::script::actions::Target::Point(spot, 0.0),
+                run: false,
+                range: 1.0,
+                force_ms: None,
+            },
+        );
+        // How near it came to the spot (metres): once there, the player's
+        // own follows the companion leading again.
+        let mut nearest = f32::MAX;
+        let mut furthest = 0.0f32;
+        for _ in 0..STEPS {
+            let after = run(&mut world, &[(0, 0)]);
+            if let Some(entity) = after.get(own) {
+                nearest = nearest.min(crate::math::flat_distance(entity.position, spot));
+            }
+            furthest = furthest.max(moved(&before, &after, own));
+        }
+        Ok((furthest, nearest))
+    };
+    let (led, own) = (walk(true)?, walk(false)?);
+    check(
+        led.1 <= 1.0 && own.0 < 0.1,
+        format!(
+            "a companion leading: the player's own came within {:.2} m of the spot; \
+             the player leading: it moved {:.2} m",
+            led.1, own.0
+        ),
+    )
+}
+
+/// The area's OnEnter runs for the main character and for each companion
+/// the party brings in. Arriving in a module whose area counts its entries,
+/// the main character and the two companions make three. The executables
+/// raise the area's entered event for every creature added to it. TSL's
+/// `k_232_enter` gives the Exile back when the creature entering is the
+/// main character that `GetFirstPC` names, whoever leads. This happens
+/// after the landing pad, where Bao-Dur leads.
 fn entered_by_the_party() -> Result<String, String> {
     let (mut world, ..) = party_world(Guests::Companions, 1)?;
     let ground = exit_ground()?;
@@ -897,14 +1284,7 @@ fn guest_pushes() -> Result<String, String> {
             body: Some(body),
             ..ObjectData::creature(tag, tag, at(BYSTANDER), sheet)
         }));
-        let [p, q, r, t] = [[-4.5, -5.5], [-0.5, -5.5], [-0.5, 5.5], [-4.5, 5.5]].map(at);
-        let mut nav = collision::nav::NavMesh::build(
-            &[[p, q, r], [p, r, t]],
-            crate::walk::CLEARANCE * collision::UNIT,
-        );
-        if let Some(floor) = level.collision().level() {
-            nav.mark(floor);
-        }
+        let nav = lane_nav(&level);
         let level = level.with_module(data).with_nav(nav);
         let (mut world, _, [a, b]) = party_on((level, numbers), Guests::Companions, seats)?;
         for (who, spot) in [(a, FROM), (b, GOAL)] {
@@ -1058,6 +1438,51 @@ fn leader_by_body() -> Result<String, String> {
     )
 }
 
+/// The leader changed while the game is paused, as KOTOR allows: with a
+/// guest's break holding, seat 0 makes the second companion lead, and the
+/// break still holds after it. A guest's pick changes nothing then either,
+/// and the steps without a pick move no time.
+fn leader_while_paused() -> Result<String, String> {
+    let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
+    let mut step = |actions: &[(u8, crate::action::Action)]| {
+        let mut input = TickInput::default();
+        for seat in 0..2 {
+            input.insert(Seat(seat), command(0));
+        }
+        for (seat, action) in actions {
+            input.act(Seat(*seat), action.clone());
+        }
+        let tick = world.tick() + 1;
+        crate::step(&mut world, tick, &input, 8, StepReason::Authority)
+    };
+    use crate::action::Action::{Break, Lead};
+    let paused = step(&[(1, Break)]);
+    let guest = step(&[(1, Lead(a))]);
+    let picked = step(&[(0, Lead(b))]);
+    let held = step(&[]);
+    let after = step(&[]);
+    check(
+        paused.paused_by == Some(Seat(1))
+            && guest.leading.is_none()
+            && guest.time_ms == paused.time_ms
+            && picked.leading == Some(b)
+            && picked.paused_by == Some(Seat(1))
+            && held.paused_by == Some(Seat(1))
+            && after.time_ms == held.time_ms,
+        format!(
+            "paused by {:?}; a guest's pick: leading {:?}; seat 0's pick of {b:?}: leading {:?}, paused by {:?}; time {} → {} → {} → {}",
+            paused.paused_by,
+            guest.leading,
+            picked.leading,
+            picked.paused_by,
+            paused.time_ms,
+            picked.time_ms,
+            held.time_ms,
+            after.time_ms
+        ),
+    )
+}
+
 /// The first companion down: a guest joining takes the second, standing;
 /// with the second down too, the first.
 fn standing_first() -> Result<String, String> {
@@ -1111,16 +1536,32 @@ fn benched_first() -> Result<String, String> {
 /// (`AI`) moving it queues nothing, and it runs on with its seat; the same
 /// move from a story's script (`STORY`) steers it. So for the user-defined
 /// event its own heartbeat signals it (`AI_SIGNAL`), and the same event a
-/// story's script signals (`STORY_SIGNAL`).
+/// story's script signals (`STORY_SIGNAL`). Its dialogue hook answering
+/// the second companion's combat shout (`SHOUT`) is its own AI too: K1's
+/// companions answer "GEN_I_WAS_ATTACKED" with an attack, which took a
+/// guest's companion out of its player's hands in a fight.
 fn own_ai() -> Result<String, String> {
     let mut seen = Vec::new();
-    for script in [AI, STORY, AI_SIGNAL, STORY_SIGNAL, AI_DELAY, STORY_DELAY] {
-        let (mut world, _, [a, _]) = party_world(Guests::Companions, 2)?;
+    for script in [
+        AI,
+        STORY,
+        AI_SIGNAL,
+        STORY_SIGNAL,
+        AI_DELAY,
+        STORY_DELAY,
+        SHOUT,
+    ] {
+        let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
         let start = run(&mut world, &BOTH[..2]);
-        scripts_of(&mut world)
-            .state
-            .pending
-            .push(Pending::new(script, script_ncs::vm::ObjectId(a.0)));
+        let caller = if script == SHOUT { b } else { a };
+        {
+            let state = &mut scripts_of(&mut world).state;
+            state.listening.insert(a.0);
+            state.patterns.insert(a.0, vec![(HEARD.to_string(), 1)]);
+            state
+                .pending
+                .push(Pending::new(script, script_ncs::vm::ObjectId(caller.0)));
+        }
         // Queued and steered at any step: a deferred move is queued once its
         // delay ends, and may be over by the last.
         let (mut queued, mut steered) = (false, false);
@@ -1282,7 +1723,7 @@ fn drive(snapshot: &mut Snapshot, id: SimId, seat: Seat) {
 struct Ran {
     /// The snapshot after each tick, the first after tick 1.
     snapshots: Vec<Snapshot>,
-    /// The message boxes the party check (`PCS`) showed seat 0.
+    /// The message boxes the party check (`PARTY`) showed seat 0.
     boxes: Vec<i32>,
     /// Whether seat 2's companion still carried `Avatar` after tick 52.
     kept_avatar: bool,
@@ -1365,7 +1806,7 @@ fn right_of_entry(level: &Level) -> [f32; 3] {
 /// cases name the ticks):
 /// - tick 1: seat 0 alone;
 /// - ticks 2–31: seats 1 and 2 too, seat 1 running; the party check
-///   (`PCS`) runs at tick 30;
+///   (`PARTY`) runs at tick 30;
 /// - ticks 32–51: the same, with a scripted move on seat 1's companion (no
 ///   route on the ground: its mind stands it still, and it slows to a stop
 ///   while seat 1 runs);
@@ -1381,7 +1822,7 @@ fn scenario() -> Result<Ran, String> {
     let mut boxes = Vec::new();
     for tick in 2..=51 {
         if tick == 30 {
-            let check = Pending::new(PCS, MODULE);
+            let check = Pending::new(PARTY, MODULE);
             scripts_of(&mut world).state.pending.push(check);
         }
         if tick >= 32 {

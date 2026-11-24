@@ -17,6 +17,7 @@
 //! What the story has that cannot come back is said in the lines returned.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use sim::combat::fighter::Fighter;
 use sim::combat::sheet::{Rows, Sheet, factions};
@@ -264,6 +265,20 @@ impl Restore<'_> {
         sheet.level = character.level;
         sheet.max_hp = character.max_hp;
         sheet.max_fp = character.max_fp;
+        if character.npc.is_some()
+            && !sheet.feats.has(sim::combat::sheet::feats::FORCE_SENSITIVE)
+            && classes.is_some_and(|classes| {
+                !character.classes.is_empty()
+                    && character.classes.iter().all(|&(class, _)| {
+                        classes
+                            .classes
+                            .get(usize::from(class))
+                            .is_none_or(|of| of.force_die == 0)
+                    })
+            })
+        {
+            sheet.max_fp = 0;
+        }
         sheet.good_evil = character.alignment;
         sim::inventory::rewear(sheet, before, &self.worn(label))
     }
@@ -307,6 +322,7 @@ impl Restore<'_> {
         state.unescapable = story.unescapable.iter().cloned().collect();
         state.transit = story.transit.clone();
         state.party.party_ai = story.party_ai;
+        state.hints = story.hints.state();
     }
 
     /// The players' characters, on their seats' bodies: sheet, points,
@@ -481,7 +497,7 @@ impl Restore<'_> {
         let (leader, yaw) = self.leader_at().unwrap_or(([0.0; 3], 0.0));
         let id = self.next_id();
         let index = (self.level.placed().len() + self.snapshot.spawned.len()) as u32;
-        self.snapshot.spawned.push(Spawned {
+        Arc::make_mut(&mut self.snapshot.spawned).push(Spawned {
             kind: ObjectKind::Creature,
             template: character.template.clone(),
             yaw,
@@ -528,9 +544,13 @@ impl Restore<'_> {
                 continue;
             };
             for item in items {
-                let made =
-                    self.state
-                        .make_item(catalog, &item.template, holder, item.stack, item.slot);
+                let made = self.state.restore_item_unstacked(
+                    catalog,
+                    &item.template,
+                    holder,
+                    item.stack,
+                    item.slot,
+                );
                 let Some(made) = made else {
                     self.lost.push(format!(
                         "{label}: item {}, not among this module's items or the install's",
@@ -545,9 +565,7 @@ impl Restore<'_> {
                     if sim::inventory::resref_of(&kept.template) == item.template {
                         kept.template = item.template.clone();
                     }
-                    kept.charges = item.charges;
-                    kept.upgrades = item.upgrades;
-                    kept.fitted = item.fitted.clone();
+                    item.apply(&mut kept);
                 }
             }
         }

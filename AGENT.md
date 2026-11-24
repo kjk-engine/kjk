@@ -48,9 +48,12 @@ merges it. What has gone wrong before, and the rule that prevents it:
   code against it. Additions are fine; changing it is reported.
 * **The gate before every commit**, run from the worktree root:
   `cargo fmt --all -- --check && cargo clippy -q --workspace --all-targets
-  --all-features -- -D warnings`, then `cargo test --release -p approved_tests` (the
-  owner-approved scenarios; `--features rig` adds the timeline jolt
-  ceilings, which need the game installs). A change to what the verbs
+  --all-features -- -D warnings`, then `cargo test --release -p approved_tests
+  -p launcher --test approved` (the owner-approved scenarios; `--features
+  rig` adds the timeline jolt ceilings, which need the game installs).
+  Naming `launcher` builds the tests with the same dependency features as
+  `kjk`, so they reuse its build instead of compiling the sim a second
+  time. CI runs the plain `-p approved_tests`. A change to what the verbs
   share with play also gets `cargo clippy -q -p launcher --all-targets
   --no-default-features -- -D warnings`: the game without the `probes`
   feature (the verbs that check and measure, and the layers' probes).
@@ -59,7 +62,8 @@ merges it. What has gone wrong before, and the rule that prevents it:
 * **The sim hash and format versions are numbered at merge.** Never edit
   `bumps/SIM_HASH` or a `VERSION` number on a branch: say the change in
   `bumps/<branch>.toml` (`sim = "why"`, `[formats] snapshot = "…"`) and
-  the merge pins and numbers it (`bumps/README.md`). Say so in the report.
+  the pin before the next release numbers it (`bumps/README.md`). Say so
+  in the report.
 * **Reserved numbers.** The parent hands each agent its `QUIRKS.md` numbers
   (e.g. Q-0023 to Q-0029); agents never guess the next free one.
 * **Journals in the worktree** (`<worktree>/context/artifacts/…`); the
@@ -68,7 +72,7 @@ merges it. What has gone wrong before, and the rule that prevents it:
 * **Never push, never merge.** Report branch, commits, evidence, decisions
   made, quirks, and what is not done.
 * **A worktree's own build folder, seeded.** A new worktree's `target/`
-  starts as a clone of the main checkout's (`docs/BUILD.md`), made
+  starts as a clone of the shared build seed (`docs/BUILD.md`), made
   before its first `cargo` command.
   Never a shared `CARGO_TARGET_DIR`: builds then wait on each other's lock.
 * **Wait on notices, not loops.** A long build, test or playthrough runs in

@@ -17,7 +17,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use net::session::clock::Margins;
-use net::session::probes::{self, ClientReport, Hitches, Joiner, Report, Scenario, Setup};
+use net::session::probes::{
+    self, ClientReport, Hitches, Joiner, Report, Rewinds, Scenario, Setup,
+};
 use net::session::sessions::{self, Expect, Session};
 use net::session::{Cause, InstallRequest, LevelRequest};
 use serde_json::json;
@@ -530,6 +532,8 @@ fn kotor_sessions(discovery: &vfs::Discovery) -> Result<Vec<Session>, String> {
         host_frame_us: 0,
         hitches: Hitches::default(),
         margins: Margins::default(),
+        rewinds: Rewinds::default(),
+        kill_threads_at_us: None,
     };
     let late = Setup {
         name: "end_m01aa_late".into(),
@@ -545,6 +549,17 @@ fn kotor_sessions(discovery: &vfs::Discovery) -> Result<Vec<Session>, String> {
         seed: 5,
         ..setup.clone()
     };
+    // The same module with the rewinds on a thread, as the game makes them
+    // (issue 229): through its installs there and back, creatures fighting.
+    let threaded = Setup {
+        name: "end_m01aa_rewinds_on_a_thread".into(),
+        seed: 6,
+        rewinds: Rewinds {
+            on: net::session::client::RebaseOn::Thread,
+            ..Rewinds::default()
+        },
+        ..setup.clone()
+    };
     let session = |setup: Setup, seats: u8, players: u8| Session {
         setup,
         scenario: Box::new(Kotor {
@@ -557,5 +572,9 @@ fn kotor_sessions(discovery: &vfs::Discovery) -> Result<Vec<Session>, String> {
         }),
         expect: Expect::Lossy,
     };
-    Ok(vec![session(setup, 2, 1), session(late, 3, 3)])
+    Ok(vec![
+        session(setup, 2, 1),
+        session(late, 3, 3),
+        session(threaded, 2, 1),
+    ])
 }

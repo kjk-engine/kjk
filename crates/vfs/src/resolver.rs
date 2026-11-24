@@ -52,13 +52,17 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use fmt_odyssey::ResType;
-use fmt_odyssey::texture::Texture;
-use fmt_odyssey::tlk::Tlk;
+use fmt_odyssey::texture::{Texture, texture_txi};
+use fmt_odyssey::tlk::{LENT_FLAG, Tlk};
 use fmt_odyssey::twoda::TwoDa;
+use fmt_odyssey::txi::Txi;
 
 use crate::archive::Archive;
 use crate::chitin::Chitin;
+use crate::lent::{LENT, LENT_FILES, Lent};
+use crate::rows::ROWS;
 use crate::{DirIndex, Game};
+use rules::rows::RowMaps;
 
 const GLOBAL_RIMS: &[&str] = &[
     "mainmenu.rim",
@@ -78,6 +82,19 @@ const GLOBAL_LIPS: &[&str] = &["global.mod", "localization.mod"];
 /// The types a stream folder's sound is: a WAV, or an MP3 (`.mp3`).
 const SOUNDS: [ResType; 2] = [ResType::WAV, ResType::BMU];
 
+/// The characters a resref holds (the archives' name fields).
+const RESREF_LEN: usize = 16;
+
+/// The keys `name` is looked up by: itself, lowercase, then, when it is
+/// longer than a resref, its first 16 characters.
+fn resrefs(name: &str) -> impl Iterator<Item = String> {
+    let name = name.to_ascii_lowercase();
+    let cut = (name.len() > RESREF_LEN)
+        .then(|| name.get(..RESREF_LEN).map(str::to_string))
+        .flatten();
+    std::iter::once(name).chain(cut)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextureQuality {
     High,
@@ -86,7 +103,9 @@ pub enum TextureQuality {
 }
 
 impl TextureQuality {
-    fn pack(self) -> &'static str {
+    /// The archive in the install's `texturepacks/` folder that holds the
+    /// game's textures at this quality.
+    pub fn pack(self) -> &'static str {
         match self {
             TextureQuality::High => "swpc_tex_tpa.erf",
             TextureQuality::Medium => "swpc_tex_tpb.erf",
@@ -206,6 +225,9 @@ pub struct Layer {
 /// wins whatever was added when (`CExoResMan::GetKeyEntry`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rank {
+    /// KOTOR 2's files that KOTOR 2's powers lent to KOTOR 1 name and KOTOR
+    /// 1 lacks (`lent`): under everything of KOTOR 1's.
+    LentFiles,
     /// `chitin.key`'s BIFs.
     Key,
     /// Texture packs, lips, a module's `.mod` and `_dlg.erf`.
@@ -218,6 +240,33 @@ pub enum Rank {
     Directory,
     /// The rulebook's tables, made from what everything below resolves.
     Rulebook,
+    /// KOTOR 1's tables with KOTOR 2's lent powers added, and their impact
+    /// scripts (`lent`), made from what everything below resolves.
+    Lent,
+    /// `spells.2da` and `feat.2da` in canonical order, and the cells of
+    /// other tables that name their rows (`rows`), made from what
+    /// everything below resolves.
+    Rows,
+}
+
+impl Rank {
+    /// How the games weigh a source when a texture is held as both a TPC
+    /// and a TGA (`Resolver::find_any`), highest best. Both games' executables
+    /// sort the sources into four kinds here. A folder (`override/`, its
+    /// subfolders, a Workshop item's `override/`) comes first, then a RIM,
+    /// then an ERF (`patch.erf`, a texture pack, lips, a module's `.mod`),
+    /// then a BIF. Unlike a lookup of one type, `patch.erf` ranks with the
+    /// other ERFs here, below the RIMs. kjk's own layers rank above them all.
+    fn format_kind(self) -> u8 {
+        match self {
+            Rank::LentFiles => 0,
+            Rank::Key => 1,
+            Rank::Erf2 | Rank::Erf1 => 2,
+            Rank::Rim => 3,
+            Rank::Directory => 4,
+            Rank::Rulebook | Rank::Lent | Rank::Rows => 5,
+        }
+    }
 }
 
 /// A source that exists but could not be read, or a loose file whose
@@ -239,6 +288,11 @@ pub struct Resolver {
     /// The install's talk table (`dialog.tlk`), read when first asked for
     /// and shared by every resolver stacked on the same base.
     pub talk: TalkTable,
+    /// KOTOR 2's Force powers lent to KOTOR 1's data (`lend`).
+    pub lent: Option<Arc<Lent>>,
+    /// The rows-by-label maps its tables are served by (`rows`); the
+    /// identity without a mod's rows.
+    pub rows: Arc<RowMaps>,
 }
 
 /// `dialog.tlk`: where it is, and once read, its strings (`None` when it
@@ -247,6 +301,9 @@ pub struct Resolver {
 pub struct TalkTable {
     path: Option<PathBuf>,
     read: Arc<OnceLock<Option<Arc<Tlk>>>>,
+    /// Another game's talk table and the strrefs of the lines it lends
+    /// this one (`Tlk::lent`).
+    lent: Option<Arc<(TalkTable, Vec<u32>)>>,
 }
 
 impl TalkTable {
@@ -259,9 +316,29 @@ impl TalkTable {
         self.read
             .get_or_init(|| {
                 let bytes = std::fs::read(self.path.as_ref()?).ok()?;
-                Tlk::parse(&bytes).ok().map(Arc::new)
+                let mut tlk = Tlk::parse(&bytes).ok()?;
+                if let Some((from, strrefs)) = self.lent.as_deref()
+                    && let Some(from) = from.get()
+                {
+                    for &strref in strrefs {
+                        if let Some(entry) = from.entries.get(strref as usize) {
+                            tlk.lent.insert(strref | LENT_FLAG, entry.clone());
+                        }
+                    }
+                }
+                Some(Arc::new(tlk))
             })
             .clone()
+    }
+
+    /// This talk table (read anew) with `from`'s lines of `strrefs` lent
+    /// to it.
+    fn lending(&self, from: TalkTable, strrefs: Vec<u32>) -> TalkTable {
+        TalkTable {
+            path: self.path.clone(),
+            read: Arc::default(),
+            lent: Some(Arc::new((from, strrefs))),
+        }
     }
 }
 
@@ -291,6 +368,150 @@ pub struct Resolved<'a> {
     pub location: &'a Location,
     /// Lower layers holding the same name, highest first.
     pub shadowed: Vec<(&'a Layer, &'a Location)>,
+}
+
+impl Resolved<'_> {
+    /// Whether the resource is a mod's. A mod's file is read from an
+    /// override folder (the game's own or a Workshop item's), and it is
+    /// not one of the files Aspyr's KOTOR 2 ships there itself
+    /// (`STOCK_OVERRIDE`, and for its layouts their bytes too,
+    /// `STOCK_LAYOUTS`). The screens place and colour a mod's layouts
+    /// and art as KOTOR 2 does, and the game's own as kjk does.
+    pub fn is_mod(&self) -> bool {
+        if self.layer.rank != Rank::Directory {
+            return false;
+        }
+        let name = self
+            .location
+            .path
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        !stock_override(&name, self.location.size) || !stock_layout_bytes(&name, self.location)
+    }
+}
+
+/// Aspyr's own layouts in its override folder, with the FNV-1a digest
+/// (64 bits) of their bytes. A mod that only changes numbers in a layout
+/// keeps its size (the Widescreen UI Fix's `equip_p` does), so a layout
+/// of a stock name and size is Aspyr's only when its bytes are too.
+const STOCK_LAYOUTS: &[(&str, u64)] = &[
+    ("custpnl_p.gui", 0xae82_f2a8_fe2c_0339),
+    ("equip_p.gui", 0x9d93_6c48_28d7_5cb5),
+    ("mainmenu8x6_p.gui", 0x108a_5e6d_fceb_a244),
+    ("optgraphics_p.gui", 0xab7a_be93_fdbd_559b),
+    ("saveload_p.gui", 0x6540_bd44_9dfe_d654),
+];
+
+/// Whether a stock file named `name` holds Aspyr's bytes: always for a
+/// file that is not one of Aspyr's layouts (`STOCK_LAYOUTS`) or cannot be
+/// read, else when its digest is the stock one.
+fn stock_layout_bytes(name: &str, location: &Location) -> bool {
+    let name = name.to_ascii_lowercase();
+    let Some(&(_, digest)) = STOCK_LAYOUTS.iter().find(|(stock, _)| *stock == name) else {
+        return true;
+    };
+    location
+        .read()
+        .map_or(true, |bytes| fnv1a(&bytes) == digest)
+}
+
+/// The FNV-1a digest (64 bits) of `bytes`.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The files Aspyr's KOTOR 2 ships in its `override/` folder, by lower-case
+/// name and byte size. They are the game's own files (its pad art, larger
+/// font sheets, a few layouts and models), though they sit where mods go,
+/// so they are not taken for a mod's. A file of one of these names but of
+/// another size is a mod's copy.
+const STOCK_OVERRIDE: &[(&[&str], u64)] = &[
+    (
+        &[
+            "cntrl_ps3_eng.tga",
+            "cntrl_ps3_fre.tga",
+            "cntrl_ps3_ger.tga",
+            "cntrl_ps3_ita.tga",
+            "cntrl_ps3_spa.tga",
+            "cntrl_xb360_eng.tga",
+            "cntrl_xb360_fre.tga",
+            "cntrl_xb360_ger.tga",
+            "cntrl_xb360_ita.tga",
+            "cntrl_xb360_spa.tga",
+        ],
+        6_566_444,
+    ),
+    (
+        &[
+            "cus_button_a.tga",
+            "cus_button_aps.tga",
+            "cus_button_b.tga",
+            "cus_button_bps.tga",
+            "cus_button_x.tga",
+            "cus_button_xps.tga",
+            "cus_button_y.tga",
+            "cus_button_yps.tga",
+        ],
+        35_388,
+    ),
+    (&["cus_gpad_bg.tga"], 1_432_844),
+    (
+        &[
+            "cus_gpad_fper.tga",
+            "cus_gpad_fper2.tga",
+            "cus_gpad_gen.tga",
+            "cus_gpad_gen2.tga",
+            "cus_gpad_hand.tga",
+            "cus_gpad_hand2.tga",
+            "cus_gpad_help.tga",
+            "cus_gpad_help2.tga",
+            "cus_gpad_map.tga",
+            "cus_gpad_map2.tga",
+            "cus_gpad_save.tga",
+            "cus_gpad_save2.tga",
+            "cus_gpad_solo.tga",
+            "cus_gpad_solo2.tga",
+            "cus_gpad_solox.tga",
+            "cus_gpad_solox2.tga",
+            "cus_gpad_ste.tga",
+            "cus_gpad_ste2.tga",
+            "cus_gpad_ste3.tga",
+        ],
+        21_848,
+    ),
+    (&["custom.txt"], 4_884),
+    (&["custpnl_p.gui"], 16_367),
+    (&["d2xfnt_d16x16b.tga"], 4_194_348),
+    (&["d2xfont16x16b.tga", "d2xfont16x16b_ps.tga"], 1_048_620),
+    (&["d3xfnt_d16x16b.tga"], 16_777_260),
+    (&["d3xfont16x16b.tga", "d3xfont16x16b_ps.tga"], 4_194_348),
+    (&["diafnt16x16b_ps.tga", "dialogfont16x16b.tga"], 262_188),
+    (&["equip_p.gui"], 37_553),
+    (&["fx_step_splash.mdl"], 3_677),
+    (&["gamepad.txt"], 501),
+    (&["gui_scroll.wav"], 1_964),
+    (&["handmaiden.dlg"], 1_372_903),
+    (
+        &["lbl_miscroll_open_f.tga", "lbl_miscroll_open_f2.tga"],
+        31_196,
+    ),
+    (&["mainmenu8x6_p.gui"], 14_367),
+    (&["optgraphics_p.gui"], 14_985),
+    (&["saveload_p.gui"], 15_538),
+    (&["v_damagetat.mdl"], 3_751),
+    (&["w_rockpoisn.mdl"], 26_999),
+];
+
+/// Whether a loose file named `name` (any case) of `size` bytes is one of
+/// the files Aspyr's KOTOR 2 ships in its override folder
+/// (`STOCK_OVERRIDE`).
+pub fn stock_override(name: &str, size: u64) -> bool {
+    let name = name.to_ascii_lowercase();
+    STOCK_OVERRIDE
+        .iter()
+        .any(|(names, bytes)| *bytes == size && names.contains(&name.as_str()))
 }
 
 impl Resolver {
@@ -329,7 +550,10 @@ impl Resolver {
                     .last()
                     .map(|copy| copy.path.to_path_buf()),
                 read: Arc::default(),
+                lent: None,
             },
+            lent: None,
+            rows: Arc::default(),
         };
 
         let chitin =
@@ -424,6 +648,7 @@ impl Resolver {
             }
         }
         resolver.stack_rulebook();
+        resolver.stack_rows();
         Ok(resolver)
     }
 
@@ -474,13 +699,106 @@ impl Resolver {
             }
         }
         resolver.stack_rulebook();
+        resolver.stack_lent();
+        resolver.stack_rows();
         Ok(resolver)
+    }
+
+    /// KOTOR 2's Force powers and feats lent to this KOTOR 1 resolver's
+    /// data, from `tsl`'s (`lent`): what was lent, with the rows of each
+    /// table (`Lent::rows`, `Lent::feat_rows`) and why a table got none
+    /// (`Lent::refused`). Refused with the reasons when neither table gets
+    /// any (a mod's rows in both, or a table that does not read); the
+    /// resolver is then left as it was. Every resolver stacked on this one
+    /// (`with_module`) has them too.
+    pub fn lend(&mut self, tsl: &Resolver) -> Result<Arc<Lent>, String> {
+        self.unstack_lent();
+        let lent = Arc::new(Lent::new(self, tsl)?);
+        self.talk = self.talk.lending(tsl.talk.clone(), lent.strrefs.clone());
+        self.lent = Some(lent.clone());
+        self.stack_lent();
+        self.stack_rows();
+        Ok(lent)
+    }
+
+    /// This resolver with `layer` among its layers by its rank (a probe's
+    /// made-up override), and the rulebook's, the lent and the rows layers
+    /// made again from what the layers below them now resolve.
+    pub fn with_layer(&self, layer: Layer) -> Resolver {
+        let mut resolver = self.clone();
+        resolver.unstack_lent();
+        resolver.push(layer);
+        resolver.stack_rulebook();
+        resolver.stack_lent();
+        resolver.stack_rows();
+        resolver
+    }
+
+    /// The digest of what KOTOR 2 lent this resolver's data (`lend`) and of
+    /// the rows-by-label maps its tables are served by (`rows`). None when
+    /// nothing was lent and both maps are the identity. Co-op compares it
+    /// (`fingerprint::WorldData::with_lent`), so two machines whose maps
+    /// differ do not play together.
+    pub fn lent_digest(&self) -> Option<[u8; 32]> {
+        if self.lent.is_none() && self.rows.is_identity() {
+            return None;
+        }
+        let mut hasher = blake3::Hasher::new();
+        if let Some(lent) = &self.lent {
+            hasher.update(&lent.digest);
+        }
+        hasher.update(b"rows by label\n");
+        hasher.update(&self.rows.bytes());
+        Some(*hasher.finalize().as_bytes())
+    }
+
+    /// Takes off the lent layers and the rows layer above them.
+    fn unstack_lent(&mut self) {
+        self.layers
+            .retain(|layer| ![LENT, LENT_FILES, ROWS].contains(&layer.name.as_str()));
+        self.problems
+            .retain(|problem| problem.source != LENT && problem.source != ROWS);
+        self.rows = Arc::default();
+    }
+
+    /// The rows layer (`rows`) made again from what the layers below
+    /// resolve, and stacked; none when both maps are the identity. A row
+    /// that gets no number is a problem.
+    fn stack_rows(&mut self) {
+        self.layers.retain(|layer| layer.name != ROWS);
+        self.problems.retain(|problem| problem.source != ROWS);
+        let (maps, problems) = crate::rows::maps(self);
+        for problem in problems {
+            self.problem(ROWS, problem);
+        }
+        if let Some(layer) = crate::rows::layer(self, &maps) {
+            self.push(layer);
+        }
+        self.rows = Arc::new(maps);
+    }
+
+    /// The lent layers (`lend`) made again from what the layers below
+    /// resolve, and stacked; none without a loan, and a problem when a
+    /// module's own `spells.2da` has other rows than the base's.
+    fn stack_lent(&mut self) {
+        self.unstack_lent();
+        let Some(lent) = self.lent.clone() else {
+            return;
+        };
+        match lent.layers(self) {
+            Ok((tables, files)) => {
+                self.push(tables);
+                self.push_shared(files);
+            }
+            Err(problem) => self.problem(LENT, problem),
+        }
     }
 
     /// The rulebook's layer on top, made again from what the layers below
     /// now resolve (a module's archives may hold a table of their own).
     /// A change naming a row or a column the table lacks is a problem.
     fn stack_rulebook(&mut self) {
+        self.unstack_lent();
         self.layers.retain(|layer| layer.name != RULEBOOK);
         self.problems.retain(|problem| problem.source != RULEBOOK);
         let game = self.game.key();
@@ -529,12 +847,17 @@ impl Resolver {
     /// `layer` above every layer of its rank or lower, below every higher
     /// one: of one kind, the source added last wins.
     fn push(&mut self, layer: Layer) {
+        self.push_shared(Arc::new(layer));
+    }
+
+    /// `push` for a layer other resolvers share.
+    fn push_shared(&mut self, layer: Arc<Layer>) {
         let at = self
             .layers
             .iter()
             .position(|other| other.rank > layer.rank)
             .unwrap_or(self.layers.len());
-        self.layers.insert(at, Arc::new(layer));
+        self.layers.insert(at, layer);
     }
 
     /// Adds the game folder's archive at `relative` as a layer if the file
@@ -713,6 +1036,21 @@ impl Resolver {
         })
     }
 
+    /// A sound by resref as the games look one up: a WAV of the layers,
+    /// else of any stream folder (music, sounds, voices), there a WAV or an
+    /// MP3 (`stream`; a mod's new tracks are MP3s, TSLRCM's
+    /// `mus_a_arriv.mp3`).
+    pub fn sound(&self, resref: &str) -> Option<&Location> {
+        let wav = ResType::WAV;
+        self.find(resref, wav)
+            .map(|found| found.location)
+            .or_else(|| {
+                self.streams
+                    .iter()
+                    .find_map(|layer| self.stream(&layer.name, resref, wav))
+            })
+    }
+
     /// A voiced line's WAV: K1's `streamwaves`, TSL's `streamvoice`.
     pub fn voice(&self, resref: &str) -> Option<&Location> {
         let wav = ResType::WAV;
@@ -721,8 +1059,16 @@ impl Resolver {
             .find_map(|folder| self.stream(folder, resref, wav))
     }
 
+    /// The resource of a name and type after precedence. A name longer than
+    /// a resref (a model's texture name holds 32 characters) that nothing
+    /// holds whole is looked up cut to a resref's 16, as the games turn
+    /// every name into one.
     pub fn find(&self, resref: &str, restype: ResType) -> Option<Resolved<'_>> {
-        let key = (resref.to_ascii_lowercase(), restype);
+        resrefs(resref).find_map(|resref| self.find_exact(&resref, restype))
+    }
+
+    fn find_exact(&self, resref: &str, restype: ResType) -> Option<Resolved<'_>> {
+        let key = (resref.to_string(), restype);
         let mut holders = self
             .layers
             .iter()
@@ -736,31 +1082,67 @@ impl Resolver {
         })
     }
 
-    /// The first of `restypes` the highest layer holding any of them has,
-    /// with its type: a texture is a TPC or a TGA, and a TGA in `override/`
-    /// replaces the texture pack's TPC, as the games load mods.
+    /// The copy of a texture the games load when it is held in more than one
+    /// of `restypes` (a TPC and a TGA, in that order), with its type. Both
+    /// games' executables first find the copy of each type that a lookup of
+    /// that type alone finds. They then take the type whose copy comes from
+    /// the best kind of source (`Rank::format_kind`). When two copies come
+    /// from sources of one kind, the type listed first wins, so a TPC beats
+    /// a TGA. A TGA in `override/` therefore replaces a texture pack's TPC,
+    /// but a TPC and a TGA both in `override/` load the TPC. A TGA in a
+    /// Workshop item's `override/` also loses to a TPC in the game's own
+    /// `override/`. A long name is looked up as `find` looks it up.
     pub fn find_any(&self, resref: &str, restypes: &[ResType]) -> Option<(ResType, Resolved<'_>)> {
-        let resref = resref.to_ascii_lowercase();
-        let restype = self.layers.iter().rev().find_map(|layer| {
+        resrefs(resref).find_map(|resref| {
             restypes
                 .iter()
-                .copied()
-                .find(|&restype| layer.resources.contains_key(&(resref.clone(), restype)))
-        })?;
-        Some((restype, self.find(&resref, restype)?))
+                .filter_map(|&restype| Some((restype, self.find_exact(&resref, restype)?)))
+                .reduce(|best, next| {
+                    let kind = |found: &(ResType, Resolved)| found.1.layer.rank.format_kind();
+                    if kind(&next) > kind(&best) {
+                        next
+                    } else {
+                        best
+                    }
+                })
+        })
     }
 
-    /// The texture the games would pick for a name, parsed: the highest
-    /// layer's TPC or TGA (`find_any`).
-    pub fn texture(&self, name: &str) -> Option<Texture> {
+    /// The texture the games would pick for a name, parsed: its TPC or its
+    /// TGA, as `find_any` chooses between them. `None` when there is neither, the
+    /// reason when the one there does not read. A TGA's TXI is its loose
+    /// one, else the one in the TPC it replaces (`texture_txi`). A TGA whose
+    /// TXI says `cube`
+    /// holds a cube map's six faces, stacked. One whose TXI makes it a
+    /// flip-book (`proceduretype cycle`) holds a sheet of its frames
+    /// (`Texture::parse_tga_frames`); a sheet that does not divide into
+    /// them is read as the one image it is.
+    pub fn read_texture(&self, name: &str) -> Option<Result<Texture, String>> {
         let (restype, found) = self.find_any(name, &[ResType::TPC, ResType::TGA])?;
-        let bytes = found.location.read().ok()?;
-        let parsed = if restype == ResType::TPC {
-            Texture::parse_tpc(&bytes)
-        } else {
-            Texture::parse_tga(&bytes)
-        };
-        parsed.ok()
+        let bytes = found.location.read().map_err(|error| error.to_string());
+        let parsed = bytes.and_then(|bytes| {
+            let parsed = if restype == ResType::TPC {
+                Texture::parse_tpc(&bytes)
+            } else {
+                let txi = texture_txi(None, |restype| self.read(name, restype));
+                let cube = (txi.as_ref())
+                    .is_some_and(|txi| txi.number("cube").is_some_and(|on| on != 0.0));
+                match txi.as_ref().and_then(Txi::cycle_frames).filter(|_| !cube) {
+                    Some((columns, rows)) => {
+                        Texture::parse_tga_frames(&bytes, columns as usize, rows as usize)
+                            .or_else(|_| Texture::parse_tga(&bytes))
+                    }
+                    None => Texture::parse_tga_layers(&bytes, if cube { 6 } else { 1 }),
+                }
+            };
+            parsed.map_err(|error| error.to_string())
+        });
+        Some(parsed)
+    }
+
+    /// `read_texture`, `None` as well when it does not read.
+    pub fn texture(&self, name: &str) -> Option<Texture> {
+        self.read_texture(name)?.ok()
     }
 
     /// The resource's bytes, after precedence; `None` when it is missing or

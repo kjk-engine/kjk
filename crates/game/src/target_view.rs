@@ -4,8 +4,10 @@
 //! doors. No target while a screen or a conversation is up. It fills the
 //! HUD's target block (`ui::vm::TargetView`: KOTOR's own icons and words,
 //! Open 365, Use 366, Dialog 371, Security 255) and the crosshair; the
-//! mouse wheel (a pad's LB with the D-pad's left and right) moves the
-//! chosen action. The dumps carry it (`target`).
+//! mouse wheel (a pad's D-pad left and right) moves the
+//! chosen action, on every object alike. While a pad plays and the target
+//! offers more than one action, the block shows those two chords beside
+//! its slots. The dumps carry it (`target`).
 //!
 //! The use key (E; the console's `ui act`) does the chosen action (T16,
 //! T17): within its reach at once, else the player walks there first
@@ -32,8 +34,12 @@ use ui::draw::Textures;
 use ui::skin::Source;
 use ui::vm::{TargetAction, TargetView};
 
+use crate::dialogue_view::{Fill, said, shown_name};
 use crate::loot::{Outgoing, Told, words};
+use asset_odyssey::hooks;
+
 use crate::play_view::Aim;
+use crate::scene::{SceneContent, SceneModel};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
 
@@ -74,6 +80,20 @@ pub struct Targeted {
     hold: Hold,
     walk: Option<Walk>,
     reviving: Option<Reviving>,
+    /// The target's menu point in the game's space (metres, `menu_point`),
+    /// which `project` puts on the screen for the floating target block.
+    menu: Option<[f32; 3]>,
+    /// The target's own model when it is a door or a placeable: `project`
+    /// floats the block over one of the model's nodes in its place.
+    menu_model: Option<MenuModel>,
+}
+
+/// A door or placeable the block floats over: its object number, and
+/// whether it is a corpse (remains whose `bodybag.2da` row says so).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MenuModel {
+    object: u32,
+    corpse: bool,
 }
 
 impl Targeted {
@@ -95,6 +115,8 @@ mod lines {
     pub const DISARM_MINE: u32 = sim::locks::lines::DISARM_MINE;
     pub const RECOVER_MINE: u32 = sim::locks::lines::RECOVER_MINE;
     pub const SET_MINE: u32 = sim::locks::lines::SET_MINE;
+    /// "Lock": TSL's menu names a kit set on a lock "<kit> (Lock)".
+    pub const LOCK: u32 = 48_180;
 }
 
 /// A choice's icon, by the kind of its object (an item's its own).
@@ -108,8 +130,32 @@ fn icon(choice: Choice, kind: ObjectKind) -> &'static str {
         (Choice::Revive | Choice::Item { .. }, _) => "isk_treatinj",
         (Choice::Disarm, _) => "i_disablemine",
         (Choice::Recover, _) => "i_recovermine",
-        (Choice::Mine, _) => "isk_demolitions",
+        (Choice::Mine { .. }, _) => "isk_demolitions",
     }
+}
+
+/// A kit's entry in TSL's menu for a mine on a lock: the kit's name, then
+/// "(Lock)", then the count where the party carries more than one, as
+/// TSL's menu writes it ("Frag Mine (Lock) (3)").
+fn kit_label(
+    kits: &[(u32, String, u16)],
+    kit: u32,
+    look: Option<&(u32, String, u32)>,
+    item_name: &dyn Fn(u32) -> Vec<u8>,
+    lock: &[u8],
+) -> Vec<u8> {
+    let mut label = item_name(look.map_or(u32::MAX, |(.., name)| *name));
+    label.extend_from_slice(b" (");
+    label.extend_from_slice(lock);
+    label.push(b')');
+    let stack = kits
+        .iter()
+        .find(|(id, ..)| *id == kit)
+        .map_or(1, |(.., stack)| *stack);
+    if stack > 1 {
+        label.extend_from_slice(format!(" ({stack})").as_bytes());
+    }
+    label
 }
 
 /// A body's sheet without its effects: its own, else its module's.
@@ -153,6 +199,38 @@ fn worn_on_foes(
         .collect()
 }
 
+/// KOTOR 2's "Empty" and "Nothing", from its own talk table in both games.
+const EMPTY: u32 = 125_550;
+const NOTHING: u32 = 125_551;
+
+/// A container's `name` as KOTOR 2's target menu shows it: with " (Empty)"
+/// after it once nothing is left in it, or " (Nothing)" for one that is
+/// searched (`GuiAssets::searched`). K1 shows neither; kjk shows them in
+/// both games.
+fn emptied(
+    ui: &mut Ui,
+    snapshot: &sim::Snapshot,
+    container: &sim::EntityState,
+    template: &str,
+    name: String,
+) -> String {
+    if snapshot.goods.empty.binary_search(&container.id.0).is_err() {
+        return name;
+    }
+    let Some(assets) = ui.assets.as_mut() else {
+        return name;
+    };
+    let strref = if assets.searched(template) {
+        NOTHING
+    } else {
+        EMPTY
+    };
+    match assets.text(Source::Skin, strref) {
+        Some(word) => format!("{name} ({})", fmt_odyssey::code_page(&word)),
+        None => name,
+    }
+}
+
 /// A body's name: a creature's, else "Player N" for a seat's avatar.
 fn name_of(entity: &sim::EntityState, instances: &sim::Instances) -> String {
     instances
@@ -163,6 +241,318 @@ fn name_of(entity: &sim::EntityState, instances: &sim::Instances) -> String {
             sim::Kind::Avatar(seat) => format!("Player {}", u16::from(seat.0) + 1),
             _ => String::new(),
         })
+}
+
+/// How far over a creature's feet KOTOR 2 puts its menu point (metres),
+/// and the tags of the creatures it puts it higher for, and how high.
+const MENU_LIFT: f32 = 1.75;
+const TALL_LIFT: (&[&str], f32) = (&["zaalbar", "hk47"], 2.0);
+
+/// Where KOTOR 2 floats the target block over `entity` (game space,
+/// metres): a creature's menu point 1.75 metres over its feet, 2 metres
+/// over Zaalbar's and HK-47's. KOTOR 2 takes any other object's from its
+/// model (`model_point`, which `project` finds). Until the model is drawn,
+/// kjk takes the top of the object's targeting cylinder (`candidate`), else
+/// its feet.
+fn menu_point(
+    entity: &sim::EntityState,
+    facts: Option<&sim::module::ObjectData>,
+    candidate: Option<&sim::target::Candidate>,
+) -> [f32; 3] {
+    let [x, y, z] = entity.position;
+    let creature =
+        entity.fighter.is_some() || facts.is_some_and(|facts| facts.kind == ObjectKind::Creature);
+    if creature {
+        let tall = facts.is_some_and(|facts| {
+            TALL_LIFT
+                .0
+                .iter()
+                .any(|tag| facts.tag.eq_ignore_ascii_case(tag))
+        });
+        let lift = if tall { TALL_LIFT.1 } else { MENU_LIFT };
+        return [x, y, z + lift];
+    }
+    match candidate {
+        Some(candidate) => {
+            let [x, y, z] = candidate.feet;
+            [x, y, z + candidate.height]
+        }
+        None => [x, y, z],
+    }
+}
+
+/// The door or placeable `entity` (with `facts`) as the block floats over
+/// it, or `None` for a creature.
+fn menu_model(
+    entity: &sim::EntityState,
+    facts: Option<&sim::module::ObjectData>,
+    level: &sim::Level,
+) -> Option<MenuModel> {
+    let sim::Kind::Object(kind, object) = entity.kind else {
+        return None;
+    };
+    if kind == ObjectKind::Creature || entity.fighter.is_some() {
+        return None;
+    }
+    let corpse = facts
+        .zip(level.module())
+        .and_then(|(facts, module)| sim::remains::bag_of(module, &facts.template))
+        .is_some_and(|row| row.corpse);
+    Some(MenuModel { object, corpse })
+}
+
+/// Where KOTOR 2 floats the block over a door or placeable (`menu`), in
+/// Bevy's space. A corpse's point is its model's root dummy node. Any
+/// other door or placeable's point, and a corpse's whose model has no root
+/// dummy, is the model's look-at hook node. A model with neither node gives
+/// the middle of the box around its meshes, as they rest. `None` while the
+/// model is not drawn.
+fn model_point(
+    menu: MenuModel,
+    scene: &SceneContent,
+    made: Option<&crate::made::Made>,
+    (models, children, globals): (
+        &Query<(Entity, &SceneModel)>,
+        &Query<&Children>,
+        &Query<&GlobalTransform>,
+    ),
+) -> Option<Vec3> {
+    let root = scene
+        .0
+        .instance_models
+        .get(&menu.object)
+        .and_then(|&index| {
+            models
+                .iter()
+                .find(|(_, model)| model.index == index)
+                .map(|(root, _)| root)
+        })
+        .or_else(|| made?.prop_root(menu.object))?;
+    let (root, model) = std::iter::once(root)
+        .chain(children.iter_descendants(root))
+        .find_map(|entity| models.get(entity).ok())?;
+    let ir = &scene.0.models.get(model.index)?.ir;
+    match menu_node(ir, menu.corpse) {
+        Ok(node) => Some(globals.get(*model.nodes.get(node)?).ok()?.translation()),
+        Err(middle) => Some(globals.get(root).ok()?.transform_point(middle)),
+    }
+}
+
+/// The node of `ir` KOTOR 2 floats the block over (`model_point`), or,
+/// where the model has none, the middle of the box around its meshes in
+/// the model's own space. A corpse's node is its root dummy, else its
+/// look-at hook. Any other door's or placeable's node is its look-at hook.
+fn menu_node(ir: &asset_odyssey::model::ModelIr, corpse: bool) -> Result<usize, Vec3> {
+    let names: &[&str] = if corpse {
+        &[hooks::ROOT_DUMMY, hooks::LOOK_AT_HOOK]
+    } else {
+        &[hooks::LOOK_AT_HOOK]
+    };
+    names
+        .iter()
+        .find_map(|name| ir.node_index(name))
+        .ok_or_else(|| {
+            // KOTOR 2's box starts inside out (10,000 metres each way), so
+            // a model with no meshes gives its own origin.
+            ir.rest_bounds().map_or(Vec3::ZERO, |bounds| {
+                (Vec3::from_slice(&bounds[..3]) + Vec3::from_slice(&bounds[3..])) / 2.0
+            })
+        })
+}
+
+/// The block's point on a door's or placeable's model (`menu_node`): a
+/// corpse's root dummy before its look-at hook, any other's look-at hook
+/// only, and the middle of the meshes' box, or the model's origin without
+/// meshes, where the model has neither node.
+#[cfg(feature = "probes")]
+pub fn menu_node_probes() -> sim::probe::Checks {
+    // A model whose root holds a mesh from (-1, 0, 0) to (1, 2, 4), with
+    // the nodes `names` under it.
+    let model = |names: &[&str], mesh: bool| {
+        let meshes = mesh.then(|| asset_odyssey::model::MeshIr {
+            positions: vec![[-1.0, 0.0, 0.0], [1.0, 2.0, 4.0]],
+            indices: vec![0, 1, 0],
+            ..crate::course::mesh("probe")
+        });
+        let mut ir = crate::course::model_of("root", meshes.into_iter().collect());
+        let root = ir.nodes[0].clone();
+        ir.nodes
+            .extend(names.iter().map(|name| asset_odyssey::model::NodeIr {
+                name: (*name).into(),
+                ..root.clone()
+            }));
+        ir
+    };
+    let both = model(&[hooks::LOOK_AT_HOOK, hooks::ROOT_DUMMY], true);
+    let found = [
+        menu_node(&both, true),
+        menu_node(&both, false),
+        menu_node(&model(&[hooks::ROOT_DUMMY], true), false),
+        menu_node(&model(&[], false), false),
+    ];
+    let want = [Ok(2), Ok(1), Err(Vec3::new(0.0, 1.0, 2.0)), Err(Vec3::ZERO)];
+    vec![(
+        "target_block_model_point",
+        sim::probe::check(
+            found == want,
+            format!(
+                "a corpse with both nodes, a placeable with both, one with only a root dummy, one with no mesh: {found:?}"
+            ),
+        ),
+    )]
+}
+
+/// The target's menu point (`Targeted::menu`, or `model_point` for a door
+/// or placeable whose model is drawn) on the screen, for the floating
+/// target block (`ui::vm::TargetPoint`): projected through the scene's
+/// camera, in shares of the window across and down. A point behind the
+/// camera comes out mirrored, as it does in KOTOR 2, and is marked so.
+/// While the point cannot be projected, the block keeps the last one, as
+/// KOTOR 2's keeps its place.
+#[allow(clippy::type_complexity)]
+fn project(
+    targeted: Res<Targeted>,
+    cameras: Query<(&GlobalTransform, &Camera), crate::lifecycle_view::SceneCamera>,
+    (scene, made): (Option<Res<SceneContent>>, Option<Res<crate::made::Made>>),
+    (models, children, globals): (
+        Query<(Entity, &SceneModel)>,
+        Query<&Children>,
+        Query<&GlobalTransform>,
+    ),
+    mut ui: ResMut<Ui>,
+    (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
+    mut last: Local<Option<ui::vm::TargetPoint>>,
+) {
+    let Some(target) = ui.vm.target.as_mut() else {
+        *last = None;
+        return;
+    };
+    let drawn = targeted
+        .menu_model
+        .zip(scene.as_deref())
+        .and_then(|(menu, scene)| {
+            model_point(menu, scene, made.as_deref(), (&models, &children, &globals))
+        });
+    // Back in the game's space, for the dumps.
+    let game = |at: Vec3| (crate::scene::game_to_bevy().inverse() * at).to_array();
+    if dump_due.0 {
+        facts.0.insert(
+            "target_point".into(),
+            serde_json::json!({
+                "model": targeted.menu_model.map(|menu| [menu.object, u32::from(menu.corpse)]),
+                "from_model": drawn.map(game),
+                "menu": targeted.menu,
+            }),
+        );
+    }
+    let projected = on_screen(&targeted, drawn, &cameras);
+    if projected.is_some() {
+        *last = projected;
+    }
+    target.point = *last;
+}
+
+/// The target's menu point on the screen as the scene's camera sees it now
+/// (`project`). `drawn` is the point over the target's own model
+/// (`model_point`), which is used in the menu point's place when there is
+/// one. None while there is no menu point, no scene camera, or the camera
+/// cannot project the point.
+fn on_screen(
+    targeted: &Targeted,
+    drawn: Option<Vec3>,
+    cameras: &Query<(&GlobalTransform, &Camera), crate::lifecycle_view::SceneCamera>,
+) -> Option<ui::vm::TargetPoint> {
+    let menu = targeted.menu?;
+    let (place, camera) = cameras.single().ok()?;
+    let at = drawn.unwrap_or(crate::scene::game_to_bevy() * Vec3::from_array(menu));
+    let ndc = camera.world_to_ndc(place, at)?;
+    let seen = place.affine().inverse().transform_point3(at);
+    Some(ui::vm::TargetPoint {
+        at: [(ndc.x + 1.0) / 2.0, (1.0 - ndc.y) / 2.0],
+        behind: seen.z > 0.0,
+    })
+}
+
+/// What `float_check` has measured since the run began.
+#[derive(Default)]
+struct FloatCheck {
+    /// The frames in which a floating target block was drawn.
+    frames: u32,
+    /// Those of them in which the target moved on the screen since the
+    /// frame before, as it does while the camera turns.
+    moved: u32,
+    /// The furthest the block's point stood from where the frame's camera
+    /// saw the target, in shares of the window.
+    worst: f32,
+    /// The furthest the point of the frame before stood from where the
+    /// frame's camera saw the target. A block placed before the camera
+    /// moved would be that far off.
+    lag_worst: f32,
+    /// The frames whose meshes were not made from the frame's layers.
+    stale: u32,
+    /// Where the camera saw the target in the frame before.
+    before: Option<[f32; 2]>,
+}
+
+/// A headless run's check that the floating target block is drawn where
+/// the frame's camera sees its target. It runs at the end of each frame,
+/// after everything that moves the camera. It projects the target's menu
+/// point again with the camera as the frame renders it, and compares that
+/// with the point the block in the frame's layers was placed with
+/// (`Ui::block_point`). It also checks that the frame's meshes were made
+/// from those layers (`Drawn::shows`). A dump has what it measured since the
+/// run began under `float_check`.
+#[allow(clippy::type_complexity)]
+fn float_check(
+    targeted: Res<Targeted>,
+    cameras: Query<(&GlobalTransform, &Camera), crate::lifecycle_view::SceneCamera>,
+    (scene, made): (Option<Res<SceneContent>>, Option<Res<crate::made::Made>>),
+    (models, children, globals): (
+        Query<(Entity, &SceneModel)>,
+        Query<&Children>,
+        Query<&GlobalTransform>,
+    ),
+    (ui, drawn): (Res<Ui>, Res<crate::ui_view::Drawn>),
+    mut facts: ResMut<DumpFacts>,
+    mut check: Local<FloatCheck>,
+) {
+    let placed = ui.block_point();
+    let over = targeted
+        .menu_model
+        .zip(scene.as_deref())
+        .and_then(|(menu, scene)| {
+            model_point(menu, scene, made.as_deref(), (&models, &children, &globals))
+        });
+    let seen = placed.and_then(|_| on_screen(&targeted, over, &cameras));
+    let apart = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]);
+    if let (Some(placed), Some(seen)) = (placed, seen) {
+        check.frames += 1;
+        check.worst = check.worst.max(apart(placed.at, seen.at));
+        if let Some(before) = check.before {
+            let lag = apart(before, seen.at);
+            check.lag_worst = check.lag_worst.max(lag);
+            check.moved += u32::from(lag > 1e-4);
+        }
+        if !drawn.shows(&ui) {
+            check.stale += 1;
+        }
+    }
+    check.before = seen.map(|seen| seen.at);
+    if facts.wanted() {
+        facts.0.insert(
+            "float_check".into(),
+            serde_json::json!({
+                "frames": check.frames,
+                "moved_frames": check.moved,
+                "worst": check.worst,
+                "lag_worst": check.lag_worst,
+                "stale_frames": check.stale,
+                "block_point": placed.map(|placed| placed.at),
+                "camera_point": seen.map(|seen| seen.at),
+                "block_placed": ui.block_placed(),
+            }),
+        );
+    }
 }
 
 /// A creature's vitality, whole points over its most.
@@ -191,7 +581,7 @@ fn revived(
     let revive = me.fighter?.fallen?.revive?;
     let by = snapshot.get(revive.by)?;
     Some(TargetView {
-        name: ui::strings::name(&name_of(by, instances)),
+        name: shown_name(&name_of(by, instances), Fill::party(snapshot)),
         progress: Some(revive.done(snapshot.time_ms)),
         ..TargetView::default()
     })
@@ -228,6 +618,19 @@ impl Plugin for TargetViewPlugin {
             .init_resource::<Acted>()
             .init_resource::<Pinned>()
             .add_systems(PostUpdate, target.after(crate::play_view::Drawn))
+            .add_systems(
+                PostUpdate,
+                project
+                    .after(target)
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(crate::ui_view::Floated),
+            )
+            .add_systems(
+                Last,
+                float_check.run_if(|headless: Option<Res<crate::scene::Headless>>| {
+                    headless.is_some_and(|headless| headless.0)
+                }),
+            )
             .add_systems(PostUpdate, transition.after(crate::play_view::Drawn));
     }
 }
@@ -239,12 +642,18 @@ type Shown = (ObjectKind, String, Option<(i32, i32)>, Vec<Choice>, bool);
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn target(
     presented: Option<Res<PresentedSnapshot>>,
-    (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
+    (own, swap, aim, fire): (
+        Option<Res<OwnSeat>>,
+        Option<Res<SceneSwap>>,
+        Res<Aim>,
+        Option<Res<crate::shots::OwnFire>>,
+    ),
     mut ui: ResMut<Ui>,
-    (mut wheel, actions, picking): (
+    (mut wheel, actions, picking, power_wheel): (
         MessageReader<MouseWheel>,
         Option<Res<crate::pad::Actions>>,
         Option<Res<crate::pick_view::Picking>>,
+        Option<Res<crate::wheel_view::Wheel>>,
     ),
     (mut autopilot, mut acted, mut outgoing, mut told): (
         ResMut<Autopilot>,
@@ -254,18 +663,26 @@ fn target(
     ),
     time: Res<Time<Real>>,
     mut targeted: ResMut<Targeted>,
-    (mut facts, dump_due, pinned): (ResMut<DumpFacts>, Res<DumpDue>, Res<Pinned>),
-    mut made: Local<sim::walk::MadeWalls>,
+    (mut facts, dump_due, pinned, doors): (
+        ResMut<DumpFacts>,
+        Res<DumpDue>,
+        Res<Pinned>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
+    (mut made, mut spread): (Local<sim::walk::MadeWalls>, Local<Option<f32>>),
 ) {
-    // The pad's LB with the D-pad's left and right turn it as the wheel.
+    // The pad's D-pad left and right turn it as the mouse wheel does.
     let cycled = actions.as_ref().map_or(0, |actions| actions.cycle);
     let turned: f32 = wheel.read().map(|event| event.y).sum::<f32>() - f32::from(cycled);
-    // An item key held has the wheel (`pick_view`).
-    let turned = if picking.is_some_and(|picking| picking.holding()) {
-        0.0
-    } else {
-        turned
-    };
+    // An item key held has the wheel (`pick_view`), the camera's orbit held
+    // zooms with it (`camera_tune`), and the power wheel open steps with it
+    // (`wheel_view`).
+    let orbiting = actions
+        .as_ref()
+        .is_some_and(|actions| actions.held(crate::settings::Action::Orbit));
+    let taken = picking.is_some_and(|picking| picking.holding())
+        || power_wheel.is_some_and(|power_wheel| power_wheel.open);
+    let turned = if orbiting || taken { 0.0 } else { turned };
     let pressed = std::mem::take(&mut acted.0)
         || actions
             .as_ref()
@@ -274,8 +691,23 @@ fn target(
         targeted.stop();
     }
     autopilot.command = None;
-    let looking = aim.0.filter(|_| !ui.stack.is_open());
+    // A status summary waiting for its OK covers the view as a screen does.
+    let summary = ui.vm.summaries.iter().any(|view| view.ok.is_some());
+    let looking = aim.0.filter(|_| !ui.stack.is_open() && !summary);
     ui.vm.crosshair = looking.is_some();
+    // With a blaster in hand the crosshair is its reticle, its spread eased
+    // (`reticle_view::ease`).
+    let dt_ms = time.delta_secs() * 1000.0;
+    ui.vm.reticle = looking
+        .and(fire.as_ref().and_then(|fire| fire.reticle))
+        .map(|reticle| ui::vm::ReticleView {
+            cone: spread.map_or(reticle.cone, |was| {
+                crate::reticle_view::ease(was, reticle.cone, dt_ms)
+            }),
+            ..reticle
+        });
+    *spread = ui.vm.reticle.map(|reticle| reticle.cone);
+    ui.vm.melee_out = looking.is_some() && fire.as_ref().is_some_and(|fire| fire.melee_out);
     // The seat's body while it stands (`Snapshot::standing`: its avatar, or
     // the companion it drives, I31).
     let me = presented
@@ -326,7 +758,7 @@ fn target(
         feet,
         facing: [yaw.cos(), yaw.sin()],
     };
-    let states = level.states_in(snapshot);
+    let states = doors.of(&presented.0, swap);
     let picked = match pinned.0.as_deref() {
         Some(tag) => {
             let instances = sim::Instances::in_snapshot(level, snapshot);
@@ -385,19 +817,28 @@ fn target(
             .max_by_key(|(tools, ..)| *tools)
             .map(|(_, id, item)| (id, item.template.clone()))
     });
-    // TSL's mine on a door, where the party carries a kit.
-    let mine = level.module().is_some_and(|module| module.game == "tsl")
-        && catalog.is_some_and(|catalog| {
+    // TSL's mine on a lock, where the party carries a kit: each kit item
+    // the party carries (its id, template and stack), as TSL's menu lists
+    // them.
+    let tsl = level.module().is_some_and(|module| module.game == "tsl");
+    let kits: Vec<(u32, String, u16)> = catalog
+        .filter(|_| tsl)
+        .map(|catalog| {
             snapshot
                 .goods
                 .carried(sim::inventory::PARTY)
-                .any(|(_, item)| {
+                .filter(|(_, item)| {
                     snapshot
                         .goods
                         .facts(catalog, &item.template)
                         .is_some_and(|facts| facts.trap.is_some())
                 })
-        });
+                .map(|(id, item)| (id, item.template.clone(), item.stack))
+                .collect()
+        })
+        .unwrap_or_else(Vec::new);
+    let kit_ids: Vec<u32> = kits.iter().map(|(id, ..)| *id).collect();
+    let mine = !kits.is_empty();
     // Security and Demolitions, for a body with ranks in them.
     let ranks =
         |skill: usize| sheet_of(snapshot, level, me).is_some_and(|sheet| sheet.skills[skill] > 0);
@@ -457,9 +898,10 @@ fn target(
             security,
             demolitions.then(|| sim::target::Demolitions {
                 recover: row.as_ref().is_some_and(|row| !row.kit.is_empty()),
-                door_mine: mine,
+                lock_mine: mine,
             }),
         );
+        let choices = sim::target::kits(choices, &kit_ids);
         let name = match &row {
             Some(row) if row.name != u32::MAX => ui
                 .assets
@@ -467,6 +909,10 @@ fn target(
                 .and_then(|assets| assets.text(Source::Campaign, row.name))
                 .map_or_else(String::new, |text| fmt_odyssey::code_page(&text)),
             _ => facts.name.clone(),
+        };
+        let name = match facts.kind == ObjectKind::Placeable && facts.container {
+            true => emptied(&mut ui, snapshot, entity, &facts.template, name),
+            false => name,
         };
         Some((facts.kind, name, hp, choices, hostile))
     });
@@ -489,6 +935,7 @@ fn target(
         targeted.choices.clear();
         targeted.stop();
         ui.vm.target = None;
+        note_aimed(None);
         if dump_due.0 {
             facts.0.insert(
                 "target".into(),
@@ -606,6 +1053,12 @@ fn target(
         }
     }
     let progress = entity_of(index).and_then(|body| revive_done(body, sim_ms));
+    targeted.menu = entity_of(index).map(|entity| {
+        let candidate = candidates.iter().find(|candidate| candidate.index == index);
+        menu_point(entity, instances.of_entity(entity), candidate)
+    });
+    targeted.menu_model =
+        entity_of(index).and_then(|entity| menu_model(entity, instances.of_entity(entity), level));
     // The worn items' icons and names, by id.
     let looks: Vec<(u32, String, u32)> = worn
         .iter()
@@ -617,8 +1070,17 @@ fn target(
             Some((*item, icon, snapshot.goods.facts(catalog?, template)?.name))
         })
         .collect();
+    // The kits' icons and names, by id, as the worn items'.
+    let kit_looks: Vec<(u32, String, u32)> = kits
+        .iter()
+        .filter_map(|(id, template, _)| {
+            let icon = ui.assets.as_mut()?.item_ref(template)?.icon.clone();
+            Some((*id, icon, snapshot.goods.facts(catalog?, template)?.name))
+        })
+        .collect();
     let look = |choice: Choice| match choice {
         Choice::Item { item, .. } => looks.iter().find(|(id, ..)| *id == item),
+        Choice::Mine { kit: Some(kit) } => kit_looks.iter().find(|(id, ..)| *id == kit),
         _ => None,
     };
     let assets = ui.assets.as_ref();
@@ -627,25 +1089,36 @@ fn target(
             .and_then(|assets| assets.text(Source::Campaign, strref))
             .unwrap_or(Vec::new())
     };
+    // An item's name is filled as a name is shown (`shown_name`).
+    let party = Fill::party(snapshot);
+    let item_name = |strref: u32| said(&say(strref), party);
     let spike_name = spike.as_ref().and_then(|(_, template)| {
         let name = snapshot.goods.facts(catalog?, template)?.name;
-        (name != u32::MAX).then(|| say(name))
+        (name != u32::MAX).then(|| item_name(name))
     });
+    // A pad's buttons for choosing among more than one action, shown beside
+    // the slots (the mouse wheel has no hint).
+    let cycle = (choices.len() > 1)
+        .then(|| crate::pad::cycle_badges(actions.as_deref()))
+        .flatten();
     let actions = choices
         .iter()
         .map(|&choice| {
-            let mut label = say(match choice {
-                Choice::Open => lines::OPEN,
-                Choice::Use => lines::USE,
-                Choice::Close => lines::CLOSE,
-                Choice::Talk => lines::DIALOG,
-                Choice::Unlock { .. } => lines::SECURITY,
-                Choice::Revive => lines::TREAT_INJURY,
-                Choice::Disarm => lines::DISARM_MINE,
-                Choice::Recover => lines::RECOVER_MINE,
-                Choice::Mine => lines::SET_MINE,
-                Choice::Item { .. } => look(choice).map_or(u32::MAX, |(.., name)| *name),
-            });
+            let mut label = match choice {
+                Choice::Open => say(lines::OPEN),
+                Choice::Use => say(lines::USE),
+                Choice::Close => say(lines::CLOSE),
+                Choice::Talk => say(lines::DIALOG),
+                Choice::Unlock { .. } => say(lines::SECURITY),
+                Choice::Revive => say(lines::TREAT_INJURY),
+                Choice::Disarm => say(lines::DISARM_MINE),
+                Choice::Recover => say(lines::RECOVER_MINE),
+                Choice::Mine { kit: None } => say(lines::SET_MINE),
+                Choice::Mine { kit: Some(kit) } => {
+                    kit_label(&kits, kit, look(choice), &item_name, &say(lines::LOCK))
+                }
+                Choice::Item { .. } => item_name(look(choice).map_or(u32::MAX, |(.., name)| *name)),
+            };
             if let (Choice::Unlock { spike: Some(_) }, Some(spike)) = (choice, &spike_name) {
                 label.extend_from_slice(b": ");
                 label.extend_from_slice(spike);
@@ -658,7 +1131,7 @@ fn target(
         })
         .collect();
     ui.vm.target = Some(TargetView {
-        name: ui::strings::name(&name),
+        name: shown_name(&name, Fill::party(snapshot)),
         hostile,
         hp,
         poisoned: object
@@ -669,14 +1142,21 @@ fn target(
         selected: targeted.selected,
         busy: targeted.walk.is_some() || targeted.reviving.is_some(),
         progress,
+        point: None,
+        cycle,
     });
     targeted.choices = choices;
+    let distance = ((to[0] - feet[0]).powi(2) + (to[1] - feet[1]).powi(2)).sqrt();
+    let tag = entity_of(index)
+        .and_then(|entity| instances.of_entity(entity))
+        .map_or("", |facts| facts.tag.as_str());
+    note_aimed(Some(crate::crash::aimed(&name, tag, distance)));
     if dump_due.0 {
         let about = entity_of(index).map(|entity| {
             let facts = instances.of_entity(entity);
             serde_json::json!({
                 "index": index,
-                "distance_m": ((to[0] - feet[0]).powi(2) + (to[1] - feet[1]).powi(2)).sqrt(),
+                "distance_m": distance,
                 "kind": format!("{kind:?}"),
                 "name": name_of(entity, &instances),
                 "tag": facts.map(|facts| facts.tag.clone()),
@@ -698,6 +1178,15 @@ fn target(
     }
 }
 
+/// The breadcrumbs' target (`crash::aimed`), written only when it changes.
+fn note_aimed(target: Option<String>) {
+    crate::crash::note(|crumbs| {
+        if crumbs.target != target {
+            crumbs.target = target;
+        }
+    });
+}
+
 /// The area the door or exit the player faces leads to, for the HUD's
 /// area transition panel (`sim::transition`, `ui::screens::transition`):
 /// in play only, no screen up, the seat's body standing, and the
@@ -706,7 +1195,11 @@ fn transition(
     presented: Option<Res<PresentedSnapshot>>,
     (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
     mut ui: ResMut<Ui>,
-    (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
+    (mut facts, dump_due, doors): (
+        ResMut<DumpFacts>,
+        Res<DumpDue>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
 ) {
     let faced = (|| {
         aim.0.filter(|_| !ui.stack.is_open())?;
@@ -727,7 +1220,7 @@ fn transition(
             facing: [yaw.cos(), yaw.sin()],
         };
         let level = &swap.level;
-        let states = level.states_in(snapshot);
+        let states = doors.of(&presented.0, swap);
         sim::transition::faced(level, states.as_deref(), snapshot, &looker)
     })();
     let name = faced.as_ref().and_then(|faced| {

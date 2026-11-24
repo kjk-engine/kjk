@@ -9,6 +9,8 @@
 //!   Force Crush's state holds its 2 s; a mind trick is refused by mind
 //!   immunity, a droid's scramble by stun immunity, a droid's confusion by
 //!   droid confusion immunity, a cutscene's stun by none;
+//! - a whirlwind holds a Sentinel with Force Immunity: Stun, which keeps a
+//!   stun off, and `GetIsLinkImmune` says so;
 //! - a mind trick breaks on a hostile perceived within √10 m (not at 3.5 m)
 //!   and on damage;
 //! - the routines (`script::engine`): `GetEffectType` (80, 15, 38, 67, 3,
@@ -114,6 +116,14 @@ effect SetEffectIcon(effect eEffect, int nIcon);
 int GetHasSpellEffect(int nSpell, object oObject = OBJECT_SELF);
 // 23
 void RemoveEffect(object oCreature, effect eEffect);
+// 24
+effect EffectWhirlWind();
+// 25
+effect EffectStunned();
+// 26
+int GetIsLinkImmune(object oTarget, effect eEffect);
+// 27
+void CutsceneAttack(object oTarget, int nAnimation, int nAttackResult, int nDamage);
 "#;
 
 fn call(routine: u16, args: u8) -> Op {
@@ -275,8 +285,35 @@ fn recasts() -> Ncs {
     asm.build()
 }
 
-/// `probe_impact` (`CAST_ROW`'s impact) and `probe_end_round` (the
-/// target's end-of-round script): tokens 30 and 31 set to 1.
+/// `probe_link`, as `k_inc_force`'s blocking checks ask: tokens 50 and 51
+/// `GetIsLinkImmune` of the target to a whirlwind and to a stun.
+fn links() -> Ncs {
+    let mut asm = Asm::default();
+    for (n, effect) in [(50, 24), (51, 25)] {
+        let mut asks = vec![call(effect, 0)];
+        asks.extend(target());
+        asks.push(call(26, 2));
+        token(&mut asm, n, &asks);
+    }
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_scene_attack`: its caller's scene blow at the other creature
+/// (`CutsceneAttack`, a miss of no animation).
+fn scene_attacks() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(int(0)).op(int(0)).op(int(0));
+    asm.op(int(0))
+        .op(Op::Const(Const::String(OTHER.as_bytes().to_vec())))
+        .op(call(2, 2));
+    asm.op(call(27, 4)).op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_impact` (`CAST_ROW`'s impact), `probe_end_round` (the target's
+/// end-of-round script) and `probe_damaged` (its damaged script): tokens
+/// 30, 31 and 32 set to 1.
 fn marks(n: i32) -> Ncs {
     let mut asm = Asm::default();
     token(&mut asm, n, &[int(1)]);
@@ -298,7 +335,10 @@ fn world(sheet: Sheet) -> Result<(SimWorld, SimId, SimId, SimId), String> {
                 sheet: Some(if target { sheet } else { Sheet::dev_soldier() }),
                 faction: 0,
                 scripts: if target {
-                    vec![("ScriptEndRound".into(), "probe_end_round".into())]
+                    vec![
+                        ("ScriptEndRound".into(), "probe_end_round".into()),
+                        ("ScriptDamaged".into(), "probe_damaged".into()),
+                    ]
                 } else {
                     Vec::new()
                 },
@@ -332,8 +372,11 @@ fn world(sheet: Sheet) -> Result<(SimWorld, SimId, SimId, SimId), String> {
             ("probe_assure_now", assures_now()),
             ("probe_icon", icons()),
             ("probe_recast", recasts()),
+            ("probe_link", links()),
             ("probe_impact", marks(30)),
             ("probe_end_round", marks(31)),
+            ("probe_damaged", marks(32)),
+            ("probe_scene_attack", scene_attacks()),
         ],
         Talents {
             spells,
@@ -401,16 +444,30 @@ fn script(world: &mut SimWorld, change: impl FnOnce(&mut crate::script::State)) 
 /// `effect` applied to `on` for `ms` (`u64::MAX`: permanently), its id
 /// `id`, as a script's would be, from the next step.
 fn put(world: &mut SimWorld, on: SimId, effect: Effect, ms: u64, id: u32) {
+    put_by(world, (on, on), effect, ms, (id, u16::MAX));
+}
+
+/// The same, applied by `by` (the pair's second), as power row `spell`
+/// (`u16::MAX`: a script's own) casts it.
+fn put_by(
+    world: &mut SimWorld,
+    (on, by): (SimId, SimId),
+    effect: Effect,
+    ms: u64,
+    (id, spell): (u32, u16),
+) {
     let now = world.snapshot().time_ms;
     script(world, |state| {
         state.applied.push(Applied {
             target: ObjectId(on.0),
-            by: ObjectId(on.0),
+            by: ObjectId(by.0),
             effect,
             until: Some(if ms == u64::MAX { ms } else { now + ms }),
-            spell: u16::MAX,
+            spell,
             id,
             at: None,
+            save: None,
+            laid: false,
         })
     });
 }
@@ -483,6 +540,7 @@ pub fn probes() -> Checks {
         ("highest_state", highest_state()),
         ("crush", crush()),
         ("state_immunities", state_immunities()),
+        ("whirlwind_takes_sentinel", whirlwind_takes_sentinel()),
         ("mind_trick_breaks", mind_trick_breaks()),
         ("routines", routines()),
         ("fury", fury()),
@@ -498,7 +556,139 @@ pub fn probes() -> Checks {
         ("lasting_at_once_stays", lasting_at_once_stays()),
         ("effect_icon", effect_icon()),
         ("recast_after_end", recast_after_end()),
+        ("damage_taken", damage_taken()),
+        ("scene_round_unheard", scene_round_unheard()),
+        ("death_effect_not_damage", death_effect_not_damage()),
     ]
+}
+
+/// The target in a fight for the next minute.
+fn fighting(world: &mut SimWorld, who: SimId) {
+    let until = world.snapshot().time_ms + 60_000;
+    alter(world, who, |fighter| fighter.combat_until = until);
+}
+
+/// A round a scene's blow began ends with no end-of-round script, as TSL's
+/// executable's end of a cutscene round runs none (TSLRCM's Handmaiden,
+/// sparring with blows `atthand` scripts, turned her own AI on Atton):
+/// the target, in a fight, gives a `CutsceneAttack` and hears no end of its
+/// rounds over 7 s; its own attack after makes them its AI's again, and
+/// their end is heard.
+fn scene_round_unheard() -> Result<String, String> {
+    let (mut world, _, target, other) = world(soldier(&[]))?;
+    fighting(&mut world, target);
+    script(&mut world, |state| {
+        let caller = ObjectId(target.0);
+        state
+            .pending
+            .push(Pending::new("probe_scene_attack", caller));
+    });
+    let scene = tokens(&wait(&mut world, 7000), 31..=31);
+    script(&mut world, |state| {
+        let own = Action::Attack {
+            target: ObjectId(other.0),
+            passive: false,
+        };
+        state.actions.insert(
+            target.0,
+            vec![crate::script::actions::Queued {
+                action: own,
+                started_ms: None,
+            }],
+        );
+    });
+    fighting(&mut world, target);
+    let own = tokens(&wait(&mut world, 7000), 31..=31);
+    check(
+        scene == ["-"] && own == ["1"],
+        format!("end-of-round token after the scene's blow {scene:?}, after its own {own:?}"),
+    )
+}
+
+/// A death effect raises no damaged event: TSL's executable's death effect
+/// signals the death alone (Malachor's Sion, killed so by `a_sion`, would
+/// run his damaged script and start his last talk again from his body).
+/// The target, killed by `EffectDeath`, is dead and its damaged token unset.
+fn death_effect_not_damage() -> Result<String, String> {
+    let (mut world, player, target, _) = world(soldier(&[]))?;
+    script(&mut world, |state| {
+        state.applied.push(Applied {
+            target: ObjectId(target.0),
+            by: ObjectId(player.0),
+            effect: Effect::Death,
+            until: None,
+            spell: 0,
+            id: 0,
+            at: None,
+            save: None,
+            laid: false,
+        });
+    });
+    wait(&mut world, 1000);
+    let dead = fighter(&mut world, target).is_some_and(|f| !f.alive());
+    let damaged = tokens(&world.snapshot(), 32..=32);
+    check(
+        dead && damaged == ["-"],
+        format!("dead {dead}; damaged token {damaged:?}"),
+    )
+}
+
+/// The options' damage multipliers (`damage::Taken`). Three hits of 10 HP
+/// each are dealt at 100% for both sides, then again at 50% for the party
+/// and 200% for the enemies: a power's on the enemy, a power's on the
+/// player, and a script's own on the enemy. The power takes twice as much
+/// from the enemy and half as much from the player. The script's own hit is
+/// a blow the story stages, so it takes the same. The multipliers are
+/// brought within the rulebook's range and survive the snapshot's encoding.
+fn damage_taken() -> Result<String, String> {
+    use crate::combat::damage::Taken;
+    // Each hit on a fresh world, so no one has fallen from the hits before.
+    let lost = |taken: Taken| {
+        let hit = |on_player: bool, spell: u16| -> Result<i32, String> {
+            let (mut world, player, target, _) = world(soldier(&[]))?;
+            world.set_damage_taken(taken);
+            let (on, by) = if on_player {
+                (player, target)
+            } else {
+                (target, player)
+            };
+            let before = fighter(&mut world, on).map_or(0, |fighter| fighter.hp);
+            let ten = Effect::Damage {
+                amount: 10,
+                kind: 0,
+            };
+            put_by(&mut world, (on, by), ten, 0, (0, spell));
+            step(&mut world);
+            Ok(before - fighter(&mut world, on).map_or(0, |fighter| fighter.hp))
+        };
+        Ok::<_, String>([
+            hit(false, CAST_ROW)?,
+            hit(true, CAST_ROW)?,
+            hit(false, u16::MAX)?,
+        ])
+    };
+    let normal = lost(Taken::default())?;
+    let scaled = lost(Taken::new(50, 200))?;
+    let (mut world, ..) = world(soldier(&[]))?;
+    world.set_damage_taken(Taken::new(50, 200));
+    let snapshot = world.snapshot();
+    let kept = Snapshot::decode(&snapshot.encode())
+        .map_err(|error| error.to_string())?
+        .damage_taken;
+    let least = rules::combat::damage::TAKEN_LEAST as u16;
+    let most = rules::combat::damage::TAKEN_MOST as u16;
+    let bounded = Taken::new(least - 1, most + 1);
+    let wanted = [normal[0] * 2, normal[1] / 2, normal[2]];
+    check(
+        normal.iter().all(|lost| *lost > 0)
+            && scaled == wanted
+            && kept == snapshot.damage_taken
+            && (bounded.party(), bounded.enemies()) == (least, most),
+        format!(
+            "hundredths lost at 100% {normal:?}, at 50% and 200% {scaled:?} (wanted {wanted:?}); \
+             decoded {kept:?}; out of range read as {bounded:?}"
+        ),
+    )
 }
 
 /// `SetEffectIcon` on a timed blindness: the icon's row runs beside the
@@ -705,6 +895,36 @@ fn state_immunities() -> Result<String, String> {
     )
 }
 
+/// A Sentinel with Force Immunity: Stun, as a K1 Dark Jedi on Tatooine
+/// (Discord report, 2026-11-17). `GetIsLinkImmune` says it is immune to a
+/// stun and not to a whirlwind, so Force Whirlwind's script goes on to its
+/// save and its damage. A stun put on it is kept off, and a whirlwind holds
+/// it.
+fn whirlwind_takes_sentinel() -> Result<String, String> {
+    use crate::combat::sheet::feats::FORCE_IMMUNITY_STUN;
+    use crate::script::effects::Hold;
+    let (mut world, _, target, _) = world(soldier(&[FORCE_IMMUNITY_STUN]))?;
+    script(&mut world, |state| {
+        state
+            .pending
+            .push(Pending::new("probe_link", crate::script::MODULE));
+    });
+    let immune = tokens(&wait(&mut world, 300), 50..=51);
+    put(&mut world, target, Effect::Hold(Hold::Stun), 2000, 1);
+    step(&mut world);
+    let stunned = held(&mut world, target);
+    put(&mut world, target, Effect::Hold(Hold::Whirlwind), 2000, 2);
+    step(&mut world);
+    let whirled = held(&mut world, target);
+    check(
+        immune == ["0", "1"] && !stunned && whirled,
+        format!(
+            "immune to a whirlwind, a stun: {immune:?} (want [\"0\", \"1\"]); \
+             held by a stun {stunned}, by a whirlwind {whirled}"
+        ),
+    )
+}
+
 /// A tricked hostile perceiving the player: tricked with the player 3.5 m
 /// off, woken once the player stands 2 m off; tricked again, woken by a
 /// point of damage.
@@ -854,6 +1074,8 @@ fn fury() -> Result<String, String> {
                     cadence_ms: 1000,
                     share: 1000,
                     area: false,
+                    second: None,
+                    sure: false,
                 },
                 point: None,
                 direction: None,
@@ -935,9 +1157,11 @@ fn video_rows() -> Result<String, String> {
 
 /// Force Body (level 0) and a 20-point power: 10 from FP, 10 from HP; with
 /// 5 FP, or 11 HP, not paid; Improved (1): 8 and 8. A cast landing charges
-/// whatever is left (`effects::charge`): with 5 FP, 0 FP and 10 HP off.
+/// whatever is left (`effects::charge`): with 5 FP, 0 FP and 10 HP off. A
+/// held power's step costing 0.24 points takes 0.12 from FP and 0.12 from
+/// HP, not nothing (Force Lightning held under Force Body).
 fn force_body() -> Result<String, String> {
-    let body = |level: u8, (fp, hp): (i32, i32), landing: bool| {
+    let body = |level: u8, (fp, hp): (i32, i32), cost: i32, landing: bool| {
         let mut f = crate::combat::Fighter::fresh(100, 100);
         f.effects.add(
             Lasting {
@@ -955,29 +1179,31 @@ fn force_body() -> Result<String, String> {
         );
         (f.fp, f.hp) = (fp * 100, hp * 100);
         let paid = if landing {
-            effects::charge(&mut f, 2000, 1);
+            effects::charge(&mut f, cost, 1);
             true
         } else {
-            effects::pay(&mut f, 2000, 1)
+            effects::pay(&mut f, cost, 1)
         };
-        (paid, f.fp / 100, f.hp / 100)
+        (paid, f.fp, f.hp)
     };
     let seen = [
-        body(0, (30, 50), false),
-        body(0, (5, 50), false),
-        body(0, (30, 11), false),
-        body(1, (30, 50), false),
-        body(0, (5, 50), true),
+        body(0, (30, 50), 2000, false),
+        body(0, (5, 50), 2000, false),
+        body(0, (30, 11), 2000, false),
+        body(1, (30, 50), 2000, false),
+        body(0, (5, 50), 2000, true),
+        body(0, (30, 50), 24, false),
     ];
     check(
         seen == [
-            (true, 20, 40),
-            (false, 5, 50),
-            (false, 30, 11),
-            (true, 22, 42),
-            (true, 0, 40),
+            (true, 2000, 4000),
+            (false, 500, 5000),
+            (false, 3000, 1100),
+            (true, 2200, 4200),
+            (true, 0, 4000),
+            (true, 2988, 4988),
         ],
-        format!("(paid, FP, HP): {seen:?}"),
+        format!("(paid, FP, HP in hundredths): {seen:?}"),
     )
 }
 
@@ -1056,6 +1282,8 @@ fn faction_modifier() -> Result<String, String> {
                 spell: 200,
                 id,
                 at: None,
+                save: None,
+                laid: false,
             })
         });
     }

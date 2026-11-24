@@ -31,14 +31,17 @@
 //! (`asset_odyssey::item::ground_turn`), then to its facing; taken or
 //! destroyed, it leaves.
 //!
-//! A trap the party detected (`sim::snapshot::trap::PARTY_SEES`), placed or
-//! laid, is drawn the same way: its `traps.2da` row's model at the trap's
-//! middle, posed as its `detect` clip ends (`viewer::held`: the dome over
-//! its trigger raised and lit, the model's own red for a trap hostile to
-//! the party, green for the party's own). The games key that colour on its
-//! self-illumination (red detected, blue disarmed); an added mesh takes it
-//! as its colour (`material::OdysseyMaterial::new`), and every self-lit
-//! mesh of a mine is tinted by it once it stands (`tint_mines`). The stealth field's
+//! A trap whose dome the party sees (`sim::snapshot::trap::PARTY_SEES`: a
+//! hostile trap the party detected, and every mine the party laid, on the
+//! floor or on a lock) is drawn the same way: its `traps.2da` row's model
+//! at the trap's middle, posed as its `detect` clip ends (`viewer::held`:
+//! the dome over its trigger raised). KOTOR 2 plays that one clip for both
+//! kinds, so the party's own mine has the same dome as a hostile one. The
+//! model keys the dome's self-illumination red in `detect`, and blue only
+//! in `deactivate`, the clip of a mine disarmed or recovered. The dome's
+//! texture is added to what is behind it, and the dome is lit
+//! (`material::OdysseyMaterial::mine_dome`, set on every self-lit mesh of
+//! a mine once it stands: `light_mines`). The stealth field's
 //! texture (`VFX_DUR_STEALTH_FIELD`'s glow, `script_fx::lasting_glow`) is
 //! read here once for the stealth shell (`stealth_view`).
 //!
@@ -118,10 +121,54 @@ pub struct Guise {
     /// The item in its body slot (a row of model type `B` dresses its body
     /// by it).
     pub armour: Option<String>,
+    /// Whether that item, or an empty slot, is what its template made it
+    /// with (`creature::Dressing`).
+    pub dressing: asset_odyssey::creature::Dressing,
     /// The head a script gave it (a `heads.2da` row; else the row's own).
     pub head: Option<u8>,
     /// The item in its head slot, drawn on its head unless hidden.
     pub headgear: Option<String>,
+    /// The alignment it is dressed for (`alignment_look`).
+    pub aligned: asset_odyssey::creature::Aligned,
+}
+
+#[derive(Clone, Copy)]
+struct Worn<'s> {
+    appearance: u16,
+    armour: Option<&'s str>,
+    dressing: asset_odyssey::creature::Dressing,
+    head: Option<u8>,
+    headgear: Option<&'s str>,
+    aligned: asset_odyssey::creature::Aligned,
+}
+
+impl Worn<'_> {
+    fn is(&self, guise: &Guise) -> bool {
+        self.appearance == guise.appearance
+            && same_item(self.armour, guise.armour.as_deref())
+            && self.dressing == guise.dressing
+            && self.head == guise.head
+            && same_item(self.headgear, guise.headgear.as_deref())
+            && self.aligned == guise.aligned
+    }
+
+    fn guise(&self) -> Guise {
+        Guise {
+            appearance: self.appearance,
+            armour: self.armour.map(str::to_ascii_lowercase),
+            dressing: self.dressing,
+            head: self.head,
+            headgear: self.headgear.map(str::to_ascii_lowercase),
+            aligned: self.aligned,
+        }
+    }
+}
+
+fn same_item(a: Option<&str>, b: Option<&str>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+        (a, b) => a.is_none() && b.is_none(),
+    }
 }
 
 /// A disguise's body the scene has: its root and models, and how the views
@@ -205,6 +252,7 @@ pub struct Made {
     /// By object index: those loading, those the scene has.
     loading: BTreeMap<u32, Loading>,
     drawn: BTreeMap<u32, Drawn>,
+    present: Vec<(u32, (&'static EntityState, &'static str))>,
     /// Made placeables, by object index: loading (with their template),
     /// and those the scene has.
     props_loading: BTreeMap<u32, (String, Task<Result<Prop, String>>)>,
@@ -221,11 +269,18 @@ pub struct Made {
     /// snapshot, the bodies loading (with their guise), and those the scene
     /// has by character and guise (`None`: not drawn; not tried again).
     worn: BTreeMap<SimId, Guise>,
+    wearing: Vec<SimId>,
     guises_loading: BTreeMap<SimId, (Guise, Task<Result<Ready, String>>)>,
     guises: BTreeMap<(SimId, Guise), Option<Guised>>,
-    /// The stealth field's texture, once read (`stealth_view`).
-    pub stealth_texture: Option<Handle<Image>>,
+    /// The stealth field's texture and its flip-book's frames and rate,
+    /// once read (`stealth_view`'s fallback look).
+    pub stealth_field: Option<(TextureIr, crate::glow_shell::Frames)>,
     stealth_loading: Option<Task<Option<TextureIr>>>,
+    /// KOTOR 2's hologram filter texture (`HOLOGRAM_FILTER`), once read;
+    /// none in a game without it.
+    pub hologram_filter: Option<Handle<Image>>,
+    hologram_loading: Option<Task<Option<TextureIr>>>,
+    hologram_tried: bool,
     /// For `play_view`, since its last frame.
     pub arrived: Vec<Arrival>,
     pub left: Vec<Departure>,
@@ -251,6 +306,7 @@ impl Made {
             visited: Vec::new(),
             modules: Modules::default(),
             loading: BTreeMap::new(),
+            present: Vec::new(),
             drawn: BTreeMap::new(),
             props_loading: BTreeMap::new(),
             props: BTreeMap::new(),
@@ -259,10 +315,14 @@ impl Made {
             floor_loading: BTreeMap::new(),
             floor: BTreeMap::new(),
             worn: BTreeMap::new(),
+            wearing: Vec::new(),
             guises_loading: BTreeMap::new(),
             guises: BTreeMap::new(),
-            stealth_texture: None,
+            stealth_field: None,
             stealth_loading: None,
+            hologram_filter: None,
+            hologram_loading: None,
+            hologram_tried: false,
             arrived: Vec::new(),
             left: Vec::new(),
             loads: 0,
@@ -293,7 +353,11 @@ impl Made {
     /// Starts reading creature `index` (`entity`, made from `template`) on
     /// the task pool, from the scene's module (`level`'s) when it has the
     /// template, else the latest one before that has it (each one's
-    /// resolver opened the first time it is asked).
+    /// resolver opened the first time it is asked). When none of them has
+    /// it, the creature is drawn from what the party table keeps of it
+    /// (`viewer::Kept`). That happens to a companion whose template is
+    /// another module's own after a save is loaded, because the session has
+    /// not been in that module.
     fn load(
         &self,
         (index, entity, template): (u32, &EntityState, &str),
@@ -305,31 +369,45 @@ impl Made {
             let soles = crate::cast::soles(player.origin).to_array();
             (soles, player.view[1].to_radians())
         });
+        let kept = level
+            .template(ObjectKind::Creature, template)
+            .and_then(|facts| viewer::Kept::of(&facts));
         let (has, template) = (template.to_string(), template.to_string());
         self.read(
             level,
             template.clone(),
             move |load, resolver| load.has(resolver, &has),
-            move |load, source, models| load.place(source, (index, &template), at, models),
+            move |load, source, models| match kept {
+                Some(kept) if !load.has(source.0, &template) => {
+                    load.place_kept(source, (index, &template, &kept), at, models)
+                }
+                _ => load.place(source, (index, &template), at, models),
+            },
         )
     }
 
     /// Starts reading the body of `guise` on the task pool, from the
     /// scene's module (`appearance.2da` and the models are the game's).
     fn load_guise(&self, guise: Guise, level: &sim::Level) -> Task<Result<Ready, String>> {
+        let installer = self.setup.installer.clone();
         self.read(
             level,
             format!("appearance {}", guise.appearance),
             |_, _| true,
             move |load, source, models| {
+                // A module's own headgear is read from that module.
+                let owner = (guise.headgear.as_deref())
+                    .and_then(sim::inventory::module_of)
+                    .zip(installer.as_deref())
+                    .and_then(|(module, installer)| installer.resolver(module).ok());
                 let at = ([0.0; 3], 0.0);
                 let body = (
                     u32::from(guise.appearance),
-                    guise.armour.as_deref(),
+                    (guise.armour.as_deref(), guise.dressing),
                     guise.head,
                     guise.headgear.as_deref(),
                 );
-                load.place_appearance(source, body, at, models)
+                load.place_appearance(source, body, owner.as_ref(), guise.aligned, at, models)
             },
         )
     }
@@ -369,12 +447,12 @@ impl Made {
                 .as_ref()
                 .map_err(Clone::clone)?;
             let mut models = Vec::new();
-            let view = place(
-                &mut *module.load.lock().map_err(|_| "a module's load lock")?,
-                (resolver, installer.game),
-                &mut models,
-            )?
-            .ok_or(format!("{name}: not drawn (see the refusals)"))?;
+            let view = {
+                let mut load = module.load.lock().map_err(|_| "a module's load lock")?;
+                let noted = load.noted();
+                place(&mut load, (resolver, installer.game), &mut models)?
+                    .ok_or_else(|| format!("{name}: {}", load.why_not_drawn(noted)))?
+            };
             let (mut blades, mut notes) = (Vec::new(), Vec::new());
             let arms = weapons::arm(&mut models, &mut blades, view.weapons, &sabers, &mut notes);
             let (mut textures, missing) = viewer::textures(resolver, &models);
@@ -465,12 +543,12 @@ impl Made {
     }
 
     /// Starts reading a detected trap's model `model`, placed at `at`
-    /// (game space, metres) and posed as its `detect` clip ends, its dome
-    /// green when `friendly`, on the task pool, from the first of the
-    /// scene's module and those before it that has it.
+    /// (game space, metres) and posed as its `detect` clip ends, on the
+    /// task pool, from the first of the scene's module and those before it
+    /// that has it.
     fn load_mine(
         &self,
-        (model, at, friendly): (&str, [f32; 3], bool),
+        (model, at): (&str, [f32; 3]),
         level: &sim::Level,
     ) -> Task<Result<Prop, String>> {
         let installer = self.setup.installer.clone();
@@ -490,7 +568,7 @@ impl Made {
                 .map_err(Clone::clone)?;
             let mut parsed =
                 viewer::parsed(resolver, &model)?.ok_or(format!("no model {model}"))?;
-            viewer::held(&mut parsed, "detect", friendly.then_some(FRIENDLY));
+            viewer::held(&mut parsed, "detect");
             let ir = asset_odyssey::model::ModelIr::from_model(&parsed);
             let models = vec![Placed::at(ir, at)];
             let (textures, _) = viewer::textures(resolver, &models);
@@ -551,7 +629,7 @@ impl Made {
 
     /// Starts reading the stealth field's texture, once.
     fn load_stealth_texture(&mut self, level: &sim::Level) {
-        if self.stealth_texture.is_some() || self.stealth_loading.is_some() {
+        if self.stealth_field.is_some() || self.stealth_loading.is_some() {
             return;
         }
         let Some(installer) = self.setup.installer.clone() else {
@@ -564,6 +642,24 @@ impl Made {
             let resolver = module.resolver.get()?.as_ref().ok()?;
             let glow = crate::script_fx::lasting_glow(resolver, VFX_DUR_STEALTH_FIELD)?;
             viewer::texture(resolver, &glow)
+        }));
+    }
+
+    /// Starts reading the hologram filter texture, once a session.
+    fn load_hologram_filter(&mut self, level: &sim::Level) {
+        if self.hologram_tried {
+            return;
+        }
+        let Some(installer) = self.setup.installer.clone() else {
+            return;
+        };
+        self.hologram_tried = true;
+        let modules = self.modules.clone();
+        let names = self.names(level);
+        self.hologram_loading = Some(AsyncComputeTaskPool::get().spawn(async move {
+            let module = module_with(&installer, &modules, &names, |_, _| Ok(true)).ok()?;
+            let resolver = module.resolver.get()?.as_ref().ok()?;
+            viewer::texture(resolver, HOLOGRAM_FILTER)
         }));
     }
 
@@ -604,7 +700,8 @@ impl Made {
             });
         }
         let (images, mut stores) = assets.split();
-        let mut spawner = Spawner::new(&prop.textures, scene.area_light(), images);
+        let mut spawner =
+            Spawner::sharing(&prop.textures, scene.area_light(), images, &scene.images);
         let (mut roots, mut nodes) = (Vec::new(), Vec::new());
         for (n, placed) in scene.models[first..].iter().enumerate() {
             let (model, its) = spawner.placed(
@@ -692,8 +789,11 @@ pub fn track(
     mut assets: ModelAssets,
     mut commands: Commands,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
-    (mut tints, mut animated): (ResMut<MineTints>, ResMut<crate::scene::AnimatedMaterials>),
-    settings: Option<Res<crate::settings::Settings>>,
+    (mut domes, mut animated): (ResMut<MineDomes>, ResMut<crate::scene::AnimatedMaterials>),
+    (settings, talk): (
+        Option<Res<crate::settings::Settings>>,
+        Res<crate::headgear::TalkHides>,
+    ),
 ) {
     let made = &mut *made;
     if swap.generation != made.generation {
@@ -724,24 +824,35 @@ pub fn track(
         made.visited.push(level.name().to_string());
     }
     let objects = Instances::in_snapshot(level, snapshot);
-    let present: BTreeMap<u32, (&EntityState, &str)> = snapshot
-        .all_drawn()
-        .filter_map(|entity| {
-            let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
-                return None;
-            };
-            Some((index, (entity, template(&objects, index)?)))
-        })
-        .collect();
+    // If two creatures have the same number, the later one in the snapshot is
+    // kept, as a map would keep it.
+    let mut present: Vec<(u32, (&EntityState, &str))> = std::mem::take(&mut made.present);
+    present.extend(snapshot.all_drawn().filter_map(|entity| {
+        let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
+            return None;
+        };
+        Some((index, (entity, template(&objects, index)?)))
+    }));
+    present.sort_by_key(|&(index, _)| index);
+    present.dedup_by(|later, earlier| {
+        let same = later.0 == earlier.0;
+        if same {
+            *earlier = *later;
+        }
+        same
+    });
+    let present_at = |index: &u32| {
+        let at = present.binary_search_by_key(index, |&(index, _)| index);
+        at.ok().map(|at| &present[at].1)
+    };
     // Noted by the views as they read it, never spawned again for it.
     let scene = &mut *content.bypass_change_detection().0;
     let gone: Vec<u32> = made
         .drawn
         .iter()
-        .filter(|(index, drawn)| {
-            present
-                .get(index)
-                .is_none_or(|(_, template)| !template.eq_ignore_ascii_case(&drawn.template))
+        .filter(|(index, shown)| {
+            present_at(index)
+                .is_none_or(|(_, template)| !template.eq_ignore_ascii_case(&shown.template))
         })
         .map(|(&index, _)| index)
         .collect();
@@ -749,11 +860,10 @@ pub fn track(
         made.depart(index, scene);
     }
     made.loading.retain(|index, loading| {
-        present
-            .get(index)
+        present_at(index)
             .is_some_and(|(_, template)| template.eq_ignore_ascii_case(&loading.template))
     });
-    for (&index, &(entity, template)) in &present {
+    for &(index, (entity, template)) in &present {
         if let Some(drawn) = made.drawn.get_mut(&index) {
             drawn.id = entity.id;
         } else if !made.loading.contains_key(&index) {
@@ -776,8 +886,7 @@ pub fn track(
         .filter_map(|(&index, _)| Some((index, root?)))
         .collect();
     for (index, root) in done {
-        let (Some(loading), Some(&(entity, _))) =
-            (made.loading.remove(&index), present.get(&index))
+        let (Some(loading), Some(&(entity, _))) = (made.loading.remove(&index), present_at(&index))
         else {
             continue;
         };
@@ -785,7 +894,7 @@ pub fn track(
             continue;
         };
         let started = Instant::now();
-        let (models, read_ms) = match read {
+        let (models, read_ms, drawn) = match read {
             Ok(ready) => {
                 let ms = ready.ms;
                 let models = made.spawn(
@@ -793,26 +902,21 @@ pub fn track(
                     (scene, root),
                     (&mut lives, &mut assets, &mut commands, &mut animated),
                 );
-                (Some(models), ms)
+                (Some(models), ms, "drawn".to_string())
             }
             Err(error) => {
                 made.notes.push(format!("#{index} {error}"));
-                (None, 0.0)
+                (None, 0.0, format!("not drawn ({error})"))
             }
         };
         made.loads += 1;
         made.last_ms = read_ms;
         made.last_spawn_ms = started.elapsed().as_secs_f64() * 1000.0;
         info!(
-            "made creature #{index} ({}, tick {}): {}, read in {read_ms:.1} ms off the frame, \
+            "made creature #{index} ({}, tick {}): {drawn}, read in {read_ms:.1} ms off the frame, \
              spawned {:.0} ms after it came, in {:.1} ms",
             loading.template,
             loading.tick,
-            if models.is_some() {
-                "drawn"
-            } else {
-                "not drawn"
-            },
             loading.since.elapsed().as_secs_f64() * 1000.0,
             made.last_spawn_ms
         );
@@ -825,6 +929,7 @@ pub fn track(
             },
         );
     }
+    made.present = crate::emptied(present);
     if let Some(root) = root {
         track_props(
             made,
@@ -837,7 +942,7 @@ pub fn track(
             (snapshot, &objects, level),
             (scene, root),
             (&mut assets, &mut commands, &mut animated),
-            &mut tints,
+            &mut domes,
         );
         track_floor(
             made,
@@ -847,6 +952,7 @@ pub fn track(
         );
         let hidden = |who: &str| {
             (settings.as_ref()).is_some_and(|settings| crate::headgear::hidden_in(settings, who))
+                || talk.hides(who)
         };
         track_disguises(
             made,
@@ -867,9 +973,24 @@ pub fn track(
         match read {
             Some(texture) => {
                 let (images, _) = assets.split();
-                made.stealth_texture = Some(images.add(crate::scene::image(&texture)));
+                let frames = crate::glow_shell::Glow::images(&texture, images);
+                made.stealth_field = Some((texture, frames));
             }
             None => made.notes.push("no stealth field glow".into()),
+        }
+    }
+    made.load_hologram_filter(level);
+    if let Some(task) = made.hologram_loading.as_mut()
+        && task.is_finished()
+    {
+        let read = made
+            .hologram_loading
+            .take()
+            .and_then(|task| block_on(poll_once(task)))
+            .flatten();
+        if let Some(texture) = read {
+            let (images, _) = assets.split();
+            made.hologram_filter = Some(images.add(crate::scene::material_image(&texture)));
         }
     }
     if !dump_due.0 {
@@ -953,7 +1074,8 @@ fn spawned(
     scene.models.extend(models);
     let added = &scene.models[first..];
     let (images, mut stores) = assets.split();
-    let mut spawner = Spawner::new(&textures, scene.area_light(), images);
+    let mut spawner = Spawner::sharing(&textures, scene.area_light(), images, &scene.images);
+    spawner.bakes = true;
     let (mut roots, mut nodes) = (Vec::new(), Vec::new());
     for (n, placed) in added.iter().enumerate() {
         let (model, its) = spawner.placed(
@@ -991,57 +1113,71 @@ fn spawned(
 /// appearance too); else, for a creature, its own appearance once what it
 /// wears on its body is not what its template put on it (the body the scene
 /// drew it in), or what it is drawn wearing on its head is not
-/// (`headgear::drawn`: another item, or one its player hid). None while it
-/// is drawn in its own body.
-fn guise(
-    snapshot: &Snapshot,
-    objects: &Instances,
+/// (`headgear::drawn`: another item, or one its player hid), or its
+/// alignment's look is not the one its body was dressed for (`drawn`, by
+/// its object index). None while it is drawn in its own body. Each guise
+/// is dressed for the alignment the sim gives the character
+/// (`alignment_look`).
+fn guise<'s>(
+    snapshot: &'s Snapshot,
+    (objects, level): (&'s Instances, &sim::Level),
     entity: &EntityState,
     hidden: crate::headgear::Hidden,
-) -> Option<Guise> {
+    drawn: &dyn Fn(u32) -> Option<asset_odyssey::creature::Aligned>,
+) -> Option<Worn<'s>> {
     let fighter = entity.fighter.as_ref();
     let look = fighter.map_or(sim::combat::Look::default(), |fighter| fighter.look);
     let facts = objects.of_entity(entity);
     let own = || facts?.body.map(|body| body.appearance);
-    let body = snapshot
-        .worn(entity.id.0, sim::inventory::slots::BODY)
-        .map(str::to_ascii_lowercase);
-    let hides = crate::headgear::who(Some(objects), entity).is_some_and(|who| hidden(&who));
-    let headgear = crate::headgear::drawn(snapshot, entity, hides);
+    let body = snapshot.worn(entity.id.0, sim::inventory::slots::BODY);
+    let headgear = crate::headgear::drawn(snapshot, entity, || {
+        crate::headgear::who(Some(objects), entity).is_some_and(|who| hidden(&who))
+    });
     let row = fighter
         .and_then(|fighter| fighter.effects.disguise(snapshot.time_ms))
         .or_else(|| crate::cast::sheet(entity, objects).gear.disguise)
         .or(look.appearance)
         .or_else(|| look.head.and_then(|_| own()));
-    let guise = |appearance, head| Guise {
-        appearance,
-        armour: body.clone(),
-        head,
-        headgear: headgear.clone(),
+    let aligned =
+        crate::alignment_look::in_level(level, crate::cast::sheet(entity, objects).good_evil);
+    let creature = match entity.kind {
+        Kind::Object(ObjectKind::Creature, index) => Some(index),
+        _ => None,
     };
-    if let Some(row) = row {
-        return Some(guise(row, look.head));
-    }
-    // A player's own body is the wardrobe's to dress (`wardrobe`).
-    if !matches!(entity.kind, Kind::Object(ObjectKind::Creature, _)) {
-        return None;
-    }
     let composed = |slot| {
         facts?
             .inventory
             .iter()
             .find(|held| held.slot == Some(slot))
-            .map(|held| held.template.to_ascii_lowercase())
+            .map(|held| held.template.as_str())
     };
     // A module's own template (`sim::inventory::own_template`) is its
     // template's item still.
-    let worn = |item: &Option<String>| {
-        item.as_deref()
-            .map(|item| sim::inventory::resref_of(item).to_string())
-    };
+    let worn = |item: Option<&'s str>| item.map(sim::inventory::resref_of);
     use sim::inventory::slots;
-    let redressed =
-        worn(&body) != composed(slots::BODY) || worn(&headgear) != composed(slots::HEAD);
+    // A creature made with nothing on its body that still wears nothing
+    // there took nothing off (`creature::Dressing`).
+    let dressing = if creature.is_some() && body.is_none() && composed(slots::BODY).is_none() {
+        asset_odyssey::creature::Dressing::AsMade
+    } else {
+        asset_odyssey::creature::Dressing::Changed
+    };
+    let guise = |appearance, head| Worn {
+        appearance,
+        armour: body,
+        dressing,
+        head,
+        headgear,
+        aligned,
+    };
+    if let Some(row) = row {
+        return Some(guise(row, look.head));
+    }
+    // A player's own body is the wardrobe's to dress (`wardrobe`).
+    let index = creature?;
+    let redressed = !same_item(worn(body), composed(slots::BODY))
+        || !same_item(worn(headgear), composed(slots::HEAD))
+        || drawn(index).is_some_and(|was| was != aligned);
     redressed.then(|| Some(guise(own()?, None)))?
 }
 
@@ -1065,16 +1201,35 @@ fn track_disguises(
         &mut crate::scene::AnimatedMaterials,
     ),
 ) {
-    made.worn = snapshot
-        .all_drawn()
-        .filter(|entity| {
-            matches!(
-                entity.kind,
-                Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
-            )
-        })
-        .filter_map(|entity| Some((entity.id, guise(snapshot, objects, entity, hidden)?)))
-        .collect();
+    // The alignment each creature's own body was dressed for.
+    let views = &scene.creature_views;
+    let drawn = |index: u32| {
+        views
+            .iter()
+            .find(|view| view.object == index)
+            .and_then(|view| view.aligned)
+    };
+    made.wearing.clear();
+    for entity in snapshot.all_drawn().filter(|entity| {
+        matches!(
+            entity.kind,
+            Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
+        )
+    }) {
+        let Some(worn) = guise(snapshot, (objects, level), entity, hidden, &drawn) else {
+            continue;
+        };
+        made.wearing.push(entity.id);
+        if !made
+            .worn
+            .get(&entity.id)
+            .is_some_and(|guise| worn.is(guise))
+        {
+            made.worn.insert(entity.id, worn.guise());
+        }
+    }
+    let wearing = &made.wearing;
+    made.worn.retain(|id, _| wearing.contains(id));
     let gone: Vec<(SimId, Guise)> = made
         .guises
         .keys()
@@ -1113,33 +1268,27 @@ fn track_disguises(
         let Some(read) = block_on(poll_once(task)) else {
             continue;
         };
-        let guised = match read {
+        let (guised, drawn) = match read {
             Ok(mut ready) => {
                 made.notes.append(&mut ready.notes);
                 let (view, _, body, models) =
                     spawned(ready, (scene, root), (lives, assets, commands, animated));
                 commands.entity(body).insert(Visibility::Hidden);
-                Some(Guised {
+                let guised = Guised {
                     root: body,
                     models,
                     view,
-                })
+                };
+                (Some(guised), "drawn".to_string())
             }
             Err(error) => {
                 made.notes.push(format!("#{} disguised: {error}", id.0));
-                None
+                (None, format!("not drawn ({error})"))
             }
         };
         info!(
-            "disguise of #{} (appearance {}, wearing {:?}): {}",
-            id.0,
-            guise.appearance,
-            guise.armour,
-            if guised.is_some() {
-                "drawn"
-            } else {
-                "not drawn"
-            }
+            "disguise of #{} (appearance {}, wearing {:?}): {drawn}",
+            id.0, guise.appearance, guise.armour,
         );
         made.guises.insert((id, guise), guised);
     }
@@ -1335,11 +1484,12 @@ fn read(modules: &Modules) -> BTreeMap<String, serde_json::Value> {
         .collect()
 }
 
-/// The party's own mines' dome: the model's hostile red (0.85, 0.18, 0)
-/// turned green.
-const FRIENDLY: [f32; 3] = [0.18, 0.85, 0.0];
 /// The stealth field's visual effect (`nwscript.nss`).
 const VFX_DUR_STEALTH_FIELD: u16 = 8002;
+
+/// The filter texture TSL's executable draws holograms through (its scene
+/// loads it by this name). KOTOR 1 has none.
+const HOLOGRAM_FILTER: &str = "holotex";
 
 /// Detected traps, each frame the scene has its root: those the party now
 /// sees start loading their row's model, those read are spawned, those
@@ -1353,13 +1503,13 @@ fn track_mines(
         &mut Commands,
         &mut crate::scene::AnimatedMaterials,
     ),
-    tints: &mut MineTints,
+    domes: &mut MineDomes,
 ) {
     use sim::trap as bits;
     let Some(module) = level.module() else {
         return;
     };
-    let present: BTreeMap<u32, (String, [f32; 3], bool)> = snapshot
+    let present: BTreeMap<u32, (String, [f32; 3])> = snapshot
         .entities
         .iter()
         .filter_map(|entity| {
@@ -1374,15 +1524,8 @@ fn track_mines(
             let trap = facts.trap.as_ref()?;
             let row = module.traps.get(usize::from(trap.row))?;
             (!row.model.is_empty()).then_some(())?;
-            // A laid mine is the party's; a placed one hostile by its
-            // faction.
-            let laid = sim::traps::laid_row(&facts.template).is_some();
-            let hostile = !laid
-                && snapshot
-                    .standings(module)
-                    .hostile(facts.faction, sim::combat::sheet::factions::PLAYER);
             let at = sim::traps::centre(&facts.geometry, entity.position);
-            Some((index, (row.model.clone(), at, !hostile)))
+            Some((index, (row.model.clone(), at)))
         })
         .collect();
     let same = |index: &u32, model: &str| {
@@ -1401,9 +1544,9 @@ fn track_mines(
     }
     made.mines_loading
         .retain(|index, (model, ..)| same(index, model));
-    for (&index, (model, at, friendly)) in &present {
+    for (&index, (model, at)) in &present {
         if !made.mines.contains_key(&index) && !made.mines_loading.contains_key(&index) {
-            let task = made.load_mine((model, *at, *friendly), level);
+            let task = made.load_mine((model, *at), level);
             made.mines_loading.insert(index, (model.clone(), task));
         }
     }
@@ -1423,7 +1566,7 @@ fn track_mines(
         let models = match read {
             Ok(prop) => {
                 let spawned = Made::spawn_prop(prop, (scene, root), (assets, commands, animated));
-                tints.0.push(spawned.0);
+                domes.0.push(spawned.0);
                 Some(spawned)
             }
             Err(error) => {
@@ -1449,75 +1592,44 @@ fn track_mines(
     }
 }
 
-/// The armed traps last seen (seen by the party or not), by id: their
-/// row's model and explosion sound, and where they stand (game space,
-/// metres), kept past their going so the sound that tells of their
-/// springing still finds them; the scene swap they belong to.
-#[derive(Default)]
-pub struct ArmedTraps {
-    generation: u32,
-    traps: BTreeMap<u32, (String, String, [f32; 3])>,
-}
+/// The mines that went off for this player (`sim::notice::Explosion`), to
+/// be seen and heard once (`exploded`).
+#[derive(Resource, Default)]
+pub struct Exploded(pub Vec<sim::notice::Explosion>);
 
-/// A trap sprung plays its row's model's `activate` where it stood (a gas
-/// mine's cloud, a frag mine's burst), seen by the party or not: the sim
-/// tells of the springing by the row's `explosionsound` played from the
-/// trap (`world::traps::spring`), heard the frame the trap goes.
-pub fn sprung(
+/// Every mine that went off is seen and heard once where it stood: a mine a
+/// creature walked onto, a mine that blasted a lock (whether the lock opened
+/// or not), and a mine a script detonated. The mine's `traps.2da` row gives
+/// the model, whose `activate` clip plays (a gas mine's cloud, a frag mine's
+/// burst), and the explosion sound, which plays at the mine. The sim says
+/// which mine, of which row, and where (`world::traps::explode`).
+pub fn exploded(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
-    heard: Res<crate::ambience::Heard>,
-    shots: Option<ResMut<crate::blaster_view::BlasterShots>>,
-    mut armed: Local<ArmedTraps>,
+    mut exploded: ResMut<Exploded>,
+    mut heard: ResMut<crate::ambience::HeardAt>,
+    mut shots: Option<ResMut<crate::blaster_view::BlasterShots>>,
 ) {
-    if armed.generation != swap.generation {
-        *armed = ArmedTraps {
-            generation: swap.generation,
-            ..ArmedTraps::default()
-        };
-    }
+    let explosions = std::mem::take(&mut exploded.0);
     let Some(module) = swap.level.module() else {
         return;
     };
-    let snapshot = presented.0.current();
-    let objects = Instances::in_snapshot(&swap.level, snapshot);
-    for entity in &snapshot.entities {
-        let Kind::Object(ObjectKind::Trigger, _) = entity.kind else {
-            continue;
-        };
-        let Some(facts) = objects.of_entity(entity) else {
-            continue;
-        };
-        let row = facts
-            .trap
-            .as_ref()
-            .and_then(|trap| module.traps.get(usize::from(trap.row)));
-        if let Some(row) = row.filter(|row| !row.model.is_empty()) {
-            let at = sim::traps::centre(&facts.geometry, entity.position);
-            armed
-                .traps
-                .insert(entity.id.0, (row.model.clone(), row.sound.clone(), at));
-        }
-    }
-    let Some(mut shots) = shots else {
-        return;
-    };
     let now = crate::sim_host::view_ms(&presented.0);
-    for sound in &heard.0 {
-        let springs = armed
-            .traps
-            .get(&sound.object)
-            .is_some_and(|(_, blast, _)| blast.eq_ignore_ascii_case(&sound.resref()));
-        if !springs {
+    for explosion in explosions {
+        let Some(row) = module.traps.get(usize::from(explosion.row)) else {
             continue;
+        };
+        let at = explosion.at();
+        if !row.sound.is_empty() {
+            heard.0.push((row.sound.clone(), at));
         }
-        let Some((model, _, at)) = armed.traps.remove(&sound.object) else {
+        let Some(shots) = shots.as_deref_mut().filter(|_| !row.model.is_empty()) else {
             continue;
         };
         shots.flashes.push(crate::blaster_view::Flash {
-            by: SimId(sound.object),
+            by: SimId(explosion.mine),
             hand: 0,
-            shows: crate::blaster_view::Flashed::Model(model),
+            shows: crate::blaster_view::Flashed::Model(row.model.clone()),
             clip: crate::blaster_view::ACTIVATE,
             at: Vec3::from_array(at),
             way: Vec3::Y,
@@ -1611,30 +1723,30 @@ fn track_floor(
     }
 }
 
-/// Drawn mines' model roots whose meshes are still to be tinted.
+/// Drawn mines' model roots whose domes are still to be made lit.
 #[derive(Resource, Default)]
-pub struct MineTints(pub Vec<Entity>);
+pub struct MineDomes(pub Vec<Entity>);
 
-/// Tints each newly drawn mine's self-lit meshes (its dome) by their
-/// self-illumination (kept until its meshes are there).
-pub fn tint_mines(
-    mut tints: ResMut<MineTints>,
+/// Makes each newly drawn mine's self-lit meshes (the two shells of its
+/// dome) lit and culled (`OdysseyMaterial::mine_dome`). A mine is kept in
+/// the list until its meshes are there.
+pub fn light_mines(
+    mut domes: ResMut<MineDomes>,
     children: Query<&Children>,
     meshes: Query<&MeshMaterial3d<crate::material::OdysseyMaterial>>,
     mut materials: ResMut<Assets<crate::material::OdysseyMaterial>>,
 ) {
-    tints.0.retain(|&root| {
+    domes.0.retain(|&root| {
         let mut found = false;
         for entity in children.iter_descendants(root) {
             let Ok(handle) = meshes.get(entity) else {
                 continue;
             };
             found = true;
-            if let Some(mut material) = materials.get_mut(&handle.0) {
-                let glow = material.params.self_illum;
-                if glow.truncate() != Vec3::ZERO {
-                    material.params.tint = glow.truncate().extend(material.params.tint.w);
-                }
+            if let Some(mut material) = materials.get_mut(&handle.0)
+                && material.params.self_illum.truncate() != Vec3::ZERO
+            {
+                material.mine_dome();
             }
         }
         !found

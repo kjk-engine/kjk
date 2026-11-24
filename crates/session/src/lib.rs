@@ -23,16 +23,21 @@ mod items;
 pub mod journal;
 mod library;
 pub mod links;
+pub mod lobby;
 mod minigame;
 pub use minigame::probes as minigame_probes;
 mod objects;
 mod pazaak;
+pub mod portraits;
+pub mod rows;
 mod sheets;
 pub mod workshop;
 
+pub use collision_odyssey::Collision;
 use fmt_odyssey::ResType;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -41,9 +46,9 @@ use sim::motion::AnimTable;
 use sim::{Announcement, InstallError, Level, Mismatch, SimWorld, WorldConfig};
 
 pub use items::item_catalog;
-pub use library::{clip_names, clip_probes, gather_probes};
-pub use objects::module_data;
-pub use sheets::{BulkRow, blade_probes, bulk_census, bulk_probes, speed_probes};
+pub use library::{clip_names, clip_probes, gather_probes, health_regeneration, regeneration};
+pub use objects::{lock as lock_facts, module_data};
+pub use sheets::{BulkRow, blade_probes, bulk_census, bulk_probes, speed_probes, talents};
 
 /// What to install: a module of a game, arriving at a door or waypoint (or
 /// the module's entry), for a world of `seats` players.
@@ -60,6 +65,25 @@ pub struct Request {
     /// what its encounters scale by. 1 unless set (`with_players`); a
     /// running world's plan takes `Snapshot::players_for`.
     pub players: u8,
+    /// The collision the area is built with: the session's (`collision`)
+    /// unless set (`with_collision`).
+    pub collision: Collision,
+}
+
+/// The session's collision (`collision_odyssey::Collision::code`): the
+/// player's choice when the session started, or the host's for a joined
+/// player. Every request made from then on takes it.
+static COLLISION: AtomicU8 = AtomicU8::new(Collision::Limited as u8);
+
+/// The collision this process's sessions build their areas with.
+pub fn collision() -> Collision {
+    Collision::from_code(COLLISION.load(Ordering::Relaxed)).unwrap_or(Collision::Limited)
+}
+
+/// Sets the collision for every request made from now on (`collision`):
+/// at a session's start, before its first plan.
+pub fn set_collision(mode: Collision) {
+    COLLISION.store(mode.code(), Ordering::Relaxed);
 }
 
 impl Request {
@@ -72,7 +96,13 @@ impl Request {
                 .map(str::to_ascii_lowercase),
             seats,
             players: 1,
+            collision: collision(),
         }
+    }
+
+    /// This request, built with `collision`.
+    pub fn with_collision(self, collision: Collision) -> Request {
+        Request { collision, ..self }
     }
 
     /// This request, planned for `players` (at least one).
@@ -190,7 +220,7 @@ pub struct Facts {
 #[derive(Default)]
 pub struct AreaCache {
     /// The least recently used first.
-    areas: Mutex<Vec<((String, String), Area)>>,
+    areas: Mutex<Vec<(AreaKey, Area)>>,
     imported: Option<Arc<imported::Imported>>,
     bakes: Option<Bakes>,
 }
@@ -222,6 +252,25 @@ const SCREEN_SCRIPTS: [&str; 1] = [sim::script::TRAVEL_SCRIPT];
 /// Areas an `AreaCache` keeps in memory: the module played and the next
 /// (or the one just left, gone back to). Each is tens of megabytes.
 const AREAS_KEPT: usize = 2;
+
+/// What an area kept in memory is built for: a game's module under a
+/// collision mode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AreaKey {
+    game: String,
+    module: String,
+    collision: Collision,
+}
+
+impl AreaKey {
+    fn of(request: &Request) -> AreaKey {
+        AreaKey {
+            game: request.game.clone(),
+            module: request.module.clone(),
+            collision: request.collision,
+        }
+    }
+}
 
 #[derive(Clone)]
 struct Area {
@@ -302,6 +351,7 @@ impl AreaCache {
         // The rulebook's edition: the bodies' box, step and walkable slope
         // the area is built for, and its table changes, are the book's.
         let edition = rules::EDITION.to_le_bytes();
+        let collision = [request.collision.code()];
         let key = store::Key::of(
             &format!("{AREA_FORMAT}/{}", collision_odyssey::BUILDER),
             &[
@@ -310,6 +360,7 @@ impl AreaCache {
                 request.module.as_bytes(),
                 &clearance,
                 &edition,
+                &collision,
             ],
         );
         let kind = format!("bake/{}/{AREA_FORMAT}", request.game);
@@ -344,9 +395,8 @@ impl AreaCache {
 
     fn get(&self, request: &Request) -> Option<Area> {
         let mut areas = self.areas.lock().ok()?;
-        let at = areas
-            .iter()
-            .position(|((game, module), _)| *game == request.game && *module == request.module)?;
+        let key = AreaKey::of(request);
+        let at = areas.iter().position(|(kept, _)| *kept == key)?;
         let used = areas.remove(at);
         let area = used.1.clone();
         areas.push(used);
@@ -355,8 +405,9 @@ impl AreaCache {
 
     fn put(&self, request: &Request, area: Area) {
         if let Ok(mut areas) = self.areas.lock() {
-            areas.retain(|((game, module), _)| *game != request.game || *module != request.module);
-            areas.push(((request.game.clone(), request.module.clone()), area));
+            let key = AreaKey::of(request);
+            areas.retain(|(kept, _)| *kept != key);
+            areas.push((key, area));
             let over = areas.len().saturating_sub(AREAS_KEPT);
             areas.drain(..over);
         }
@@ -369,6 +420,12 @@ pub fn item_facts(source: &dyn Source, name: &str) -> Option<sim::inventory::Ite
     items::facts(&mut sheets::Tables::new(source), name)
 }
 
+/// The creature template `name` as `source` has it, with its sheet; none
+/// when it does not read.
+pub fn creature_facts(source: &dyn Source, name: &str) -> Option<sim::module::ObjectData> {
+    sheets::creature_template(&mut sheets::Tables::new(source), name)
+}
+
 /// Resolves `request` through `source` (a resolver opened with the
 /// module), with the player skeleton's animation lengths.
 pub fn plan(
@@ -376,7 +433,7 @@ pub fn plan(
     request: &Request,
     anims: Arc<AnimTable>,
 ) -> Result<Plan, PlanError> {
-    plan_with(source, request, anims, Overrides::PLAY, None)
+    plan_with(source, request, anims, Overrides::PLAY, None, &|_| {})
 }
 
 /// Which of our own data files a plan applies over the module's.
@@ -401,13 +458,15 @@ impl Overrides {
 }
 
 /// `plan`, with `overrides`, its area taken from `cache` when built before
-/// (and kept there when not).
+/// (and kept there when not). `progress` is told how far the plan has got
+/// (0 to 1, never less than before) as it goes.
 pub fn plan_with(
     source: &dyn Source,
     request: &Request,
     anims: Arc<AnimTable>,
     overrides: Overrides,
     cache: Option<&AreaCache>,
+    progress: &dyn Fn(f32),
 ) -> Result<Plan, PlanError> {
     let started = Instant::now();
     let module = request.module.as_str();
@@ -473,6 +532,7 @@ pub fn plan_with(
     let encounter = encounters::apply(&mut data, &changes, request.players);
     let read_ms = started.elapsed().as_secs_f64() * 1000.0 - templates_ms;
 
+    progress(PLAN_READ);
     let started = Instant::now();
     // This process's build, else the store's bake, else built (and kept).
     let (built, cached) = match cache.and_then(|cache| cache.get(request)) {
@@ -482,7 +542,7 @@ pub fn plan_with(
             let from_store = baked.is_some();
             let built = match baked {
                 Some(baked) => baked,
-                None => build_area(source, request, &ir.areas[area])?,
+                None => build_area(source, request, &ir.areas[area], progress)?,
             };
             if let Some(cache) = cache {
                 if !from_store {
@@ -494,6 +554,7 @@ pub fn plan_with(
         }
     };
     let collision_ms = started.elapsed().as_secs_f64() * 1000.0;
+    progress(PLAN_BUILT);
     let brushes = built.collision.brush_count();
 
     let exits = data
@@ -544,16 +605,45 @@ pub fn plan_with(
         .filter(|(_, facts)| !facts.conversation.is_empty())
         .map(|(name, facts)| (name.clone(), facts.conversation.clone()))
         .collect();
+    // The conversations of the creature templates the module carries in its
+    // own archives: a script may make any of them under a name it puts
+    // together as it runs, which no string of it holds whole (the Manaan
+    // pazaak tournament of K1 Restoration makes "k1r_pazprelim_2" + "a").
+    let carried: Vec<String> = own(fmt_odyssey::ResType::UTC)
+        .into_iter()
+        .filter_map(|name| spoken.get(&name).cloned())
+        .collect();
     let voices = imported.map(|imported| &imported.voices);
     let bakes = cache.and_then(|cache| cache.bakes.as_ref());
-    let library = library::script_library(
-        source,
-        &data,
-        hooked,
-        &spoken,
-        voices,
-        bakes.map(|bakes| (bakes, request)),
-    );
+    let gather = |hooked: Vec<String>| {
+        library::script_library(
+            source,
+            &data,
+            hooked,
+            (&spoken, &carried),
+            voices,
+            bakes.map(|bakes| (bakes, request)),
+        )
+    };
+    let mut library = gather(hooked.clone());
+    // The install's shared placeable templates the gathered scripts name
+    // (`CreateObject` takes a template its script holds) may have hooks of
+    // their own: a Force power's aura that drains on its heartbeat. When
+    // the library lacks one of those scripts, it is gathered again with
+    // them.
+    if let Some(first) = &library {
+        let missing: BTreeSet<String> = first
+            .strings
+            .iter()
+            .filter(|name| !placeables.contains_key(*name) && source.exists(name, ResType::UTP))
+            .filter_map(|name| sheets::placeable_template(&mut tables, name))
+            .flat_map(|facts| facts.scripts.into_iter().map(|(_, script)| script))
+            .filter(|script| !script.is_empty() && first.library.program(script).is_none())
+            .collect();
+        if !missing.is_empty() {
+            library = gather(hooked.into_iter().chain(missing).collect());
+        }
+    }
     let script_ms = started.elapsed().as_secs_f64() * 1000.0;
     let started = Instant::now();
     let gathered_stored = library.as_ref().is_some_and(|library| library.stored);
@@ -577,8 +667,7 @@ pub fn plan_with(
             };
             // The install's shared placeable templates its scripts name join
             // the module's own (`CreateObject` takes a template its script
-            // holds); their hooks are not in the library, gathered before
-            // the names are known [read them first when one needs its own].
+            // holds); their hooks joined the library above.
             let shared: Vec<String> = named
                 .iter()
                 .filter(|name| !placeables.contains_key(*name) && source.exists(name, ResType::UTP))
@@ -592,12 +681,41 @@ pub fn plan_with(
                     placeables.insert(name, Arc::new(facts));
                 }
             }
+            // The waypoint and store templates scripts may make: the
+            // module's own and the install's shared ones its scripts name
+            // (TSLRCM's `tr_re_zb2` lies in the override folder; a mod's
+            // merchant makes its store from a UTM in its module).
+            let mut templates = |kind: ResType,
+                                 read: fn(
+                &mut sheets::Tables,
+                &str,
+            ) -> Option<sim::module::ObjectData>| {
+                own(kind)
+                    .into_iter()
+                    .chain(
+                        named
+                            .iter()
+                            .filter(|name| source.exists(name, kind))
+                            .cloned(),
+                    )
+                    .collect::<std::collections::BTreeSet<String>>()
+                    .into_iter()
+                    .filter_map(|name| {
+                        let facts = read(&mut tables, &name)?;
+                        Some((name, Arc::new(facts)))
+                    })
+                    .collect::<BTreeMap<String, Arc<sim::module::ObjectData>>>()
+            };
+            let waypoints = templates(ResType::UTW, sheets::waypoint_template);
+            let stores = templates(ResType::UTM, sheets::store_template);
             let decks = pazaak::decks(&mut tables, &items);
             let library = library
                 .with_pazaak(decks)
                 .with_items(items)
                 .with_creatures(creatures)
                 .with_placeables(placeables)
+                .with_waypoints(waypoints)
+                .with_stores(stores)
                 .with_quests(journal::quests(source))
                 .with_experience(journal::experience(source))
                 .with_classes(classes::classes(source))
@@ -663,9 +781,25 @@ pub fn plan_with(
     })
 }
 
+/// How far a plan has got (0 to 1) when it has read the module's objects
+/// and tables, built the area's collision, and built the navigation mesh.
+/// An area that needs no building skips the last two. The shares follow
+/// what each step costs on a first visit, so the loading screen's bar
+/// does not wait long between two of them.
+const PLAN_READ: f32 = 0.05;
+const PLAN_COLLISION: f32 = 0.5;
+const PLAN_NAV: f32 = 0.7;
+/// How far it has got once the area is built and kept.
+const PLAN_BUILT: f32 = 0.9;
+
 /// An area's collision (with the module's built-in clip) and its
 /// navigation mesh.
-fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<Area, PlanError> {
+fn build_area(
+    source: &dyn Source,
+    request: &Request,
+    area: &AreaIr,
+    progress: &dyn Fn(f32),
+) -> Result<Area, PlanError> {
     let clip = collision_odyssey::built_in_clip(&request.game, &request.module)
         .map_err(PlanError::Data)?;
     let surfaces = collision_odyssey::Surfaces::read(source).ok_or(PlanError::NoSurfaces)?;
@@ -675,10 +809,12 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
         area,
         &surfaces,
         clip.as_ref(),
-        &collision_odyssey::BuildOptions::default(),
+        &request.collision.options(),
     );
+    progress(PLAN_COLLISION);
     let walkable = built.nav_faces();
     let mut nav = collision::nav::NavMesh::build(&walkable, sim::walk::CLEARANCE * collision::UNIT);
+    progress(PLAN_NAV);
     nav.mark(&built.level);
     Ok(Area {
         collision: Arc::new(built.level),

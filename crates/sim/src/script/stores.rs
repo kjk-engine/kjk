@@ -101,7 +101,8 @@ impl State {
     }
 
     /// What players see of the items in play: the gold, the items the
-    /// party carries and its characters (`members`) wear, the weapons any
+    /// party carries and its characters (`members`, with the companions
+    /// waiting at a base) wear, the weapons any
     /// character in the module (`here`) holds in its hands and the armour on
     /// its body (drawn on it: its body is dressed by it),
     /// the trades under way and their stores' stock, what the containers
@@ -112,6 +113,7 @@ impl State {
         members: &[u32],
         here: impl IntoIterator<Item = u32>,
         open: &[u32],
+        containers: &[u32],
         module: &str,
     ) -> Goods {
         let stores = self.trades.values().map(|trade| trade.store);
@@ -157,6 +159,11 @@ impl State {
                 .map(|(row, multiplier)| (*row, *multiplier))
                 .collect(),
             known: self.known.clone(),
+            empty: containers
+                .iter()
+                .copied()
+                .filter(|container| self.loot(*container).next().is_none())
+                .collect(),
         }
     }
 

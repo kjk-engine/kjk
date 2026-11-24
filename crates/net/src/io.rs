@@ -93,7 +93,28 @@ impl Socket {
         self.udp.as_ref()?.recv_buffer()
     }
 
-    fn has_steam(&self) -> bool {
+    /// The Steam ID of the Steam end, where Steam is beside the socket.
+    pub fn steam_id(&self) -> Option<u64> {
+        #[cfg(feature = "steam")]
+        return self.steam.as_ref().map(Steam::id);
+        #[cfg(not(feature = "steam"))]
+        None
+    }
+
+    /// Opens Steam's dialog that invites friends to the game the Steam ID
+    /// `host` hosts. Whether Steam is running to open it.
+    pub fn invite(host: u64) -> bool {
+        #[cfg(feature = "steam")]
+        return steam::invite(host);
+        #[cfg(not(feature = "steam"))]
+        {
+            let _ = host;
+            false
+        }
+    }
+
+    /// Whether Steam's messages come and go beside the socket's.
+    pub fn has_steam(&self) -> bool {
         #[cfg(feature = "steam")]
         return self.steam.is_some();
         #[cfg(not(feature = "steam"))]

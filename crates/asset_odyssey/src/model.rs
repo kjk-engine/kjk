@@ -34,6 +34,12 @@ pub struct ModelIr {
     pub affected_by_fog: bool,
     /// Mesh nodes that were not turned into a drawable mesh, and why.
     pub refusals: Vec<(String, Refusal)>,
+    /// The meshes whose own node rests at scale 0, at their parent's scale
+    /// instead: the size the model's clips grow them to. A lightsaber hilt's
+    /// blade planes rest so, and its power clips grow them; so do the cores
+    /// and glows a mod's blade adds (`weapons::kotor_blades`). Each is in
+    /// `meshes` too, at its rest scale of 0, so nothing draws it there.
+    pub folded: Vec<MeshIr>,
 }
 
 /// A light node in its rest pose (`mdl::CONTROLLER_LIGHT_*`).
@@ -79,7 +85,13 @@ pub enum Refusal {
     /// vertex data (not read), drawn with its texture (reone draws a saber
     /// mesh with its own); a hilt's flat planes share that texture. Its box
     /// in the node's space (min x, y, z, max), as its header has it.
+    ///
+    /// `node` is the index of the blade's node in the model. A blade is
+    /// placed by that node, never by its name: the games draw each blade
+    /// piece at its own node, and a modded hilt may give all of its blade
+    /// nodes one name (Lightsaber Hilt Variety names all eight `plane239`).
     SaberBlade {
+        node: usize,
         texture: Option<String>,
         bounds: [f32; 6],
     },
@@ -105,6 +117,8 @@ pub struct MeshIr {
     pub lightmap: Option<String>,
     pub transparency_hint: u32,
     pub skinned: bool,
+    /// The mesh header's shadow flag: the mesh casts shadows.
+    pub shadow: bool,
     /// Rest-pose self-illumination, (0, 0, 0) when the node has none.
     pub self_illum: [f32; 3],
     /// Rest-pose alpha controller, 1 when absent.
@@ -216,36 +230,50 @@ pub fn invert_rigid(m: &Matrix) -> Matrix {
 /// Builds a mesh's skin once every node's rest transform is known. A slot
 /// is a `bone_map` value that is neither negative nor `0xffff`; the vertex
 /// slots refer to those. A vertex slot that names no bone gets weight 0.
-fn skin(nodes: &[NodeIr], mesh_node: usize, skin: &mdl::Skin) -> Option<SkinIr> {
-    let mut joints: Vec<Option<usize>> = Vec::new();
-    for (node, &slot) in skin.bone_map.iter().enumerate() {
-        if slot < 0.0 || slot >= 65535.0 || node >= nodes.len() {
+///
+/// The `bone_map`, `qbones` and `tbones` entries count the nodes of the
+/// mesh's own model, in its file's order. `own` is where each of those
+/// nodes landed in `nodes`. That differs from its file's order when the
+/// model hangs under another model's reference node (Tatooine's swoop
+/// track hangs its banthas so) or hangs other models under its own.
+fn skin(nodes: &[NodeIr], own: &[usize], mesh_node: usize, skin: &mdl::Skin) -> Option<SkinIr> {
+    let mut joints: Vec<Option<(usize, usize)>> = Vec::new();
+    for (local, &slot) in skin.bone_map.iter().enumerate() {
+        let Some(&node) = own.get(local) else {
+            continue;
+        };
+        if slot < 0.0 || slot >= 65535.0 {
             continue;
         }
         let slot = slot as usize;
         if joints.len() <= slot {
             joints.resize(slot + 1, None);
         }
-        joints[slot] = Some(node);
+        joints[slot] = Some((local, node));
     }
     if joints.is_empty() {
         return None;
     }
-    let fallback = mesh_node;
-    let joints: Vec<usize> = joints.into_iter().map(|j| j.unwrap_or(fallback)).collect();
+    // Past every entry when the mesh's node is not its model's (never).
+    let mesh_local = (own.iter().position(|&node| node == mesh_node)).unwrap_or(usize::MAX);
     let mesh_world = &nodes[mesh_node].world;
     let mut inverse_binds = Vec::with_capacity(joints.len());
     let mut rest_inverse_binds = Vec::with_capacity(joints.len());
-    for &node in &joints {
+    let mut resolved = Vec::with_capacity(joints.len());
+    for joint in joints {
         // reone: translate(tbone) × rotate(qbone), the bone's own entry by
-        // node index.
-        let file = match (skin.q_bones.get(node), skin.t_bones.get(node)) {
+        // the node's place in its model. A slot no node names takes the
+        // mesh's own node.
+        let (local, node) = joint.unwrap_or((mesh_local, mesh_node));
+        let file = match (skin.q_bones.get(local), skin.t_bones.get(local)) {
             (Some(q), Some(t)) => matrix(*t, quaternion(*q)),
             _ => IDENTITY,
         };
         inverse_binds.push(file);
         rest_inverse_binds.push(multiply(&invert_rigid(&nodes[node].world), mesh_world));
+        resolved.push(node);
     }
+    let joints = resolved;
     let count = joints.len();
     let (vertex_joints, vertex_weights) = skin
         .bones
@@ -271,6 +299,15 @@ fn skin(nodes: &[NodeIr], mesh_node: usize, skin: &mdl::Skin) -> Option<SkinIr> 
         vertex_joints,
         vertex_weights,
     })
+}
+
+/// What `ModelIr::add` gathers beyond the IR: each model's nodes (their
+/// places in the IR, in their file's order) and each skinned mesh with its
+/// skin and the model it belongs to.
+#[derive(Default)]
+struct Built<'m> {
+    models: Vec<Vec<usize>>,
+    skins: Vec<(usize, &'m mdl::Skin, usize)>,
 }
 
 fn texture_name(name: &str) -> Option<String> {
@@ -397,12 +434,13 @@ impl ModelIr {
             animation_scale: model.animation_scale,
             affected_by_fog: model.affected_by_fog,
             refusals: Vec::new(),
+            folded: Vec::new(),
         };
-        let mut skins = Vec::new();
-        ir.add(&model.root, None, &IDENTITY, 1.0, &mut skins);
-        for (mesh, source) in skins {
+        let mut built = Built::default();
+        ir.add(&model.root, None, &IDENTITY, 1.0, (0, &mut built));
+        for (mesh, source, owner) in built.skins {
             let node = ir.meshes[mesh].node;
-            ir.meshes[mesh].skin = skin(&ir.nodes, node, source);
+            ir.meshes[mesh].skin = skin(&ir.nodes, &built.models[owner], node, source);
         }
         ir
     }
@@ -413,13 +451,19 @@ impl ModelIr {
     /// so node transforms stay rigid for every consumer. Mods exported from
     /// Blender store an object's scale there: a weapon modelled big and
     /// scaled down drew at its modelled size without it.
+    ///
+    /// `owner` is the model the node belongs to, counted in `built`: the
+    /// file's own model is 0, and each model hung under a reference node
+    /// (`Model::attach_references`) gets the next number. A reference
+    /// node's children are such models: a reference node has none of its
+    /// own in the games' files.
     fn add<'m>(
         &mut self,
         node: &'m Node,
         parent: Option<usize>,
         parent_world: &Matrix,
         parent_scale: f32,
-        skins: &mut Vec<(usize, &'m mdl::Skin)>,
+        (owner, built): (usize, &mut Built<'m>),
     ) {
         let rotation = quaternion(node.orientation);
         let translation = node.position.map(|v| v * parent_scale);
@@ -430,6 +474,10 @@ impl ModelIr {
                 .unwrap_or(1.0);
         let world = multiply(parent_world, &matrix(translation, rotation));
         let index = self.nodes.len();
+        if built.models.len() <= owner {
+            built.models.resize_with(owner + 1, Vec::new);
+        }
+        built.models[owner].push(index);
         self.nodes.push(NodeIr {
             name: node.name.clone(),
             parent,
@@ -462,25 +510,38 @@ impl ModelIr {
         if let Some(mesh) = &node.mesh {
             match Self::mesh(index, node, mesh) {
                 Ok(mut drawable) => {
+                    if scale == 0.0 && parent_scale != 0.0 && mesh.skin.is_none() {
+                        let mut grown = drawable.clone();
+                        if parent_scale != 1.0 {
+                            grown.scale(parent_scale);
+                        }
+                        self.folded.push(grown);
+                    }
                     if scale != 1.0 && mesh.skin.is_none() {
                         drawable.scale(scale);
                     }
                     if let Some(source) = &mesh.skin {
-                        skins.push((self.meshes.len(), source));
+                        built.skins.push((self.meshes.len(), source, owner));
                     }
                     self.meshes.push(drawable);
                 }
                 Err(refusal) => self.refusals.push((node.name.clone(), refusal)),
             }
         }
+        let hangs = node.reference.as_ref().is_some_and(|reference| {
+            let name = reference.model.trim();
+            !name.is_empty() && !name.eq_ignore_ascii_case("null")
+        });
         for child in &node.children {
-            self.add(child, Some(index), &world, scale, skins);
+            let owner = if hangs { built.models.len() } else { owner };
+            self.add(child, Some(index), &world, scale, (owner, &mut *built));
         }
     }
 
     fn mesh(node: usize, source: &Node, mesh: &mdl::Mesh) -> Result<MeshIr, Refusal> {
         if mesh.saber {
             return Err(Refusal::SaberBlade {
+                node,
                 texture: texture_name(&mesh.textures[0]),
                 bounds: mesh.bounds,
             });
@@ -527,6 +588,7 @@ impl ModelIr {
             lightmap,
             transparency_hint: mesh.transparency_hint,
             skinned: mesh.skin.is_some(),
+            shadow: mesh.shadow,
             skin: None,
             self_illum: first_row(source, SELF_ILLUM)
                 .filter(|row| row.len() >= 3)

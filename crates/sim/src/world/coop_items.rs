@@ -247,6 +247,7 @@ fn scenario() -> Result<Ran, String> {
     let take = Action::Take {
         container: locker,
         item: first_in_locker,
+        count: None,
     };
     let sell = |item| Action::Sell { store: STORE, item };
     let equip_on = |who, item, slot| Action::EquipOn { who, item, slot };
@@ -427,6 +428,8 @@ impl Seen<'_> {
 
 fn cases(ran: &Ran) -> Vec<(&'static str, Result<String, String>)> {
     let seen = Seen(ran);
+    // The guest's level in a class its character has not taken up.
+    let wrong_class = Notice::LevelRefused(crate::levels::Refusal::Class(1));
     let Cast {
         host,
         a,
@@ -576,8 +579,8 @@ fn cases(ran: &Ran) -> Vec<(&'static str, Result<String, String>)> {
         (
             "wrong_class_told_its_guest",
             check(
-                seen.told(5, 1, &Notice::LevelRefused) == 1
-                    && seen.told(5, 0, &Notice::LevelRefused) == 0
+                seen.told(5, 1, &wrong_class) == 1
+                    && seen.told(5, 0, &wrong_class) == 0
                     && seen.sheet(5, a).0 == START.1,
                 format!("a {:?}, notices {:?}", seen.sheet(5, a), ran.notices),
             ),

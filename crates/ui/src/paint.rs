@@ -43,6 +43,20 @@ use crate::skin::{self, Source};
 const ROW_GAP: i32 = 4;
 /// The font both games draw numbers over the world and on squares with.
 pub const NUMBER_FONT: &str = "fnt_d16x16";
+/// The opacity a dimmed list row (`Row::dimmed`) or a dimmed control
+/// (`ControlState::dimmed`) is drawn at. A dimmed control is also drawn in
+/// grey (`dim`), and a dimmed row is not.
+const DIMMED: f32 = 0.45;
+
+/// Draws `quads` in the disabled look. They are faded to the opacity
+/// `DIMMED` and drawn in shades of grey. The HUD's action bar, the power
+/// wheel and the action bar setup page all dim through here.
+pub fn dim(quads: &mut [Quad]) {
+    for quad in quads {
+        quad.color[3] *= DIMMED;
+        quad.grey = true;
+    }
+}
 
 /// A stack's count on its item's square (both games' item entries, in
 /// the screens' base colour): its font, and its box at the square's
@@ -88,8 +102,24 @@ const FLOW_BACK: &str = "uibit_abi_back";
 const FLOW_ARROW_IMAGE: &str = "uibit_abi_arrow";
 /// Both games' red (`CGuiInGame::COLOR_RED`): a feat that may not be
 /// taken (KOTOR 2's feat flow), an item the member may not wear (the equip
-/// list's `CSWGuiInGameItemEntry::SetCanUse`).
+/// list's `CSWGuiInGameItemEntry::SetCanUse`), a number items and effects
+/// lower (`bonus_colour`).
 const RED: [f32; 3] = [0.74, 0.11, 0.0];
+/// KOTOR 2's `CGuiInGame::COLOR_NEW_BONUS` and `COLOR_NEW_TEXT`.
+const NEW_BONUS: [f32; 3] = [0.95, 0.66, 0.3];
+const NEW_TEXT: [f32; 3] = [0.1, 0.7, 0.55];
+
+/// The colour KOTOR 2's character screens give a number that items and
+/// effects move by `bonus` (`CSWGuiInGameCharacter::SetLabelBonusPenaltyColour`,
+/// and the skills page's bonus). A raised number is gold, a lowered one
+/// red, and an unmoved one the screens' plain green.
+pub fn bonus_colour(bonus: i32) -> [f32; 3] {
+    match bonus {
+        1.. => NEW_BONUS,
+        0 => NEW_TEXT,
+        _ => RED,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
@@ -109,12 +139,31 @@ impl Palette {
         hilight: [0.768_627, 0.768_627, 0.686_275],
         disabled: [0.513_725, 0.513_725, 0.415_686],
     };
+
+    /// The colours of `game`'s own screens.
+    pub fn of(game: vfs::Game) -> Palette {
+        match game {
+            vfs::Game::Kotor2 => Palette::TSL,
+            _ => Palette::K1,
+        }
+    }
 }
 
 /// One list row.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Row {
     pub text: Vec<u8>,
+    /// An entry of KOTOR 2's talk table, read in place of `text` (an
+    /// options row's words).
+    pub told: Option<u32>,
+    /// A check box row's box is ticked (KOTOR 2's options lists).
+    pub checked: bool,
+    /// Drawn in the disabled colour, while it is still pointed at and
+    /// described: an option that kjk does not do yet.
+    pub greyed: bool,
+    /// Drawn without a check box's mark, in a list whose rows are check
+    /// boxes: an options row that steps a choice or opens a page.
+    pub unmarked: bool,
     pub icon: Option<String>,
     /// An image at the row's right end, as tall as the row and as wide as
     /// its own shape (a pad's buttons, `icons`).
@@ -128,9 +177,48 @@ pub struct Row {
     pub dimmed: bool,
     /// Drawn in red, chosen or not: an item the member may not wear.
     pub refused: bool,
+    /// KOTOR 2's minus and plus arrows at the row's two ends, as its stepped
+    /// options have them: an options row that steps a value down and up
+    /// (`arrow_at`).
+    pub arrows: bool,
     /// A chain's feats, left to right (KOTOR's feat flow), in place of the
     /// rest.
     pub cells: Vec<Cell>,
+}
+
+/// KOTOR 2's minus and plus arrows, the images its stepped options draw.
+const ARROW_IMAGES: [&str; 2] = ["uibit_arrowneg_p", "uibit_arrowpos_p"];
+/// The parts of a row with arrows that a pointer can be on
+/// (`arrow_at`): its minus arrow and its plus arrow. Anywhere else on the
+/// row is part 0.
+pub const ROW_MINUS: usize = 1;
+pub const ROW_PLUS: usize = 2;
+
+/// An arrow's side as a share of its row's height: KOTOR 2's 28 pixel
+/// arrows beside its 36 pixel stepped options.
+const ARROW: f32 = 28.0 / 36.0;
+
+/// Where a row's minus and plus arrows are drawn: squares at its left and
+/// right ends, centred on its height.
+fn arrow_rects(row: &Control) -> [[f32; 4]; 2] {
+    let [l, t, w, h] = rect_of(row);
+    let side = h * ARROW;
+    let top = t + (h - side) / 2.0;
+    [[l, top, side, side], [l + w - side, top, side, side]]
+}
+
+/// The part of a row with arrows under `x` (layout pixels): `ROW_MINUS`,
+/// `ROW_PLUS`, or 0 for the rest of the row.
+pub fn arrow_at(proto: &Control, x: f32) -> usize {
+    let [minus, plus] = arrow_rects(proto);
+    let inside = |rect: [f32; 4]| x >= rect[0] && x <= rect[0] + rect[2];
+    if inside(minus) {
+        ROW_MINUS
+    } else if inside(plus) {
+        ROW_PLUS
+    } else {
+        0
+    }
 }
 
 /// A feat in a chain row: its icon and where the character stands with it.
@@ -209,6 +297,14 @@ pub struct ControlState {
     /// The 3D view reaches the window's sides past the layout's, at the
     /// layout's scale (the main menu's smoke and mist across a wide window).
     pub wide: bool,
+    /// The size in layout pixels that the 3D view's image is made for, when
+    /// the control is drawn at another size (a growing class tile,
+    /// `Screen::grown`). The stack sets it. The image keeps this size, so
+    /// the view's scene is not read again while the control grows. The
+    /// image is shown scaled to the control's height and cut to its width,
+    /// which is what the same lens sees through a view of the control's
+    /// shape.
+    pub scene_size: Option<[f32; 2]>,
     /// A colour in place of the layout's: its text's, its border's, a
     /// bar's fill.
     pub tint: Option<[f32; 3]>,
@@ -224,6 +320,50 @@ pub struct ControlState {
     /// Its text and border in the disabled colour while it still takes a
     /// press (K1's map page's return button, refused: a press says why).
     pub greyed: bool,
+    /// A check box drawn with its words alone, without its mark
+    /// (`Row::unmarked`).
+    pub unmarked: bool,
+    /// Everything the control draws is in the disabled look (`dim`): faded
+    /// to the opacity `DIMMED` and in shades of grey. The HUD dims an action
+    /// bar slot that the character cannot use now.
+    pub dimmed: bool,
+}
+
+/// Whether a control shows words: the screen's, a strref's, or the
+/// layout's own. KOTOR 2 draws a toggle with words as a check box, its mark
+/// at the left of the words (`Painter::check_mark`), and one without words
+/// as a button whose picture fills it.
+fn worded(text: &fmt_odyssey::gui::Text, state: &ControlState) -> bool {
+    state.text.as_ref().is_some_and(|words| !words.is_empty())
+        || state.strref.is_some()
+        || text.strref.is_some()
+        || !text.text.is_empty()
+}
+
+/// A state's talk-table entry, its tokens filled in.
+fn told(textures: &dyn Textures, state: &ControlState) -> Option<Vec<u8>> {
+    let source = if state.skin_strref {
+        Source::Skin
+    } else {
+        Source::Campaign
+    };
+    let words = textures.text(source, state.strref?)?;
+    Some(fill_tokens(words, &state.tokens))
+}
+
+/// A list's words without rows (its text or its strref's), as one row
+/// fitted to them. The painter draws such a list this way, and the stack
+/// scrolls it by lines the same way.
+pub(crate) fn words_view(textures: &dyn Textures, state: &ControlState) -> Option<ListView> {
+    let words = state.text.clone().or_else(|| told(textures, state))?;
+    Some(ListView {
+        rows: vec![Row {
+            text: words,
+            ..Row::default()
+        }],
+        fit: true,
+        ..ListView::default()
+    })
 }
 
 pub struct Painter<'a> {
@@ -235,14 +375,15 @@ pub struct Painter<'a> {
     pub pulse: f32,
     /// A pulsing border's alpha, 1 to 0.4 and back (`Stack::pulsing`).
     pub pulsing: f32,
-    /// It painted a pulsing border: what it drew changes from frame to
-    /// frame however still what it shows is.
-    pub pulsed: bool,
+    /// The quads it painted at the pulsing alpha, as ranges of the draw
+    /// list's quads. A caller that keeps the list paints with `pulsing` at
+    /// 1 and multiplies these quads' alpha by the pulse of each frame.
+    pub pulses: Vec<std::ops::Range<usize>>,
     pub refusals: Vec<String>,
 }
 
 /// A texture name that means "none".
-fn none(name: &str) -> bool {
+pub(crate) fn none(name: &str) -> bool {
     name.is_empty() || name == "0"
 }
 
@@ -299,9 +440,15 @@ impl<'a> Painter<'a> {
             source: Source::Campaign,
             pulse: 1.0,
             pulsing: 1.0,
-            pulsed: false,
+            pulses: Vec::new(),
             refusals: Vec::new(),
         }
+    }
+
+    /// `border`'s dimension in layout pixels (`dimension`), at the
+    /// textures' sizing.
+    fn dimension(&self, border: &Border) -> f32 {
+        dimension(&*self.textures, border)
     }
 
     fn refuse(&mut self, why: String) {
@@ -322,7 +469,7 @@ impl<'a> Painter<'a> {
     }
 
     /// A layout colour as drawn: white when unset, recoloured with its art.
-    fn color(&self, color: Option<[f32; 3]>) -> [f32; 3] {
+    pub(crate) fn color(&self, color: Option<[f32; 3]>) -> [f32; 3] {
         let color = color.unwrap_or([1.0; 3]);
         if self.textures.recoloured(self.source) {
             skin::recolour_layout(color)
@@ -331,8 +478,14 @@ impl<'a> Painter<'a> {
         }
     }
 
+    /// The colour of the interface's lines and text for the layout being
+    /// drawn (`skin::interface_colour`).
+    pub fn interface_colour(&self) -> [f32; 3] {
+        skin::interface_colour(self.textures.recoloured(self.source))
+    }
+
     /// `name` (read from `source`) stretched over `rect`.
-    fn image(
+    pub(crate) fn image(
         &mut self,
         source: Source,
         name: &str,
@@ -368,7 +521,7 @@ impl<'a> Painter<'a> {
         let d = if border.edge.is_empty() && border.corner.is_empty() {
             0.0
         } else {
-            border.dimension.max(0) as f32
+            self.dimension(border)
         };
         let (source, fill, fill_tint) = match fill {
             Some(picture) => (Source::Campaign, picture, [1.0, 1.0, 1.0, tint[3]]),
@@ -435,15 +588,28 @@ impl<'a> Painter<'a> {
     /// The image `name` as large as fits `area` with its own shape,
     /// centred across it at its top (a pad's buttons over an action slot).
     pub fn badge(&mut self, name: &str, area: [f32; 4], out: &mut DrawList) {
+        self.image_in(name, area, true, out);
+    }
+
+    /// The image `name` as large as fits `area` with its own shape, at its
+    /// top left (a prompt's key before its words). Returns how wide it was
+    /// drawn (0 when there is no such image).
+    pub fn badge_left(&mut self, name: &str, area: [f32; 4], out: &mut DrawList) -> f32 {
+        self.image_in(name, area, false, out)
+    }
+
+    fn image_in(&mut self, name: &str, area: [f32; 4], centred: bool, out: &mut DrawList) -> f32 {
         let Some(id) = self.texture(Source::Campaign, name) else {
-            return;
+            return 0.0;
         };
         let [x, y, w, h] = area;
         let (iw, ih) = self.textures.size(id);
         let scale = (w / iw.max(1) as f32).min(h / ih.max(1) as f32);
         let (wide, tall) = (iw as f32 * scale, ih as f32 * scale);
-        let rect = [x + (w - wide) / 2.0, y, wide, tall];
-        out.quads.push(Quad::image(rect, id, [1.0; 4]));
+        let left = if centred { x + (w - wide) / 2.0 } else { x };
+        out.quads
+            .push(Quad::image([left, y, wide, tall], id, [1.0; 4]));
+        wide
     }
 
     /// The pad's `hints` along the bottom of a frame `w` × `h` wide (the
@@ -570,9 +736,9 @@ impl<'a> Painter<'a> {
             _ => t,
         };
         let clip = [l, t, w, h.max(pitch)];
-        // On whole window pixels: a font pixel is `text_scale` of a layout
-        // pixel.
-        let grain = self.textures.text_scale();
+        // On whole physical pixels of the display, as KOTOR 2 draws its
+        // text at the display's own resolution.
+        let grain = self.textures.sizing().pixel;
         let snap = |at: f32| (at / grain).round() * grain;
         for (row, line) in lines.iter().enumerate() {
             let width = font.measure(line);
@@ -599,7 +765,9 @@ impl<'a> Painter<'a> {
     }
 
     /// The words a control shows (`words`), the shorter ones in turn
-    /// (`ControlState::shorter`) where they wrap past its box.
+    /// (`ControlState::shorter`) where they wrap past its box. With shorter
+    /// words to offer, a word wider than the box is cut to fit, ending in a
+    /// full stop ("Cander."), rather than broken across two lines.
     pub fn shown_words(&mut self, control: &Control, state: &ControlState) -> Vec<u8> {
         let words = self.words(control, state);
         let (Some(text), false) = (&control.text, state.shorter.is_empty()) else {
@@ -613,19 +781,14 @@ impl<'a> Painter<'a> {
         let fits = |words: &[u8]| wrap(&font, words, width).len() <= lines;
         std::iter::once(words)
             .chain(state.shorter.iter().cloned())
+            .map(|words| cut_words(&font, &words, width))
             .reduce(|chosen, next| if fits(&chosen) { chosen } else { next })
             .unwrap_or(Vec::new())
     }
 
     /// The state's talk-table entry, its tokens filled in.
     fn told(&self, state: &ControlState) -> Option<Vec<u8>> {
-        let source = if state.skin_strref {
-            Source::Skin
-        } else {
-            Source::Campaign
-        };
-        let words = self.textures.text(source, state.strref?)?;
-        Some(fill_tokens(words, &state.tokens))
+        told(&*self.textures, state)
     }
 
     /// The words a control shows: the screen's, else its strref's, else
@@ -681,6 +844,7 @@ impl<'a> Painter<'a> {
             return;
         }
         let rect = rect_of(control);
+        let from = out.quads.len();
         let border = if control.kind == Kind::CheckBox {
             match (state.selected, state.focused) {
                 (true, true) => textured(&control.hilight_selected).or(textured(&control.selected)),
@@ -695,9 +859,11 @@ impl<'a> Painter<'a> {
                 .flatten()
                 .or(control.border.as_ref())
         };
-        self.pulsed |= state.pulsing;
         let alpha = if state.pulsing { self.pulsing } else { 1.0 };
-        if let Some(border) = border {
+        // The quads drawn at that alpha start here, when any is.
+        let mut pulses = state.pulsing.then_some(out.quads.len());
+        let marked = !(control.kind == Kind::CheckBox && state.unmarked);
+        if let Some(border) = border.filter(|_| marked) {
             let tint = if state.disabled || state.greyed {
                 self.palette.disabled
             } else if state.refused {
@@ -708,9 +874,12 @@ impl<'a> Painter<'a> {
             let mut border = border.clone();
             let (rect, tint) = match &control.text {
                 // KOTOR 2's mark is white art in its row's words' colour.
-                Some(text) if control.kind == Kind::CheckBox => {
+                // A toggle with no words (the HUD's weapon swap, solo and
+                // stealth buttons) is a picture over its whole box.
+                Some(text) if control.kind == Kind::CheckBox && worded(text, state) => {
                     border.color.get_or_insert([1.0; 3]);
                     let color = self.text_color(control, state, text.color);
+                    pulses = None;
                     (self.check_mark(&border, rect), color)
                 }
                 _ => (rect, rgba(tint, alpha)),
@@ -719,13 +888,28 @@ impl<'a> Painter<'a> {
         } else if let Some(fill) = &state.fill {
             self.image(Source::Campaign, fill, rect, rgba([1.0; 3], alpha), out);
         }
+        if let Some(first) = pulses.take().filter(|first| out.quads.len() > *first) {
+            self.pulses.push(first..out.quads.len());
+        }
         if let Some(texture) = state
             .scene
             .as_ref()
             .and_then(|view| self.textures.scene(view))
         {
+            let uv = match state.scene_size {
+                Some(size) => {
+                    out.sized.push((texture, size));
+                    // The share of the image's width that the control's
+                    // shape shows at the control's height, about its middle.
+                    let shown = (rect[2] * size[1] / (rect[3] * size[0]).max(1.0)).min(1.0);
+                    let left = (1.0 - shown) / 2.0;
+                    [left, 0.0, left + shown, 1.0]
+                }
+                None => [0.0, 0.0, 1.0, 1.0],
+            };
             out.quads.push(Quad {
                 texture,
+                uv,
                 ..Quad::solid(rect, [1.0; 4])
             });
             if state.wide {
@@ -747,8 +931,11 @@ impl<'a> Painter<'a> {
             let inner = control
                 .border
                 .as_ref()
-                .map_or(rect, |border| inner(rect, border));
+                .map_or(rect, |border| inner(rect, self.dimension(border)));
             self.text(&font, &words, inner, text.alignment, color, out);
+        }
+        if state.dimmed {
+            dim(&mut out.quads[from..]);
         }
     }
 
@@ -824,21 +1011,10 @@ impl<'a> Painter<'a> {
     }
 
     fn list(&mut self, list: &Control, state: &ControlState, out: &mut DrawList) {
-        // Words without rows (a strref): one row fitted to them.
         let told = state
             .list
             .is_none()
-            .then(|| {
-                let words = state.text.clone().or_else(|| self.told(state))?;
-                Some(ListView {
-                    rows: vec![Row {
-                        text: words,
-                        ..Row::default()
-                    }],
-                    fit: true,
-                    ..ListView::default()
-                })
-            })
+            .then(|| words_view(&*self.textures, state))
             .flatten();
         let (Some(proto), Some(view)) =
             (list.proto.as_deref(), state.list.as_ref().or(told.as_ref()))
@@ -911,19 +1087,38 @@ impl<'a> Painter<'a> {
                 height
             };
             top += placed.extent.height + list.padding;
+            // KOTOR 2 lights one row at most: the selected one, while its
+            // list has the focus (the cursor, which hover and keys move and
+            // the screen's selection follows); without the focus the row
+            // stays chosen but is drawn plain.
             let row_state = ControlState {
                 focused: view.focused == Some(index),
-                selected: view.selected == Some(index),
                 disabled: state.disabled,
-                text: Some(row.text.clone()),
+                selected: row.checked,
+                greyed: row.greyed,
+                unmarked: row.unmarked,
+                text: row.told.is_none().then(|| row.text.clone()),
+                strref: row.told,
+                skin_strref: row.told.is_some(),
                 refused: row.refused,
                 ..ControlState::default()
             };
             let start = out.quads.len();
             if row.cells.is_empty() {
                 self.row(&placed, row, &row_state, out);
+                if row.arrows {
+                    // KOTOR 2's own arrow colour, lit and greyed as the row.
+                    let tint = if row_state.focused || row.greyed {
+                        self.text_color(&placed, &row_state, None)
+                    } else {
+                        rgba(self.color(Some(crate::skin::TSL_LAYOUT.base)), 1.0)
+                    };
+                    for (name, rect) in ARROW_IMAGES.into_iter().zip(arrow_rects(&placed)) {
+                        self.image(self.source, name, rect, tint, out);
+                    }
+                }
             } else {
-                let chosen = row_state.selected.then_some(view.cell);
+                let chosen = (view.selected == Some(index)).then_some(view.cell);
                 let hover = view
                     .hover
                     .filter(|(at, _)| *at == index)
@@ -932,8 +1127,10 @@ impl<'a> Painter<'a> {
             }
             for quad in &mut out.quads[start..] {
                 quad.clip = Some(quad.clip.map_or(clip, |inner| intersect(inner, clip)));
+                // A dimmed row is only faded. The grey of `dim` is for
+                // disabled icons alone.
                 if row.dimmed {
-                    quad.color[3] *= 0.45;
+                    quad.color[3] *= DIMMED;
                 }
             }
         }
@@ -1228,12 +1425,11 @@ pub(crate) fn thumb_track(bar: &Control, count: usize, shown: usize) -> (f32, f3
     )
 }
 
-/// Where a bordered control's text goes (`CSWGuiBorder::GetInnerExtent`,
-/// TSL's exe): `rect` less the border's dimension on each side, along each
-/// axis that has room for it (more than half a dimension left), else the
-/// whole axis.
-fn inner(rect: [f32; 4], border: &Border) -> [f32; 4] {
-    let dim = border.dimension.max(0) as f32;
+/// Where a bordered control's text goes, as KOTOR 2's executable places
+/// it: `rect` less the border's dimension `dim` (layout pixels) on each
+/// side, along each axis that has room for it (more than half a dimension
+/// left), else the whole axis.
+fn inner(rect: [f32; 4], dim: f32) -> [f32; 4] {
     let axis = |start: f32, size: f32| {
         let rest = size - 2.0 * dim;
         if rest > 0.0 && rest >= dim / 2.0 {
@@ -1252,6 +1448,13 @@ fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     let right = (a[0] + a[2]).min(b[0] + b[2]);
     let bottom = (a[1] + a[3]).min(b[1] + b[3]);
     [left, top, (right - left).max(0.0), (bottom - top).max(0.0)]
+}
+
+/// `border`'s dimension in layout pixels. KOTOR 2 draws a border's corners
+/// and edges at its DIMENSION in physical pixels, and the textures' sizing
+/// says how many layout pixels a physical pixel is (`Sizing::pixel`).
+fn dimension(textures: &dyn Textures, border: &Border) -> f32 {
+    border.dimension.max(0) as f32 * textures.sizing().pixel
 }
 
 /// How tall a list's row is: its prototype's height, and in a fitted list
@@ -1277,7 +1480,7 @@ pub fn row_height(
     let [_, _, width, inner_height] = proto
         .border
         .as_ref()
-        .map_or(rect, |border| inner(rect, border));
+        .map_or(rect, |border| inner(rect, dimension(&*textures, border)));
     let lines = wrap(&font, text, width).len();
     let frame = rect[3] - inner_height;
     height.max((lines as f32 * font.line_height() + frame).ceil() as i32)
@@ -1299,6 +1502,29 @@ pub fn fill_tokens(mut words: Vec<u8>, tokens: &[(&'static str, Vec<u8>)]) -> Ve
         }
     }
     words
+}
+
+/// `bytes` with each word wider than `width` cut to its first letters and
+/// a full stop, as many as fit.
+pub fn cut_words(font: &asset_odyssey::font::Font, bytes: &[u8], width: f32) -> Vec<u8> {
+    let cut = |word: &[u8]| {
+        if font.measure(word) <= width {
+            return word.to_vec();
+        }
+        let mut kept = word.to_vec();
+        while kept.len() > 1 && font.measure(&kept) + font.advance(b'.') > width {
+            kept.pop();
+        }
+        kept.push(b'.');
+        kept
+    };
+    let lines: Vec<Vec<u8>> = (bytes.split(|&byte| byte == b'\n'))
+        .map(|line| {
+            let words: Vec<Vec<u8>> = line.split(|&byte| byte == b' ').map(cut).collect();
+            words.join(&b' ')
+        })
+        .collect();
+    lines.join(&b'\n')
 }
 
 /// `bytes` broken into lines no wider than `width`: on new lines, on

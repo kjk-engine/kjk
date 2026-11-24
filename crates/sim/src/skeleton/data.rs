@@ -98,6 +98,7 @@ pub enum SkeletonError {
     NoFrames,
     Keys { expected: usize, found: usize },
     Key { index: usize },
+    LentKeys { bones: usize, found: usize },
     Influences { hand: usize, vertex: usize },
     Motion,
     NotFinite(String),
@@ -120,6 +121,10 @@ impl fmt::Display for SkeletonError {
                 write!(f, "skeleton: {found} keys, expected {expected}")
             }
             SkeletonError::Key { index } => write!(f, "skeleton: key {index} past the pool"),
+            SkeletonError::LentKeys { bones, found } => write!(
+                f,
+                "skeleton: {found} lent keys, which is not whole frames of {bones} bones"
+            ),
             SkeletonError::Influences { hand, vertex } => write!(
                 f,
                 "skeleton: hand {hand} vertex {vertex} needs 1 to 4 influences on its bones"
@@ -145,6 +150,12 @@ pub struct SkeletonData {
     pub(super) chains: [Vec<u16>; 2],
     /// The `Motion` bone's, the same way.
     pub(super) motion_chain: Vec<u16>,
+    /// The skeleton's own frames. Frames past them are lent by stance sets
+    /// (`with_lent`).
+    own_frames: u32,
+    /// The pool entries the own frames' keys index. Lent entries follow
+    /// them.
+    own_pool: usize,
 }
 
 impl SkeletonData {
@@ -271,14 +282,51 @@ impl SkeletonData {
             torso_driven,
             chains,
             motion_chain,
+            own_frames: parts.frame_count,
+            own_pool: parts.pool.len(),
             parts,
         })
+    }
+
+    /// This skeleton with `keys` lent after its frames. The keys hold one
+    /// index into `pool` for each frame and bone (`keys[frame * bones +
+    /// bone]`), as the skeleton's own keys do. A stance set's sequences
+    /// play these frames. The digest leaves them out, so a level keeps its
+    /// digest.
+    pub fn with_lent(
+        mut self,
+        keys: Vec<u32>,
+        pool: Vec<[u16; 7]>,
+    ) -> Result<SkeletonData, SkeletonError> {
+        let bones = self.parts.bones.len();
+        if !keys.len().is_multiple_of(bones) {
+            return Err(SkeletonError::LentKeys {
+                bones,
+                found: keys.len(),
+            });
+        }
+        if let Some(index) = keys.iter().position(|&key| key as usize >= pool.len()) {
+            return Err(SkeletonError::Key {
+                index: self.parts.keys.len() + index,
+            });
+        }
+        let base = self.parts.pool.len() as u32;
+        self.parts.frame_count += (keys.len() / bones) as u32;
+        self.parts.keys.extend(keys.iter().map(|&key| base + key));
+        self.parts.pool.extend(pool);
+        Ok(self)
+    }
+
+    /// The skeleton's own frames, without the lent ones.
+    pub fn own_frame_count(&self) -> u32 {
+        self.own_frames
     }
 
     pub fn bones(&self) -> &[Bone] {
         &self.parts.bones
     }
 
+    /// The frames in all, the lent ones included.
     pub fn frame_count(&self) -> u32 {
         self.parts.frame_count
     }
@@ -319,8 +367,15 @@ impl SkeletonData {
         &self.parts.pool[self.parts.keys[frame * self.parts.bones.len() + bone] as usize]
     }
 
-    /// BLAKE3 of everything, as bits: two machines with the same digest
-    /// place blades the same.
+    /// A bone's compressed transform in a frame, as `key` reads it: frames
+    /// outside the data read frame 0.
+    pub fn transform(&self, frame: i32, bone: usize) -> [u16; 7] {
+        *self.key(frame, bone)
+    }
+
+    /// BLAKE3 of everything but the lent frames, as bits: two machines with
+    /// the same digest place blades the same. The lent frames are covered
+    /// by their stance sets' digests (`stance::set_digest`).
     pub fn digest(&self) -> [u8; 32] {
         let mut h = collision::Digester::new();
         let floats = |h: &mut collision::Digester, values: &mut dyn Iterator<Item = &f32>| {
@@ -343,12 +398,13 @@ impl SkeletonData {
                 &mut bone.base.iter().chain(&bone.base_inverse).flatten(),
             );
         }
-        h.update(&parts.frame_count.to_le_bytes());
-        for key in &parts.keys {
+        h.update(&self.own_frames.to_le_bytes());
+        let own_keys = self.own_frames as usize * parts.bones.len();
+        for key in &parts.keys[..own_keys] {
             h.update(&key.to_le_bytes());
         }
-        h.update(&(parts.pool.len() as u32).to_le_bytes());
-        for entry in &parts.pool {
+        h.update(&(self.own_pool as u32).to_le_bytes());
+        for entry in &parts.pool[..self.own_pool] {
             for value in entry {
                 h.update(&value.to_le_bytes());
             }

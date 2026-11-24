@@ -174,6 +174,7 @@ pub fn record(setup: &Setup, ticks: u64, file: &Path) -> ExitCode {
         run.last.clone(),
         Level::arena().id(),
         RECORD_EVERY,
+        run.world.stance_ids(),
     );
     for tick in 1..=ticks {
         let input = pilot(setup.pilot, tick, setup.world.seats);
@@ -220,19 +221,47 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
     // A recording made in a module replays in it, and in each module it
     // went to, planned here from its announcement.
     let mut installers = Installers::default();
-    let level = match installers.level_named(
-        discovery,
-        &recording.level,
-        recording.start.place.as_ref(),
-        recording.start.seats(),
-    ) {
-        Ok(level) => level,
-        Err(error) => {
-            eprintln!("{}: refused: {error}", file.display());
+    let staged = std::env::var("KJK_REPLAY_STAGE").ok().map(|name| {
+        let hostile: Vec<String> = std::env::var("KJK_REPLAY_HOSTILE")
+            .map(|h| h.split(',').filter(|s| !s.is_empty()).map(String::from).collect())
+            .unwrap_or(Vec::new());
+        let anims = std::sync::Arc::new(kjk_game::stage::anims(discovery).0);
+        let players = recording.start.place.as_ref().map_or(1, |place| place.players);
+        kjk_game::stage::Stage::named(
+            discovery,
+            &name,
+            None,
+            anims,
+            true,
+            recording.start.seats(),
+            players,
+        )
+        .map(|stage| stage.with_factions(&hostile, &[]).level)
+    });
+    let level = match staged {
+        Some(Ok(level)) => level,
+        Some(Err(error)) => {
+            eprintln!("stage: {error}");
             return ExitCode::FAILURE;
         }
+        None => match installers.level_named(
+            discovery,
+            &recording.level,
+            recording.start.place.as_ref(),
+            recording.start.seats(),
+        ) {
+            Ok(level) => level,
+            Err(error) => {
+                eprintln!("{}: refused: {error}", file.display());
+                return ExitCode::FAILURE;
+            }
+        },
     };
     let mut seats = BTreeMap::new();
+    let mut times: Option<(String, Vec<(u64, u128)>)> = std::env::var("KJK_REPLAY_TIMES")
+        .ok()
+        .map(|path| (path, Vec::with_capacity(recording.ticks.len())));
+    let mut stepped = Instant::now();
     let result = recording.play_watched(
         &level,
         &mut |announcement| {
@@ -240,8 +269,23 @@ pub fn replay(discovery: &vfs::Discovery, file: &Path) -> ExitCode {
                 .get(discovery, &announcement.game)?
                 .level_for(announcement)
         },
-        &mut |snapshot| watch_seats(&mut seats, snapshot),
+        &mut |snapshot| {
+            if let Some((_, times)) = &mut times {
+                times.push((snapshot.tick, stepped.elapsed().as_micros()));
+            }
+            watch_seats(&mut seats, snapshot);
+            stepped = Instant::now();
+        },
     );
+    if let Some((path, times)) = &times {
+        let lines: String = times
+            .iter()
+            .map(|(tick, us)| format!("{tick} {us}\n"))
+            .collect();
+        if let Err(error) = std::fs::write(path, lines) {
+            eprintln!("{path}: {error}");
+        }
+    }
     let seconds = started.elapsed().as_secs_f64();
     let ticks = recording.ticks.len();
     let commands: usize = recording.ticks.iter().map(|tick| tick.input.len()).sum();
@@ -371,7 +415,8 @@ fn watch_seats(seats: &mut BTreeMap<u8, Seen>, snapshot: &sim::Snapshot) {
             (force.jumping, "force jump"),
             (shooting.charging_from.is_some(), "Power Blast charge"),
             (shooting.burst > 0, "Rapid Shot burst"),
-            (shooting.aiming, "Sniper Shot aim"),
+            (shooting.aiming, "Aim"),
+            (shooting.steadying, "Sniper Shot steady"),
             (fighter.saber.in_special(), "saber special"),
         ];
         seen.seen.extend(
@@ -405,6 +450,7 @@ pub fn save(setup: &Setup, ticks: u64, then: u64, file: &Path) -> ExitCode {
         level: Level::arena().id(),
         snapshot: run.last.clone(),
         script: ScriptVmState::default(),
+        stances: run.world.stance_ids(),
     };
     let bytes = save.encode();
     if let Err(error) = std::fs::write(file, &bytes) {
@@ -441,7 +487,8 @@ pub(crate) use crate::levels::Installers;
 /// What `kjk sim view --replay` runs a recording in: its own level, the
 /// world at its start, and, when it is in a module or installs any, what
 /// plans each module it went to (checked against the recording's
-/// announcements as it replays).
+/// announcements as it replays). A recording whose stance sets the level
+/// does not play exactly is refused (`Recording::check_stances`).
 pub fn replay_setup(
     discovery: &vfs::Discovery,
     recording: &Recording,
@@ -453,6 +500,9 @@ pub fn replay_setup(
         recording.start.place.as_ref(),
         recording.start.seats(),
     )?;
+    recording
+        .check_stances(&level)
+        .map_err(|error| error.to_string())?;
     let game = recording
         .start
         .place
@@ -517,7 +567,7 @@ pub fn load(
             return ExitCode::FAILURE;
         }
     };
-    let mut run = match SimWorld::from_snapshot(&save.snapshot, level) {
+    let mut run = match save.world_as_saved(level) {
         Ok(world) => Run {
             world,
             rate,

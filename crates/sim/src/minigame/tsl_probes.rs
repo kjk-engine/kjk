@@ -1,7 +1,8 @@
 //! TSL's own minigame rules on courses of our own making, no game files
 //! (`kjk sim probes "minigame tsl"`), with its executable's numbers:
 //! - the swoop's keys: fire raises `OnAccelerate` where the player has
-//!   one (else `OnFire`, K1's and the turret's), jump raises `OnBrake`;
+//!   one (else `OnFire`, K1's and the turret's), jump raises `OnBrake`
+//!   where the swoop has one (else K1's gear shift, as fire does);
 //! - the jump: 30 m/s up, `JUMP_GRAVITY` down, held in the tunnel: about
 //!   9.8 m high and down again in about 1.31 s; none in K1's races;
 //!   `SWMG_PlayerApplyForce`;
@@ -184,8 +185,10 @@ fn on(raised: &[Raised], who: usize) -> Vec<Hook> {
 }
 
 /// Fire pressed then jump pressed: a TSL race's player raises
-/// `OnAccelerate` and `OnBrake`; one without `OnAccelerate` (K1's race)
-/// `OnFire`; the turret `OnFire`, never `OnBrake`.
+/// `OnAccelerate` and `OnBrake`. A swoop with neither hook (K1's race)
+/// raises `OnFire` for each press, because KOTOR shifts gears on its jump
+/// key (Space) as well as on the mouse button. The turret raises `OnFire`
+/// for the fire press alone.
 fn keys() -> Result<String, String> {
     let jump = Command {
         up: 127,
@@ -209,7 +212,7 @@ fn keys() -> Result<String, String> {
     turret.kind = Kind::Turret;
     let (a, b, c) = (pressed(&tsl), pressed(&k1), pressed(&turret));
     check(
-        a == [Hook::Accelerate, Hook::Brake] && b == [Hook::Fire] && c == [Hook::Fire],
+        a == [Hook::Accelerate, Hook::Brake] && b == [Hook::Fire, Hook::Fire] && c == [Hook::Fire],
         format!("TSL race {a:?}, K1 race {b:?}, turret {c:?}"),
     )
 }
@@ -312,9 +315,9 @@ fn one_hook() -> Result<String, String> {
     )
 }
 
-/// An obstacle 5 m under the track and 2 m across from it: a TSL race's
-/// player passes over and beside it (its middle never in the box); K1's
-/// meets it across the ground, its sphere within reach of the box.
+/// An obstacle 5 m under the track and 2 m across from it: the player
+/// passes over and beside it (its middle never in the box), in a TSL race
+/// and in K1's alike (both executables trace the player's middle).
 fn obstacle_heights() -> Result<String, String> {
     let met = |tsl: bool| {
         let mut rules = race(tsl);
@@ -330,7 +333,7 @@ fn obstacle_heights() -> Result<String, String> {
     };
     let (tsl, k1) = (met(true), met(false));
     check(
-        tsl == 0 && k1 == 2,
+        tsl == 0 && k1 == 0,
         format!("TSL's race meets {tsl}, K1's {k1}"),
     )
 }

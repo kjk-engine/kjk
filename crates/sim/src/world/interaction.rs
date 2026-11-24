@@ -21,8 +21,9 @@ pub(super) const FLOOR_SEARCH_M: f32 = 100.0;
 /// - a seat's `Action::Use` is checked (the player up; `uses::applies`:
 ///   a verb the object takes; `uses::may_use`: within reach, in sight) and then means what the use key means; a door
 ///   is not closed on anyone standing in it;
-/// - running into a door that leads out and is not locked asks for the
-///   transition, every step it runs into it;
+/// - running into a closed door that leads out asks for nothing: KOTOR
+///   leaves by such a door only when it is used, so the player can walk
+///   up to it;
 /// - standing in an open door's doorway (`in_doorway`) or in a trigger
 ///   (`ObjectData::contains`: over its outline, on its floor) makes the
 ///   seat a tenant; entering one that leads out asks for the transition,
@@ -38,7 +39,6 @@ pub(super) fn interact(
     clock: Res<Clock>,
     inputs: Res<Inputs>,
     level: Res<Static>,
-    touched: Res<Touched>,
     bumped: Res<Bumped>,
     mut module: ResMut<Module>,
     (mut opened, mut used, mut asked): (
@@ -339,25 +339,6 @@ pub(super) fn interact(
                 uses::Outcome::Leave(link) => asks.push(ask(id, &link, seat, None)),
                 uses::Outcome::Locked => opened.0.push((id.0, Some(who.0), false)),
                 uses::Outcome::Done => {}
-            }
-        }
-        // Doors run into.
-        if let Some((_, touches)) = touched.0.iter().find(|(s, _)| *s == seat) {
-            for &entity in touches {
-                let Some(at) = find(&objects, entity) else {
-                    continue;
-                };
-                let (id, object) = &objects[at];
-                if object.kind != ObjectKind::Door {
-                    continue;
-                }
-                let exit = object
-                    .facts
-                    .as_ref()
-                    .and_then(|facts| facts.exit().filter(|_| !object.state.locked(facts.opens)));
-                if let Some(link) = exit {
-                    asks.push(ask(id, link, seat, None));
-                }
             }
         }
         let bit = party::bit(seat);
@@ -670,6 +651,19 @@ fn key_use_from(
 /// touches).
 pub(crate) fn in_doorway(level: &Level, index: u32, origin: [f32; 3], maxs_z: f32) -> bool {
     near_door(level, index, origin, maxs_z, 1.0)
+}
+
+/// Each door is in the list exactly when `near_door` with no margin finds it.
+/// The doors come lowest first.
+pub(crate) fn near_doors(level: &Level, origin: [f32; 3], maxs_z: f32) -> Vec<u32> {
+    let Some(built) = level.collision.level() else {
+        return Vec::new();
+    };
+    let extents = motion::body_box(maxs_z);
+    let door = |index: u32| {
+        (level.placed().get(index as usize)).is_some_and(|object| object.kind == ObjectKind::Door)
+    };
+    built.entities_overlapping(door, 0, scale(origin, UNIT), &extents, Contents::SOLID)
 }
 
 /// Whether a player at `origin` (units) standing `maxs_z` tall is within

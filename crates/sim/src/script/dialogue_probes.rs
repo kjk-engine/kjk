@@ -139,7 +139,7 @@ fn dlg() -> Check {
         && read.alien_race(&read.replies[1]) == Some(24)
         && read.old_hit_check
         && !read.unequip_items
-        && !read.unequip_held
+        && !read.unequip_headgear
         && read.replies[1].delay == Some(2)
         && read.replies[0].is_silent()
         && !read.replies[1].is_silent()
@@ -531,14 +531,16 @@ fn table(lines: &[Option<&[u8]>]) -> std::sync::Arc<fmt_odyssey::tlk::Tlk> {
     std::sync::Arc::new(fmt_odyssey::tlk::Tlk {
         language: 0,
         entries,
+        lent: Default::default(),
     })
 }
 
 /// A level's digest holds the talk-table lines its scripts may read, as
-/// they read them: two tables differing only in lines no script names
-/// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
-/// make the same digest; a line a script names, changed (a blank kept as
-/// spaces or as no text among them), moves it, and reads as stored.
+/// they read them. Two tables that differ only in a line no script names
+/// make the same digest, as Aspyr's Mac K1 table and the Windows one do in
+/// the anti-aliasing option's description. A line a script names, made
+/// blank or renamed, moves the digest. A line a script names reads as
+/// stored.
 fn used_lines() -> Check {
     use fmt_odyssey::ncs::{Const, Instruction, Ncs, Op};
     let script = Ncs {
@@ -560,24 +562,27 @@ fn used_lines() -> Check {
             crate::probe::library("", [("reads", script.clone())]).with_talk(table(lines));
         (library.digest(), library.text(2))
     };
-    let windows = digest(&[
-        Some(b"menu, 8 samples"),
-        Some(b"x"),
-        Some(b"  "),
+    let with = |second: &'static [u8], third: &'static [u8]| {
+        digest(&[
+            Some(b"menu, 8 samples"),
+            Some(b"x"),
+            Some(second),
+            Some(third),
+        ])
+    };
+    let windows = with(b"Carth", b"Trask");
+    let mac = digest(&[
+        Some(b"menu, 6 samples"),
+        None,
+        Some(b"Carth"),
         Some(b"Trask"),
     ]);
-    let mac = digest(&[Some(b"menu, 6 samples"), None, Some(b"  "), Some(b"Trask")]);
-    let blank = digest(&[Some(b"menu, 8 samples"), Some(b"x"), None, Some(b"Trask")]);
-    let renamed = digest(&[
-        Some(b"menu, 8 samples"),
-        Some(b"x"),
-        Some(b"  "),
-        Some(b"Carth"),
-    ]);
+    let blank = with(b"  ", b"Trask");
+    let renamed = with(b"Carth", b"Bastila");
     let moved = blank.0 != windows.0 && renamed.0 != windows.0;
     check(
         "talk_lines",
-        windows == mac && moved && windows.1.as_deref() == Some("  "),
+        windows == mac && moved && windows.1.as_deref() == Some("Carth"),
         format!(
             "unused lines alike: {}; a named line, blank or renamed, moves it: {moved}; \
              read as {:?}",
@@ -587,7 +592,137 @@ fn used_lines() -> Check {
     )
 }
 
-/// The talk-table lines a level's digest holds (`talk_lines_digest`).
+/// A blank talk-table line reads as no line (`script::talk_line`). Aspyr's
+/// Windows K1 table holds 46 lines of one to five spaces where the Mac
+/// table has no text, and conversations on Taris and the Leviathan read
+/// some of them. A conversation's entry reads line 1, and a script names
+/// line 2. Three tables give those two lines spaces, no text, and empty
+/// text. All three make the same digest and the same game-text digest.
+/// Each line reads as no line, and the entry says nothing.
+fn blank_lines() -> Check {
+    use fmt_odyssey::ncs::{Const, Instruction, Ncs, Op};
+    let script = Ncs {
+        code: vec![
+            Instruction {
+                offset: 13,
+                op: Op::Const(Const::Int(2)),
+            },
+            Instruction {
+                offset: 19,
+                op: Op::Retn,
+            },
+        ],
+    };
+    let mut dlg = talking(1, "reads");
+    dlg.entries[0].text = LocString {
+        strref: 1,
+        strings: Vec::new(),
+    };
+    let read = |lines: &[Option<&[u8]>]| {
+        let library = crate::probe::library("", [("reads", script.clone())])
+            .with_dialogues([("blank".to_string(), dlg.clone())].into(), BTreeMap::new())
+            .with_talk(table(lines));
+        (
+            library.digest(),
+            library.digests().text,
+            [library.text(1), library.text(2)],
+            super::dialogue::says_nothing(&library, &dlg.entries[0]),
+        )
+    };
+    let windows = read(&[Some(b"menu"), Some(b"  "), Some(b"     ")]);
+    let mac = read(&[Some(b"menu"), None, None]);
+    let empty = read(&[Some(b"menu"), Some(b""), Some(b"")]);
+    let alike = windows == mac && mac == empty;
+    check(
+        "blank_lines",
+        alike && windows.2 == [None, None] && windows.3,
+        format!(
+            "spaces, no text and empty text read alike: {alike}; read as {:?}; the entry \
+             says nothing: {}",
+            windows.2, windows.3
+        ),
+    )
+}
+
+/// What a guest is told when its script library is not the host's
+/// (`install::same_scripts`). A library with other voice lengths names the
+/// voice folders. One with another line of game text names `dialog.tlk`.
+/// One with another script names neither file. The announcement carries
+/// the three digests to the guest.
+fn named_difference() -> Check {
+    use crate::install::{Mismatch, same_scripts};
+    use fmt_odyssey::ncs::{Const, Instruction, Ncs, Op};
+    let library = |strref: i32, line: &[u8], ms: u32| {
+        let script = Ncs {
+            code: vec![
+                Instruction {
+                    offset: 13,
+                    op: Op::Const(Const::Int(strref)),
+                },
+                Instruction {
+                    offset: 19,
+                    op: Op::Retn,
+                },
+            ],
+        };
+        crate::probe::library("", [("reads", script)])
+            .with_dialogues(
+                [("hello".to_string(), talking(1, "reads"))].into(),
+                [("hello001".to_string(), ms)].into(),
+            )
+            .with_talk(table(&[Some(b"menu"), Some(line), Some(b"other")]))
+            .digests()
+    };
+    let host = library(1, b"Trask", 900);
+    let told = |here| same_scripts("tar_m02ae", Some(host), here);
+    let said = |told: &Result<(), Mismatch>| told.clone().map_err(|told| told.to_string());
+    let voices = told(Some(library(1, b"Trask", 1200)));
+    let text = told(Some(library(1, b"Carth", 900)));
+    let scripts = told(Some(library(2, b"Trask", 900)));
+    let named = |told: &Result<(), Mismatch>, words: &[&str]| {
+        said(told).is_err_and(|said| {
+            said.contains("tar_m02ae") && words.iter().all(|word| said.contains(word))
+        })
+    };
+    let kinds = matches!(voices, Err(Mismatch::Voices { .. }))
+        && matches!(text, Err(Mismatch::Text { .. }))
+        && matches!(scripts, Err(Mismatch::Scripts { .. }))
+        && matches!(told(None), Err(Mismatch::Scripts { .. }))
+        && told(Some(library(1, b"Trask", 900))).is_ok();
+    let words = named(&voices, &["streamwaves", "streamvoice"])
+        && named(&text, &["dialog.tlk"])
+        && named(&scripts, &["scripts"]);
+    let announced = crate::install::Announcement {
+        game: "k1".into(),
+        module: "tar_m02ae".into(),
+        arrival: String::new(),
+        tick: 7,
+        seats: 2,
+        players: 2,
+        digests: crate::world::Digests {
+            module: [1; 32],
+            collision: "c".into(),
+            anims: [2; 32],
+            nav: None,
+            scripts: Some(Box::new(host)),
+        },
+        after: crate::snapshot::SnapshotHash([3; 32]),
+    };
+    let carried =
+        crate::install::Announcement::decode(&announced.encode()).ok() == Some(announced.clone());
+    check(
+        "named_difference",
+        kinds && words && carried,
+        format!(
+            "each difference its own kind: {kinds}; each names its files: {words}; the \
+             announcement carries the digests: {carried}; voices: {:?}",
+            said(&voices)
+        ),
+    )
+}
+
+/// The talk-table lines a level's digest holds (`talk_lines_digest`), and
+/// what a guest is told when its library is not the host's.
 pub fn talk() -> Vec<Check> {
-    vec![used_lines()]
+    vec![used_lines(), named_difference(), blank_lines()]
 }

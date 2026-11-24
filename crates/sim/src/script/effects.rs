@@ -13,8 +13,8 @@
 //! C17), death as a killing one, heals and FP at once; a modifier for its
 //! duration in one of the character's lasting slots
 //! (`combat::effects::Lasting`, folded into its sheet); a hold (stun,
-//! paralysis, fear, ...) as C11's (`ja::STUN_MS` at most, then immune `ja::IMMUNE_MS`; fear
-//! ends on damage) unless an immunity keeps it off, what is linked to it
+//! paralysis, fear, ...) as C11's (its own time, a save each round, then
+//! immune `ja::IMMUNE_MS`; fear ends on damage) unless an immunity keeps it off, what is linked to it
 //! showing only while it holds; a KOTOR state (TSL's
 //! cutscene holds, Force Crush's, a mind trick, ...) in a lasting slot for
 //! its whole time (`combat::effects::state`). Visual effects change
@@ -30,9 +30,15 @@ use crate::wire::{DecodeError, Reader, Writer};
 /// (`IMMUNITY_TYPE_*`), and whether it is fear (ends on damage). A droid's
 /// stun (`EffectDroidStun`, made for droids) has none: a droid's immunity
 /// to the mind's effects does not keep it off. A whirlwind
-/// (`EffectWhirlWind`) holds as a stun does; the views spin its victim. A
+/// (`EffectWhirlWind`) holds as a stun does, and the views spin its victim.
+/// No immunity and no Force Immunity feat keeps a whirlwind off. The
+/// executable makes it state 10 (`combat::effects::state::WHIRLWIND`), and
+/// that state's link has no immunities (`state::link_immunities`). A
 /// choke (`EffectChoke`, the gas traps') only its link's immunities keep
-/// off, and it has none.
+/// off, and it has none. Covering the ears (`Ears`) is the hold of a
+/// failed save against Force Scream (`ForceState::cover_ears`). No
+/// immunity keeps it off, since the save already decided it. It stands for
+/// a stun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Hold {
     #[default]
@@ -43,17 +49,18 @@ pub enum Hold {
     DroidStun,
     Whirlwind,
     Choke,
+    Ears,
 }
 
 impl Hold {
     pub fn immunity(self) -> Option<u8> {
         use crate::combat::force::crowd::immunity;
         match self {
-            Hold::Stun | Hold::Whirlwind => Some(immunity::STUN),
+            Hold::Stun => Some(immunity::STUN),
             Hold::Paralyze => Some(immunity::PARALYSIS),
             Hold::Fear => Some(immunity::FEAR),
             Hold::Sleep => Some(immunity::SLEEP),
-            Hold::DroidStun | Hold::Choke => None,
+            Hold::DroidStun | Hold::Whirlwind | Hold::Choke | Hold::Ears => None,
         }
     }
 
@@ -61,10 +68,10 @@ impl Hold {
     pub fn feat(self) -> Option<u16> {
         use crate::combat::sheet::feats;
         match self {
-            Hold::Stun | Hold::Whirlwind => Some(feats::FORCE_IMMUNITY_STUN),
+            Hold::Stun => Some(feats::FORCE_IMMUNITY_STUN),
             Hold::Paralyze => Some(feats::FORCE_IMMUNITY_PARALYSIS),
             Hold::Fear => Some(feats::FORCE_IMMUNITY_FEAR),
-            Hold::Sleep | Hold::DroidStun | Hold::Choke => None,
+            Hold::Sleep | Hold::DroidStun | Hold::Whirlwind | Hold::Choke | Hold::Ears => None,
         }
     }
 
@@ -75,7 +82,7 @@ impl Hold {
     pub fn state(self) -> u8 {
         use crate::combat::effects::state;
         match self {
-            Hold::Stun => state::STUNNED,
+            Hold::Stun | Hold::Ears => state::STUNNED,
             Hold::Paralyze => state::PARALYZED,
             Hold::Fear => state::HORRIFIED,
             Hold::Sleep => state::SLEEP,
@@ -85,7 +92,7 @@ impl Hold {
         }
     }
 
-    const ALL: [Hold; 7] = [
+    const ALL: [Hold; 8] = [
         Hold::Stun,
         Hold::Paralyze,
         Hold::Fear,
@@ -93,6 +100,7 @@ impl Hold {
         Hold::DroidStun,
         Hold::Whirlwind,
         Hold::Choke,
+        Hold::Ears,
     ];
 
     /// Its byte in a character's Force state (`ForceState::hold`): a stun
@@ -106,6 +114,7 @@ impl Hold {
             Hold::DroidStun => 4,
             Hold::Whirlwind => 5,
             Hold::Choke => 6,
+            Hold::Ears => 7,
         }
     }
 
@@ -118,6 +127,7 @@ impl Hold {
             Hold::DroidStun,
             Hold::Whirlwind,
             Hold::Choke,
+            Hold::Ears,
         ]
         .get(usize::from(code))
         .copied()
@@ -167,8 +177,9 @@ pub enum Effect {
         vulnerable: u16,
         resist: u16,
     },
-    /// A downed party member up again (`EffectResurrection`).
-    Resurrection,
+    /// A downed party member up again (`EffectResurrection`), with its share
+    /// of its most HP (`0..=100`; 0 for `falls::RISE_HP`).
+    Resurrection(u8),
     /// A poison's course (`EffectPoison`, a `poison.2da` row's).
     Poison(crate::combat::items::Course),
     /// Thrown back and knocked down, away from `from` (metres;
@@ -233,7 +244,7 @@ impl Effect {
             Effect::Hold(hold) => format!("Effect{hold:?}"),
             Effect::State { state, .. } => format!("a state ({state})"),
             Effect::Shield { .. } => "EffectForceShield".into(),
-            Effect::Resurrection => "EffectResurrection".into(),
+            Effect::Resurrection(_) => "EffectResurrection".into(),
             Effect::Poison(_) => "EffectPoison".into(),
             Effect::Pushed { from: Some(_) } => "EffectForcePushTargeted".into(),
             Effect::Pushed { from: None } => "EffectForcePushed".into(),
@@ -316,7 +327,11 @@ impl Effect {
                 out.u16(*vulnerable);
                 out.u16(*resist);
             }
-            Effect::Resurrection => out.u8(12),
+            Effect::Resurrection(0) => out.u8(12),
+            Effect::Resurrection(percent) => {
+                out.u8(19);
+                out.u8(*percent);
+            }
             Effect::Knockdown => out.u8(17),
             Effect::Ints {
                 modifies,
@@ -406,7 +421,8 @@ impl Effect {
                     resist,
                 }
             }
-            12 => Effect::Resurrection,
+            12 => Effect::Resurrection(0),
+            19 => Effect::Resurrection(input.u8()?.min(100)),
             17 => Effect::Knockdown,
             18 => Effect::Ints {
                 modifies: Modifies::of_index(input.u8()?)
@@ -446,6 +462,13 @@ pub struct Applied {
     pub id: u32,
     /// Where it was put (metres; `ApplyEffectAtLocation`), if at a place.
     pub at: Option<[f32; 3]>,
+    /// The save its target last failed against its creator in the script
+    /// run that applied it, for a hold's roll each round (C11).
+    pub save: Option<crate::combat::force::HoldSave>,
+    /// Whether a mine that a character laid applied it. Its `by` is then
+    /// that character, and its damage is that character's attack, which the
+    /// options' damage multipliers scale.
+    pub laid: bool,
 }
 
 impl Applied {
@@ -500,6 +523,13 @@ impl Applied {
         for v in self.at.unwrap_or([0.0; 3]) {
             out.f32(v);
         }
+        let save = self
+            .save
+            .unwrap_or(crate::combat::force::HoldSave { index: 0, dc: 0 });
+        out.u8(u8::from(self.save.is_some()));
+        out.u8(save.index);
+        out.u32(save.dc as u32);
+        out.u8(u8::from(self.laid));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Applied, DecodeError> {
@@ -520,6 +550,17 @@ impl Applied {
                 let at = [input.f32()?, input.f32()?, input.f32()?];
                 placed.then_some(at)
             },
+            save: if input.since(crate::since::save::FEAT_STUN_SAVES) {
+                let failed = input.u8()? != 0;
+                let save = crate::combat::force::HoldSave {
+                    index: input.u8()?,
+                    dc: input.u32()? as i32,
+                };
+                failed.then_some(save)
+            } else {
+                None
+            },
+            laid: input.since(crate::since::save::FIX_WEAPONS_MINES_2026_11_20) && input.u8()? != 0,
         })
     }
 }
@@ -751,6 +792,8 @@ impl Strike {
             spell: Applied::BLOW,
             id: 0,
             at: None,
+            save: None,
+            laid: false,
         }
     }
 }

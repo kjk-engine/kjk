@@ -4,19 +4,26 @@
 //! `docs/COMBAT.md`, C7, C8). One
 //! choice is kept for each gun type, for two blades and for a double-bladed
 //! weapon, and the next-feat key (`Action::NextFeat`) moves on the one the
-//! weapon in hand uses; a creature's script chooses by its talent
-//! (`Picks::choose`).
+//! weapon in hand uses. A feat attack on the action bar chooses its own
+//! line, or turns it off (`Action::Feat`, `Picks::set`). A creature's script
+//! chooses by its talent (`Picks::choose`).
 //!
-//! - A gun's alternate fire takes the chosen line (`Special::of`), its own
-//!   line until one is chosen, and the cycle goes round the lines it knows.
+//! - A gun's alternate fire takes the chosen line (`Special::of`). Until one
+//!   is chosen, it takes the first line the character knows. The cycle goes
+//!   round the lines the character knows.
 //! - Two blades or a double-bladed weapon carry the chosen melee line on
 //!   every hit (`Kit::swing`), none until one is chosen, without changing
 //!   their moves.
 //! - A single blade has no choice: its style is its feat (`Kit::swing`).
+//! - Fists and a stun baton carry the chosen melee line on every blow
+//!   (`Kit::carry`), none until one is chosen. Both games' action menus
+//!   offer the melee feats for any attack that is not a ranged weapon's,
+//!   with nothing in hand too.
 //!
 //! Kept beside a sheet rather than in `Sheet::encode`, which module packs
 //! share: a template never has a choice.
 
+use crate::combat::bar::FeatLine;
 use crate::combat::items::{self, Carried, KINDS, Shelf, Use};
 use crate::combat::saber::{Held, Kit, Style};
 use crate::combat::sheet::{Blaster, Sheet, feats};
@@ -46,7 +53,7 @@ impl Melee {
             Melee::None => &[],
             Melee::Power => &feats::POWER_ATTACK,
             Melee::Critical => &feats::CRITICAL_STRIKE,
-            Melee::Flurry => &feats::FLURRY,
+            Melee::Flurry => &feats::FLURRY_RANKS,
         }
     }
 
@@ -56,7 +63,7 @@ impl Melee {
             .iter()
             .rev()
             .copied()
-            .find(|row| sheet.feats.has(*row))
+            .find(|row| sheet.knows(*row))
     }
 
     fn from_code(code: u8) -> Option<Melee> {
@@ -75,19 +82,29 @@ impl Melee {
 enum Slot {
     Gun(Blaster),
     Blades(usize),
+    /// Fists or a stun baton.
+    Hands,
 }
 
 fn slot(sheet: &Sheet, hand: u8) -> Option<Slot> {
     let kit = Kit::of(sheet);
     match kit.held(hand) {
-        Held::Blaster(blaster) => Some(Slot::Gun(blaster)),
+        Held::Blaster(gun) => Some(Slot::Gun(gun.blaster)),
         Held::Blade(_) => match kit.forced_style(hand)? {
             Style::Dual => Some(Slot::Blades(0)),
             Style::Staff => Some(Slot::Blades(1)),
             _ => None,
         },
-        _ => None,
+        Held::Other => Some(Slot::Hands),
+        Held::Nothing => None,
     }
+}
+
+/// Whether the weapon in `hand` chooses among the melee feat lines
+/// (`Some(true)`) or among the gun lines (`Some(false)`). A single blade
+/// has no choice (`None`).
+pub(crate) fn chooses_melee(sheet: &Sheet, hand: u8) -> Option<bool> {
+    slot(sheet, hand).map(|slot| !matches!(slot, Slot::Gun(_)))
 }
 
 /// What the weapon in a hand carries now, for the HUD.
@@ -106,6 +123,8 @@ pub struct Picks {
     guns: [u8; GUNS],
     /// Two blades', then a double-bladed weapon's.
     blades: [Melee; 2],
+    /// Fists' and a stun baton's.
+    hands: Melee,
     /// The `spells.2da` row of the kind each key uses (by `Shelf`), none for
     /// what it uses by itself.
     items: [Option<u16>; Shelf::ALL.len()],
@@ -125,14 +144,33 @@ impl Picks {
         self.blades
     }
 
+    /// The line fists and a stun baton carry (`world::strikes`).
+    pub fn hands(&self) -> Melee {
+        self.hands
+    }
+
+    /// The melee line kept for `slot`, if it keeps one.
+    fn melee(&mut self, slot: Slot) -> Option<&mut Melee> {
+        match slot {
+            Slot::Blades(at) => self.blades.get_mut(at),
+            Slot::Hands => Some(&mut self.hands),
+            Slot::Gun(_) => None,
+        }
+    }
+
     /// The kind picked for `shelf`.
     pub fn item(&self, shelf: Shelf) -> Option<u16> {
         self.items[shelf as usize]
     }
 
-    /// The kind of `row` picked for its key; which key, if a key takes it.
-    pub fn pick_item(&mut self, row: u16) -> Option<Shelf> {
-        let shelf = items::use_of(row)?.shelf();
+    /// The kind of `row` picked for its key; which key, if a key takes it:
+    /// the key of the kind of `row` among `carried`, else the key of a row
+    /// the engine names.
+    pub fn pick_item(&mut self, row: u16, carried: &[Option<Carried>]) -> Option<Shelf> {
+        let kind = (carried.iter().flatten())
+            .find(|kind| kind.row == row)
+            .map(|kind| kind.kind());
+        let shelf = kind.or_else(|| items::use_of(row))?.shelf();
         self.items[shelf as usize] = Some(row);
         Some(shelf)
     }
@@ -142,16 +180,26 @@ impl Picks {
     /// medpac key's a heal for its race (a `droid`'s or not) over an antidote,
     /// then the rest in order.
     pub fn slotted(&self, kinds: &[Carried], droid: bool) -> Vec<Carried> {
-        let on = |row: u16, shelf| items::use_of(row).is_some_and(|u| u.shelf() == shelf);
-        let heal = |row: u16| matches!(items::use_of(row), Some(Use::Heal { droid: kit, .. }) if kit == droid);
+        let on = |kind: &&Carried, shelf| kind.kind().shelf() == shelf;
+        let heal =
+            |kind: &&Carried| matches!(kind.kind(), Use::Heal { droid: kit, .. } if kit == droid);
         let mut kept: Vec<u16> = Shelf::ALL
             .into_iter()
             .filter_map(|shelf| {
-                let rows = || kinds.iter().map(|kind| kind.row);
                 self.item(shelf)
-                    .filter(|row| rows().any(|known| known == *row))
-                    .or_else(|| rows().find(|row| on(*row, shelf) && heal(*row)))
-                    .or_else(|| rows().find(|row| on(*row, shelf)))
+                    .filter(|row| kinds.iter().any(|known| known.row == *row))
+                    .or_else(|| {
+                        kinds
+                            .iter()
+                            .find(|kind| on(kind, shelf) && heal(kind))
+                            .map(|kind| kind.row)
+                    })
+                    .or_else(|| {
+                        kinds
+                            .iter()
+                            .find(|kind| on(kind, shelf))
+                            .map(|kind| kind.row)
+                    })
             })
             .collect();
         for kind in kinds {
@@ -176,26 +224,88 @@ impl Picks {
                     sheet.picks.guns[blaster as usize] = line as u8 + 1;
                 }
             }
-            Some(Slot::Blades(at)) => {
+            Some(melee @ (Slot::Blades(_) | Slot::Hands)) => {
                 let known: Vec<Melee> = Melee::LINES
                     .into_iter()
                     .filter(|line| line.held(sheet).is_some())
                     .collect();
-                let now = sheet.picks.blades[at];
-                sheet.picks.blades[at] = match known.iter().position(|line| *line == now) {
-                    Some(at) => known.get(at + 1).copied().unwrap_or(Melee::None),
-                    None => known.first().copied().unwrap_or(Melee::None),
-                };
+                if let Some(chosen) = sheet.picks.melee(melee) {
+                    *chosen = match known.iter().position(|line| line == chosen) {
+                        Some(at) => known.get(at + 1).copied().unwrap_or(Melee::None),
+                        None => known.first().copied().unwrap_or(Melee::None),
+                    };
+                }
             }
             None => {}
         }
         sheet.picks != before
     }
 
+    /// Makes `line` the feat attack in use for the weapon in `hand`. For
+    /// blades and empty hands, choosing the line in use turns it off. A gun
+    /// always uses one of the lines the character knows (`Special::of`), so
+    /// a gun's alternate fire can never be turned off, and choosing the line
+    /// a gun uses already changes nothing. False when nothing changed: the
+    /// weapon cannot use the line, the sheet does not know it, or a gun
+    /// uses it already.
+    pub fn set(sheet: &mut Sheet, hand: u8, line: FeatLine) -> bool {
+        let Some(row) = line.known(sheet) else {
+            return false;
+        };
+        match slot(sheet, hand) {
+            Some(Slot::Gun(blaster)) => {
+                let Some(at) = Special::line_of(row) else {
+                    return false;
+                };
+                if Special::of(sheet, blaster).map(Special::line) == Some(at) {
+                    return false;
+                }
+                sheet.picks.guns[blaster as usize] = at as u8 + 1;
+                true
+            }
+            Some(melee @ (Slot::Blades(_) | Slot::Hands)) => {
+                let Some(wanted) = Melee::LINES
+                    .into_iter()
+                    .find(|melee| melee.rows().contains(&row))
+                else {
+                    return false;
+                };
+                let Some(chosen) = sheet.picks.melee(melee) else {
+                    return false;
+                };
+                *chosen = if *chosen == wanted {
+                    Melee::None
+                } else {
+                    wanted
+                };
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The feat attack line the weapon in `hand` uses now. A gun uses the
+    /// line its wielder chose, or else the first line the wielder knows
+    /// (`Special::of`). Two blades, a double-bladed weapon, fists and a stun
+    /// baton use the line chosen for them, if the wielder knows it. A single
+    /// blade uses none.
+    pub fn in_use(sheet: &Sheet, hand: u8) -> Option<FeatLine> {
+        let row = match slot(sheet, hand)? {
+            Slot::Gun(blaster) => Special::of(sheet, blaster)?.row(),
+            melee => {
+                let mut picks = sheet.picks;
+                picks.melee(melee).copied()?.held(sheet)?
+            }
+        };
+        FeatLine::ALL
+            .into_iter()
+            .find(|line| line.rows().contains(&row))
+    }
+
     /// A script's talent: the line of feat `row` chosen for the weapon in
     /// `hand`, if it is a line that weapon takes, `sheet` holds it and none
-    /// is chosen yet (a choice made stands, a companion's by its player);
-    /// a gun's own line needs no choosing. Whether it changed.
+    /// is chosen yet (a choice made stands, a companion's by its player).
+    /// The line a gun already takes needs no choosing. Whether it changed.
     pub fn choose(sheet: &mut Sheet, hand: u8, row: u16) -> bool {
         let before = sheet.picks;
         match slot(sheet, hand) {
@@ -207,12 +317,15 @@ impl Picks {
                     sheet.picks.guns[blaster as usize] = line as u8 + 1;
                 }
             }
-            Some(Slot::Blades(at)) if sheet.picks.blades[at] == Melee::None => {
+            Some(melee @ (Slot::Blades(_) | Slot::Hands)) => {
                 let line = Melee::LINES
                     .into_iter()
-                    .find(|line| line.rows().contains(&row));
-                if let Some(line) = line.filter(|line| line.held(sheet).is_some()) {
-                    sheet.picks.blades[at] = line;
+                    .find(|line| line.rows().contains(&row))
+                    .filter(|line| line.held(sheet).is_some());
+                if let (Some(line), Some(chosen)) = (line, sheet.picks.melee(melee))
+                    && *chosen == Melee::None
+                {
+                    *chosen = line;
                 }
             }
             _ => {}
@@ -221,22 +334,22 @@ impl Picks {
     }
 
     /// What the weapon in `hand` carries, where there is a choice to show:
-    /// more than one gun line known, or any melee line on two blades or a
-    /// double-bladed weapon.
+    /// more than one gun line known, or any melee line on two blades, a
+    /// double-bladed weapon, fists or a stun baton.
     pub fn shown(sheet: &Sheet, hand: u8) -> Option<Shown> {
         match slot(sheet, hand)? {
             Slot::Gun(blaster) => {
                 Special::next_line(sheet, blaster)?;
                 Some(Shown::Feat(Special::of(sheet, blaster)?.row()))
             }
-            Slot::Blades(at) => Melee::LINES
-                .iter()
-                .any(|line| line.held(sheet).is_some())
-                .then(|| {
-                    sheet.picks.blades[at]
-                        .held(sheet)
-                        .map_or(Shown::Nothing, Shown::Feat)
-                }),
+            melee => {
+                let mut picks = sheet.picks;
+                let chosen = picks.melee(melee).copied()?;
+                Melee::LINES
+                    .iter()
+                    .any(|line| line.held(sheet).is_some())
+                    .then(|| chosen.held(sheet).map_or(Shown::Nothing, Shown::Feat))
+            }
         }
     }
 
@@ -248,10 +361,16 @@ impl Picks {
         for row in self.items {
             out.u16(row.unwrap_or(NO_ITEM));
         }
+        out.u8(self.hands as u8);
     }
 
-    /// Its bytes; `with_items` where they hold the item picks.
-    pub(crate) fn decode(input: &mut Reader, with_items: bool) -> Result<Picks, DecodeError> {
+    /// Its bytes; `with_items` where they hold the item picks, `with_hands`
+    /// where they hold the line fists carry (none before).
+    pub(crate) fn decode(
+        input: &mut Reader,
+        with_items: bool,
+        with_hands: bool,
+    ) -> Result<Picks, DecodeError> {
         let guns: [u8; GUNS] = input.array()?;
         let at = input.at();
         if guns.iter().any(|line| usize::from(*line) > Special::LINES) {
@@ -269,9 +388,18 @@ impl Picks {
                 *item = Some(input.u16()?).filter(|row| *row != NO_ITEM);
             }
         }
+        let hands = match with_hands {
+            true => {
+                let at = input.at();
+                let code = input.u8()?;
+                Melee::from_code(code).ok_or_else(|| input.invalid("melee feat choice", at))?
+            }
+            false => Melee::None,
+        };
         Ok(Picks {
             guns,
             blades,
+            hands,
             items,
         })
     }

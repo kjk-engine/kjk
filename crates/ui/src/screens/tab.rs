@@ -8,8 +8,9 @@ use crate::draw::{Quad, Textures};
 use crate::input::Key;
 use crate::intent::Intent;
 use crate::paint::{ControlState, Painter};
-use crate::screen::{Screen, ScreenId};
+use crate::screen::{Pointer, Screen, ScreenId};
 use crate::screens::tabs;
+use crate::skin::Source;
 use crate::vm::ViewModel;
 
 /// One page of the in-game menu.
@@ -36,16 +37,53 @@ pub trait Page: Send + Sync {
     fn first_focus(&self) -> Option<&str> {
         None
     }
+    /// The button a controller's X presses on the page (`Screen::pad_x`).
+    fn pad_x(&self) -> Option<&str> {
+        None
+    }
+    /// Its lists show other rows than when last asked (`Screen::lists_anew`).
+    fn lists_anew(&mut self) -> bool {
+        false
+    }
+    /// A list's cursor put on a row of its own (`Screen::cursor_to`).
+    fn cursor_to(&mut self, _vm: &ViewModel) -> Option<(&'static str, usize)> {
+        None
+    }
+    /// The control the page wants the focus on now (`Screen::focus_to`).
+    fn focus_to(&mut self, _vm: &ViewModel) -> Option<String> {
+        None
+    }
     fn quads(&self, _gui: &Gui, _vm: &ViewModel, _painter: &mut Painter) -> Vec<Quad> {
         Vec::new()
     }
     fn click(&mut self, _gui: &Gui, _at: [f32; 2], _textures: &mut dyn Textures, _vm: &ViewModel) {}
     /// Its layout changed once loaded (`Screen::shape`).
     fn shape(&self, _gui: &mut Gui) {}
+    /// Its layout at the size it is drawn (`Screen::fit_drawn`).
+    fn fit_drawn(&mut self, _gui: &mut Gui) {}
+    /// Its layout must be shaped again (`Screen::reshapes`).
+    fn reshapes(&mut self) -> bool {
+        false
+    }
+    /// The pointer this frame (`Screen::pointer`).
+    fn pointer(&mut self, _pointer: Pointer<'_>, _vm: &ViewModel, _out: &mut Vec<Intent>) {}
+    /// Its layout once shaped, in KOTOR 2's 800 × 600 frame before the
+    /// stack stretches it to the window (`Screen::fit_read`).
+    fn fit_read(&mut self, _gui: &Gui) {}
     /// The focus (the pointer's, or the keys') came to `tag`, or left it
     /// (`Screen::focused`, `Screen::left`).
     fn focused(&mut self, _tag: &str, _vm: &ViewModel) {}
     fn left(&mut self, _tag: &str) {}
+    /// A key the menu bar did not take (`Screen::key`). True when the page
+    /// took it.
+    fn key(&mut self, _key: Key, _vm: &ViewModel, _out: &mut Vec<Intent>) -> bool {
+        false
+    }
+    /// A key pressed, by name, before anything else sees it (`Screen::raw`).
+    /// True when the page took it.
+    fn raw(&mut self, _key: &str, _vm: &ViewModel, _out: &mut Vec<Intent>) -> bool {
+        false
+    }
 }
 
 pub struct Tab<P> {
@@ -101,8 +139,12 @@ impl<P: Page> Screen for Tab<P> {
         self.page.primary(list)
     }
 
-    fn key(&mut self, key: Key, _: &ViewModel, out: &mut Vec<Intent>) -> bool {
-        tabs::key(key, P::NAME, out)
+    fn key(&mut self, key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        tabs::key(key, P::NAME, out) || self.page.key(key, vm, out)
+    }
+
+    fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        self.page.raw(key, vm, out)
     }
 
     fn tab_bar(&self, _: &ViewModel) -> bool {
@@ -113,12 +155,28 @@ impl<P: Page> Screen for Tab<P> {
         self.page.tabs()
     }
 
+    fn pad_x(&self) -> Option<&str> {
+        self.page.pad_x()
+    }
+
     fn back(&mut self, out: &mut Vec<Intent>) {
         out.push(Intent::CloseAll);
     }
 
     fn first_focus(&self) -> Option<&str> {
         self.page.first_focus()
+    }
+
+    fn lists_anew(&mut self) -> bool {
+        self.page.lists_anew()
+    }
+
+    fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
+        self.page.cursor_to(vm)
+    }
+
+    fn focus_to(&mut self, vm: &ViewModel) -> Option<String> {
+        self.page.focus_to(vm)
     }
 
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
@@ -131,6 +189,22 @@ impl<P: Page> Screen for Tab<P> {
 
     fn shape(&self, gui: &mut Gui) {
         self.page.shape(gui);
+    }
+
+    fn reshapes(&mut self) -> bool {
+        self.page.reshapes()
+    }
+
+    fn fit_drawn(&mut self, gui: &mut Gui, _: &mut dyn Textures, _: Source) {
+        self.page.fit_drawn(gui);
+    }
+
+    fn pointer(&mut self, pointer: Pointer<'_>, vm: &ViewModel, out: &mut Vec<Intent>) {
+        self.page.pointer(pointer, vm, out);
+    }
+
+    fn fit_read(&mut self, gui: &mut Gui, _: &mut dyn Textures, _: Source) {
+        self.page.fit_read(gui);
     }
 
     fn focused(&mut self, tag: &str, vm: &ViewModel) {
@@ -156,6 +230,27 @@ pub fn told(strref: Option<u32>) -> ControlState {
         strref,
         ..ControlState::default()
     }
+}
+
+/// Line `strref` of KOTOR 2's talk table (the skin's), for a label of a
+/// KOTOR 2 layout whose words KOTOR 2's own code sets, as its skills page
+/// and its store do for each of their modes. The layout's own words there
+/// are a stand-in, and the campaign's talk table may hold another line at
+/// that number (K1's "Buy" where KOTOR 2's is "Buying Items").
+pub fn skin_line(strref: u32) -> ControlState {
+    ControlState {
+        strref: Some(strref),
+        skin_strref: true,
+        ..ControlState::default()
+    }
+}
+
+/// The line of KOTOR 2's talk table that `table` gives label `tag` in a
+/// screen's first mode, or in its `second` (buying or selling, making or
+/// breaking down); none for a label the table does not name.
+pub fn mode_line(table: &[(&str, (u32, u32))], tag: &str, second: bool) -> Option<ControlState> {
+    let (first, other) = table.iter().find(|(label, _)| *label == tag)?.1;
+    Some(skin_line(if second { other } else { first }))
 }
 
 pub fn shown(show: bool) -> ControlState {

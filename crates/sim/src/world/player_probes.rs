@@ -28,7 +28,8 @@ const APPEARANCE: u16 = 95;
 const PORTRAIT: u16 = 2;
 
 /// One class: a d8, 4 skill points, the first four skills its own, a feat
-/// granted and one picked at level 1.
+/// granted and one picked at level 1, and a feat TSL's creation grants a
+/// player that the class could also pick.
 fn classes() -> Classes {
     let class = Class {
         hit_die: 8,
@@ -40,7 +41,7 @@ fn classes() -> Classes {
         power_picks: vec![0; 20],
         granted: vec![(1, GRANTED)],
         pc_granted: vec![PC_GRANTED],
-        feats: vec![RECOMMENDED, PICKED, NEEDS_PICKED],
+        feats: vec![RECOMMENDED, PICKED, NEEDS_PICKED, PC_GRANTED],
         class_skills: std::array::from_fn(|skill| skill < 4),
         skill_order: (0..SKILLS as u8).collect(),
         ..Class::default()
@@ -193,6 +194,46 @@ pub fn creation() -> Checks {
         check(refusals == expected, format!("{refusals:?}")),
     ));
 
+    // Issue 370: a mod's `classes.2da` recommended 90 in every score, and
+    // the host refused the quick character the screen made of them.
+    const SOLDIER: [u8; 6] = [16, 14, 14, 12, 10, 10];
+    const MODDED: [u8; 6] = [90; 6];
+    const LOW: [u8; 6] = [6, 8, 8, 8, 8, 8];
+    let makeable = [
+        (SOLDIER, SOLDIER),
+        ([18, 18, 8, 8, 8, 8], SOLDIER),
+        (MODDED, MODDED),
+        ([89, 90, 90, 90, 90, 90], MODDED),
+        ([91, 89, 90, 90, 90, 90], MODDED),
+        ([18, 18, 18, 18, 18, 18], MODDED),
+        (LOW, LOW),
+        ([5, 8, 8, 8, 8, 8], LOW),
+        ([6, 9, 8, 8, 8, 8], LOW),
+        ([8, 8, 8, 8, 8, 8], LOW),
+    ]
+    .map(|(scores, recommended)| creation::makeable(&scores, &recommended));
+    checks.push((
+        "the screen's scores are made: 30 points, or the class's recommended, lowered for points to raise others",
+        check(
+            makeable == [true, false, true, true, false, true, true, false, false, true],
+            format!("{makeable:?}"),
+        ),
+    ));
+    let mut modded = classes.clone();
+    modded.classes[0].recommended = MODDED;
+    let mut quick = made(vec![PICKED]);
+    quick.abilities = MODDED;
+    let made_modded = creation::sheet(&modded, &quick, 2);
+    checks.push((
+        "a mod's recommended scores past 30 points are taken, as the original takes them",
+        check(
+            made_modded
+                .as_ref()
+                .is_ok_and(|(sheet, ..)| sheet.abilities == MODDED),
+            format!("{made_modded:?}"),
+        ),
+    ));
+
     checks.push((
         "TSL's creation grants the class's player feats besides",
         check(
@@ -202,9 +243,22 @@ pub fn creation() -> Checks {
             format!("{first:?}"),
         ),
     ));
+    let unmade = creation::unmade_of(&classes, 0, [10, 14, 14, 12, 10, 10], 2);
+    let picks = classes.picks(&unmade, &Vec::new(), 0);
+    let wasted = refused(|c| c.choices.feats = vec![PC_GRANTED]);
+    checks.push((
+        "the creation screen shows TSL's player feats known and never offers them as a pick",
+        check(
+            picks.as_ref().is_some_and(|picks| {
+                picks.known.contains(&PC_GRANTED) && !picks.feats.contains(&PC_GRANTED)
+            }) && wasted == Some(Refused::Level),
+            format!("{picks:?}, picking it {wasted:?}"),
+        ),
+    ));
     checks.push(planned(&classes));
     checks.push(banked(&classes));
     checks.push(class_skill_feat(&classes));
+    checks.push(first_class_skills(&classes));
 
     let mut world = world(Vec::new(), "", Catalog::default());
     let made_world = world.create(&made(vec![PICKED]));
@@ -366,6 +420,44 @@ fn class_skill_feat(classes: &Classes) -> (&'static str, Result<String, String>)
     )
 }
 
+/// A character made in class 0 (the first four skills its class skills)
+/// who takes up class 1 (only the last four) keeps the first class's
+/// skills as class skills at its first level of class 1. A rank of skill 0
+/// (4 ranks already, so 5, past the cross-class most of 2) and a rank of
+/// skill 2 cost a point each: the level's 2 points buy both. The level's
+/// picks (the level-up screen's) show skills of both classes.
+fn first_class_skills(classes: &Classes) -> (&'static str, Result<String, String>) {
+    let mut classes = classes.clone();
+    classes.classes[1].class_skills = std::array::from_fn(|skill| skill >= 4);
+    let made = creation::sheet(&classes, &made(vec![PICKED]), 2);
+    let Ok((sheet, mut career, _)) = made else {
+        return ("the first class's skills kept", Err(format!("{made:?}")));
+    };
+    career.push((1, 0));
+    let mut choices = Choices {
+        class: 1,
+        ability: None,
+        skills: [0; SKILLS],
+        feats: Vec::new(),
+        powers: Vec::new(),
+    };
+    choices.skills[0] = 1;
+    choices.skills[2] = 1;
+    let taken = classes
+        .taken(&sheet, &career, &choices, 0)
+        .map(|(after, career, left)| (after.skills, career, left));
+    let shown = classes.picks(&sheet, &career, 1).map(|p| p.class_skills);
+    (
+        "a second class keeps the first class's skills as class skills",
+        check(
+            taken.as_ref().is_ok_and(|(skills, career, left)| {
+                skills[0] == 5 && skills[2] == 1 && *career == vec![(0, 1), (1, 1)] && *left == 0
+            }) && shown == Some([true; SKILLS]),
+            format!("taken {taken:?}, picks show {shown:?}"),
+        ),
+    )
+}
+
 /// The script `probe_xp`: `GiveXPToCreature(GetFirstPC(), 500)`, then
 /// `AddMultiClass(1, GetFirstPC())`.
 fn xp_script() -> (Vec<(&'static str, fmt_odyssey::ncs::Ncs)>, &'static str) {
@@ -415,6 +507,150 @@ pub fn levels_told() -> Checks {
         check(
             made.is_ok() && level == Some(2) && xp == 1000 && career == Some(vec![(0, 1), (1, 0)]),
             format!("{made:?}: G_PC_LEVEL {level:?}, XP {xp}, career {career:?}"),
+        ),
+    )]
+}
+
+/// The routines the scripts of `class_at_once` and `bench_holds` call.
+const BENCH_CATALOG: &str = r#"
+// 0
+object GetFirstPC();
+// 1
+void ShowUpgradeScreen(object oItem);
+// 2
+void DelayCommand(float fSeconds, action aActionToDelay);
+// 3
+void SetLocalNumber(object oObject, int nIndex, int nValue);
+// 4
+void AddMultiClass(int nClassType, object oSource);
+// 5
+int GetClassByPosition(int nClassPosition, object oCreature);
+"#;
+
+/// The local number the probes' scripts set on the player.
+const TOLD: i32 = 2;
+
+/// `SetLocalNumber(GetFirstPC(), TOLD, <the value on the stack>)`.
+fn tell_player(asm: &mut script_ncs::probes::Asm) {
+    use fmt_odyssey::ncs::{Const, Op};
+    asm.op(Op::Const(Const::Int(TOLD)))
+        .op(Op::Action {
+            routine: 0,
+            args: 0,
+        })
+        .op(Op::Action {
+            routine: 3,
+            args: 3,
+        });
+}
+
+/// The player's local number `TOLD`, as the probes' scripts left it.
+fn player_local(world: &SimWorld, me: Option<u32>) -> Option<i32> {
+    let me = me?;
+    world.script_state().locals.get(&(me, 1, TOLD)).copied()
+}
+
+/// A class `AddMultiClass` gives counts at once: the same script's
+/// `GetClassByPosition(2, …)` answers it before its first level, as both
+/// games' do (a mod's start script picks the Jedi's robes by it, its
+/// level-up still open).
+pub fn class_at_once() -> Checks {
+    use fmt_odyssey::ncs::{Const, Op};
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::Action {
+        routine: 0,
+        args: 0,
+    })
+    .op(Op::Const(Const::Int(1)))
+    .op(Op::Action {
+        routine: 4,
+        args: 2,
+    })
+    .op(Op::Action {
+        routine: 0,
+        args: 0,
+    })
+    .op(Op::Const(Const::Int(2)))
+    .op(Op::Action {
+        routine: 5,
+        args: 2,
+    });
+    tell_player(&mut asm);
+    asm.op(Op::Retn);
+    let mut world = world(
+        vec![("probe_class", asm.build())],
+        BENCH_CATALOG,
+        Catalog::default(),
+    );
+    let made = world.create(&made(vec![PICKED]));
+    let mut state = world.script_state().clone();
+    state.pending.push(Pending::new("probe_class", MODULE));
+    world.set_script_state(state);
+    let after = step(&mut world, None);
+    let class = player_local(&world, after.body(Seat(0)).map(|me| me.id.0));
+    vec![(
+        "AddMultiClass's class is the second class at once, with no level in it yet",
+        check(
+            made.is_ok() && class == Some(1),
+            format!("{made:?}: GetClassByPosition(2) {class:?}"),
+        ),
+    )]
+}
+
+/// A script that shows the upgrade bench and delays code after it: the code
+/// waits while the bench is up and runs as long after it closes as it was
+/// asked for, as both games pause under the bench (a mod's workbench takes
+/// back the crystals left over only once the player has fitted one).
+pub fn bench_holds() -> Checks {
+    use fmt_odyssey::ncs::{Const, Op};
+    // `ShowUpgradeScreen(OBJECT_INVALID); DelayCommand(0.1,
+    // SetLocalNumber(GetFirstPC(), TOLD, 5))`.
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::Const(Const::Object(1)))
+        .op(Op::Action {
+            routine: 1,
+            args: 1,
+        })
+        .op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "delay")
+        .op(Op::Const(Const::Int(5)));
+    tell_player(&mut asm);
+    asm.op(Op::Retn)
+        .label("delay")
+        .op(Op::Const(Const::Float(0.1)))
+        .op(Op::Action {
+            routine: 2,
+            args: 2,
+        })
+        .op(Op::Retn);
+    let mut world = world(
+        vec![("probe_bench", asm.build())],
+        BENCH_CATALOG,
+        Catalog::default(),
+    );
+    let made = world.create(&made(vec![PICKED]));
+    let mut state = world.script_state().clone();
+    state.pending.push(Pending::new("probe_bench", MODULE));
+    world.set_script_state(state);
+    let mut last = step(&mut world, None);
+    let me = last.body(Seat(0)).map(|me| me.id.0);
+    let run_for = |world: &mut SimWorld, last: &mut Snapshot, ms: u64| {
+        let until = last.time_ms + ms;
+        while last.time_ms < until {
+            *last = step(world, None);
+        }
+    };
+    run_for(&mut world, &mut last, 1000);
+    let while_up = player_local(&world, me);
+    step(&mut world, Some(Action::ScreenClosed));
+    let closed = player_local(&world, me);
+    run_for(&mut world, &mut last, 200);
+    let after = player_local(&world, me);
+    vec![(
+        "code delayed after the bench shows waits until the first seat closes it, then its delay",
+        check(
+            made.is_ok() && while_up.is_none() && closed.is_none() && after == Some(5),
+            format!("{made:?}: up a second {while_up:?}, at the close {closed:?}, after {after:?}"),
         ),
     )]
 }

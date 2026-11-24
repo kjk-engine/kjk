@@ -118,6 +118,13 @@ pub mod lines {
     pub const STEALTH_OFF: u32 = 1465;
     /// "Sneak Attack!": told to whoever lands one.
     pub const SNEAK_ATTACK: u32 = 1459;
+    /// A saving throw's line: "<CUSTOM0> <CUSTOM1> <CUSTOM2>: <CUSTOM3>
+    /// (roll <CUSTOM4> <CUSTOM5> <CUSTOM6> <CUSTOM7>) vs. DC <CUSTOM8>",
+    /// with the save's name: "Fortitude Save", "Reflex Save", "Will Save".
+    pub const SAVE: u32 = 1408;
+    pub const FORTITUDE_SAVE: u32 = 1375;
+    pub const REFLEX_SAVE: u32 = 1374;
+    pub const WILL_SAVE: u32 = 1376;
 }
 
 /// The words K1's client floats over the user of Security, Disable Mine or
@@ -497,7 +504,7 @@ pub(super) fn unlock(
         },
     };
     let total = total + bonus;
-    let dc = facts.lock.as_ref().map_or(0, |lock| lock.open_dc);
+    let dc = state.lock_dc(facts);
     let roll = character
         .in_combat
         .then(|| 1 + rng.below(rules::interaction::checks::DIE) as u8);
@@ -530,6 +537,14 @@ pub(super) fn unlock(
             locked: false,
         });
         state.last.insert((target.id.0, last::UNLOCKED), user.id.0);
+        crate::script::xp::reward_skill(
+            library,
+            view,
+            state,
+            out,
+            crate::script::xp::SkillXp::Lock,
+            i16::from(dc),
+        );
         scripts::raise(view, state, target.id, crate::script::Hook::Unlock, None);
         if facts.kind == ObjectKind::Door && target.open == Some(0) {
             out.changes.push(Change::Door {

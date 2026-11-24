@@ -4,9 +4,11 @@
 //! host's.
 
 use std::borrow::Cow;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 
 use sim::{Parts, Snapshot, SnapshotHash};
+
+use crate::worker::{Queued, Worker};
 
 use super::{CodecError, Reader, decode, encode, put_varint};
 
@@ -94,11 +96,43 @@ pub struct Stepped {
 }
 
 /// A stepped snapshot's parts and check, made once, from the snapshot
-/// kept until then.
+/// kept until then. A snapshot made beside (`Stepped::beside`) takes its
+/// parts and check from the net check thread, with the delta that thread
+/// packed. It keeps the snapshot only in case that thread's job failed.
 #[derive(Debug)]
 struct Split {
     snapshot: Mutex<Option<Arc<Snapshot>>>,
     done: OnceLock<(Arc<Parts>, Check)>,
+    beside: Mutex<Option<Queued<Made>>>,
+    packed: OnceLock<Packed>,
+}
+
+/// What a thread made of a stepped snapshot (`Stepped::beside`).
+#[derive(Debug)]
+struct Made {
+    parts: Parts,
+    check: Check,
+    packed: Option<Packed>,
+}
+
+/// A delta packed beside (`pack`), and the snapshot it is a delta from.
+#[derive(Debug)]
+struct Packed {
+    base: Weak<Split>,
+    bytes: Vec<u8>,
+}
+
+static CHECKS: Worker = Worker::new("net check");
+
+impl Split {
+    fn new(snapshot: Option<Arc<Snapshot>>, done: OnceLock<(Arc<Parts>, Check)>) -> Split {
+        Split {
+            snapshot: Mutex::new(snapshot),
+            done,
+            beside: Mutex::new(None),
+            packed: OnceLock::new(),
+        }
+    }
 }
 
 impl Stepped {
@@ -107,26 +141,85 @@ impl Stepped {
         let check = Check::of(&parts.hash());
         Stepped {
             tick: snapshot.tick,
-            split: Arc::new(Split {
-                snapshot: Mutex::new(None),
-                done: OnceLock::from((Arc::new(parts), check)),
-            }),
+            split: Arc::new(Split::new(None, OnceLock::from((Arc::new(parts), check)))),
         }
+    }
+
+    /// `new`, with the snapshot's hash (`Snapshot::hash`) its check is made
+    /// from: a host's step thread splits each tick for its players and its
+    /// `hashes.txt` at once (issue 229).
+    pub fn new_hashed(snapshot: &Snapshot) -> (Stepped, SnapshotHash) {
+        let parts = snapshot.split();
+        let hash = parts.hash();
+        let check = Check::of(&hash);
+        let stepped = Stepped {
+            tick: snapshot.tick,
+            split: Arc::new(Split::new(None, OnceLock::from((Arc::new(parts), check)))),
+        };
+        (stepped, hash)
     }
 
     /// A shared snapshot, split when its parts or check are first read.
     pub fn shared(snapshot: Arc<Snapshot>) -> Stepped {
         Stepped {
             tick: snapshot.tick,
-            split: Arc::new(Split {
-                snapshot: Mutex::new(Some(snapshot)),
-                done: OnceLock::new(),
-            }),
+            split: Arc::new(Split::new(Some(snapshot), OnceLock::new())),
+        }
+    }
+
+    /// A shared snapshot that the net check thread splits and hashes. When
+    /// `base` is older, that thread also packs the delta from `base`. The first
+    /// read of the parts or the check waits for the thread if it has not
+    /// finished. `encode_frame` then uses the packed delta when its
+    /// baseline is `base`. The bytes are the same as those made at the
+    /// first read. A solo host's step thread makes one of these for each
+    /// tick its own client checks, so neither the step thread nor the
+    /// frame splits it. If the thread cannot start or the job panics, the
+    /// first read splits the snapshot itself.
+    pub fn beside(snapshot: Arc<Snapshot>, base: Option<&Stepped>) -> Stepped {
+        let base = base.filter(|base| base.tick < snapshot.tick).cloned();
+        let kept = snapshot.clone();
+        let thread = CHECKS.run(move || {
+            let parts = snapshot.split();
+            let check = Check::of(&parts.hash());
+            let packed = base.map(|base| {
+                let mut delta = Vec::new();
+                encode(Some(base.parts()), &parts, &mut delta);
+                Packed {
+                    base: Arc::downgrade(&base.split),
+                    bytes: pack(&delta),
+                }
+            });
+            Made {
+                parts,
+                check,
+                packed,
+            }
+        });
+        let split = Split::new(Some(kept.clone()), OnceLock::new());
+        *split.beside.lock().unwrap_or_else(PoisonError::into_inner) = thread;
+        Stepped {
+            tick: kept.tick,
+            split: Arc::new(split),
         }
     }
 
     fn done(&self) -> &(Arc<Parts>, Check) {
         self.split.done.get_or_init(|| {
+            let thread = (self.split.beside.lock())
+                .unwrap_or_else(PoisonError::into_inner)
+                .take();
+            if let Some(made) = thread.and_then(Queued::wait) {
+                self.split
+                    .snapshot
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
+                if let Some(packed) = made.packed {
+                    let _ = self.split.packed.set(packed);
+                }
+                return (Arc::new(made.parts), made.check);
+            }
             let snapshot = self
                 .split
                 .snapshot
@@ -157,6 +250,13 @@ impl Stepped {
     pub fn is_split(&self) -> bool {
         self.split.done.get().is_some()
     }
+
+    /// The delta packed beside (`beside`), if it is a delta from `base`.
+    fn packed_against(&self, base: &Stepped) -> Option<&[u8]> {
+        self.done();
+        let packed = self.split.packed.get()?;
+        std::ptr::eq(packed.base.as_ptr(), Arc::as_ptr(&base.split)).then_some(&packed.bytes[..])
+    }
 }
 
 /// Appends a frame of `now` in `epoch` against `base` (`None`, or a
@@ -171,6 +271,10 @@ pub fn encode_frame(epoch: u16, now: &Stepped, base: Option<&Stepped>, out: &mut
         check: now.check(),
     }
     .write(out);
+    if let Some(packed) = base.and_then(|base| now.packed_against(base)) {
+        out.extend_from_slice(packed);
+        return;
+    }
     let mut delta = Vec::new();
     encode(base.map(Stepped::parts), now.parts(), &mut delta);
     out.extend_from_slice(&pack(&delta));
@@ -232,7 +336,7 @@ pub fn unpack(packed: &[u8]) -> Result<Cow<'_, [u8]>, CodecError> {
 #[derive(Debug, Clone)]
 pub struct Rebuilt {
     pub tick: u64,
-    pub parts: Parts,
+    pub parts: Arc<Parts>,
     pub snapshot: Arc<Snapshot>,
 }
 
@@ -242,7 +346,7 @@ impl Rebuilt {
     pub fn of(snapshot: Snapshot) -> Rebuilt {
         Rebuilt {
             tick: snapshot.tick,
-            parts: snapshot.split(),
+            parts: Arc::new(snapshot.split()),
             snapshot: Arc::new(snapshot),
         }
     }
@@ -280,7 +384,7 @@ pub fn rebuild(
     }
     Ok(Rebuilt {
         tick: header.tick,
-        parts,
+        parts: Arc::new(parts),
         snapshot: Arc::new(snapshot),
     })
 }

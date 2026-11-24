@@ -20,6 +20,10 @@ use collision::nav::NavMesh;
 use crate::combat::Sheet;
 use crate::wire::{DecodeError, Writer};
 
+/// A quarter turn (degrees): from a door's or placeable's bearing to its
+/// facing (`ObjectKind::facing`).
+const QUARTER_TURN: f32 = 90.0;
+
 /// What an object is: the GIT's lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ObjectKind {
@@ -51,6 +55,39 @@ impl ObjectKind {
 
     pub fn from_index(index: u8) -> Option<ObjectKind> {
         ObjectKind::ALL.get(usize::from(index)).copied()
+    }
+
+    /// Whether an object of this kind is turned by a bearing: a door or a
+    /// placeable, whose `yaw` is how far its model is turned.
+    fn borne(self) -> bool {
+        matches!(self, ObjectKind::Door | ObjectKind::Placeable)
+    }
+
+    /// The facing (degrees from +X) of an object of this kind turned to
+    /// `yaw` (`ObjectData::yaw`). Both games keep every object's facing as
+    /// the way its model's +Y points. A creature's model faces +Y, so its
+    /// `yaw` is its facing. A door's or placeable's `yaw` is its bearing,
+    /// the turn of its model, so its facing is a quarter turn further left.
+    /// A script reads that facing (`GetFacing`, `GetLocation`), and a
+    /// creature made or jumped there turns to it: TSL's Exile, made at the
+    /// Ebon Hawk's medical bay marker, lies along the bed.
+    pub fn facing(self, yaw: f32) -> f32 {
+        if self.borne() {
+            yaw + QUARTER_TURN
+        } else {
+            yaw
+        }
+    }
+
+    /// The `yaw` that turns an object of this kind to `facing`, the
+    /// reverse of `facing`: a placeable a script makes at a location turns
+    /// its model's +Y to the location's facing.
+    pub fn yaw_facing(self, facing: f32) -> f32 {
+        if self.borne() {
+            facing - QUARTER_TURN
+        } else {
+            facing
+        }
     }
 
     pub fn name(self) -> &'static str {
@@ -120,6 +157,9 @@ pub struct Lock {
     pub key_required: bool,
     /// The key is used up unlocking it.
     pub auto_remove_key: bool,
+    /// KOTOR 2's difficulty class and modifier (`OpenLockDiff`,
+    /// `OpenLockDiffMod`). `None` in KOTOR 1, whose locks have neither.
+    pub rated: Option<(u8, i8)>,
 }
 
 impl Lock {
@@ -130,11 +170,37 @@ impl Lock {
         out.string(&self.key);
         out.u8(u8::from(self.key_required));
         out.u8(u8::from(self.auto_remove_key));
+        // Written only when the lock has one, so a KOTOR 1 level's digest
+        // stays what it was.
+        if let Some((class, modifier)) = self.rated {
+            out.u8(class);
+            out.u8(modifier.to_le_bytes()[0]);
+        }
+    }
+
+    /// The DC Security and a mine's blast meet to open the lock. A KOTOR 1
+    /// lock and a KOTOR 2 lock of the plain class use `open_dc`. Every
+    /// other KOTOR 2 lock uses the rated DC plus its modifier, and the
+    /// scaled class adds its bonus and the player's level (`pc_level`,
+    /// `State::pc_level`). The difficulty setting is Normal.
+    pub fn difficulty(&self, pc_level: i32) -> u8 {
+        let plain = rules::interaction::security::PLAIN_CLASS;
+        let Some((class, modifier)) = self.rated.filter(|(class, _)| *class != plain) else {
+            return self.open_dc;
+        };
+        let scaled = if class == rules::interaction::security::SCALED_CLASS {
+            i32::from(rules::interaction::security::SCALED_BONUS) + pc_level
+        } else {
+            0
+        };
+        let rated = i32::from(rules::interaction::security::RATED_DC);
+        (rated + i32::from(modifier) + scaled).clamp(0, i32::from(u8::MAX)) as u8
     }
 }
 
 /// What stands between a blow and a door's or placeable's hit points
-/// (`Hardness`, `Plot`, `Min1HP`).
+/// (`Hardness`, `Plot`, `Min1HP`), and between a mine and its lock
+/// (`NotBlastable`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Toughness {
     /// Whole points taken off every blow.
@@ -143,6 +209,11 @@ pub struct Toughness {
     pub plot: bool,
     /// Hurt down to 1 hit point and no further: it never breaks.
     pub min_one_hp: bool,
+    /// TSL's: no mine may be set on its lock (`traps::blastable`).
+    pub not_blastable: bool,
+    /// A placeable the party attacks (`placeables.2da`'s `hostile`):
+    /// `world::objects::attackable`.
+    pub hostile: bool,
 }
 
 /// Whether blows may break `facts` open (KOTOR's Bash), `locked` and with
@@ -170,7 +241,9 @@ pub struct ObjectData {
     pub template: String,
     /// Game space, metres.
     pub position: [f32; 3],
-    /// Facing, degrees from +X.
+    /// Degrees from +X: a creature's or waypoint's facing, a door's or
+    /// placeable's bearing (the facing scripts read is
+    /// `ObjectKind::facing`).
     pub yaw: f32,
     /// A door's or trigger's destination.
     pub link: Option<Link>,
@@ -187,6 +260,12 @@ pub struct ObjectData {
     /// the exes' `GetNearestActionPoint` then takes the object's own
     /// position (`nearest_use_point`, `action_points`).
     pub use_points: Vec<[f32; 3]>,
+    /// A placeable's transition clips that its model has, each with its
+    /// length in ms. Each entry is the `ANIMATION_PLACEABLE_*` constant
+    /// that plays the clip (`look::TRANSITIONS`). A script's
+    /// `ActionPlayAnimation` of that constant keeps the placeable's action
+    /// queue waiting for this long, as KOTOR's does. Empty for the rest.
+    pub transitions: Vec<(u16, u32)>,
     /// Doors: whether a player can open it.
     pub opens: Opens,
     /// A door's state at load (`AnimationState`: 0 closed, 1 and 2 open);
@@ -272,6 +351,11 @@ pub struct ObjectData {
     pub pitch_variation: f32,
     /// An encounter's UTE (`crate::spawner`): what it spawns and when.
     pub encounter: Option<Box<crate::spawner::Encounter>>,
+    /// The scripts, in lowercase, whose `SetLocked` never locks this door
+    /// or placeable. They come from the `spare_lock` lines of our own data
+    /// (`session::encounters`). Each one fixes a mod's bug, with the owner's
+    /// approval (`QUIRKS.md`).
+    pub spared_locks: Vec<String>,
 }
 
 /// A waypoint's note on the area's map: its words as the game shows them,
@@ -651,11 +735,19 @@ impl ObjectData {
                 hardness,
                 plot,
                 min_one_hp,
+                not_blastable,
+                hostile,
             } = self.toughness;
             out.string("toughness");
             out.u8(hardness);
             out.u8(u8::from(plot));
             out.u8(u8::from(min_one_hp));
+            if not_blastable {
+                out.string("not blastable");
+            }
+            if hostile {
+                out.string("hostile");
+            }
         }
         if let Some(body) = &self.body {
             out.string("body");
@@ -692,6 +784,21 @@ impl ObjectData {
         if let Some(encounter) = &self.encounter {
             out.string("encounter");
             encounter.digest_into(out);
+        }
+        if !self.spared_locks.is_empty() {
+            out.string("spared locks");
+            out.u32(self.spared_locks.len() as u32);
+            for script in &self.spared_locks {
+                out.string(script);
+            }
+        }
+        if !self.transitions.is_empty() {
+            out.string("transitions");
+            out.u32(self.transitions.len() as u32);
+            for (animation, ms) in &self.transitions {
+                out.u16(*animation);
+                out.u32(*ms);
+            }
         }
     }
 }
@@ -742,6 +849,7 @@ impl ObjectData {
             link: None,
             geometry: Vec::new(),
             use_points: Vec::new(),
+            transitions: Vec::new(),
             opens: Opens::Never,
             state: 0,
             ways: Ways::One,
@@ -771,6 +879,7 @@ impl ObjectData {
             interruptable: true,
             pitch_variation: 0.0,
             encounter: None,
+            spared_locks: Vec::new(),
         }
     }
 
@@ -934,6 +1043,10 @@ pub struct ModuleData {
     pub area: String,
     /// The area's `Name` as the game shows it (`GetName` of the area).
     pub area_title: String,
+    /// The area's `Tag` (its ARE's), lowercased as both games load it: what
+    /// `GetTag` of the area gives (`manm28ab`, which Manaan's sonic emitter
+    /// asks for).
+    pub area_tag: String,
     /// The IFO's entry (`Mod_Entry_*`).
     pub entry: Spot,
     /// In the GIT's order, by kind as `ObjectKind::ALL` lists them (an
@@ -949,6 +1062,10 @@ pub struct ModuleData {
     /// What each Force power costs, by `spells.2da` row (`forcepoints`,
     /// whole FP); a row past the end cannot be cast.
     pub force_costs: Vec<u16>,
+    /// What each Force power asks of the items worn, by `spells.2da` row:
+    /// its `forbiditemmask` and `requireitemmask` (`force::items_bar`); a
+    /// row past the end asks nothing.
+    pub force_items: Vec<(u8, u8)>,
     /// The globals the game declares (`globalcat.2da`), by lowercase name:
     /// scripts keep only these, each of its kind, as KOTOR's catalogue
     /// does (a global it lacks never sets: Dantooine's `Dan_Deesra_Hunt`).
@@ -982,6 +1099,11 @@ pub struct ModuleData {
     /// The ARE's `DisableTransit`: the map page's return button refused
     /// here until a script says otherwise (`SetDisableTransit`).
     pub disable_transit: bool,
+    /// The ARE's `Unescapable`: the area is unescapable from its first
+    /// visit on, until a script says otherwise (`SetAreaUnescapable`,
+    /// `script::State::unescapable`), as both executables read the flag
+    /// with the area.
+    pub unescapable: bool,
     /// TSL's Force facts (`ForceRules`): its powers' sides and Forms, the
     /// alignment's cost table, its rooms' Force ratings. Empty in K1.
     pub force: ForceRules,
@@ -1118,6 +1240,10 @@ pub struct Ranges {
     pub party_combat_m: f32,
     /// `TrapRadius`: a trap's circle (`crate::traps`).
     pub trap_radius_m: f32,
+    /// `PercepRngPlayer`: how far a player's own character sees and hears
+    /// (`world::scripts::perceiving`). A character from a template sees as
+    /// far as its template's `PerceptionRange` row says instead.
+    pub player: Senses,
 }
 
 impl Ranges {
@@ -1125,6 +1251,10 @@ impl Ranges {
     pub const K1: Ranges = Ranges {
         party_combat_m: rules::world::ranges::PARTY_COMBAT_M,
         trap_radius_m: rules::world::ranges::TRAP_RADIUS_M,
+        player: Senses {
+            sight: rules::world::ranges::PLAYER_SIGHT_M,
+            hearing: rules::world::ranges::PLAYER_HEARING_M,
+        },
     };
 }
 
@@ -1165,6 +1295,14 @@ impl ModuleData {
             let rating = self.force.rating(at);
             self.force.cost(row, base, caster, party, rating)
         })
+    }
+
+    /// Whether the items `worn` (`Gear::force_items`) bar power `row`
+    /// (`force::items_bar`, its row's masks).
+    pub fn power_barred(&self, row: u16, worn: u8) -> bool {
+        self.force_items
+            .get(usize::from(row))
+            .is_some_and(|&masks| crate::combat::force::items_bar(masks, worn))
     }
 
     /// Placement `index`'s facts: its own, or its template's where it
@@ -1454,6 +1592,12 @@ impl ModuleData {
             out.string(&self.title);
             out.string(&self.area_title);
         }
+        // Only a module whose area has a tag names it, so one without keeps
+        // its digest.
+        if !self.area_tag.is_empty() {
+            out.string("area tag");
+            out.string(&self.area_tag);
+        }
         // Only a module planned for more than one player names the count,
         // so one planned for one keeps its digest.
         if self.players > 1 {
@@ -1489,6 +1633,15 @@ impl ModuleData {
         out.u32(self.force_costs.len() as u32);
         for cost in &self.force_costs {
             out.u16(*cost);
+        }
+        // Only a module that reads the masks names them, so one without
+        // keeps its digest.
+        if !self.force_items.is_empty() {
+            out.string("force items");
+            out.u32(self.force_items.len() as u32);
+            for (forbid, require) in &self.force_items {
+                out.bytes(&[*forbid, *require]);
+            }
         }
         // Only a module with a trap or bag table or stealth facts names
         // them, so one without keeps its digest.
@@ -1533,9 +1686,14 @@ impl ModuleData {
             out.string("ranges");
             out.f32(self.ranges.party_combat_m);
             out.f32(self.ranges.trap_radius_m);
+            out.f32(self.ranges.player.sight);
+            out.f32(self.ranges.player.hearing);
         }
         if self.disable_transit {
             out.string("transit disabled");
+        }
+        if self.unescapable {
+            out.string("unescapable");
         }
         // Only a module with a global catalogue names it, so one without
         // keeps its digest.

@@ -17,10 +17,10 @@ use super::state::{SPELL_EVENT, global, set_global};
 use super::{
     AREA, Change, Character, Criterion, Event, HUNDREDTHS, Hook, Library, MODULE, MOST_NESTED, Out,
     Pending, Report, State, Thing, View, finish, flat, key, name, nearest_first, nth_nearest,
-    perception, tagged, twice_average,
+    perception, resref, tagged, twice_average,
 };
 use crate::combat::effects::{ALL_SAVES, Lasting, Modifies, POISON_ID, state};
-use crate::combat::sheet::{Rows, flags};
+use crate::combat::sheet::{Feats, Powers, flags};
 use crate::inventory;
 use crate::module::{Global, ModuleData, ObjectKind};
 use crate::notice::{Notice, Screen};
@@ -78,6 +78,7 @@ bound! {
     GetPosition, GetFacing, GetLocation, Location, GetPositionFromLocation,
     GetFacingFromLocation, GetDistanceBetween, GetDistanceToObject,
     GetDistanceBetween2D, GetDistanceToObject2D, GetDistanceBetweenLocations,
+    GetDistanceBetweenLocations2D,
     GetCurrentHitPoints, GetMaxHitPoints,
     GetEnteringObject, GetExitingObject, GetModuleItemAcquired, GetModuleItemLost, GetClickingObject,
     GetLastOpenedBy,
@@ -124,7 +125,7 @@ bound! {
     AmbientSoundSetDayVolume, AmbientSoundSetNightVolume,
     GetLoadFromSaveGame,
     CreateItemOnObject, CreateItemOnFloor, GetItemInSlot, GetFirstItemInInventory,
-    GetNextItemInInventory, GetItemPossessedBy, GetItemPossessor, GetBaseItemType,
+    GetNextItemInInventory, GetItemPossessedBy, GetItemPossessor, GetBaseItemType, GetWeaponRanged,
     GetItemStackSize, GetNumStackedItems, SetItemStackSize, GetItemHasItemProperty,
     GetItemCharges, SetItemCharges, DestroyObject, ActionEquipItem, ActionUnequipItem,
     ActionGiveItem, ActionTakeItem, GetGold, GiveGoldToCreature, TakeGoldFromCreature,
@@ -235,6 +236,12 @@ bound! {
     EffectBlasterDeflectionIncrease, EffectBlasterDeflectionDecrease, GetDamageDealtByType,
     GetMetaMagicFeat, GetSubScreenID, SetButtonMashCheck, GetButtonMashCheck, SetMusicVolume,
     GetCheatCode,
+    // What a Force power's impact script may call (mods' scripts call these).
+    EffectConfused, EffectFrightened, EffectForceResistanceDecrease, EffectSeeInvisible,
+    MagicalEffect, SupernaturalEffect, ExtraordinaryEffect, VersusAlignmentEffect,
+    VersusRacialTypeEffect, GetEffectSubType, GetEffectDurationType, GetHasFeatEffect,
+    GetAreaOfEffectCreator, TouchAttackMelee, TouchAttackRanged, SetForcePowerUnsuccessful,
+    GetSpellCastItem,
 }
 
 /// Whether the routine `name` (`nwscript.nss`) is bound: in the table here,
@@ -272,6 +279,10 @@ const SHIELD_LAST_FLAG: i32 = rules::force_effects::damage_shield::LAST_TYPE;
 /// The Remote's tag (TSL's puppet 0, `RebuildPartyTable`).
 const REMOTE: &str = "remote";
 
+/// The player's own character as the party routines name it
+/// (`SwitchPlayerCharacter`'s switch back).
+const NPC_PLAYER: i32 = -1;
+
 /// How far a surrender reaches (metres; `SurrenderToEnemies`).
 const SURRENDER_REACH: f32 = rules::scripts::fights::SURRENDER_REACH;
 
@@ -296,7 +307,7 @@ pub mod last {
     pub const CLOSED: u8 = 11;
     pub const DISTURBED: u8 = 12;
     /// The last to attack it or cast a harmful power at it
-    /// (`GetLastHostileActor`).
+    /// (`GetLastHostileActor`), cleared once it is out of combat.
     pub const HOSTILE: u8 = 13;
     /// Whom a healer means to heal (`SetHealTarget`, `GetHealTarget`).
     pub const HEAL_TARGET: u8 = 14;
@@ -353,6 +364,11 @@ pub mod last {
     pub const DAMAGE_DEALT: u8 = 36;
     /// Its last cast's metamagic (`GetMetaMagicFeat`).
     pub const METAMAGIC: u8 = 37;
+    /// Set (1) while its rounds are a scene's: its last attack was a
+    /// script's `CutsceneAttack`, and no attack or talent of its own has
+    /// begun since. Such a round ends with no `OnEndCombatRound`
+    /// (`world::scripts::rounds`).
+    pub const SCENE_ROUND: u8 = 38;
 }
 
 /// The listen pattern number `who`'s last dialogue event matched, kept on
@@ -425,7 +441,8 @@ pub(crate) mod alignment {
 
 /// Whether `script` run for `who` is its own AI: one of its AI event
 /// hooks (`AI_HOOKS`). A user-defined event that run signals to itself is
-/// its AI's too (`Pending::ai`).
+/// its AI's too, and so is its dialogue hook answering a heard line
+/// (`Pending::ai`).
 pub(super) fn own_ai(view: &View, who: ObjectId, script: &str) -> bool {
     AI_HOOKS
         .iter()
@@ -484,6 +501,16 @@ const SAVES: [(&str, u8); 3] = [
     ("SAVING_THROW_WILL", 2),
 ];
 
+/// Whether `cast` is a self-targeted cast with no delivery of JA's (an item
+/// its user used on itself, or a power cast from the action bar or by a
+/// script on `OBJECT_SELF`): no grenade, cast on its own caster, catching no
+/// one by JA's delivery. Its impact's shapes are the world's.
+fn own_item_use(_view: &View, cast: &super::Cast) -> bool {
+    cast.caught.is_empty()
+        && cast.target == cast.caster
+        && !crate::combat::grenades::is_grenade(cast.row)
+}
+
 /// Whether `text` fits a listen pattern: the same, `**` standing for any
 /// run of characters (NWScript's wildcard).
 fn heard(pattern: &str, text: &str) -> bool {
@@ -527,7 +554,7 @@ fn immune(c: &Character, immunity: u8, now: u64) -> bool {
 /// Whether a character is immune to `IMMUNITY_TYPE_*` `immunity` by its
 /// effects and worn items alone, an immunity to all counting (TSL's
 /// `GetEffectImmunity`): no feats, no mind umbrella.
-fn immune_effect(c: &Character, immunity: u8, now: u64) -> bool {
+pub(crate) fn immune_effect(c: &Character, immunity: u8, now: u64) -> bool {
     c.sheet.gear.immune_to(immunity)
         || c.lasting.iter().flatten().any(|l| {
             l.until > now && l.modifies == Modifies::Immunity && (l.of == immunity || l.of == 0)
@@ -596,7 +623,7 @@ pub(super) fn surrender(
     else {
         return;
     };
-    if view.pcs(&state.party).contains(&caller) {
+    if view.main_characters(&state.party).contains(&caller) {
         return;
     }
     out.changes.push(Change::Faction {
@@ -668,7 +695,7 @@ mod walk {
     pub const SHAPE: u8 = 2;
     pub const EFFECTS: u8 = 3;
     pub const INVENTORY: u8 = 4;
-    pub const PCS: u8 = 5;
+    pub const MAIN_CHARACTERS: u8 = 5;
     /// Keyed by the faction (`GetFirstFactionMember`), not the caller.
     pub const FACTION: u8 = 6;
 }
@@ -736,13 +763,13 @@ fn effect_type(modifies: Modifies, amount: i16) -> &'static str {
 
 /// How one character regards another (`repute.2da`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Regard {
+pub(super) enum Regard {
     Friend,
     Enemy,
     Neutral,
 }
 
-const REGARDS: [(&str, Regard); 3] = [
+pub(super) const REGARDS: [(&str, Regard); 3] = [
     ("REPUTATION_TYPE_FRIEND", Regard::Friend),
     ("REPUTATION_TYPE_ENEMY", Regard::Enemy),
     ("REPUTATION_TYPE_NEUTRAL", Regard::Neutral),
@@ -781,6 +808,12 @@ pub(super) struct Engine<'a> {
     pub(super) script: &'a str,
     pub(super) event: Event,
     pub(super) depth: u8,
+    /// This run showed the upgrade bench: the code it defers from then on
+    /// waits for the bench to close (`Delayed::bench`).
+    pub(super) benched: bool,
+    /// The saves this run's targets failed, each with whom it was against
+    /// (`oSaveVersus`): a hold it applies after rolls that save each round.
+    pub(super) failed: Vec<(ObjectId, ObjectId, crate::combat::force::HoldSave)>,
 }
 
 /// An argument by place, of a type the VM checked.
@@ -888,27 +921,32 @@ pub(super) fn seconds_ms(seconds: f32) -> u32 {
     (seconds.max(0.0) * 1000.0).round() as u32
 }
 
-/// Whether `animation` asked for `seconds` plays at once and loops until
-/// something else plays (`u32::MAX`): a looping constant of the low range
-/// given a negative duration.
 /// Who holds `item` (`GetItemPossessor`): the first PC for the party's
 /// own, none for one on the floor or unknown.
 fn possessor(state: &State, view: &View, item: ObjectId) -> ObjectId {
     match state.items.get(&item.0) {
-        Some(held) if held.holder == inventory::PARTY => view.first_pc(&state.party),
+        Some(held) if held.holder == inventory::PARTY => view.first_main_character(&state.party),
         Some(held) if held.holder == AREA.0 => ObjectId::INVALID,
         Some(held) => ObjectId(held.holder),
         None => ObjectId::INVALID,
     }
 }
 
+/// Whether `animation` asked for `seconds` plays at once and loops until
+/// something else plays (`u32::MAX`). That is a looping constant of the low
+/// range given a negative duration. In TSL it is also an `animations.2da`
+/// row that the table marks looping, which a script plays as 10 000 and the
+/// row: Visas lies on the Ebon Hawk's medical bed in `dead3`, played with
+/// a duration of -1 by `a_visasarrives`.
 fn loops_on(animation: u16, seconds: f32, tsl: bool) -> bool {
+    use crate::combat::idle::LOOPED_ROWS;
     let last = if tsl {
         LOOPS_AT_ONCE_TSL
     } else {
         LOOPS_AT_ONCE
     };
-    animation <= last && seconds < 0.0
+    let looped_row = tsl && (LOOPED_ROWS..u16::MAX).contains(&animation);
+    (animation <= last || looped_row) && seconds < 0.0
 }
 
 /// How long `animation` (an `ANIMATION_…` constant) asked for `seconds` at
@@ -1007,10 +1045,10 @@ impl Engine<'_> {
             });
         // Then the items held here, as the games keep every item an object
         // (a key or a datapad in a pocket is found): the party's, at the
-        // first PC, and those of an object in this area, at it. TSL's
+        // first main character, and those of an object in this area, at it. TSL's
         // Czerka droid B-4D4 asks whether Opo Chano's credentials are
         // anywhere (`c_havecreds`: `GetObjectByTag("DroidTechCreds")`).
-        let pc = self.view.first_pc(&self.state.party);
+        let pc = self.view.first_main_character(&self.state.party);
         let held = self
             .state
             .items
@@ -1036,13 +1074,24 @@ impl Engine<'_> {
     }
 
     /// The `nth` (from 1) nearest object to `from` tagged `tag`, but itself.
+    /// Only the area's objects count, the items lying on its floor among
+    /// them: TSL's executable searches the area's own list of objects, which
+    /// holds no item in anyone's inventory [verify in K1's exe]. Taris's
+    /// duel destroys the pistol
+    /// Duncan dropped (`k_ptar_fight`), not the one he carries.
     fn nearest_by_tag(&self, tag: &str, from: ObjectId, nth: i32) -> ObjectId {
         let Some(origin) = self.position(from) else {
             return ObjectId::INVALID;
         };
+        let held = |id: ObjectId| {
+            self.state
+                .items
+                .get(&id.0)
+                .is_some_and(|item| item.holder != AREA.0)
+        };
         let found = self
             .tagged(tag)
-            .filter(|tagged| tagged.id != from)
+            .filter(|tagged| tagged.id != from && !held(tagged.id))
             .map(|tagged| (distance(origin, tagged.at), tagged.id))
             .collect();
         nth_nearest(found, nth)
@@ -1063,13 +1112,28 @@ impl Engine<'_> {
         self.view.thing(id)?.character
     }
 
+    /// `id`'s classes and its levels in each, as this step's scripts leave
+    /// them: a class `AddMultiClass` gave earlier in the step counts at
+    /// once, as both games' do (`State::careers`, else the view's).
+    fn classes_now(&self, id: ObjectId) -> Option<[(u8, u8); 2]> {
+        let character = self.character(id)?;
+        Some(match self.state.careers.get(&id.0) {
+            Some(career) => {
+                std::array::from_fn(|at| career.get(at).copied().unwrap_or((u8::MAX, 0)))
+            }
+            None => character.classes,
+        })
+    }
+
     /// `id`'s standard faction: a character's, as this step's scripts leave
-    /// it (`Out::faction`); a laid mine's, its layer's
+    /// it (`Out::faction`); a door's or placeable's a script gave it
+    /// (`State::factions`); a laid mine's, its layer's
     /// (`TrapState::faction`); else a door's, placeable's or trap's as its
     /// data sets it (Tatooine's "Sandperson Faction" placeable).
     fn faction(&self, id: ObjectId) -> Option<u8> {
         self.out
             .faction(self.view, id)
+            .or_else(|| self.state.factions.get(&id.0).copied())
             .or_else(|| self.state.traps.get(&id.0).and_then(|kept| kept.faction))
             .or_else(|| {
                 self.instance(id)
@@ -1133,7 +1197,7 @@ impl Engine<'_> {
         };
         match criterion {
             Criterion::Race => thing.character.is_some_and(|c| i32::from(c.race) == value),
-            Criterion::PlayerChar => (value != 0) == self.pcs().contains(&thing.id),
+            Criterion::PlayerChar => (value != 0) == self.main_characters().contains(&thing.id),
             Criterion::Class => thing.character.is_some_and(|c| {
                 c.classes
                     .iter()
@@ -1151,8 +1215,9 @@ impl Engine<'_> {
             Criterion::Reputation => {
                 let wanted = REGARDS
                     .iter()
-                    .find(|(name, _)| self.library.constant(name) == Some(value))
-                    .map(|(_, regard)| *regard);
+                    .zip(self.library.regards)
+                    .find(|(_, constant)| *constant == Some(value))
+                    .map(|((_, regard), _)| *regard);
                 wanted.is_some() && wanted == self.regard(target, thing.id)
             }
             Criterion::Alive => (value != 0) == thing.hp.is_some_and(|(hp, _)| hp > 0),
@@ -1213,8 +1278,8 @@ impl Engine<'_> {
     /// and an id or −1 for all of it); powers by row, then feats.
     fn talents_in(&self, who: ObjectId, category: i32, exclude: (i32, i32)) -> Vec<(Use, u8)> {
         let mask = category as u32;
-        let powers = (0..Rows::<5>::ROWS).map(Use::Power);
-        let feats = (0..Rows::<4>::ROWS).map(Use::Feat);
+        let powers = (0..Powers::ROWS).map(Use::Power);
+        let feats = (0..Feats::ROWS).map(Use::Feat);
         powers
             .chain(feats)
             .filter(|talent| self.has_talent(who, *talent))
@@ -1292,7 +1357,7 @@ impl Engine<'_> {
                     | Effect::Death
                     | Effect::HealForcePoints(_)
                     | Effect::DamageForcePoints(_)
-                    | Effect::Resurrection
+                    | Effect::Resurrection(_)
                     | Effect::Poison { .. }
                     | Effect::Pushed { .. }
                     | Effect::Knockdown
@@ -1386,12 +1451,32 @@ impl Engine<'_> {
             }
             _ => (target, at),
         };
+        // A mine that a character laid applies its effects as that
+        // character, as a grenade's effects are its thrower's. Its damage is
+        // then the character's own: the options' damage multipliers scale it
+        // like any other attack, and the player who laid it sees the damage
+        // number. A mine the area placed has no creator and stays its own.
+        let layer = self.state.traps.get(&by.0).and_then(|trap| trap.creator);
+        let by = layer.map_or(by, ObjectId);
         let effect = match carried.len() {
             1 => carried.remove(0),
             _ => Effect::Linked(carried),
         };
         let id = self.state.next_effect;
         self.state.next_effect = self.state.next_effect.wrapping_add(1);
+        let holds = effect
+            .leaves()
+            .iter()
+            .any(|leaf| matches!(leaf, Effect::Hold(_)));
+        let save = holds
+            .then(|| {
+                self.failed
+                    .iter()
+                    .rev()
+                    .find(|(on, versus, _)| *on == target && *versus == by)
+                    .map(|(.., save)| *save)
+            })
+            .flatten();
         self.state.applied.push(Applied {
             target,
             by,
@@ -1400,6 +1485,8 @@ impl Engine<'_> {
             spell: self.spell.map_or(u16::MAX, |cast| cast.row),
             id,
             at,
+            save,
+            laid: layer.is_some(),
         });
     }
 
@@ -1483,6 +1570,33 @@ impl Engine<'_> {
         let next = objects.get(*at).copied();
         *at += 1;
         maybe(next)
+    }
+
+    /// `attacker`'s touch attack on `target` (`TouchAttackMelee`,
+    /// `TouchAttackRanged`): a d20 plus its base attack bonus, what runs on
+    /// it, and its STR modifier (DEX when `ranged`), against the target's
+    /// defence [verify: KOTOR's touch defence may leave armour out]. A 1
+    /// misses and a 20 is a critical hit. 0 for a miss, 1 for a hit, 2 for a
+    /// critical hit; 0 when either is no creature.
+    fn touch_attack(&mut self, attacker: ObjectId, target: ObjectId, ranged: bool) -> i32 {
+        use crate::combat::sheet::Ability;
+        let (Some(by), Some(on)) = (self.character(attacker), self.character(target)) else {
+            return 0;
+        };
+        let ability = if ranged {
+            Ability::Dexterity
+        } else {
+            Ability::Strength
+        };
+        let bonus =
+            i32::from(by.sheet.bab) + i32::from(by.sheet.attack) + by.sheet.modifier(ability);
+        let defence = on.sheet.defence();
+        let d20 = self.rng.below(rules::interaction::checks::DIE) as i32 + 1;
+        match d20 {
+            1 => 0,
+            20 => 2,
+            _ => i32::from(d20 + bonus >= defence),
+        }
     }
 
     /// The things within a `SHAPE_*` of `size` (metres) at `at`, nearest
@@ -1572,6 +1686,12 @@ impl Engine<'_> {
                 let mut pending = Pending::new(&script, listener);
                 pending.entering = Some(speaker);
                 pending.number = number;
+                // Answering a heard line is the listener's own AI. K1's
+                // companions answer their party's combat shouts
+                // ("GEN_I_WAS_ATTACKED") through `k_ai_master`, which queues
+                // an attack. That attack took a guest's companion out of
+                // its player's hands for the rest of the round.
+                pending.ai = true;
                 self.state.pending.push(pending);
             }
         }
@@ -1649,7 +1769,8 @@ impl Engine<'_> {
 
     /// `ClearAllActions` on `who` (unless it is not commandable): its queue
     /// cleared, and what it plays stops too, even a clip that outlasts its
-    /// queued time.
+    /// queued time. A loop played on until stopped is kept
+    /// (`Acting::outlives_a_clear`).
     fn clear_all(&mut self, who: ObjectId) {
         if !self.state.uncommandable.contains(&who.0) {
             clear_queue(self.state, self.view, who);
@@ -1983,12 +2104,15 @@ impl Engine<'_> {
                 }
                 Value::Int(0)
             }
-            // No tag is the player's (its creature has none): reone's
-            // `GetObjectByTag`; Trask's walk to the player at the Endar
+            // No tag is the main character's (its creature has none): reone's
+            // `GetObjectByTag`; Trask's walk to the main character at the Endar
             // Spire's start went to an untagged object elsewhere.
-            GetObjectByTag if text(args, 0).is_empty() => {
-                Value::Object(self.pcs().first().copied().unwrap_or(ObjectId::INVALID))
-            }
+            GetObjectByTag if text(args, 0).is_empty() => Value::Object(
+                self.main_characters()
+                    .first()
+                    .copied()
+                    .unwrap_or(ObjectId::INVALID),
+            ),
             GetObjectByTag => Value::Object(self.by_tag(text(args, 0), int(args, 1), None)),
             GetWaypointByTag => {
                 Value::Object(self.by_tag(text(args, 0), 0, Some(ObjectKind::Waypoint)))
@@ -2005,6 +2129,8 @@ impl Engine<'_> {
             GetTag => {
                 let id = object(args, 0);
                 match state.items.get(&id.0) {
+                    // The area's own (its ARE's `Tag`).
+                    _ if id == AREA => string(view.module.area_tag.clone()),
                     Some(item) => string(
                         state
                             .item_facts(self.library.items(), &item.template)
@@ -2025,9 +2151,13 @@ impl Engine<'_> {
                         || self.exists(id),
                 )
             }
-            GetFirstPC => self.first(caller, walk::PCS, self.controlled_pcs()),
-            GetNextPC => self.next(caller, walk::PCS),
-            // The first seat's PC leads, or the companion made leader
+            // The original walks its list of players and gives each one's
+            // main character (`View::main_characters`). A leader change moves none of
+            // them: with a companion leading, `GetFirstPC` is still the
+            // main character, who then follows.
+            GetFirstPC => self.first(caller, walk::MAIN_CHARACTERS, self.main_characters()),
+            GetNextPC => self.next(caller, walk::MAIN_CHARACTERS),
+            // The first seat's main character leads, or the companion made leader
             // (`SetPartyLeader`, `Action::SetLeader`), which the first seat
             // then moves (`world::lent`); in a script a guest's act raised,
             // the companion it drives (`Event::leads`).
@@ -2044,9 +2174,10 @@ impl Engine<'_> {
                     .and_then(|at| self.party().get(at).copied())
                     .unwrap_or(ObjectId::INVALID),
             ),
-            // A player, the companion leading (the one KOTOR's player
-            // controls: T3-M4 at the Sith base's door), or the one the first
-            // seat is switched to in place of its own character.
+            // True for a main character. It is also true for a character a
+            // player controls, which is the companion leading (T3-M4 at the
+            // Sith base's door) or the companion a guest drives. This is
+            // wider than `GetFirstPC`, which names main characters only.
             GetIsPC => truth(self.is_pc(object(args, 0))),
             GetModule => Value::Object(MODULE),
             GetModuleName => string(view.module.title.as_str()),
@@ -2130,10 +2261,17 @@ impl Engine<'_> {
             ),
             GetLocked => truth(self.out.locked(view, object(args, 0)).unwrap_or(false)),
             SetLocked => {
-                self.out.changes.push(Change::Lock {
-                    door: object(args, 0),
-                    locked: int(args, 1) != 0,
-                });
+                let (door, locked) = (object(args, 0), int(args, 1) != 0);
+                let spared = locked
+                    && self.instance(door).is_some_and(|facts| {
+                        facts
+                            .spared_locks
+                            .iter()
+                            .any(|script| script.eq_ignore_ascii_case(self.script))
+                    });
+                if !spared {
+                    self.out.changes.push(Change::Lock { door, locked });
+                }
                 Value::Int(0)
             }
             SetMapPinEnabled => {
@@ -2202,9 +2340,13 @@ impl Engine<'_> {
             GetDistanceToObject2D => {
                 Value::Float(self.between(object(args, 0), caller, flat).unwrap_or(-1.0))
             }
-            GetDistanceBetweenLocations => {
+            GetDistanceBetweenLocations | GetDistanceBetweenLocations2D => {
+                let measure = match bound {
+                    GetDistanceBetweenLocations => distance,
+                    _ => flat,
+                };
                 let (a, b) = (self.place(args, 0), self.place(args, 1));
-                Value::Float(a.zip(b).map_or(0.0, |((a, _), (b, _))| distance(a, b)))
+                Value::Float(a.zip(b).map_or(0.0, |((a, _), (b, _))| measure(a, b)))
             }
             GetCurrentHitPoints | GetMaxHitPoints => {
                 // A creature's fighter's; a door's or placeable's, its data's.
@@ -2325,6 +2467,7 @@ impl Engine<'_> {
                 });
                 truth(
                     attacking
+                        || self.view.embattled.contains(&who)
                         || self
                             .character(who)
                             .is_some_and(|c| c.in_combat && !(only_real && c.fake_combat)),
@@ -2347,13 +2490,15 @@ impl Engine<'_> {
                 };
                 truth(self.regard(object(args, 1), object(args, 0)) == Some(wanted))
             }
-            // How the source's faction regards the target's (0 to 100);
-            // −1 unless both are characters (only they have factions here).
+            // How the source's faction regards the target's, from 0 to 100.
+            // A door or a placeable has a faction too, and it is read the
+            // way `AdjustReputation` reads it. The K1 Community Patch reads
+            // the standing of the Sand People's faction placeable to set it
+            // to exactly 0 or 50. The answer is −1 when either object has
+            // no faction.
             GetReputation => {
-                let (source, target) = (
-                    self.out.faction(view, object(args, 0)),
-                    self.out.faction(view, object(args, 1)),
-                );
+                let (source, target) =
+                    (self.faction(object(args, 0)), self.faction(object(args, 1)));
                 let repute = view.module.repute.with(&self.state.reputation);
                 Value::Int(
                     source
@@ -2430,17 +2575,17 @@ impl Engine<'_> {
                 None => maybe(None),
             },
             // The first creature joins the second's faction; neither may be
-            // a player's own character (`ChangeFaction` sets nothing then).
+            // a main character (`ChangeFaction` sets nothing then).
+            // Either may have been made earlier in the step, and the second's
+            // faction is the one this step's scripts have left it so far.
             ChangeFaction => {
                 let (who, to) = (object(args, 0), object(args, 1));
                 let own = |id| view.thing(id).is_some_and(|thing| thing.kind.is_none());
-                if let (Some(_), Some(to), false, false) =
-                    (self.character(who), self.character(to), own(who), own(to))
+                let faction = self.out.faction(view, to);
+                if let (true, Some(faction), false, false) =
+                    (self.is_creature(who), faction, own(who), own(to))
                 {
-                    self.out.changes.push(Change::Faction {
-                        who,
-                        faction: to.faction,
-                    });
+                    self.out.changes.push(Change::Faction { who, faction });
                 }
                 Value::Int(0)
             }
@@ -2452,7 +2597,7 @@ impl Engine<'_> {
                 let Some(faction) = self.character(object(args, 0)).map(|c| c.faction) else {
                     return maybe(None);
                 };
-                let mut members = view
+                let members = view
                     .things
                     .iter()
                     .filter(|thing| thing.character.is_some_and(|c| c.faction == faction));
@@ -2469,9 +2614,20 @@ impl Engine<'_> {
                         })
                         .1
                 } else {
+                    let controlled = self.first_seat_character();
+                    let members: Vec<_> = members
+                        .map(|thing| {
+                            (
+                                thing.id,
+                                thing.character.is_some_and(|c| c.driver.is_some()),
+                            )
+                        })
+                        .collect();
                     members
-                        .find(|thing| thing.character.is_some_and(|c| c.driver.is_some()))
-                        .map(|thing| thing.id)
+                        .iter()
+                        .find(|(id, _)| Some(*id) == controlled)
+                        .or_else(|| members.iter().find(|(_, driven)| *driven))
+                        .map(|(id, _)| *id)
                 };
                 maybe(leader)
             }
@@ -2703,8 +2859,8 @@ impl Engine<'_> {
                 self.character(object(args, 0))
                     .is_some_and(|c| c.debilitated),
             ),
-            GetLevelByClass => Value::Int(self.character(object(args, 1)).map_or(0, |c| {
-                c.classes
+            GetLevelByClass => Value::Int(self.classes_now(object(args, 1)).map_or(0, |classes| {
+                classes
                     .iter()
                     .filter(|(class, _)| i32::from(*class) == int(args, 0))
                     .map(|(_, levels)| i32::from(*levels))
@@ -2712,11 +2868,14 @@ impl Engine<'_> {
             })),
             GetClassByPosition => {
                 // Positions count from 1; CLASS_TYPE_INVALID past its classes.
+                // A class taken up with no level in it yet counts: both
+                // games answer `AddMultiClass`'s class at once, before the
+                // level-up that takes its first level.
                 let at = usize::try_from(int(args, 0) - 1).ok();
                 let class = at
-                    .zip(self.character(object(args, 1)))
-                    .and_then(|(at, c)| c.classes.get(at).copied())
-                    .filter(|(_, levels)| *levels > 0);
+                    .zip(self.classes_now(object(args, 1)))
+                    .and_then(|(at, classes)| classes.get(at).copied())
+                    .filter(|(class, _)| *class != u8::MAX);
                 let invalid = || self.library.constant("CLASS_TYPE_INVALID").unwrap_or(-1);
                 Value::Int(class.map_or_else(invalid, |(class, _)| i32::from(class)))
             }
@@ -2939,6 +3098,7 @@ impl Engine<'_> {
                         .map(|strike| strike.due_ms)
                         .max();
                     let begins = swung_back.filter(|_| animation != 0).unwrap_or(now);
+                    self.state.last.insert((caller.0, last::SCENE_ROUND), 1);
                     self.queue(
                         caller,
                         Action::Attack {
@@ -3043,7 +3203,7 @@ impl Engine<'_> {
                 let who = object(args, 1);
                 if let (Ok(feat), Some(c)) = (u16::try_from(int(args, 0)), self.character(who)) {
                     let mut sheet = self.out.sheet(who, c.worn);
-                    if !sheet.feats.has(feat) && feat < Rows::<4>::ROWS {
+                    if !sheet.feats.has(feat) && feat < Feats::ROWS {
                         sheet.feats.insert(feat);
                         let levels = sheet.level;
                         crate::combat::passive::learn(&mut sheet, feat, levels);
@@ -3055,34 +3215,19 @@ impl Engine<'_> {
             GetHasSkill => truth(
                 usize::try_from(int(args, 0))
                     .ok()
-                    .zip(self.character(object(args, 1)))
+                    .zip(self.character(self.skilled(object(args, 1))))
                     .is_some_and(|(skill, c)| c.sheet.skills.get(skill).is_some_and(|r| *r > 0)),
             ),
-            // TSL's: the rank with its effects and worn items, feats and
-            // the key ability's modifier, as its executable reads it
-            // (`force::skill_rank`); 0 for a skill it has no row for.
-            GetSkillRank if view.module.game == TSL => Value::Int(
-                match (
-                    usize::try_from(int(args, 0)).ok(),
-                    self.character(object(args, 1)),
-                ) {
-                    (Some(skill), Some(c)) if skill < c.sheet.skills.len() => {
-                        self.skill_rank(&c, skill)
-                    }
-                    (_, Some(_)) => 0,
-                    (_, None) => -1,
-                },
-            ),
-            // K1's: the rank its sheet holds as its effects and worn items
-            // leave it; −1 for one that is not a character or a skill it has
-            // no row for.
-            GetSkillRank => Value::Int(
-                usize::try_from(int(args, 0))
-                    .ok()
-                    .zip(self.character(object(args, 1)))
-                    .and_then(|(skill, c)| c.sheet.skills.get(skill).copied())
-                    .map_or(-1, i32::from),
-            ),
+            // Both games': the rank with its effects and worn items, feats
+            // and the key ability's modifier, as their executables read it
+            // (`stealth::rank`); 0 for a skill it has no row for, −1 for
+            // what is not a character.
+            GetSkillRank => Value::Int(match self.character(self.skilled(object(args, 1))) {
+                Some(c) => {
+                    usize::try_from(int(args, 0)).map_or(0, |skill| self.skill_rank(&c, skill))
+                }
+                None => -1,
+            }),
             GetCurrentForcePoints => Value::Int(
                 self.character(object(args, 0))
                     .map_or(0, |c| c.fp / HUNDREDTHS),
@@ -3095,8 +3240,8 @@ impl Engine<'_> {
             GetLevelByPosition => {
                 let at = usize::try_from(int(args, 0) - 1).ok();
                 Value::Int(
-                    at.zip(self.character(object(args, 1)))
-                        .and_then(|(at, c)| c.classes.get(at).copied())
+                    at.zip(self.classes_now(object(args, 1)))
+                        .and_then(|(at, classes)| classes.get(at).copied())
                         .map_or(0, |(_, levels)| i32::from(levels)),
                 )
             }
@@ -3124,19 +3269,33 @@ impl Engine<'_> {
                     })
                     .unwrap_or(0),
             ),
-            // Leaves a player's own character as it is: both executables'
+            // Leaves a main character as it is: both executables'
             // `ExecuteCommandChangeFaction` (`ChangeToStandardFaction`, and
             // `ChangeFaction`) pass over a creature whose stats are a PC's,
             // so Dxun's battle circle (`a_circle_fight`, `tr_circle`: the PC
             // to Friendly 1 after each match) does not turn every Friendly 2
             // creature on the Exile (Dantooine's salvagers at the Enclave).
+            // A door or placeable keeps its own in the scripts' state at
+            // once (the Star Forge's stasis tanks turn neutral once their
+            // Jedi is freed or killed). A creature the same script has just
+            // made changes too, as it stands up (TSL's Exchange: `a_vula`
+            // makes the first room's Gamorreans and turns them hostile when
+            // the Exile came in without an appointment).
             ChangeToStandardFaction => {
                 let who = object(args, 0);
                 let own = view.thing(who).is_some_and(|thing| thing.kind.is_none());
-                if let (Some(_), Ok(faction), false) =
-                    (self.character(who), u8::try_from(int(args, 1)), own)
-                {
-                    self.out.changes.push(Change::Faction { who, faction });
+                let faction = u8::try_from(int(args, 1));
+                let situated = self.instance(who).is_some_and(|facts| {
+                    matches!(facts.kind, ObjectKind::Door | ObjectKind::Placeable)
+                });
+                match (self.is_creature(who), faction, own) {
+                    (true, Ok(faction), false) => {
+                        self.out.changes.push(Change::Faction { who, faction });
+                    }
+                    (false, Ok(faction), _) if situated => {
+                        self.state.factions.insert(who.0, faction);
+                    }
+                    _ => {}
                 }
                 Value::Int(0)
             }
@@ -3406,7 +3565,18 @@ impl Engine<'_> {
                         (walk::PERSISTENT, objects)
                     }
                     // In a cast's impact, whom JA's delivery caught (C10).
-                    _ if let Some(cast) = self.spell => (walk::SHAPE, cast.caught.clone()),
+                    // An item its user used on itself had no delivery: its
+                    // shape is the world's, as below (Manaan's sonic
+                    // emitter kills the firaxan sharks round its user). So
+                    // is a power JA has no shape for (`force::scripted`):
+                    // its script's own shape, radius and origin decide.
+                    _ if let Some(cast) = self.spell.filter(|cast| {
+                        !own_item_use(view, cast)
+                            && !crate::combat::force::scripted(Some(self.library), cast.row)
+                    }) =>
+                    {
+                        (walk::SHAPE, cast.caught.clone())
+                    }
                     _ => {
                         let at = self.place(args, 2).map_or([0.0; 3], |(at, _)| at);
                         let given = vector(args, 5);
@@ -3482,7 +3652,10 @@ impl Engine<'_> {
                     None => self.effect_value(Effect::Other("EffectForceShield".into())),
                 }
             }
-            EffectResurrection => self.effect_value(Effect::Resurrection),
+            EffectResurrection => {
+                let percent = int(args, 0).clamp(0, 100) as u8;
+                self.effect_value(Effect::Resurrection(percent))
+            }
             EffectACIncrease | EffectACDecrease => {
                 let sign = if bound == EffectACIncrease { 1 } else { -1 };
                 self.modifier(Modifies::Defence, sign * int(args, 0), 0)
@@ -3688,7 +3861,65 @@ impl Engine<'_> {
                 })
             }
             EffectBlind => self.modifier(Modifies::Blind, 0, 0),
-            EffectTrueSeeing => self.modifier(Modifies::TrueSeeing, 0, 0),
+            // NWN's see-invisible is KOTOR's true seeing here.
+            EffectTrueSeeing | EffectSeeInvisible => self.modifier(Modifies::TrueSeeing, 0, 0),
+            // NWN's confusion and fright are KOTOR's states 1 and 2, which
+            // both executables keep (`effects::state`).
+            EffectConfused | EffectFrightened => self.effect_value(Effect::State {
+                state: if bound == EffectConfused {
+                    state::CONFUSED
+                } else {
+                    state::FRIGHTENED
+                },
+                cutscene: false,
+            }),
+            EffectForceResistanceDecrease => {
+                self.modifier(Modifies::ForceResistance, -int(args, 0), 0)
+            }
+            // An effect's subtype and its restriction to an alignment or a
+            // race are not kept: the effect itself, as it was given.
+            MagicalEffect
+            | SupernaturalEffect
+            | ExtraordinaryEffect
+            | VersusAlignmentEffect
+            | VersusRacialTypeEffect => args
+                .first()
+                .cloned()
+                .unwrap_or(Value::empty(script_ncs::Type::Effect)),
+            // Every effect here is magical (no effect keeps a subtype).
+            GetEffectSubType => Value::Int(match self.slot(args, 0) {
+                Some(_) => self.library.constant("SUBTYPE_MAGICAL").unwrap_or(8),
+                None => 0,
+            }),
+            // A lasting effect runs for its time or until removed.
+            GetEffectDurationType => Value::Int(match self.slot(args, 0) {
+                Some((_, l)) if l.until == u64::MAX => self
+                    .library
+                    .constant("DURATION_TYPE_PERMANENT")
+                    .unwrap_or(2),
+                Some(_) => self
+                    .library
+                    .constant("DURATION_TYPE_TEMPORARY")
+                    .unwrap_or(1),
+                None => self.library.constant("DURATION_TYPE_INSTANT").unwrap_or(0),
+            }),
+            // No effect here comes from a feat, and nothing places an area
+            // of effect: a documented no-op each.
+            GetHasFeatEffect => Value::Int(0),
+            GetAreaOfEffectCreator => maybe(None),
+            // A power cast here never comes from an item: an item's use runs
+            // its spell as its user's (`script::items`).
+            GetSpellCastItem => maybe(None),
+            // The caster's power did not work (`GetWasForcePowerSuccessful`);
+            // the feedback line it names is not shown.
+            SetForcePowerUnsuccessful => {
+                let who = object(args, 1);
+                self.state.last.insert((who.0, last::POWER_LANDED), 0);
+                Value::Int(0)
+            }
+            TouchAttackMelee | TouchAttackRanged => {
+                Value::Int(self.touch_attack(caller, object(args, 0), bound == TouchAttackRanged))
+            }
             EffectFury => self.modifier(Modifies::Fury, 0, 0),
             EffectForceSight => self.modifier(Modifies::ForceSight, 0, 0),
             EffectBodyFuel => self.modifier(Modifies::BodyFuel, 0, 0),
@@ -3947,7 +4178,30 @@ impl Engine<'_> {
                     return Value::Int(2);
                 }
                 let d20 = self.rng.below(20) as i32 + 1;
-                truth(d20 + them.sheet.save(index) >= int(args, 1))
+                let saved = d20 + them.sheet.save(index) >= int(args, 1);
+                if !saved {
+                    let save = crate::combat::force::HoldSave {
+                        index: index as u8,
+                        dc: int(args, 1),
+                    };
+                    self.failed.push((object(args, 0), object(args, 3), save));
+                }
+                // A failed save against Force Scream covers the ears for
+                // the rulebook's time (`Hold::Ears`). TSL's impact script
+                // asks no droid, and a droid never covers them.
+                let scream = self
+                    .spell
+                    .filter(|cast| crate::combat::force::crowd::scream(cast.row))
+                    .map(|cast| cast.caster);
+                if let Some(caster) = scream
+                    && !saved
+                    && them.sheet.flags & flags::DROID == 0
+                {
+                    let until = now + crate::combat::force::ja::EARS_MS;
+                    let target = (object(args, 0), None);
+                    self.carry(vec![Effect::Hold(Hold::Ears)], target, caster, Some(until));
+                }
+                truth(saved)
             }
             // A Reflex save against the DC divides the damage
             // (`REFLEX_DIVISOR`, rounded down); one that is not a
@@ -4095,10 +4349,21 @@ impl Engine<'_> {
                 });
                 Value::Int(0)
             }
-            // Heard at the caller by every player (`Notice::Sound`).
+            // Heard at the caller by every player (`Notice::Sound`), when
+            // its turn in the caller's queue comes, as TSL's executable
+            // queues it (`Action::Sound`). The module, the area and a dead
+            // character have no queue that runs, so theirs plays at once
+            // [verify a dead one's in the exes].
             PlaySound => {
-                let sound = crate::notice::Sound::new(caller.0, text(args, 0));
-                self.tell(None, Notice::Sound(sound))
+                let resref = text(args, 0);
+                let queues = view.thing(caller).is_some_and(|thing| !thing.dead());
+                if queues {
+                    let resref = resref.to_string();
+                    self.queue(caller, Action::Sound { resref })
+                } else {
+                    let sound = crate::notice::Sound::new(caller.0, resref);
+                    self.tell(None, Notice::Sound(sound))
+                }
             }
             SoundObjectGetVolume => Value::Int(
                 view.thing(object(args, 0))
@@ -4163,6 +4428,7 @@ impl Engine<'_> {
             | GetItemPossessedBy
             | GetItemPossessor
             | GetBaseItemType
+            | GetWeaponRanged
             | GetItemHasItemProperty
             | GetItemStackSize
             | GetNumStackedItems
@@ -4365,6 +4631,15 @@ impl Engine<'_> {
                     }),
                     (_, None) => None,
                 };
+                // TSL's executable puts the companion it spawns in the
+                // player's faction, whether or not it joins the party. Its
+                // template's own faction would make it an enemy of Friendly
+                // 2: Onderon's Tobin, revived by a Kreia `a_end_game` made,
+                // fought her through `506kreia` [verify in K1's exe].
+                if let Some(who) = spawned {
+                    let faction = crate::combat::sheet::factions::PLAYER;
+                    self.out.changes.push(Change::Faction { who, faction });
+                }
                 Value::Object(spawned.unwrap_or(ObjectId::INVALID))
             }
             // The party table keeps the companion as it stands now.
@@ -4375,25 +4650,47 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             SwitchPlayerCharacter => self.switch_player(int(args, 0)),
-            // Creatures for now; other kinds are not made in play yet.
+            // Creatures, placeables and waypoints; other kinds are not
+            // made in play yet.
             CreateObject => {
-                // A creature or a placeable, of the templates the module's
-                // plan gathered (`Library::creature`, `placeable`).
-                let kind = [ObjectKind::Creature, ObjectKind::Placeable]
-                    .into_iter()
-                    .find(|kind| {
-                        self.library.object_types.get(kind).copied() == Some(int(args, 0))
-                    });
-                let template = key(text(args, 1));
+                // A creature, a placeable, a waypoint or a store, of the
+                // templates the module's plan gathered (`Library::creature`,
+                // `placeable`, `waypoint`, `store`).
+                let kind = [
+                    ObjectKind::Creature,
+                    ObjectKind::Placeable,
+                    ObjectKind::Waypoint,
+                    ObjectKind::Store,
+                ]
+                .into_iter()
+                .find(|kind| self.library.object_types.get(kind).copied() == Some(int(args, 0)));
+                let template = resref(text(args, 1));
+                let placed = match kind {
+                    Some(ObjectKind::Waypoint) => self.library.waypoint(&template),
+                    Some(ObjectKind::Store) => self.library.store(&template),
+                    _ => None,
+                };
                 let known = match kind {
                     Some(ObjectKind::Creature) => self.library.creature(&template).is_some(),
+                    Some(ObjectKind::Waypoint | ObjectKind::Store) => placed.is_some(),
                     Some(_) => self.library.placeable(&template).is_some(),
                     None => false,
                 };
                 let made = known
                     .then(|| self.place(args, 2))
                     .flatten()
-                    .and_then(|(at, yaw)| self.make(&template, at, yaw));
+                    .and_then(|(at, yaw)| match placed {
+                        Some(facts) => Some(super::make_placed(
+                            self.library,
+                            self.view,
+                            self.state,
+                            self.out,
+                            facts,
+                            at,
+                            yaw,
+                        )),
+                        None => self.make(&template, at, yaw),
+                    });
                 if made.is_none() {
                     self.trace(&format!(
                         "  not made: type {} template {:?}",
@@ -4420,6 +4717,9 @@ impl Engine<'_> {
                         (self.spell.cloned(), talk, self.event.cue, run, ai),
                         self.library.script_digest(self.script),
                     );
+                    if let Some(deferred) = state.delayed.last_mut() {
+                        deferred.bench = self.benched;
+                    }
                 }
                 Value::Int(0)
             }
@@ -4431,12 +4731,13 @@ impl Engine<'_> {
                     let ai = self.event.ai == Some(target);
                     let carried = (self.spell.cloned(), talk, self.event.cue, run, ai);
                     let digest = self.library.script_digest(self.script);
+                    self.out.assigned.push(state.next);
                     state.defer(now, target, self.script, code, carried, digest);
                 }
                 Value::Int(0)
             }
             ExecuteScript => {
-                self.execute(&key(text(args, 0)), object(args, 1), int(args, 2));
+                self.execute(&resref(text(args, 0)), object(args, 1), int(args, 2));
                 Value::Int(0)
             }
             SignalEvent if handle(args, 1).0 & SPELL_EVENT != 0 => {
@@ -4592,7 +4893,10 @@ impl Engine<'_> {
                 };
                 // One of a stack, as `ActionEquipItem` (Juhani's two
                 // lightsabers on Dantooine are one stack).
-                if let Some(best) = self.most_damaging(caller, ranged, slot) {
+                let best = (!super::grappled(view, caller))
+                    .then(|| self.most_damaging(caller, ranged, slot))
+                    .flatten();
+                if let Some(best) = best {
                     let best = self.state.one_of(best);
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, best, caller.0, slot, back);
@@ -4689,8 +4993,16 @@ impl Engine<'_> {
                     == crate::combat::passive::Game::Tsl;
                 let animation = self.library.script_animation(int(args, 0), tsl);
                 let (speed, seconds) = (float(args, 1), float(args, 2));
+                // A placeable's transition (a Star Map unfolding) lasts its
+                // clip's length. The actions queued after it wait for it.
+                let transition = (view
+                    .facts(caller)
+                    .filter(|f| f.kind == ObjectKind::Placeable))
+                .and_then(|facts| facts.transitions.iter().find(|(a, _)| *a == animation))
+                .map(|(_, ms)| *ms);
                 let clip = (self.view.appearance(caller))
-                    .and_then(|row| self.library.clip_ms(row, animation));
+                    .and_then(|row| self.library.clip_ms(row, animation))
+                    .or(transition);
                 let ms = match bound == PlayAnimation && seconds < 0.0 {
                     true => u32::MAX,
                     false => animation_ms(animation, (speed, seconds), clip, tsl),
@@ -5001,7 +5313,7 @@ impl Engine<'_> {
                 let given = object(args, usize::from(!lab));
                 let maker = Some(given)
                     .filter(|given| *given != ObjectId::INVALID)
-                    .or_else(|| self.pcs().first().copied())
+                    .or_else(|| self.main_characters().first().copied())
                     .unwrap_or(ObjectId::INVALID);
                 let list = match lab {
                     true => crate::inventory::workshop::LAB.to_string(),
@@ -5016,11 +5328,13 @@ impl Engine<'_> {
                 let screen =
                     self.state
                         .bench(&bench, item.map(|item| item.0), !lab && int(args, 3) == 0);
+                self.bench_up();
                 self.tell(None, Notice::Show(screen))
             }
             ShowUpgradeScreen | ShowChemicalUpgradeScreen => {
                 let item = object(args, 0);
                 let item = (item != ObjectId::INVALID).then_some(item.0);
+                self.bench_up();
                 self.tell(None, Notice::Show(Screen::Upgrade { item }))
             }
             ShowLevelUpGUI => self.tell(None, Notice::Show(Screen::LevelUp)),
@@ -5058,17 +5372,21 @@ impl Engine<'_> {
             // The dialogue window's state: nothing kept here to reset.
             ResetDialogState => Value::Int(0),
             GetSelectedPlanet => Value::Int(self.state.galaxy.selected.map_or(-1, i32::from)),
-            // Kept until a player closes it (`Action::ChooseParty`).
+            // Kept until a player closes it (`Action::ChooseParty`). The
+            // forced are companions by number (KOTOR's twelve, 0 to 11);
+            // TSL's fourth argument lets the player back out of it.
             ShowPartySelectionGUI => {
                 let forced: Vec<u8> = [int(args, 1), int(args, 2)]
                     .into_iter()
                     .filter_map(|npc| u8::try_from(npc).ok())
+                    .filter(|npc| usize::from(*npc) < crate::notice::NPCS)
                     .collect();
-                let roster = self.state.party.roster(&forced, true, &self.state.items);
                 self.state.party.selection = Some(super::party::Selection {
                     exit: key(text(args, 0)),
                     forced,
+                    cancel: int(args, 3) != 0,
                 });
+                let roster = self.state.party.roster(None, &self.state.items);
                 self.tell(None, Notice::Show(Screen::PartySelection(roster)))
             }
             // For the party, one player at the table (I30 P20, R9); its end
@@ -5087,11 +5405,13 @@ impl Engine<'_> {
                     caller
                 };
                 // Whoever asked for it plays, alone: the guest whose pick
-                // or use led here, else the PC speaking (I30 P8).
-                let pc =
-                    self.state.talk.running.unwrap_or_else(|| {
-                        self.pcs().first().copied().unwrap_or(ObjectId::INVALID)
-                    });
+                // or use led here, else the main character (I30 P8).
+                let pc = self.state.talk.running.unwrap_or_else(|| {
+                    self.main_characters()
+                        .first()
+                        .copied()
+                        .unwrap_or(ObjectId::INVALID)
+                });
                 let player = self.state.talk.asker_of_running(pc).unwrap_or(pc);
                 let players = (runs_for, player);
                 if super::pazaak::start(self.library, self.state, &call, players) {
@@ -5266,9 +5586,17 @@ impl Engine<'_> {
         // A guest who clicked the merchant trades: the store opens for the
         // body that asked, not for the host's character speaking (I30 P8).
         let asked = self.state.talk.asker_of_running(player);
-        let player = asked.unwrap_or(player);
+        // The host's character and the companion it leads with are one
+        // player. The store opens for the body the first seat acts through,
+        // because its screen and its trades are that body's. Larrim's store
+        // on Taris opens a moment after his conversation ends
+        // (`k_ptar_larrimsto`), for the PC speaker, which is then the main
+        // character, while a companion may lead.
+        let [pc, acting] = self.view.host(&self.state.party);
+        let ours = asked.is_some() || player == acting || self.main_characters().contains(&player);
+        let player = asked.unwrap_or(if player == pc { acting } else { player });
         let terms = self.instance(store).and_then(|facts| facts.store);
-        let Some(terms) = terms.filter(|_| asked.is_some() || self.pcs().contains(&player)) else {
+        let Some(terms) = terms.filter(|_| ours) else {
             self.trace(&format!("  no store {} for {}", name(store), name(player)));
             return Value::Int(0);
         };
@@ -5285,6 +5613,14 @@ impl Engine<'_> {
                 markdown: bonus[1],
             }),
         )
+    }
+
+    /// The upgrade bench (or the lab station) shown: both games pause while
+    /// it is up, so what this run defers from now on waits until the first
+    /// seat closes it (`Action::ScreenClosed`, `State::bench_closed`).
+    fn bench_up(&mut self) {
+        self.state.bench_up.get_or_insert(self.view.now_ms);
+        self.benched = true;
     }
 
     /// Something for one character's player, or (none) every player's.
@@ -5323,6 +5659,8 @@ impl Engine<'_> {
                 ..self.event.clone()
             },
             depth: self.depth + 1,
+            benched: self.benched,
+            failed: Vec::new(),
         };
         let outcome = vm::run(program, library.routines(), caller, &mut nested);
         finish(self.report, script, outcome);
@@ -5461,14 +5799,21 @@ impl Engine<'_> {
         };
         match bound {
             // A component or chemical made on a creature is a count, no
-            // item (`State::pool_carried`).
+            // item (`State::pool_carried`). An object that is not there (the
+            // object of a tag no object of the area has) gets nothing, and
+            // the call gives `OBJECT_INVALID`. KOTOR 2's Akkere stocks
+            // `store_adum001`, a tag no store of Dantooine has, and that
+            // item was made held by no one.
             CreateItemOnObject => {
                 let on = object(args, 1);
+                if !self.exists(on) {
+                    return Value::Object(ObjectId::INVALID);
+                }
                 let holder = items::holder(view, on);
                 let stack = int(args, 2).clamp(1, i32::from(u16::MAX)) as u16;
-                let mut made = self
-                    .state
-                    .make_item(catalog, text(args, 0), holder, stack, None);
+                let mut made =
+                    self.state
+                        .make_item(catalog, &resref(text(args, 0)), holder, stack, None);
                 if self.is_creature(on) {
                     self.pool(holder);
                     made = made.filter(|made| self.state.items.contains_key(&made.0));
@@ -5489,9 +5834,10 @@ impl Engine<'_> {
             // until a script destroys or takes it.
             CreateItemOnFloor => {
                 let module = &view.module.name;
-                let made = self
-                    .place(args, 1)
-                    .and_then(|place| self.state.lay_item(catalog, text(args, 0), module, place));
+                let made = self.place(args, 1).and_then(|place| {
+                    self.state
+                        .lay_item(catalog, &resref(text(args, 0)), module, place)
+                });
                 if made.is_none() {
                     self.trace(&format!("  no item template {:?}", text(args, 0)));
                 }
@@ -5529,6 +5875,13 @@ impl Engine<'_> {
                 Value::Object(found.map_or(ObjectId::INVALID, ObjectId))
             }
             GetItemPossessor => Value::Object(possessor(self.state, view, item)),
+            // Whether the item is a weapon that shoots (a blaster, a
+            // rifle, a heavy weapon).
+            GetWeaponRanged => truth(
+                facts(self.state, catalog, item)
+                    .and_then(|facts| facts.weapon)
+                    .is_some_and(|weapon| weapon.delivery.ranged()),
+            ),
             GetBaseItemType => Value::Int(facts(self.state, catalog, item).map_or_else(
                 || self.library.constant("BASE_ITEM_INVALID").unwrap_or(256),
                 |facts| i32::from(facts.base_item),
@@ -5594,17 +5947,22 @@ impl Engine<'_> {
                 } else if let Some(thing) = view.thing(item).filter(|thing| {
                     !(thing.character.is_some() && self.state.kept.contains(&item.0))
                         && !view.party.contains(&item)
+                        && self.state.party.switched_body() != Some(item.0)
                 }) {
                     // A creature `SetIsDestroyable(FALSE)` keeps is not
                     // destroyed: TSL's `CSWSCreature::EventHandler` passes
                     // the destroy event over for one not destroyable
                     // (506OND's `a_end_game` destroys Tobin's body, then
                     // raises him for Kreia's scene) [verify in K1's exe].
-                    // Nor is a player's own character, as the Aurora
-                    // engines never destroy a player: Gadon's night in the
-                    // Bek base (`k_ptar_racecs0`) destroys party members 1
-                    // and 2, the player among them while a companion leads.
+                    // Nor is a main character, as the Aurora engines
+                    // never destroy one: Gadon's night in the Bek base
+                    // (`k_ptar_racecs0`) destroys party members 1 and 2,
+                    // the main character among them while a companion
+                    // leads.
+                    // Nor is the character the first seat is switched to,
+                    // the main character meanwhile.
                     let ms = seconds_ms(float(args, 1));
+                    self.keep_lent(item);
                     if ms == 0 {
                         self.out.destroyed.push(item);
                         self.carry_off(item);
@@ -5621,17 +5979,53 @@ impl Engine<'_> {
             // like weapons: Calo Nord's two heavy blasters are one stack his
             // scene equips twice, right hand then left).
             ActionEquipItem => {
-                if let Ok(slot) = u8::try_from(int(args, 1)) {
+                let slot = u8::try_from(int(args, 1))
+                    .ok()
+                    .filter(|&slot| !(in_hand(slot) && super::grappled(view, caller)));
+                if let Some(slot) = slot {
                     let item = self.state.one_of(item);
                     let back = items::holder(view, caller);
                     self.state.equip(self.out, item, caller.0, slot, back);
                     super::forfeit_equip(self.library, view, self.state, caller, (item.0, slot));
+                    // A weapon a script puts in the hand of a party member
+                    // taking part in a conversation is out for the rest of
+                    // that conversation (Dantooine's training spar,
+                    // `k_pdan_cut01`). The executables never put a weapon
+                    // away. kjk puts a party member's away in a conversation
+                    // (`Arms::at_rest`), and this keeps that rule from hiding
+                    // the weapon the scene asked for. A lightsaber is left to
+                    // that rule, because out here means lit.
+                    use crate::inventory::slots;
+                    let host = view.host(&self.state.party);
+                    let hand = matches!(slot, slots::RIGHT_WEAPON | slots::LEFT_WEAPON);
+                    let saber = facts(self.state, catalog, item)
+                        .and_then(|facts| facts.weapon)
+                        .is_some_and(|weapon| {
+                            matches!(weapon.delivery, crate::combat::sheet::Delivery::Saber(_))
+                        });
+                    if hand
+                        && !saber
+                        && self.state.items.get(&item.0).map(|held| held.slot) == Some(Some(slot))
+                        && self.character(caller).is_some_and(|c| c.party)
+                        && self.state.talk.with(caller, host).is_some()
+                    {
+                        self.out.changes.push(Change::SaberPower {
+                            who: caller,
+                            on: true,
+                            held: true,
+                        });
+                    }
                 }
                 Value::Int(0)
             }
             ActionUnequipItem => {
-                let to = items::holder(view, caller);
-                self.state.carry(self.out, item, to);
+                let worn_in_hand = (self.state.items.get(&item.0))
+                    .and_then(|held| held.slot)
+                    .is_some_and(in_hand);
+                if !(worn_in_hand && super::grappled(view, caller)) {
+                    let to = items::holder(view, caller);
+                    self.state.carry(self.out, item, to);
+                }
                 Value::Int(0)
             }
             // Taken from a player's character: items lost.
@@ -5783,11 +6177,61 @@ impl Engine<'_> {
 
     /// Whether a script destroyed `id` this step (`DestroyObject` with no
     /// delay): it goes as the step's changes apply.
-    fn destroyed(&self, id: ObjectId) -> bool {
+    pub(super) fn destroyed(&self, id: ObjectId) -> bool {
         self.out
             .changes
             .iter()
             .any(|change| matches!(change, Change::Destroy { who, ms: 0, .. } if *who == id))
+    }
+
+    /// Companion creature `gone`, made from the party table and out of the
+    /// party, destroyed: what it wore when the table last kept it, and a
+    /// script has since given to a creature outside the party, goes back
+    /// into the table as a copy on it (worn in its slot, `party::Kept`), so
+    /// the next one made of the table wears it. The executable's party
+    /// table keeps its own copy of a companion, which a creature made from
+    /// it never changes unless it is kept again. K1's Star Forge gives the
+    /// armour of the Carth it makes to the copy of him that meets the
+    /// player, then destroys that Carth; the ceremony's Carth still wears
+    /// it. An item the player took (the party's, a party member's) or put
+    /// in a container stays where it is: the player owns it once.
+    fn keep_lent(&mut self, gone: ObjectId) {
+        if view_in_party(self.view, gone) {
+            return;
+        }
+        let Some(slot) =
+            (self.state.party.available.values()).find(|slot| slot.object == Some(gone.0))
+        else {
+            return;
+        };
+        let Some(mut worn) = slot.kept.as_ref().and_then(|kept| kept.worn) else {
+            return;
+        };
+        let mut changed = false;
+        for (at, item) in worn.iter_mut().enumerate() {
+            let Some(holder) = self.state.items.get(item).map(|held| held.holder) else {
+                continue;
+            };
+            let outsider = holder != gone.0
+                && holder != crate::inventory::PARTY
+                && self.is_creature(ObjectId(holder))
+                && !view_in_party(self.view, ObjectId(holder))
+                && !self.is_pc(ObjectId(holder));
+            if outsider
+                && let Some(copy) = (self.state).copy_item(*item, gone.0, u8::try_from(at).ok())
+            {
+                *item = copy;
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+        let slot =
+            (self.state.party.available.values_mut()).find(|slot| slot.object == Some(gone.0));
+        if let Some(kept) = slot.and_then(|slot| slot.kept.as_mut()) {
+            kept.worn = Some(worn);
+        }
     }
 
     /// Whether `id` is a creature (one made this step too).
@@ -5827,28 +6271,23 @@ impl Engine<'_> {
         )
     }
 
-    /// The scripts' PCs (`View::pcs`): the creature the first seat is
-    /// switched to in its place while it is.
-    fn pcs(&self) -> Vec<ObjectId> {
-        self.view.pcs(&self.state.party)
+    /// The main characters `GetFirstPC` and `GetNextPC` walk (`View::main_characters`):
+    /// the main character of each seat, in seat order. A main character is
+    /// the character the story is about. While a script has switched the
+    /// first seat to a companion (`SwitchPlayerCharacter`), that companion is
+    /// the first seat's main character. A companion that the first seat only
+    /// leads is not a main character, and neither is a companion a guest
+    /// drives. `is_pc` is the question that includes them.
+    fn main_characters(&self) -> Vec<ObjectId> {
+        self.view.main_characters(&self.state.party)
     }
 
-    /// The PCs `GetFirstPC` walks: the creature each seat controls, the
-    /// first seat's the companion it leads while it does (`world::lent`).
-    /// KOTOR's player is the body it controls: TSL's scripts make the PC
-    /// lead again (`SetPartyLeader(NPC_PLAYER)`) before they move
-    /// `GetFirstPC()` (a_master_setup), and a trigger asking for
-    /// `GetFirstPC()` fires for the companion leading (Goto's yacht's
-    /// command centre, Mira at the head for the mines) [verify in the exe].
-    fn controlled_pcs(&self) -> Vec<ObjectId> {
-        let mut pcs = self.pcs();
-        if let Some(led) = crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)) {
-            match pcs.first_mut() {
-                Some(first) => *first = led,
-                None => pcs.push(led),
-            }
-        }
-        pcs
+    /// While a companion leads, this is that companion and not the main
+    /// character that `main_characters` gives.
+    fn first_seat_character(&self) -> Option<ObjectId> {
+        crate::world::lent(&self.state.party)
+            .map(|body| ObjectId(body.0))
+            .or_else(|| self.main_characters().first().copied())
     }
 
     /// The companion leading the party, if one does: the one whose guest's
@@ -5860,12 +6299,38 @@ impl Engine<'_> {
             .or_else(|| crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)))
     }
 
+    /// The character whose skills a skill routine on `id` reads. In a
+    /// conversation's script that is `id` itself, unless `id` is the
+    /// conversation's PC (`GetPCSpeaker`) or the party's leader
+    /// (`GetPartyMemberByIndex(0)`) and another seat's body uses the
+    /// conversation (`Talk::user`). Then it is that body. In KOTOR both
+    /// name the character its player controls, the one that used the
+    /// terminal or started the talk. In co-op the scripts' PC stays the
+    /// host's character (`View::pc_for`), while a guest's companion that
+    /// slices a computer or persuades someone does it with its own skills
+    /// (K1's `k_con_com32` reads `GetPartyMemberByIndex(0)`, its
+    /// `k_con_perseasy` and `k_con_repair` read `GetPCSpeaker()`).
+    pub(super) fn skilled(&self, id: ObjectId) -> ObjectId {
+        let talk = &self.state.talk;
+        let Some(user) = talk.user.filter(|_| talk.current.is_some()) else {
+            return id;
+        };
+        let stands_in = talk.running == Some(id) || self.party().first() == Some(&id);
+        if stands_in && user != id && self.view.seat_of(user).is_some() {
+            user
+        } else {
+            id
+        }
+    }
+
     /// Whether `id` is a player's character: a PC, the companion leading in
     /// its player's hands (`leading`), or the one a guest drives into or
     /// out of the trigger this run is for (`Event::guest`; `GetIsPC`). What
     /// a script gives or takes from one is told in the status summary.
     pub(super) fn is_pc(&self, id: ObjectId) -> bool {
-        self.pcs().contains(&id) || self.leading() == Some(id) || self.event.guest == Some(id)
+        self.main_characters().contains(&id)
+            || self.leading() == Some(id)
+            || self.event.guest == Some(id)
     }
 
     /// Whether item `item` is a player's character's: the party's (its
@@ -5889,7 +6354,7 @@ impl Engine<'_> {
     /// then the PCs by seat and the companions in joining order (the one
     /// the first seat is switched to once, as its PC).
     fn party(&self) -> Vec<ObjectId> {
-        let mut party = self.pcs();
+        let mut party = self.main_characters();
         for id in self.state.party.creatures().map(ObjectId) {
             if !party.contains(&id) {
                 party.push(id);
@@ -5906,14 +6371,15 @@ impl Engine<'_> {
     /// place of its own character from now (`world::switch`), on its
     /// creature here, else on one made from its template beside the PC (as
     /// the party selection screen makes those it calls); `NPC_PLAYER` (−1)
-    /// switches back. False for a companion not available (or a template
-    /// the module's plan lacks), and nothing changes. The conversations
+    /// switches back. In TSL the party is sent to base (`party_to_base`).
+    /// False for a companion not available (or a template the module's
+    /// plan lacks). The conversations
     /// held with the PC before go on with the PC after (the Leviathan's
     /// switches run in its conversations' scripts).
     fn switch_player(&mut self, npc: i32) -> Value {
-        let before = self.view.first_pc(&self.state.party);
+        let before = self.view.first_main_character(&self.state.party);
         let switched = self.switched_to(npc);
-        let after = self.view.first_pc(&self.state.party);
+        let after = self.view.first_main_character(&self.state.party);
         if after != before {
             self.state.talk.retarget(before, after);
         }
@@ -5922,49 +6388,55 @@ impl Engine<'_> {
 
     /// `switch_player`'s change to the party table: whether it made one.
     fn switched_to(&mut self, npc: i32) -> bool {
-        const NPC_PLAYER: i32 = -1;
         // The character switched to leads (the first seat plays it), until
         // a portrait click or `SetPartyLeader` lends the lead again.
         if npc == NPC_PLAYER {
+            let was_switched = self.state.party.switched.is_some();
             self.leave_switched();
             self.state.party.switched = None;
             self.state.party.leader = None;
+            if was_switched {
+                self.party_to_base();
+            }
             return true;
         }
-        let slot = u8::try_from(npc)
+        let Some(npc) = u8::try_from(npc)
             .ok()
-            .and_then(|npc| Some((npc, self.state.party.available.get(&npc)?.clone())));
-        let Some((npc, slot)) = slot else {
+            .filter(|npc| self.state.party.available.contains_key(npc))
+        else {
             return false;
         };
-        let here = slot.object.map(ObjectId).filter(|id| {
+        // The body is chosen before the party is sent to base, as the
+        // executable chooses it: the creature here, unless TSL is about to
+        // send it away as a member (then made anew, Q-0470), else one made
+        // beside the PC. A body that cannot be made changes nothing.
+        let sends = self.view.module.game == TSL && self.state.party.switched != Some(npc);
+        let object = (self.state.party.available.get(&npc))
+            .and_then(|slot| slot.object)
+            .filter(|_| !(sends && self.state.party.has(npc)));
+        let here = object.map(ObjectId).filter(|id| {
             self.exists(*id)
                 && self
                     .view
                     .thing(*id)
                     .is_none_or(|thing| thing.character.is_some())
         });
-        let body = here.or_else(|| {
-            // On the PC's soles (a character's place is its body's origin).
-            let pc = self.view.first_pc(&self.state.party);
-            let (at, yaw) = match self.view.thing(pc) {
-                Some(thing) => {
-                    let [x, y, z] = thing.position;
-                    let soles = z + crate::motion::SOLE_Z * collision::UNIT;
-                    ([x, y, soles], thing.yaw)
-                }
-                None => {
-                    let made = self.out.made.iter().find(|made| made.id == pc)?;
-                    (made.at, made.yaw)
-                }
-            };
+        let place = match here {
+            Some(_) => None,
+            None => match self.npc_place(npc) {
+                Some(place) => Some(place),
+                None => return false,
+            },
+        };
+        if sends {
+            self.party_to_base();
+        }
+        let made = place.and_then(|(at, yaw)| {
             // As the table keeps it (its sheet, items and career), as the
             // party selection screen makes it.
-            let side = rules::scripts::moves::BESIDE_M;
-            let at = super::beside(at, yaw, side);
             super::make_npc(self.library, self.view, self.state, self.out, npc, at, yaw)
         });
-        let Some(body) = body else {
+        let Some(body) = here.or(made) else {
             return false;
         };
         if self.state.party.switched != Some(npc) {
@@ -5979,11 +6451,36 @@ impl Engine<'_> {
         true
     }
 
+    /// Where companion `npc` is made when switched to, beside the PC (a
+    /// character's place is its body's origin), if it can be made: its
+    /// template in the module's plan, else the one the table kept.
+    fn npc_place(&self, npc: u8) -> Option<([f32; 3], f32)> {
+        let slot = self.state.party.available.get(&npc)?;
+        if self.library.creature(&slot.template).is_none() && slot.template_data.is_none() {
+            return None;
+        }
+        let pc = self.view.first_main_character(&self.state.party);
+        let (at, yaw) = match self.view.thing(pc) {
+            Some(thing) => {
+                let [x, y, z] = thing.position;
+                let soles = z + crate::motion::SOLE_Z * collision::UNIT;
+                ([x, y, soles], thing.yaw)
+            }
+            None => {
+                let made = self.out.made.iter().find(|made| made.id == pc)?;
+                (made.at, made.yaw)
+            }
+        };
+        let side = rules::scripts::moves::BESIDE_M;
+        Some((super::beside(at, yaw, side), yaw))
+    }
+
     /// The companion played till now is left: as the exe's
     /// `SwitchPlayerCharacter` (`SaveMember`, `KillNPCObject`), the table keeps
     /// it as it stands and its creature goes, so a scene that makes its own
     /// (`a_create_cut`'s Mira, TSL's arena) has the only one of that tag. One
-    /// in the party stays: the exe's left the party on being played, ours not.
+    /// in the party stays here; TSL's switch then sends the party to base
+    /// (`party_to_base`).
     fn leave_switched(&mut self) {
         let Some(npc) = self.state.party.switched else {
             return;
@@ -5994,18 +6491,23 @@ impl Engine<'_> {
         super::keep_npc(self.view, self.state, self.out, npc);
         let slot = self.state.party.available.get_mut(&npc);
         if let Some(who) = slot.and_then(|slot| slot.object.take()).map(ObjectId) {
-            // What it carried stays the party's (T3-M4's shield, from TSL's
-            // prologue, as it joins later): the table keeps what it wears.
-            let carried: Vec<u32> = (self.state.items.held_by(who.0))
-                .filter(|(_, held)| held.slot.is_none())
-                .map(|(item, _)| item)
-                .collect();
-            for item in carried {
-                self.state
-                    .carry(self.out, ObjectId(item), crate::inventory::PARTY);
-            }
+            self.carried_to_party(who);
             self.out.deleted.push(who);
             self.out.changes.push(Change::destroy(who));
+        }
+    }
+
+    /// What `who` carried, its creature going, stays the party's (T3-M4's
+    /// shield, from TSL's prologue, as it joins later): the table keeps
+    /// what it wears.
+    fn carried_to_party(&mut self, who: ObjectId) {
+        let carried: Vec<u32> = (self.state.items.held_by(who.0))
+            .filter(|(_, held)| held.slot.is_none())
+            .map(|(item, _)| item)
+            .collect();
+        for item in carried {
+            self.state
+                .carry(self.out, ObjectId(item), crate::inventory::PARTY);
         }
     }
 
@@ -6157,6 +6659,48 @@ impl Engine<'_> {
         Some(left)
     }
 
+    /// TSL's companion `npc` sent to base (`RemoveNPCFromPartyToBase`):
+    /// out of the party, the table keeping it as it stood, and its creature
+    /// sent away (faded out). Whether a creature was sent away.
+    fn send_to_base(&mut self, npc: u8) -> bool {
+        self.remove_member(npc);
+        let here = (self.state.party.available.get(&npc))
+            .and_then(|slot| slot.object)
+            .map(ObjectId)
+            .and_then(|who| Some((who, self.view.thing(who)?.kind)));
+        let sent = here.filter(|_| !self.state.party.has(npc));
+        if let Some((who, kind)) = sent {
+            if let Some(slot) = self.state.party.available.get_mut(&npc) {
+                slot.object = None;
+            }
+            self.carried_to_party(who);
+            // Deleted at once (`KillNPCObject`): the area's enter script
+            // that sends the party to base then finds the companion gone
+            // and makes it anew (403DXN's `k_403_enter` on the return for
+            // the strike on the tomb: `SpawnAvailableNPC` where
+            // `GetObjectByTag` finds none).
+            self.out.deleted.push(who);
+            self.out.changes.push(Change::fade_away(who, kind));
+        }
+        sent.is_some()
+    }
+
+    /// TSL's switch of the character the first seat plays sends the whole
+    /// party to base, the last to join first, as its executable's
+    /// `SwitchPlayerCharacter` ends (`RemoveMember`, then `KillNPCObject`,
+    /// for each member). Goto's yacht relies on it: the companions who came
+    /// aboard with the Exile leave, and the second of the two the player
+    /// sent joins the first at the docking bay.
+    fn party_to_base(&mut self) {
+        if self.view.module.game != TSL {
+            return;
+        }
+        let members = self.state.party.members.clone();
+        for npc in members.into_iter().rev() {
+            self.send_to_base(npc);
+        }
+    }
+
     /// TSL's companion `who` takes the alignment its influence gives it
     /// (`influence::follow`).
     fn follow_influence(&mut self, who: ObjectId) {
@@ -6182,7 +6726,7 @@ impl Engine<'_> {
         match bound {
             AddAvailablePUPByTemplate | AddAvailablePUPByObject => {
                 let template = match bound {
-                    AddAvailablePUPByTemplate => Some(key(text(args, 1))),
+                    AddAvailablePUPByTemplate => Some(resref(text(args, 1))),
                     _ => {
                         let who = object(args, 1);
                         let template = self.instance(who).map(|data| data.template.clone());
@@ -6315,12 +6859,19 @@ impl Engine<'_> {
         match bound {
             AddAvailableNPCByObject | AddAvailableNPCByTemplate => {
                 let template = match bound {
-                    AddAvailableNPCByTemplate => Some(key(text(args, 1))),
+                    AddAvailableNPCByTemplate => Some(resref(text(args, 1))),
                     _ => self
                         .instance(object(args, 1))
                         .map(|data| data.template.clone()),
                 };
-                let object = (bound == AddAvailableNPCByObject).then(|| object(args, 1).0);
+                // By object, the executables save the creature into the
+                // table and do not make it the companion's creature: the
+                // table names no creature until one is spawned for it or
+                // it joins the party. A switch to it then makes a new one
+                // at the player's place. TSL's Telos destroys the B-4D4 it
+                // adds and switches to (`a_b4d4control`), and a scene may
+                // jump the creature it adds out of sight first.
+                let object = (bound == AddAvailableNPCByObject).then(|| object(args, 1));
                 // TSL: the companion takes its influence's alignment, its
                 // influence started (by a creature of the template, whose
                 // tag names it, when made available by template).
@@ -6328,27 +6879,40 @@ impl Engine<'_> {
                     .as_deref()
                     .and_then(|template| self.library.creature(template));
                 let tag = facts.map(|facts| facts.tag.to_ascii_lowercase());
-                // By template, the template kept with it (KOTOR's table
-                // keeps the creature): a module that lacks it makes it too.
-                let template_data = facts
-                    .filter(|_| bound == AddAvailableNPCByTemplate)
-                    .map(|facts| crate::pack::creature_bytes(facts).into());
+                // The creature kept with it (KOTOR's table keeps the
+                // creature): a module that lacks its template makes it too.
+                let template_data = match object {
+                    Some(who) => self.instance(who),
+                    None => facts.map(|facts| &**facts),
+                }
+                .map(|facts| crate::pack::creature_bytes(facts).into());
                 let party = &mut self.state.party;
+                // A companion already available is refused and its slot
+                // kept, as TSL's executable refuses it (reone too). A slot
+                // made anew lost the creature in the party: the leader key
+                // and the level-up no longer found it, and the party
+                // selection screen made a second one (#396).
+                let npc = npc.filter(|npc| !party.available.contains_key(npc));
                 let added = npc.zip(template).map(|(npc, template)| {
                     party.available.insert(
                         npc,
                         party::Npc {
                             template,
-                            object,
+                            object: None,
                             kept: None,
                             template_data,
                         },
                     );
                 });
                 use super::influence::{KREIA, NPC_TAGS};
-                match object {
-                    Some(who) => self.follow_influence(ObjectId(who)),
-                    None if self.library.influences() => {
+                match npc.zip(object).filter(|_| added.is_some()) {
+                    Some((npc, who)) => {
+                        // Its items, sheet and points as it stands, for the
+                        // creature made of it next.
+                        super::keep_creature(self.view, self.state, self.out, npc, who);
+                        self.follow_influence(who)
+                    }
+                    None if added.is_some() && self.library.influences() => {
                         if let Some(tag) = tag.filter(|tag| tag != KREIA)
                             && let Some(npc) = NPC_TAGS.iter().position(|of| *of == tag)
                         {
@@ -6360,6 +6924,14 @@ impl Engine<'_> {
                 truth(added.is_some())
             }
             RemoveAvailableNPC => {
+                // The companion the first seat plays: the player is their
+                // own character again, as the scripts' switch back after
+                // it makes them (TSL's Telos lets B-4D4 go, then switches
+                // back, `a_czerkapad`), and its creature goes.
+                if npc.is_some() && party.switched == npc {
+                    self.switch_player(NPC_PLAYER);
+                }
+                let party = &mut self.state.party;
                 let gone = npc.and_then(|npc| {
                     let left = party.leave(npc);
                     party.available.remove(&npc).map(|_| left)
@@ -6391,30 +6963,7 @@ impl Engine<'_> {
                 let Some(npc) = npc.filter(|npc| *npc < party::INFLUENCE_SLOTS) else {
                     return truth(false);
                 };
-                self.remove_member(npc);
-                let here = self
-                    .state
-                    .party
-                    .available
-                    .get(&npc)
-                    .and_then(|slot| slot.object)
-                    .map(ObjectId)
-                    .and_then(|who| Some((who, self.view.thing(who)?.kind)));
-                let sent = here.filter(|_| !self.state.party.has(npc));
-                if let Some((who, kind)) = sent {
-                    if let Some(slot) = self.state.party.available.get_mut(&npc) {
-                        slot.object = None;
-                    }
-                    // Deleted at once (`KillNPCObject`): the area's enter
-                    // script that sends the party to base then finds the
-                    // companion gone and makes it anew (403DXN's
-                    // `k_403_enter` on the return for the strike on the
-                    // tomb: `SpawnAvailableNPC` where `GetObjectByTag`
-                    // finds none).
-                    self.out.deleted.push(who);
-                    self.out.changes.push(Change::fade_away(who, kind));
-                }
-                truth(sent.is_some())
+                truth(self.send_to_base(npc))
             }
             // TSL's: each available companion's (and the Remote's) creature
             // in this module found again by its tag.
@@ -6491,8 +7040,12 @@ impl Engine<'_> {
                 }
                 _ => -1,
             }),
+            // TSL's program changes the flag only for a companion the party
+            // table has made available, and a call for any other does
+            // nothing. The flag is never reset when a companion is made
+            // available later.
             SetNPCSelectability => {
-                if let Some(npc) = npc {
+                if let Some(npc) = npc.filter(|npc| party.available.contains_key(npc)) {
                     if int(args, 1) != 0 {
                         party.unselectable.remove(&npc);
                     } else {
@@ -6506,17 +7059,35 @@ impl Engine<'_> {
     }
 }
 
+/// Counts one more call of the routine `name` in `counts`. The name is
+/// copied only the first time the routine is counted.
+fn counted(counts: &mut std::collections::BTreeMap<String, usize>, name: &str) {
+    match counts.get_mut(name) {
+        Some(count) => *count += 1,
+        None => {
+            counts.insert(name.to_owned(), 1);
+        }
+    }
+}
+
 impl Host for Engine<'_> {
     fn action(
         &mut self,
         routine: &Routine,
         caller: ObjectId,
-        args: Vec<Value>,
+        mut args: Vec<Value>,
     ) -> Result<Value, String> {
         let mut gap = false;
+        // A script of the game or of a mod names install rows of
+        // `spells.2da` and `feat.2da`, which the sim's canonical numbers
+        // stand for (`super::rows`).
+        let install = self.library.speaks_install(self.script);
+        if install {
+            super::rows::args_in(self.library, &routine.name, &mut args);
+        }
         // Where the executables stop the script (`minigame::aborts`).
         if super::minigame::aborts(&routine.name) {
-            *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+            counted(&mut self.report.calls, &routine.name);
             return Err(super::minigame::ABORTED.into());
         }
         let bound = self
@@ -6533,21 +7104,31 @@ impl Host for Engine<'_> {
             .flatten();
         let value = match bound {
             _ if let Some(value) = minigame => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
                 value
             }
             Some(bound) => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
                 self.call(bound, caller, &args)
             }
             // An effect the sim does not carry out yet is still a value
             // (`script::effects`), counted where it is applied.
             None if routine.ret == script_ncs::Type::Effect => {
-                *self.report.calls.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.calls, &routine.name);
+                super::unbound::warn(
+                    &routine.name,
+                    self.script,
+                    "Its effect does nothing when it is applied.",
+                );
                 self.effect_value(Effect::Other(routine.name.clone()))
             }
             None => {
-                *self.report.gaps.entry(routine.name.clone()).or_insert(0) += 1;
+                counted(&mut self.report.gaps, &routine.name);
+                super::unbound::warn(
+                    &routine.name,
+                    self.script,
+                    "The call does nothing and returns an empty value.",
+                );
                 gap = true;
                 // A gap called as an action still takes its place in the
                 // queue (`GetCurrentAction`, what follows waits on it).
@@ -6561,6 +7142,10 @@ impl Host for Engine<'_> {
                 }
                 Value::empty(routine.ret)
             }
+        };
+        let value = match install {
+            true => super::rows::value_out(self.library, &routine.name, talent(&args, 0), value),
+            false => value,
         };
         // Kept as its parts, written out only if the trace keeps it
         // (`super::Traced`).
@@ -6662,4 +7247,15 @@ fn local_owner(module: &str, id: ObjectId) -> u32 {
 /// The minigame run code `caller` defers or assigns runs for (`Event::run`).
 fn deferring_run(event: &Event, caller: ObjectId) -> Option<u8> {
     super::minigame::acting_run(event, caller).and_then(|run| u8::try_from(run).ok())
+}
+
+/// Whether `id` is a character in the party (a player or a companion).
+/// Whether `slot` holds a weapon in a hand (`inventory::slots`).
+fn in_hand(slot: u8) -> bool {
+    use crate::inventory::slots;
+    matches!(slot, slots::RIGHT_WEAPON | slots::LEFT_WEAPON)
+}
+
+fn view_in_party(view: &View, id: ObjectId) -> bool {
+    (view.thing(id).and_then(|thing| thing.character.as_ref())).is_some_and(|c| c.party)
 }

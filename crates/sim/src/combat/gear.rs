@@ -9,7 +9,7 @@
 //! items add to each other; the totals with the scripts' effects are
 //! capped (`Caps`) when the sheet is read (`effects::sheet_now`).
 
-use crate::combat::sheet::{Rows, Sheet};
+use crate::combat::sheet::{Feats, Sheet, row_words};
 use crate::wire::{DecodeError, Reader, Writer};
 
 /// The side of the Force an item's alignment group names
@@ -266,13 +266,18 @@ pub struct Gear {
     pub regenerate: u8,
     pub regenerate_fp: u8,
     pub immune: u64,
-    pub feats: Rows<4>,
+    pub feats: Feats,
     pub dex_cap: u8,
     pub disguise: Option<u16>,
     pub walk: u8,
     pub traits: u8,
     pub soak: u8,
     pub soak_bypass: u8,
+    /// The kinds of item worn that bar or allow Force powers, as bits
+    /// (`ItemFacts::force_item`): each armour class from 4 to 9 its own
+    /// bit, and a lightsaber `force::items::LIGHTSABER`. A power's
+    /// `spells.2da` masks are checked against it (`force::items::barred`).
+    pub force_items: u8,
 }
 
 /// How many kinds of foe worn items' defence counts against at once.
@@ -316,6 +321,7 @@ impl Gear {
             self.walk = more.walk;
         }
         self.traits |= more.traits;
+        self.force_items |= more.force_items;
         if more.soak > self.soak {
             (self.soak, self.soak_bypass) = (more.soak, more.soak_bypass);
         }
@@ -351,7 +357,9 @@ impl Gear {
             .sum()
     }
 
-    pub(crate) fn encode(&self, out: &mut Writer) {
+    /// Its bytes as the build of snapshot format `versions` wrote them
+    /// (`Sheet::encode_as`).
+    pub(crate) fn encode_as(&self, out: &mut Writer, versions: crate::wire::Versions) {
         for value in self.abilities.iter().chain(&self.skills).chain(&self.saves) {
             out.i8(*value);
         }
@@ -364,12 +372,15 @@ impl Gear {
         }
         out.bytes(&[self.force_resist, self.regenerate, self.regenerate_fp]);
         out.u64(self.immune);
-        for word in self.feats.0 {
-            out.u64(word);
-        }
+        let (feat_words, _) =
+            row_words(versions.snapshot >= crate::since::snapshot::FEAT_POWER_ROWS.1);
+        self.feats.encode_words(out, feat_words);
         out.u8(self.dex_cap);
         out.u16(self.disguise.unwrap_or(u16::MAX));
         out.bytes(&[self.walk, self.traits, self.soak, self.soak_bypass]);
+        if versions.snapshot >= crate::since::snapshot::FIX_UI_RULES.1 {
+            out.u8(self.force_items);
+        }
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Gear, DecodeError> {
@@ -396,12 +407,14 @@ impl Gear {
         }
         [gear.force_resist, gear.regenerate, gear.regenerate_fp] = input.array()?;
         gear.immune = input.u64()?;
-        for word in &mut gear.feats.0 {
-            *word = input.u64()?;
-        }
+        let (feat_words, _) = row_words(input.since(crate::since::snapshot::FEAT_POWER_ROWS));
+        gear.feats = Feats::decode_words(input, feat_words)?;
         gear.dex_cap = input.u8()?;
         gear.disguise = Some(input.u16()?).filter(|row| *row != u16::MAX);
         [gear.walk, gear.traits, gear.soak, gear.soak_bypass] = input.array()?;
+        if input.since(crate::since::snapshot::FIX_UI_RULES) {
+            gear.force_items = input.u8()?;
+        }
         Ok(gear)
     }
 }
@@ -487,7 +500,11 @@ pub mod weapon_traits {
 /// poison, knocked down (TSL's), or death.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Struck {
-    Hold { ms: u64, fear: bool },
+    Hold {
+        ms: u64,
+        fear: bool,
+        save: crate::combat::force::HoldSave,
+    },
     Confuse(u64),
     Slow(u64),
     Drain(u8),
@@ -510,12 +527,15 @@ pub const DRAIN_MS: u64 = rules::items::properties::DRAIN_MS;
 /// ask Will (mind-affecting), paralysis, a slay and a knockdown Fortitude,
 /// slow Will, a drain Reflex (mind-affecting, as the games code it);
 /// poison and death no save. A slay against a side does nothing (an empty
-/// handler in both games).
+/// handler in both games). A hit worth `share` thousandths of a round (a
+/// stun baton's swing or a chained punch's, `damage::pace`) has that share
+/// of each chance, so a round's hits roll as often as one KOTOR attack's;
+/// at a whole round or more the roll is the games' own.
 pub fn on_hits(
     weapon: &crate::combat::Weapon,
     target: &Sheet,
     fighter: &crate::combat::Fighter,
-    now: u64,
+    (now, share): (u64, u32),
     rng: &mut crate::rng::SimRng,
 ) -> Vec<Struck> {
     use crate::combat::sheet::feats;
@@ -530,6 +550,15 @@ pub fn on_hits(
     let mut struck = Vec::new();
     for on_hit in weapon.on_hit.iter().flatten() {
         let ms = u64::from(on_hit.seconds) * 1000;
+        // A hold rolls the save that first allowed it each round (C11).
+        let hold = |fear: bool, index: usize| Struck::Hold {
+            ms,
+            fear,
+            save: crate::combat::force::HoldSave {
+                index: index as u8,
+                dc: i32::from(on_hit.dc),
+            },
+        };
         if on_hit.kind <= on_hit::SLOW {
             timed = on_hit.chance;
         }
@@ -538,19 +567,19 @@ pub fn on_hits(
                 timed,
                 Some(WILL),
                 mind || immune(immunity::SLEEP),
-                Struck::Hold { ms, fear: false },
+                hold(false, WILL),
             ),
             on_hit::STUN => (
                 timed,
                 Some(WILL),
                 mind || immune(immunity::STUN) || feat(feats::FORCE_IMMUNITY_STUN),
-                Struck::Hold { ms, fear: false },
+                hold(false, WILL),
             ),
             on_hit::PARALYZE => (
                 timed,
                 Some(FORT),
                 immune(immunity::PARALYSIS) || feat(feats::FORCE_IMMUNITY_PARALYSIS),
-                Struck::Hold { ms, fear: false },
+                hold(false, FORT),
             ),
             on_hit::CONFUSION => (
                 timed,
@@ -562,7 +591,7 @@ pub fn on_hits(
                 timed,
                 Some(WILL),
                 mind || immune(immunity::FEAR) || feat(feats::FORCE_IMMUNITY_FEAR),
-                Struck::Hold { ms, fear: true },
+                hold(true, WILL),
             ),
             on_hit::SLOW => (timed, Some(WILL), immune(immunity::SLOW), Struck::Slow(ms)),
             on_hit::ABILITY_DRAIN => (
@@ -592,7 +621,11 @@ pub fn on_hits(
             ),
             _ => continue,
         };
-        if rng.below(100) >= u32::from(chance) {
+        let missed = match share {
+            1000.. => rng.below(100) >= u32::from(chance),
+            _ => rng.below(100 * 1000) >= u32::from(chance) * share,
+        };
+        if missed {
             continue;
         }
         let saved = save.is_some_and(|save| {

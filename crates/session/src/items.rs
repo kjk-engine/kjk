@@ -16,6 +16,7 @@ use sim::combat::sheet::{DAMAGE_TYPES, Delivery, Weapon};
 use sim::inventory::properties::{ALL_SAVES, OWN_TYPE};
 use sim::inventory::{
     Armour, COLOUR_SLOT, Catalog, Held, ItemFacts, ItemSpell, Limit, Property, Terms, Upgrade,
+    pairs, slots,
 };
 use sim::module::{ModuleData, ObjectKind, Placement};
 
@@ -138,11 +139,11 @@ fn read_facts(tables: &mut Tables, name: &str) -> Option<ItemFacts> {
             .iter()
             .filter(move |gff| row.is_some() && gff.int("PropertyName") == row)
     };
+    // The Cast Spell property names an install row (`rules::rows`).
+    let spells = tables.rows().spells.clone();
     let spell = of_kind(property::CAST_SPELL).find_map(|property| {
         Some(ItemSpell {
-            row: property
-                .int("Subtype")
-                .and_then(|row| u16::try_from(row).ok())?,
+            row: spells.canonical(u16::try_from(property.int("Subtype")?).ok()?)?,
             cost: property.int("CostValue").unwrap_or(1).clamp(0, 255) as u8,
         })
     });
@@ -252,9 +253,24 @@ fn read_facts(tables: &mut Tables, name: &str) -> Option<ItemFacts> {
             shield: item_type == Some(20),
             // `itemtype` 48: TSL's wrist launcher (base item 91).
             launcher: item_type == Some(48),
+            force_item: item_type.map_or(0, force_item),
         }
         .made(),
     )
+}
+
+/// The bit an item of `baseitems.2da` `itemtype` `kind` sets in the mask
+/// Force powers are checked against (`sim::inventory::ItemFacts::force_item`),
+/// as both games' executables build it from the items worn: the six armour
+/// classes, 31 (class 4) to 36 (class 9), a bit each from the lowest, and
+/// the three lightsabers, 39 (double), 40 (short) and 41 (long), the
+/// seventh bit. Robes (38), clothing (37) and the rest set none.
+fn force_item(kind: i64) -> u8 {
+    match kind {
+        31..=36 => 1 << (kind - 31),
+        39..=41 => 1 << 6,
+        _ => 0,
+    }
 }
 
 /// The row of 2DA `table` whose `template` is `name` (case aside).
@@ -267,10 +283,20 @@ fn row_of(tables: &mut Tables, table: &str, name: &str) -> Option<usize> {
     })
 }
 
+/// How base item `row` delivers its hits (`Delivery::of_row`): a row the
+/// games share by its number, any other (a mod's) by its columns. `None`
+/// for a row that is no weapon.
+pub(crate) fn delivery(tables: &mut Tables, row: u16) -> Option<Delivery> {
+    let base = usize::from(row);
+    let columns =
+        sim::combat::sheet::WeaponColumns::read(|column| tables.int("baseitems", base, column));
+    Delivery::of_row(row, &columns)
+}
+
 /// A base item's weapon (its numbers in `baseitems.2da`, before its
 /// properties); `None` for one combat does not know as a weapon.
 pub(crate) fn weapon(tables: &mut Tables, row: u16) -> Option<Weapon> {
-    let delivery = Delivery::of_base_item(row)?;
+    let delivery = delivery(tables, row)?;
     let base = usize::from(row);
     let small = |value: Option<i64>| value.unwrap_or(0).clamp(0, 255) as u8;
     let feat = |value: Option<i64>| value.and_then(|row| u16::try_from(row).ok());
@@ -292,9 +318,6 @@ pub(crate) fn weapon(tables: &mut Tables, row: u16) -> Option<Weapon> {
         build: sim::combat::sheet::build::of(
             tables.int("baseitems", base, "weaponwield"),
             tables.int("baseitems", base, "weaponsize"),
-            &tables
-                .text("baseitems", base, "label")
-                .unwrap_or_else(String::new),
         ),
         ..Weapon::UNARMED
     })
@@ -383,7 +406,11 @@ fn read_property(tables: &mut Tables, gff: &GffStruct) -> Vec<Property> {
             damage_type: OWN_TYPE,
         })),
         8 => one(Property::Attack(neg5)),
-        9 => u16::try_from(subtype).map_or(Vec::new(), |feat| one(Property::Feat(feat))),
+        // Bonus Feat and Use Limitation Feat name install rows
+        // (`rules::rows`).
+        9 => tables
+            .canonical(rules::rows::Table::Feats, subtype)
+            .map_or(Vec::new(), |feat| one(Property::Feat(feat))),
         11 => damage_type(subtype).map_or(Vec::new(), |row| {
             one(Property::Damage { row, roll: damage })
         }),
@@ -496,7 +523,8 @@ fn read_property(tables: &mut Tables, gff: &GffStruct) -> Vec<Property> {
         54 => one(Property::RegenerateForce(small(raw))),
         55 => one(Property::Deflect(byte(raw))),
         56 => one(Property::Deflect(byte(-raw))),
-        57 => u16::try_from(subtype)
+        57 => tables
+            .canonical(rules::rows::Table::Feats, subtype)
             .map_or(Vec::new(), |feat| one(Property::Limit(Limit::Feat(feat)))),
         59 => u16::try_from(subtype).map_or(Vec::new(), |row| one(Property::Disguise(row))),
         // TSL's.
@@ -582,8 +610,14 @@ fn on_hit(tables: &mut Tables, kind: u8, cost: usize, param: u8) -> OnHit {
 /// no mark and stays with him; a lieutenant's pass card is marked). A
 /// placeable's or store's carried item without the field drops when
 /// `carried_drop`.
+///
+/// An off hand item that the equip screen would refuse is carried, not
+/// held: one whose base item cannot be equipped in the off hand, or that
+/// does not pair with the main hand's weapon (`sim::inventory::pairs`). A
+/// Mandalorian on Dantooine's template lists a blaster rifle in each hand.
 pub(crate) fn held(tables: &mut Tables, root: &GffStruct, carried_drop: bool) -> Vec<Held> {
     let mut held = Vec::new();
+    let mut worn: Vec<(u8, ItemFacts)> = Vec::new();
     for item in root.list("Equip_ItemList") {
         let Some(template) = item.resref("EquippedRes") else {
             continue;
@@ -591,13 +625,35 @@ pub(crate) fn held(tables: &mut Tables, root: &GffStruct, carried_drop: bool) ->
         let Some(facts) = facts(tables, &template) else {
             continue;
         };
+        let slot = item.id.trailing_zeros().min(u32::from(u8::MAX)) as u8;
         held.push(Held {
             template,
             stack: facts.stack,
-            slot: Some(item.id.trailing_zeros().min(u32::from(u8::MAX)) as u8),
+            slot: Some(slot),
             droppable: item.int("Dropable").unwrap_or(0) != 0,
             infinite: false,
         });
+        worn.push((slot, facts));
+    }
+    let facts_in = |slot: u8| {
+        worn.iter()
+            .find(|(at, _)| *at == slot)
+            .map(|(_, facts)| facts)
+    };
+    for [right, left] in slots::SETS {
+        let Some(off) = facts_in(left) else {
+            continue;
+        };
+        let fits = off.slots & 1 << slots::rules(left) != 0;
+        let paired = facts_in(right)
+            .and_then(|main| main.weapon)
+            .zip(off.weapon)
+            .is_none_or(|(main, off)| pairs(&main, &off));
+        if !(fits && paired) {
+            for item in held.iter_mut().filter(|item| item.slot == Some(left)) {
+                item.slot = None;
+            }
+        }
     }
     for item in root.list("ItemList") {
         let Some(template) = item.resref("InventoryRes") else {
@@ -635,7 +691,7 @@ pub(crate) fn named(root: &GffStruct) -> Vec<String> {
 
 /// A store's terms from its UTM: `MarkUp`, `MarkDown` (%), `BuySellFlag`
 /// (bit 0 it sells, bit 1 it buys).
-fn terms(utm: &GffStruct) -> Terms {
+pub(crate) fn terms(utm: &GffStruct) -> Terms {
     let flags = utm.int("BuySellFlag").unwrap_or(0);
     Terms {
         markup: utm.int("MarkUp").unwrap_or(100) as i32,

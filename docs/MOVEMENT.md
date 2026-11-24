@@ -36,6 +36,45 @@ steps), on any `collision::CollisionWorld` (specified: `MOVEMENT-SPEC.md`,
   walk goes on; any other is a bump, gone round at once (`Walker::bump`:
   given up on the 6th, on the same body from the same spot, or with no side
   free). The player pushes no one and is pushed by no one (Q-0267).
+  Only KOTOR 2 pushes. KOTOR 1's executable has no step that moves a
+  creature out of a walker's way, so in a KOTOR 1 module every body a walk
+  meets is a bump (`movement::pushes_aside`). The Ebon Hawk's wandering
+  gizkas pushed the crew off their places before (issue 393).
+- Every living character is solid to every other: the player, the
+  companions and everyone else, as KOTOR's party is (issue 280). Before,
+  the party's members passed through each other with friendly fire off.
+  From v0.12.0 the companions keep a walking leader's pace, so they walked
+  through the player all the time. One exception remains, so that no scene
+  waits for ever. With friendly fire off, a party member that a
+  conversation holds (scene mode) still passes through the party's other
+  members. KOTOR's walker would give its walk up on a body it cannot go
+  round. A party member that a script has ordered to move passes through
+  the other companions, but not through a player. The players here are the
+  bodies the seats' players move: each seat's own character, a guest's
+  companion, and the companion leading the party.
+- A companion never pushes a player aside, as KOTOR's walker never pushes
+  one (Q-0267). A companion nobody plays whose step runs into a player's
+  body, other than a step away from it, stands where it was for that step
+  instead of sliding along the player. A companion's walk that has stalled
+  goes round the players in its way as well as the other characters.
+  Before, a companion that a script had ordered to move walked straight
+  through a player, and one sliding along a player that was running turned
+  the player off its way again and again (the Discord report of
+  11 November, "like bumper cars"). A companion that keeps running into a
+  player still walks through it by the rule below.
+- Getting unstuck (`world::jams`, the rulebook's `walking.jam`): a
+  character that keeps running into another character for
+  `walking.jam.stuck_ms` walks through that one until the two have parted
+  (`walking.jam.parted_m` between their boxes), and then they are solid to
+  each other again. It is running into it while its command moves it,
+  move_body touches the other and it moves slower than
+  `walking.jam.crawl_mps`, or while KOTOR's walker bumps into the other;
+  a free step or someone else starts the count again. Two characters
+  hostile to each other, or two of the party in a duel (friendly fire on),
+  never walk through each other. The count and the pairs live in each
+  body's `MotionState::jam` (up to two at a time, the older made solid
+  for a third), so the snapshot carries them and a client predicts them
+  in sim steps, never in wall time.
 - While a conversation holds the world (scene mode,
   `DIALOGUE.md`), a body walking a route, and at any time a script's move
   of a body no seat drives out of a fight, moves on KOTOR's
@@ -76,8 +115,17 @@ walker going round a body it overlapped stopped and started step by step). `moti
   where KOTOR's is: the krayt's 10 m/s), its own base speed kept
   (`walk::rates`, `kotor_speed`: a seat's body's the `PLAYER` row, K1 3.20 /
   5.40 m/s, TSL 1.70 / 5.40; a creature's its own row, 1.70 / 5.40 for
-  most). A seat's body its player walks, and any body in stealth mode,
-  walks at its appearance's `driveanimwalk` instead (K1's men 1.813, women
+  most). A disguised body, a seat's too, takes its disguise's row instead:
+  the `creaturespeed.2da` row its `appearance.2da` row's `moverate` names
+  (`Library::appearance_rates`, `world::disguise_rates`), as both
+  executables' disguise resets a creature's movement rate from its new
+  appearance, the player's character's as well. Manaan's
+  envirosuit and K1's space suit are `VSLOW` (0.75 / 1.50 m/s); Taris's
+  Sith armour is `NORM` (1.70 / 5.40), so a script's walk of a player in
+  it goes at 1.70, not 3.20. The restricted party (the suit sections,
+  `world::restrict_seats`) keeps KOTOR's pace when attacked too. A seat's
+  body its player walks, and any body in stealth mode,
+  walks at its appearance's (or its disguise's) `driveanimwalk` instead (K1's men 1.813, women
   1.6; `Library::drive_walk`), as K1's executable caps the walk of the
   creature its player drives and of one sneaking; a script's walk of it
   (a cutscene's `ActionMoveToLocation`, `ActionForceMoveToLocation`) keeps
@@ -106,6 +154,12 @@ walker going round a body it overlapped stopped and started step by step). `moti
   and a creature placed over a room the game gives no walkable face (the
   cutscene modules' soldiers) stands where it was placed instead of
   falling forever.
+- A creature (not a player) standing still out of a fight whose box is
+  buried in the level, where KOTOR's walker (a point a body high) has room
+  over a floor within a step, stands there as the walker holds it
+  (`world::movement::tucked`), not unburied by move_body: TSL's Jedi
+  Council, put at their chairs to sit, had been lifted a step and out
+  onto the seats (#277). `kjk sim probes tucked`.
 - Units: JA's inches and seconds, JA's numbers. `Move::trace` converts at
   the collision boundary (× `collision::UNIT`, the fraction back, the stop
   recomputed in units); snapshots show metres. Velocity snaps to whole
@@ -127,6 +181,46 @@ walker going round a body it overlapped stopped and started step by step). `moti
   spine; `asset_ja::rig::Retargeter` poses the KOTOR body each frame.
 - Camera as JA's third-person view offset: range 80, aim 16 over the eye,
   target damp 0.5, camera damp 0.3 per 50 ms, a 4-unit box traced.
+- The camera options (`camera_tune`, Options → Gameplay → Camera) move
+  those: range 45 to 185 (no farther: `Command::aim` carries a camera's
+  line at most 63 units off JA's, 20° of lagging pitch at 185), aim point
+  −24 to 56 over the eye, a shoulder 40 units either side, field of view
+  60° to 110° in either camera (JA's `cg_fov`, across 4:3), follow Loose
+  (JA's damping) / Tight / Locked, and the own body fading when the camera is pressed within 28 units of the eye (by a wall;
+  not in headless runs that keep JA's camera).
+  Each slider's default is JA's number; presets set the four sliders:
+  Jedi Academy, Over the Shoulder, KOTOR (`camerastyle.2da`'s 3.2 m and
+  55°), Close. They stand in a window, or headless with `KJK_SETTINGS`;
+  other headless runs keep JA's camera.
+- A gun readied in the watched character's hand (drawn for a fight,
+  `weapons::armed`, not only carried or holstered) takes the camera to the
+  guns' own camera in 300 ms and back in 1.2 s once it is put away, eased
+  in and out (smootherstep) and damped as ever, so neither end snaps
+  (Movie Duels' aiming camera takes 250 ms). The
+  guns' camera has its own four sliders (`camera.gun.*`, its own page) and
+  presets (Over the Shoulder by default, Close, KOTOR, Jedi Academy), or
+  Default Camera for none (the camera page's). The zoom moves the range of the camera in use.
+  The swap key (the middle mouse button) puts the shoulder on the other
+  side, in either camera.
+- The shoulder moves the camera across its own line after the chase, traced
+  from the aim point (a wall stops it short), so it neither goes through
+  walls nor feeds back into the damping (JA's `cg_thirdPersonHorzOffset`
+  does both; Movie Duels traces it the same way). Its crosshair line stays
+  parallel to the view: `Command::aim` carries the offset, so shots land
+  on the crosshair.
+- Zoom (`=` / `-`; the wheel while the orbit key is held; a pad's right
+  stick pushed up or down while R3 is held) steps the range 10 units; one
+  step in at the nearest goes into the own eyes, one out of them comes back
+  at the nearest.
+- Orbit (held Left Alt; a pad's R3 held; only while the third-person
+  camera has the view): the mouse or the stick turns the
+  camera around the character (pitch ±60° over the view), not the
+  character, which keeps facing and moving as before; no crosshair, the
+  command's aim on JA's line. Let go, the camera swings back behind in
+  about a sixth of a second (Movie Duels' meditation orbit). R3 tapped
+  without turning is Saber style, on its release. `ui camera orbit YAW
+  PITCH` / `ui camera orbit off` / `ui camera zoom N` do the same from a
+  run's commands, `ui set camera.KEY VALUE` sets an option.
 - Smoothed by default, `--quirks` to see them: Q-0016 (camera pulled into
   the player under low ceilings), Q-0017 (Ghoul2 re-blending from a frame,
   not the pose shown). Kept: Q-0018. The body snaps up steps as in JA's
@@ -137,7 +231,7 @@ walker going round a body it overlapped stopped and started step by step). `moti
 kjk move measure   # speeds, jumps, steps, slopes, roll, drops, tunnel (sim::measure)
 kjk move run --stage course --moves course   # the course walk's track
 kjk move pace k1 --only tar_m02 --seconds 30  # creatures' speeds out of a fight against KOTOR's
-kjk play [--stage course|end_m01aa [--arrive TAG]] [--body p_carthbb,p_bastilabb|ja] [--camera third|first|side|arc]
+kjk play [--stage course|end_m01aa [--arrive TAG]] [--body p_carthbb,p_bastilabb|ja] [--camera third|first|side|arc|flank]
 kjk play --moves course --headless --trace n.csv --cmds 'anim 4.2; screenshot x; quit'
 ```
 Keys: mouse, WASD, space, C/Ctrl (roll at a run), Shift (walk), E (the

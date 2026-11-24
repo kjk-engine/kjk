@@ -148,7 +148,7 @@ pub(crate) fn page(
             seen(fog.as_ref(), at).then_some(())?;
             Some(MapNoteView {
                 at,
-                text: note.text.clone().into_bytes(),
+                text: fmt_odyssey::code_page_bytes(&note.text),
             })
         })
         .collect();

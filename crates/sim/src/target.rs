@@ -4,8 +4,9 @@
 //! player, else the one nearest the crosshair within `CONE_DEGREES` and in
 //! sight, else the nearest within `containers::REACH` in front of the
 //! player (JA's camera sits high behind: what lies at the character's feet
-//! is far below the crosshair). A target holds `HOLD_MS` after nothing
-//! picks it, so it does not flicker at an edge.
+//! is far below the crosshair). A placeable with action points is in sight
+//! where its use would be (`seen_at_action_point`). A target holds
+//! `HOLD_MS` after nothing picks it, so it does not flicker at an edge.
 //!
 //! Targetable: doors but static ones (a door leading out is one too),
 //! useable placeables (one hung up a wall, as a door's panel, picked where
@@ -109,11 +110,29 @@ pub struct Candidate {
     /// passes through): one at its heels or inside its body, between it and
     /// the camera, takes no look meant past it.
     pub ahead: bool,
+    /// A placeable's action points in the world (metres), at most two
+    /// (`ObjectData::action_points`): where a use from beside it looks
+    /// (`uses::Target::aimed`), so the crosshair sees it there too.
+    pub points: [Option<Vec3>; 2],
 }
 
 impl Candidate {
     fn middle(&self) -> Vec3 {
         self.up(0.5)
+    }
+
+    /// Where a use by a player with its feet at `user` (metres) looks at
+    /// this placeable: `uses::ACTION_SIGHT_M` above its action point
+    /// nearest the player, as `uses::Target::aimed` aims; `None` without
+    /// action points.
+    fn action_sight(&self, user: Vec3) -> Option<Vec3> {
+        let far = |p: &Vec3| math::length(math::sub(*p, user));
+        let point = self
+            .points
+            .iter()
+            .flatten()
+            .min_by(|a, b| far(a).total_cmp(&far(b)))?;
+        Some([point[0], point[1], point[2] + crate::uses::ACTION_SIGHT_M])
     }
 
     /// The point of its axis `share` of the way up its volume.
@@ -158,6 +177,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                     radius: BODY_RADIUS,
                     height: BODY_HEIGHT,
                     ahead: false,
+                    points: [None; 2],
                 });
             }
             let Kind::Object(kind, index) = entity.kind else {
@@ -186,6 +206,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                         radius: TRAP_RADIUS,
                         height: TRAP_HEIGHT,
                         ahead: false,
+                        points: [None; 2],
                     });
                 }
                 _ => return None,
@@ -205,8 +226,12 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                 }
                 _ => (radius, height),
             };
+            let mut points = [None; 2];
             if kind == ObjectKind::Placeable {
                 (feet[2], height) = hung(level, feet, height);
+                for (slot, point) in points.iter_mut().zip(facts.action_points(feet)) {
+                    *slot = Some(point);
+                }
             }
             Some(Candidate {
                 index,
@@ -215,6 +240,7 @@ pub fn candidates(level: &Level, snapshot: &Snapshot, me: Option<SimId>) -> Vec<
                 radius,
                 height,
                 ahead: kind == ObjectKind::Creature && crate::world::party_member(entity),
+                points,
             })
         })
         .collect()
@@ -259,6 +285,9 @@ pub fn in_sight(level: &Level, states: Option<&[u8]>, from: Vec3, to: Vec3, inde
 /// crosshair picks by it (`seen`), and a use goes by it (`uses::may_use`),
 /// so what the crosshair offers to use is used: the Ebon Hawk's lift
 /// controls, flush with the wall, were offered and never used (issue 237).
+/// Placeables never hide anything from it (`Level::sight_states`): the
+/// Ithorian held in the force cage of the Exchange on Telos is talked to
+/// through the cage's walls, as in TSL.
 pub fn in_sight_near(
     level: &Level,
     states: Option<&[u8]>,
@@ -266,18 +295,53 @@ pub fn in_sight_near(
     to: Vec3,
     index: u32,
 ) -> bool {
-    let trace = level.line(states, from, to);
+    let sight = level.sight_states(states, Some(index));
+    let trace = level.line(sight.as_deref().or(states), from, to);
     crate::world::unobstructed(&trace)
         || trace.entity == Some(index)
         || (!trace.start_solid && math::length(math::sub(to, trace.end)) <= SIGHT_SLACK)
 }
 
-/// Whether `candidate` is in sight of `from` (metres) for the crosshair: the
-/// line to its middle or its top (`in_sight_near`, Peragus' consoles).
-fn seen(level: &Level, states: Option<&[u8]>, from: Vec3, candidate: &Candidate) -> bool {
+/// Whether `candidate` is in sight of `from` (metres) for the crosshair of a
+/// player with its feet at `user`: the line to its middle or its top
+/// (`in_sight_near`, Peragus' consoles), or the line a use looks along
+/// (`seen_at_action_point`).
+fn seen(
+    level: &Level,
+    states: Option<&[u8]>,
+    from: Vec3,
+    user: Vec3,
+    candidate: &Candidate,
+) -> bool {
+    body_seen(level, states, from, candidate)
+        || seen_at_action_point(level, states, from, user, candidate)
+}
+
+/// Whether the line from `from` (metres) to `candidate`'s middle or its top
+/// is clear (`in_sight_near`).
+fn body_seen(level: &Level, states: Option<&[u8]>, from: Vec3, candidate: &Candidate) -> bool {
     [0.5, 1.0]
         .into_iter()
         .any(|share| in_sight_near(level, states, from, candidate.up(share), candidate.index))
+}
+
+/// Whether the line from `from` to where a use by a player with its feet at
+/// `user` looks at `candidate` (`Candidate::action_sight`) is clear. A use
+/// goes by that line (`uses::may_use`), so the crosshair offers what is
+/// used from its action point though a solid stands round its body: the
+/// force cage round Lonna Vash's body on Korriban, which a player could
+/// search only by jumping over the cage. One with its action point behind
+/// a wall stays hidden.
+fn seen_at_action_point(
+    level: &Level,
+    states: Option<&[u8]>,
+    from: Vec3,
+    user: Vec3,
+    candidate: &Candidate,
+) -> bool {
+    candidate
+        .action_sight(user)
+        .is_some_and(|to| in_sight_near(level, states, from, to, candidate.index))
 }
 
 /// Where along `look` (metres from its start) it enters `candidate`'s
@@ -336,20 +400,29 @@ pub fn pick(
     // The crosshair's ray, as far as the range reaches past the camera.
     let length = RANGE + math::flat_distance(look.from, looker.feet);
     let end = math::mad(look.from, length, look.forward);
-    let trace = level.with(states, |world| {
-        world.trace(look.from, end, &Extents::POINT, Contents::SOLID)
-    });
-    let solid = trace.fraction * length;
+    let ray = |states: Option<&[u8]>| {
+        level.with(states, |world| {
+            world.trace(look.from, end, &Extents::POINT, Contents::SOLID)
+        })
+    };
+    // The ray as it meets objects (a placeable is picked by its own body),
+    // and as far as the player sees along it, past every placeable.
+    let trace = ray(states);
+    let sight = level.sight_states(states, None);
+    let solid = ray(sight.as_deref().or(states)).fraction * length;
     let hit = candidates
         .iter()
         .filter(near)
         .filter_map(|candidate| {
             let at = if trace.fraction < 1.0 && trace.entity == Some(candidate.index) {
-                solid
+                trace.fraction * length
             } else {
-                // A volume poking through a wall is not hit through it.
-                enters(look, candidate)
-                    .filter(|t| *t <= solid && seen(level, states, look.from, candidate))?
+                // A volume poking through a wall is not hit through it, but
+                // one used from an action point in sight is.
+                enters(look, candidate).filter(|t| {
+                    (*t <= solid && body_seen(level, states, look.from, candidate))
+                        || seen_at_action_point(level, states, look.from, looker.feet, candidate)
+                })?
             };
             Some((at, candidate.index))
         })
@@ -365,7 +438,7 @@ pub fn pick(
         .filter_map(|candidate| {
             let to = math::sub(candidate.middle(), look.from);
             let cos = math::dot(to, look.forward) / math::length(to).max(1e-6);
-            (cos >= cone && seen(level, states, look.from, candidate))
+            (cos >= cone && seen(level, states, look.from, looker.feet, candidate))
                 .then_some((cos, candidate.index))
         })
         .max_by(|a, b| a.0.total_cmp(&b.0));
@@ -378,7 +451,7 @@ pub fn pick(
     candidates
         .iter()
         .filter(clear)
-        .filter(|candidate| seen(level, states, eyes, candidate))
+        .filter(|candidate| seen(level, states, eyes, looker.feet, candidate))
         .filter_map(|candidate| {
             crate::containers::ahead(looker.feet, looker.facing, candidate.feet)
                 .map(|distance| (distance, candidate.index))
@@ -430,9 +503,12 @@ pub enum Choice {
     /// A trap the party detected: disarmed, or recovered for its kit.
     Disarm,
     Recover,
-    /// TSL's: a mine the party carries set on a shut door, to blast its
-    /// lock (`Action::Mine`).
-    Mine,
+    /// TSL's: a mine the party carries set on a locked door or placeable,
+    /// to blast its lock (`Action::Mine`): the kit item chosen (`kits`),
+    /// else the one the sim picks.
+    Mine {
+        kit: Option<u32>,
+    },
 }
 
 /// What the character choosing brings to a lock: offered Security only
@@ -446,11 +522,11 @@ pub struct Security {
 /// What the character choosing brings to a mine: offered only with ranks in
 /// Demolitions (K1's menu asks the skill's use as it does Security's), with
 /// whether the mine's row has a kit to recover (`recover`) and, in TSL,
-/// whether the party carries a kit to set on a shut door (`door_mine`).
+/// whether the party carries a kit to set on a lock (`lock_mine`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Demolitions {
     pub recover: bool,
-    pub door_mine: bool,
+    pub lock_mine: bool,
 }
 
 /// What may be done to an object of `kind` with `facts` in `state`: a
@@ -462,7 +538,8 @@ pub struct Demolitions {
 /// hostile that speaks (a conversation or a dialogue hook) talked to; by a
 /// character with `demolitions`, a disarmable trap the party detected
 /// disarmed, or recovered where its row has a kit, and in TSL a mine set on
-/// a shut door where the party carries one. Nothing else.
+/// a locked door or placeable a mine may blast (`traps::blastable`) where
+/// the party carries one. Nothing else.
 pub fn choices(
     kind: ObjectKind,
     facts: &crate::module::ObjectData,
@@ -471,9 +548,9 @@ pub fn choices(
     security: Option<Security>,
     demolitions: Option<Demolitions>,
 ) -> Vec<Choice> {
-    let Demolitions { recover, door_mine } = demolitions.unwrap_or(Demolitions {
+    let Demolitions { recover, lock_mine } = demolitions.unwrap_or(Demolitions {
         recover: false,
-        door_mine: false,
+        lock_mine: false,
     });
     let skilled = demolitions.is_some();
     let locked = state.locked(facts.opens);
@@ -486,18 +563,22 @@ pub fn choices(
         }
         all
     };
-    let shut_door = |mut all: Vec<Choice>| {
-        all.extend((skilled && door_mine).then_some(Choice::Mine));
+    let mined = |mut all: Vec<Choice>| {
+        all.extend(
+            (skilled && lock_mine && crate::traps::blastable(facts, locked))
+                .then_some(Choice::Mine { kit: None }),
+        );
         all
     };
     match kind {
-        ObjectKind::Door if locked && state.state == 0 => shut_door(unlock()),
-        ObjectKind::Door if state.state == 0 => shut_door(vec![Choice::Open]),
+        ObjectKind::Door if locked && state.state == 0 => mined(unlock()),
+        ObjectKind::Door if state.state == 0 => vec![Choice::Open],
         ObjectKind::Door if crate::uses::closable(facts, &state) => {
             vec![Choice::Close, Choice::Use]
         }
         ObjectKind::Door => vec![Choice::Use],
-        ObjectKind::Placeable if facts.container && locked => unlock(),
+        ObjectKind::Placeable if facts.container && locked => mined(unlock()),
+        ObjectKind::Placeable if locked => mined(vec![Choice::Use]),
         ObjectKind::Placeable if facts.container => vec![Choice::Open],
         ObjectKind::Placeable => vec![Choice::Use],
         ObjectKind::Trigger
@@ -522,6 +603,22 @@ pub fn choices(
     }
 }
 
+/// `choices` with the mine on a lock offered once for each kit item the
+/// party carries (`kits`, by script object id), as TSL's menu lists each
+/// kit the party has, in place of the one mine `choices` offers.
+pub fn kits(choices: Vec<Choice>, kits: &[u32]) -> Vec<Choice> {
+    choices
+        .into_iter()
+        .flat_map(|choice| match choice {
+            Choice::Mine { kit: None } if !kits.is_empty() => kits
+                .iter()
+                .map(|kit| Choice::Mine { kit: Some(*kit) })
+                .collect(),
+            _ => vec![choice],
+        })
+        .collect()
+}
+
 /// What a choice asks of the host (`crate::action`): none for a revive,
 /// whose body goes as `Action::Revive` when its hold begins and which the
 /// player's held use does (`Reviving`), nor for an item, whose user and
@@ -533,7 +630,7 @@ pub fn ask(choice: Choice, object: u32, kind: ObjectKind) -> Option<crate::actio
         (Choice::Revive | Choice::Item { .. }, _) => return None,
         (Choice::Disarm, _) => return Some(Action::Disarm(object)),
         (Choice::Recover, _) => return Some(Action::Recover(object)),
-        (Choice::Mine, _) => return Some(Action::Mine(object)),
+        (Choice::Mine { kit }, _) => return Some(Action::Mine { object, kit }),
         (Choice::Open, _) | (Choice::Use, ObjectKind::Door) => Verb::Open,
         (Choice::Close, _) => Verb::Close,
         (Choice::Use, _) => Verb::Use,
@@ -691,7 +788,7 @@ fn arrival(choice: Choice, kind: ObjectKind) -> f32 {
 fn stands_for(choice: Choice) -> bool {
     matches!(
         choice,
-        Choice::Unlock { .. } | Choice::Disarm | Choice::Recover | Choice::Mine
+        Choice::Unlock { .. } | Choice::Disarm | Choice::Recover | Choice::Mine { .. }
     )
 }
 
@@ -707,6 +804,10 @@ const TRAP_CLEAR_M: f32 = rules::targeting::walk::TRAP_CLEAR_M;
 const TRAP_ARRIVE_M: f32 = rules::targeting::walk::TRAP_ARRIVE_M;
 /// How far (metres) a target may move before its walk is planned again.
 const MOVED: f32 = rules::targeting::walk::MOVED;
+/// The rings round a target a walk no way leads to the front of looks for
+/// a stand on (shares of its arrival), and how many places to a ring.
+const ROUND_RINGS: [f32; 3] = rules::targeting::walk::ROUND_RINGS;
+const ROUND_DIRECTIONS: u8 = rules::targeting::walk::ROUND_DIRECTIONS;
 
 /// A walk to a target to do a choice there (T16, T17): a walker to a point
 /// before the target inside the choice's reach, or, where no route leads
@@ -812,10 +913,57 @@ impl Walk {
             ],
             1.0 / UNIT,
         );
-        self.walker = crate::walk::Walker::new([goal[0], goal[1], goal[2] - crate::motion::SOLE_Z]);
-        self.direct =
-            crate::walk::route_ways(level, player.origin, self.walker.goal, ways).is_none();
+        let line = [goal[0], goal[1], goal[2] - crate::motion::SOLE_Z];
+        let routed =
+            |goal: Vec3| crate::walk::route_ways(level, player.origin, goal, ways).is_some();
+        let goal = if routed(line) {
+            Some(line)
+        } else {
+            self.round_stand(level, player, spot, &routed)
+        };
+        self.direct = goal.is_none();
+        self.walker = crate::walk::Walker::new(goal.unwrap_or(line));
         self.toward = to;
+    }
+
+    /// Where a walk heads when no way leads to the stand before its target
+    /// (the target stands deep behind a counter, as Mika Dorin does at the
+    /// back of Dreshdae's cantina bar on Korriban): the place round the target
+    /// nearest the player that a way leads to, on rings `ROUND_RINGS` of the
+    /// arrival out from it, `ROUND_DIRECTIONS` places to a ring. Arrived
+    /// there, the walk is near enough to do the choice. Only a talk and a
+    /// placeable's use look round: any other walk (a door, a lock, a mine)
+    /// heads straight at its stand. None when no place round it is led to.
+    fn round_stand(
+        &self,
+        level: &Level,
+        player: &crate::motion::MotionState,
+        spot: Spot,
+        routed: &dyn Fn(Vec3) -> bool,
+    ) -> Option<Vec3> {
+        if !matches!(self.choice, Choice::Talk | Choice::Use) {
+            return None;
+        }
+        let feet = feet_of(player);
+        let mut stands: Vec<(f32, Vec3)> = ROUND_RINGS
+            .iter()
+            .flat_map(|share| {
+                (0..ROUND_DIRECTIONS).map(move |k| {
+                    let (sin, cos) =
+                        math::sin_cos_deg(360.0 * f32::from(k) / f32::from(ROUND_DIRECTIONS));
+                    let far = share * spot.within;
+                    [spot.at[0] + far * cos, spot.at[1] + far * sin, spot.at[2]]
+                })
+            })
+            .map(|at| (math::flat_distance(at, feet), at))
+            .collect();
+        stands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        stands.into_iter().find_map(|(_, at)| {
+            let origin = math::scale(at, 1.0 / UNIT);
+            let origin = [origin[0], origin[1], origin[2] - crate::motion::SOLE_Z];
+            let goal = crate::walk::on_floor(level, origin);
+            routed(goal).then_some(goal)
+        })
     }
 
     /// Whether the walk has come no nearer `spot` for a walker's stall
@@ -1008,7 +1156,7 @@ impl crate::walk::Ways for KeptIn<'_> {
 }
 
 /// What of the player's own cancels a walk besides moving and jumping: an
-/// attack (T17).
+/// attack (T17). `steer` counts a blaster's [Feat attack] as one too.
 pub const WALK_BREAKS: u16 = crate::buttons::ATTACK | crate::buttons::ALT_ATTACK;
 /// What cancels a revive's hold besides moving and jumping: any action,
 /// as the host breaks a revive off for one (`falls::ACTING`).
@@ -1016,8 +1164,9 @@ pub const HOLD_BREAKS: u16 = crate::falls::ACTING;
 
 /// The command the player's tick takes: its own (`base`: the keys', a
 /// script's), or a walk's or a revive's hold (`piloted`) in its place; and
-/// whether `base` cancels it (it moves, jumps, or presses one of
-/// `breaks`).
+/// whether `base` cancels it. It cancels it when it moves, jumps, attacks
+/// (`Command::attacks`, a blaster's [Feat attack] too) or presses one of
+/// `breaks`.
 pub fn steer(
     piloted: Option<crate::Command>,
     base: crate::Command,
@@ -1026,7 +1175,8 @@ pub fn steer(
     let Some(command) = piloted else {
         return (base, false);
     };
-    if base.forward != 0 || base.right != 0 || base.up > 0 || base.buttons & breaks != 0 {
+    let moved = base.forward != 0 || base.right != 0 || base.up > 0;
+    if moved || base.attacks() || base.buttons & breaks != 0 {
         return (base, true);
     }
     (
@@ -1128,4 +1278,4 @@ impl Hold {
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use probes::probes;
+pub use probes::{action_point_probes, cage_probes, probes};

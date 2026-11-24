@@ -32,6 +32,11 @@
 //!   add to hit and damage and give vitality, taken before hit points and
 //!   gone when they end.
 //!
+//! - **Items activated where worn** (`Use::Activated`): an item equipped
+//!   in a slot to be used, whose row the engine does not name, such as a
+//!   mod's datapad worn in a shield's slot. It is used with the shield's
+//!   button and clip, and only its row's impact script does anything.
+//!
 //! The numbers are the book's (`rules::items`).
 //!
 //! Each has its button (`input::buttons`): `MEDPAC` (an antidote while
@@ -100,6 +105,11 @@ pub enum Use {
         types: u16,
     },
     Stim(Stim),
+    /// An item equipped in a slot to be used, whose row the engine does not
+    /// name (a mod's own `spells.2da` row). It is activated where it is
+    /// worn, as an energy shield is, and its row's impact script does
+    /// everything it does (`inventory::ItemFacts::combat_row`).
+    Activated,
 }
 
 /// The keys items are used by, each with the kinds it takes; a character
@@ -114,6 +124,17 @@ pub enum Shelf {
 
 impl Shelf {
     pub const ALL: [Shelf; 4] = [Shelf::Medpac, Shelf::Stim, Shelf::Shield, Shelf::Grenade];
+
+    /// The button that uses the kind.
+    pub fn button(self) -> u16 {
+        use crate::input::buttons;
+        match self {
+            Shelf::Medpac => buttons::MEDPAC,
+            Shelf::Stim => buttons::STIM,
+            Shelf::Shield => buttons::SHIELD,
+            Shelf::Grenade => buttons::GRENADE,
+        }
+    }
 }
 
 impl Use {
@@ -122,7 +143,7 @@ impl Use {
         match self {
             Use::Grenade => Shelf::Grenade,
             Use::Heal { .. } | Use::Antidote | Use::Squad { .. } => Shelf::Medpac,
-            Use::Shield { .. } => Shelf::Shield,
+            Use::Shield { .. } | Use::Activated => Shelf::Shield,
             Use::Stim(_) => Shelf::Stim,
         }
     }
@@ -130,20 +151,14 @@ impl Use {
     /// The clip its use plays (`clips`).
     pub fn clip(self) -> u16 {
         match self {
-            Use::Shield { .. } => clips::ACTIVATE,
+            Use::Shield { .. } | Use::Activated => clips::ACTIVATE,
             _ => clips::INJECT,
         }
     }
 
     /// Which button uses it.
     pub fn button(self) -> u16 {
-        use crate::input::buttons;
-        match self {
-            Use::Grenade => buttons::GRENADE,
-            Use::Heal { .. } | Use::Antidote | Use::Squad { .. } => buttons::MEDPAC,
-            Use::Shield { .. } => buttons::SHIELD,
-            Use::Stim(_) => buttons::STIM,
-        }
+        self.shelf().button()
     }
 }
 
@@ -261,6 +276,14 @@ pub struct Carried {
 
 impl Carried {
     pub(crate) const BLANK: Carried = Carried { row: 0, count: 0 };
+
+    /// What using it does. A kind is only ever made by
+    /// `inventory::kinds`, which takes a row the engine does not name only
+    /// from an item activated where it is worn. So a kind of such a row is
+    /// `Use::Activated`.
+    pub fn kind(self) -> Use {
+        use_of(self.row).unwrap_or(Use::Activated)
+    }
 
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u16(self.row);
@@ -479,6 +502,50 @@ pub struct Pack {
     /// as KOTOR's action queue does (the AI's `ClearAllActions` before a
     /// new talent).
     pub ordered: bool,
+    /// Whether its player has a grenade readied (`Readied`).
+    pub readied: Readied,
+    /// Readying the grenade holstered the weapon that was drawn. The weapon
+    /// is drawn again when the grenade is thrown or put away, unless the
+    /// player's holster key put it away.
+    pub redraw: bool,
+}
+
+/// The bit of the readied grenade's byte that holds `Pack::redraw`. Bytes
+/// written before it are 0 to 2 and read with no weapon to draw again.
+const REDRAW_BIT: u8 = 1 << 2;
+
+/// A grenade readied by a seat's player (`Action::Grenade`,
+/// `world::movement::ready_grenades`). While one is readied, the attack
+/// button charges and throws the grenade as the grenade button does, and
+/// the weapon neither swings nor fires. The weapon's other attack puts the
+/// grenade away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Readied {
+    /// No grenade is readied.
+    #[default]
+    Off,
+    /// A grenade is readied.
+    On,
+    /// The grenade was put away while the attack button or the weapon's
+    /// other attack was held. Neither does anything until both are let go,
+    /// so putting the grenade away never swings or fires the weapon.
+    Stowing,
+}
+
+impl Readied {
+    fn code(self) -> u8 {
+        match self {
+            Readied::Off => 0,
+            Readied::On => 1,
+            Readied::Stowing => 2,
+        }
+    }
+
+    fn of(code: u8) -> Option<Readied> {
+        [Readied::Off, Readied::On, Readied::Stowing]
+            .get(usize::from(code))
+            .copied()
+    }
 }
 
 impl Pack {
@@ -513,7 +580,7 @@ impl Pack {
         items.iter().enumerate().find_map(|(at, carried)| {
             carried
                 .filter(|carried| self.used[at] < carried.count)
-                .filter(|carried| use_of(carried.row).is_some_and(&fits))
+                .filter(|carried| fits(carried.kind()))
                 .map(|carried| (at, carried))
         })
     }
@@ -653,9 +720,23 @@ impl Pack {
         write_fixed(out, self.queued.as_ref(), &0, |row, out| out.u16(*row));
         out.u8(u8::from(self.ordered));
         out.u8(u8::from(self.charge_off));
+        out.u8(self.readied.code() | if self.redraw { REDRAW_BIT } else { 0 });
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pack, DecodeError> {
+        let mut pack = Pack::decode_before_grenade(input)?;
+        if input.since(crate::since::snapshot::FEAT_READIED_GRENADE) {
+            let at = input.at();
+            let byte = input.u8()?;
+            pack.readied = Readied::of(byte & !REDRAW_BIT)
+                .ok_or_else(|| input.invalid("readied grenade", at))?;
+            pack.redraw = byte & REDRAW_BIT != 0;
+        }
+        Ok(pack)
+    }
+
+    /// Everything `decode` reads before the readied grenade.
+    fn decode_before_grenade(input: &mut Reader) -> Result<Pack, DecodeError> {
         Ok(Pack {
             used: input.array()?,
             last: (input.u16()?, input.u64()?),
@@ -706,6 +787,8 @@ impl Pack {
                 false
             },
             charge_off: input.since(crate::since::snapshot::ITEM_CYCLE) && input.u8()? != 0,
+            readied: Readied::Off,
+            redraw: false,
         })
     }
 }
@@ -808,15 +891,15 @@ pub fn press(
         return Pressed::default();
     }
     let pack = &mut fighter.pack;
-    if let Some(row) = pack
-        .queued
-        .filter(|row| alive && use_of(*row).is_some_and(|u| u != Use::Grenade))
+    if let Some((row, kind)) = (pack.queued)
+        .and_then(|row| Some((row, use_of(row)?)))
+        .filter(|(_, kind)| alive && *kind != Use::Grenade)
     {
         pack.queued = None;
         fighter.pack.ordered = true;
         return Pressed {
             spent: None,
-            ..begin(fighter, sheet, row, now)
+            ..begin(fighter, sheet, (row, kind), now)
         };
     }
     let found = (pressed & buttons::MEDPAC != 0)
@@ -836,16 +919,16 @@ pub fn press(
         return Pressed::default();
     };
     pack.spend(at, carried.row, now);
-    begin(fighter, sheet, carried.row, now)
+    begin(fighter, sheet, (carried.row, carried.kind()), now)
 }
 
-/// The use of the item of `row` begun by `fighter` (with `sheet`): its
-/// clip played for its time, landing at its end. A grenade is thrown, not
-/// used so: nothing.
-fn begin(fighter: &mut Fighter, sheet: &Sheet, row: u16, now: u64) -> Pressed {
-    let Some(kind) = use_of(row).filter(|u| *u != Use::Grenade) else {
+/// The use of the item of `row`, which does `kind`, begun by `fighter`
+/// (with `sheet`): its clip played for its time, landing at its end. A
+/// grenade is thrown, not used so: nothing.
+fn begin(fighter: &mut Fighter, sheet: &Sheet, (row, kind): (u16, Use), now: u64) -> Pressed {
+    if kind == Use::Grenade {
         return Pressed::default();
-    };
+    }
     let ms = use_ms(sheet, row);
     fighter.pack.using = Some((row, now + ms));
     fighter.pack.last = (row, now);
@@ -880,7 +963,8 @@ pub fn break_off(fighter: &mut Fighter, now: u64) {
 /// impact script, `k_sup_healing`, `k_sup_bands`, `k_sup_comshots`) is
 /// cast, its script doing what it does; the rest do as their descriptions
 /// say (on the authority where they heal), a shield or a stim in place of
-/// one up.
+/// one up. A row the engine does not name began only as `Use::Activated`,
+/// which its script alone does.
 fn land(
     fighter: &mut Fighter,
     sheet: &Sheet,
@@ -890,11 +974,12 @@ fn land(
     scripted: bool,
 ) -> Pressed {
     match use_of(row) {
-        None | Some(Use::Grenade) => Pressed::default(),
-        Some(_) if scripted => Pressed {
+        Some(Use::Grenade) => Pressed::default(),
+        _ if scripted => Pressed {
             cast: Some(row),
             ..Pressed::default()
         },
+        None | Some(Use::Activated) => Pressed::default(),
         Some(Use::Heal {
             points,
             per_rank,

@@ -635,5 +635,255 @@ pub fn synthetic() -> Probes {
         Some(t),
         !t.start_solid && t.fraction < 1.0 && t.plane.normal[2] > 0.99,
     );
+
+    fits_differential(&mut probes);
+    remembered_answers(&mut probes);
+    shot_from_inside(&mut probes);
     probes
+}
+
+/// A shot whose line starts inside a body's box meets that body where it
+/// starts (`Bodies::shot`); a plain trace from there passes through it.
+fn shot_from_inside(probes: &mut Probes) {
+    let level = LevelBuilder::new().build();
+    let body = crate::Body {
+        entity: 7,
+        min: [-1.5, -1.0, 0.0],
+        max: [1.5, 1.0, 2.0],
+        contents: Contents::BODY,
+    };
+    let bodies = [body];
+    let with_bodies = crate::Bodies::new(&level, &bodies);
+    let (start, end) = ([1.0, 0.0, 1.6], [10.0, 0.0, 1.6]);
+    let plain = with_bodies.trace(start, end, &Extents::POINT, Contents::BODY);
+    let shot = with_bodies.shot(start, end, &Extents::POINT, Contents::BODY);
+    probes.check(
+        "shot from inside a body",
+        "a shot starting inside a body's box meets that body at its start; a plain trace passes through",
+        Some(shot),
+        plain.entity.is_none() && shot.entity == Some(7) && shot.end == start,
+    );
+}
+
+fn fits_differential(probes: &mut Probes) {
+    let mut draw = Draw(31);
+    let mut builder = LevelBuilder::new();
+    let tags = [
+        Tag::level(Contents::SOLID, 0),
+        Tag::level(Contents::WALK_CLIP, 0),
+        Tag::level(Contents::SHAPE, 0),
+        Tag {
+            entity: Some(7),
+            states: 1,
+            ..Tag::level(Contents::SOLID, 0)
+        },
+    ];
+    for i in 0..400 {
+        let tag = tags[i % tags.len()];
+        let at = [
+            draw.range(-6.0, 6.0),
+            draw.range(-6.0, 6.0),
+            draw.range(-2.0, 2.0),
+        ];
+        if i % 3 == 0 {
+            let size = [
+                draw.range(0.1, 1.5),
+                draw.range(0.1, 1.5),
+                draw.range(0.1, 2.0),
+            ];
+            builder.aabb(at, std::array::from_fn(|k| at[k] + size[k]), tag);
+        } else {
+            let mut corner =
+                || std::array::from_fn(|k| at[k] + draw.range(-1.5, 1.5) * [1.0, 1.0, 0.4][k]);
+            builder.triangle([corner(), corner(), corner()], tag);
+        }
+    }
+    let mut level = builder.build();
+    let bodies: Vec<crate::Body> = (0..12)
+        .map(|n| {
+            let at = [
+                draw.range(-6.0, 6.0),
+                draw.range(-6.0, 6.0),
+                draw.range(-2.0, 2.0),
+            ];
+            crate::Body {
+                entity: 100 + n,
+                min: [at[0] - 0.38, at[1] - 0.38, at[2] - 0.6],
+                max: [at[0] + 0.38, at[1] + 0.38, at[2] + 1.0],
+                contents: Contents::BODY,
+            }
+        })
+        .collect();
+    let shapes = [
+        Shape::Box(player()),
+        Shape::Upright(player()),
+        Shape::Upright(crouched()),
+    ];
+    let (mut agree, mut total, mut solid) = (0, 0, 0);
+    let mut first_difference = None;
+    for state in [0, 1] {
+        level.set_state(7, state);
+        let masked = crate::Masked::new(&level, Contents::SHAPE);
+        let with_bodies = crate::Bodies::new(&level, &bodies).skipping(100);
+        let worlds: [&dyn CollisionWorld; 3] = [&level, &masked, &with_bodies];
+        for i in 0..6_000 {
+            let at = [
+                draw.range(-7.0, 7.0),
+                draw.range(-7.0, 7.0),
+                draw.range(-2.5, 2.5),
+            ];
+            let shape = &shapes[i % shapes.len()];
+            for world in worlds {
+                let trace = world.sweep(at, at, shape, Contents::PLAYER_SOLID);
+                total += 1;
+                solid += usize::from(trace.all_solid);
+                if world.fits(at, shape, Contents::PLAYER_SOLID) != trace.all_solid {
+                    agree += 1;
+                } else if first_difference.is_none() {
+                    first_difference = Some(trace);
+                }
+            }
+        }
+    }
+    probes.check(
+        "fits differential",
+        &format!(
+            "fits agrees with a zero-length trace at {agree} of {total} spots in a random level, and {solid} spots are all solid"
+        ),
+        first_difference,
+        agree == total && solid > total / 10 && solid < total * 9 / 10,
+    );
+}
+
+fn remembered_answers(probes: &mut Probes) {
+    let mut draw = Draw(77);
+    let mut builder = LevelBuilder::new();
+    let door = Tag {
+        entity: Some(7),
+        states: 1,
+        ..Tag::level(Contents::SOLID, 0)
+    };
+    for i in 0..200 {
+        let tag = if i % 3 == 0 {
+            door
+        } else {
+            Tag::level(Contents::SOLID, 0)
+        };
+        let at = [
+            draw.range(-6.0, 6.0),
+            draw.range(-6.0, 6.0),
+            draw.range(-2.0, 2.0),
+        ];
+        let mut corner =
+            || std::array::from_fn(|k| at[k] + draw.range(-1.5, 1.5) * [1.0, 1.0, 0.4][k]);
+        builder.triangle([corner(), corner(), corner()], tag);
+    }
+    let mut level = builder.build();
+    let shapes = [
+        Shape::Box(player()),
+        Shape::Upright(player()),
+        Shape::Capsule(Capsule::from_extents(&player())),
+    ];
+    let asks: Vec<([f32; 3], [f32; 3], usize)> = (0..1_500)
+        .map(|i| {
+            let mut spot = || {
+                [
+                    draw.range(-7.0, 7.0),
+                    draw.range(-7.0, 7.0),
+                    draw.range(-2.5, 2.5),
+                ]
+            };
+            let start = spot();
+            let end = if i % 2 == 0 { start } else { spot() };
+            (start, end, i % shapes.len())
+        })
+        .collect();
+    let differ = |world: &dyn CollisionWorld, fresh: &dyn CollisionWorld| {
+        asks.iter()
+            .filter(|(start, end, shape)| {
+                let shape = &shapes[*shape];
+                let mask = Contents::PLAYER_SOLID;
+                let first = world.sweep(*start, *end, shape, mask);
+                let again = world.sweep(*start, *end, shape, mask);
+                let fits = (
+                    world.fits(*start, shape, mask),
+                    world.fits(*start, shape, mask),
+                );
+                let fresh_fits = fresh.fits(*start, shape, mask);
+                first != again
+                    || first != fresh.sweep(*start, *end, shape, mask)
+                    || fits != (fresh_fits, fresh_fits)
+            })
+            .count()
+    };
+    let shut = differ(&level, &level.clone());
+    let remembered = level.remembered_answers();
+    level.set_state(7, 1);
+    let forgotten = level.remembered_answers();
+    let open = differ(&level, &level.clone());
+    let states = [0];
+    let shut_again = differ(
+        &level.with_states(&states),
+        &level.clone().with_states(&states),
+    );
+    let before_unremembered = level.remembered_answers();
+    let unremembered = differ(
+        &level.with_states(&states).unremembered(),
+        &level.clone().with_states(&states),
+    );
+    let added_unremembered = level.remembered_answers() - before_unremembered;
+    probes.check(
+        "remembered answers",
+        &format!(
+            "of {} asks, {shut} differ from a fresh copy's with the door shut, {open} open, {shut_again} shut through with_states and {unremembered} unremembered; the level remembered {remembered} answers, {forgotten} after set_state and {added_unremembered} more after the unremembered asks",
+            asks.len()
+        ),
+        None,
+        shut == 0
+            && open == 0
+            && shut_again == 0
+            && unremembered == 0
+            && remembered > 0
+            && forgotten == 0
+            && added_unremembered == 0,
+    );
+    remembered_generations(probes, &level.clone(), &mut draw);
+}
+
+/// Checks the generations of remembered answers. A level is asked whether
+/// a body fits at 100,000 random spots, more than its two generations
+/// hold, so it forgets the oldest answers. The first and the last 2,000
+/// spots are then asked again. The probe passes when the level remembers
+/// fewer answers than it was asked, and when every answer asked again is
+/// the same as the first time.
+fn remembered_generations(probes: &mut Probes, level: &crate::Level, draw: &mut Draw) {
+    let shape = Shape::Upright(player());
+    let mask = Contents::PLAYER_SOLID;
+    let spots: Vec<[f32; 3]> = (0..100_000)
+        .map(|_| {
+            [
+                draw.range(-7.0, 7.0),
+                draw.range(-7.0, 7.0),
+                draw.range(-2.5, 2.5),
+            ]
+        })
+        .collect();
+    let first: Vec<bool> = spots
+        .iter()
+        .map(|spot| level.fits(*spot, &shape, mask))
+        .collect();
+    let kept = level.remembered_answers();
+    let again = (0..2_000).chain(spots.len() - 2_000..spots.len());
+    let differ = again
+        .filter(|&i| level.fits(spots[i], &shape, mask) != first[i])
+        .count();
+    probes.check(
+        "remembered generations",
+        &format!(
+            "after {} asks the level remembered {kept} answers; {differ} of 4,000 asks made again differ from the first answer",
+            spots.len()
+        ),
+        None,
+        kept < spots.len() && differ == 0,
+    );
 }

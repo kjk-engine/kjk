@@ -1,8 +1,8 @@
 //! What `kjk play` (and the headless runs) set by hand before the first
 //! step: a skill's rank (`--skill`), items the party carries (`--item`),
 //! script globals (`--global`), scripts run for the player (`--run`), a
-//! conversation started (`--talk`), and companions in the party
-//! (`--party`).
+//! conversation started (`--talk`, `--dialog`), companions in the party
+//! (`--party`), and where the player stands (`--at`).
 
 use std::sync::OnceLock;
 
@@ -75,6 +75,30 @@ pub fn with_skills(mut sheet: sim::combat::Sheet, skills: &[(usize, u8)]) -> sim
     sheet
 }
 
+/// `sheet` knowing the feats `--feat` gives (`feat.2da` rows).
+pub fn with_feats(mut sheet: sim::combat::Sheet, feats: &[u16]) -> sim::combat::Sheet {
+    for &feat in feats {
+        sheet.feats.insert(feat);
+    }
+    sheet
+}
+
+/// `sheet` knowing the Force powers `--power` gives (`spells.2da` rows).
+pub fn with_powers(mut sheet: sim::combat::Sheet, powers: &[u16]) -> sim::combat::Sheet {
+    for &power in powers {
+        sheet.powers.insert(power);
+    }
+    sheet
+}
+
+/// `sheet` with the most Force points `--force-points` gives, if given.
+pub fn with_force_points(mut sheet: sim::combat::Sheet, points: Option<u16>) -> sim::combat::Sheet {
+    if let Some(points) = points {
+        sheet.max_fp = points;
+    }
+    sheet
+}
+
 /// Items of the templates given made in the party's inventory of
 /// `world`'s scripts, as a script's `CreateItemOnObject` makes them.
 pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<(), String> {
@@ -109,7 +133,12 @@ pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<
 /// the line from where it stood), facing it; then the object's
 /// dialogue hook runs with listen pattern −1 and the player as speaker (the
 /// games' handlers clear the owner's actions, then begin its conversation);
-/// one with no hook starts its conversation.
+/// one with no hook starts its conversation. When `talk` names a
+/// conversation (`--dialog`), the object starts that one with the player
+/// instead, and its hook does not run. A party banter, `banter.dlg`, is
+/// started so, since no object's hook names it. When the player first
+/// stands at `from` (`--at`), its distance to the object is measured from
+/// there.
 ///
 /// It is a start by hand, as `set_globals` is, made before the first step:
 /// a seat's own talk (`Action::Use` with `Verb::Talk`) is refused out of
@@ -118,7 +147,8 @@ pub fn give_items(world: &mut sim::SimWorld, items: &[(String, u16)]) -> Result<
 /// jump). The use itself is told to the scripts within a step only
 /// (`scripts::Used`, cleared as each step's uses begin), hence its rule
 /// made here.
-pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
+pub fn talk_to(world: &mut sim::SimWorld, talk: &Talk, from: Option<Spot>) -> Result<(), String> {
+    let Talk { tag, dialog } = talk;
     let snapshot = world.snapshot();
     let me = ObjectId(
         crate::cast::me(&snapshot, sim::Seat(0))
@@ -142,14 +172,22 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
         .player
         .map_or(0.0, |_| sim::motion::SOLE_Z * collision::UNIT);
     let there = there.position;
-    let here = snapshot
-        .entities
-        .iter()
-        .find(|entity| entity.id.0 == me.0)
-        .map(|entity| entity.position)
-        .ok_or("no player")?;
-    let hook = sim::script::Hook::Dialogue.of(object).map(str::to_string);
-    let dialog = object.conversation.clone();
+    let here = match from {
+        Some(spot) => spot.soles,
+        None => snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id.0 == me.0)
+            .map(|entity| entity.position)
+            .ok_or("no player")?,
+    };
+    let hook = match dialog {
+        Some(_) => None,
+        None => sim::script::Hook::Dialogue.of(object).map(str::to_string),
+    };
+    let dialog = dialog
+        .clone()
+        .unwrap_or_else(|| object.conversation.clone());
     let mut state = world.script_state().clone();
     let (dx, dy) = (here[0] - there[0], here[1] - there[1]);
     let apart = dx.hypot(dy);
@@ -159,13 +197,18 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
             there[1] + dy / apart * TALK_STAND,
             there[2] + raised,
         ];
-        let stand = walked_up(
-            world,
-            &snapshot,
-            me,
-            [there[0], there[1], there[2] + raised],
-        )
-        .unwrap_or(straight);
+        // The walk's route starts where the player stands in the snapshot,
+        // so a player put elsewhere first (`--at`) takes the straight line.
+        let stand = match from {
+            Some(_) => straight,
+            None => walked_up(
+                world,
+                &snapshot,
+                me,
+                [there[0], there[1], there[2] + raised],
+            )
+            .unwrap_or(straight),
+        };
         let (dx, dy) = (stand[0] - there[0], stand[1] - there[1]);
         let facing = (-dy).atan2(-dx).to_degrees();
         state
@@ -199,6 +242,74 @@ pub fn talk_to(world: &mut sim::SimWorld, tag: &str) -> Result<(), String> {
             cue: None,
         }),
     }
+    world.set_script_state(state);
+    Ok(())
+}
+
+/// The object the player talks to at the start (`--talk`, its tag), and the
+/// conversation it then starts in place of its own (`--dialog`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Talk {
+    pub tag: String,
+    pub dialog: Option<String>,
+}
+
+/// `--talk`'s tag and `--dialog`'s conversation, as one `Talk`.
+pub fn talk(tag: Option<String>, dialog: Option<String>) -> Option<Talk> {
+    tag.map(|tag| Talk { tag, dialog })
+}
+
+/// Where the player stands at the start (`--at`). The soles are in game
+/// space, in metres. The facing is in degrees from +X, turning left.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spot {
+    pub soles: [f32; 3],
+    pub facing: f32,
+}
+
+/// `X,Y,Z` or `X,Y,Z,FACING` (`--at`). A facing left out is 0.
+pub fn parse_at(text: &str) -> Result<Spot, String> {
+    let refused = || format!("{text}: X,Y,Z or X,Y,Z,FACING, in metres and degrees");
+    let numbers: Vec<f32> = text
+        .split(',')
+        .map(|part| part.trim().parse::<f32>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| refused())?;
+    let (soles, facing) = match numbers[..] {
+        [x, y, z] => ([x, y, z], 0.0),
+        [x, y, z, facing] => ([x, y, z], facing),
+        _ => return Err(refused()),
+    };
+    Ok(Spot { soles, facing })
+}
+
+/// The player is put at `spot` (`--at`) before the first step. It is a jump
+/// queued for the player, which the first step makes, so a recording's
+/// start holds it. A stage that is no module, and a spot with no free
+/// place at it or near it, are refused, since the jump would not happen.
+pub fn place(world: &mut sim::SimWorld, spot: Spot) -> Result<(), String> {
+    let [x, y, z] = spot.soles;
+    if world.level().module().is_none() {
+        return Err("--at: only on a module stage".into());
+    }
+    if world.jump_landing(spot.soles).is_none() {
+        return Err(format!(
+            "--at {x},{y},{z}: there is no place to stand there or near it"
+        ));
+    }
+    let snapshot = world.snapshot();
+    let me = crate::cast::me(&snapshot, sim::Seat(0)).ok_or("no player")?;
+    let mut state = world.script_state().clone();
+    state
+        .actions
+        .entry(me.0)
+        .or_default()
+        .push(sim::script::actions::Queued {
+            action: sim::script::actions::Action::Jump {
+                to: sim::script::actions::Target::Point(spot.soles, spot.facing),
+            },
+            started_ms: None,
+        });
     world.set_script_state(state);
     Ok(())
 }
@@ -331,8 +442,9 @@ pub fn queue_scripts(world: &mut sim::SimWorld, scripts: &[String]) -> Result<()
 /// selection screen leave it: each available as the `NPC_*` number
 /// `npc.2da` gives its template's tag (else the first free), then picked
 /// on the screen in the step this takes (`Action::ChooseParty`), which
-/// makes each beside the player. Without templates, nothing is done and no
-/// step taken.
+/// makes each beside the player. A template followed by `@ROW` (e.g.
+/// `p_mission@21`) also arms the companion with the gun of that row
+/// (`arm`). Without templates, nothing is done and no step taken.
 pub fn party(
     world: &mut sim::SimWorld,
     templates: &[String],
@@ -352,7 +464,9 @@ pub fn party(
     let numbers = installer.map_or_else(Vec::new, crate::stage::npc_tags);
     let mut state = world.script_state().clone();
     let mut picks = [u8::MAX; 2];
-    for (template, pick) in templates.iter().zip(&mut picks) {
+    let mut guns = Vec::new();
+    for (entry, pick) in templates.iter().zip(&mut picks) {
+        let (template, row) = parse_member(entry)?;
         let template = template.to_ascii_lowercase();
         let tag = library
             .creature(&template)
@@ -377,14 +491,70 @@ pub fn party(
             },
         );
         *pick = npc;
+        if let Some(row) = row {
+            guns.push((npc, row));
+        }
     }
-    state.party.selection = Some(sim::script::party::Selection {
-        exit: String::new(),
-        forced: Vec::new(),
-    });
+    state.party.selection = Some(sim::script::party::Selection::in_play());
     world.set_script_state(state);
+    step_with(world, sim::action::Action::ChooseParty(Some(picks)));
+    for (npc, row) in guns {
+        arm(world, &library, npc, row)?;
+    }
+    Ok(())
+}
+
+/// A `--party` entry: the template, and the `baseitems.2da` row after an
+/// `@` if one follows it (`p_mission@21`).
+fn parse_member(entry: &str) -> Result<(&str, Option<u16>), String> {
+    match entry.split_once('@') {
+        Some((template, row)) => row
+            .parse::<u16>()
+            .map(|row| (template, Some(row)))
+            .map_err(|_| format!("--party {entry}: @ takes a baseitems.2da row")),
+        None => Ok((entry, None)),
+    }
+}
+
+/// Puts the gun of `baseitems.2da` row `row` (`Library::gun_of_row`) in the
+/// right hand of the companion with `NPC_*` number `npc`. The party is
+/// given the gun, and the companion wears it in a step of its own
+/// (`Action::EquipOn`), as the host's equipment screen does.
+fn arm(
+    world: &mut sim::SimWorld,
+    library: &sim::script::Library,
+    npc: u8,
+    row: u16,
+) -> Result<(), String> {
+    let template = library
+        .gun_of_row(row)
+        .ok_or(format!("--party @{row}: no gun of that baseitems.2da row"))?;
+    let mut state = world.script_state().clone();
+    let who = state
+        .party
+        .available
+        .get(&npc)
+        .and_then(|npc| npc.object)
+        .ok_or("--party: the companion did not join")?;
+    let item = state
+        .make_item(library.items(), template, sim::inventory::PARTY, 1, None)
+        .ok_or(format!("{template}: no such item template"))?;
+    world.set_script_state(state);
+    step_with(
+        world,
+        sim::action::Action::EquipOn {
+            who,
+            item: item.0,
+            slot: sim::inventory::slots::RIGHT_WEAPON,
+        },
+    );
+    Ok(())
+}
+
+/// One step of `world` as its authority, with seat 0's `action`.
+fn step_with(world: &mut sim::SimWorld, action: sim::action::Action) {
     let mut input = sim::TickInput::default();
-    input.act(sim::Seat(0), sim::action::Action::ChooseParty(Some(picks)));
+    input.act(sim::Seat(0), action);
     let tick = world.snapshot().tick + 1;
     let rate = sim::TickRate::default();
     sim::step(
@@ -394,7 +564,6 @@ pub fn party(
         rate.msec(tick),
         sim::StepReason::Authority,
     );
-    Ok(())
 }
 
 /// A sheet with Jedi Defense at `level` (0 to 3) and nothing else of it.

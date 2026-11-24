@@ -83,8 +83,12 @@ From the repository (or worktree) root:
 ```bash
 cargo fmt --all -- --check \
   && cargo clippy -q --workspace --all-targets --all-features -- -D warnings \
-  && cargo test --release -p approved_tests
+  && cargo test --release -p approved_tests -p launcher --test approved
 ```
+
+Naming `launcher` builds the tests with the same dependency features as
+`kjk`, so they reuse its build instead of compiling the sim a second time.
+CI runs the plain `cargo test --release -p approved_tests`.
 
 A change to what the verbs share with play also gets
 `cargo clippy -q -p launcher --all-targets --no-default-features -- -D warnings`.
@@ -99,12 +103,12 @@ jolt ceilings, which need the game installs. Write files with LF endings.
   `kjk script …`), not new `#[test]`s.
 - **The sim is deterministic** and its final hash after a fixed run is
   pinned in `bumps/SIM_HASH`.
-  It moves only on purpose, and only the merge pins it: say why in
+  It moves only on purpose, and only the pin before a release writes it: say why in
   `bumps/<branch>.toml` (`sim = "…"`) and in the pull request
   ([`bumps/README.md`](bumps/README.md)).
 - **Snapshot, save and recording formats** carry version tags (KJKS, KJKV,
   KJKR, …). When you change one, don't edit its number: add its history
-  line under `[formats]` in the same bump file, and the merge numbers it.
+  line under `[formats]` in the same bump file, and the pin before a release numbers it.
 
 ## Walkthroughs
 

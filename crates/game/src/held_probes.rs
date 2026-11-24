@@ -16,9 +16,84 @@ use crate::{acting, viewer};
 pub fn probes() -> Checks {
     vec![
         ("each state's clip", states_play_their_clips()),
+        (
+            "a long hold's clip from its start",
+            long_hold_plays_from_start(),
+        ),
         ("a clip's blend", clips_blend_as_the_engine_does()),
         ("clips handed on cover the body", clips_handed_on_cover()),
+        (
+            "a moving droid shoots with its upper body",
+            moving_shot_keeps_legs(),
+        ),
     ]
+}
+
+/// HK-47 (`p_hk47`, a body on its own clips) firing his rifle (`b7a1`):
+/// standing, the shot poses his whole body; walking or running, only his
+/// upper body, so his legs keep walking. His walk and run with the rifle
+/// held up (`walkrf`, `runrf`) are bound for a fight. The Discord report
+/// "hk47": HK-47 looked wrong shooting while he moved, his legs frozen in
+/// the standing shot and his rifle hanging as he ran.
+fn moving_shot_keeps_legs() -> Result<String, String> {
+    const HK: &str = "p_hk47";
+    let Some(index) = crate::k1_index() else {
+        return Ok(not_installed(vfs::Game::Kotor1));
+    };
+    let resolver = crate::k1_open(&index, None)?;
+    let ir = viewer::model(&resolver, HK)?.ok_or(format!("{HK}: no model"))?;
+    let clips = viewer::scripted_clips(
+        &mut BTreeMap::new(),
+        &resolver,
+        (vfs::Game::Kotor1, false),
+        &ir,
+    )?;
+    let node = |name: &str| {
+        ir.nodes
+            .iter()
+            .position(|n| n.name.eq_ignore_ascii_case(name))
+    };
+    let (thigh, arm) = node("r_thigh")
+        .zip(node("r_upper_arm"))
+        .ok_or(format!("{HK}: no r_thigh or r_upper_arm"))?;
+    let rest = crate::cast::rest_of(&ir);
+    let mut world = World::new();
+    let nodes: Vec<Entity> = rest
+        .iter()
+        .map(|_| world.spawn(Transform::IDENTITY).id())
+        .collect();
+    let bound = acting::bind(&viewer::Placed::at(ir, [0.0; 3]), &clips, &nodes);
+    // A shot begun (the weapon timer rising), shown 300 ms in.
+    let shot = |moving: bool| {
+        let mut attack = acting::Attack::default();
+        let mut fighter = sim::combat::Fighter::fresh(10, 0);
+        for wait in [500, 1500] {
+            fighter.weapon_wait_ms = wait;
+            attack.follow(Some(&fighter));
+        }
+        attack.shown(&bound, 0.0, (acting::RIFLE_WIELD, moving));
+        (attack.shown(&bound, 300.0, (acting::RIFLE_WIELD, moving))).map(|(clip, ..)| {
+            (
+                clip.name().to_string(),
+                clip.poses(nodes[thigh]),
+                clip.poses(nodes[arm]),
+            )
+        })
+    };
+    let (standing, moving) = (shot(false), shot(true));
+    let gait: Vec<&str> = (bound.iter())
+        .filter(|(animation, _)| (acting::RIFLE_GAIT..acting::RIFLE_GAIT + 2).contains(animation))
+        .map(|(_, clip)| clip.name())
+        .collect();
+    let want = |name: &str, legs: bool| Some((name.to_string(), legs, true));
+    check(
+        standing == want("b7a1", true)
+            && moving == want("b7a1", false)
+            && gait == ["walkrf", "runrf"],
+        format!(
+            "standing shot (clip, poses a thigh, poses an arm) {standing:?}; moving {moving:?}; rifle walk and run {gait:?}"
+        ),
+    )
 }
 
 /// K1's body (Deadeye Duncan's) and two of its loops: `ANIMATION_LOOPING_DEAD`
@@ -116,6 +191,42 @@ fn states_play_their_clips() -> Result<String, String> {
         }
     }
     Ok(format!("{} states", held.len()))
+}
+
+/// A combat hold that lasts longer than a stun without a duration (a Force
+/// Whirlwind held for its whole length, which the bug report "not spinning
+/// in the whirlwind" showed standing idle) plays its clip from the moment
+/// it takes hold, and again from where it went on after a failed saving
+/// throw. Before, the clip was reckoned from a stun's length before the
+/// hold's end, so it began only near the end. Covering the ears is reckoned
+/// from its own start.
+fn long_hold_plays_from_start() -> Result<String, String> {
+    use sim::combat::force::{HoldKind, ja};
+    use sim::script::effects::Hold;
+    let start = 10_000;
+    let mut fighter = sim::combat::Fighter::fresh(10, 0);
+    let force = &mut fighter.force;
+    if !force.hold(start, ja::LONGEST_MS, HoldKind::Combat(None)) {
+        return Err("the hold did not take".to_string());
+    }
+    force.hold = Hold::Whirlwind;
+    let shown = |fighter: &sim::combat::Fighter, at: u64| {
+        crate::cast::drawn_acting(fighter, false, at as f64, false)
+            .map(|acting| (acting.animation, acting.since))
+    };
+    let first = shown(&fighter, start + 100);
+    fighter.force.struggle(fighter.force.save_due, false);
+    let later = shown(&fighter, fighter.force.save_due - 100);
+    let mut ears = sim::combat::Fighter::fresh(10, 0);
+    ears.force.cover_ears(start);
+    let covered = ears.force.held_since();
+    let want = Some((acting::WHIRLWIND, start));
+    check(
+        first == want && later == want && covered == start,
+        format!(
+            "first {first:?}, after a failed save {later:?}, ears from {covered} (want {want:?})"
+        ),
+    )
 }
 
 fn clips_blend_as_the_engine_does() -> Result<String, String> {

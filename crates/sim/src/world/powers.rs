@@ -17,7 +17,7 @@
 //! Not yet: pushing bolts back and pull's disarm (with I24's bolt
 //! deflection), rage and sight (KOTOR has no rows for them).
 
-use collision::{Bodies, CollisionWorld, Extents, UNIT};
+use collision::{Bodies, Extents, UNIT};
 
 use super::{
     Avatar, BODY, Clock, Fighting, Hit, Hits, Id, Inputs, Object, Player, PlayerSheet, SHOT,
@@ -26,9 +26,8 @@ use super::{
 use crate::combat::damage::{Relation, Source};
 use crate::combat::effects::Modifies;
 use crate::combat::force::{self, Channel, Gesture, Power, crowd, ja};
-use crate::combat::saber::Getup;
 use crate::combat::sheet::{flags, type_rows};
-use crate::combat::{Fighter, Sheet, effects, items, mind, specials};
+use crate::combat::{Fighter, Sheet, effects, items, mind};
 use crate::input::{Seat, buttons};
 use crate::math::{self, Vec3, scale};
 use crate::motion::{self, Anim, MotionState};
@@ -74,6 +73,9 @@ struct Person {
     alive: bool,
     /// Where its model is drawn, if JA does not pose it (`world::body`).
     bulk: Option<crate::module::Bulk>,
+    /// The rules its blades play by (`scene::Held::saber_rules`): the duel
+    /// modes hold the Force while block is held.
+    rules: crate::combat::saber::SaberRules,
 }
 
 impl Person {
@@ -152,7 +154,8 @@ impl Scene<'_> {
 
     /// The first body a line from `from` along `caster`'s view meets
     /// within `range`, with where (units): among the bodies as the caster
-    /// saw them, if it is a player behind the authority.
+    /// saw them, if it is a player behind the authority. A body whose box
+    /// the line starts in is met where it starts (`Bodies::shot`).
     fn aimed(&self, caster: usize, from: Vec3, range: f32) -> Option<(usize, Vec3)> {
         let me = &self.people[caster];
         let end = math::mad(from, range, me.forward());
@@ -160,7 +163,7 @@ impl Scene<'_> {
         let trace = self.level.with(self.states, |world| {
             Bodies::new(world, targets.met_by(me.id))
                 .skipping(me.id.0 | BODY)
-                .trace(scale(from, UNIT), scale(end, UNIT), &Extents::POINT, SHOT)
+                .shot(scale(from, UNIT), scale(end, UNIT), &Extents::POINT, SHOT)
         });
         let id = trace.entity.filter(|entity| entity & BODY != 0)?;
         let at = self.find(SimId(id & !BODY))?;
@@ -246,7 +249,12 @@ pub(super) fn force(
     mut ordered: ResMut<super::scripts::Ordered>,
     mut let_go: ResMut<super::scripts::LetGo>,
     scripts: Res<super::scripts::Scripts>,
-    history: Res<super::history::History>,
+    (history, rules, held, talking): (
+        Res<super::history::History>,
+        Res<super::Rules>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+    ),
     objects: Query<&Object>,
     mut actors: Query<(
         &Id,
@@ -294,6 +302,7 @@ pub(super) fn force(
                 ps: player.0,
                 alive: fighting.0.alive(),
                 bulk: super::object_bulk(*object).copied(),
+                rules: held.saber_rules(&talking.0, id.0, rules.0),
             }
         })
         .collect();
@@ -386,7 +395,7 @@ pub(super) fn force(
 
 /// TSL's feat that adds to its healing (`feat.2da` 196,
 /// `REGENERATE_VITALITY_POINTS`), and how much.
-const REGENERATE_FEAT: u16 = 196;
+const REGENERATE_FEAT: u16 = crate::combat::sheet::feats::REGENERATE_VITALITY_POINTS;
 const REGENERATE_FEAT_RATE: f32 = rules::force::tsl_regeneration::HEALING_FEAT_RATE;
 
 /// TSL's natural healing of a living party member short of its maximum
@@ -444,7 +453,7 @@ fn regenerate(
 /// (`HealthRegeneration`: the creature's update in its executable, which
 /// adds the rate a frame into a carry and gives its whole points): a whole
 /// hit point each `every_ms`, fighting or not as `regenerate` tells them
-/// apart, so no fraction needs keeping.
+/// apart, sooner with `REGENERATE_FEAT`, so no fraction needs keeping.
 fn regenerate_k1(
     fighter: &mut Fighter,
     sheet: &Sheet,
@@ -455,7 +464,8 @@ fn regenerate_k1(
     if !fighter.alive() || fighter.hp <= 0 || fighter.hp >= max {
         return;
     }
-    let every = rates.every_ms(sheet.max_hp, fighter.combat_until > now);
+    let feat = sheet.feats.has(REGENERATE_FEAT);
+    let every = rates.every_ms(sheet.max_hp, fighter.combat_until > now, feat);
     let points = now / every - now.saturating_sub(u64::from(msec)) / every;
     let gained = i32::try_from(points)
         .unwrap_or(i32::MAX)
@@ -512,6 +522,16 @@ impl Cast<'_, '_> {
         module
             .power_cost(row, &person.sheet, person.party, place)
             .map(|cost| cost * 100)
+    }
+
+    /// Whether the items `at` wears bar `row` (`ModuleData::power_barred`):
+    /// both executables' cast action then does nothing.
+    fn barred(&self, at: usize, row: u16) -> bool {
+        self.scene
+            .level
+            .module
+            .as_ref()
+            .is_some_and(|module| module.power_barred(row, self.person(at).sheet.gear.force_items))
     }
 
     /// Pays `cost` from `at`'s pool if it holds what it takes from it (TSL's
@@ -609,7 +629,7 @@ impl Cast<'_, '_> {
 
     /// `at`'s turn: its channel runs or ends, a held channel power starts,
     /// the power button's press casts.
-    fn turn(&mut self, at: usize, held: u16, selected: u8) {
+    fn turn(&mut self, at: usize, held: u16, selected: u16) {
         if !self.fighters[at].alive() {
             return;
         }
@@ -617,7 +637,7 @@ impl Cast<'_, '_> {
         let pressed = held & !force.held;
         self.fighters[at].force.held = held & FORCE_BUTTONS;
         let person = self.person(at);
-        let chosen = force::selected(&person.sheet.powers, selected, person.ordered);
+        let chosen = force::selected(&person.sheet.powers, selected, person.ordered, self.library);
         let holding = |power: Power| {
             held & held_button(power) != 0
                 || (held & buttons::FORCE_POWER != 0 && chosen.is_some_and(|(p, ..)| p == power))
@@ -688,25 +708,16 @@ impl Cast<'_, '_> {
         }
     }
 
-    /// Whether `at` may put a hand out now: no hand out, no weapon timer,
-    /// no item in use (`Pack::busy`), not knocked down (JA's knockdown
-    /// takes the hand; a push or pull may still come while getting up,
-    /// `throwing`).
+    /// Whether `at` may put a hand out now (`Fighter::hand_free`).
     fn free_hand(&self, at: usize, throwing: bool) -> bool {
-        let fighter = &self.fighters[at];
-        let saber = &fighter.saber;
-        let down = saber.floored() && !(throwing && saber.getup != Getup::Down);
-        !down
-            && !fighter.force.hand_out(self.now)
-            && fighter.weapon_wait_ms <= 0
-            && !fighter.pack.busy()
+        self.fighters[at].hand_free(self.now, throwing)
     }
 
     /// Starts a held power if it can: known, its wait over, a free hand,
     /// the cost in the pool (C12: paid now for its first `ja::CHANNEL_MS`); a
     /// grip also needs someone to latch onto.
     fn start(&mut self, at: usize, power: Power, row: u16, level: u8) -> bool {
-        if !self.person(at).sheet.powers.has(row) {
+        if !self.person(at).sheet.powers.has(row) || self.barred(at, row) {
             return false;
         }
         let ready = match power {
@@ -735,7 +746,10 @@ impl Cast<'_, '_> {
                 return false;
             };
             let them = &self.fighters[victim];
+            // Wound, Choke, Kill and Crush take only the living: a droid has
+            // no throat to close.
             if !them.alive()
+                || self.person(victim).sheet.flags & flags::DROID != 0
                 || them.force.gripped_by.is_some()
                 || them.force.absorbing(self.now) > 0
                 || !self.scene.harms(at, victim)
@@ -1067,14 +1081,14 @@ impl Cast<'_, '_> {
         if !self.authority {
             return;
         }
-        let max_fp = self.person(at).sheet.max_fp;
+        let max_fp = self.person(at).sheet.force_points();
         let fighter = &mut self.fighters[at];
         fighter.fp = (fighter.fp + points(count, max_fp)).min(i32::from(max_fp) * 100);
     }
 
     /// The power button pressed with `power` selected.
     fn press(&mut self, at: usize, power: Power, level: u8, row: u16) {
-        let Some(cost) = self.cost(at, row) else {
+        let Some(cost) = self.cost(at, row).filter(|_| !self.barred(at, row)) else {
             return;
         };
         use crate::combat::spells::{FORCE_POWER_CONFUSION, FORCE_POWER_MIND_TRICK};
@@ -1087,7 +1101,7 @@ impl Cast<'_, '_> {
                 if self.scripted()
                     && matches!(row, FORCE_POWER_MIND_TRICK | FORCE_POWER_CONFUSION) =>
             {
-                if let Some(them) = self.aim_effect(at, cost)
+                if let Some(them) = self.aim_effect(at, cost, ja::STUN_RANGE)
                     && self.authority
                 {
                     self.cast_at(at, Some(them), &[them]);
@@ -1114,6 +1128,7 @@ impl Cast<'_, '_> {
             Power::Valor | Power::Resist => self.bless(at, power, level, cost),
             Power::Slow => self.slow(at, level, cost),
             Power::Dispel => self.dispel(at, level, cost),
+            Power::Scripted => self.scripted_power(at, cost),
             // Held powers start while held (`turn`).
             Power::Grip | Power::Lightning | Power::Drain => {}
         }
@@ -1122,7 +1137,7 @@ impl Cast<'_, '_> {
     /// A toggled power (speed, protect, absorb, mind trick): pressed while
     /// it runs, it stops if it has run `ja::TOGGLE_MIN_MS`; else it starts,
     /// paid now.
-    /// Protect and absorb exclude each other.
+    /// JA's protect and absorb exclude each other; KOTOR's do not.
     fn toggle(&mut self, at: usize, power: Power, level: u8, cost: i32) {
         let force = self.fighters[at].force;
         let (until, running_level) = match power {
@@ -1164,8 +1179,12 @@ impl Cast<'_, '_> {
         if power != Power::MindTrick && self.scripted() {
             self.cast_at(at, Some(at), &[at]);
         }
-        // Protect, absorb and rage exclude each other.
+        // JA's protect, absorb and rage exclude each other. KOTOR's scripts
+        // replace only the powers of the cast power's own tree (Force Aura,
+        // Shield and Armor; Resist Force and Force Immunity), so a power
+        // cast through its script leaves the other trees running.
         let excluded: &[Power] = match power {
+            _ if self.scripted() => &[],
             Power::Protect => &[Power::Absorb, Power::Rage],
             Power::Absorb => &[Power::Protect, Power::Rage],
             Power::Rage => &[Power::Protect, Power::Absorb],
@@ -1476,7 +1495,9 @@ impl Cast<'_, '_> {
     /// front; each one not immune (C11's second, or the row's Force Immunity
     /// feat) that does not resist the Force (`resists`) and fails its save
     /// (`crowd::save`, against `power_dc`) is held for `ja::STUN_MS`, then
-    /// immune for `ja::IMMUNE_MS`; fear ends on damage. The droid powers only take droids, and go out only at one
+    /// immune for `ja::IMMUNE_MS`; fear ends on damage. One that fails its
+    /// save against Force Scream covers its ears instead
+    /// (`ForceState::cover_ears`). The droid powers only take droids, and go out only at one
     /// aimed at (KOTOR offers them at no other target); the rest only the
     /// living (authority only: the rolls).
     fn crowd(&mut self, at: usize, row: u16, cost: i32) {
@@ -1522,7 +1543,8 @@ impl Cast<'_, '_> {
             }
             // Signalled before its resistance and save, as KOTOR's is.
             self.reached(at, them, true);
-            if self.fighters[them].force.immune_until > self.now
+            let scream = crowd::scream(row);
+            if (!scream && self.fighters[them].force.immune_until > self.now)
                 || crowd::immunity(row).is_some_and(|feat| sheet.feats.has(feat))
                 || [crowd::immunity_type(row), crowd::immunity::MIND_SPELLS]
                     .iter()
@@ -1533,7 +1555,11 @@ impl Cast<'_, '_> {
                 continue;
             }
             let theirs = &mut self.fighters[them].force;
-            theirs.hold(self.now, ja::STUN_MS);
+            if scream {
+                theirs.cover_ears(self.now);
+                continue;
+            }
+            theirs.hold(self.now, ja::STUN_MS, force::HoldKind::Own);
             theirs.hold = if crowd::fear(row) {
                 Hold::Fear
             } else {
@@ -1616,10 +1642,75 @@ impl Cast<'_, '_> {
         }
     }
 
-    /// The one a KOTOR effect power aims at (the crowd control's reach),
-    /// if it is not on the caster's side and lives; the hand
-    /// (`ja::TRICK_HAND_MS`), the cost paid either way.
-    fn aim_effect(&mut self, at: usize, cost: i32) -> Option<usize> {
+    /// A power only its impact script casts (`Power::Scripted`), by the
+    /// menu that offers it (`script::Menu`). One from the character's own
+    /// menu goes on the caster. One from a foe's menu goes at the one aimed
+    /// at within the row's own range (`force::scripted_reach`), and does nothing
+    /// without one: KOTOR casts a power at a creature, never at a place. The
+    /// impact script's own shapes then find whom it reaches (Battle
+    /// Meditation and the barriers its caster's side, Breath Control its
+    /// caster alone, Crush Opposition the enemies round the one aimed at).
+    /// The cost is paid and the hand is busy for the row's cast time
+    /// (`cast_clips`).
+    fn scripted_power(&mut self, at: usize, cost: i32) {
+        let Some(library) = self.library.filter(|_| self.scripted()) else {
+            return;
+        };
+        match library.offered(self.row) {
+            crate::script::Menu::Friendly => {
+                if !self.free_hand(at, false) || !self.pay(at, cost) {
+                    return;
+                }
+                self.cast_clips(at, library.spell(self.row));
+                self.cast_at(at, Some(at), &[]);
+            }
+            crate::script::Menu::Hostile => {
+                let reach = force::scripted_reach(library.spell(self.row));
+                if let Some(aimed) = self.aim_effect(at, cost, reach) {
+                    self.cast_clips(at, library.spell(self.row));
+                    self.cast_at(at, Some(aimed), &[]);
+                }
+            }
+            crate::script::Menu::None => {}
+        }
+    }
+
+    /// The hand of `at`'s scripted power busy for the row's cast time
+    /// (`spells.2da` `conjtime` + `casttime`; the rulebook's raised hand
+    /// time for a row with none), and its clips shown: the conjure clip for
+    /// the conjure time, then the looped clip to the end
+    /// (`ForceState::cast_loop`), or the conjure clip held for the whole
+    /// cast when the row has no loop.
+    fn cast_clips(&mut self, at: usize, talent: crate::script::Talent) {
+        let now = self.now;
+        let ms = match u64::from(talent.cast_ms) {
+            0 => ja::TRICK_HAND_MS,
+            ms => ms,
+        };
+        let conjured = now + u64::from(talent.conjure_ms);
+        let fighter = &mut self.fighters[at];
+        fighter.force.hand = Some((Gesture::Cast, now + ms));
+        let [once, looped] = talent.cast_clips;
+        let (first, first_ms) = match (once, looped) {
+            (0, 0) => return,
+            (once, 0) => (once, ms),
+            (0, looped) => (looped, ms),
+            (_, _) if talent.conjure_ms == 0 => (looped, ms),
+            (once, _) => (once, u64::from(talent.conjure_ms)),
+        };
+        fighter.acting = Some(crate::combat::idle::Acting {
+            animation: first,
+            since: now,
+            ms: first_ms as u32,
+        });
+        fighter.force.cast_loop =
+            (first == once && looped != 0 && first_ms < ms).then_some((looped, conjured, now + ms));
+    }
+
+    /// The one a KOTOR effect power aims at within `reach` (units), if it is
+    /// not on the caster's side and lives; the hand (`ja::TRICK_HAND_MS`),
+    /// the cost paid either way.
+    fn aim_effect(&mut self, at: usize, cost: i32, reach: f32) -> Option<usize> {
         if !self.free_hand(at, false) || !self.pay(at, cost) {
             return None;
         }
@@ -1627,7 +1718,7 @@ impl Cast<'_, '_> {
         force.hand = Some((Gesture::Push, self.now + ja::TRICK_HAND_MS));
         force.tricked = 0;
         let eye = self.person(at).eye();
-        let (them, _) = self.scene.aimed(at, eye, ja::STUN_RANGE)?;
+        let (them, _) = self.scene.aimed(at, eye, reach)?;
         let reached =
             !self.scene.side(at, them) && !self.spared(at, them) && self.fighters[them].alive();
         if reached {
@@ -1675,7 +1766,7 @@ impl Cast<'_, '_> {
     /// also by a Will save, Affliction by a Fortitude save at
     /// `effects::AFFLICTION_DC`, Plague by none (authority only).
     fn slow(&mut self, at: usize, level: u8, cost: i32) {
-        let Some(them) = self.aim_effect(at, cost) else {
+        let Some(them) = self.aim_effect(at, cost, ja::STUN_RANGE) else {
             return;
         };
         if self.scripted() {
@@ -1718,7 +1809,7 @@ impl Cast<'_, '_> {
     fn dispel(&mut self, at: usize, level: u8, cost: i32) {
         // The cost and the hand are predicted; another's powers end on the
         // authority (I22 section 10).
-        if let Some(them) = self.aim_effect(at, cost)
+        if let Some(them) = self.aim_effect(at, cost, ja::STUN_RANGE)
             && self.authority
         {
             if self.scripted() {
@@ -1748,7 +1839,8 @@ impl Cast<'_, '_> {
         if self.resists(at, them) || self.saves(them, 1, dc) {
             return;
         }
-        if self.fighters[them].force.hold(self.now, ja::STUN_MS) {
+        let kind = force::HoldKind::Combat(Some(force::HoldSave { index: 1, dc }));
+        if self.fighters[them].force.hold(self.now, ja::STUN_MS, kind) {
             self.fighters[them].force.hold = Hold::Whirlwind;
         }
         let damage = (u16::from(self.person(at).sheet.level) / ja::WHIRLWIND_DIVISOR)
@@ -1822,6 +1914,25 @@ impl Cast<'_, '_> {
             return;
         }
         let me = self.person(at).id;
+        // A scripted power's conjuring over, its cast clip loops to its end,
+        // unless something else took the body meanwhile (its conjure clip no
+        // longer the one shown).
+        let fighter = &mut self.fighters[at];
+        if let Some((clip, from, until)) = fighter.force.cast_loop
+            && now >= from
+        {
+            fighter.force.cast_loop = None;
+            let conjured = fighter
+                .acting
+                .is_some_and(|acting| acting.since + u64::from(acting.ms) == from);
+            if conjured && now < until {
+                fighter.acting = Some(crate::combat::idle::Acting {
+                    animation: clip,
+                    since: from,
+                    ms: (until - from) as u32,
+                });
+            }
+        }
         let force = &mut self.fighters[at].force;
         if force.hand.is_some_and(|(_, until)| until <= now) {
             force.hand = None;
@@ -1888,9 +1999,19 @@ impl Cast<'_, '_> {
             fighter.fake_until = 0;
         }
         let over = fighter.effects.sum(Modifies::ForcePoints, now).max(0);
+        let duel = self.person(at).rules.duel();
+        let fighter = &mut self.fighters[at];
+        let state = &fighter.saber.duel;
+        let duel_held = duel
+            && (state.block_held
+                || state.force_at > now
+                || crate::combat::saber::duel::unblockable(fighter.saber.current_move));
         match self.fp_regeneration.filter(|_| sheet.max_fp > 0) {
             // TSL's: its party's Force users alone regenerate, by its rule
             // (its other creatures never do).
+            // Under a duel mode a held block, a busy creature or an
+            // unblockable swing holds the Force (`duel::meter::refill`).
+            Some(_) if duel_held => {}
             Some(table) => {
                 if party {
                     let fighting = fighter.combat_until > now;
@@ -1904,11 +2025,15 @@ impl Cast<'_, '_> {
                 }
             }
             None => {
-                // Nor while a saber special plays (rulebook I24 2.12).
+                // Nor while a saber special plays (rulebook I24 2.12); under
+                // a duel mode a flying saber does not hold it, a held block
+                // and a busy creature do.
                 let paused = fighter.force.pausing(now)
                     || fighter.saber.in_special()
-                    || fighter.saber.flying();
-                force::regenerate(&mut fighter.force, &mut fighter.fp, pool, paused, now);
+                    || (fighter.saber.flying() && !duel)
+                    || duel_held;
+                let held = (&sheet.feats, pool);
+                force::regenerate(&mut fighter.force, &mut fighter.fp, held, paused, now);
             }
         }
         // Temporary Force points past the pool go when their effect ends;
@@ -1920,15 +2045,10 @@ impl Cast<'_, '_> {
             fighter.pack.vitality = fighter.pack.vitality.min(vitality);
         }
         let force = fighter.force;
-        let aiming = fighter.shooting.aiming;
+        let two_hands = two_handed_lightning(&sheet) || fighter.weapon_away(now);
         let slowed = fighter.effects.slowed_down(now);
         let speeding = force.speed_until > now;
         let mut speed = if speeding { ja::SPEED_SCALE } else { 1.0 };
-        // Aiming a Sniper Shot halves movement (JA's disruptor zoom), as
-        // Affliction and Plague do.
-        if aiming {
-            speed *= specials::AIM_SPEED;
-        }
         if slowed {
             speed *= effects::SLOWED_SPEED;
         }
@@ -1961,19 +2081,51 @@ impl Cast<'_, '_> {
         // A grip's victim clutches its throat while held (JA's choke, the
         // whole body once it is off the ground), as KOTOR's choked do.
         let choke = Some((Anim::BOTH_CHOKE3, body.ground.is_none()));
+        // One covering its ears against a Force Scream raises its hands to
+        // them (JA's sonic pain), then holds them there, with its whole body.
+        let anims = &self.scene.level.anims;
+        let ears = force.covering_ears(now).map(|since| {
+            let raise = anims.get(Anim::BOTH_SONICPAIN_START).length_ms();
+            let raising = now < since + u64::try_from(raise).unwrap_or(0);
+            let anim = if raising {
+                Anim::BOTH_SONICPAIN_START
+            } else {
+                Anim::BOTH_SONICPAIN_HOLD
+            };
+            (anim, true)
+        });
         let gesture = match (force.hand, force.channel) {
             _ if gripper.is_some() => choke,
+            _ if ears.is_some() => ears,
             (Some((Gesture::Choke, _)), _) => choke,
             (Some((Gesture::Push, _)), _) => Some((Anim::BOTH_FORCEPUSH, false)),
             (Some((Gesture::Pull, _)), _) => Some((Anim::BOTH_FORCEPULL, false)),
+            // The row's own clips show it (`Fighter::acting`).
+            (Some((Gesture::Cast, _)), _) => None,
+            // A character with no weapon in its hands casts lightning with
+            // both hands.
             (None, Some(channel)) if channel.power == Power::Lightning => {
-                Some((Anim::BOTH_FORCELIGHTNING_HOLD, false))
+                let anim = if two_hands {
+                    Anim::BOTH_FORCE_2HANDEDLIGHTNING_HOLD
+                } else {
+                    Anim::BOTH_FORCELIGHTNING_HOLD
+                };
+                Some((anim, false))
             }
             (None, Some(_)) => Some((Anim::BOTH_FORCEGRIP_HOLD, false)),
             (None, None) => None,
         };
         if let Some((anim, whole)) = gesture {
-            motion::hold(body, &self.scene.level.anims, anim, whole, self.msec);
+            motion::hold(body, anims, anim, whole, self.msec);
         }
     }
+}
+
+/// Whether a character has no weapon equipped in either hand. A creature's
+/// own unarmed weapon counts as no weapon. A character with no weapon, or
+/// with its weapon put away, casts lightning with both hands.
+pub(crate) fn two_handed_lightning(sheet: &Sheet) -> bool {
+    use crate::combat::sheet::Delivery;
+    let [right, left] = &sheet.weapons;
+    right.is_none_or(|weapon| weapon.delivery == Delivery::Unarmed) && left.is_none()
 }

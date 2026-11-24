@@ -10,11 +10,14 @@ description = "The owner-approved test scenarios, and nothing else (docs/TESTS.m
 # The scenarios are the layers' probes (their `probes` feature).
 [dependencies]
 asset_odyssey.workspace = true
+audio = { workspace = true, features = ["probes"] }
+bink = { workspace = true, features = ["probes"] }
 bumps.workspace = true
 collision = { workspace = true, features = ["probes"] }
 collision_odyssey = { workspace = true, features = ["probes"] }
 fmt_odyssey.workspace = true
 net = { workspace = true, features = ["probes"] }
+original_find.workspace = true
 ragdoll = { workspace = true, features = ["probes"] }
 rules.workspace = true
 saves = { workspace = true, features = ["probes"] }

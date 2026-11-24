@@ -10,7 +10,7 @@ use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::creature;
 use asset_odyssey::hooks;
 use asset_odyssey::model::{Matrix, ModelIr};
-use asset_odyssey::module::{AreaGrass, AreaWeather, Kind, ModuleIr, Source};
+use asset_odyssey::module::{AreaGrass, AreaWeather, Kind, Missing, ModuleIr, Source};
 use asset_odyssey::texture::TextureIr;
 use asset_odyssey::weather::Fall;
 use bevy::log::warn;
@@ -19,13 +19,23 @@ use collision_odyssey::Surfaces;
 use fmt_odyssey::ResType;
 use fmt_odyssey::bwm::Walkmesh;
 use fmt_odyssey::mdl::Model;
-use fmt_odyssey::txi::Txi;
+use fmt_odyssey::texture::texture_txi;
 use vfs::resolver::Resolver;
 use vfs::{Discovery, Game};
 
 use crate::material::{AreaLight, Fog};
 use crate::model_fx::{Chunk, ModelFx};
 use crate::weapons::{Arms, Owner};
+
+/// What `Viewer::place_appearance` dresses a creature in: its
+/// `appearance.2da` row, its body item and how it came to wear it, its
+/// `heads.2da` row, and its headgear.
+pub type Outfit<'a> = (
+    u32,
+    (Option<&'a str>, creature::Dressing),
+    Option<u8>,
+    Option<&'a str>,
+);
 
 /// A model placed in the scene at an offset, turned by `facing` radians
 /// about Z (game space).
@@ -48,6 +58,23 @@ pub struct Placed {
     pub hook_local: Option<Matrix>,
     /// The clip to loop, with the clips of the model's supermodel chain.
     pub clip: Option<Arc<AnimationIr>>,
+    /// A creature's body and head: the env map its appearance asks for
+    /// (`creature::EnvMap`). None for any other model.
+    pub envmap: Option<WornEnvMap>,
+}
+
+/// The env map a creature's body and head ask for: the cube map they are
+/// drawn with where their meshes' textures name none, none where the area
+/// gives none. Their textures' alpha is that map's mask, never drawn
+/// see-through (`material::worn_surface`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WornEnvMap(pub Option<String>);
+
+impl WornEnvMap {
+    /// The cube map's name, where there is one.
+    pub fn name(this: Option<&WornEnvMap>) -> Option<&String> {
+        this.and_then(|worn| worn.0.as_ref())
+    }
 }
 
 impl Placed {
@@ -62,6 +89,7 @@ impl Placed {
             hook: None,
             hook_local: None,
             clip: None,
+            envmap: None,
         }
     }
 }
@@ -73,6 +101,10 @@ pub struct RoomView {
     /// Index into `LoadedScene::models`; `None` when the model is missing.
     pub model: Option<usize>,
     pub visible: Vec<String>,
+    /// The room's area has no VIS file. KOTOR 2 then turns its room culling
+    /// off and draws every room from every room, so every room sees this one
+    /// and this one sees every room (`fight_rooms::linked`).
+    pub sees_all: bool,
     /// Empty for a room that is only seen (sky, backdrops, cutscene
     /// sets): the game ships it no walkmesh, or one without a walkable
     /// face, so nothing stands in it (reone takes an object's room from the walkable face under it).
@@ -204,6 +236,9 @@ pub struct LoadedScene {
     pub name: String,
     pub models: Vec<Placed>,
     pub textures: BTreeMap<String, TextureIr>,
+    /// The images `textures` were uploaded as, which the characters and
+    /// placeables spawned later take again (`scene::SharedImages`).
+    pub images: crate::scene::SharedImages,
     /// Texture names the meshes use but the install does not resolve, or
     /// that do not decode (`stand_in` says what is drawn instead).
     pub missing: Vec<String>,
@@ -272,6 +307,12 @@ pub struct LoadedScene {
     /// A module's sound, read with it for the world's first frame
     /// (`ambience`); `None` where nothing plays it.
     pub sound: Option<crate::ambience::Preread>,
+    /// The area's `DefaultEnvMap`: the env map of a body whose appearance
+    /// asks for the area's (`creature::EnvMap::AreaDefault`).
+    pub default_envmap: Option<String>,
+    /// The area's light probes (`light_probes`), made as it loads. Empty
+    /// outside a module, and for an area with no lightmapped room mesh.
+    pub probes: Arc<crate::light_probes::AreaProbes>,
 }
 
 /// What an area's weather goes by (`weather`).
@@ -381,6 +422,7 @@ impl LoadedScene {
             ambient: self.ambient,
             fog: self.fog,
             shadowed: self.lit,
+            probed: self.lit,
         }
     }
 }
@@ -425,6 +467,12 @@ pub struct CreatureView {
     pub fx: Option<OwnFx>,
     /// How far its body leans with the floor (`creature::ground_tilt`).
     pub ground_tilt: f32,
+    /// The alignment it was dressed for (`alignment_look`); none for a
+    /// look without a head, which its alignment does not change.
+    pub aligned: Option<creature::Aligned>,
+    /// Its template is a hologram's (`CreatureLook::hologram`): it is drawn
+    /// as one (`holo_view`).
+    pub hologram: bool,
 }
 
 /// The KOTOR clips a creature's state picks, from its model or its
@@ -567,6 +615,17 @@ pub struct BladeSpec {
     /// JA has no blade of (`SaberColor::of_texture`); its glow and core are
     /// then JA's blue ones recoloured.
     pub own: Option<String>,
+    /// The blade a mod ships with its hilt, drawn in place of JA's glow and
+    /// core: its planes, core and glow meshes, in the hilt's space, with
+    /// their own textures (`weapons::kotor_blades`). It grows and shrinks
+    /// along the blade as JA's does and reaches as far. Empty for a blade
+    /// drawn as JA's.
+    pub meshes: Vec<asset_odyssey::model::MeshIr>,
+    /// How far the shipped blade's core reaches from `origin` along `dir`
+    /// (metres; its glow and planes when it has no core): it is drawn
+    /// stretched along the blade so the core ends where the blade does.
+    /// 0 for a blade drawn as JA's.
+    pub reach: f32,
 }
 
 impl BladeSpec {
@@ -595,6 +654,8 @@ impl BladeSpec {
             shown: Vec::new(),
             live: false,
             own: None,
+            meshes: Vec::new(),
+            reach: 0.0,
         }
     }
 }
@@ -713,19 +774,11 @@ pub fn texture_facts(
     resolver: &Resolver,
     name: &str,
 ) -> Option<(asset_odyssey::texture::TextureFacts, bool, usize)> {
-    let loose = resolver
-        .find(name, ResType::TXI)
-        .and_then(|found| found.location.read().ok())
-        .map(|bytes| Txi::parse(&bytes));
     let parsed = resolver.texture(name)?;
-    let alpha = matches!(
-        parsed.format,
-        fmt_odyssey::texture::PixelFormat::Rgba8 | fmt_odyssey::texture::PixelFormat::Dxt5
-    );
-    let facts = asset_odyssey::texture::TextureFacts::from_txi(
-        loose.as_ref().unwrap_or(&parsed.txi),
-        alpha,
-    );
+    let txi = texture_txi(Some(&parsed), |restype| resolver.read(name, restype));
+    let alpha = parsed.has_alpha();
+    let facts =
+        asset_odyssey::texture::TextureFacts::from_txi(txi.as_ref().unwrap_or(&parsed.txi), alpha);
     let cube = parsed.cube && parsed.layers.len() == 6;
     let frames = if parsed.cube { 1 } else { parsed.layers.len() };
     Some((facts, cube, frames))
@@ -733,19 +786,36 @@ pub fn texture_facts(
 
 /// The texture the games would pick for a name: the highest layer's TPC or
 /// TGA, TPC first within a layer (`Resolver::find_any`).
+/// One that is there but does not read is warned of, once a name, and
+/// drawn as a missing one. One larger than the GPU takes is reduced to fit
+/// (`scene::fit_to_gpu`).
 pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
-    let loose = resolver
-        .find(name, ResType::TXI)
-        .and_then(|found| found.location.read().ok())
-        .map(|bytes| Txi::parse(&bytes));
-    TextureIr::from_texture(&resolver.texture(name)?, loose.as_ref())
+    let parsed = resolver.read_texture(name)?;
+    let decoded = (parsed.as_ref().ok()).and_then(|texture| {
+        let txi = texture_txi(Some(texture), |restype| resolver.read(name, restype));
+        TextureIr::from_texture(texture, txi.as_ref())
+    });
+    if decoded.is_none() {
+        static WARNED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+        let mut warned = WARNED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if warned.insert(name.to_string()) {
+            let why = parsed
+                .err()
+                .unwrap_or_else(|| "a level does not decode".into());
+            warn!("texture {name} does not read, drawn as missing: {why}");
+        }
+    }
+    let fitted =
+        (decoded.as_ref()).and_then(|texture| crate::scene::fit_to_gpu(texture, Some(name)));
+    fitted.or(decoded)
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {
     Ok(parsed(resolver, name)?.map(|parsed| ModelIr::from_model(&parsed)))
 }
 
-/// A model's MDL and MDX as parsed, before they become a `ModelIr`.
 /// `model`'s own effects (`ModelFx::read`) with what its supermodel
 /// chain's clips key on its nodes: a creature's body plays its chain's
 /// clips (the welding droid's `weld` is its supermodel's).
@@ -773,7 +843,55 @@ pub fn fx_through_chain(resolver: &Resolver, model: &Model) -> ModelFx {
     fx
 }
 
+/// A model's MDL and MDX as parsed, with the models its reference nodes
+/// name hung under them (`Model::attach_references`). A reference to a
+/// model that is missing, does not read, or refers back to a model it hangs
+/// under is left empty, with a warning.
 pub fn parsed(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> {
+    parsed_under(resolver, name, &mut vec![name.to_ascii_lowercase()])
+}
+
+/// `parsed` for a model an area places: a room, a door or a placeable. A
+/// model that does not read is logged and left out, as a missing one is,
+/// so that one broken model does not stop its whole area loading.
+fn parsed_or_left_out(resolver: &Resolver, name: &str) -> Option<Model> {
+    parsed(resolver, name).unwrap_or_else(|why| {
+        warn!("{why}; it is left out of the area");
+        None
+    })
+}
+
+/// `parsed`, inside the chain of models (`chain`, lower case) whose
+/// reference nodes led to `name`.
+fn parsed_under(
+    resolver: &Resolver,
+    name: &str,
+    chain: &mut Vec<String>,
+) -> Result<Option<Model>, String> {
+    let Some(mut model) = parsed_alone(resolver, name)? else {
+        return Ok(None);
+    };
+    let missing = model.attach_references(&mut |referenced| {
+        let key = referenced.to_ascii_lowercase();
+        if chain.contains(&key) {
+            return None;
+        }
+        chain.push(key);
+        let loaded = parsed_under(resolver, referenced, chain);
+        chain.pop();
+        loaded.unwrap_or_else(|why| {
+            warn!("{name}: referenced model {referenced} is not read: {why}");
+            None
+        })
+    });
+    for referenced in missing {
+        warn!("{name}: its reference node names {referenced}, which is not drawn");
+    }
+    Ok(Some(model))
+}
+
+/// A model's MDL and MDX as parsed, its reference nodes left empty.
+fn parsed_alone(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> {
     let Some(found) = resolver.find(name, ResType::MDL) else {
         return Ok(None);
     };
@@ -790,10 +908,10 @@ pub fn parsed(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> 
 
 /// Makes the last keys of a model's clip its rest pose: each keyed node
 /// moved by its position key (reone's rest + key), its alpha and
-/// self-illumination those the clip ends on, the self-illumination
-/// `glow` instead when given. A detected mine is drawn so: its `detect`
-/// clip ends with its trigger's dome raised, lit and opaque (`made`).
-pub(crate) fn held(model: &mut Model, clip: &str, glow: Option<[f32; 3]>) {
+/// self-illumination those the clip ends on. A mine whose dome shows is
+/// drawn so: its `detect` clip ends with its trigger's dome raised, lit
+/// and opaque (`made`).
+pub(crate) fn held(model: &mut Model, clip: &str) {
     use fmt_odyssey::mdl::{
         CONTROLLER_ALPHA as ALPHA, CONTROLLER_POSITION as POSITION,
         CONTROLLER_SELF_ILLUM as SELF_ILLUM,
@@ -819,33 +937,26 @@ pub(crate) fn held(model: &mut Model, clip: &str, glow: Option<[f32; 3]>) {
             last(child, into);
         }
     }
-    fn pose(
-        node: &mut fmt_odyssey::mdl::Node,
-        keys: &BTreeMap<String, Vec<(u32, Vec<f32>)>>,
-        glow: Option<[f32; 3]>,
-    ) {
+    fn pose(node: &mut fmt_odyssey::mdl::Node, keys: &BTreeMap<String, Vec<(u32, Vec<f32>)>>) {
         for (kind, row) in keys
             .get(&node.name.to_ascii_lowercase())
             .into_iter()
             .flatten()
         {
-            let row = match (*kind, glow) {
-                (POSITION, _) if row.len() == 3 => {
+            if *kind == POSITION {
+                if row.len() == 3 {
                     for (at, by) in node.position.iter_mut().zip(row) {
                         *at += by;
                     }
-                    continue;
                 }
-                (SELF_ILLUM, Some(glow)) => glow.to_vec(),
-                (POSITION, _) => continue,
-                _ => row.clone(),
-            };
+                continue;
+            }
             let rest = fmt_odyssey::mdl::Controller {
                 kind: *kind,
                 columns: row.len() as u8,
                 bezier: false,
                 times: vec![0.0],
-                values: row,
+                values: row.clone(),
             };
             match node.controllers.iter_mut().find(|c| c.kind == *kind) {
                 Some(controller) => *controller = rest,
@@ -853,7 +964,7 @@ pub(crate) fn held(model: &mut Model, clip: &str, glow: Option<[f32; 3]>) {
             }
         }
         for child in &mut node.children {
-            pose(child, keys, glow);
+            pose(child, keys);
         }
     }
     let Some(animation) = model
@@ -865,7 +976,7 @@ pub(crate) fn held(model: &mut Model, clip: &str, glow: Option<[f32; 3]>) {
     };
     let mut keys = BTreeMap::new();
     last(&animation.root, &mut keys);
-    pose(&mut model.root, &keys, glow);
+    pose(&mut model.root, &keys);
 }
 
 /// Loads every texture and lightmap the placed models name.
@@ -888,9 +999,12 @@ pub(crate) fn textures<'m>(
     };
     // A lightsaber's blades are saber meshes the model reader refuses; their
     // texture still gives a blade in a colour JA lacks its colour
-    // (`BladeSpec::own`).
+    // (`BladeSpec::own`). A blade a mod ships is meshes its hilt grows from
+    // nothing (`BladeSpec::meshes`).
     let mut names: Vec<String> = Vec::new();
+    let mut objects_envmaps = Vec::new();
     for placed in models {
+        objects_envmaps.extend(WornEnvMap::name(placed.envmap.as_ref()).cloned());
         names.extend(
             placed
                 .ir
@@ -901,14 +1015,22 @@ pub(crate) fn textures<'m>(
                 .cloned(),
         );
         names.extend(placed.ir.saber_textures().map(str::to_string));
+        names.extend(
+            placed
+                .ir
+                .folded
+                .iter()
+                .filter_map(|mesh| mesh.texture.clone()),
+        );
     }
     for name in &names {
         load(name, &mut textures);
     }
-    // Env maps the loaded textures' TXI names.
+    // Env maps the loaded textures' TXI names, and the objects'.
     let envmaps: Vec<String> = textures
         .values()
         .filter_map(|texture: &TextureIr| texture.facts.envmap.clone())
+        .chain(objects_envmaps)
         .collect();
     for name in &envmaps {
         load(name, &mut textures);
@@ -949,6 +1071,9 @@ pub fn stand_in(scene: &LoadedScene, name: &str) -> String {
         .textures
         .values()
         .any(|texture| texture.facts.envmap.as_deref() == Some(name))
+        || (scene.models.iter()).any(|placed| {
+            WornEnvMap::name(placed.envmap.as_ref()).map(String::as_str) == Some(name)
+        })
     {
         uses.insert("no env map");
     }
@@ -976,6 +1101,7 @@ pub fn load_model(
         hook: None,
         hook_local: None,
         clip: None,
+        envmap: None,
     }];
     let (textures, missing) = textures(&resolver, &models);
     Ok(LoadedScene {
@@ -984,6 +1110,8 @@ pub fn load_model(
         textures,
         missing,
         missing_body_textures: Vec::new(),
+        default_envmap: None,
+        probes: Default::default(),
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),
@@ -1016,6 +1144,10 @@ pub struct ResolverSource<'a>(pub &'a Resolver);
 impl Source for ResolverSource<'_> {
     fn read(&self, resref: &str, restype: ResType) -> Option<Vec<u8>> {
         self.0.find(resref, restype)?.location.read().ok()
+    }
+
+    fn lent_script(&self, resref: &str) -> bool {
+        vfs::lent::lent_script(self.0, resref)
     }
 
     fn exists(&self, resref: &str, restype: ResType) -> bool {
@@ -1086,8 +1218,9 @@ pub fn module_scene(
             .map_or_else(Vec::new, |surfaces| surfaces.grass()),
         _ => Vec::new(),
     };
+    let without_vis = area.missing.contains(&Missing::Visibility);
     for room in &area.rooms {
-        let index = match parsed(resolver, &room.model)? {
+        let index = match parsed_or_left_out(resolver, &room.model) {
             Some(parsed) => {
                 if let (Some(placing), Some(drawn)) = (&area.grass, grass.as_mut())
                     && !grassy.is_empty()
@@ -1126,6 +1259,7 @@ pub fn module_scene(
                     hook: None,
                     hook_local: None,
                     clip: None,
+                    envmap: None,
                 });
                 Some(models.len() - 1)
             }
@@ -1142,6 +1276,7 @@ pub fn module_scene(
             name: room.model.clone(),
             model: index,
             visible: room.visible.clone(),
+            sees_all: without_vis,
             floor,
             floor_error,
         });
@@ -1149,7 +1284,10 @@ pub fn module_scene(
     laps.lap("rooms");
     // Doors and placeables at their GIT position and bearing (as xoreos places them): doors in their rest pose, placeables posed by
     // their state's clip with their emitters (`own_fx`).
-    let mut creatures = CreatureLoad::default();
+    let mut creatures = CreatureLoad {
+        default_envmap: area.default_envmap.clone(),
+        ..CreatureLoad::default()
+    };
     let loaded = &mut creatures.models;
     let mut instances = 0;
     let mut doors = Vec::new();
@@ -1163,7 +1301,7 @@ pub fn module_scene(
             continue;
         };
         if !loaded.contains_key(name) {
-            let parsed = parsed(resolver, name)?;
+            let parsed = parsed_or_left_out(resolver, name);
             let ir = parsed.as_ref().map(ModelIr::from_model);
             if instance.kind == Kind::Placeable
                 && let (Some(parsed), Some(ir)) = (&parsed, &ir)
@@ -1227,6 +1365,7 @@ pub fn module_scene(
                     hook: None,
                     hook_local: None,
                     clip: None,
+                    envmap: None,
                 });
                 instances += 1;
             }
@@ -1265,8 +1404,12 @@ pub fn module_scene(
         }
     }
     laps.lap("textures");
+    let probes = crate::light_probes::bake(&models, &rooms, &textures);
+    laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
+        probes: Arc::new(probes),
+        default_envmap: creatures.default_envmap,
         missing_body_textures: creatures.missing_body_textures,
         instances,
         creatures: creatures.placed,
@@ -1300,6 +1443,7 @@ pub fn module_scene(
         name: module.to_string(),
         models,
         textures,
+        images: Default::default(),
         missing,
         entry: Some((ir.entry_position, ir.entry_direction)),
         missing_models,
@@ -1324,6 +1468,69 @@ pub(crate) fn retexture(body: &mut ModelIr, texture: Option<&str>) {
         for mesh in &mut body.meshes {
             mesh.texture = Some(texture.to_string());
         }
+    }
+}
+
+/// A head model wearing `texture` (`creature::CreatureLook::head_texture`)
+/// on every mesh that has a texture, as the executables replace a head's
+/// texture for its alignment.
+pub(crate) fn retexture_head(head: &mut ModelIr, texture: Option<&str>) {
+    if let Some(texture) = texture {
+        for mesh in head.meshes.iter_mut().filter(|mesh| mesh.texture.is_some()) {
+            mesh.texture = Some(texture.to_string());
+        }
+    }
+}
+
+#[cfg(feature = "probes")]
+pub mod kept_probes;
+#[cfg(feature = "probes")]
+pub mod undrawn_probes;
+
+/// How a creature of alignment `good_evil` (none known: neutral) is dressed
+/// in `game` (`alignment_look`).
+pub(crate) fn aligned_of(game: Game, good_evil: Option<u8>) -> creature::Aligned {
+    crate::alignment_look::in_game(game, good_evil.unwrap_or(sim::combat::sheet::NEUTRAL))
+}
+
+/// What the party table keeps of a companion made from a template that no
+/// module of the session ships (`sim::Level::template`). KOTOR keeps the
+/// whole creature in its party table, so a module that lacks the template
+/// still draws it. Dark side Bastila is one: her template is the Temple
+/// Summit's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Kept {
+    /// Its `appearance.2da` row.
+    pub appearance: u32,
+    /// The items its template equips on its body and its head (UTI
+    /// resrefs).
+    pub armour: Option<String>,
+    pub headgear: Option<String>,
+    /// The items its template holds in its right and left hands.
+    pub weapons: [Option<String>; 2],
+    /// Its alignment as the party table keeps it.
+    pub good_evil: Option<u8>,
+}
+
+impl Kept {
+    /// What `facts` (a creature's) keep of its look; `None` for one that
+    /// names no `appearance.2da` row.
+    pub fn of(facts: &sim::module::ObjectData) -> Option<Kept> {
+        use sim::inventory::slots;
+        let worn = |slot| {
+            facts
+                .inventory
+                .iter()
+                .find(|held| held.slot == Some(slot))
+                .map(|held| sim::inventory::resref_of(&held.template).to_ascii_lowercase())
+        };
+        Some(Kept {
+            appearance: u32::from(facts.body?.appearance),
+            armour: worn(slots::BODY),
+            headgear: worn(slots::HEAD),
+            weapons: [worn(slots::RIGHT_WEAPON), worn(slots::LEFT_WEAPON)],
+            good_evil: facts.sheet.map(|sheet| sheet.good_evil),
+        })
     }
 }
 
@@ -1357,6 +1564,8 @@ pub(crate) struct CreatureLoad {
     pub missing_body_textures: Vec<String>,
     /// One line per creature: models and hook positions (for checking).
     pub notes: Vec<String>,
+    /// The area's `DefaultEnvMap` (`creature::EnvMap::AreaDefault`).
+    pub default_envmap: Option<String>,
 }
 
 impl CreatureLoad {
@@ -1370,6 +1579,25 @@ impl CreatureLoad {
         self.looks
             .entry(template.to_ascii_lowercase())
             .or_insert_with(|| creature::resolve_with(&ResolverSource(resolver), template, tables))
+    }
+
+    /// How many refusals and missing models are noted so far: what
+    /// `why_not_drawn` reads past.
+    pub fn noted(&self) -> (usize, usize) {
+        (self.refusals.len(), self.missing_models.len())
+    }
+
+    /// Why a creature placed since `noted` gave `since` was not drawn: its
+    /// look's refusal (an `appearance.2da` row the install lacks, or one
+    /// naming no body), or the body model the install lacks.
+    pub fn why_not_drawn(&self, (refusals, models): (usize, usize)) -> String {
+        let refused = self.refusals.get(refusals..).and_then(<[String]>::last);
+        let missing = self.missing_models.get(models..).and_then(<[String]>::last);
+        match (refused, missing) {
+            (Some(refusal), _) => format!("refused, {refusal}"),
+            (None, Some(model)) => format!("no model {model}"),
+            (None, None) => "no body".to_string(),
+        }
     }
 
     /// Whether `resolver` has `template` (a module's own creatures are in
@@ -1400,56 +1628,115 @@ impl CreatureLoad {
                 return Ok(None);
             }
         };
+        let aligned = aligned_of(game, look.good_evil);
         self.place_look(
             (resolver, game),
-            (object, template, look),
+            (object, template, look, aligned),
             (position, facing),
             models,
         )
     }
 
     /// A creature of `appearance.2da` row `appearance` wearing `armour` (a
-    /// UTI) or nothing on its body and `headgear` (a UTI) or nothing on its
-    /// head, with the head of `heads.2da` row `head` where one is given
-    /// (else the row's own), as `place` places one of a template.
+    /// UTI) or nothing on its body, put on or taken off as `dressing` says,
+    /// and `headgear` (a UTI) or nothing on its head, with the head of
+    /// `heads.2da` row `head` where one is given (else the row's own),
+    /// dressed for `aligned`, as `place` places one of a template.
     pub fn place_appearance(
         &mut self,
         (resolver, game): (&Resolver, Game),
-        (appearance, armour, head, headgear): (u32, Option<&str>, Option<u8>, Option<&str>),
+        (appearance, (armour, dressing), head, headgear): Outfit<'_>,
+        owner: Option<&Resolver>,
+        aligned: creature::Aligned,
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
     ) -> Result<Option<CreatureView>, String> {
         let name = format!("appearance {appearance}");
         let source = ResolverSource(resolver);
-        let mut look = creature::resolve_appearance(
+        let mut look = creature::resolve_dressed(
             &source,
             appearance,
             armour.map(str::to_string),
+            dressing,
             &mut self.tables,
         )
         .map_err(|refusal| format!("{name}: {refusal:?}"))?;
         if let Some(head) = head {
             look.head = (self.tables.get(&source, "heads"))
                 .and_then(|heads| heads.resref(usize::from(head), "head"));
+            look.head_row = Some(usize::from(head));
         }
         look.headgear =
-            headgear.and_then(|item| creature::item_model_with(&source, item, &mut self.tables));
+            headgear.and_then(|item| worn_model(owner, &source, &mut self.tables, item));
         self.place_look(
             (resolver, game),
-            (0, &name, look),
+            (0, &name, look, aligned),
             (position, facing),
             models,
         )
     }
 
-    /// `look` (`template`'s, as the notes name it) placed as `place` says.
-    fn place_look(
+    /// A creature whose template no module of the session ships, placed as
+    /// `place` places one of a template. Its look is built from what the
+    /// party table keeps of it (`Kept`). Its sound set is not kept, so it
+    /// has none.
+    pub fn place_kept(
         &mut self,
         (resolver, game): (&Resolver, Game),
-        (object, template, look): (u32, &str, creature::CreatureLook),
+        (object, template, kept): (u32, &str, &Kept),
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
     ) -> Result<Option<CreatureView>, String> {
+        let source = ResolverSource(resolver);
+        let tables = &mut self.tables;
+        let mut look = match creature::resolve_appearance(
+            &source,
+            kept.appearance,
+            kept.armour.clone(),
+            tables,
+        ) {
+            Ok(look) => look,
+            Err(refusal) => {
+                self.refusals.push(format!("{template}: {refusal:?}"));
+                return Ok(None);
+            }
+        };
+        let mut model = |item: &Option<String>| {
+            item.as_deref()
+                .and_then(|item| creature::item_model_with(&source, item, tables))
+        };
+        look.headgear = model(&kept.headgear);
+        look.right_weapon = model(&kept.weapons[0]);
+        look.left_weapon = model(&kept.weapons[1]);
+        let aligned = aligned_of(game, kept.good_evil);
+        self.place_look(
+            (resolver, game),
+            (object, template, look, aligned),
+            (position, facing),
+            models,
+        )
+    }
+
+    /// `look` (`template`'s, as the notes name it), dressed for `aligned`
+    /// (`creature::align`), placed as `place` says.
+    fn place_look(
+        &mut self,
+        (resolver, game): (&Resolver, Game),
+        (object, template, mut look, aligned): (
+            u32,
+            &str,
+            creature::CreatureLook,
+            creature::Aligned,
+        ),
+        (position, facing): ([f32; 3], f32),
+        models: &mut Vec<Placed>,
+    ) -> Result<Option<CreatureView>, String> {
+        creature::align(
+            &ResolverSource(resolver),
+            &mut look,
+            aligned,
+            &mut self.tables,
+        );
         let loaded = &mut self.models;
         let Some(mut body) = cached(loaded, resolver, &look.body)? else {
             self.missing_models.push(look.body.clone());
@@ -1571,18 +1858,25 @@ impl CreatureLoad {
             facing: turn,
             ..Placed::at(ir, position)
         };
+        // Its body and head take its env map, its weapons do not.
+        let envmap = Some(WornEnvMap(
+            look.envmap.resolve(self.default_envmap.as_deref()),
+        ));
         models.push(Placed {
             clip: idle.clone(),
+            envmap: envmap.clone(),
             ..at(body)
         });
         self.placed += 1;
         if let (Some(head), Some(hook), Some(hook_node)) = (&look.head, hook, hook_node) {
             match cached(loaded, resolver, head)? {
-                Some(ir) => {
+                Some(mut ir) => {
+                    retexture_head(&mut ir, look.head_texture.as_deref());
                     models.push(Placed {
                         attach: Some(hook),
                         hook: Some((body_index, hook_node)),
                         clip: idle.clone(),
+                        envmap,
                         ..at(ir)
                     });
                     let head = models.len() - 1;
@@ -1632,6 +1926,8 @@ impl CreatureLoad {
             sound_set: look.sound_set,
             fx,
             ground_tilt,
+            aligned: look.head_row.map(|_| aligned),
+            hologram: look.hologram,
         }))
     }
 
@@ -1738,6 +2034,21 @@ fn floor(resolver: &Resolver, room: &str, walkable: &[bool]) -> Result<Vec<[[f32
         .collect())
 }
 
+/// The model `item` (an item template) is drawn with: read from `source`,
+/// else, for a module's own template (`sim::inventory::own_template`), from
+/// `owner`, the archives of the module that holds it. A party member may
+/// wear such an item far from that module (Davik's Visor, from his estate
+/// on Taris), where `source` lacks its template.
+pub fn worn_model(
+    owner: Option<&Resolver>,
+    source: &ResolverSource,
+    tables: &mut asset_odyssey::tables::Tables,
+    item: &str,
+) -> Option<String> {
+    creature::item_model_with(source, item, tables)
+        .or_else(|| creature::item_model(&ResolverSource(owner?), item))
+}
+
 /// A model through a per-load cache.
 /// `headgear` (a model) hung on the head `models[head]` at its
 /// `gogglehook`, as reone hangs a mask: it follows that node, as a weapon
@@ -1818,18 +2129,41 @@ pub fn clip(
     if let Some(found) = find(model) {
         return Ok(Some(found));
     }
+    let talking = name.starts_with("tlk");
     let mut seen = vec![model.name.to_ascii_lowercase()];
     let mut next = next_supermodel(model, &mut seen);
     while let Some(super_name) = next {
         let Some(parent) = read_into(cache, resolver, &super_name)? else {
             break;
         };
-        if let Some(found) = find(parent) {
-            return Ok(Some(found));
+        let found = find(parent).filter(|found| !talking || shares_rest_pose(model, parent, found));
+        if found.is_some() {
+            return Ok(found);
         }
         next = next_supermodel(parent, &mut seen);
     }
     Ok(None)
+}
+
+const REST_TURN_TOLERANCE_DEGREES: f32 = 20.0;
+
+/// A clip keys absolute turns, so it only suits a body that rests as its
+/// supermodel does. A Rakata does not: its eye nodes rest at about 90 degrees,
+/// and the human `tlknorm` of `s_male02` turns them 86 to 178 degrees away.
+fn shares_rest_pose(body: &ModelIr, parent: &ModelIr, clip: &AnimationIr) -> bool {
+    clip.tracks
+        .iter()
+        .filter(|track| !track.orientations.is_empty())
+        .all(|track| {
+            let (Some(own), Some(shared)) = (body.node(&track.node), parent.node(&track.node))
+            else {
+                return true;
+            };
+            let turn = bevy::math::Quat::from_array(own.rotation)
+                .normalize()
+                .angle_between(bevy::math::Quat::from_array(shared.rotation).normalize());
+            turn.to_degrees() <= REST_TURN_TOLERANCE_DEGREES
+        })
 }
 
 /// The clips `clip` found, by the model whose animation each is and its
@@ -1857,14 +2191,30 @@ pub fn scripted_clips(
         }
     }
     // Attacks for a body on its own clips (a retargeted one swings and aims
-    // JA's way), and for a creature model on JA's skeleton.
-    let attacks = creature || !asset_ja::rig::is_humanoid(body);
+    // JA's way), and for a creature model on JA's skeleton. A body on its
+    // own clips that is not a creature model walks and runs with a rifle
+    // held up (HK-47).
+    let own = !asset_ja::rig::is_humanoid(body);
+    let attacks = creature || own;
     let engine = crate::acting::ready_names(creature)
         .chain(crate::acting::draw_names())
         .chain(crate::acting::flinch_names(creature))
         .chain(
             attacks
                 .then(|| crate::acting::attack_names(creature))
+                .into_iter()
+                .flatten(),
+        )
+        .chain(
+            (own && !creature)
+                .then(crate::acting::rifle_gait_names)
+                .into_iter()
+                .flatten(),
+        )
+        // A retargeted body swings a stun baton with KOTOR's own swings.
+        .chain(
+            (!attacks)
+                .then(crate::acting::baton_names)
                 .into_iter()
                 .flatten(),
         );

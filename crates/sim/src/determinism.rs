@@ -125,6 +125,7 @@ pub fn pilot(seed: u64, tick: u64, seats: u8) -> TickInput {
                 force: 0,
                 reply: 0,
                 aim: [0; 3],
+                holds: 0,
             },
         );
     }
@@ -287,6 +288,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         link: None,
         geometry: Vec::new(),
         use_points: Vec::new(),
+        transitions: Vec::new(),
         opens: Opens::Never,
         state: 0,
         ways: crate::module::Ways::One,
@@ -316,6 +318,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         interruptable: true,
         pitch_variation: 0.0,
         encounter: None,
+        spared_locks: Vec::new(),
     };
     let trigger_at = position(5.5, 0.0);
     let gate = ObjectData {
@@ -343,6 +346,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         title: String::new(),
         area: name.to_string(),
         area_title: String::new(),
+        area_tag: String::new(),
         entry: Spot {
             position: position(-4.0, 0.0),
             yaw: TURN_DEGREES,
@@ -351,6 +355,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         templates: Default::default(),
         repute: crate::module::Repute::default(),
         force_costs: Vec::new(),
+        force_items: Vec::new(),
         globals: BTreeMap::new(),
         module_scripts: Vec::new(),
         area_scripts: Vec::new(),
@@ -362,6 +367,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         ranges: Default::default(),
         force: Default::default(),
         disable_transit: false,
+        unescapable: false,
         encounter_tables: Default::default(),
     };
     Level::new(
@@ -569,7 +575,13 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
     // itself, keeps every tick's hash, and saves at the halfway tick.
     let middle = ticks / 2;
     let mut a = Run::new(setup);
-    let mut recorder = Recorder::new(hz, a.last.clone(), levels.arena.id(), RECORD_EVERY);
+    let mut recorder = Recorder::new(
+        hz,
+        a.last.clone(),
+        levels.arena.id(),
+        RECORD_EVERY,
+        a.world.stance_ids(),
+    );
     let mut hashes = vec![a.last.hash()];
     let mut kept: BTreeMap<u64, Snapshot> = BTreeMap::new();
     kept.insert(0, a.last.clone());
@@ -579,6 +591,16 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
     let newest = |snapshot: &Snapshot| snapshot.entities.iter().map(|entity| entity.id).max();
     let mut highest = newest(&a.last);
     let mut spawned_at = Vec::new();
+    // The host alone fills action bars (`world::bars`), so a step that
+    // changes a bar is the authority's own work too.
+    let bars = |snapshot: &Snapshot| -> BTreeMap<crate::SimId, crate::combat::bar::Bar> {
+        let sheets = snapshot.entities.iter();
+        sheets
+            .filter_map(|entity| Some((entity.id, entity.sheet?.bar)))
+            .collect()
+    };
+    let mut last_bars = bars(&a.last);
+    let mut settled_at = Vec::new();
     let mut asked_at = Vec::new();
     let mut door_opened_at = None;
     for tick in 1..=ticks {
@@ -588,6 +610,14 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
         if newest(stepped) > highest {
             spawned_at.push(tick);
         }
+        let now_bars = bars(stepped);
+        if now_bars
+            .iter()
+            .any(|(id, bar)| last_bars.get(id).is_some_and(|last| last != bar))
+        {
+            settled_at.push(tick);
+        }
+        last_bars = now_bars;
         if stepped.transition.is_some() {
             asked_at.push(tick);
         }
@@ -612,6 +642,7 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
                 level: levels.of(snapshot).id(),
                 snapshot: snapshot.clone(),
                 script: a.world.script_state().clone(),
+                stances: a.world.stance_ids(),
             }
             .encode();
         }
@@ -647,12 +678,13 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
 
     // D: the halfway save, through bytes, into a new world in the level
     // it names.
-    let loaded = Save::decode(&save).expect("a save this build wrote decodes");
+    let mut loaded = Save::decode(&save).expect("a save this build wrote decodes");
     let level = levels.of(&loaded.snapshot);
     loaded
         .level
         .check(level)
         .expect("the save names the level it was made in");
+    loaded.fit(level);
     let mut d = Run::resume(level, setup.rate, &loaded.snapshot);
     d.world.set_script_state(loaded.script.clone());
     let mut loaded_equal = usize::from(d.last.hash() == hashes[middle as usize]);
@@ -689,9 +721,9 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
 
     // G: rollbacks. From each kept snapshot, predict ROLLBACK_TICKS ahead
     // with the same inputs. Prediction skips what only the authority runs
-    // (the spawner, transition asks), so it must match exactly when no
-    // spawn falls in the window and no ask on its last tick (an ask lasts
-    // one step), and differ when one does.
+    // (the spawner, transition asks, the action bars' fill), so it must
+    // match exactly when no spawn or fill falls in the window and no ask on
+    // its last tick (an ask lasts one step), and differ when one does.
     let mut rollbacks = 0;
     let mut rollbacks_matched = 0;
     let mut rollbacks_unexpected = Vec::new();
@@ -705,7 +737,9 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
             g.advance(&input(tick), StepReason::Predict, &levels, install_at);
         }
         let same = g.last.hash() == hashes[to as usize];
-        let authority_only = spawned_at.iter().any(|&at| at > from && at <= to)
+        let within = |at: &u64| *at > from && *at <= to;
+        let authority_only = spawned_at.iter().any(within)
+            || settled_at.iter().any(within)
             || (to != install_at && asked_at.contains(&to));
         rollbacks += 1;
         rollbacks_matched += usize::from(same);

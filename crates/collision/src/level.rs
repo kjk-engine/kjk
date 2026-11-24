@@ -219,14 +219,14 @@ impl LevelBuilder {
             let count = order.len();
             split(&self.brushes, &mut order, 0, count, &mut nodes);
         }
-        Level {
+        Level::of(Built {
             brushes: self.brushes,
             planes: self.planes,
             nodes,
             order,
             entities,
             states,
-        }
+        })
     }
 }
 
@@ -311,9 +311,10 @@ pub struct LevelStats {
     pub entities: usize,
 }
 
-/// A built level: see the module documentation.
+/// Changed only through `Level::change`, which forgets every answer the
+/// level remembers.
 #[derive(Debug, Clone)]
-pub struct Level {
+pub struct Built {
     brushes: Vec<Brush>,
     planes: Vec<Plane>,
     nodes: Vec<Node>,
@@ -325,6 +326,271 @@ pub struct Level {
     states: Vec<u8>,
 }
 
+pub use sealed::Level;
+
+mod sealed {
+    use super::{Built, Remembered};
+
+    #[derive(Debug, Clone)]
+    pub struct Level {
+        built: Built,
+        remembered: Remembered,
+    }
+
+    impl Level {
+        pub(super) fn of(built: Built) -> Level {
+            Level {
+                built,
+                remembered: Remembered::default(),
+            }
+        }
+
+        pub(super) fn remembered(&self) -> &Remembered {
+            &self.remembered
+        }
+
+        pub(super) fn change(&mut self) -> &mut Built {
+            self.remembered = Remembered::default();
+            &mut self.built
+        }
+    }
+
+    impl std::ops::Deref for Level {
+        type Target = Built;
+
+        fn deref(&self) -> &Built {
+            &self.built
+        }
+    }
+}
+
+/// Keyed by everything an answer depends on, the entities' states included.
+/// The lists of states are compared whole, so two lists never share answers.
+/// A panic on another thread leaves the answers whole, because an answer is
+/// put in only once it is found, so a poisoned lock is taken as it is.
+#[derive(Default)]
+struct Remembered(std::sync::Mutex<Memo>);
+
+#[derive(Default)]
+struct Memo {
+    /// The lists of states the answers are kept for, the one asked for
+    /// longest ago first, each with the number its answers are keyed by.
+    states: Vec<(u32, Box<[u8]>)>,
+    /// The next list's number. A number is never given twice, so the
+    /// answers of a list that was let go are never found again. They leave
+    /// with their generation.
+    next_states: u32,
+    fits: Answers<bool>,
+    traces: Answers<Trace>,
+}
+
+const REMEMBERED_GENERATION: usize = 1 << 15;
+const REMEMBERED_STATES_MAX: usize = 8;
+
+/// The answers of one kind, in two generations. New answers go into the
+/// newer one. When it holds `REMEMBERED_GENERATION` answers, the older one is
+/// forgotten and the newer one becomes the older. An answer found in the
+/// older one is copied into the newer one, so the answers still asked for
+/// outlive the change of generation, and the asks after it do not all
+/// miss at once.
+struct Answers<T> {
+    newer: std::collections::HashMap<MemoKey, T, Fx>,
+    older: std::collections::HashMap<MemoKey, T, Fx>,
+}
+
+impl<T> Default for Answers<T> {
+    fn default() -> Self {
+        Answers {
+            newer: Default::default(),
+            older: Default::default(),
+        }
+    }
+}
+
+impl<T: Copy> Answers<T> {
+    /// The answer kept for `key`. One found in the older generation is
+    /// also copied into the newer one.
+    fn recall(&mut self, key: &MemoKey) -> Option<T> {
+        if let Some(answer) = self.newer.get(key) {
+            return Some(*answer);
+        }
+        let answer = *self.older.get(key)?;
+        self.insert(*key, answer);
+        Some(answer)
+    }
+
+    /// The maps keep the room they took.
+    fn insert(&mut self, key: MemoKey, answer: T) {
+        if self.newer.len() >= REMEMBERED_GENERATION {
+            std::mem::swap(&mut self.newer, &mut self.older);
+            self.newer.clear();
+        }
+        self.newer.insert(key, answer);
+    }
+
+    #[cfg(feature = "probes")]
+    fn len(&self) -> usize {
+        self.newer.len() + self.older.len()
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+struct MemoKey {
+    start: [u32; 3],
+    end: [u32; 3],
+    shape: [u32; 6],
+    kind: u8,
+    mask: u32,
+    states: u32,
+}
+
+type Fx = std::hash::BuildHasherDefault<FxHasher>;
+
+#[derive(Default)]
+struct FxHasher(u64);
+
+impl std::hash::Hasher for FxHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut word = [0u8; 8];
+            word[..chunk.len()].copy_from_slice(chunk);
+            self.0 = (self.0.rotate_left(5) ^ u64::from_le_bytes(word))
+                .wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        }
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.0 = (self.0.rotate_left(5) ^ u64::from(n)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn write_u8(&mut self, n: u8) {
+        self.write_u32(u32::from(n));
+    }
+    fn write_u16(&mut self, n: u16) {
+        self.write_u32(u32::from(n));
+    }
+}
+
+impl Memo {
+    /// The number `states` has here. A list not kept takes the place of
+    /// the one asked for longest ago, and the answers of the other lists
+    /// stay.
+    fn states(&mut self, states: &[u8]) -> u32 {
+        if let Some(at) = (self.states.iter()).position(|(_, kept)| **kept == *states) {
+            let last = self.states.len() - 1;
+            self.states[at..].rotate_left(1);
+            return self.states[last].0;
+        }
+        if self.states.len() >= REMEMBERED_STATES_MAX {
+            self.states.remove(0);
+        }
+        let number = self.next_states;
+        self.next_states = number.wrapping_add(1);
+        self.states.push((number, states.into()));
+        number
+    }
+
+    /// Another thread may have made the memo let the list go meanwhile.
+    fn still(&self, number: u32) -> bool {
+        self.states.iter().any(|(kept, _)| *kept == number)
+    }
+}
+
+const BOX: u8 = 0;
+const UPRIGHT: u8 = 1;
+const CAPSULE: u8 = 2;
+
+impl Clone for Remembered {
+    fn clone(&self) -> Remembered {
+        Remembered::default()
+    }
+}
+
+impl std::fmt::Debug for Remembered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Remembered")
+    }
+}
+
+fn traces(memo: &mut Memo) -> &mut Answers<Trace> {
+    &mut memo.traces
+}
+
+fn fits(memo: &mut Memo) -> &mut Answers<bool> {
+    &mut memo.fits
+}
+
+fn bounds_of(extents: &Extents) -> [f32; 6] {
+    let (a, b) = (extents.mins, extents.maxs);
+    [a[0], a[1], a[2], b[0], b[1], b[2]]
+}
+
+fn memo_key(
+    (start, end): ([f32; 3], [f32; 3]),
+    shape: [f32; 6],
+    kind: u8,
+    mask: Contents,
+    states: u32,
+) -> MemoKey {
+    MemoKey {
+        start: start.map(f32::to_bits),
+        end: end.map(f32::to_bits),
+        shape: shape.map(f32::to_bits),
+        kind,
+        mask: mask.0,
+        states,
+    }
+}
+
+impl Stated<'_> {
+    fn remember<T: Copy>(
+        &self,
+        ends: ([f32; 3], [f32; 3]),
+        (shape, kind): ([f32; 6], u8),
+        mask: Contents,
+        answers: fn(&mut Memo) -> &mut Answers<T>,
+        compute: impl FnOnce() -> T,
+    ) -> T {
+        if !self.remembers {
+            return compute();
+        }
+        let key = {
+            let mut memo = self
+                .level
+                .remembered()
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let states = memo.states(self.states);
+            let key = memo_key(ends, shape, kind, mask, states);
+            if let Some(answer) = answers(&mut memo).recall(&key) {
+                return answer;
+            }
+            key
+        };
+        let answer = compute();
+        let mut memo = self
+            .level
+            .remembered()
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if memo.still(key.states) {
+            answers(&mut memo).insert(key, answer);
+        }
+        answer
+    }
+}
+
+impl Level {
+    #[cfg(feature = "probes")]
+    pub(crate) fn remembered_answers(&self) -> usize {
+        let memo = (self.remembered().0.lock()).unwrap_or_else(std::sync::PoisonError::into_inner);
+        memo.traces.len() + memo.fits.len()
+    }
+}
+
 /// A level traced with entity states of the caller's in place of its own:
 /// the sim keeps door states in its snapshots and traces the level with
 /// them, so worlds sharing one level never see each other's doors.
@@ -332,6 +598,23 @@ pub struct Level {
 pub struct Stated<'a> {
     level: &'a Level,
     states: &'a [u8],
+    /// Whether its answers are remembered (`unremembered`).
+    remembers: bool,
+}
+
+impl<'a> Stated<'a> {
+    /// The same level and states, with answers that are found anew every
+    /// time and never remembered. The view traces the level this way.
+    /// Its particles and sights ask from points that seldom repeat. Their
+    /// answers would only push the sim's answers out of the level's memory
+    /// and make the sim wait for its lock. The answers are the same,
+    /// because the memory only keeps them.
+    pub fn unremembered(self) -> Stated<'a> {
+        Stated {
+            remembers: false,
+            ..self
+        }
+    }
 }
 
 impl Level {
@@ -339,7 +622,7 @@ impl Level {
     pub fn set_state(&mut self, entity: u32, state: u8) -> bool {
         match self.slot(entity) {
             Some(slot) => {
-                self.states[slot] = state;
+                self.change().states[slot] = state;
                 true
             }
             None => false,
@@ -372,7 +655,12 @@ impl Level {
         Stated {
             level: self,
             states,
+            remembers: true,
         }
+    }
+
+    pub fn stated(&self) -> Stated<'_> {
+        self.with_states(&self.states)
     }
 
     pub fn brush_count(&self) -> usize {
@@ -411,6 +699,48 @@ impl Level {
         overlaps
     }
 
+    /// Whether a box of `extents` swept from `from` to `to` meets no brush
+    /// made of contents in `mask` of the level's own or of an entity
+    /// `counts` takes; with `upright`, the box round across
+    /// (`Shape::Upright`). A box that starts inside one meets it.
+    pub fn level_passes(
+        &self,
+        (from, to): ([f32; 3], [f32; 3]),
+        (extents, upright): (&Extents, bool),
+        mask: Contents,
+        counts: &dyn Fn(u32) -> bool,
+    ) -> bool {
+        let swept = if upright {
+            Swept::upright(extents)
+        } else {
+            Swept::Box {
+                mins: extents.mins,
+                maxs: extents.maxs,
+            }
+        };
+        let min = std::array::from_fn(|i| from[i].min(to[i]) + extents.mins[i]);
+        let max = std::array::from_fn(|i| from[i].max(to[i]) + extents.maxs[i]);
+        let mut passes = true;
+        self.visit(min, max, |_, brush| {
+            let own = brush.slot == u32::MAX
+                || self
+                    .entities
+                    .get(brush.slot as usize)
+                    .is_some_and(|&entity| counts(entity));
+            if passes && own && brush.tag.contents.intersects(mask) {
+                let planes =
+                    &self.planes[brush.first as usize..(brush.first + brush.count) as usize];
+                let swept = swept.against(brush.tag.contents);
+                passes = match brush::clip(planes, from, to, &swept) {
+                    Clip::Miss => true,
+                    Clip::Hit { fraction, .. } => fraction >= 1.0,
+                    Clip::StartSolid | Clip::AllSolid => false,
+                };
+            }
+        });
+        passes
+    }
+
     /// Whether a box of `extents` standing at `at` overlaps (or touches) a
     /// brush of `entity` that is solid in `state` and made of contents in
     /// `mask`: that entity's brushes alone, whatever else the box is in.
@@ -424,6 +754,20 @@ impl Level {
         at: [f32; 3],
         extents: &Extents,
         mask: Contents,
+    ) -> bool {
+        self.entity_overlaps_but(entity, state, at, extents, mask, Contents::NONE)
+    }
+
+    /// [`Level::entity_overlaps`], with the brushes made of any contents in
+    /// `but` left out.
+    pub fn entity_overlaps_but(
+        &self,
+        entity: u32,
+        state: u8,
+        at: [f32; 3],
+        extents: &Extents,
+        mask: Contents,
+        but: Contents,
     ) -> bool {
         let Some(slot) = self.slot(entity) else {
             return false;
@@ -442,6 +786,7 @@ impl Level {
             if !overlaps
                 && brush.slot == slot as u32
                 && brush.tag.contents.intersects(mask)
+                && !brush.tag.contents.intersects(but)
                 && state < 8
                 && brush.tag.states & (1 << state) != 0
             {
@@ -453,6 +798,65 @@ impl Level {
             }
         });
         overlaps
+    }
+
+    /// The entities with a brush whose bounds meet the box `min`..`max`,
+    /// lowest first: the only ones a box standing inside it can overlap
+    /// (`entity_overlaps`). A caller that asks about every entity in turn
+    /// asks about these alone.
+    pub fn entities_near(&self, min: [f32; 3], max: [f32; 3]) -> Vec<u32> {
+        let mut found: Vec<u32> = Vec::new();
+        self.visit(min, max, |_, brush| {
+            if brush.slot == u32::MAX {
+                return;
+            }
+            let entity = self.entities[brush.slot as usize];
+            if !found.contains(&entity) {
+                found.push(entity);
+            }
+        });
+        found.sort_unstable();
+        found
+    }
+
+    /// The entities `wanted` takes whose brushes of `state` the box
+    /// overlaps, lowest first.
+    pub fn entities_overlapping(
+        &self,
+        wanted: impl Fn(u32) -> bool,
+        state: u8,
+        at: [f32; 3],
+        extents: &Extents,
+        mask: Contents,
+    ) -> Vec<u32> {
+        let mut found: Vec<u32> = Vec::new();
+        if state >= 8 {
+            return found;
+        }
+        let swept = Swept::Box {
+            mins: extents.mins,
+            maxs: extents.maxs,
+        };
+        let min = std::array::from_fn(|i| at[i] + extents.mins[i]);
+        let max = std::array::from_fn(|i| at[i] + extents.maxs[i]);
+        self.visit(min, max, |_, brush| {
+            if brush.slot == u32::MAX
+                || !brush.tag.contents.intersects(mask)
+                || brush.tag.states & (1 << state) == 0
+            {
+                return;
+            }
+            let entity = self.entities[brush.slot as usize];
+            if found.contains(&entity) || !wanted(entity) {
+                return;
+            }
+            let planes = &self.planes[brush.first as usize..(brush.first + brush.count) as usize];
+            if brush::clip(planes, at, at, &swept) == Clip::AllSolid {
+                found.push(entity);
+            }
+        });
+        found.sort_unstable();
+        found
     }
 
     /// A brush as built: its planes (faces and bevels), bounds and tag,
@@ -619,14 +1023,14 @@ impl Level {
             .map(|_| input.u8())
             .collect::<Result<_, _>>()?;
         input.finish()?;
-        let level = Level {
+        let level = Level::of(Built {
             brushes,
             planes,
             nodes,
             order,
             entities,
             states,
-        };
+        });
         level.check()?;
         Ok(level)
     }
@@ -817,6 +1221,57 @@ impl Level {
             }
         }
         found.finish(self, start, end)
+    }
+
+    /// A path of no length enters every bounds at fraction 0, so `sweep_with`
+    /// clips the same brushes as this walk, in whatever order it finds them.
+    fn fits_with(
+        &self,
+        at: [f32; 3],
+        swept: Swept,
+        reach: ([f32; 3], [f32; 3]),
+        mask: Contents,
+        states: &[u8],
+    ) -> bool {
+        let path = Path::new(at, at, reach);
+        let enter = |min: &[f32; 3], max: &[f32; 3]| path.enter(min, max);
+        let mut stack = [0u32; 64];
+        let mut top = 0;
+        if let Some(root) = self.nodes.first()
+            && enter(&root.min, &root.max).is_some()
+        {
+            top = 1;
+        }
+        while top > 0 {
+            top -= 1;
+            let node = &self.nodes[stack[top] as usize];
+            if node.count == 0 {
+                for child in [node.b, node.a] {
+                    let bounds = &self.nodes[child as usize];
+                    if enter(&bounds.min, &bounds.max).is_some() {
+                        stack[top] = child;
+                        top += 1;
+                    }
+                }
+                continue;
+            }
+            for &index in &self.order[node.a as usize..(node.a + node.count) as usize] {
+                let brush = &self.brushes[index as usize];
+                if !Level::active(brush, mask, states)
+                    || enter(&brush.min, &brush.max).is_none()
+                    || !crate::reaches(at, at, reach, &brush.min, &brush.max)
+                {
+                    continue;
+                }
+                let planes =
+                    &self.planes[brush.first as usize..(brush.first + brush.count) as usize];
+                let swept = swept.against(brush.tag.contents);
+                if brush::clip(planes, at, at, &swept) == Clip::AllSolid {
+                    return false;
+                }
+            }
+        }
+        true
     }
 }
 
@@ -1229,6 +1684,10 @@ impl CollisionWorld for Level {
             .sweep(start, end, shape, mask)
     }
 
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        self.with_states(&self.states).fits(at, shape, mask)
+    }
+
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {
         self.with_states(&self.states).point_contents(point, mask)
     }
@@ -1245,8 +1704,11 @@ impl CollisionWorld for Stated<'_> {
             maxs: extents.maxs,
         };
         let reach = (extents.mins, extents.maxs);
-        self.level
-            .sweep_with(start, end, swept, reach, mask, self.states)
+        let shape = (bounds_of(extents), BOX);
+        self.remember((start, end), shape, mask, traces, || {
+            self.level
+                .sweep_with(start, end, swept, reach, mask, self.states)
+        })
     }
 
     fn sweep(&self, start: [f32; 3], end: [f32; 3], shape: &Shape, mask: Contents) -> Trace {
@@ -1254,17 +1716,45 @@ impl CollisionWorld for Stated<'_> {
             Shape::Box(extents) => self.trace(start, end, extents, mask),
             Shape::Upright(extents) => {
                 let reach = (extents.mins, extents.maxs);
-                self.level.sweep_with(
-                    start,
-                    end,
-                    Swept::upright(extents),
-                    reach,
-                    mask,
-                    self.states,
-                )
+                let shape = (bounds_of(extents), UPRIGHT);
+                self.remember((start, end), shape, mask, traces, || {
+                    self.level.sweep_with(
+                        start,
+                        end,
+                        Swept::upright(extents),
+                        reach,
+                        mask,
+                        self.states,
+                    )
+                })
             }
-            Shape::Capsule(capsule) => self.level.capsule(start, end, capsule, mask, self.states),
+            Shape::Capsule(capsule) => {
+                let c = capsule.center;
+                let size = [c[0], c[1], c[2], capsule.radius, capsule.half_height, 0.0];
+                self.remember((start, end), (size, CAPSULE), mask, traces, || {
+                    self.level.capsule(start, end, capsule, mask, self.states)
+                })
+            }
         }
+    }
+
+    fn fits(&self, at: [f32; 3], shape: &Shape, mask: Contents) -> bool {
+        let (swept, extents, kind) = match shape {
+            Shape::Box(extents) => (
+                Swept::Box {
+                    mins: extents.mins,
+                    maxs: extents.maxs,
+                },
+                extents,
+                BOX,
+            ),
+            Shape::Upright(extents) => (Swept::upright(extents), extents, UPRIGHT),
+            Shape::Capsule(_) => return !self.sweep(at, at, shape, mask).all_solid,
+        };
+        let reach = (extents.mins, extents.maxs);
+        self.remember((at, at), (bounds_of(extents), kind), mask, fits, || {
+            self.level.fits_with(at, swept, reach, mask, self.states)
+        })
     }
 
     fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {

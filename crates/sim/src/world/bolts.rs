@@ -19,7 +19,12 @@ pub(super) fn fly(
     clock: Res<Clock>,
     level: Res<Static>,
     inputs: Res<Inputs>,
-    blades: Res<sabers::Blades>,
+    (blades, rules, scene, talking): (
+        Res<sabers::Blades>,
+        Res<super::Rules>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+    ),
     mut streams: ResMut<Streams>,
     (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
     mut scripts: ResMut<scripts::Scripts>,
@@ -70,13 +75,18 @@ pub(super) fn fly(
         .map(|(id, .., player, _)| (id.0, player.0.origin))
         .collect();
     let find = |id: SimId| origins.binary_search_by_key(&id, |(own, _)| *own).ok();
-    // The living's chests, what a blast reaches.
-    let chests: Vec<(SimId, [f32; 3])> = actors
+    // Whether a seat plays each, in the same order: its bolts break what a
+    // player's do, and its blade turns bolts as a player's.
+    let lent = super::lent(&scripts.state.party);
+    let played: Vec<bool> = actors
+        .iter()
+        .map(|(id, avatar, ..)| super::played(id.0, *avatar, lent))
+        .collect();
+    // The living's bodies, what a blast reaches.
+    let chests: Vec<Reached> = actors
         .iter()
         .filter(|(.., fighting)| fighting.0.alive())
-        .map(|(id, _, object, _, player, _)| {
-            (id.0, mind::chest_of(&player.0, object_bulk(*object)))
-        })
+        .map(|(id, _, object, _, player, _)| Reached::body(id.0, &player.0, object_bulk(*object)))
         .collect();
     // The placeables that may be bashed, as a player's own bolt meets them:
     // their bodies, as a fist does (a footlocker has no brushes to stop a
@@ -86,6 +96,7 @@ pub(super) fn fly(
         placed
             .iter()
             .filter(|(_, object)| object.kind == ObjectKind::Placeable),
+        objects::Regard::of(&level.0, &scripts.state),
     );
     let mut bolts: Vec<_> = bolts.iter_mut().collect();
     bolts.sort_by_key(|(_, id, _)| id.0);
@@ -114,10 +125,13 @@ pub(super) fn fly(
                 // What may be bashed is caught by any blast (`objects`), its
                 // body's middle: KOTOR's grenade script asks for creatures
                 // alone.
-                let bashed: Vec<(SimId, [f32; 3])> = objects::bodies(placed.iter())
-                    .iter()
-                    .map(|body| (SimId(body.entity & !BODY), objects::middle(body)))
-                    .collect();
+                let bashed: Vec<Reached> =
+                    objects::bodies(placed.iter(), objects::Regard::of(&level.0, &scripts.state))
+                        .iter()
+                        .map(|body| {
+                            Reached::point(SimId(body.entity & !BODY), objects::middle(body))
+                        })
+                        .collect();
                 let states = states.as_deref();
                 match scripted {
                     Some(row) if authority => {
@@ -142,8 +156,7 @@ pub(super) fn fly(
                     }
                     Some(_) => {}
                     None => {
-                        let caught: Vec<(SimId, [f32; 3])> =
-                            chests.iter().chain(&bashed).copied().collect();
+                        let caught: Vec<Reached> = chests.iter().chain(&bashed).copied().collect();
                         blast(&level.0, states, &caught, bolt, at, &mut hits.0);
                     }
                 }
@@ -160,6 +173,8 @@ pub(super) fn fly(
                 continue;
             };
             let shooter = find(bolt.owner).map(|by| origins[by].1);
+            let penalty = find(bolt.owner)
+                .map_or(0, |by| precise(sheet_of(actors[by].3, actors[by].2), bolt));
             let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
             let sheet = sheet_of(*sheet, *object);
             let at = bolt.base;
@@ -172,16 +187,19 @@ pub(super) fn fly(
                         hold.tick,
                     )
             });
+            // Its target's rules: JA's in a scene (`saber_rules`).
+            let rules = scene.saber_rules(&talking.0, hold.target, rules.0);
             let fate = saw
                 .then(|| {
                     sabers::bolt_block(
+                        (rules, played[at_target]),
                         &mut fighting.0,
                         &player.0,
                         &sheet,
                         bolt,
                         at,
                         false,
-                        shooter,
+                        (shooter, penalty),
                         (now, clock.tick),
                         &mut streams.authority,
                     )
@@ -213,7 +231,7 @@ pub(super) fn fly(
         // (rulebook 5.6), but its owner's.
         let mut bodies = shots.met(bolt.owner, targets.met_by(bolt.owner));
         bodies.extend(blades.bodies(bolt.owner));
-        let player = find(bolt.owner).is_some_and(|at| actors[at].1.is_some());
+        let player = find(bolt.owner).is_some_and(|at| played[at]);
         if player {
             bodies.extend(bashable.iter().cloned());
         }
@@ -258,22 +276,50 @@ pub(super) fn fly(
         if let Some(entity_hit) = met.entity.filter(|entity| entity & BODY != 0) {
             let on_blade = entity_hit & sabers::SABER != 0;
             let target = SimId(entity_hit & !(BODY | sabers::SABER));
+            // Under the Advanced rules a bolt no blade turns lands on the
+            // body behind it; under JA's a blade that turns nothing stops it.
+            let mut lands_through_blade = false;
             // A saber may turn it: the server's call (C20).
             if authority && let Some(at_target) = find(target) {
                 let shooter = find(bolt.owner).map(|by| origins[by].1);
+                let penalty = find(bolt.owner)
+                    .map_or(0, |by| precise(sheet_of(actors[by].3, actors[by].2), bolt));
                 let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
                 let sheet = sheet_of(*sheet, *object);
-                let fate = sabers::bolt_block(
-                    &mut fighting.0,
-                    &player.0,
-                    &sheet,
-                    bolt,
-                    at,
-                    on_blade,
-                    shooter,
-                    (now, clock.tick),
-                    &mut streams.authority,
-                );
+                let rules = scene.saber_rules(&talking.0, target, rules.0);
+                // A blade whose holder cannot defend itself (stunned, held
+                // or knocked down) stops nothing: the bolt lands on the body
+                // under either rule set.
+                // An NPC that turned many bolts lately may let this one
+                // through, onto its body, under either rule set.
+                let npc = !played[at_target];
+                let rng = &mut streams.authority;
+                let overwhelmed =
+                    npc && sabers::overwhelmed(&fighting.0, &sheet, (clock.tick, clock.msec), rng);
+                lands_through_blade = rules.duel() || overwhelmed || !fighting.0.can_defend(now);
+                let fate = (!overwhelmed)
+                    .then(|| {
+                        sabers::bolt_block(
+                            (rules, played[at_target]),
+                            &mut fighting.0,
+                            &player.0,
+                            &sheet,
+                            bolt,
+                            at,
+                            on_blade,
+                            (shooter, penalty),
+                            (now, clock.tick),
+                            rng,
+                        )
+                    })
+                    .flatten()
+                    .map(|fate| {
+                        if npc {
+                            sabers::creature_fate(fate, &sheet, rng)
+                        } else {
+                            fate
+                        }
+                    });
                 if let Some(fate) = fate {
                     if turn(bolt, fate, at, target, now) {
                         commands.entity(entity).despawn();
@@ -285,7 +331,10 @@ pub(super) fn fly(
                 let wait = avatar.map_or(0, |avatar| {
                     grace::wait(inputs.0.view_lag(avatar.0), clock.msec)
                 });
-                if !on_blade && wait > 0 && sabers::could_turn(&fighting.0, &sheet, bolt) {
+                if !on_blade
+                    && wait > 0
+                    && sabers::could_turn(rules, &fighting.0, &sheet, bolt, now)
+                {
                     bolt.base = at;
                     bolt.from_ms = now;
                     bolt.held = Some(missiles::Held {
@@ -296,8 +345,7 @@ pub(super) fn fly(
                     continue;
                 }
             }
-            // A blade that turns nothing stops it all the same.
-            if !on_blade {
+            if !on_blade || lands_through_blade {
                 hits.0.push(bolt_hit(bolt, target, at));
             }
         } else {
@@ -305,6 +353,12 @@ pub(super) fn fly(
         }
         commands.entity(entity).despawn();
     }
+}
+
+/// What the shooter with `sheet` takes off the deflection bonus of whoever
+/// tries to turn its `bolt`: its Precise Shot's (`passive::deflect_penalty`).
+fn precise(sheet: Sheet, bolt: &Missile) -> i8 {
+    crate::combat::passive::deflect_penalty(&sheet.feats, &bolt.weapon)
 }
 
 /// `bolt` turned at `at` by `blocker` at `now` (`sabers::bolt_block`'s
@@ -383,6 +437,8 @@ pub(super) fn bolt_source(bolt: &Missile) -> Source {
         cadence_ms: bolt.cadence_ms,
         share: bolt.share,
         area: false,
+        second: None,
+        sure: false,
     }
 }
 
@@ -417,6 +473,17 @@ pub(super) fn lob(
         });
         let at = scale(met.end, 1.0 / UNIT);
         if let Some(entity) = met.entity.filter(|entity| entity & BODY != 0) {
+            // It bursts where the body stands, as KOTOR's grenade thrown at
+            // a creature goes off at the creature's location. A rancor's box
+            // is 14.5 m across, so a burst on its face would be farther than
+            // the blast's 4 m from the rancor.
+            let at = bodies
+                .iter()
+                .find(|body| body.entity == entity)
+                .map_or(at, |body| {
+                    let middle = |axis: usize| (body.min[axis] + body.max[axis]) * 0.5;
+                    scale([middle(0), middle(1), body.min[2]], 1.0 / UNIT)
+                });
             return Some((at, Some(SimId(entity & !BODY))));
         }
         let homing = bolt.lob.is_some_and(|lob| grenades::homing(lob.row));
@@ -438,48 +505,92 @@ pub(super) fn lob(
     (now >= bolt.until_ms).then(|| (bolt.at(now), None))
 }
 
-/// A grenade's blast at `at`: a hit on every living character whose chest
-/// is within the radius with nothing solid between (the thrower too: the
-/// friendly-fire rule decides), pushing away from it.
-/// Whom a grenade bursting at `at` (units) reaches: each living chest in
-/// `chests` within its radius with nothing solid between, and the way from
-/// the burst to it.
+/// What a blast may reach of one thing (units): its chest, what the blast
+/// must see and pushes away, and the height of its body's bottom. The blast
+/// reaches it when any point straight down from the chest to that bottom is
+/// within the radius. KOTOR's grenade script measures from the burst to a
+/// creature's location on the ground, so a rancor whose chest is 3.8 m up
+/// is caught by a grenade at its feet.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Reached {
+    pub id: SimId,
+    pub chest: [f32; 3],
+    pub bottom: f32,
+}
+
+impl Reached {
+    /// A creature's body (`mind::chest_of`): from its soles, or the bottom
+    /// of its model's box (a hovering droid's), up to its chest.
+    pub fn body(id: SimId, player: &MotionState, bulk: Option<&crate::module::Bulk>) -> Reached {
+        let chest = mind::chest_of(player, bulk);
+        let soles = player.origin[2] + motion::SOLE_Z;
+        let bottom = soles + bulk.map_or(0.0, |bulk| bulk.min[2] / UNIT);
+        Reached {
+            id,
+            chest,
+            bottom: bottom.min(chest[2]),
+        }
+    }
+
+    /// A thing reached at one point (a placeable's middle).
+    pub fn point(id: SimId, at: [f32; 3]) -> Reached {
+        Reached {
+            id,
+            chest: at,
+            bottom: at[2],
+        }
+    }
+}
+
+/// Whom a grenade bursting at `at` (units) reaches: each one in `reached`
+/// within its radius (`Reached`) whose chest it sees with nothing solid
+/// between (the thrower too: the friendly-fire rule decides), and the way
+/// from the burst to its chest.
 pub(super) fn caught_by_blast(
     level: &Level,
     states: Option<&[u8]>,
-    chests: &[(SimId, [f32; 3])],
+    reached: &[Reached],
     at: [f32; 3],
 ) -> Vec<(SimId, [f32; 3])> {
     // From a little above where it lies, so a floor does not hide it.
     let centre = [at[0], at[1], at[2] + 8.0];
-    chests
+    reached
         .iter()
-        .filter_map(|&(target, chest)| {
-            let mut away = math::sub(chest, centre);
-            if math::length(away) > grenades::RADIUS {
-                return None;
-            }
-            let clear = level.with(states, |world| {
-                world
-                    .trace(
-                        scale(centre, UNIT),
-                        scale(chest, UNIT),
-                        &Extents::POINT,
-                        Contents::SOLID,
-                    )
-                    .fraction
-                    >= 1.0
-            });
-            math::normalize(&mut away);
-            clear.then_some((target, away))
-        })
+        .filter_map(
+            |&Reached {
+                 id: target,
+                 chest,
+                 bottom,
+             }| {
+                let nearest = [chest[0], chest[1], centre[2].clamp(bottom, chest[2])];
+                if math::length(math::sub(nearest, centre)) > grenades::RADIUS {
+                    return None;
+                }
+                let mut away = math::sub(chest, centre);
+                let clear = level.with(states, |world| {
+                    world
+                        .trace(
+                            scale(centre, UNIT),
+                            scale(chest, UNIT),
+                            &Extents::POINT,
+                            Contents::SOLID,
+                        )
+                        .fraction
+                        >= 1.0
+                });
+                math::normalize(&mut away);
+                clear.then_some((target, away))
+            },
+        )
         .collect()
 }
 
+/// A grenade's blast at `at`: a hit on every one `caught_by_blast` finds,
+/// pushing it away from the burst.
 pub(super) fn blast(
     level: &Level,
     states: Option<&[u8]>,
-    chests: &[(SimId, [f32; 3])],
+    reached: &[Reached],
     bolt: &Missile,
     at: [f32; 3],
     hits: &mut Vec<Hit>,
@@ -487,7 +598,7 @@ pub(super) fn blast(
     let Some(lob) = bolt.lob else {
         return;
     };
-    for (target, direction) in caught_by_blast(level, states, chests, at) {
+    for (target, direction) in caught_by_blast(level, states, reached, at) {
         hits.push(Hit {
             attacker: bolt.owner,
             target,

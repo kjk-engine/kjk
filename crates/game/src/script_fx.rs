@@ -20,9 +20,11 @@
 //!   effect ends. Its `SoundDuration` is held while
 //!   it lasts, and its end models (`Ces_*_Node`) and `SoundCessastion` (the
 //!   table's spelling) come as it ends.
-//! - A beam (`EffectBeam`, a lasting row whose `ProgFX_Duration` the engine
-//!   draws itself) draws the game's own beam model (`BEAMS`, as its
-//!   executable picks them) from its source's casting hand as drawn (the left, JA's Force hand) to the character, the
+//! - A beam (`EffectBeam`, or `EffectVisualEffect` of a lasting row whose
+//!   `ProgFX_Duration` the engine draws itself) draws the game's own beam
+//!   model (`BEAMS`, as its executable picks them) from its source
+//!   (`beam_source`: the effector `EffectBeam` names, else the script's
+//!   caller) and its casting hand as drawn (the left, JA's Force hand) to the character, the
 //!   model's +Y toward it, its lightning and point-to-point emitters'
 //!   reference nodes put on the character every frame (`model_fx`'s bolts
 //!   and travelling particles). A source channelling lightning is drawn
@@ -39,10 +41,15 @@
 //!   `Row::lasts_with`): a Force power's fizzle and resistance (1200 to
 //!   1202, models at the hand, middle and head), Knight and Master Speed's
 //!   widening of the player's view (1500, `OwnScreen`), Force Speed's blur
-//!   of it (1601, 1602, `speed_blur`), the medal and Revan's masks on their
-//!   hooks (1700 to 1702) and a distortion (1800, `glow_shell`). 2000 and
+//!   of it (1601, 1602, `speed_blur`; neither is drawn while a
+//!   conversation is under way), the medal and Revan's masks on their
+//!   hooks (1700 to 1702) and a distortion (1800, `glow_shell`; a
+//!   fire-and-forget row's for its impact phase, `FLASH_MS`). 2000 and
 //!   2001 (the stealth pulse, invisibility) it has nothing for; 1300 (a
 //!   MIRV's shot) is a projectile, not drawn here.
+//! - A character leaving stealth mode plays row 8001
+//!   (`VFX_DUR_CLOAK_REMOVAL`) once, as TSL's executable does
+//!   (`new_uncloaks`).
 //! - A row that shakes the screen (`ShakeType` 2: `VFX_IMP_SCREEN_SHAKE`)
 //!   shakes the player's camera, wherever the effect is put, from
 //!   `ShakeDelay` seconds after it begins for `ShakeDuration` seconds
@@ -78,7 +85,7 @@ use std::sync::Arc;
 use asset_odyssey::hooks;
 use asset_odyssey::texture::TextureIr;
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use bevy::tasks::{AsyncComputeTaskPool, ComputeTaskPool, Task, block_on, poll_once};
 use sim::combat::Outcome;
 use sim::minigame::Anim;
 use sim::module::ObjectKind;
@@ -94,6 +101,7 @@ use crate::material::OdysseyMaterial;
 use crate::scene::{ModelAssets, SceneContent, SceneModel, SceneRoot, Spawner};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::sound::{Added, Cue, Cues, Forget, Hold, Loops};
+use asset_odyssey::sound::Group;
 
 /// A character's middle, head and hand over its feet (metres) where its
 /// model has no node for them [verify].
@@ -104,6 +112,9 @@ const HAND_M: f32 = 1.2;
 const ORIGIN_M: f32 = -sim::motion::SOLE_Z * collision::UNIT;
 /// How long a spawned effect lives past its end at most (ms).
 const LIFE_MS: f64 = 10_000.0;
+/// The fewest particles alive for which the effects step their particles
+/// on several threads. Below it, one thread steps them all.
+const SHARED_PARTICLES: usize = 256;
 /// The engine's own beams (`ProgFX_Duration` from `FIRST_BEAM` on), by
 /// their models, as the game's executable picks them (read off the Mac
 /// build): the lightning beams (small and large), the droids' disable and
@@ -299,7 +310,15 @@ struct Row {
     sound: String,
     held: String,
     end_sound: String,
+    /// It is emitted along its character's aim (`AIMED`).
+    aimed: bool,
 }
+
+/// The rows a caster emits along its aim from its head, pitch and all: TSL's
+/// Force Scream, Improved and Master (`VFX_IMP_FORCE_SCREAM_*`). Every other
+/// model on a character's feet turns with the character but stays level:
+/// its rings and glows lie round the body.
+const AIMED: [u16; 3] = [9005, 9006, 9007];
 
 /// `names`' entry for `code` counted from `first`.
 fn listed(code: u16, first: u16, names: &[&str]) -> Option<String> {
@@ -438,6 +457,8 @@ struct Live {
     frames: u32,
     kept: Kept,
     glows: bool,
+    /// Emitted along its character's aim (`Row::aimed`).
+    aimed: bool,
 }
 
 /// What the executable does to the player's own screen, as of the frame
@@ -452,11 +473,14 @@ pub struct OwnScreen {
 }
 
 /// A camera shake: from when (world ms, its delay passed) and for how long
-/// (ms).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// (ms). `scale` is its strength against the executable's shake. A shake
+/// of scale 1 turns the camera as far as the executable's does, and a
+/// shake of scale 0.5 half as far.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shake {
     pub from: u64,
     pub total: u64,
+    pub scale: f32,
 }
 
 impl Shake {
@@ -469,7 +493,8 @@ impl Shake {
     /// The camera's pitch and yaw turned at `now_ms` (degrees), `sides`
     /// each axis's roll (`true`: turned, else not), as the executable turns
     /// it: with `r` its ms left, `20π/180 (1 + cos(2π r / total)) sin(2π r / 30)`
-    /// degrees (0.7° at most), each axis by that turned back or not at random.
+    /// degrees (0.7° at most), times `scale`, each axis by that turned back
+    /// or not at random.
     pub fn angles(&self, now_ms: f64, sides: [bool; 2]) -> [f32; 2] {
         let since = now_ms - self.from as f64;
         if since < 0.0 || since >= self.total as f64 {
@@ -478,6 +503,7 @@ impl Shake {
         let left = (self.total as f64 - since) as f32;
         let tau = std::f32::consts::TAU;
         let swing = SHAKE_DEGREES
+            * self.scale
             * (1.0 + (tau * left / self.total as f32).cos())
             * (tau * left / SHAKE_PERIOD_MS).sin();
         sides.map(|turned| if turned { -swing } else { 0.0 })
@@ -592,6 +618,11 @@ pub struct ScriptFx {
     seen_on_objects: BTreeSet<u32>,
     /// Each character's hold as last seen: until when (`new_holds`).
     holds: BTreeMap<SimId, u64>,
+    /// Each character's stealth mode as last seen (`new_uncloaks`).
+    cloaked: BTreeMap<SimId, bool>,
+    scanned: Option<Arc<Snapshot>>,
+    running: BTreeSet<(SimId, u16)>,
+    running_in: Option<Arc<Snapshot>>,
     /// Effects waiting for their time, or their row's models or sounds.
     asked: Vec<Asked>,
     live: Vec<Live>,
@@ -615,6 +646,10 @@ pub fn install(world: &mut World, installer: Option<Arc<Installer>>) {
         sounds: BTreeMap::new(),
         seen: BTreeMap::new(),
         holds: BTreeMap::new(),
+        cloaked: BTreeMap::new(),
+        scanned: None,
+        running: BTreeSet::new(),
+        running_in: None,
         seen_on_objects: BTreeSet::new(),
         asked: Vec::new(),
         live: Vec::new(),
@@ -696,6 +731,7 @@ fn rows(table: &fmt_odyssey::twoda::TwoDa) -> BTreeMap<u16, Row> {
                 .trim()
                 .parse::<u16>()
                 .ok()?;
+            found.aimed = AIMED.contains(&id);
             (found != Row::default()).then_some((id, found))
         })
         .collect()
@@ -716,6 +752,7 @@ pub fn shake_probes() -> sim::probe::Checks {
     let shake = Shake {
         from: 1000,
         total: 1000,
+        scale: 1.0,
     };
     // 997.5 ms left: a swing's quarter, the sine's top, at the envelope's
     // height; 507.5 ms left: near its trough.
@@ -724,12 +761,13 @@ pub fn shake_probes() -> sim::probe::Checks {
     let waiting = shake.angles(999.0, [true, true]);
     let after = shake.angles(2000.0, [true, true]);
     let longer = Shake {
-        from: 1500,
         total: 400,
+        from: 1500,
+        ..shake
     };
     let shorter = Shake {
-        from: 1500,
         total: 300,
+        ..longer
     };
     vec![
         (
@@ -787,6 +825,42 @@ pub fn head_node_probes() -> sim::probe::Checks {
             ),
         ),
     )]
+}
+
+/// The aimed visuals' probes (`kjk sim probes --only "effect aim"`): a
+/// model on a character's feet points its +Y along the character's view
+/// yaw, an aimed one (Force Scream's) along the pitch too, with its head
+/// point where it was, and a level one stays level however the view is
+/// pitched.
+#[cfg(feature = "probes")]
+pub fn aim_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    // (name, view pitch and yaw, aimed, the way +Y should point)
+    let cases: [(&'static str, (f32, f32), bool, Vec3); 4] = [
+        ("a scream along +X", (0.0, 0.0), true, Vec3::X),
+        ("a scream turned to +Y", (0.0, 90.0), true, Vec3::Y),
+        (
+            "a scream pitched 30 degrees down",
+            (30.0, 0.0),
+            true,
+            Vec3::new(30f32.to_radians().cos(), 0.0, -30f32.to_radians().sin()),
+        ),
+        ("a ring stays level", (30.0, 180.0), false, Vec3::NEG_X),
+    ];
+    let feet = Vec3::new(1.0, 2.0, 0.0);
+    cases
+        .into_iter()
+        .map(|(name, view, aimed, want)| {
+            let (turn, at) = aimed_turn(feet, view, aimed);
+            let way = turn * Vec3::Y;
+            let head = at + turn * (Vec3::Z * HEAD_M);
+            let ok = way.distance(want) < 1e-4 && head.distance(feet + Vec3::Z * HEAD_M) < 1e-4;
+            (
+                name,
+                check(ok, format!("+Y points {way:?}, the head at {head:?}")),
+            )
+        })
+        .collect()
 }
 
 /// The glow texture effect `effect` (its `visualeffects.2da` label) puts
@@ -868,6 +942,67 @@ fn channelling(snapshot: &Snapshot, source: SimId) -> bool {
         .is_some_and(|channel| channel.power == sim::combat::force::Power::Lightning)
 }
 
+/// Where a visual of `row` put on `on` by `by` comes from, if it is to be
+/// drawn here: `Some(None)` drawn on `on` alone, `Some(Some(source))` a
+/// beam from `source`, `None` not drawn here. Both games' executables draw
+/// a beam row from the object the effect names (`EffectBeam`'s effector,
+/// `made_beam`), else from the effect's creator, the script's caller
+/// (`EffectVisualEffect` of a beam row: the ion ray HK-50 fires at T3-M4
+/// in TSL's fuel depot). A beam named by `EffectBeam` that has no other
+/// source or no beam model is not drawn, and one from a source channelling
+/// lightning is `force_view`'s.
+fn beam_source(
+    row: &Row,
+    made_beam: bool,
+    by: Option<SimId>,
+    on: SimId,
+    snapshot: &Snapshot,
+) -> Option<Option<SimId>> {
+    let source = beam_from(row.beam.is_some(), made_beam, by, on);
+    let drawn = !(made_beam && (row.beam.is_none() || source.is_none()))
+        && !source.is_some_and(|by| channelling(snapshot, by));
+    drawn.then_some(source)
+}
+
+/// The source of a visual put on `on` by `by` (`beam_source`): `by` for a
+/// beam row or a beam `EffectBeam` made, unless it is `on` itself.
+fn beam_from(row_beam: bool, made_beam: bool, by: Option<SimId>, on: SimId) -> Option<SimId> {
+    by.filter(|by| (row_beam || made_beam) && *by != on)
+}
+
+/// The probes of a beam's source (`kjk sim probes`, group "beam source").
+#[cfg(feature = "probes")]
+pub fn beam_source_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let [t3, hk] = [SimId(1), SimId(2)];
+    let checks = [
+        (
+            "a beam row's visual comes from the script's caller",
+            beam_from(true, false, Some(hk), t3),
+            Some(hk),
+        ),
+        (
+            "an EffectBeam comes from its effector",
+            beam_from(true, true, Some(hk), t3),
+            Some(hk),
+        ),
+        (
+            "a beam row put by its target on itself has no other source",
+            beam_from(true, false, Some(t3), t3),
+            None,
+        ),
+        (
+            "a visual that is no beam has no source",
+            beam_from(false, false, Some(hk), t3),
+            None,
+        ),
+    ];
+    checks
+        .into_iter()
+        .map(|(name, got, want)| (name, check(got == want, format!("{got:?}"))))
+        .collect()
+}
+
 /// The visual events new on each character since the last frame: what
 /// each asks for, from `table`. A character first seen has its past events
 /// counted as seen.
@@ -922,12 +1057,9 @@ fn new_visuals(
             let Some(row) = table.get(&visual.row) else {
                 continue;
             };
-            let source = event.by.filter(|_| visual.beam);
-            if visual.beam
-                && (row.beam.is_none() || source.is_none_or(|by| channelling(snapshot, by)))
-            {
+            let Some(source) = beam_source(row, visual.beam, event.by, entity.id, snapshot) else {
                 continue;
-            }
+            };
             let anchor = match event.at {
                 Some(at) => Anchor::At(Vec3::from_array(at.map(|v| v as f32)) * collision::UNIT),
                 None => Anchor::On(entity.id),
@@ -949,10 +1081,11 @@ fn new_visuals(
 
 /// The visual a hold on `fighter` shows while it lasts at `now`: its
 /// state's (`Hold::state`, `state::visual`), as the games' executables add
-/// one to the state as it takes hold.
+/// one to the state as it takes hold. Covering the ears shows none: TSL's
+/// Force Scream stuns no one, and its own visuals play on the caster.
 fn hold_visual(fighter: &sim::combat::Fighter, now: u64) -> Option<u16> {
     let force = &fighter.force;
-    (force.stunned_until > now)
+    (force.stunned_until > now && force.covering_ears(now).is_none())
         .then(|| sim::combat::effects::state::visual(force.hold.state()))
         .flatten()
 }
@@ -1004,6 +1137,42 @@ fn new_holds(
     asked
 }
 
+/// `VFX_DUR_CLOAK_REMOVAL`: what TSL's executable plays on a character
+/// leaving stealth mode (`CSWCCreature::SetStealthState`).
+const VFX_DUR_CLOAK_REMOVAL: u16 = 8001;
+
+/// The characters that left stealth mode since the last frame (`seen`:
+/// each one's stealth mode as last seen): row 8001 on each, once. A
+/// character first seen out of stealth (a new scene, a seat joining late)
+/// brings nothing. Each seat's view sees the change in the snapshots it is
+/// shown, so a guest plays it too.
+fn new_uncloaks(
+    snapshot: &Snapshot,
+    table: &BTreeMap<u16, Row>,
+    seen: &mut BTreeMap<SimId, bool>,
+) -> Vec<Asked> {
+    let Some(row) = table.get(&VFX_DUR_CLOAK_REMOVAL) else {
+        return Vec::new();
+    };
+    snapshot
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            let stealth = entity.fighter.as_ref()?.covert.stealth;
+            let was = seen.insert(entity.id, stealth)?;
+            (was && !stealth).then(|| Asked {
+                row: row.clone(),
+                anchor: Anchor::On(entity.id),
+                since: snapshot.time_ms,
+                until: None,
+                source: None,
+                kept: None,
+                glows: true,
+            })
+        })
+        .collect()
+}
+
 /// The visuals new on doors and placeables since the last frame
 /// (`Snapshot::visuals`): what each asks for, from `table`. One begun a
 /// while before it was first seen (a new scene) shows what lasts of it,
@@ -1022,12 +1191,9 @@ fn new_on_objects(
         let Some(row) = table.get(&on.visual.row) else {
             continue;
         };
-        let source = Some(on.by).filter(|by| on.visual.beam && *by != on.on);
-        if on.visual.beam
-            && (row.beam.is_none() || source.is_none_or(|by| channelling(snapshot, by)))
-        {
+        let Some(source) = beam_source(row, on.visual.beam, Some(on.by), on.on, snapshot) else {
             continue;
-        }
+        };
         let late = on.since + sim::visuals::SEEN_MS <= snapshot.time_ms;
         if late && on.until().is_some_and(|until| until <= snapshot.time_ms) {
             continue;
@@ -1058,22 +1224,26 @@ fn new_on_objects(
 /// character's effects, or its hold ended early): its models, glows,
 /// screens and held sound now, its end models and sound now rather than
 /// when it would have ended; one still waiting to begin never does.
-fn end_removed(view: &mut ScriptFx, snapshot: &Snapshot) {
+fn end_removed(view: &mut ScriptFx, snapshot: &Arc<Snapshot>) {
     let now = snapshot.time_ms;
-    let running: BTreeSet<(SimId, u16)> = snapshot
-        .entities
-        .iter()
-        .filter_map(|entity| Some((entity.id, entity.fighter.as_ref()?)))
-        .flat_map(|(id, fighter)| {
-            let held = hold_visual(fighter, now);
-            fighter
-                .effects
-                .visuals(now)
-                .map(|(row, ..)| row)
-                .chain(held)
-                .map(move |row| (id, row))
-        })
-        .collect();
+    if !crate::sim_host::is_snapshot(view.running_in.as_ref(), snapshot) {
+        view.running.clear();
+        view.running.extend(
+            (snapshot.entities.iter())
+                .filter_map(|entity| Some((entity.id, entity.fighter.as_ref()?)))
+                .flat_map(|(id, fighter)| {
+                    let held = hold_visual(fighter, now);
+                    fighter
+                        .effects
+                        .visuals(now)
+                        .map(|(row, ..)| row)
+                        .chain(held)
+                        .map(move |row| (id, row))
+                }),
+        );
+        view.running_in = Some(snapshot.clone());
+    }
+    let running = &view.running;
     let gone = |kept: Kept| kept.is_some_and(|kept| !running.contains(&kept));
     let ended = |until: Option<u64>| Some(until.map_or(now, |until| until.min(now)));
     for live in view.live.iter_mut().filter(|live| gone(live.kept)) {
@@ -1158,7 +1328,11 @@ fn spawn(
         ResMut<Assets<HeatHazeMaterial>>,
         ResMut<Cues>,
     ),
-    (mut glow_materials, hitboxes): (ResMut<Assets<GlowMaterial>>, Res<crate::cast::Hitboxes>),
+    (mut glow_materials, hitboxes, ambience): (
+        ResMut<Assets<GlowMaterial>>,
+        Res<crate::cast::Hitboxes>,
+        Res<crate::ambience::Ambience>,
+    ),
     (bodies, children, placed, globals): (
         Option<Res<BodyRoots>>,
         Query<&Children>,
@@ -1177,6 +1351,10 @@ fn spawn(
         view.models.clear();
         view.seen.clear();
         view.holds.clear();
+        view.cloaked.clear();
+        view.scanned = None;
+        view.running.clear();
+        view.running_in = None;
         view.seen_on_objects.clear();
         view.asked.clear();
         view.live.clear();
@@ -1194,13 +1372,13 @@ fn spawn(
             .extend(view.sounds.keys().map(|resref| sound_name(resref)));
         view.sounds.clear();
     }
-    end_removed(view, presented.0.current());
+    end_removed(view, presented.0.current_shared());
     let Some(installer) = view.installer.clone() else {
         return;
     };
-    let module = swap.level.resources().to_string();
+    let module = swap.level.resources();
     let table = view.table.get_or_insert_with(|| {
-        let (installer, module) = (installer.clone(), module.clone());
+        let (installer, module) = (installer.clone(), module.to_string());
         Loaded::Loading(
             AsyncComputeTaskPool::get().spawn(async move { table(&installer, &module) }),
         )
@@ -1209,9 +1387,15 @@ fn spawn(
         return;
     };
     let current = presented.0.current();
-    let mut fresh = new_visuals(current, table, &mut view.seen);
-    fresh.extend(new_holds(current, table, &mut view.holds));
-    fresh.extend(new_on_objects(current, table, &mut view.seen_on_objects));
+    let mut fresh = Vec::new();
+    let shared = presented.0.current_shared();
+    if !crate::sim_host::is_snapshot(view.scanned.as_ref(), shared) {
+        fresh = new_visuals(current, table, &mut view.seen);
+        fresh.extend(new_holds(current, table, &mut view.holds));
+        fresh.extend(new_uncloaks(current, table, &mut view.cloaked));
+        fresh.extend(new_on_objects(current, table, &mut view.seen_on_objects));
+        view.scanned = Some(shared.clone());
+    }
     // The console's (`vfx ROW TAG [SECONDS] [FROM]`), as a script's.
     for words in std::mem::take(&mut requested.0) {
         match asked_by_hand(current, &swap.level, table, &words) {
@@ -1259,7 +1443,7 @@ fn spawn(
         wanted(|row| row.textures().collect()),
         wanted(|row| row.sounds().collect()),
     );
-    let reading = (&installer, module.as_str());
+    let reading = (&installer, module);
     ask_for(&mut view.models, models, reading, read);
     ask_for(&mut view.textures, textures, reading, read_texture);
     ask_for(&mut view.sounds, sounds, reading, read_sound);
@@ -1309,11 +1493,16 @@ fn spawn(
             continue;
         };
         if heard(&view.sounds, &asked.row.sound) {
-            cues.0.push(Cue::at(
-                sound_name(&asked.row.sound),
-                (base + Vec3::Z * IMPACT_M) / collision::UNIT,
-                asked.since as f32,
-            ));
+            let (falloff, gain) = ambience.placed(Group::SpellEffect);
+            cues.0.push(Cue {
+                falloff,
+                gain,
+                ..Cue::at(
+                    sound_name(&asked.row.sound),
+                    (base + Vec3::Z * IMPACT_M) / collision::UNIT,
+                    asked.since as f32,
+                )
+            });
         }
         if heard(&view.sounds, &asked.row.held) {
             view.held.push(Held {
@@ -1328,6 +1517,7 @@ fn spawn(
             let next = Shake {
                 from: asked.since + delay,
                 total,
+                scale: 1.0,
             };
             if view
                 .shake
@@ -1337,15 +1527,16 @@ fn spawn(
             }
         }
         // Its glows over its character, as it begins and while it lasts; a
-        // distortion while it lasts; its player's screen widened as it
-        // begins, blurred while it lasts.
+        // distortion while it lasts (a fire-and-forget row's, for its impact
+        // phase: `VFX_DUR_CLOAK_REMOVAL`'s); its player's screen widened as
+        // it begins, blurred while it lasts.
         if let Anchor::On(on) = asked.anchor {
-            if let (true, Some(until)) = (asked.row.distort, asked.until) {
+            if asked.row.distort {
                 view.glows.push(LiveGlow {
                     glow: Glow::distortion(&mut glow_materials),
                     on,
                     since: asked.since,
-                    until,
+                    until: asked.until.unwrap_or(asked.since + FLASH_MS),
                     kept: asked.kept,
                 });
             }
@@ -1453,7 +1644,7 @@ fn spawn(
             let aims = height(target, Node::Impact);
             let (images, stores) = assets.split();
             let mut spawning = Spawning {
-                spawner: Spawner::new(textures, scene.0.area_light(), images),
+                spawner: Spawner::sharing(textures, scene.0.area_light(), images, &scene.0.images),
                 stores,
                 hazes: &mut hazes,
                 textures,
@@ -1484,38 +1675,57 @@ fn spawn(
                 frames: 0,
                 kept: asked.kept,
                 glows: asked.glows,
+                aimed: asked.row.aimed,
             });
         }
     }
 }
 
-/// The clips an effect's model plays at `now_ms`: its `impact` (else, one
-/// that is no lasting effect's, its first clip) once from its beginning;
-/// a lasting one's `duration` round and round after it until its end, then
-/// its `cessation` once.
-fn phases(live: &Live, now_ms: f64) -> Vec<Anim> {
-    let clips = &live.spawned.model.clips;
-    let once = |name: &str, since: u64| Anim {
-        name: name.to_string(),
+#[derive(Clone, Copy)]
+struct Phase<'a> {
+    name: &'a str,
+    looping: bool,
+    since: u64,
+}
+
+impl Phase<'_> {
+    fn is(&self, anim: &Anim) -> bool {
+        anim.name == self.name
+            && anim.looping == self.looping
+            && anim.since == self.since
+            && !anim.overlay
+    }
+
+    fn anim(self) -> Anim {
+        Anim {
+            name: self.name.to_string(),
+            looping: self.looping,
+            overlay: false,
+            since: self.since,
+        }
+    }
+}
+
+/// The clip an effect's model plays at `now_ms`, if any. An effect plays
+/// its `impact` once from its beginning. An effect that is not a lasting
+/// one and has no `impact` plays its first clip once instead. A lasting
+/// effect then plays its `duration` round and round until its end, and
+/// then its `cessation` once.
+fn phase(live: &Live, now_ms: f64) -> Option<Phase<'_>> {
+    let once = |name, since| Phase {
+        name,
         looping: false,
-        overlay: false,
         since,
     };
+    let clips = &live.spawned.model.clips;
     let impact = clips
         .get("impact")
         .map(|clip| (clip.length * 1000.0) as u64);
     if !live.lasting {
         return match impact {
-            Some(_) => vec![once("impact", live.since)],
-            None => live
-                .spawned
-                .model
-                .placed
-                .ir
-                .animations
-                .first()
-                .map(|clip| vec![once(&clip.name, live.since)])
-                .unwrap_or_else(Vec::new),
+            Some(_) => Some(once("impact", live.since)),
+            None => (live.spawned.model.placed.ir.animations.first())
+                .map(|clip| once(clip.name.as_str(), live.since)),
         };
     }
     let started = live.since + impact.unwrap_or(0);
@@ -1536,15 +1746,27 @@ fn phases(live: &Live, now_ms: f64) -> Vec<Anim> {
                 .find(|name| !matches!(*name, "impact" | "cessation"))
         });
     match (now_ms < started as f64, ended, lasting) {
-        (true, ..) => vec![once("impact", live.since)],
-        (false, false, Some(name)) => vec![Anim {
+        (true, ..) => Some(once("impact", live.since)),
+        (false, false, Some(name)) => Some(Phase {
             looping: true,
             ..once(name, started)
-        }],
+        }),
         (false, true, _) if clips.contains_key("cessation") => {
-            vec![once("cessation", live.until.unwrap_or(started))]
+            Some(once("cessation", live.until.unwrap_or(started)))
         }
-        _ => Vec::new(),
+        _ => None,
+    }
+}
+
+fn set_phase(live: &mut Live, now_ms: f64) {
+    let phase = phase(live, now_ms);
+    let same = match (phase, live.spawned.anims.as_slice()) {
+        (None, []) => true,
+        (Some(phase), [anim]) => phase.is(anim),
+        _ => false,
+    };
+    if !same {
+        live.spawned.anims = phase.map(Phase::anim).into_iter().collect();
     }
 }
 
@@ -1559,11 +1781,21 @@ fn draw(
     mut posing: ParamSet<(Query<&mut Transform>, Drawing)>,
     (cameras, globals): (Query<Entity, SceneCamera>, Query<&GlobalTransform>),
     (mut facts, dump_due): (ResMut<console::DumpFacts>, Res<console::DumpDue>),
-    (mut loops, mut carried): (ResMut<Loops>, ResMut<crate::scene::CarriedLights>),
-    (swap, hitboxes): (Res<SceneSwap>, Res<crate::cast::Hitboxes>),
+    (mut loops, mut carried, ambience): (
+        ResMut<Loops>,
+        ResMut<crate::scene::CarriedLights>,
+        Res<crate::ambience::Ambience>,
+    ),
+    (swap, hitboxes, doors): (
+        Res<SceneSwap>,
+        Res<crate::cast::Hitboxes>,
+        Res<crate::sim_host::PresentedDoors>,
+    ),
+    lighting: Option<Res<crate::rolloff::LightingMode>>,
     mut commands: Commands,
 ) {
     let view = &mut *view;
+    let enhanced = lighting.is_some_and(|lighting| lighting.enhanced());
     if dump_due.0 {
         let rows = match &view.table {
             Some(Loaded::Ready(rows)) => Some(rows.len()),
@@ -1622,15 +1854,20 @@ fn draw(
         Anchor::On(id) => feet(current, id),
     };
     // A lasting effect's sound, held while it lasts and its character is
-    // there.
+    // there, as a visual effect's sound plays.
+    let (falloff, gain) = ambience.placed(Group::SpellEffect);
     view.held.retain(|held| {
         let at = base(held.anchor);
         let lasts = held.until.is_none_or(|until| now_ms < until as f64);
         if let (Some(at), true) = (at, lasts) {
-            loops.0.push(Hold::at(
-                held.name.clone(),
-                (at + Vec3::Z * IMPACT_M) / collision::UNIT,
-            ));
+            loops.0.push(Hold {
+                falloff,
+                gain,
+                ..Hold::at(
+                    held.name.clone(),
+                    (at + Vec3::Z * IMPACT_M) / collision::UNIT,
+                )
+            });
         }
         at.is_some() && lasts
     });
@@ -1676,10 +1913,23 @@ fn draw(
                 let stands = drawn.map_or(from.unwrap_or(at) + Vec3::Z * live.stands, |d| d.0);
                 let target = at + Vec3::Z * live.aims;
                 let way = (target - stands).normalize_or(Vec3::Y);
-                let turn = match (from, drawn) {
-                    (Some(_), _) => Quat::from_rotation_arc(Vec3::Y, way),
-                    (None, Some((_, turn))) => turn,
-                    (None, None) => Quat::IDENTITY,
+                // One on a character's feet turns as its character looks,
+                // as the executable's root node turns with the creature:
+                // its +Y along the view's yaw (the aim the sim casts along,
+                // `ps.view`, which every machine has), and one emitted along
+                // the aim (`aimed`) its pitch too, about the head.
+                let view = match live.anchor {
+                    Anchor::On(id) => current.get(id).and_then(|entity| entity.player),
+                    Anchor::At(_) => None,
+                }
+                .map(|ps| ps.view);
+                let (turn, stands) = match (from, drawn, view) {
+                    (Some(_), _, _) => (Quat::from_rotation_arc(Vec3::Y, way), stands),
+                    (None, Some((_, turn)), _) => (turn, stands),
+                    (None, None, Some([pitch, yaw, _])) => {
+                        aimed_turn(stands, (pitch, yaw), live.aimed)
+                    }
+                    (None, None, None) => (Quat::IDENTITY, stands),
                 };
                 *transform = Transform::from_translation(stands).with_rotation(turn);
             }
@@ -1688,15 +1938,10 @@ fn draw(
             if live.frames < HIDDEN_FRAMES {
                 live.since = live.since.max(now_ms.ceil() as u64);
             }
-            live.spawned.anims = phases(live, now_ms);
-            let anims = live.spawned.anims.clone();
-            fx_model::animate(
-                &mut live.spawned,
-                &anims,
-                (now_ms, dt),
-                Vec::new(),
-                &mut transforms,
-            );
+            set_phase(live, now_ms);
+            live.spawned.with_anims(|spawned, anims| {
+                fx_model::animate(spawned, anims, (now_ms, dt), Vec::new(), &mut transforms);
+            });
             if live.source.is_some()
                 && let Some(target) = base(live.anchor)
             {
@@ -1706,6 +1951,22 @@ fn draw(
     }
     // The lights of the lasting ones shown (a worn item's light): where
     // their nodes stand, for the scene's lights (`scene::CarriedLights`).
+    // Most of these lights have dynamic type 2, the room lamps' type. A
+    // type 2 light lights characters and placeables, but not the rooms. A
+    // room lamp's light is already in the room's lightmap, so the rooms
+    // must not take it twice. The original game does not light the rooms
+    // with a held Glow Rod either (#457), and Classic lighting keeps that.
+    // A light that a character carries is never in a lightmap. So under
+    // Enhanced lighting it is built as a fight's light, which lights the
+    // rooms' walls and floors as well. A fight's light is the only kind of
+    // light the rooms' baked surfaces take.
+    let kind = |ambient_only: bool, dynamic_type: u32| {
+        if enhanced {
+            crate::material::fight_kind(ambient_only)
+        } else {
+            crate::material::lamp_kind(ambient_only, dynamic_type)
+        }
+    };
     let lit: Vec<crate::material::GpuLight> = {
         let transforms = posing.p0();
         view.live
@@ -1721,7 +1982,8 @@ fn draw(
                     crate::material::GpuLight {
                         position_radius: position.extend(light.radius),
                         color_multiplier: Vec3::from_array(light.color).extend(light.multiplier),
-                        kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+                        kind: kind(light.ambient_only, light.dynamic_type),
+                        ..Default::default()
                     }
                 })
             })
@@ -1755,36 +2017,70 @@ fn draw(
         .map_or(Quat::IDENTITY, |t| t.rotation);
     let facing = fx_model::facing(turn);
     // What their bouncing particles meet: the level, the bodies as drawn.
-    let current = presented.0.current();
-    let states = swap.level.states_in(current);
+    let states = doors.of(&presented.0, &swap);
     let bodies = crate::particle_surfaces::bodies(&hitboxes, &globals);
     let meets = |from: Vec3, to: Vec3| {
         crate::particle_surfaces::meets(&swap.level, states.as_deref(), &bodies, (from, to))
     };
-    for live in &mut view.live {
-        // Hidden until its materials are its own; shown while a clip plays
-        // or a lasting one lasts; then its particles live out.
-        let lasts = live.lasting && live.until.is_none_or(|until| now_ms < until as f64);
-        let playing = lasts
-            || !live.spawned.anims.is_empty() && {
-                !fx_model::active(&live.spawned.model, &live.spawned.anims, now_ms).is_empty()
-            };
-        let ready = live.frames >= HIDDEN_FRAMES;
-        live.frames += 1;
-        if let Ok(mut shown) = drawing.visibility.get_mut(live.spawned.root) {
-            *shown = if playing && ready {
+    let mut begun: Vec<_> = (view.live.iter_mut())
+        .map(|live| {
+            // Hidden until its materials are its own; shown while a clip plays
+            // or a lasting one lasts; then its particles live out.
+            let lasts = live.lasting && live.until.is_none_or(|until| now_ms < until as f64);
+            let playing = lasts
+                || !live.spawned.anims.is_empty()
+                    && fx_model::plays(&live.spawned.model, &live.spawned.anims, now_ms);
+            let ready = live.frames >= HIDDEN_FRAMES;
+            live.frames += 1;
+            let shown = if playing && ready {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden
             };
+            if let Ok(mut visibility) = drawing.visibility.get_mut(live.spawned.root) {
+                visibility.set_if_neq(shown);
+            }
+            drawing.begin_effects(&mut live.spawned, (now_ms, dt))
+        })
+        .collect();
+    // The effects' particles step on the compute threads and on this
+    // thread. Each thread takes the next effect from a shared queue until
+    // none are left. A few effects hold most of the bouncing particles, so
+    // even shares of the effects would leave one thread with most of the
+    // work. Each effect touches only its own state. The level and the
+    // bodies are only read.
+    let effects = begun.len();
+    let particles: usize = begun.iter().map(fx_model::Begun::particles).sum();
+    let pool = ComputeTaskPool::get();
+    let queue = std::sync::Mutex::new(begun.iter_mut());
+    let step_queued = |queue: &std::sync::Mutex<std::slice::IterMut<'_, fx_model::Begun>>| {
+        while let Some(begun) = queue.lock().ok().and_then(|mut queue| queue.next()) {
+            fx_model::step_sprays(begun, Some(&meets), dt, facing);
         }
-        drawing.effects(&mut live.spawned, Some(&meets), (now_ms, dt), facing);
+    };
+    // With few particles, this thread steps them all, as handing them out
+    // would cost more than it saves. Otherwise this thread works the queue
+    // itself instead of running the pool's other tasks while it waits.
+    // Another system's long task could otherwise hold up this system, and
+    // with it the frame.
+    let helpers = match particles < SHARED_PARTICLES {
+        true => 0,
+        false => pool.thread_num().min(effects).saturating_sub(1),
+    };
+    pool.scope_with_executor(false, None, |scope| {
+        for _ in 0..helpers {
+            let (queue, step_queued) = (&queue, &step_queued);
+            scope.spawn(async move { step_queued(queue) });
+        }
+        step_queued(&queue);
+    });
+    for begun in begun {
+        drawing.finish_effects(begun);
     }
     view.live.retain(|live| {
         let end = live.until.map_or(live.since, |until| until.max(live.since)) as f64;
         let ended = live.until.is_some() || !live.lasting;
-        let playing =
-            !fx_model::active(&live.spawned.model, &live.spawned.anims, now_ms).is_empty();
+        let playing = fx_model::plays(&live.spawned.model, &live.spawned.anims, now_ms);
         let particles = live
             .spawned
             .sprays
@@ -1815,10 +2111,13 @@ fn glow(
     // The player's own screen: the newest widening on its body, a blur.
     let me = crate::cast::me(current, own.map_or(sim::Seat(0), |own| own.0));
     view.screens.retain(|live| now < live.until);
+    // The speed powers' widening and blur are not drawn over a
+    // conversation.
+    let talking = !current.talk.conversations.is_empty();
     let mine = || {
         view.screens
             .iter()
-            .filter(|live| Some(live.on) == me && live.since <= now)
+            .filter(|live| !talking && Some(live.on) == me && live.since <= now)
     };
     let widen = mine()
         .filter(|live| live.widen)
@@ -1842,12 +2141,28 @@ fn glow(
             live.glow.remove(&mut commands);
             return false;
         };
-        live.glow
-            .cover(root, (&children, &meshes), &odyssey, &mut commands);
+        live.glow.cover(
+            root,
+            (&children, &meshes),
+            (&odyssey, &mut materials),
+            &mut commands,
+        );
         let seconds = now.saturating_sub(live.since) as f32 / 1000.0;
         live.glow.play(seconds, &mut materials);
         true
     });
+}
+
+/// How a model on a character's feet at `stands` turns for the
+/// character's view (`pitch`, `yaw`; degrees, pitch positive looking down):
+/// its +Y along the yaw, and, `aimed`, down or up by the pitch about the
+/// head (`HEAD_M` over the feet), where it moves to.
+fn aimed_turn(stands: Vec3, (pitch, yaw): (f32, f32), aimed: bool) -> (Quat, Vec3) {
+    let pitch = if aimed { pitch } else { 0.0 };
+    let turn = Quat::from_rotation_z((yaw - 90.0).to_radians())
+        * Quat::from_rotation_x((-pitch).to_radians());
+    let head = Vec3::Z * HEAD_M;
+    (turn, stands + head - turn * head)
 }
 
 /// The entity of the node `name` picks of the model under `root` (its own,
@@ -1872,12 +2187,13 @@ fn body_node(
 /// A visual's glow (`fx_model::Spawned::glow`: its colour and how much of
 /// it there is) at `at` (Bevy's space) as a fight's light (`GLOW_*`).
 fn glow_light(at: Vec3, colour: Vec3, weight: f32) -> crate::material::GpuLight {
-    use crate::material::{GpuLight, LIGHT_COMBAT, LIGHT_DYNAMIC_ALL};
+    use crate::material::{GpuLight, fight_kind};
     let share = (weight / GLOW_FULL).min(1.0);
     GpuLight {
         position_radius: at.extend(GLOW_RADIUS),
         color_multiplier: colour.extend(GLOW_STRENGTH * share),
-        kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+        kind: fight_kind(false),
+        ..Default::default()
     }
 }
 

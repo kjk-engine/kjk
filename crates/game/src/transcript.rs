@@ -142,7 +142,13 @@ pub fn transcript(
                 .quests()
                 .get(quest)
                 .and_then(|of| of.entry(*entry as u32))
-                .and_then(|entry| talk(entry.text))
+                .and_then(|entry| match &entry.text.own {
+                    own if own.is_empty() => talk(entry.text.strref),
+                    own => {
+                        let own: String = own.iter().map(|&b| char::from(b)).collect();
+                        Some(filled(&own, tokens, player))
+                    }
+                })
                 .map_or_else(|| entry.to_string(), |text| format!("{entry} {text:?}"));
             vec![format!("{} -- journal: {quest} at {entry}", at(*ms))]
         }

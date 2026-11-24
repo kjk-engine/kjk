@@ -322,12 +322,19 @@ impl Tables<'_> {
         };
         let fields = indices
             .into_iter()
-            .map(|field| self.field(field, depth))
+            .filter_map(|field| self.field(field, depth).transpose())
             .collect::<Result<_, _>>()?;
         Ok(GffStruct { id, fields })
     }
 
-    fn field(&self, index: usize, depth: usize) -> Result<GffField, FormatError> {
+    /// The field record `index`; `None` for a field whose value in the field
+    /// data does not read. The games read such a field as missing and still
+    /// read the rest of the file: each of their field readers checks the
+    /// field's data and gives the caller's default when it does not fit (a
+    /// localized string's stored size must also match its strings). So one
+    /// bad field in a mod's file costs that field alone, not the file (a
+    /// `global.jrl` that did not read emptied the whole journal).
+    fn field(&self, index: usize, depth: usize) -> Result<Option<GffField>, FormatError> {
         if index >= self.fields.1 {
             return Err(unsupported(format!(
                 "field index {index} of {}",
@@ -341,7 +348,6 @@ impl Tables<'_> {
         let raw = self.reader.slice(at + 8, 4)?;
         let data = u32::from_le_bytes(raw.try_into().expect("4 bytes"));
         let offset = data as usize;
-        let bits32 = |bytes: &[u8]| u32::from_le_bytes(bytes.try_into().expect("4 bytes"));
         let value = match kind {
             0 => GffValue::Byte(raw[0]),
             1 => GffValue::Char(raw[0] as i8),
@@ -350,6 +356,38 @@ impl Tables<'_> {
             4 => GffValue::Dword(data),
             5 => GffValue::Int(data as i32),
             8 => GffValue::Float(data),
+            14 => GffValue::Struct(Box::new(self.structure(offset, depth + 1)?)),
+            15 => {
+                if offset
+                    .checked_add(4)
+                    .is_none_or(|end| end > self.list_indices.1)
+                {
+                    return Err(unsupported(format!("list indices offset {offset}")));
+                }
+                let count = self.reader.u32(self.list_indices.0 + offset)? as usize;
+                if offset + 4 + count * 4 > self.list_indices.1 {
+                    return Err(unsupported(format!("list of {count} at {offset}")));
+                }
+                let mut items = Vec::with_capacity(count);
+                for i in 0..count {
+                    let item = self.reader.u32(self.list_indices.0 + offset + 4 + i * 4)?;
+                    items.push(self.structure(item as usize, depth + 1)?);
+                }
+                GffValue::List(items)
+            }
+            6 | 7 | 9..=13 | 16..=18 => match self.data_value(kind, offset) {
+                Ok(value) => value,
+                Err(_) => return Ok(None),
+            },
+            other => return Err(unsupported(format!("field type {other}"))),
+        };
+        Ok(Some(GffField { label, value }))
+    }
+
+    /// A field's value kept in the field data, at `offset` there.
+    fn data_value(&self, kind: u32, offset: usize) -> Result<GffValue, FormatError> {
+        let bits32 = |bytes: &[u8]| u32::from_le_bytes(bytes.try_into().expect("4 bytes"));
+        Ok(match kind {
             6 => GffValue::Dword64(u64::from_le_bytes(
                 self.data_at(offset, 8)?.try_into().expect("8"),
             )),
@@ -391,25 +429,6 @@ impl Tables<'_> {
                 let len = self.data_u32(offset)? as usize;
                 GffValue::Void(self.data_at(offset + 4, len)?.to_vec())
             }
-            14 => GffValue::Struct(Box::new(self.structure(offset, depth + 1)?)),
-            15 => {
-                if offset
-                    .checked_add(4)
-                    .is_none_or(|end| end > self.list_indices.1)
-                {
-                    return Err(unsupported(format!("list indices offset {offset}")));
-                }
-                let count = self.reader.u32(self.list_indices.0 + offset)? as usize;
-                if offset + 4 + count * 4 > self.list_indices.1 {
-                    return Err(unsupported(format!("list of {count} at {offset}")));
-                }
-                let mut items = Vec::with_capacity(count);
-                for i in 0..count {
-                    let item = self.reader.u32(self.list_indices.0 + offset + 4 + i * 4)?;
-                    items.push(self.structure(item as usize, depth + 1)?);
-                }
-                GffValue::List(items)
-            }
             16 => {
                 let b = self.data_at(offset, 16)?;
                 GffValue::Orientation([0, 4, 8, 12].map(|i| bits32(&b[i..i + 4])))
@@ -426,8 +445,7 @@ impl Tables<'_> {
                 GffValue::StrRef(self.data_u32(offset + 4)?)
             }
             other => return Err(unsupported(format!("field type {other}"))),
-        };
-        Ok(GffField { label, value })
+        })
     }
 }
 

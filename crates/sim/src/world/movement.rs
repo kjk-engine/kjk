@@ -79,14 +79,229 @@ pub(super) fn hold_talkers(
     }
 }
 
+/// What a seat's command may not ask for in the player restrict mode
+/// (`SetPlayerRestrictMode`): attacks (and with them JA's kicks, specials
+/// and saber throw), the Force buttons, the saber style, the item buttons
+/// (grenades, medpacs, shields, stims). The stealth and mine buttons stay:
+/// their own steps refuse them with the games' lines (`covert`, `traps`).
+const RESTRICTED_BUTTONS: u16 = buttons::ATTACK
+    | buttons::ALT_ATTACK
+    | buttons::FORCE_GRIP
+    | buttons::FORCE_POWER
+    | buttons::FORCE_LIGHTNING
+    | buttons::FORCE_DRAIN
+    | buttons::SABER_STYLE
+    | buttons::GRENADE
+    | buttons::MEDPAC
+    | buttons::SHIELD
+    | buttons::STIM;
+
+/// "You cannot equip or use any items while wearing an enviro-suit.": both
+/// games' line for an action the player restrict mode refuses.
+pub(crate) const SUITED: u32 = 42346;
+
+/// The player restrict mode: what the games' envirosuit and space suit
+/// sections set on entering (K1's Manaan sea floor and Leviathan space walk,
+/// TSL's Peragus asteroid walk). Both executables then leave the player no
+/// attack, no Force power, no combat feat, no change of weapons or of
+/// equipment, no stealth, no mine, and only plot items to use (the
+/// Manaan sea floor's sonic emitter). Each seat with a body keeps its look,
+/// its walk and use, and loses the rest of its command: those buttons
+/// (`RESTRICTED_BUTTONS`), [Aim] and the feat attack, and the up axis, so
+/// JA's jump, crouch and roll, which KOTOR has none of, go too. Its weapon
+/// goes away (`move_actors`). Its actions are refused by the scripts' step
+/// (`seats::refused`).
+pub(super) fn restrict_seats(
+    mut inputs: ResMut<Inputs>,
+    avatars: Query<&Avatar>,
+    scripts: Res<scripts::Scripts>,
+) {
+    if !scripts.state.party.restrict {
+        return;
+    }
+    for avatar in &avatars {
+        let Some(command) = inputs.0.get(avatar.0).copied() else {
+            continue;
+        };
+        let mut restricted = Command {
+            buttons: command.buttons & !RESTRICTED_BUTTONS,
+            up: 0,
+            ..command
+        };
+        restricted.drop_attacks();
+        inputs.0.insert(avatar.0, restricted);
+    }
+}
+
+/// The buttons whose press uses something other than a readied grenade: the
+/// Force powers, the medpacs, the energy shields, the stims, stealth mode
+/// and the mines. The action bar's other slots and the power wheel's other
+/// entries hold these down.
+const OTHER_USES: u16 = buttons::FORCE_GRIP
+    | buttons::FORCE_POWER
+    | buttons::FORCE_LIGHTNING
+    | buttons::FORCE_DRAIN
+    | buttons::MEDPAC
+    | buttons::SHIELD
+    | buttons::STIM
+    | buttons::STEALTH
+    | buttons::LAY_MINE;
+
+/// The attack button and the weapon's other attack.
+const ATTACKS: u16 = buttons::ATTACK | buttons::ALT_ATTACK;
+
+/// The bodies whose holster key put a readied grenade away this step. The
+/// key then leaves the weapon in its holster (`move_actors`), since the
+/// player asked for it holstered.
+#[derive(Resource, Default)]
+pub(crate) struct GrenadeHolsterKeys(pub Vec<SimId>);
+
+/// Puts `fighter`'s readied grenade away, readied now as `to` (off, or
+/// stowing while an attack button is held), and drops a charge under way:
+/// nothing is thrown. The weapon that readying holstered (`Pack::redraw`)
+/// is drawn again, unless `keep_holstered`.
+pub(crate) fn stow_grenade(
+    fighter: &mut crate::combat::Fighter,
+    to: crate::combat::items::Readied,
+    keep_holstered: bool,
+) {
+    use crate::combat::items::Readied;
+    if fighter.pack.readied == Readied::On {
+        fighter.pack.charging_from = None;
+    }
+    fighter.pack.readied = to;
+    if std::mem::take(&mut fighter.pack.redraw) && !keep_holstered {
+        fighter.sheath = Sheath::Drawn;
+    }
+}
+
+/// Each seat's readied grenade (`items::Readied`), on the body its commands
+/// act through. It runs before the moves, wherever the step runs, so a
+/// client predicts the throws the host makes.
+///
+/// - `Action::Grenade` readies a grenade or puts it away. A grenade picked
+///   for the grenade slot (`Action::PickItem`) is readied too.
+/// - While a grenade is readied, the attack button is read as the grenade
+///   button (`grenades::pull` charges and throws it), and the weapon's other
+///   attack puts the grenade away. Neither reaches the weapon, and neither
+///   do [Feat attack] and [Aim].
+/// - The grenade is put away when the body goes down, when no seat acts
+///   through it any more (the leader changed), while a conversation holds
+///   the world or the player restrict mode is on, when its player switches
+///   weapon sets or holsters, and when its player uses a Force power, a
+///   feat attack or another item.
+///
+/// Readying a grenade holsters the weapon drawn, as the holster key does
+/// (`Pack::redraw`). The firing step puts the grenade away after its throw
+/// and when the body has no grenade left (`firing::fire`).
+pub(super) fn ready_grenades(
+    clock: Res<Clock>,
+    (mut inputs, mut holster_keys): (ResMut<Inputs>, ResMut<GrenadeHolsterKeys>),
+    (scripts, held, remotes): (
+        Res<scripts::Scripts>,
+        Res<scene::Held>,
+        Res<remote::Remotes>,
+    ),
+    mut bodies: Query<(&Id, Option<&Avatar>, &mut Fighting)>,
+) {
+    use crate::action::GrenadeOrder;
+    use crate::combat::items::Readied;
+    let lent = lent(&scripts.state.party);
+    holster_keys.0.clear();
+    // A seat flying the remote droid steers the droid, not its body.
+    let flying = |seat: Seat| remotes.0.iter().any(|remote| remote.seat == seat);
+    for (id, avatar, mut fighting) in &mut bodies {
+        let fighter = &mut fighting.0;
+        let seat = keyed_by(avatar.map(|avatar| avatar.0), id.0, lent);
+        let Some((seat, mut command)) = seat
+            .filter(|seat| !flying(*seat))
+            .and_then(|seat| Some((seat, inputs.0.get(seat).copied()?)))
+        else {
+            stow_grenade(fighter, Readied::Off, true);
+            continue;
+        };
+        let raw = command.buttons;
+        let pressed = raw & !fighter.last_command.buttons;
+        let mut ready = None;
+        let mut away = !fighter.alive()
+            || held.world
+            || scripts.state.party.restrict
+            || pressed & OTHER_USES != 0;
+        // The player asked for the weapon holstered: it stays so.
+        let mut keep_holstered = !fighter.alive();
+        for (_, action) in inputs.0.actions().iter().filter(|(from, _)| *from == seat) {
+            match action {
+                Action::Grenade(GrenadeOrder::Toggle) => {
+                    let on = ready.unwrap_or(fighter.pack.readied == Readied::On);
+                    ready = Some(!on);
+                }
+                Action::PickItem { row } if crate::combat::grenades::is_grenade(*row) => {
+                    ready = Some(true);
+                }
+                Action::Holster => {
+                    away = true;
+                    keep_holstered = true;
+                }
+                Action::Grenade(GrenadeOrder::PutAway)
+                | Action::SwitchWeapons
+                | Action::Feat { .. }
+                | Action::Cast { .. } => away = true,
+                _ => {}
+            }
+        }
+        if fighter.pack.readied == Readied::On && raw & buttons::ALT_ATTACK != 0 {
+            away = true;
+        }
+        let readied = match (ready, away) {
+            (_, true) | (Some(false), false) => match fighter.pack.readied {
+                Readied::Off => Readied::Off,
+                _ => Readied::Stowing,
+            },
+            (Some(true), false) => Readied::On,
+            (None, false) => fighter.pack.readied,
+        };
+        let was = fighter.pack.readied;
+        if readied != Readied::On && was == Readied::On {
+            // A holster key that put the grenade away draws nothing
+            // (`move_actors`).
+            if keep_holstered && fighter.alive() {
+                holster_keys.0.push(id.0);
+            }
+            stow_grenade(fighter, readied, keep_holstered);
+        } else if readied == Readied::On && was != Readied::On {
+            // The weapon drawn goes to its holster while the grenade is in
+            // hand, and comes out again after it (`stow_grenade`).
+            fighter.pack.redraw = !fighter.weapon_away(clock.time_ms);
+            if fighter.pack.redraw {
+                fighter.sheath = Sheath::Holstering;
+            }
+        }
+        fighter.pack.readied = match readied {
+            Readied::Stowing if raw & ATTACKS == 0 => Readied::Off,
+            other => other,
+        };
+        if fighter.pack.readied == Readied::Off {
+            continue;
+        }
+        // No attack reaches the weapon, nor [Feat attack] or [Aim], which
+        // would raise the holstered gun while the grenade is in hand.
+        command.drop_attacks();
+        if fighter.pack.readied == Readied::On && raw & buttons::ATTACK != 0 {
+            command.buttons |= buttons::GRENADE;
+        }
+        inputs.0.insert(seat, command);
+    }
+}
+
 /// Characters in order, each moved by its command through move_body: players
 /// in seat order, then creatures in id order (`command_for`). Doors stand as
 /// their states have them, and every living character is a body others
 /// run into, moved before the next character's move (as JA links each
-/// client after its move) — except that party members pass through each
-/// other with friendly fire off (a delegated decision: JA's players all
-/// collide, which in co-op KOTOR's doorways would only get in the way). The
-/// dead and the downed meet only the level and what play made (`lying`).
+/// client after its move). With friendly fire off, a party member a
+/// conversation holds or a script walks passes through the party's other
+/// members. A character stuck against another for long enough walks
+/// through it until the two have parted (`jams`). The dead and the downed
+/// meet only the level and what play made (`lying`).
 ///
 /// Each character's move runs its weapon step too (`motion::Arms`): its
 /// weapon changes, knockdowns and saber moves, whose checks see the other
@@ -102,10 +317,10 @@ pub(super) fn hold_talkers(
 #[allow(clippy::type_complexity)]
 pub(super) fn move_actors(
     clock: Res<Clock>,
-    inputs: Res<Inputs>,
+    (inputs, grenade_keys): (Res<Inputs>, Res<GrenadeHolsterKeys>),
     level: Res<Static>,
-    (mut touched, mut bumped, mut sent): (ResMut<Touched>, ResMut<Bumped>, ResMut<TorsoSent>),
-    (driven, scripts, held, talking, fight, made_faces, personas): (
+    (mut bumped, mut sent): (ResMut<Bumped>, ResMut<TorsoSent>),
+    (driven, scripts, held, talking, fight, made_faces, personas, rules): (
         Res<Driven>,
         Res<scripts::Scripts>,
         Res<scene::Held>,
@@ -113,6 +328,7 @@ pub(super) fn move_actors(
         Res<InCombat>,
         Res<MadeFaces>,
         Res<Personas>,
+        Res<super::Rules>,
     ),
     (objects, made): (
         Query<&Object>,
@@ -135,11 +351,20 @@ pub(super) fn move_actors(
         .collect();
     let mut actors: Vec<_> = actors.iter_mut().collect();
     actors.sort_by_key(|(id, avatar, ..)| (avatar.is_none(), avatar.map(|a| a.0), id.0));
-    let living = |party: bool| {
+    // The living a move meets: everyone, or all but the party, or all but
+    // the companions (a body a seat's player moves stays solid, `world::played`).
+    let living = |passes: Passes| {
         let mut bodies: Vec<Body> = actors
             .iter()
-            .filter(|(_, avatar, .., fighting)| {
-                fighting.0.alive() && (!party || !in_party(*avatar, &fighting.0))
+            .filter(|(id, avatar, .., fighting)| {
+                fighting.0.alive()
+                    && match passes {
+                        Passes::None => true,
+                        Passes::Party => !in_party(*avatar, &fighting.0),
+                        Passes::Companions => {
+                            !in_party(*avatar, &fighting.0) || super::played(id.0, *avatar, lent)
+                        }
+                    }
             })
             .map(|(id, _, object, _, player, _)| blocking(id.0, &player.0, *object))
             .collect();
@@ -161,8 +386,12 @@ pub(super) fn move_actors(
         .iter()
         .filter_map(|(id, object, at)| made_footprint(id.0, object, at.0, placed))
         .collect();
-    let (mut everyone, mut outside) = (living(false), living(true));
-    for bodies in [&mut everyone, &mut outside] {
+    let (mut everyone, mut outside, mut beside_players) = (
+        living(Passes::None),
+        living(Passes::Party),
+        living(Passes::Companions),
+    );
+    for bodies in [&mut everyone, &mut outside, &mut beside_players] {
         bodies.extend(props.iter().copied());
         bodies.sort_by_key(|body| body.entity);
     }
@@ -193,6 +422,12 @@ pub(super) fn move_actors(
         .iter()
         .filter(|(_, avatar, ..)| avatar.is_some())
         .map(|(.., player, _)| player.0.origin)
+        .collect();
+    // The bodies the seats' players move, by entity (`world::played`).
+    let played: Vec<u32> = actors
+        .iter()
+        .filter(|(id, avatar, ..)| super::played(id.0, *avatar, lent))
+        .map(|(id, ..)| id.0.0 | BODY)
         .collect();
     // Who KOTOR's walkers push aside rather than bump into (`walk::Met`),
     // by id: a creature idle (nothing queued, `Mind::queued`; no walk, no
@@ -231,6 +466,35 @@ pub(super) fn move_actors(
         })
         .collect();
     pushable.sort_by_key(|(id, ..)| *id);
+    // Who walks through whom (`jams`), and each living character's side,
+    // by id: two characters fighting each other never walk through each
+    // other, nor two of the party dueling (friendly fire on).
+    let mut jams = Jams::of(
+        actors
+            .iter()
+            .map(|(id, .., player, _)| (id.0.0 | BODY, &player.0.jam)),
+    );
+    let mut sides: Vec<(SimId, Side)> = actors
+        .iter()
+        .filter(|(.., fighting)| fighting.0.alive())
+        .map(|(id, avatar, object, sheet, _, fighting)| {
+            let side = side_of(id.0, *avatar, &fighting.0, &sheet_of(*sheet, *object));
+            (id.0, side)
+        })
+        .collect();
+    sides.sort_by_key(|(id, _)| *id);
+    let duels = level.0.friendly_fire != FriendlyFire::Off;
+    let walkers_push = level.0.module().is_none_or(|module| pushes_aside(module));
+    let standing = level
+        .0
+        .module()
+        .map(|module| module.repute.with(&scripts.state.reputation));
+    let side = |who: SimId| {
+        sides
+            .binary_search_by_key(&who, |(id, _)| *id)
+            .ok()
+            .map(|at| sides[at].1)
+    };
     // The party's bodies playing by KOTOR's rules now (`scene::Held::scene`),
     // standing, by id: those `spaced` keeps apart.
     let mut scene_party: Vec<Spaced> = actors
@@ -277,7 +541,6 @@ pub(super) fn move_actors(
             .copied()
             .unwrap_or(crate::snapshot::ObjectState::GONE)
     };
-    touched.0.clear();
     bumped.0.clear();
     for (id, avatar, object, sheet, player, fighting) in actors.iter_mut() {
         let (id, avatar, object, sheet) = (*id, *avatar, *object, *sheet);
@@ -312,8 +575,10 @@ pub(super) fn move_actors(
         let leads = lent
             .filter(|body| *body == id.0)
             .map(|_| Avatar(LEADER_SEAT));
-        let stands = avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT) && lent.is_some();
-        let seat = avatar.or(leads.as_ref()).filter(|_| !scripted && !stands);
+        let keyed = keyed_by(avatar.map(|avatar| avatar.0), id.0, lent);
+        let plays = keyed.is_some();
+        let seat = keyed.filter(|_| !scripted).map(Avatar);
+        let seat = seat.as_ref();
         // A script's lit saber is one act: `SetOverrideLightsaberState`
         // powers it once and holds nothing. The game decides again from the
         // next fight (`SetCombatState`), and the party's goes out once no
@@ -325,10 +590,9 @@ pub(super) fn move_actors(
         {
             fighting.0.sheath = Sheath::Fight;
         }
-        // In a conversation a party member with no fight of its own, nor a
-        // script's blow to deal, puts its blade away (`weapon::sheathes`).
-        let at_rest = member
-            && fighting.0.sheath == Sheath::Fight
+        // A party member in a conversation, with no fight of its own nor a
+        // script's blow to deal.
+        let in_talk = member
             && fighting.0.target.is_none()
             && !fighting.0.faking(clock.time_ms)
             && scene_held.scene(&talking.0, id.0)
@@ -337,14 +601,49 @@ pub(super) fn move_actors(
                 .strikes
                 .iter()
                 .any(|strike| strike.by.0 == id.0.0);
-        // Its seat's holster key puts its weapon away (`Sheath::Holstering`,
-        // its weapon step plays it).
+        let restricted = scripts.state.party.restrict;
+        // Its seat's draw or holster key puts its weapon away when it is out
+        // (`Sheath::Holstering`) and draws it when it is away
+        // (`Sheath::Drawn`). Its weapon step plays either. The key draws
+        // nothing in a conversation or in the player restrict mode, nor when
+        // it put a readied grenade away (`ready_grenades`).
+        let mut drew = false;
         if let Some(seat) = seat
             && fighting.0.alive()
-            && fighting.0.sheath != Sheath::Holstered
+            && !grenade_keys.0.contains(&id.0)
             && inputs.0.actions().contains(&(seat.0, Action::Holster))
         {
+            if !fighting.0.weapon_away(clock.time_ms) {
+                fighting.0.sheath = Sheath::Holstering;
+            } else if !in_talk && !restricted {
+                fighting.0.sheath = Sheath::Drawn;
+                drew = true;
+            }
+        }
+        // In a conversation such a party member puts its blade away
+        // (`weapon::sheathes`). A weapon its player drew goes back to the
+        // game's rule, which puts it away.
+        let at_rest = in_talk && matches!(fighting.0.sheath, Sheath::Fight | Sheath::Drawn);
+        if at_rest && fighting.0.sheath == Sheath::Drawn {
+            fighting.0.sheath = Sheath::Fight;
+        }
+        // The player restrict mode (`restricted`: the envirosuit's and the
+        // space suit's) puts a seat's weapon away and keeps it there, as
+        // KOTOR draws none while its player can neither attack nor change
+        // weapons. A script's lit saber stays a script's.
+        if restricted
+            && avatar.or(leads.as_ref()).is_some()
+            && fighting.0.alive()
+            && matches!(fighting.0.sheath, Sheath::Fight | Sheath::Drawn)
+        {
             fighting.0.sheath = Sheath::Holstering;
+        }
+        // A weapon a player drew goes back to the game's rule once no seat's
+        // keys act through its body (`seat`): a companion its player no longer
+        // leads, the first seat's own character while a companion leads, a
+        // guest's body after the guest left, a player a script walks.
+        if seat.is_none() && fighting.0.sheath == Sheath::Drawn {
+            fighting.0.sheath = Sheath::Fight;
         }
         // A route its mind walks: a creature's, a player's a script walks, a
         // guest's companion while its mind steers it, the companion leading
@@ -363,19 +662,29 @@ pub(super) fn move_actors(
         // walk, as K1 walks every creature a script moves.
         let seat_body = seat_bodies.contains(&script_ncs::vm::ObjectId(id.0.0));
         let driven = !routed || fighting.0.covert.stealth;
+        // A disguise (a script's `EffectDisguise`, else a worn item's) moves
+        // its wearer at its own body's rates, a player's too, as both
+        // executables set a disguised creature's rate from the disguise's
+        // `moverate`: K1's envirosuit and space suit walk `VSLOW`.
+        let disguise = (fighting.0.effects.disguise(clock.time_ms))
+            .or_else(|| sheet_of(sheet, object).gear.disguise)
+            .and_then(|appearance| disguise_rates(&level.0, appearance, driven));
+        let own_body = object
+            .and_then(|object| object.facts.as_ref())
+            .and_then(|facts| facts.body.as_ref());
+        let appearance = own_body.map(|body| body.appearance).or_else(|| {
+            avatar
+                .and_then(|avatar| crate::persona::of(&personas.0, avatar.0))
+                .map(|persona| persona.appearance)
+        });
         let rates = || {
-            let body = object
-                .and_then(|object| object.facts.as_ref())
-                .and_then(|facts| facts.body.as_ref());
-            let appearance = body.map(|body| body.appearance).or_else(|| {
-                avatar
-                    .and_then(|avatar| crate::persona::of(&personas.0, avatar.0))
-                    .map(|persona| persona.appearance)
-            });
+            if disguise.is_some() {
+                return disguise;
+            }
             let drive_walk = appearance
                 .filter(|_| driven)
                 .and_then(|appearance| drive_walk(&level.0, appearance));
-            walk::rates(body, seat_body || object.is_none(), drive_walk, table)
+            walk::rates(own_body, seat_body || object.is_none(), drive_walk, table)
         };
         let ps = &player.0;
         // A script's move of a body no seat drives, out of a fight, goes on
@@ -402,8 +711,28 @@ pub(super) fn move_actors(
         let mut command = if kotor.is_some() {
             fighting.0.last_command
         } else {
-            command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
+            let fighter = &fighting.0;
+            let now = clock.time_ms;
+            let creature = !plays;
+            let command = command_for(&inputs.0, seat, &player.0, fighter, now);
+            // The aim step reads the body's own sheet (`sheet_of`: a player's,
+            // or the one a creature's equipment changed), and only for a body
+            // a seat plays, since a creature never aims.
+            let sheet = (!creature).then(|| sheet_of(sheet, object));
+            slowed_to_aim(command, fighter, sheet.as_ref(), now)
         };
+        // The rules this body plays by: JA's in a scene (`saber_rules`).
+        let session = *rules;
+        let rules = scene_held.saber_rules(&talking.0, id.0, session.0);
+        let targeted = rules.targeted(session.1);
+        // JA has no block button: its bit is dropped, so a fighter's kept
+        // command is JA's own. The kick bit stays, because under JA the kick
+        // key kicks with the staff as the alternate attack does. A blaster's
+        // aim and feat attack stay too, because they work under every
+        // rule set.
+        if !rules.duel() {
+            command.holds &= !crate::input::holds::BLOCK;
+        }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's
         // pace there let Telos's hidden turrets chase the Exile out of their
@@ -413,11 +742,22 @@ pub(super) fn move_actors(
             command.right = 0;
             command.up = 0;
         }
-        // KOTOR's stealth disables the run (`world::covert`), as a worn
-        // item's Special Walk does: its axes held to a walk's, as JA's client
+        // A droid that rolls or floats has no legs (`Library::legless`). Its
+        // jump and crouch keys do nothing, so it never jumps, rolls, flips
+        // or runs along a wall. T3-M4 driven by its player is one.
+        if appearance.is_some_and(|appearance| legless(&level.0, appearance)) {
+            command.up = 0;
+        }
+        // KOTOR's stealth disables the run (`world::covert`) unless its
+        // character knows Stealth Run, and a worn item's Special Walk
+        // disables it always: its axes held to a walk's, as JA's client
         // sends a walk.
         let walk_only = fighting.0.effects.worn_traits & gear::traits::WALK_ONLY != 0;
-        if fighting.0.covert.stealth || walk_only {
+        let stealth_walk = fighting.0.covert.stealth
+            && !sheet_of(sheet, object)
+                .feats
+                .has(crate::combat::sheet::feats::STEALTH_RUN);
+        if stealth_walk || walk_only {
             let walk = rules::stealth::mode::WALK_AXIS;
             command.forward = command.forward.clamp(-walk, walk);
             command.right = command.right.clamp(-walk, walk);
@@ -436,28 +776,39 @@ pub(super) fn move_actors(
             // A seat's body, and a companion following it, keep JA's in
             // the party's fight or with weapons out (JA's gaits then).
             let as_players = seat.is_some() || mind.task == crate::combat::ai::Task::Follow;
-            let fights = !fighting.0.weapon_away(clock.time_ms) || (party && fight.0);
+            // The restricted party fights no one, so it keeps KOTOR's pace
+            // under attack too (the sharks of Manaan's sea floor).
+            let fights = !(party && restricted)
+                && (!fighting.0.weapon_away(clock.time_ms) || (party && fight.0));
             // A companion following walks at its leader's walk, keeping its
             // place beside it (`minds::leader_pace`).
             let leader_walk = (seat.is_none() && mind.task == crate::combat::ai::Task::Follow)
                 .then(|| mind.leader.unwrap_or(super::LEADER_SEAT))
                 .and_then(|seat| crate::persona::of(&personas.0, seat))
                 .and_then(|persona| drive_walk(&level.0, persona.appearance));
-            let rates = (scripted_move || (as_players && !fights))
+            // With `walking.pace.in_combat` a fight keeps KOTOR's pace too,
+            // so a body moves no faster in a fight than out of it.
+            let combat_pace = rules::walking::pace::IN_COMBAT;
+            let rates = (scripted_move || combat_pace || (as_players && !fights))
                 .then(rates)
                 .flatten()
                 .map(|(walk, run)| (leader_walk.unwrap_or(walk), run));
             if let Some(rates) = rates {
                 let run = command.buttons & buttons::WALKING == 0;
-                let multiplier = crate::combat::effects::kotor_multiplier(
-                    &fighting.0,
-                    player.0.run_speed / motion::BASE_SPEED,
-                    clock.time_ms,
-                );
+                // In a fight its run speed's own multiplier holds (the speed
+                // powers' combat bonus, `force.speed.scale`); out of one,
+                // KOTOR's effects.
+                let ja = player.0.run_speed / motion::BASE_SPEED;
+                let multiplier = if fights && combat_pace {
+                    ja
+                } else {
+                    crate::combat::effects::kotor_multiplier(&fighting.0, ja, clock.time_ms)
+                };
                 let speed = walk::kotor_speed(rates, multiplier, run);
                 // Out of its fight lately, it eases down from JA's.
                 let left = fighting.0.combat_until.max(fighting.0.saber.out_until);
                 let keep = match left {
+                    _ if combat_pace => 0.0,
                     0 => 0.0,
                     _ if as_players => walk::pace_kept(clock.time_ms.saturating_sub(left)),
                     _ => 0.0,
@@ -471,24 +822,44 @@ pub(super) fn move_actors(
         }
         fighting.0.last_command = command;
         let own = id.0.0 | BODY;
-        // With friendly fire on (a duel), the party collides too.
-        let passes = level.0.friendly_fire == FriendlyFire::Off;
+        // The party is solid to itself, as KOTOR's is (issue 280). With
+        // friendly fire off, a party member that a conversation holds
+        // passes through the party's other members, as before: KOTOR's
+        // walker gives a walk up on a body it cannot go round, and a scene
+        // would then wait on it for ever. One that a script has ordered to
+        // move passes through the other companions but not through the
+        // players: KOTOR's walker bumps into a player and goes round it,
+        // and never pushes one (Q-0267). Walking through a player that
+        // walked on, it bent the player's run aside (the Discord report of
+        // 11 November, "like bumper cars").
+        let ordered = scripts.state.goals.contains_key(&id.0.0);
+        let passes = !duels && party && (held || script_walk || ordered);
+        // Those it has parted from since it walked through them are solid
+        // again (`jams`); the dead walk through no one.
+        let my_box = blocking(id.0, &player.0, object);
+        let living: &[Body] = if fighting.0.alive() { &everyone } else { &[] };
+        jams.release(own, &mut player.0.jam, &my_box, living);
         let bodies = if !fighting.0.alive() {
             lying
-        } else if passes && party {
+        } else if passes && held {
             &outside
+        } else if passes {
+            &beside_players
         } else {
             &everyone
         };
+        let met = jams.meets(own, bodies);
+        let bodies = met.as_ref();
         // The bodies its walk may run into; a creature walking pushes aside
         // the idle ones not hostile to it, the party leader none (KOTOR's).
         // A companion a guest drives is no leader: it pushes as it would
         // with no one driving it (Carth, walked out of Hendar's gate, gave
         // the walk up between the two outcasts at its sides, and the scene
-        // waited on him for ever).
+        // waited on him for ever). KOTOR 1's walkers push no one aside
+        // (`pushes_aside`).
         let me = routed.then(|| side_of(id.0, avatar, &fighting.0, &sheet_of(sheet, object)));
         let leader = avatar.is_some_and(|avatar| avatar.0 == LEADER_SEAT) || leads.is_some();
-        let pusher = !leader && (avatar.is_none() || object.is_some());
+        let pusher = walkers_push && !leader && (avatar.is_none() || object.is_some());
         let space = personal_space(object);
         let mets: Vec<walk::Met> = bodies
             .iter()
@@ -533,14 +904,25 @@ pub(super) fn move_actors(
                 state if party && held => walk::opening_none(state),
                 state => state,
             };
-            let ways = walk::Walled {
+            let walled = walk::Walled {
                 doors: &doors,
                 walled: &made_faces.0,
             };
+            // A script's move to an object waits at a door that will not
+            // open for it (`walk::ThroughShut`).
+            let waits = crate::script::actions::waits_at_doors(scripts.state.actions.get(&id.0.0));
+            let ways = walk::ThroughShut(&walled, waits);
             walk::kotor_step(
                 &level.0, &player.0, walker, speed, clock.msec, run, space, &mets, &ways,
             )
         });
+        // Alive, out of a fight and still: what may stand `tucked` below.
+        let at_ease = fighting.0.alive()
+            && fighting.0.target.is_none()
+            && fighting.0.combat_until <= clock.time_ms
+            && command.forward == 0
+            && command.right == 0
+            && command.up == 0;
         let kit = Kit::of(&sheet_of(sheet, object));
         let mut rolls = SimRng::new(clock.tick, u64::from(id.0.0));
         let enemy = fighting
@@ -548,14 +930,19 @@ pub(super) fn move_actors(
             .target
             .and_then(|target| eyes.binary_search_by_key(&target, |(id, _)| *id).ok())
             .map(|at| eyes[at].1);
+        let move_before = fighting.0.saber.current_move;
         let mut arms = motion::Arms {
             fighter: &mut fighting.0,
             kit: &kit,
-            player: avatar.is_some(),
+            player: avatar.is_some() || (rules.duel() && leads.is_some()),
+            keyed: seat.is_some(),
             others: &others,
             rng: &mut rolls,
             enemy,
             at_rest,
+            drew,
+            rules,
+            targeted,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.
@@ -566,7 +953,7 @@ pub(super) fn move_actors(
         // Chuundar's throne room Freyyr, come up beside the player at a
         // slanting wall, held it with his box's corner on either side, a
         // pocket no walk got out of.
-        let inside = clear_of(&met_as(&mine, avatar.is_some()), bodies);
+        let inside = clear_of(&met_as(&mine, plays), bodies);
         let bodies = inside.bodies.as_ref();
         let before = player.0.origin;
         let standing_in = props
@@ -607,6 +994,29 @@ pub(super) fn move_actors(
                     world.trace(from, below, &feet, Contents::SOLID | Contents::PLAYER_CLIP);
                 !trace.start_solid && trace.fraction >= 1.0
             });
+        // KOTOR's walker is a point: a creature standing still out of a
+        // fight where its box is buried in the level's drawn furniture but
+        // the walker has room and a floor (`tucked`) stays there, standing as
+        // the walker holds it, rather than move_body's unburying lifting it
+        // a step and out onto what buries it (TSL's Jedi Council, placed at
+        // their chairs to sit, stood on the seats, #277).
+        let stepped = stepped.or_else(|| {
+            (avatar.is_none()
+                && !floorless
+                && at_ease
+                && level.0.with(states.as_deref(), |world| {
+                    tucked(world, player.0.origin, player.0.maxs_z)
+                }))
+            .then(|| walk::Stepped {
+                origin: player.0.origin,
+                velocity: [0.0; 3],
+                yaw: motion::view_of(command.angles, player.0.view_offset)[1],
+                legs: motion::Anim::BOTH_STAND1,
+                bumped: None,
+                door: None,
+                pushed: None,
+            })
+        });
         // One KOTOR's walker moved last step and no longer walking stops
         // dead, as KOTOR's bodies carry no momentum.
         if stepped.is_none() && player.0.flags & motion::motion_flags::CARRIED != 0 {
@@ -642,7 +1052,16 @@ pub(super) fn move_actors(
             Vec::new()
         } else {
             level.0.with(states.as_deref(), |world| {
-                let world = Bodies::new(world, bodies).skipping(own);
+                // A body walking a planned route passes through placeables'
+                // drawn shapes and is stopped by the walls round their
+                // footprints, as KOTOR's walker meets only the walkmesh. A
+                // shape standing out past its footprint stalled it (a swoop
+                // bike on Tatooine's Anchorhead), and with no walls a
+                // creature walked or was pushed through the bike. A body
+                // moved by its keys whose box already stands in a shape
+                // walks out of it, rather than being lifted onto its top.
+                let masked = motion::walker_world(world, routed, player.0.origin, player.0.maxs_z);
+                let world = Bodies::new(&masked, bodies).skipping(own);
                 let world = match standing_in {
                     Some(entity) => world.skipping(entity),
                     None => world,
@@ -659,6 +1078,15 @@ pub(super) fn move_actors(
             })
         };
         player.0.run_speed = run_speed;
+        // An attack that uses Flurry lowers the attacker's Defense for the
+        // round after it, as KOTOR's Flurry does.
+        let saber = &fighting.0.saber;
+        if saber.current_move != move_before && saber.current_move.attack() {
+            let lowered = saber.style.map_or(0, |style| kit.flurry_defence(style));
+            if lowered > 0 {
+                fighting.0.shooting.lower_defence(lowered, clock.time_ms);
+            }
+        }
         // KOTOR's walker meets the bodies by its own rule (`kotor_step`: it
         // pushes one aside or bumps and goes round, passing the one it goes
         // round); held off as well, a body going round one it overlapped
@@ -668,7 +1096,7 @@ pub(super) fn move_actors(
         // moved others' ways and a player's walk turned back and forth).
         if stepped.is_none() {
             let maxs_z = player.0.maxs_z;
-            let seated = avatar.is_some();
+            let seated = plays;
             let spaces = |entity: u32| {
                 let theirs = pushable
                     .binary_search_by_key(&SimId(entity & !BODY), |(id, ..)| *id)
@@ -687,6 +1115,71 @@ pub(super) fn move_actors(
                 },
             );
         }
+        // A companion nobody plays that runs into a player's body waits
+        // there, as KOTOR's walker stands when it bumps into a body: its
+        // step along the player is taken back, unless it stepped away. On
+        // JA's slide it pressed on along the player's side, and the
+        // player, running, was turned off its way again and again by it
+        // (the Discord report of 11 November, "like bumper cars"). A walk
+        // of its own goes round the player (`Walker::meet`, below); one
+        // stuck for long enough walks through it (`jams`).
+        if stepped.is_none() && member && seat.is_none() && fighting.0.alive() {
+            let moved = [
+                player.0.origin[0] - before[0],
+                player.0.origin[1] - before[1],
+            ];
+            let toward = |entity: &u32| {
+                bodies
+                    .iter()
+                    .chain(living.iter())
+                    .find(|body| body.entity == *entity)
+                    .map(origin_of)
+                    .is_some_and(|at| {
+                        (at[0] - before[0]) * moved[0] + (at[1] - before[1]) * moved[1] >= 0.0
+                    })
+            };
+            let pressed = touches
+                .iter()
+                .copied()
+                .chain(inside.entities())
+                .filter(|entity| played.contains(entity))
+                .any(|entity| toward(&entity));
+            if pressed && (moved[0] != 0.0 || moved[1] != 0.0) {
+                player.0.origin[0] = before[0];
+                player.0.origin[1] = before[1];
+                player.0.velocity[0] = 0.0;
+                player.0.velocity[1] = 0.0;
+            }
+        }
+        // Whom it ran into this step (`jams`): the body KOTOR's walker
+        // bumped into, or one move_body touched while its command moved it
+        // at a crawl. Kept on for long enough, it walks through that one.
+        let my_side = side(id.0);
+        let may = |entity: u32| {
+            let theirs = side(SimId(entity & !BODY));
+            my_side.zip(theirs).is_some_and(|(mine, theirs)| {
+                crate::module::relation(standing, mine, theirs) != Relation::Hostile
+                    && !(duels && mine.party && theirs.party)
+            })
+        };
+        // What move_body touched: the bodies its traces stopped at, and those
+        // it stood in or (a seat's player) touched, which held it off.
+        let ran_into = match &stepped {
+            Some(stepped) => stepped.bumped.map(|who| who.0 | BODY).filter(|e| may(*e)),
+            None => jams::blocked_by(
+                fighting.0.alive() && (command.forward != 0 || command.right != 0),
+                math::flat_distance(before, player.0.origin),
+                clock.msec,
+                &touches
+                    .iter()
+                    .copied()
+                    .chain(inside.entities())
+                    .collect::<Vec<_>>(),
+                player.0.jam.by,
+                may,
+            ),
+        };
+        jams.ran_into(own, &mut player.0.jam, ran_into, clock.msec);
         // A body its walk carries on plays its walk or run: KOTOR's movement
         // replaces what a script or a line played on it, as reone's creature
         // takes its move clip and plays no other while it moves. A death's
@@ -758,13 +1251,13 @@ pub(super) fn move_actors(
         idle::check(
             &mut player.0,
             &mut fighting.0,
-            (&command, avatar.is_some()),
+            (&command, plays),
             &kit,
             &level.0.anims,
             (clock.time_ms, clock.msec),
             &mut rolls,
         );
-        for bodies in [&mut everyone, &mut outside] {
+        for bodies in [&mut everyone, &mut outside, &mut beside_players] {
             if let Ok(at) = bodies.binary_search_by_key(&own, |body| body.entity) {
                 bodies[at] = blocking(id.0, &player.0, placed_object);
             }
@@ -778,20 +1271,32 @@ pub(super) fn move_actors(
             fighting.0.force.tricked = 0;
         }
         // A creature opens what it runs into only as `opens_doors` has it.
-        // What a player's commands moved touched it: the leading
-        // companion's body's, not its own standing one's.
-        let seat = match (avatar, leads) {
-            (Some(avatar), _) if !(avatar.0 == LEADER_SEAT && lent.is_some()) => Some(avatar.0),
-            (_, Some(leads)) => Some(leads.0),
-            _ => None,
-        };
-        match seat {
-            Some(seat) => touched.0.push((seat, touches)),
+        // A player's body opens nothing it runs into: KOTOR opens a door,
+        // or leaves by one, only when it is used.
+        match keyed_by(avatar.map(|avatar| avatar.0), id.0, lent) {
+            Some(_) => {}
             None if avatar.is_some() => {}
             None if opens_doors(&fighting.0) => {
-                bumped
-                    .0
-                    .extend(touches.into_iter().map(|entity| (id.0, entity)));
+                // A door it touches it opens only where its walk leads
+                // through it (`walk::heads_through`).
+                let origin = player.0.origin;
+                let opens = |entity: &u32| {
+                    let door = (*entity & BODY == 0)
+                        .then(|| level.0.placed().get(*entity as usize))
+                        .flatten()
+                        .filter(|object| object.kind == crate::module::ObjectKind::Door);
+                    door.is_none_or(|panel| {
+                        fighting.0.mind.walker.as_ref().is_some_and(|walker| {
+                            walk::heads_through(&level.0, walker, origin, (*entity, panel))
+                        })
+                    })
+                };
+                bumped.0.extend(
+                    touches
+                        .into_iter()
+                        .filter(opens)
+                        .map(|entity| (id.0, entity)),
+                );
             }
             None => {}
         }
@@ -915,6 +1420,12 @@ pub(crate) fn met_as(mine: &Body, seated: bool) -> Body {
 }
 
 impl Inside<'_> {
+    /// The entities of the bodies the move stood inside (or, a seat's
+    /// player, touched), which `hold_off` holds it off rather than a trace.
+    pub(crate) fn entities(&self) -> impl Iterator<Item = u32> + '_ {
+        self.centres.iter().map(|(_, entity)| *entity)
+    }
+
     /// A move from `before` that took `ps` deeper into a body it stood
     /// inside (nearer its centre) keeps only its part round that body (the
     /// part toward its centre taken off), when `clear` lets a box go there
@@ -1046,6 +1557,31 @@ pub(crate) fn standing_clear(
     !trace.start_solid && trace.fraction >= 1.0
 }
 
+/// Whether a body standing at `origin` (units, its top `maxs_z` units over
+/// it) is buried in `world` where KOTOR's walker stands: its box starts in
+/// the level's solid (a chair it was put at to sit), while a point a body
+/// high (`install::WALKER_HALF_WIDTH_M` across, as a jump's place is
+/// tested) is free there over a walkable floor within a step below.
+pub(crate) fn tucked(world: &dyn CollisionWorld, origin: [f32; 3], maxs_z: f32) -> bool {
+    let at = scale(origin, UNIT);
+    let half = motion::HALF_WIDTH * UNIT;
+    let body = Extents {
+        mins: [-half, -half, motion::SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
+    };
+    if !world.trace(at, at, &body, Contents::PLAYER_SOLID).all_solid {
+        return false;
+    }
+    let point = crate::install::WALKER_HALF_WIDTH_M;
+    let walker = Extents {
+        mins: [-point, -point, motion::SOLE_Z * UNIT],
+        maxs: [point, point, maxs_z * UNIT],
+    };
+    let below = [at[0], at[1], at[2] - motion::STEP_HEIGHT * UNIT];
+    let floor = world.trace(at, below, &walker, Contents::PLAYER_SOLID);
+    !floor.start_solid && floor.fraction < 1.0 && floor.plane.normal[2] >= motion::WALKABLE_NORMAL_Z
+}
+
 /// This step's faces under the placeables play made (`MadeFaces`).
 pub(super) fn made_faces(
     level: Res<Static>,
@@ -1073,6 +1609,20 @@ pub(super) fn made_faces(
     }
 }
 
+/// Whether a creature walking in `module` pushes an idle creature in its
+/// way aside (`walk::Met::push`). KOTOR 2's walker does: its executable
+/// checks whether the creature met may be bumped and moves it out of the
+/// way. KOTOR 1's executable has no such step, so its walkers bump into
+/// every creature they meet and go round it. In KOTOR 1 the Ebon Hawk's
+/// gizkas, wandering about, pushed the crew off their places (issue 393).
+/// The proving grounds and stages of neither game push as KOTOR 2 does.
+fn pushes_aside(module: &crate::module::ModuleData) -> bool {
+    module.game != K1
+}
+
+/// `ModuleData::game` for KOTOR 1.
+const K1: &str = "k1";
+
 /// A party member standing in a scene, as `spaced` weighs it: where it
 /// stands (units), its personal space (metres), and whether a seat's
 /// player drives it.
@@ -1087,9 +1637,10 @@ struct Spaced {
 /// none stands within another's personal space. KOTOR's creatures never
 /// come nearer each other than their two personal spaces, the party's
 /// included (its walkers bump or push aside every creature they meet,
-/// Q-0267); ours walk through each other with friendly fire off
-/// (`bodies_pass`), so two companions following can stand inside each
-/// other when a conversation stops them (Mission and Carth, issue 41). In a
+/// Q-0267). Ours can still stand inside each other when a conversation
+/// stops them: one walked through the other after being stuck against it
+/// (`jams`), or two companions were put on one spot (Mission and Carth,
+/// issue 41). In a
 /// scene, where KOTOR's rules hold, the one of each such pair is pushed
 /// aside as KOTOR's walker pushes an idle creature it meets
 /// (`walk::pushed_aside`): straight out from the other, past their two
@@ -1147,6 +1698,16 @@ fn spaced(
         }
     }
     pushes
+}
+
+/// Which living bodies a move passes through (`move_actors`).
+#[derive(Clone, Copy)]
+enum Passes {
+    None,
+    /// Every party member's.
+    Party,
+    /// The companions' only: a body a seat's player moves stays solid.
+    Companions,
 }
 
 /// A character's personal space (metres): its appearance's `perspace`

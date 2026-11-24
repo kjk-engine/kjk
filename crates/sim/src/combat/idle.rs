@@ -30,12 +30,10 @@ const SPREAD_MS: u32 = rules::combat::idle::SPREAD_MS;
 /// How far the view may turn and still be at rest (degrees, over all axes).
 const VIEW_SLACK: f32 = rules::combat::idle::VIEW_SLACK;
 
-/// The buttons that keep a character busy: all but walking, the saber
-/// style, stealth and laying a mine, which change how it stands but are
-/// not something it does.
-const ACTION_BUTTONS: u16 = buttons::ATTACK
-    | buttons::ALT_ATTACK
-    | buttons::USE
+/// The buttons that keep a character busy besides an attack
+/// (`Command::attacks`): all but walking, the saber style, stealth and
+/// laying a mine, which change how it stands but are not something it does.
+const ACTION_BUTTONS: u16 = buttons::USE
     | buttons::USE_HELD
     | buttons::FORCE_GRIP
     | buttons::FORCE_POWER
@@ -100,6 +98,19 @@ impl Acting {
         now < self.since.saturating_add(u64::from(self.ms))
     }
 
+    /// Whether it plays on when its body's actions are cleared
+    /// (`ClearAllActions`, a conversation's end, the module left behind): a
+    /// body dying in place keeps its dying clip, and a loop played until
+    /// stopped (`u32::MAX`) loops on. TSL's executable empties the queue
+    /// but leaves the body in the animation it plays, until something else
+    /// plays (a walk, a fight, another animation). The broken droid 3CFD on
+    /// Peragus lies slumped so (`k_def_repairsp`) through every
+    /// conversation's end (`k_def_endconv` clears its actions) and after T3
+    /// leaves the hangar and comes back.
+    pub fn outlives_a_clear(self) -> bool {
+        self.animation == crate::combat::death::DIE || self.ms == u32::MAX
+    }
+
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u16(self.animation);
         out.u64(self.since);
@@ -143,12 +154,13 @@ pub fn check(
     let in_hand = kit.hands[usize::from(fighter.hand.min(1))];
     let saber = &fighter.saber;
     let busy = ps.velocity.iter().any(|&speed| speed != 0.0)
+        || command.attacks()
         || command.buttons & ACTION_BUTTONS != 0
         || command.forward != 0
         || command.right != 0
         || command.up != 0
         || fighter.hp != fighter.rest.hp
-        || fighter.shooting.aiming
+        || fighter.shooting.slowed()
         || charging
         || fighter.weapon_wait_ms > 0
         || fighter.force.hand.is_some()
@@ -158,7 +170,7 @@ pub fn check(
         || saber.change != Change::None
         || in_hand == Held::Other
         || fighter.acting.is_some_and(|acting| acting.playing(now))
-        || (player && command.weapon != fighter.hand);
+        || (player && command.weapon != fighter.hand && kit.held(command.weapon) != Held::Nothing);
     let turn = |axis: usize| ps.view[axis] - fighter.rest.view[axis];
     let (pitch, yaw, roll) = (turn(0), turn(1), turn(2));
     let turned = (pitch * pitch + yaw * yaw + roll * roll).sqrt();

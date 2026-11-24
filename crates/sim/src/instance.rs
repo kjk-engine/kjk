@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use crate::module::{ObjectData, ObjectKind};
 use crate::snapshot::{EntityState, Kind, Snapshot, Spawned};
-use crate::world::Level;
+use crate::world::{Level, TemplateSources};
 
 /// Every object of an area, by number (see the module documentation).
 #[derive(Debug, Clone, Default)]
@@ -32,28 +32,99 @@ pub struct Instances {
     /// it, and each one's facts (none for one made from a template the
     /// level lacks: it stands and fights as a commoner, with no hooks, tag
     /// or name).
-    made: Vec<Spawned>,
-    made_facts: Vec<Option<Arc<ObjectData>>>,
+    /// Both lists are shared, so a copy of a table costs nothing until
+    /// one of them makes an instance.
+    made: Arc<Vec<Spawned>>,
+    made_facts: Arc<Vec<Option<Arc<ObjectData>>>>,
+}
+
+/// How many tables a thread keeps (`Instances::of`). Two cover the
+/// snapshots of one frame on either side of an object being made.
+const KEPT_TABLES: usize = 2;
+
+thread_local! {
+    /// The tables this thread made last, each with the template sources it
+    /// was made from (`Level::template_sources`).
+    static TABLES: std::cell::RefCell<Vec<(TemplateSources, Instances)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(feature = "probes")]
+thread_local! {
+    /// How many tables `Instances::of` made on this thread rather than
+    /// took from the kept ones, for the probes.
+    pub(crate) static MADE_TABLES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 impl Instances {
     /// `level`'s placements, then `made` (the snapshot's list) from the
     /// level's templates.
+    ///
+    /// The list grows by every object play makes in the area and never
+    /// shrinks, so a visited area's table can hold hundreds (the Ebon
+    /// Hawk's scripts make the party and its gizka again on each visit).
+    /// The views ask for the table many times a frame. So the thread keeps
+    /// the last tables it made, and a table asked for again from the same
+    /// level's templates and an equal list is that one, shared.
     pub fn of(level: &Level, made: &[Spawned]) -> Instances {
+        let sources = level.template_sources();
+        let kept = TABLES.with_borrow(|tables| {
+            (tables.iter())
+                .find(|(from, table)| *from == sources && table.made.as_slice() == made)
+                .map(|(_, table)| table.clone())
+        });
+        if let Some(table) = kept {
+            return table;
+        }
+        #[cfg(feature = "probes")]
+        MADE_TABLES.with(|count| count.set(count.get() + 1));
         let mut instances = Instances {
             placed: level.placed().clone(),
-            made: Vec::with_capacity(made.len()),
-            made_facts: Vec::with_capacity(made.len()),
+            made: Arc::new(Vec::with_capacity(made.len())),
+            made_facts: Arc::new(Vec::with_capacity(made.len())),
         };
         for spawned in made {
             instances.make(level, spawned.clone());
         }
+        TABLES.with_borrow_mut(|tables| {
+            // A table of another level is let go at once.
+            tables.retain(|(from, _)| *from == sources);
+            if tables.len() >= KEPT_TABLES {
+                tables.remove(0);
+            }
+            tables.push((sources, instances.clone()));
+        });
         instances
     }
 
     /// The table of the area `snapshot` is in, made in `level`.
+    ///
+    /// A kept table that holds the snapshot's own list is the table
+    /// wanted. The list cannot have changed while both hold it, because a
+    /// shared list is copied before anything is added to it. Otherwise the
+    /// table is found as `of` finds it. That table then holds the
+    /// snapshot's list, so the next snapshot with the same list finds it
+    /// at once.
     pub fn in_snapshot(level: &Level, snapshot: &Snapshot) -> Instances {
-        Instances::of(level, &snapshot.spawned)
+        let list = &snapshot.spawned;
+        let kept = TABLES.with_borrow(|tables| {
+            (tables.iter())
+                .find(|(from, table)| Arc::ptr_eq(&table.made, list) && from.are_of(level))
+                .map(|(_, table)| table.clone())
+        });
+        if let Some(table) = kept {
+            return table;
+        }
+        let mut table = Instances::of(level, list);
+        let made = std::mem::replace(&mut table.made, list.clone());
+        TABLES.with_borrow_mut(|tables| {
+            if let Some((_, kept)) =
+                (tables.iter_mut()).find(|(_, kept)| Arc::ptr_eq(&kept.made, &made))
+            {
+                kept.made = list.clone();
+            }
+        });
+        table
     }
 
     /// An instance `made` in play, from `level`'s templates: its number. A
@@ -75,8 +146,8 @@ impl Instances {
                     ..(*facts).clone()
                 }),
             });
-        self.made.push(made);
-        self.made_facts.push(facts);
+        Arc::make_mut(&mut self.made).push(made);
+        Arc::make_mut(&mut self.made_facts).push(facts);
         number
     }
 
@@ -156,6 +227,10 @@ impl Instances {
 
     /// What play made, in the order made (`Snapshot::spawned`).
     pub fn made(&self) -> &[Spawned] {
+        &self.made
+    }
+
+    pub fn made_shared(&self) -> &Arc<Vec<Spawned>> {
         &self.made
     }
 }

@@ -204,6 +204,11 @@ pub struct ItemFacts {
     /// `Wrist_Launcher`): worn, grenades are fired and rockets and darts
     /// usable (`gear::traits::WRIST_LAUNCHER`).
     pub launcher: bool,
+    /// The bit it sets, worn in any slot, in the mask that Force powers are
+    /// checked against (`Gear::force_items`): its base item's `itemtype`
+    /// as both games' executables read it (`session::items`). 0 for an
+    /// item that bars and allows no power.
+    pub force_item: u8,
 }
 
 impl ItemFacts {
@@ -300,6 +305,10 @@ impl ItemFacts {
         }
         if self.launcher {
             out.string("launcher");
+        }
+        if self.force_item != 0 {
+            out.string("force item");
+            out.u8(self.force_item);
         }
         if !self.cased_tag.is_empty() {
             out.string("cased");
@@ -407,13 +416,29 @@ impl ItemFacts {
             .is_none_or(|droids| droids == (race == crate::combat::sheet::races::DROID))
     }
 
-    /// The `spells.2da` row it casts that an item button takes (a grenade,
-    /// a medpac, a shield, a stim: `combat::items::use_of`), if one.
+    /// The `spells.2da` row it casts that an item button may take, if one.
+    /// A row the engine names (a grenade, a medpac, a shield, a stim:
+    /// `combat::items::use_of`) is taken from any item. Any other row is
+    /// taken only from an item that is equipped in a slot to be used, as
+    /// the energy shields are. Such an item is activated where it is worn,
+    /// and its row's impact script does what it does (`Use::Activated`).
+    /// `kinds` checks the row's data before the button takes it.
     pub fn combat_row(&self) -> Option<u16> {
         self.spell
             .map(|spell| spell.row)
-            .filter(|row| items::use_of(*row).is_some())
+            .filter(|row| items::use_of(*row).is_some() || self.slots != 0)
     }
+}
+
+/// What a `spells.2da` row's data says to the item buttons (`kinds`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RowUse {
+    /// The row names an impact script that the level has (`impactscript`).
+    pub scripted: bool,
+    /// An item casting the row uses it on the item's own user: the row is
+    /// not used on a foe (`hostilesetting`), or the row says it is used on
+    /// the user (`itemtargeting` 1, as the energy shields' rows do).
+    pub on_user: bool,
 }
 
 /// An item's Cast Spell property (`itempropdef.2da` row 10): the
@@ -453,13 +478,24 @@ impl ItemSpell {
 /// (a module's own template, carried out of it: `State::known`). Every
 /// reader of an item in play looks it up so; a template asked of the
 /// install (a store's stock, a script's `CreateItemOnObject`) asks the
-/// catalog alone.
+/// catalog alone. An item named by a bare resref (one saved before a
+/// module's own items carried its name) is that module's own as
+/// `Catalog::get` finds it, after its module is left too: TSL's Hangar 25
+/// control conduit, picked up in Peragus's fuel depot, still reads as the
+/// conduit the hangar's console asks for by tag.
 pub fn facts_in_play<'a>(
     catalog: &'a Catalog,
     known: &'a BTreeMap<String, ItemFacts>,
     template: &str,
 ) -> Option<&'a ItemFacts> {
-    catalog.get(template).or_else(|| known.get(template))
+    catalog
+        .get(template)
+        .or_else(|| known.get(template))
+        .or_else(|| {
+            known
+                .values()
+                .find(|facts| resref_of(&facts.template) == template)
+        })
 }
 
 /// The item templates scripts may make, by lowercase resref: every one the
@@ -511,6 +547,7 @@ impl ItemFacts {
             stealth_unit: false,
             shield: false,
             launcher: false,
+            force_item: 0,
         }
     }
 }
@@ -553,8 +590,16 @@ impl Catalog {
     }
 
     /// This catalog with `more`'s templates, which win over its own of the
-    /// same name (a module's own over the shared ones).
+    /// same name. A module's own template (`own_template`) takes the place
+    /// of the shared template of its resref, which nothing can name while
+    /// that module is played (`get`). The shared one is dropped, so a
+    /// catalog is the same whether the shared templates were read through
+    /// the module's archives, which hide it, or without them (the import
+    /// step's, `session::imported`).
     pub fn with(mut self, more: Catalog) -> Catalog {
+        for resref in more.own.keys() {
+            self.items.remove(resref);
+        }
         self.items.extend(more.items);
         self.own = Self::own_of(&self.items);
         self
@@ -707,6 +752,11 @@ pub struct Goods {
     /// template (`State::known`): every seat reads an item carried out of
     /// its module as the authority does (`Goods::facts`).
     pub known: BTreeMap<String, ItemFacts>,
+    /// The module's containers that hold nothing (by object id, in order).
+    /// A container's items are in `items` only while a seat holds it open,
+    /// so this is how every seat tells an empty one: its name then says
+    /// "Empty", as KOTOR 2's target menu shows it.
+    pub empty: Vec<u32>,
 }
 
 /// Where an item lies on an area's floor (`CreateItemOnFloor`): metres,
@@ -791,6 +841,10 @@ impl Goods {
         for facts in self.known.values() {
             crate::pack::encode_item(facts, out);
         }
+        out.u32(self.empty.len() as u32);
+        for id in &self.empty {
+            out.u32(*id);
+        }
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Goods, DecodeError> {
@@ -847,6 +901,17 @@ impl Goods {
                 known.insert(facts.template.clone(), facts);
             }
         }
+        let mut empty: Vec<u32> = Vec::new();
+        if input.since(crate::since::snapshot::EMPTY_CONTAINERS) {
+            for _ in 0..input.u32()? {
+                let at = input.at();
+                let id = input.u32()?;
+                if empty.last().is_some_and(|last| *last >= id) {
+                    return Err(input.invalid("goods empty order", at));
+                }
+                empty.push(id);
+            }
+        }
         Ok(Goods {
             gold,
             items,
@@ -854,6 +919,7 @@ impl Goods {
             floor,
             costs,
             known,
+            empty,
         })
     }
 }
@@ -960,14 +1026,48 @@ impl Item {
 /// keep the holders' index, so what a holder has is found without looking
 /// at every item (the items of every module left stay in play, thousands
 /// by the late game).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Items {
     by_id: BTreeMap<u32, Item>,
     by_holder: BTreeMap<u32, BTreeSet<u32>>,
+    /// A number no other items of this process have unless they hold the
+    /// same (`stamp`). It is no part of the game's state: it is not
+    /// written, hashed or compared.
+    stamp: u64,
+}
+
+/// The next stamp: each is given once in a process.
+fn next_stamp() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+impl Default for Items {
+    fn default() -> Items {
+        Items {
+            by_id: BTreeMap::new(),
+            by_holder: BTreeMap::new(),
+            stamp: next_stamp(),
+        }
+    }
 }
 
 impl Items {
+    /// A number that changes whenever an item may have changed, been added
+    /// or removed. Two reads of the same number are of the same items, so
+    /// what was worked out from them still holds.
+    pub fn stamp(&self) -> u64 {
+        self.stamp
+    }
+
+    /// Something beside the items that is read with them has changed
+    /// (`State::known`): the stamp changes too.
+    pub(crate) fn touch(&mut self) {
+        self.stamp = next_stamp();
+    }
+
     pub fn insert(&mut self, id: u32, item: Item) -> Option<Item> {
+        self.touch();
         let holder = item.holder;
         let was = self.by_id.insert(id, item);
         if let Some(was) = &was {
@@ -978,6 +1078,7 @@ impl Items {
     }
 
     pub fn remove(&mut self, id: &u32) -> Option<Item> {
+        self.touch();
         let item = self.by_id.remove(id)?;
         unindex(&mut self.by_holder, *id, item.holder);
         Some(item)
@@ -985,6 +1086,7 @@ impl Items {
 
     /// The item to change; its holder's index follows it when done.
     pub fn get_mut(&mut self, id: &u32) -> Option<ItemMut<'_>> {
+        self.touch();
         let item = self.by_id.get_mut(id)?;
         Some(ItemMut {
             id: *id,
@@ -997,6 +1099,11 @@ impl Items {
     /// The ids of what `holder` has, to change one by one.
     pub fn ids_held_by(&self, holder: u32) -> Vec<u32> {
         self.held_by(holder).map(|(id, _)| id).collect()
+    }
+
+    /// The ids of what `holder` has, in order, without reading the items.
+    pub fn held_ids(&self, holder: u32) -> impl Iterator<Item = u32> + '_ {
+        self.by_holder.get(&holder).into_iter().flatten().copied()
     }
 
     /// What `holder` has, by id.
@@ -1109,6 +1216,11 @@ pub fn pairs(right: &Weapon, left: &Weapon) -> bool {
 /// whether a stealth unit is worn (`flags::STEALTH_UNIT`) are those of
 /// everything worn after (`slots::worn`: not the second weapon set).
 pub fn rewear(mut sheet: Sheet, before: &[(u8, &ItemFacts)], after: &[(u8, &ItemFacts)]) -> Sheet {
+    // Both executables build the Force item mask from every slot, the
+    // second weapon set's too.
+    let force_items = after
+        .iter()
+        .fold(0, |bits, (_, facts)| bits | facts.force_item);
     let after: Vec<(u8, &ItemFacts)> = after
         .iter()
         .copied()
@@ -1142,6 +1254,7 @@ pub fn rewear(mut sheet: Sheet, before: &[(u8, &ItemFacts)], after: &[(u8, &Item
     sheet.gear = after
         .iter()
         .fold(Gear::default(), |gear, (_, facts)| gear.with(&facts.gear));
+    sheet.gear.force_items = force_items;
     if after.iter().any(|(_, facts)| facts.launcher) {
         sheet.gear.traits |= crate::combat::gear::traits::WRIST_LAUNCHER;
     }
@@ -1172,21 +1285,27 @@ fn add_guards(guards: &mut Guards, more: &Guards) {
 }
 
 /// What `held` (items and their uses left) gives a sheet of race `race` to
-/// use in a fight: its consumables, the items whose Cast Spell property
-/// casts a row with an impact script (`scripted`: the games' `spells.2da`
-/// `impactscript`, which does what the item does) that an item button
-/// takes (`ItemFacts::combat_row`) and that are for its race
-/// (`ItemFacts::fits`), counted by their uses, every kind.
+/// use in a fight, counted by their uses, every kind. An item is taken when
+/// its Cast Spell property casts a row that an item button takes
+/// (`ItemFacts::combat_row`), the item is for its race (`ItemFacts::fits`),
+/// and `rows` says the row has an impact script (the games' `spells.2da`
+/// `impactscript`, which does what the item does). A row the engine does
+/// not name is taken only when its item uses it on its own user as well:
+/// a droid's worn stun ray is used on a foe, not by a button.
 pub fn kinds<'a>(
     race: u8,
     held: impl IntoIterator<Item = (u16, &'a ItemFacts)>,
-    scripted: impl Fn(u16) -> bool,
+    rows: impl Fn(u16) -> RowUse,
 ) -> Vec<Carried> {
     let mut kinds: Vec<Carried> = Vec::new();
     for (uses, facts) in held {
+        let taken = |row: &u16| {
+            let data = rows(*row);
+            data.scripted && (items::use_of(*row).is_some() || data.on_user)
+        };
         let Some(row) = facts
             .combat_row()
-            .filter(|row| uses > 0 && facts.fits(race) && scripted(*row))
+            .filter(|row| uses > 0 && facts.fits(race) && taken(row))
         else {
             continue;
         };
@@ -1199,15 +1318,73 @@ pub fn kinds<'a>(
     kinds
 }
 
+/// The `spells.2da` row an item casts when it is a device. A device is an
+/// item that a character carries and uses on itself, whose row no item key
+/// takes (`items::use_of`), such as K1's Sonic Emitter on the Manaan sea
+/// floor. The item must not be one that is worn in a slot to be used, it
+/// must be for race `race`, and `rows` must say that the row has an impact
+/// script and is used on the item's own user. The player can put a device
+/// on the action bar (`combat::bar::Content::Device`). The power wheel
+/// never lists one.
+pub fn device_row(facts: &ItemFacts, race: u8, rows: impl Fn(u16) -> RowUse) -> Option<u16> {
+    let row = facts.spell?.row;
+    let data = rows(row);
+    let device = facts.slots == 0
+        && items::use_of(row).is_none()
+        && facts.fits(race)
+        && data.scripted
+        && data.on_user;
+    device.then_some(row)
+}
+
+/// A device the party carries (`device_row`): the `spells.2da` row it
+/// casts, and the first item of the party's goods that casts it, by its id
+/// and its template.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Device {
+    pub row: u16,
+    pub item: u32,
+    pub template: String,
+}
+
+/// The devices the party carries in `goods` that a character of race `race`
+/// may use, one for each `spells.2da` row, the lowest row first. `catalog`
+/// is the module's.
+pub fn devices(
+    goods: &Goods,
+    catalog: &Catalog,
+    race: u8,
+    rows: impl Fn(u16) -> RowUse,
+) -> Vec<Device> {
+    let mut devices: Vec<Device> = Vec::new();
+    for (item, held) in goods.carried(PARTY) {
+        let Some(facts) = goods.facts(catalog, &held.template) else {
+            continue;
+        };
+        let Some(row) = device_row(facts, race, &rows) else {
+            continue;
+        };
+        if devices.iter().all(|known| known.row != row) {
+            devices.push(Device {
+                row,
+                item,
+                template: held.template.clone(),
+            });
+        }
+    }
+    devices.sort_by_key(|device| device.row);
+    devices
+}
+
 /// The `kinds` that fit a sheet's `items::KINDS` slots: the first, or those a
 /// party member's `picks` keep where it carries more (`Picks::slotted`).
 pub fn usable<'a>(
     race: u8,
     held: impl IntoIterator<Item = (u16, &'a ItemFacts)>,
-    scripted: impl Fn(u16) -> bool,
+    rows: impl Fn(u16) -> RowUse,
     picks: Option<&crate::combat::picks::Picks>,
 ) -> [Option<Carried>; items::KINDS] {
-    let kinds = kinds(race, held, scripted);
+    let kinds = kinds(race, held, rows);
     let kept = match picks {
         Some(picks) if kinds.len() > items::KINDS => {
             picks.slotted(&kinds, race == crate::combat::sheet::races::DROID)

@@ -202,7 +202,7 @@ fn tally_mesh(
     if let Some(envmap) = facts.iter().rev().find_map(|facts| facts.envmap.clone()) {
         let key = match resolve(&envmap) {
             Some((_, true, _)) => "env map: cube (drawn)",
-            Some((_, false, _)) => "env map: 2D sphere map (not drawn)",
+            Some((_, false, _)) => "env map: flat, sphere-mapped (drawn)",
             None => "env map: missing",
         };
         tally.add(key, || format!("{module}: {envmap}"));

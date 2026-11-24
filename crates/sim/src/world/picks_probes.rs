@@ -1,12 +1,14 @@
 //! The probes of a chosen feat attack (`combat::picks`), on the proving
 //! ground, no install:
-//! - the next-feat action moves a gun round the lines known, its own first,
-//!   and its alternate takes the choice; each gun type keeps its own;
+//! - the next-feat action moves a gun round the lines known, the first known
+//!   first, and its alternate takes the choice; each gun type keeps its own;
 //! - one line known leaves nothing to cycle; a single blade has no choice;
 //! - two blades and a double-bladed weapon carry none until one is chosen,
 //!   each known line in turn, then none, each its own; only the lines known;
-//! - a blow carries the chosen line's feat, and only Flurry's counts more pace;
+//! - a blow carries the chosen line's feat, and only Flurry's attacks faster;
+//! - a single blade in the fast style deals more with Flurry, by rank;
 //! - a script's talent chooses its line, one known, one the weapon takes;
+//! - with every rank known, the HUD shows each line's highest rank;
 //! - the choices come back from a snapshot, and from an old one as none;
 //! - the action comes back whole from its bytes.
 
@@ -21,9 +23,10 @@ use crate::input::{Command, Seat, TickInput};
 use crate::probe::{Checks, check};
 use crate::wire::{Reader, Writer};
 use crate::{StepReason, WorldConfig};
+use rules::saber_moves::styles;
 
 /// The dev soldier's weapon, as `delivery` in the hands `hands`.
-fn holding(delivery: Delivery, hands: usize, known: &[u16]) -> Sheet {
+pub(crate) fn holding(delivery: Delivery, hands: usize, known: &[u16]) -> Sheet {
     let mut sheet = Sheet::dev_soldier();
     let mut weapon: Weapon = sheet.main_weapon();
     weapon.delivery = delivery;
@@ -87,7 +90,9 @@ fn gun_cycle() -> Result<String, String> {
     check(seen == want, format!("{seen:?}"))
 }
 
-/// Each gun type keeps its own choice; a line lost falls back to the gun's.
+/// Each gun type keeps its own choice. A gun type with no choice takes the
+/// first line known, whatever the type. A line lost falls back to the first
+/// line still known.
 fn gun_types_apart() -> Result<String, String> {
     let mut sheet = pistol(&GUN_LINES);
     Picks::next(&mut sheet, 0);
@@ -98,7 +103,7 @@ fn gun_types_apart() -> Result<String, String> {
     let fell_back = Special::of(&forgot, Blaster::Pistol);
     check(
         pistol_now == Some(Special::RapidShot(1))
-            && rifle_now == Some(Special::RapidShot(1))
+            && rifle_now == Some(Special::PowerBlast(1))
             && fell_back == Some(Special::PowerBlast(1)),
         format!("pistol {pistol_now:?}, rifle {rifle_now:?}, line lost {fell_back:?}"),
     )
@@ -156,7 +161,13 @@ fn blade_cycle() -> Result<String, String> {
     )
 }
 
-/// A blow carries the line chosen; only Flurry's counts more pace.
+/// A quick blow's cadence (ms), well under a whole roll's.
+const QUICK_MS: u32 = 300;
+
+/// A blow carries the line chosen; only Flurry's attacks faster. Two blades
+/// or a double-bladed one carrying Flurry swing `FLURRY_SPEED` faster, a
+/// quick blow counts its cadence that much over, and one after a pause
+/// counts a whole roll, no more (issue 481).
 fn blows_carry() -> Result<String, String> {
     let chosen = |presses: usize, style: Style, make: fn(&[u16]) -> Sheet| {
         let mut sheet = make(&BLADE_LINES);
@@ -166,12 +177,17 @@ fn blows_carry() -> Result<String, String> {
         let kit = Kit::of(&sheet);
         (
             kit.swing(style, sheet.main_weapon()),
-            kit.paced(style, 1000),
+            (
+                kit.paced(style, QUICK_MS),
+                kit.paced(style, WHOLE),
+                kit.attack_speed(style),
+            ),
             sheet.main_weapon(),
         )
     };
     let mut wrong = Vec::new();
-    use rules::saber_moves::styles;
+    let plain = (QUICK_MS, WHOLE, 1000);
+    let quick_flurry = QUICK_MS * u32::from(styles::FLURRY_SPEED[0]) / 1000;
     for (style, make) in [
         (Style::Dual, dual as fn(&[u16]) -> Sheet),
         (Style::Staff, staff),
@@ -181,29 +197,73 @@ fn blows_carry() -> Result<String, String> {
         let (critical, critical_pace, _) = chosen(2, style, make);
         let (flurry, flurry_pace, _) = chosen(3, style, make);
         let right = none == base
-            && none_pace == 1000
+            && none_pace == plain
             && power.damage_bonus == base.damage_bonus + styles::POWER_ATTACK[0]
             && power.attack_bonus == base.attack_bonus - styles::POWER_ATTACK_PENALTY
-            && power_pace == 1000
+            && power_pace == plain
             && critical.crit_threat == base.crit_threat.max(1) * styles::CRITICAL_THREAT
-            && critical_pace == 1000
+            && critical_pace == plain
             && flurry.attack_bonus == base.attack_bonus - styles::FLURRY_PENALTY[0]
-            && flurry_pace == styles::FLURRY_PACE;
+            && flurry_pace == (quick_flurry, WHOLE, styles::FLURRY_SPEED[0]);
         if !right {
-            wrong.push(style.name());
+            wrong.push(format!("{} {flurry_pace:?}", style.name()));
         }
     }
-    let single = Kit {
-        flurry: 1,
-        ..Kit::default()
-    };
     let unfeated = Kit::default();
     check(
         wrong.is_empty()
-            && single.paced(Style::Fast, 1000) == styles::FLURRY_PACE
-            && single.paced(Style::Medium, 1000) == 1000
-            && unfeated.paced(Style::Fast, 1000) == 1000,
+            && unfeated.paced(Style::Fast, QUICK_MS) == QUICK_MS
+            && unfeated.paced(Style::Strong, WHOLE) == WHOLE,
         format!("wrong: {wrong:?}"),
+    )
+}
+
+/// A whole roll's cadence (ms): a blow after a pause.
+const WHOLE: u32 = crate::combat::damage::WHOLE_CADENCE_MS;
+
+/// A single blade in the fast style with Flurry, at each rank, deals
+/// `FAST_DAMAGE` of each blow, quick or after a pause, and attacks no
+/// faster; in the medium style it deals each blow as it is. The strong
+/// style counts up to `STRONG_TIME_MS` of time between attacks, the others
+/// a whole roll's (issue 481).
+fn fast_style_damage() -> Result<String, String> {
+    let ranks = [(1, false), (2, false), (2, true)];
+    let mut wrong = Vec::new();
+    for (rank, (flurry, master_flurry)) in ranks.into_iter().enumerate() {
+        let kit = Kit {
+            flurry,
+            master_flurry,
+            ..Kit::default()
+        };
+        let times = u32::from(styles::FAST_DAMAGE[rank]);
+        let got = [
+            kit.paced(Style::Fast, QUICK_MS),
+            kit.paced(Style::Fast, WHOLE),
+            kit.paced(Style::Medium, QUICK_MS),
+            u32::from(kit.attack_speed(Style::Fast)),
+        ];
+        let want = [
+            QUICK_MS * times / 1000,
+            WHOLE * times / 1000,
+            QUICK_MS,
+            1000,
+        ];
+        if got != want {
+            wrong.push(format!("rank {rank}: {got:?}, wanted {want:?}"));
+        }
+    }
+    let longest = [
+        Style::Fast,
+        Style::Medium,
+        Style::Strong,
+        Style::Dual,
+        Style::Staff,
+    ]
+    .map(|style| Kit::whole_ms(Some(style)));
+    let longest_want = [WHOLE, WHOLE, styles::STRONG_TIME_MS, WHOLE, WHOLE];
+    check(
+        wrong.is_empty() && longest == longest_want,
+        format!("wrong: {wrong:?}; longest time counted by style {longest:?}"),
     )
 }
 
@@ -257,14 +317,45 @@ fn shown() -> Result<String, String> {
     )
 }
 
+/// Every rank of each melee line known: two blades and a double-bladed
+/// weapon show the line's highest rank, Master Flurry among them (issue
+/// 352), and a script's talent of that rank chooses its line.
+fn highest_rank_shown() -> Result<String, String> {
+    let chains: [(Melee, [u16; 3]); 3] = [
+        (Melee::Power, feats::POWER_ATTACK),
+        (Melee::Critical, feats::CRITICAL_STRIKE),
+        (Melee::Flurry, feats::FLURRY_RANKS),
+    ];
+    let every: Vec<u16> = chains.iter().flat_map(|(_, rows)| *rows).collect();
+    let mut wrong = Vec::new();
+    for (make, at, weapon) in [
+        (dual as fn(&[u16]) -> Sheet, 0, "dual"),
+        (staff, 1, "staff"),
+    ] {
+        let mut sheet = make(&every);
+        for (line, rows) in chains {
+            Picks::next(&mut sheet, 0);
+            let shown = Picks::shown(&sheet, 0);
+            let mut talent = make(&every);
+            let chose = Picks::choose(&mut talent, 0, rows[2]);
+            if shown != Some(Shown::Feat(rows[2])) || !chose || talent.picks.blades()[at] != line {
+                wrong.push(format!(
+                    "{weapon} {line:?} shows {shown:?}, talent chose {chose}"
+                ));
+            }
+        }
+    }
+    check(wrong.is_empty(), format!("wrong: {wrong:?}"))
+}
+
 /// The choices through their bytes, and the action through its.
 fn round_trip() -> Result<String, String> {
     let mut sheet = pistol(&GUN_LINES);
     Picks::next(&mut sheet, 0);
     let mut out = Writer::default();
     sheet.picks.encode(&mut out);
-    let got =
-        Picks::decode(&mut Reader::new("picks", &out.0), true).map_err(|e| format!("{e:?}"))?;
+    let got = Picks::decode(&mut Reader::new("picks", &out.0), true, true)
+        .map_err(|e| format!("{e:?}"))?;
     let action = Action::NextFeat { hand: 1 };
     let back = Action::from_bytes(&action.to_bytes());
     check(
@@ -275,14 +366,16 @@ fn round_trip() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 8] = [
+    let cases: [(&'static str, Case); 10] = [
         ("picks_gun_cycle", gun_cycle),
         ("picks_gun_types_apart", gun_types_apart),
         ("picks_nothing_to_cycle", nothing_to_cycle),
         ("picks_blade_cycle", blade_cycle),
         ("picks_blows_carry", blows_carry),
+        ("picks_fast_style_damage", fast_style_damage),
         ("picks_talent_chooses", talent_chooses),
         ("picks_hud_shown", shown),
+        ("picks_highest_rank_shown", highest_rank_shown),
         ("picks_round_trip", round_trip),
     ];
     cases.into_iter().map(|(name, run)| (name, run())).collect()

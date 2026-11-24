@@ -20,6 +20,15 @@
 //! - `spells`: the `spells.2da` rows the native rules name, by label.
 
 pub mod ai;
+pub mod balance;
+#[cfg(feature = "probes")]
+pub mod balance_probes;
+pub mod bar;
+#[cfg(feature = "probes")]
+pub mod bar_probes;
+pub mod bloom;
+#[cfg(feature = "probes")]
+pub mod bloom_probes;
 pub mod damage;
 pub mod death;
 pub mod effects;
@@ -27,6 +36,7 @@ pub mod fighter;
 pub mod force;
 pub mod forms;
 pub mod gear;
+pub mod grab;
 pub mod grenades;
 pub mod idle;
 pub mod items;

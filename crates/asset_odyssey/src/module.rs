@@ -37,6 +37,16 @@ pub trait Source {
     fn talk(&self) -> Option<std::sync::Arc<fmt_odyssey::tlk::Tlk>> {
         None
     }
+
+    /// Whether script `resref` is one of KOTOR 2's impact scripts lent to a
+    /// KOTOR 1 install (`vfs::lent`), as the layer it is read from tells.
+    /// Such a script has KOTOR 2's row numbers compiled in, which are the
+    /// canonical numbers (`rules::rows`), while every other script speaks
+    /// the install's row numbers. None is by default.
+    fn lent_script(&self, resref: &str) -> bool {
+        let _ = resref;
+        false
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +107,14 @@ pub struct AreaIr {
     /// The ARE's `DisableTransit`: no leaving for the Ebon Hawk from the
     /// map page (TSL's).
     pub disable_transit: bool,
+    /// The ARE's `Unescapable`: the party may not leave the area for the
+    /// Ebon Hawk, nor change its members there, until a script says
+    /// otherwise (`SetAreaUnescapable`).
+    pub unescapable: bool,
+    /// The ARE's `DefaultEnvMap`: the cube map an object asking for the
+    /// area's (`creature::EnvMap::AreaDefault`) is drawn with; none when
+    /// empty, as in every K1 area.
+    pub default_envmap: Option<String>,
 }
 
 /// The ARE's grass (`Grass_*`); `None` without a texture or a density.
@@ -367,6 +385,13 @@ pub struct Toughness {
     pub plot: bool,
     /// `Min1HP`: it is hurt down to 1 hit point and no further.
     pub min_one_hp: bool,
+    /// `NotBlastable`: no mine may be set on its lock.
+    pub not_blastable: bool,
+    /// A placeable, not static, whose appearance row in `placeables.2da` is
+    /// `hostile`: the party attacks it (K1's Star Forge stasis tanks, TSL's
+    /// power conductors). Not read from the GFF: `Appearances::hostile`
+    /// sets it.
+    pub hostile: bool,
 }
 
 impl Toughness {
@@ -382,6 +407,8 @@ impl Toughness {
             hardness: field("Hardness").map_or(0, |value| value.clamp(0, 255) as u8),
             plot: flag("Plot"),
             min_one_hp: flag("Min1HP"),
+            not_blastable: flag("NotBlastable"),
+            hostile: false,
         }
     }
 }
@@ -439,6 +466,10 @@ pub struct Lock {
     pub key_required: bool,
     /// `AutoRemoveKey`: the key is used up opening it.
     pub auto_remove_key: bool,
+    /// `OpenLockDiff`, where the GFF has it: KOTOR 2's difficulty class.
+    pub open_class: Option<u8>,
+    /// `OpenLockDiffMod`: what KOTOR 2 adds to a rated lock's difficulty.
+    pub open_mod: i8,
 }
 
 impl Lock {
@@ -465,6 +496,12 @@ impl Lock {
                 .to_vec(),
             key_required: flag("KeyRequired"),
             auto_remove_key: flag("AutoRemoveKey"),
+            open_class: field("OpenLockDiff")
+                .and_then(GffValue::uint)
+                .map(|class| class.min(255) as u8),
+            open_mod: field("OpenLockDiffMod")
+                .and_then(GffValue::int)
+                .map_or(0, |by| by.clamp(-128, 127) as i8),
         }
     }
 }
@@ -561,6 +598,20 @@ impl Appearances {
         table.named(row as usize, column)
     }
 
+    /// Whether a placeable's appearance row is `hostile` (`placeables.2da`):
+    /// one the party attacks.
+    fn hostile(&self, instance: &Instance) -> bool {
+        let (Kind::Placeable, Some(row), Some(table)) =
+            (instance.kind, instance.appearance, self.placeables.as_ref())
+        else {
+            return false;
+        };
+        table
+            .column("hostile")
+            .and_then(|column| table.named(row as usize, column))
+            .is_some_and(|hostile| hostile.trim() == "1")
+    }
+
     /// Whether a door broken by blows plays its model's `busted`: its
     /// `genericdoors` row's `StaticAnim` says so (the executable reads it
     /// when a door is destroyed; Taris's `dor_lts05`, `dor_lts10`).
@@ -630,6 +681,87 @@ pub fn scripts(node: &GffStruct) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The fields of a GIT entry that both games' executables read when they
+/// place an object of a kind made from its template (`as_placed`): where it
+/// stands, which template, a placeable's tint, a sound's generated type, a
+/// trigger's link and outline, an encounter's outline and spawn points.
+const PLACED_FIELDS: [&str; 21] = [
+    "TemplateResRef",
+    "ResRef",
+    "XPosition",
+    "YPosition",
+    "ZPosition",
+    "XOrientation",
+    "YOrientation",
+    "ZOrientation",
+    "X",
+    "Y",
+    "Z",
+    "Bearing",
+    "UseTweakColor",
+    "TweakColor",
+    "GeneratedType",
+    "LinkedToModule",
+    "LinkedTo",
+    "LinkedToFlags",
+    "TransitionDestin",
+    "Geometry",
+    "SpawnPointList",
+];
+
+/// A GIT entry as the executables read it when they place it in a new
+/// area. A door or a waypoint is read whole from its entry. Any other kind
+/// is made from its template, and the entry adds only `PLACED_FIELDS`. A
+/// mod's GIT that writes more fields into such an entry (an empty `Tag`, an
+/// empty `Conversation`) changes nothing in the original game, and here
+/// neither. An entry whose template is missing is read whole, because no
+/// template is there to make it from. One divergence is kept: a trigger's
+/// own `Tag` that is not empty still names it, as the routes name the
+/// transition triggers by those tags.
+fn as_placed(
+    kind: Kind,
+    item: &GffStruct,
+    template_found: bool,
+) -> std::borrow::Cow<'_, GffStruct> {
+    if matches!(kind, Kind::Door | Kind::Waypoint) || !template_found {
+        return std::borrow::Cow::Borrowed(item);
+    }
+    let kept = |field: &&fmt_odyssey::gff::GffField| {
+        let read = PLACED_FIELDS
+            .iter()
+            .any(|label| field.label == label.as_bytes());
+        let own_tag = kind == Kind::Trigger
+            && field.label == b"Tag"
+            && !matches!(&field.value, GffValue::String(tag) if tag.is_empty());
+        read || own_tag
+    };
+    std::borrow::Cow::Owned(GffStruct {
+        id: item.id,
+        fields: item.fields.iter().filter(kept).cloned().collect(),
+    })
+}
+
+/// Whether a GIT entry is a creature that nothing can be made from. Its
+/// template is missing, and the entry has no appearance of its own. The
+/// original game places no creature for such an entry. A mod can leave one
+/// behind: Restored Content for K1CP places 14 `h_iriaz001` on the Matale
+/// Grounds and installs no `h_iriaz001.utc`. Placed here, each would stand
+/// as a creature with no body that a player walks into and cannot see.
+fn cannot_be_made(kind: Kind, item: &GffStruct, template_found: bool) -> bool {
+    kind == Kind::Creature && !template_found && item.get("Appearance_Type").is_none()
+}
+
+/// The template a GIT entry names (a store's `ResRef`, any other kind's
+/// `TemplateResRef`).
+fn template(kind: Kind, item: &GffStruct) -> String {
+    let label = if kind == Kind::Store {
+        "ResRef"
+    } else {
+        "TemplateResRef"
+    };
+    item.resref(label).unwrap_or_else(String::new)
+}
+
 #[allow(
     clippy::disallowed_methods,
     reason = "`facing` is for drawing; the sim turns by `direction`"
@@ -661,25 +793,24 @@ fn instance(kind: Kind, item: &GffStruct) -> Instance {
             Direction::Vector([dx, dy]),
         )
     };
-    // `LinkedToFlags` 0 links to nothing, whatever the names say (xoreos;
-    // the Taris hideout's door names its module, and its own script and
-    // the party screen take the player out); one without the field is
-    // read by its names.
-    let unlinked = item.uint("LinkedToFlags") == Some(0);
+    // A door whose `LinkedToFlags` is 0 links to nothing, whatever the
+    // names say (xoreos; the Taris hideout's door names its module, and its
+    // own script and the party screen take the player out). A door without
+    // the field is read by its names. A trigger is read by its names
+    // whatever its flags say. K1's executable reads a trigger's flags only
+    // to answer the script routine that asks where a transition leads, and
+    // its trigger leads out by its module and tag alone. Mission to
+    // Sleheyron's trigger back onto the Ebon Hawk has flags 0.
+    let unlinked = kind == Kind::Door && item.uint("LinkedToFlags") == Some(0);
     let linked_to = (matches!(kind, Kind::Door | Kind::Trigger) && !unlinked).then(|| {
         (
             item.resref("LinkedToModule").unwrap_or_else(String::new),
             item.bytes("LinkedTo").unwrap_or(&[]).to_vec(),
         )
     });
-    let template_label = if kind == Kind::Store {
-        "ResRef"
-    } else {
-        "TemplateResRef"
-    };
     Instance {
         kind,
-        template: item.resref(template_label).unwrap_or_else(String::new),
+        template: template(kind, item),
         tag: item.bytes("Tag").unwrap_or(&[]).to_vec(),
         position,
         facing,
@@ -876,8 +1007,14 @@ impl ModuleIr {
         for kind in Kind::ALL {
             let (label, extension) = kind.list_and_type();
             for item in git.root.list(label) {
+                let template_found = source.exists(&template(kind, item), extension);
+                if cannot_be_made(kind, item, template_found) {
+                    missing.push(Missing::Template(kind, template(kind, item)));
+                    continue;
+                }
+                let item = &*as_placed(kind, item, template_found);
                 let mut instance = instance(kind, item);
-                instance.template_found = source.exists(&instance.template, extension);
+                instance.template_found = template_found;
                 if !instance.template_found {
                     missing.push(Missing::Template(kind, instance.template.clone()));
                 }
@@ -961,6 +1098,9 @@ impl ModuleIr {
                     }
                     instance.model = appearances.model(&instance);
                     instance.busted = appearances.busted(&instance);
+                    // A static placeable is scenery: never a target.
+                    instance.toughness.hostile =
+                        !instance.is_static && appearances.hostile(&instance);
                     if instance.model.is_none() {
                         missing.push(Missing::InstanceModel(kind, instance.template.clone()));
                     }
@@ -1070,6 +1210,11 @@ impl ModuleIr {
             grass,
             weather,
             disable_transit: are.root.uint("DisableTransit").is_some_and(|on| on != 0),
+            unescapable: are.root.uint("Unescapable").is_some_and(|on| on != 0),
+            default_envmap: are
+                .root
+                .resref("DefaultEnvMap")
+                .filter(|name| !name.is_empty()),
         })
     }
 }
@@ -1172,6 +1317,61 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 indoor.weather == AreaWeather::default(),
                 format!("{:?}", indoor.weather),
             ),
+        ),
+    ]
+}
+
+/// The checks of which GIT creatures are placed, from a module made here.
+/// Its GIT lists three creatures. The first names a template the module
+/// has. The second names a template the module lacks and nothing else. The
+/// third names a template the module lacks, with an appearance of its own.
+pub fn placement_probes() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::made::{blank_module, gff, node, resref};
+    let placed = |template: &str, own: Vec<(&'static str, GffValue)>| {
+        let mut fields = vec![("TemplateResRef", resref(template))];
+        fields.extend(own);
+        node(fields)
+    };
+    let mut files = blank_module(Vec::new(), &["room_a"]);
+    files.0.insert(
+        "area.git".into(),
+        gff(
+            b"GIT ",
+            vec![(
+                "Creature List",
+                GffValue::List(vec![
+                    placed("there", Vec::new()),
+                    placed("gone", Vec::new()),
+                    placed("gone_whole", vec![("Appearance_Type", GffValue::Word(71))]),
+                ]),
+            )],
+        ),
+    );
+    files.0.insert("there.utc".into(), gff(b"UTC ", Vec::new()));
+    let area = match ModuleIr::build("blank", &files) {
+        Ok(module) => module.areas[0].clone(),
+        Err(error) => return vec![("placement_builds", Err(format!("{error:?}")))],
+    };
+    let creatures: Vec<&str> = area
+        .instances
+        .iter()
+        .filter(|instance| instance.kind == Kind::Creature)
+        .map(|instance| instance.template.as_str())
+        .collect();
+    let noted = area.missing.iter().any(
+        |missing| matches!(missing, Missing::Template(Kind::Creature, name) if name == "gone"),
+    );
+    vec![
+        (
+            "creature_without_template_not_placed",
+            check(
+                creatures == ["there", "gone_whole"],
+                format!("{creatures:?}"),
+            ),
+        ),
+        (
+            "creature_without_template_noted",
+            check(noted, format!("{:?}", area.missing)),
         ),
     ]
 }

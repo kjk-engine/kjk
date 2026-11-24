@@ -26,7 +26,7 @@ use crate::combat::sheet::{Ability, Rows, Sheet, Weapon, damage_types, feats, sk
 use crate::combat::{Location, grenades};
 use crate::input::Seat;
 use crate::inventory::{Catalog, ItemFacts, PARTY, slots};
-use crate::levels::{Career, Choices, Class, Classes, Needs, SKILLS, Unpickable};
+use crate::levels::{Career, Choices, Class, Classes, Needs, Refusal, SKILLS, Unpickable};
 use crate::module::{ObjectKind, Placement};
 use crate::notice::Notice;
 use crate::probe::{Checks, check};
@@ -425,6 +425,8 @@ fn rules() -> Checks {
     let tiers: Vec<[i32; 2]> = (0..=3).map(|tier| hands(&two[..tier], pair)).collect();
     let balanced = hands(&[], [Some(sword), Some(blade)]);
     let double = hands(&two[..1], [Some(staff), None]);
+    let master_double = hands(two, [Some(staff), None]);
+    let quarterstaff = hands(&[], [Some(weapon(0, feats::PROFICIENCY_MELEE)), None]);
     let duel = |hands: [Option<Weapon>; 2]| {
         let sheet = with(&feats::DUELING, hands);
         (
@@ -443,6 +445,11 @@ fn rules() -> Checks {
         sheet.skills[skills::STEALTH] = 1;
         sheet
     };
+    // Both games' `GetSkillRank` with no ranks bought. Persuade, which
+    // anyone may use, totals Empathy's +1 and Charisma 12's +1. Demolitions,
+    // which only the trained may use, totals 0, without Caution's +3.
+    let untrained = [skills::PERSUADE, skills::DEMOLITIONS]
+        .map(|skill| crate::stealth::rank(None, &skilled, &skilled, skill, false));
     let reflex = |known: &[u16]| grenades::reflex(&with(known, [None; 2]), 20, 15);
     vec![
         (
@@ -455,8 +462,18 @@ fn rules() -> Checks {
         (
             "balanced_off_hand",
             check(
-                balanced == [-4, -10] && double == [-6, -6],
+                balanced == [-4, -10] && double == [-4, -6],
                 format!("a small blade in the left {balanced:?}; a staff, the feat {double:?}"),
+            ),
+        ),
+        (
+            "double_weapon_balanced",
+            check(
+                master_double == [0, -2] && quarterstaff == [-4, -10],
+                format!(
+                    "a double lightsaber with Master Two-Weapon Fighting {master_double:?}; \
+                     a quarterstaff untrained {quarterstaff:?}"
+                ),
             ),
         ),
         (
@@ -523,9 +540,11 @@ fn rules() -> Checks {
             check(
                 skilled.skill(skills::SECURITY) == 4 + 2 + 2
                     && skilled.skill(skills::STEALTH) == 1 + 3 + 2
-                    && skilled.skill(skills::PERSUADE) == 0,
+                    && skilled.skill(skills::PERSUADE) == 1
+                    && untrained == [2, 0],
                 format!(
-                    "Security {}, Stealth {}, Persuade without ranks {}",
+                    "Security {}, Stealth {}, Persuade without ranks {}, totals without \
+                     ranks (Persuade, Demolitions) {untrained:?}",
                     skilled.skill(skills::SECURITY),
                     skilled.skill(skills::STEALTH),
                     skilled.skill(skills::PERSUADE)
@@ -534,9 +553,115 @@ fn rules() -> Checks {
         ),
         reduction(),
         levels(),
+        most_force_points(),
         chart(),
         power_chart(),
+        same_level_picks(),
+        power_level_total(),
+        ranks_apart_from_bonuses(),
     ]
+}
+
+/// Skill ranks kept apart from what items and feats add, as both games keep
+/// a skill's stored rank apart from its total. A level 3 soldier has 5
+/// Repair ranks of its own, Gear Head, Intelligence 12 and a belt that gives
+/// +4 Repair. Its total, as `GetSkillRank` reads it in both games, is 5 + 4 +
+/// Gear Head's + 1. Its level 4, with 4 skill points banked from earlier
+/// levels, still buys Repair ranks up to the cap of 7 (the level +
+/// `rules::progression::levels::RANK_CAP_OVER`), because the cap counts its
+/// own ranks alone. One rank past the cap is refused, and the level taken
+/// keeps the belt's +4 out of the ranks.
+fn ranks_apart_from_bonuses() -> (&'static str, Result<String, String>) {
+    let classes = classes(vec![class(&[], &[])]);
+    let gear_head = feats::SKILL_LINES[2].0[0];
+    let mut belt = super::containers::plain("belt");
+    belt.slots = 1 << slots::BELT;
+    belt.gear.skills[skills::REPAIR] = 4;
+    let mut own = soldier(&[gear_head]);
+    own.skills[skills::REPAIR] = 5;
+    let worn = crate::inventory::dress(own, [(slots::BELT, &belt)]);
+    let now = crate::combat::effects::sheet_now(worn, &crate::combat::Fighter::of(&worn), 0);
+    let total = |tsl| crate::stealth::rank(None, &worn, &now, skills::REPAIR, tsl);
+    let expected_total = 5 + 4 + rules::feats::skills::LINE_PER_TIER[2] + 1;
+    let career = vec![START];
+    let buying = |ranks: u8| {
+        let mut skills = [0; SKILLS];
+        skills[skills::REPAIR] = ranks;
+        let choices = Choices {
+            class: 0,
+            ability: Some(Ability::Strength as u8),
+            skills,
+            ..Choices::default()
+        };
+        classes.taken(&worn, &career, &choices, 4)
+    };
+    let cap = START.1 + 1 + rules::progression::levels::RANK_CAP_OVER;
+    let to_cap = buying(2).map(|(after, ..)| {
+        (
+            after.skills[skills::REPAIR],
+            after.gear.skills[skills::REPAIR],
+        )
+    });
+    let past = buying(3).err();
+    let most = Refusal::Ranks {
+        skill: skills::REPAIR as u8,
+        most: cap,
+    };
+    (
+        "ranks_apart_from_bonuses",
+        check(
+            [total(false), total(true)] == [expected_total; 2]
+                && to_cap == Ok((cap, 4))
+                && past == Some(most),
+            format!(
+                "Repair total {} (K1) and {} (TSL), two ranks bought: {to_cap:?} (ranks, the \
+                 belt's), three: {past:?}",
+                total(false),
+                total(true)
+            ),
+        ),
+    )
+}
+
+/// A Force user's most FP as both games work it out (`Sheet::force_points`),
+/// on Darth Malak's numbers (level 20, a template's 35, WIS 15, CHA 20):
+/// K1 adds the Wisdom and Charisma modifiers a level (175), TSL Wisdom's
+/// alone with its bonus (35 + 2 × 20 + 10); a Wisdom item counts at once; a
+/// low score never takes it under the level; anyone else has none.
+fn most_force_points() -> (&'static str, Result<String, String>) {
+    let jedi = |wisdom: u8, charisma: u8, tsl: bool| {
+        let mut sheet = Sheet::dev_soldier();
+        sheet.level = 20;
+        sheet.max_fp = 35;
+        sheet.abilities[Ability::Wisdom as usize] = wisdom;
+        sheet.abilities[Ability::Charisma as usize] = charisma;
+        if tsl {
+            sheet.flags |= crate::combat::sheet::flags::TSL;
+            sheet.bonus_fp = 10;
+        }
+        sheet.force_points()
+    };
+    let none = Sheet {
+        level: 20,
+        ..Sheet::dev_soldier()
+    };
+    let seen = [
+        jedi(15, 20, false),
+        jedi(17, 20, false),
+        jedi(15, 20, true),
+        jedi(3, 3, false),
+        none.force_points(),
+    ];
+    (
+        "most_force_points",
+        check(
+            seen == [175, 195, 85, 20, 0],
+            format!(
+                "K1 {}, WIS 17 {}, TSL {}, low scores {}, a soldier {}",
+                seen[0], seen[1], seen[2], seen[3], seen[4]
+            ),
+        ),
+    )
 }
 
 /// Improved and Wookiee Toughness on a KOTOR attack's whole points, and
@@ -545,7 +670,7 @@ fn reduction() -> (&'static str, Result<String, String>) {
     let tough = |known: &[u16], game, row, points| {
         let feats = known
             .iter()
-            .fold(Rows::<4>::default(), |rows, feat| rows.with(*feat));
+            .fold(Rows::<8>::default(), |rows, feat| rows.with(*feat));
         passive::toughness(&feats, game, Some(usize::from(row)), points)
     };
     let improved = [feats::IMPROVED_TOUGHNESS];
@@ -575,10 +700,13 @@ fn reduction() -> (&'static str, Result<String, String>) {
             cadence_ms: 3000,
             share: 1000,
             area: false,
+            second: None,
+            sure: false,
         },
         location: Location::Chest,
         direction: None,
         sneak: 0,
+        aim: 0,
     };
     let dealt = |known: &[u16]| {
         (0..50)
@@ -646,7 +774,8 @@ fn chart() -> (&'static str, Result<String, String>) {
 /// Push, Whirlwind (needing Push) and Wave (needing both) a row, Wound,
 /// Choke and Kill another; TSL's Crush Opposition I-III a row and IV-VI,
 /// whose IV needs III, one of their own. Wave asks for Whirlwind as well
-/// as Push (`why_not_power`).
+/// as Push (`why_not_power`). Known powers the class may not pick add no
+/// row.
 fn power_chart() -> (&'static str, Result<String, String>) {
     let mut classes = classes(vec![class(&[], &[])]);
     let chains = [
@@ -659,28 +788,164 @@ fn power_chart() -> (&'static str, Result<String, String>) {
         (147, [146, 0]),
         (148, [147, 0]),
         (149, [147, 148]),
+        // Plague lists Affliction, its row's second power, before Slow.
+        (7, [45, 0]),
+        (38, [7, 45]),
     ];
     for (power, needs) in chains {
         let needs = needs.map(|need| (need != 0).then_some(need));
         classes.prerequisites.insert(power, needs);
     }
-    let powers = [23, 27, 26, 50, 9, 32, 144, 145, 146, 147, 148, 149];
+    let powers = [
+        23, 27, 26, 50, 9, 32, 144, 145, 146, 147, 148, 149, 45, 7, 38,
+    ];
     classes.classes[0].powers = powers.iter().map(|power| (1, *power)).collect();
     let class = &classes.classes[0];
     let made = classes.power_chart(class, &[]);
     let row = |powers: [u16; 3]| powers.map(Some);
     let expected = vec![
         row([23, 27, 26]),
+        row([45, 7, 38]),
         row([50, 9, 32]),
         row([144, 145, 146]),
         row([147, 148, 149]),
     ];
     let wave = classes.why_not_power(class, 26, &[23], 1);
+    // TSL's Force Sight (176), meditation row (202) and Force Channel form
+    // (265) are known but closed to the class: the chart has no row for them.
+    let with_known = classes.power_chart(class, &[23, 176, 202, 265]);
     (
         "power_chart",
         check(
-            made == expected && wave == Some(Unpickable::Needs(27)),
-            format!("{made:?}, Wave after Push alone: {wave:?}"),
+            made == expected && with_known == expected && wave == Some(Unpickable::Needs(27)),
+            format!(
+                "{made:?}, knowing powers outside the class: {with_known:?}, Wave after Push \
+                 alone: {wave:?}"
+            ),
+        ),
+    )
+}
+
+/// A feat or power whose prerequisite is another pick of the same level,
+/// as both games' level-up screens allow (TSL's executable reads a
+/// prerequisite from the level's own picks too): a level with two
+/// feats and two powers offers Improved Flurry with Flurry as its need and
+/// Force Whirlwind with Force Push, and takes each pair in either order. A
+/// level with Whirlwind alone is refused, naming Push.
+fn same_level_picks() -> (&'static str, Result<String, String>) {
+    let (flurry, improved, push, whirlwind) = (11, 91, 23, 27);
+    let mut classes = classes(vec![class(&[flurry, improved], &[])]);
+    classes.needs.insert(
+        improved,
+        Needs {
+            feats: [Some(flurry), None],
+            ..Needs::default()
+        },
+    );
+    classes.prerequisites.insert(whirlwind, [Some(push), None]);
+    let jedi = &mut classes.classes[0];
+    jedi.feat_picks = vec![2; 20];
+    jedi.power_picks = vec![2; 20];
+    jedi.powers = vec![(1, push), (1, whirlwind)];
+    let (sheet, career) = (soldier(&[]), vec![START]);
+    let offered = classes.picks(&sheet, &career, 0).map(|picks| {
+        (
+            picks.feats,
+            picks.feat_needs,
+            picks.powers,
+            picks.power_needs,
+        )
+    });
+    let level = |feats: Vec<u16>, powers: Vec<u16>| Choices {
+        class: 0,
+        ability: Some(Ability::Strength as u8),
+        feats,
+        powers,
+        ..Choices::default()
+    };
+    let both = classes
+        .taken(
+            &sheet,
+            &career,
+            &level(vec![improved, flurry], vec![whirlwind, push]),
+            0,
+        )
+        .map(|(after, ..)| (after.feats.has(improved), after.powers.has(whirlwind)));
+    let alone = classes
+        .taken(&sheet, &career, &level(Vec::new(), vec![whirlwind]), 0)
+        .err();
+    let expected = (
+        vec![flurry, improved],
+        vec![(improved, vec![flurry])],
+        vec![push, whirlwind],
+        vec![(whirlwind, vec![push])],
+    );
+    (
+        "same_level_picks",
+        check(
+            offered == Some(expected)
+                && both == Ok((true, true))
+                && alone == Some(Refusal::Power(whirlwind, Unpickable::Needs(push))),
+            format!("offered {offered:?}, both pairs {both:?}, Whirlwind alone {alone:?}"),
+        ),
+    )
+}
+
+/// A power's level in its class's `spells.2da` column is held to the
+/// character's total level, as both games' level-ups hold it. The Jedi
+/// class here offers Force Push from level 1, Force Whirlwind from level 9
+/// and Force Wave from level 15. Each case takes a Jedi level with a career
+/// and names the powers that level offers. A soldier of level 8 who takes
+/// up the Jedi class reaches total level 9 at the first Jedi level, so Push
+/// and Whirlwind are offered there. The same character is refused Wave at
+/// that level, because Wave needs total level 15.
+fn power_level_total() -> (&'static str, Result<String, String>) {
+    let (push, whirlwind, wave) = (23, 27, 26);
+    let (soldier_class, jedi_class) = (0, 1);
+    let mut classes = classes(vec![class(&[], &[]), class(&[], &[])]);
+    let jedi = &mut classes.classes[usize::from(jedi_class)];
+    jedi.power_picks = vec![1; 20];
+    jedi.powers = vec![(1, push), (9, whirlwind), (15, wave)];
+    let at = |career: &Career| {
+        let mut sheet = soldier(&[]);
+        sheet.level = career.iter().map(|(_, levels)| levels).sum();
+        sheet
+    };
+    let cases: [(Career, Vec<u16>); 4] = [
+        (vec![(jedi_class, 0)], vec![push]),
+        (vec![(jedi_class, 8)], vec![push, whirlwind]),
+        (
+            vec![(soldier_class, 8), (jedi_class, 0)],
+            vec![push, whirlwind],
+        ),
+        (
+            vec![(soldier_class, 8), (jedi_class, 6)],
+            vec![push, whirlwind, wave],
+        ),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(career, expected)| {
+            let offered = classes
+                .picks(&at(career), career, jedi_class)
+                .map(|picks| picks.powers);
+            (offered.as_ref() != Some(expected))
+                .then(|| format!("{career:?} offered {offered:?}, not {expected:?}"))
+        })
+        .collect();
+    let career = vec![(soldier_class, 8), (jedi_class, 0)];
+    let choices = Choices {
+        class: jedi_class,
+        powers: vec![wave],
+        ..Choices::default()
+    };
+    let early = classes.taken(&at(&career), &career, &choices, 0).err();
+    let refused = early == Some(Refusal::Power(wave, Unpickable::Level(15)));
+    (
+        "power_level_total",
+        check(
+            wrong.is_empty() && refused,
+            format!("{wrong:?}, Wave at total level 9: {early:?}"),
         ),
     )
 }

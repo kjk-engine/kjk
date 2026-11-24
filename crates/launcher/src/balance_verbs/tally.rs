@@ -1,0 +1,649 @@
+//! What one fight's ticks add up to, side by side, read off the snapshots
+//! (fighters' events, saber and duel state) and the blades' tap
+//! (`saber::duel::tap`: what each blow meeting a blade decided). Nothing
+//! here touches the world.
+
+use std::collections::BTreeSet;
+
+use serde::Serialize;
+use sim::combat::{Fighter, effects};
+use sim::combat::fighter::Outcome;
+use sim::combat::sheet::Delivery;
+use sim::combat::pace::WALK_WITHIN;
+use sim::combat::saber::duel::exchange::{Guard, Took};
+use sim::combat::saber::duel::meter;
+use sim::combat::saber::duel::tap::Tapped;
+use sim::combat::saber::moves::Move;
+use sim::combat::saber::throw::Flight;
+use sim::motion::{Anim, MotionState, is_run};
+use sim::{SimId, buttons};
+
+/// How long after a lock ends or a kick lands its result is looked for.
+const AFTER_MS: u64 = 1500;
+const KICK_FLOORS_MS: u64 = 400;
+
+/// The Force buttons a power is cast with.
+const POWERS: u16 =
+    buttons::FORCE_POWER | buttons::FORCE_GRIP | buttons::FORCE_LIGHTNING | buttons::FORCE_DRAIN;
+
+/// One side's counts.
+#[derive(Debug, Clone, Default, Serialize)]
+pub(crate) struct Side {
+    pub hp_start: i32,
+    pub hp_end: i32,
+    pub hp_lost: i32,
+    pub swings: u32,
+    pub hits: u32,
+    pub damage: i64,
+    /// Of its weapon hits, the critical hits and the hundredths they dealt.
+    pub crits: u32,
+    pub crit_damage: i64,
+    /// The most hundredths one weapon hit of its dealt.
+    pub biggest_hit: i64,
+    /// Attacks it began, the sum of their cadences (ms, the time since the
+    /// attack before began, `Swing::begin`), and of those the attacks begun
+    /// within a whole roll's cadence (`damage::WHOLE_CADENCE_MS`).
+    pub attacks_begun: u32,
+    pub cadence_sum: u64,
+    pub quick_attacks: u32,
+    /// Hundredths it dealt the foe by other means (powers, scripts).
+    pub other_damage: i64,
+    /// Blows of its that a blade stopped.
+    pub blows_stopped: u32,
+    /// Blocks it made, by kind.
+    pub blocks: Blocks,
+    /// What it took from the exchanges (its own swing's or its guard's).
+    pub took: Reactions,
+    pub bolts_turned: u32,
+    /// Shots it fired: each time its weapon timer started again.
+    pub shots: u32,
+    /// Of its weapon hits, those of a blaster bolt (its own, or one it
+    /// turned back at the foe), and the hundredths they dealt.
+    pub bolt_hits: u32,
+    pub bolt_damage: i64,
+    /// Its Stamina at the start of each second of the fight.
+    pub points_by_second: Vec<u8>,
+    pub disarmed: u32,
+    pub knockdowns: u32,
+    pub kicks_thrown: u32,
+    pub kicks_landed: u32,
+    pub kicked_absorbed: u32,
+    pub kicked_floored: u32,
+    /// Ticks it spent on the ground or with its saber switched off, when it
+    /// could neither block nor strike.
+    pub helpless_ticks: u64,
+    /// Hundredths it dealt the foe within `AFTER_MS` of one of its kicks
+    /// landing, the kick's own included, and of those the weapon's.
+    pub kick_damage: i64,
+    pub kick_weapon_damage: i64,
+    pub saber_breaks: u32,
+    pub tired_ticks: u64,
+    pub force_pct_sum: i64,
+    pub points_sum: i64,
+    pub power_casts: u32,
+    /// Hundredths of the pool spent on ticks a power was cast or held.
+    pub power_fp: i64,
+    /// Speed's extra attacks a round (`effects::extra_attacks`), summed
+    /// over the ticks.
+    pub extra_attacks_sum: i64,
+    /// Ticks spent with run legs and no walk button held.
+    pub running_ticks: u64,
+    /// Ticks spent within `WALK_WITHIN` of the other side, and of those,
+    /// the ticks spent running.
+    pub near_ticks: u64,
+    pub near_running_ticks: u64,
+    /// The tick it first came within `WALK_WITHIN` of the other side (0: it
+    /// never did), and its Stamina then.
+    pub arrived_tick: u64,
+    pub arrival_points: i32,
+    /// Swings that began while running.
+    pub run_swings: u32,
+    pub moves: Moves,
+    /// Rolls it began.
+    pub rolls: u32,
+    /// Ticks its mind spent evading blaster fire (`Pace::evading`), the
+    /// blaster bolts that hit it on those ticks, the times it stopped
+    /// evading because it had `RECOVER_TO` Stamina again, and the ticks
+    /// from the start of each such evasion to its end.
+    pub evade_ticks: u64,
+    pub evade_bolt_hits: u32,
+    pub recoveries: u32,
+    pub recovery_ticks: u64,
+}
+
+/// How many moves of each kind a side began.
+#[derive(Debug, Clone, Default, Serialize)]
+pub(crate) struct Moves {
+    pub swing: u32,
+    pub kick: u32,
+    /// Charges begun: the run after the wind-up.
+    pub charge: u32,
+    pub lunge: u32,
+    pub kata: u32,
+    pub jump_attack: u32,
+    pub spin: u32,
+    pub throw: u32,
+    pub power: u32,
+}
+
+impl Moves {
+    /// The kind a saber move starts, if it is one the bench counts.
+    fn slot(&mut self, mv: Move) -> Option<&mut u32> {
+        use Move::*;
+        Some(match mv {
+            A_LUNGE => &mut self.lunge,
+            SPINATTACK | SPINATTACK_DUAL | SPINATTACK_ALORA => &mut self.spin,
+            A_JUMP_T__B_ | A_FLIP_STAB | A_FLIP_SLASH | A_BACKFLIP_ATK | LEAP_ATTACK
+            | JUMPATTACK_DUAL | JUMPATTACK_ARIAL_LEFT | JUMPATTACK_ARIAL_RIGHT
+            | JUMPATTACK_CART_LEFT | JUMPATTACK_CART_RIGHT | JUMPATTACK_STAFF_LEFT
+            | JUMPATTACK_STAFF_RIGHT => &mut self.jump_attack,
+            _ if mv.kata() => &mut self.kata,
+            _ if mv.kick() => &mut self.kick,
+            _ if mv.pure_attack() => &mut self.swing,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub(crate) struct Blocks {
+    /// A creature's own block (duel modes).
+    pub creature: u32,
+    /// Block held alone.
+    pub held: u32,
+    /// Block and attack held, the window closed.
+    pub aimed: u32,
+    pub perfect: u32,
+    /// The blades met with no guard up (duel modes).
+    pub unguarded: u32,
+    /// JA: turned by state (the guard arc), and clashes either side swung.
+    pub state: u32,
+    pub clash: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub(crate) struct Reactions {
+    pub bounce: u32,
+    pub attack_bounce: u32,
+    pub heavy_stagger: u32,
+    pub stagger: u32,
+    pub knockaway: u32,
+    pub knocked_aside: u32,
+    pub parry: u32,
+    pub weary_parry: u32,
+    pub disarm: u32,
+    pub knocked_down: u32,
+    /// Blocks that Stamina could not pay for: the blow was stopped, and the
+    /// blocker staggered, fell or lost its saber (`exchange::resolve`).
+    pub guard_break: u32,
+}
+
+impl Reactions {
+    fn add(&mut self, took: Took) {
+        let slot = match took {
+            Took::Nothing => return,
+            Took::Bounce(_) => &mut self.bounce,
+            Took::AttackBounce => &mut self.attack_bounce,
+            Took::HeavyStagger => &mut self.heavy_stagger,
+            Took::Stagger => &mut self.stagger,
+            Took::Knockaway => &mut self.knockaway,
+            Took::KnockedAside => &mut self.knocked_aside,
+            Took::Parry => &mut self.parry,
+            Took::WearyParry => &mut self.weary_parry,
+            Took::Disarm => &mut self.disarm,
+            Took::KnockedDown => &mut self.knocked_down,
+        };
+        *slot += 1;
+    }
+}
+
+/// A lock's end: who won it and how.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct LockEnd {
+    pub at_ms: u64,
+    /// "a", "b" or "even": who floored, disarmed or killed the other, else
+    /// who played a winner's break.
+    pub winner: &'static str,
+    /// "kill", "down", "disarm" or "none".
+    pub result: &'static str,
+}
+
+/// What a side looked like last tick.
+#[derive(Debug, Clone, Copy, Default)]
+struct Was {
+    mv: Move,
+    throwing: bool,
+    attacking: bool,
+    kicking: bool,
+    charging: bool,
+    floored: bool,
+    thrown: bool,
+    broken: bool,
+    kicked: Option<(SimId, u64)>,
+    pressed: bool,
+    fp: i32,
+    hp: i32,
+    struck_ms: u64,
+    weapon_wait_ms: i32,
+    rolling: bool,
+    /// The tick its evasion began (0: it is not evading).
+    evading_since: u64,
+}
+
+/// A kick landed, its victim (an index into `Tally::members`) watched until
+/// `until`.
+#[derive(Debug, Clone, Copy)]
+struct Pending {
+    victim: usize,
+    until: u64,
+    floored: bool,
+}
+
+/// A fight's tally. A side may have several fighters: its counts are their
+/// sums, its Stamina by second is its first living fighter's, and its
+/// arrival is the first of its fighters to come near a foe.
+pub(crate) struct Tally {
+    /// Each fighter's id and side (0 for side a, 1 for side b).
+    pub members: Vec<(SimId, usize)>,
+    pub sides: [Side; 2],
+    pub locks: Vec<LockEnd>,
+    pub ticks: u64,
+    /// The sim time of the first tick.
+    start_ms: u64,
+    was: Vec<Was>,
+    seen: Vec<BTreeSet<u16>>,
+    locked: bool,
+    /// A lock just ended: when, each side's fates then, and who played the
+    /// winner's break.
+    lock_ended: Option<(u64, [bool; 3], [bool; 3], &'static str)>,
+    kicks: Vec<Pending>,
+    /// Until when each side's damage counts as following its kick.
+    kick_follow: [u64; 2],
+}
+
+impl Tally {
+    /// A tally of `members` (id and side), each with its fighter as the
+    /// fight starts.
+    pub fn new(members: Vec<(SimId, usize)>, fighters: &[&Fighter]) -> Tally {
+        let was = fighters
+            .iter()
+            .map(|f| Was {
+                fp: f.fp,
+                hp: f.hp,
+                ..Was::default()
+            })
+            .collect();
+        let mut sides: [Side; 2] = Default::default();
+        for (&(_, side), f) in members.iter().zip(fighters) {
+            sides[side].hp_start += f.hp;
+        }
+        let seen = vec![BTreeSet::new(); members.len()];
+        Tally {
+            members,
+            sides,
+            locks: Vec::new(),
+            ticks: 0,
+            start_ms: 0,
+            was,
+            seen,
+            locked: false,
+            lock_ended: None,
+            kicks: Vec::new(),
+            kick_follow: [0; 2],
+        }
+    }
+
+    fn side_of(&self, id: SimId) -> Option<usize> {
+        self.members.iter().find(|(known, _)| *known == id).map(|&(_, side)| side)
+    }
+
+    /// One tick at `now`: each member's fighter in the order of `members`
+    /// (none when it is gone from the world), with its pool and its body,
+    /// and what the blades' tap told of the tick.
+    pub fn tick(
+        &mut self,
+        now: u64,
+        fighters: &[Option<(&Fighter, u16, &MotionState)>],
+        tapped: &[Tapped],
+    ) {
+        self.ticks += 1;
+        if self.ticks == 1 {
+            self.start_ms = now;
+        }
+        for (at, fighter) in fighters.iter().enumerate() {
+            let Some((f, pool, ps)) = *fighter else {
+                continue;
+            };
+            let side = self.members[at].1;
+            // The distance to the nearest foe.
+            let apart = self
+                .members
+                .iter()
+                .zip(fighters)
+                .filter(|((_, other), _)| *other != side)
+                .filter_map(|(_, foe)| foe.map(|(_, _, them)| sim::math::length(sim::math::sub(them.origin, ps.origin))))
+                .fold(f32::MAX, f32::min);
+            self.member(at, f, pool, now, ps, apart);
+        }
+        for side in 0..2 {
+            self.sides[side].hp_end = self
+                .members
+                .iter()
+                .zip(&self.was)
+                .filter(|((_, of), _)| *of == side)
+                .map(|(_, was)| was.hp)
+                .sum();
+        }
+        for tap in tapped {
+            self.tap(*tap);
+        }
+        // A lock is watched between each side's first fighter still there.
+        let first = |side: usize| {
+            self.members
+                .iter()
+                .zip(fighters)
+                .find_map(|((_, of), fighter)| fighter.filter(|_| *of == side))
+        };
+        if let (Some(a), Some(b)) = (first(0), first(1)) {
+            self.lock(now, [a.0, b.0], [a.2.torso.anim, b.2.torso.anim]);
+        }
+        let bodies: Vec<Option<&Fighter>> = fighters.iter().map(|f| f.map(|(f, _, _)| f)).collect();
+        self.watch_kicks(now, &bodies);
+    }
+
+    /// One fighter's tick: `at` is its index into `members`, `apart` how
+    /// far its nearest foe is.
+    fn member(&mut self, at: usize, f: &Fighter, pool: u16, now: u64, ps: &MotionState, apart: f32) {
+        let me = at;
+        let at = self.members[me].1;
+        let other = 1 - at;
+        let foes: Vec<SimId> = self
+            .members
+            .iter()
+            .filter(|(_, side)| *side == other)
+            .map(|&(id, _)| id)
+            .collect();
+        let was = self.was[me];
+        let saber = &f.saber;
+        let mv = saber.current_move;
+        let attacking = mv.attack();
+        let kicking = mv.kick();
+        let thrown = saber.thrown.is_some_and(|t| t.flight == Flight::Falling);
+        let side = &mut self.sides[at];
+        let running = is_run(ps.legs.anim) && f.last_command.buttons & buttons::WALKING == 0;
+        let near = apart < WALK_WITHIN;
+        let swung = attacking && !was.attacking;
+        side.swings += u32::from(swung);
+        side.shots += u32::from(f.weapon_wait_ms > was.weapon_wait_ms.max(0) && !attacking);
+        if now - self.start_ms >= side.points_by_second.len() as u64 * 1000 {
+            side.points_by_second.push(saber.duel.points);
+        }
+        if f.swing.struck_ms != was.struck_ms && f.swing.saber_move.attack() {
+            side.attacks_begun += 1;
+            side.cadence_sum += u64::from(f.swing.cadence_ms);
+            side.quick_attacks += u32::from(f.swing.cadence_ms < sim::combat::damage::WHOLE_CADENCE_MS);
+        }
+        side.run_swings += u32::from(swung && running);
+        let rolling = matches!(
+            ps.legs.anim,
+            Anim::BOTH_ROLL_F | Anim::BOTH_ROLL_B | Anim::BOTH_ROLL_L | Anim::BOTH_ROLL_R
+        );
+        side.rolls += u32::from(rolling && !was.rolling);
+        let evading = evading(f);
+        side.evade_ticks += u64::from(evading);
+        let evading_since = match (evading, was.evading_since) {
+            (true, 0) => self.ticks,
+            (true, since) => since,
+            (false, _) => 0,
+        };
+        let recovered = was.evading_since != 0
+            && !evading
+            && i32::from(saber.duel.points) >= rules::ai::duelling::RECOVER_TO;
+        if recovered {
+            side.recoveries += 1;
+            side.recovery_ticks += self.ticks - was.evading_since;
+        }
+        side.running_ticks += u64::from(running);
+        side.near_ticks += u64::from(near);
+        side.near_running_ticks += u64::from(near && running);
+        if near && side.arrived_tick == 0 {
+            side.arrived_tick = self.ticks;
+            side.arrival_points = i32::from(saber.duel.points);
+        }
+        if mv != was.mv
+            && let Some(slot) = side.moves.slot(mv)
+        {
+            *slot += 1;
+        }
+        let throwing = saber.thrown.is_some_and(|t| t.flight == Flight::Leaving);
+        side.moves.throw += u32::from(throwing && !was.throwing);
+        side.kicks_thrown += u32::from(kicking && !was.kicking);
+        let charging = saber.duel.charging;
+        side.moves.charge += u32::from(charging && !was.charging);
+        side.knockdowns += u32::from(saber.floored() && !was.floored);
+        side.disarmed += u32::from(thrown && !was.thrown);
+        side.saber_breaks += u32::from(saber.duel.broken && !was.broken);
+        side.tired_ticks += u64::from(saber.duel.tired());
+        side.helpless_ticks += u64::from(saber.floored() || !saber.on);
+        side.force_pct_sum += i64::from(meter::force(f, pool));
+        side.points_sum += i64::from(saber.duel.points);
+        side.extra_attacks_sum += i64::from(effects::extra_attacks(&f.force, &f.effects, now));
+        let casting = f.last_command.buttons & POWERS != 0 || f.force.channel.is_some();
+        let pressed = f.last_command.buttons & buttons::FORCE_POWER != 0;
+        side.power_casts += u32::from(pressed && !was.pressed);
+        side.moves.power += u32::from(pressed && !was.pressed);
+        if casting && f.fp < was.fp {
+            side.power_fp += i64::from(was.fp - f.fp);
+        }
+        side.hp_lost += (was.hp.max(0) - f.hp.max(0)).max(0);
+        // Blows that reached it: each event once, by its sequence; a
+        // weapon's are hits, the rest (powers, scripts) the foe's other harm.
+        for event in f.events.iter().flatten() {
+            if !self.seen[me].insert(event.sequence) {
+                continue;
+            }
+            match event.result {
+                Outcome::Hit | Outcome::Critical | Outcome::Automatic
+                    if event.by.is_some_and(|by| foes.contains(&by)) && event.damage > 0 =>
+                {
+                    if matches!(event.weapon, Some(Delivery::Blaster(_))) {
+                        self.sides[at].evade_bolt_hits += u32::from(evading);
+                    }
+                    let following = now < self.kick_follow[other];
+                    let foe_side = &mut self.sides[other];
+                    if following {
+                        foe_side.kick_damage += i64::from(event.damage);
+                        if event.weapon.is_some() {
+                            foe_side.kick_weapon_damage += i64::from(event.damage);
+                        }
+                    }
+                    if event.weapon.is_some() {
+                        let damage = i64::from(event.damage);
+                        foe_side.hits += 1;
+                        foe_side.damage += damage;
+                        foe_side.biggest_hit = foe_side.biggest_hit.max(damage);
+                        if matches!(event.weapon, Some(Delivery::Blaster(_))) {
+                            foe_side.bolt_hits += 1;
+                            foe_side.bolt_damage += damage;
+                        }
+                        if event.result == Outcome::Critical {
+                            foe_side.crits += 1;
+                            foe_side.crit_damage += damage;
+                        }
+                    } else {
+                        foe_side.other_damage += i64::from(event.damage);
+                    }
+                }
+                Outcome::Deflected => self.sides[at].bolts_turned += 1,
+                _ => {}
+            }
+        }
+        if let Some(kicked) = saber.kicked
+            && was.kicked != Some(kicked)
+            && foes.contains(&kicked.0)
+            && let Some(victim) = self.members.iter().position(|(id, _)| *id == kicked.0)
+        {
+            self.sides[at].kicks_landed += 1;
+            self.kick_follow[at] = now + AFTER_MS;
+            self.kicks.push(Pending {
+                victim,
+                until: now + KICK_FLOORS_MS,
+                floored: false,
+            });
+        }
+        self.was[me] = Was {
+            mv,
+            throwing,
+            attacking,
+            kicking,
+            charging,
+            floored: saber.floored(),
+            thrown,
+            broken: saber.duel.broken,
+            kicked: saber.kicked,
+            pressed,
+            fp: f.fp,
+            hp: f.hp,
+            struck_ms: f.swing.struck_ms,
+            weapon_wait_ms: f.weapon_wait_ms,
+            rolling,
+            evading_since,
+        };
+    }
+
+    fn tap(&mut self, tapped: Tapped) {
+        match tapped {
+            Tapped::Exchange {
+                a,
+                d,
+                guard,
+                took,
+                stopped,
+                emptied,
+                ..
+            } => {
+                let (Some(a), Some(d)) = (self.side_of(a), self.side_of(d)) else {
+                    return;
+                };
+                self.sides[a].took.add(took[0]);
+                self.sides[d].took.add(took[1]);
+                if emptied {
+                    self.sides[d].took.guard_break += 1;
+                }
+                if !stopped {
+                    return;
+                }
+                self.sides[a].blows_stopped += 1;
+                let blocks = &mut self.sides[d].blocks;
+                let slot = match guard {
+                    Guard::Perfect => &mut blocks.perfect,
+                    Guard::Active => &mut blocks.aimed,
+                    Guard::Held => &mut blocks.held,
+                    Guard::Npc => &mut blocks.creature,
+                    Guard::None => &mut blocks.unguarded,
+                };
+                *slot += 1;
+            }
+            Tapped::Block { a, d, .. } => {
+                if let (Some(a), Some(d)) = (self.side_of(a), self.side_of(d)) {
+                    self.sides[a].blows_stopped += 1;
+                    self.sides[d].blocks.state += 1;
+                }
+            }
+            Tapped::Clash { a, d, .. } => {
+                if let (Some(a), Some(d)) = (self.side_of(a), self.side_of(d)) {
+                    self.sides[a].blows_stopped += 1;
+                    self.sides[d].blocks.clash += 1;
+                }
+            }
+        }
+    }
+
+    /// Each side's (killed, floored, disarmed) now.
+    fn fates(f: &Fighter) -> [bool; 3] {
+        [
+            !f.alive(),
+            f.saber.floored(),
+            f.saber.thrown.is_some_and(|t| t.flight == Flight::Falling),
+        ]
+    }
+
+    /// Locks: begun, ended, and what the next `AFTER_MS` made of the loser.
+    fn lock(&mut self, now: u64, fighters: [&Fighter; 2], torsos: [Anim; 2]) {
+        let locked = fighters[0].saber.lock.is_some();
+        if self.locked && !locked {
+            let breaker = match torsos.map(crate::duel_verbs::wins) {
+                [true, false] => "a",
+                [false, true] => "b",
+                _ => "even",
+            };
+            let fates = fighters.map(Self::fates);
+            self.lock_ended = Some((now, fates[0], fates[1], breaker));
+        }
+        self.locked = locked;
+        let Some((ended, before_a, before_b, breaker)) = self.lock_ended else {
+            return;
+        };
+        let (now_a, now_b) = (Self::fates(fighters[0]), Self::fates(fighters[1]));
+        let fresh = |before: [bool; 3], now: [bool; 3]| (0..3).find(|&k| now[k] && !before[k]);
+        let (lost_a, lost_b) = (fresh(before_a, now_a), fresh(before_b, now_b));
+        let result = |k: usize| ["kill", "down", "disarm"][k];
+        let end = match (lost_a, lost_b) {
+            (None, Some(k)) => Some(("a", result(k))),
+            (Some(k), None) => Some(("b", result(k))),
+            _ if now >= ended + AFTER_MS || locked => Some((breaker, "none")),
+            _ => None,
+        };
+        if let Some((winner, result)) = end {
+            self.locks.push(LockEnd {
+                at_ms: ended,
+                winner,
+                result,
+            });
+            self.lock_ended = None;
+        }
+    }
+
+    fn watch_kicks(&mut self, now: u64, fighters: &[Option<&Fighter>]) {
+        let sides = &mut self.sides;
+        let members = &self.members;
+        self.kicks.retain_mut(|kick| {
+            kick.floored |= fighters[kick.victim].is_some_and(|f| f.saber.floored());
+            if now < kick.until && !kick.floored {
+                return true;
+            }
+            let side = &mut sides[members[kick.victim].1];
+            if kick.floored {
+                side.kicked_floored += 1;
+            } else {
+                side.kicked_absorbed += 1;
+            }
+            false
+        });
+    }
+
+    /// Ends the fight: locks and kicks still watched are closed as they
+    /// stand.
+    pub fn finish(&mut self) {
+        if let Some((ended, _, _, breaker)) = self.lock_ended.take() {
+            self.locks.push(LockEnd {
+                at_ms: ended,
+                winner: breaker,
+                result: "none",
+            });
+        }
+        for kick in self.kicks.drain(..) {
+            let side = &mut self.sides[self.members[kick.victim].1];
+            if kick.floored {
+                side.kicked_floored += 1;
+            } else {
+                side.kicked_absorbed += 1;
+            }
+        }
+    }
+}
+
+/// Whether `f`'s mind evades blaster fire on this tick.
+fn evading(_f: &Fighter) -> bool {
+    false
+}

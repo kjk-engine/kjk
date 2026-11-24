@@ -242,6 +242,7 @@ impl Bench {
             ends: Vec::new(),
             gun: None,
             power: None,
+            lay: [Transform::IDENTITY; 2],
         }
     }
 
@@ -395,6 +396,24 @@ pub fn probes() -> Vec<Check> {
         );
     }
 
+    // Seat 1 drawn in a disguise's body that has no hand to hold a weapon
+    // (K1's envirosuit on Manaan), then in its own again: its weapon is
+    // kept, hidden, and back in its own hand afterwards (issue 476).
+    let suited = bench.run(|commands, sheet| {
+        holdings.rehang(ids[1], sheet, Hands::default(), commands);
+        holdings.rehang(ids[1], sheet, hands[1], commands);
+    });
+    check(
+        "disguised without hands",
+        suited.map(|()| {
+            let ok = bench.holds(&holdings, (ids[1], &hands[1]), &composed[1]);
+            (
+                ok,
+                "seat 1 holds its weapon again once it is out of the body without hands".into(),
+            )
+        }),
+    );
+
     // A seat armed before its character is drawn, twice: each time what it
     // had is retired; drawn, it takes the last.
     let mut bench = Bench::new();
@@ -523,13 +542,13 @@ pub fn probes() -> Vec<Check> {
     );
 
     // What a conversation hides (S8), held or carried, out or away.
-    let wrong: Vec<_> = [Hide::None, Hide::Held, Hide::All]
+    let wrong: Vec<_> = [Hide::None, Hide::All]
         .into_iter()
         .flat_map(|hidden| [(hidden, true), (hidden, false)])
         .flat_map(|(hidden, in_hand)| [(hidden, in_hand, true), (hidden, in_hand, false)])
         .filter(|&(hidden, in_hand, out)| {
             let want = match (hidden, in_hand, out) {
-                (Hide::All, ..) | (Hide::Held, true, _) => Place::Nowhere,
+                (Hide::All, ..) => Place::Nowhere,
                 (Hide::None, true, true) => Place::Hand,
                 _ => Place::Carried,
             };
@@ -540,9 +559,7 @@ pub fn probes() -> Vec<Check> {
         "conversation hides",
         Ok((
             wrong.is_empty(),
-            format!(
-                "out in hand, else carried; Held hides the hand's weapon wherever it is, All every one; wrong: {wrong:?}"
-            ),
+            format!("out in hand, else carried; All hides every one; wrong: {wrong:?}"),
         )),
     );
     checks

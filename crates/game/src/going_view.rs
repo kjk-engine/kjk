@@ -2,13 +2,11 @@
 //! as KOTOR's client fades the model it still holds: the snapshot carries
 //! each as it went while it departs (`Snapshot::departing`,
 //! `sim::Departing`), drawn where it stood at what is left of its fade,
-//! its meshes given blended materials of their own, until it is done. A
-//! corpse row's dead depart as they are taken away (`sim::remains`: their
-//! appearance's `fadedelayondeath`, the engine's own where blank; the
-//! older snapshots' `sim::Going::Fades` faded them in the world); what a script's
-//! `DestroyObject` takes is drawn whole for its `fDelayUntilFade`, then
-//! fades over the engine's fade, or goes at once for `bNoFade`. A
-//! creature's remains stand once it has gone (`made`).
+//! its meshes given blended materials of their own, until it is done
+//! (the older snapshots' `sim::Going::Fades` faded the dead in the world).
+//! What a script's `DestroyObject` takes is drawn whole for its
+//! `fDelayUntilFade`, then fades over the engine's fade, or goes at once for
+//! `bNoFade`. A creature's remains stand once it has gone (`made`).
 //!
 //! The dead lie on, the owner's rule over KOTOR's (2026-10-11): the sim
 //! takes a dead body away as KOTOR does, scripts seeing it gone then, but
@@ -16,12 +14,15 @@
 //! `LIE_MS` more (`Fading::lay`), then fades it over `LIE_FADE_MS` and lets
 //! it go (`Fading::done`). Past `MOST_LYING` the longest lying fade at once.
 //! A new scene (another module, a load) starts with none lying: the
-//! remains stand alone. A corpse row's body (the rancor's, whose remains
-//! are its corpse) fades as KOTOR's does.
+//! remains stand alone. A corpse row's body (the rancor's, the krayt
+//! dragon's) is never taken away (`sim::remains`): it lies on in the world.
+//! One a script destroys fades as KOTOR's does.
 //!
 //! A placeable the module placed is drawn while the snapshot draws it:
 //! once one it had is gone (a script destroyed it, and it is done
-//! departing), its model is hidden.
+//! departing), its model is hidden. One a script destroyed before this
+//! scene began (in a save loaded, or in a module the party comes back to)
+//! is hidden from the first snapshot of its module.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -51,6 +52,8 @@ pub struct Fading {
     generation: u32,
     placed_seen: BTreeSet<u32>,
     placed_hidden: BTreeSet<u32>,
+    /// Whether every placeable the module places is in `placed_seen`.
+    module_seen: bool,
     lying: Vec<Lying>,
 }
 
@@ -124,7 +127,8 @@ impl Fading {
 }
 
 /// Whether a dead creature (`facts`) of `level` lies on once taken: all but
-/// a corpse row's, whose remains are its corpse.
+/// a corpse row's, which only a script takes (the engine leaves it in the
+/// world).
 pub fn lies_on(level: &sim::Level, facts: Option<&sim::module::ObjectData>) -> bool {
     let row = facts
         .and_then(|facts| facts.body)
@@ -177,7 +181,13 @@ pub fn fade(
         }
         placed_root(index)
     };
-    hide_placed_gone(snapshot, &mut fading, placeable_root, &mut visibility);
+    hide_placed_gone(
+        snapshot,
+        &swap.level,
+        &mut fading,
+        placeable_root,
+        &mut visibility,
+    );
     // The dead fading in the world, then those departing, then those done
     // lying.
     let in_world = snapshot
@@ -228,10 +238,11 @@ pub fn fade(
     }
 }
 
-/// The module's placeables the snapshot drew and draws no longer, hidden
-/// (each once).
+/// The module's placeables the snapshot draws no longer, hidden (each
+/// once).
 fn hide_placed_gone(
     snapshot: &sim::Snapshot,
+    level: &sim::Level,
     fading: &mut Fading,
     placed_root: impl Fn(u32) -> Option<Entity>,
     visibility: &mut Query<&mut Visibility>,
@@ -243,19 +254,70 @@ fn hide_placed_gone(
             _ => None,
         })
         .collect();
-    fading.placed_seen.extend(&present);
-    let gone: Vec<u32> = fading
-        .placed_seen
-        .difference(&present)
-        .filter(|index| !fading.placed_hidden.contains(index))
-        .copied()
-        .collect();
-    for index in gone {
-        fading.placed_hidden.insert(index);
+    // One whose model is not spawned yet is tried again next frame.
+    for index in fading.placed_gone(present, || module_placeables(snapshot, level)) {
         if let Some(mut shown) = placed_root(index).and_then(|root| visibility.get_mut(root).ok()) {
             *shown = Visibility::Hidden;
+            fading.placed_hidden.insert(index);
         }
     }
+}
+
+/// The numbers of the placeables `level` places, when `snapshot` is of that
+/// module. Every one of them is in the world when the module is first
+/// installed, so one the snapshot lacks was destroyed, even before this
+/// scene began. A snapshot of another module (a guest's last one, drawn
+/// over the new scene for a while) names none.
+fn module_placeables(snapshot: &sim::Snapshot, level: &sim::Level) -> Vec<u32> {
+    let same = snapshot
+        .place
+        .as_ref()
+        .zip(level.module())
+        .is_some_and(|(place, module)| place.module == module.name && place.game == module.game);
+    if !same {
+        return Vec::new();
+    }
+    (level.placed().iter().enumerate())
+        .filter(|(_, facts)| facts.kind == ObjectKind::Placeable)
+        .map(|(index, _)| index as u32)
+        .collect()
+}
+
+impl Fading {
+    /// The placeables to hide: those this scene's snapshots drew, and those
+    /// its module places (`module`), that the snapshot (`present`) no
+    /// longer draws and that are not hidden yet. A script that destroyed
+    /// one before a save was made, or before the party left the module and
+    /// came back, leaves it out of the first snapshot this scene draws. It
+    /// is hidden then too (TSL's Peragus door blocker, a green plane above
+    /// the doorway once the door had opened).
+    ///
+    /// The module's list is taken once a snapshot of it gives one.
+    fn placed_gone(
+        &mut self,
+        present: BTreeSet<u32>,
+        module: impl FnOnce() -> Vec<u32>,
+    ) -> Vec<u32> {
+        self.placed_seen.extend(&present);
+        if !self.module_seen {
+            let module = module();
+            self.module_seen = !module.is_empty();
+            self.placed_seen.extend(module);
+        }
+        (self.placed_seen.difference(&present))
+            .filter(|index| !self.placed_hidden.contains(index))
+            .copied()
+            .collect()
+    }
+}
+
+/// A copy of `material` that can be faded: an opaque surface blended.
+pub(crate) fn blended(material: &OdysseyMaterial) -> OdysseyMaterial {
+    let mut faded = material.clone();
+    if faded.surface.is_opaque() {
+        faded.surface = Surface::Blend;
+    }
+    faded
 }
 
 /// `root`'s meshes each given a blended copy of its material: the copies,
@@ -271,18 +333,20 @@ fn own_materials(
         let Ok(mut handle) = meshes.get_mut(entity) else {
             continue;
         };
-        let Some(mut faded) = materials.get(&handle.0).cloned() else {
+        let Some(faded) = materials.get(&handle.0).map(blended) else {
             continue;
         };
-        if matches!(
-            faded.surface,
-            Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-        ) {
-            faded.surface = Surface::Blend;
-        }
         let was = faded.params.tint.w;
         handle.0 = materials.add(faded);
         own.push((handle.0.clone(), was));
     }
     own
 }
+
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    probes::checks()
+}
+
+#[cfg(feature = "probes")]
+mod probes;

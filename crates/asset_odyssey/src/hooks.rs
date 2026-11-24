@@ -14,6 +14,8 @@ pub const HEAD_HOOK: &str = "headhook";
 pub const HEADGEAR_HOOK: &str = "gogglehook";
 /// A camera model's eye (dialogue cameras, the menus' stages).
 pub const CAMERA_HOOK: &str = "camerahook";
+/// What KOTOR 2 floats the target block over on a door or placeable.
+pub const LOOK_AT_HOOK: &str = "lookathook";
 /// Where an animated cutscene's stunt model puts its actor.
 pub const CUTSCENE_DUMMY: &str = "cutscenedummy";
 /// A visual effect's attach points on a creature (`visualeffects.2da`'s

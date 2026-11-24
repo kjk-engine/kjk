@@ -13,7 +13,12 @@ face a door or placeable stands on (its closed or in-place brushes, with
 a body's box), or three of four points of it over a placeable's footprint
 (its flat non-walkable faces), carries that entity; one with the level's own solid over its
 middle, from a step up to a body's height (a table's top, a prop drawn
-without a walkmesh), is `covered`; but a sliver, narrower than the
+without a walkmesh), is `covered`. A face longer than 2 m is looked over
+across its area, at points 0.5 m apart, and at most 128 parts along an
+edge, so a face longer than 64 m is looked over more coarsely: the swoop
+races' floors have faces up to 4.6 km long, and points 0.5 m apart over
+them never let the race's module finish loading (probe
+`track_face_nav_marked`). A sliver, narrower than the
 10 cm column looked over each point with (its points lie on its edges, so
 the column meets a wall along one), is open where two faces it joins are:
 a body only crosses it (TSL's Peragus mining tunnels, where a 6 mm sliver
@@ -130,7 +135,21 @@ route stands and looks again after KOTOR's pathfinding wait, 2 s and
 puts `AddPathfindingWaitActionToFront` before the move when `PlotPath`
 fails; its `HandlePathfindError` only logs, so it never gives the move
 up): a scene that opens a door a moment after sending a walker through
-it (`a_903kreia`, d_entrance 4 s on) has it walk through once it opens. A
+it (`a_903kreia`, d_entrance 4 s on) has it walk through once it opens.
+The script's move that started the walk decides whether it waits. A move
+to a place with no way there fails after `scripts.moves.grace_ms`, as
+TSL's `ActionMoveToLocation` queues the move alone, and the move is dropped
+when no path is found. A move to an object does not fail. TSL's
+`ActionMoveToObject` queues a check behind the move, and the check queues
+the move again after each pathfinding wait until the mover is in range. A
+walk to an object with no way past the doors as they stand plans through
+the doors that will not open for it (`walk::ThroughShut`): it walks up to
+the first such door, stands before its panel with its stalls not counted,
+never passes it, and walks through once a script opens it. With no way
+even through those doors, it stands and looks again after each pathfinding
+wait. TSLRCM sends
+Atris into her meditation chamber at the Telos academy this way, 15 s
+before the scene unlocks its door (`a_262walkatris3`). A
 new walk (no corner yet) is not stalled: planned as one, it passed over a
 goal within a skip of it, and a scripted step of a metre or so was given
 up at once (`Walker::command_round`). A body whose box its step would enter (not one at the walk's
@@ -141,7 +160,18 @@ body where it met it last (`Walker::bumps`, `bumped`, counted afresh for
 each move), unless that body walks on (`Met::walks`). A walk given up is
 `Walker::stuck`, which ends the scripts' move; a forced move
 (`ActionForceMove*`) takes it up afresh instead and tries on until its
-timeout jumps it there, as the NWN Lexicon has `ActionForceMoveToObject`. A move to a place arrives on
+timeout jumps it there, as the NWN Lexicon has `ActionForceMoveToObject`.
+A move to a place with no floor over or under it (a waypoint past the end
+of a ramp) goes to the nearest point of the mesh instead, and ends there
+(`walk::safe_spot`, the script's `View::spot`), as TSL's executable moves
+a path's end point off the walkmesh to a safe spot near it. The point lies
+within `walking.searches.safe_spot_m` of the place seen from above, on a
+floor at the place's height (within the searches' `floor_below_m` and
+`floor_above_m`, so never the storey below a balcony's edge), on the
+mover's own island of the mesh when it stands on one. With no such point
+the walk finds no way. Sasha and Lur Arka leave the Ebon Hawk so: their
+exit waypoint lies past the end of the ramp's floor (#394). A move to a
+place arrives on
 it (KOTOR's range 0, to the queue's 0.1 m floor); a jump goes where the
 K1 and TSL executables' safe-location search puts it
 (`install::jump_place`): each place tried stands on the walkmesh under its
@@ -149,7 +179,12 @@ x and y at the walkmesh's height (the mark's own height only chooses among
 floors over one another), free when a column 2 cm wide and a body high
 has room over a walkable floor, clear of the other living bodies by the
 two bodies' personal spaces (`perspace`, 0.7 m for two humanoids: K1's own
-marks stand 0.81 m apart); the mark itself when it is free, else the first
+marks stand 0.81 m apart). The room is looked for on the walkmesh alone,
+as the executables look for it. Its non-walkable faces, the walls along
+its open edges and the bodies stop a place. A chair or a desk drawn over
+the walkmesh's floor does not (Atton in the Ebon Hawk's pilot chair,
+#479). Of the level drawn round the walkmesh, only the floor under the
+column's soles counts. The place is the mark itself when it is free, else the first
 free place of square rings about it, 1 m out each way and each next ring
 wider by the jumper's personal space, out to 20 m, each ring's edge tried
 every personal space along it (its rows across by x, then its sides), a
@@ -178,6 +213,44 @@ held (scene mode), so its walks route round a closed door, or have no way and en
 kjk collision nav k1 end_m01aa     # the bake twice, 500 routes checked leg by leg
 kjk collision walk k1 end_m01aa    # 50 walks through move_body, doors opened by use
 ```
+
+## Where walks still differ from the original
+
+TSL's executable was read on 2026-11-22 to check how a scripted walk meets a
+closed or locked door. kjk matches it for a walk to an object behind a
+locked door: the walker goes up to the door and waits, and walks through
+once the door opens. Four differences are left. Each one changes many
+scenes in both games, so each needs its own change and a run of every
+route in both games.
+
+1. **A walk to a place, blocked only by a door.** In the original, a walk
+   to a place plans through any door that is not Static, walks up to the
+   door, runs the walker's OnBlocked script there, and ends as done. In
+   kjk the walk ends after `scripts.moves.grace_ms` and the walker stays
+   where it stood. Only when no route exists at all, through a Static door
+   or off the walkmesh, does the original stand still, wait 2 to 4 s and
+   drop the move, as kjk does.
+2. **Doors in path planning.** The original plans through every door that
+   is not Static, closed, open or locked alike. It never checks the lock or
+   whether the walker could open the door, and it does not prefer a way
+   round through an open door. kjk plans round a door that will not open
+   for the walker, and plans through one only when no other route exists.
+3. **Who opens a door.** In the original the engine never opens a door for
+   a walker. The walker stops about one body width short of the closed
+   door and runs its OnBlocked script. The default script
+   (`k_def_blocked01`, which runs `k_ai_master` with event 1009) opens an
+   unlocked door, or bashes it if it can be bashed. A creature with no such
+   script, or a character the player controls, stands at an unlocked door.
+   In kjk the walker opens the door itself. This difference has to change
+   together with difference 2.
+4. **Walking part of the way.** When the original finds no route, and the
+   straight line to the goal stays on the walkmesh but an object blocks
+   it, the walker walks along that line to the farthest clear point. kjk
+   does not walk part of the way.
+
+The suggested order is 1, then 2 and 3 together, then 4. Before changing
+difference 1, log every walk to a place that ends with no route, and run
+every route in both games, to list the scenes it changes.
 
 The walk test plans its module without scripts (`Level::without_scripts`):
 a scene's trigger held the walker in its conversation where it stood (the

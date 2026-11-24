@@ -10,6 +10,10 @@
 //!
 //! `kjk combat items` checks every name here against both games'
 //! `spells.2da` labels (`NAMED`).
+//!
+//! These numbers are canonical numbers (`rules::rows`). A mod's table may
+//! have a named row at another row. The resolver then serves the table in
+//! canonical order (`vfs::rows`), so the row is found here all the same.
 
 /// K1's Force powers (`usertype` 1 that a sheet can know), by row: every
 /// row `combat::force::of_row` maps, and the saber throws.
@@ -18,149 +22,20 @@ pub const K1_FORCE_POWERS: [u16; 44] = [
     31, 32, 33, 34, 35, 36, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
 ];
 
-/// Declares each row as a constant named by its label, and `NAMED`: every
-/// one, by label.
-macro_rules! rows {
-    ($($label:ident = $row:literal),* $(,)?) => {
-        $(pub const $label: u16 = $row;)*
+/// How many rows KOTOR 1's own `spells.2da` has: KOTOR 2's first row past
+/// them is its heat shield. KOTOR 2's powers lent to KOTOR 1 (`vfs::lent`)
+/// come after them, by their KOTOR 2 numbers.
+pub const K1_SPELL_ROWS: u16 = K1_ROWS;
 
-        /// Every row named here, with its label.
-        pub const NAMED: &[(&str, u16)] = &[$((stringify!($label), $label)),*];
-    };
-}
+/// Revitalize's rows: it raises the fallen members of the caster's party,
+/// and does nothing where none has fallen.
+pub const RAISES_THE_FALLEN: [u16; 3] = [
+    FORCE_POWER_REVITALIZE,
+    FORCE_POWER_IMPROVED_REVITALIZE,
+    FORCE_POWER_MASTER_REVITALIZE,
+];
 
-rows! {
-    // Force powers (`usertype` 1).
-    FORCE_POWER_LIGHT_SABER_THROW_ADVANCED = 4,
-    FORCE_POWER_AFFECT_MIND = 6,
-    FORCE_POWER_AFFLICTION = 7,
-    FORCE_POWER_SPEED_BURST = 8,
-    FORCE_POWER_CHOKE = 9,
-    FORCE_POWER_CURE = 10,
-    FORCE_POWER_DEATH_FIELD = 11,
-    FORCE_POWER_DROID_DISABLE = 12,
-    FORCE_POWER_DROID_DESTROY = 13,
-    FORCE_POWER_DOMINATE = 14,
-    FORCE_POWER_DRAIN_LIFE = 15,
-    FORCE_POWER_FEAR = 16,
-    FORCE_POWER_FORCE_ARMOR = 17,
-    FORCE_POWER_FORCE_AURA = 18,
-    FORCE_POWER_FORCE_BREACH = 19,
-    FORCE_POWER_FORCE_IMMUNITY = 20,
-    FORCE_POWER_FORCE_VALOR = 22,
-    FORCE_POWER_FORCE_PUSH = 23,
-    FORCE_POWER_FORCE_SHIELD = 24,
-    FORCE_POWER_FORCE_STORM = 25,
-    FORCE_POWER_FORCE_WAVE = 26,
-    FORCE_POWER_FORCE_WHIRLWIND = 27,
-    FORCE_POWER_HEAL = 28,
-    FORCE_POWER_STASIS = 29,
-    FORCE_POWER_HORROR = 30,
-    FORCE_POWER_INSANITY = 31,
-    FORCE_POWER_KILL = 32,
-    FORCE_POWER_KNIGHT_VALOR = 33,
-    FORCE_POWER_KNIGHT_SPEED = 34,
-    FORCE_POWER_LIGHTNING = 35,
-    FORCE_POWER_MASTER_VALOR = 36,
-    FORCE_POWER_SPEED_MASTERY = 37,
-    FORCE_POWER_PLAGUE = 38,
-    FORCE_POWER_RESIST_ENERGY_2 = 40,
-    FORCE_POWER_RESIST_FORCE = 41,
-    FORCE_POWER_RESIST_ENERGY_1 = 42,
-    FORCE_POWER_SHOCK = 43,
-    FORCE_POWER_MASS_STASIS = 44,
-    FORCE_POWER_SLOW = 45,
-    FORCE_POWER_STUN = 46,
-    FORCE_POWER_DROID_STUN = 47,
-    FORCE_POWER_SUPRESS_FORCE = 48,
-    FORCE_POWER_LIGHT_SABER_THROW = 49,
-    FORCE_POWER_WOUND = 50,
-    // TSL's own powers.
-    FORCE_POWER_MASTER_HEAL = 134,
-    FORCE_POWER_DRAIN_FORCE = 153,
-    FORCE_POWER_IMPROVED_DRAIN_FORCE = 154,
-    FORCE_POWER_MASTER_DRAIN_FORCE = 155,
-    FORCE_POWER_FORCE_SCREAM = 159,
-    FORCE_POWER_IMPROVED_FORCE_SCREAM = 160,
-    FORCE_POWER_MASTER_FORCE_SCREAM = 161,
-    FORCE_POWER_FORCE_REPULSION = 162,
-    FORCE_POWER_FURY = 164,
-    FORCE_POWER_IMPROVED_FURY = 165,
-    FORCE_POWER_MASTER_FURY = 166,
-    FORCE_POWER_FORCE_SIGHT = 176,
-    FORCE_POWER_FORCE_CRUSH = 177,
-    FORCE_POWER_MIND_TRICK = 181,
-    FORCE_POWER_CONFUSION = 200,
-    // Item abilities (`usertype` 4).
-    ITEM_ABILITY_MED_PACK = 64,
-    ITEM_ABILITY_ADVANCED_MED_PACK = 65,
-    ITEM_ABILITY_LIFE_SUPPORT_KIT = 66,
-    ITEM_ABILITY_REMOVE_POISON = 67,
-    ITEM_ABILITY_ADRENAL_SHOT_STRENGTH = 69,
-    ITEM_ABILITY_ADRENAL_SHOT_ALACRITY = 70,
-    ITEM_ABILITY_ADRENAL_SHOT_STAMINA = 71,
-    ITEM_ABILITY_HYPER_ADRENAL_SHOT_STRENGTH = 72,
-    ITEM_ABILITY_HYPER_ADRENAL_SHOT_ALACRITY = 73,
-    ITEM_ABILITY_HYPER_ADRENAL_SHOT_STAMINA = 74,
-    ITEM_ABILITY_COMBAT_SHOT_1 = 75,
-    ITEM_ABILITY_COMBAT_SHOT_2 = 76,
-    ITEM_ABILITY_COMBAT_SHOT_3 = 77,
-    ITEM_ABILITY_DROID_REPAIR_KIT = 84,
-    ITEM_ABILITY_GRENADE_FRAGMENTATION = 87,
-    ITEM_ABILITY_GRENADE_STUN = 88,
-    ITEM_ABILITY_GRENADE_THERMAL_DETONATOR = 89,
-    ITEM_ABILITY_GRENADE_POISON = 90,
-    ITEM_ABILITY_GRENADE_SONIC = 91,
-    ITEM_ABILITY_GRENADE_ADHESIVE = 92,
-    ITEM_ABILITY_GRENADE_CRYOBAN = 93,
-    ITEM_ABILITY_GRENADE_FIRE = 94,
-    ITEM_ABILITY_GRENADE_ION = 95,
-    ITEM_ABILITY_ENERGY_SHIELD = 99,
-    ITEM_ABILITY_SITH_ENERGY_SHIELD = 100,
-    ITEM_ABILITY_ARKANIAN_ENERGY_SHIELD = 101,
-    ITEM_ABILITY_ECHANI_SHIELD = 102,
-    ITEM_ABILITY_MANDLORIAN_MELEE_SHIELD = 103,
-    ITEM_ABILITY_MANDLORIAN_POWER_SHIELD = 104,
-    ITEM_ABILITY_ECHANI_DUELING_SHIELD = 105,
-    ITEM_ABILITY_YUSANIS_DUELING_SHIELD = 106,
-    ITEM_ABILITY_VERPINE_ENERGY_SHIELD = 107,
-    DROID_ITEM_ENERGY_SHIELD_1 = 110,
-    DROID_ITEM_ENERGY_SHIELD_2 = 111,
-    DROID_ITEM_ENERGY_SHIELD_3 = 112,
-    DROID_ITEM_HAZARD_SHIELD_1 = 113,
-    DROID_ITEM_HAZARD_SHIELD_2 = 114,
-    DROID_ITEM_HAZARD_SHIELD_3 = 115,
-    ITEM_ABILITY_DROID_REPAIR_KIT_ADV = 127,
-    ITEM_ABILITY_DROID_CONSTRUCTION_KIT = 128,
-    ITEM_ABILITY_RECOVERY_STIM = 129,
-    // TSL's other forearm bands (`k_sup_bands`): the heat shield (the
-    // Telos mining shield), and Drexl's below.
-    ITEM_ABILITY_HEAT_SHIELD = 132,
-    // TSL's stronger sonic grenades and its launchers' rows: the rockets
-    // and darts a wrist launcher alone fires, and the grenades it fires.
-    ITEM_ABILITY_ROCKET_EXPLOSIVE = 185,
-    ITEM_ABILITY_GRENADE_SONIC_2 = 186,
-    ITEM_ABILITY_GRENADE_SONIC_3 = 187,
-    ITEM_ABILITY_ROCKET_PIERCING = 190,
-    ITEM_ABILITY_ROCKET_POISON = 191,
-    ITEM_ABILITY_ROCKET_ION = 192,
-    ITEM_ABILITY_ROCKET_PLASMA = 193,
-    ITEM_ABILITY_ROCKET_CONCUSSION = 194,
-    ITEM_ABILITY_DART_POISON = 195,
-    ITEM_ABILITY_DART_KYBER = 196,
-    ITEM_ABILITY_DART_PARALYSIS = 197,
-    ITEM_ABILITY_DART_TRANQUILIZER = 198,
-    ITEM_ABILITY_DART_LAWN = 199,
-    ITEM_ABILITY_GRENADE_LAUNCHED_FRAGMENTATION = 246,
-    ITEM_ABILITY_GRENADE_LAUNCHED_STUN = 247,
-    ITEM_ABILITY_GRENADE_LAUNCHED_THERMAL_DETONATOR = 248,
-    ITEM_ABILITY_GRENADE_LAUNCHED_POISON = 249,
-    ITEM_ABILITY_GRENADE_LAUNCHED_SONIC = 250,
-    ITEM_ABILITY_GRENADE_LAUNCHED_ADHESIVE = 251,
-    ITEM_ABILITY_GRENADE_LAUNCHED_CRYOBAN = 252,
-    ITEM_ABILITY_GRENADE_LAUNCHED_FIRE = 253,
-    ITEM_ABILITY_GRENADE_LAUNCHED_ION = 254,
-    ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_2 = 255,
-    ITEM_ABILITY_GRENADE_LAUNCHED_SONIC_3 = 256,
-    ITEM_ABILITY_DREXL_SHIELD = 257,
-}
+// Each row as a constant named by its label, and `NAMED`, every one by
+// label. They are kept with the rows-by-label map (`rules::rows`), which
+// gives a mod's table's rows these numbers.
+pub use rules::rows::spells::*;

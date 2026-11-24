@@ -1,13 +1,16 @@
 //! Character creation: the character a player made, as the game makes its
 //! player creature. Its scores are bought with points from a floor up to a
 //! top (a raise costing the score's modifier, within
-//! `rules::progression::creation::RAISE_COST`); its first level is a
+//! `rules::progression::creation::RAISE_COST`), or start at the scores its
+//! class recommends (`makeable`); its first level is a
 //! level of its class taken from nothing (`levels::Classes::take`, the
 //! rules a level-up follows): the class's hit die and CON modifier, its
 //! attack, saves and defence, the feats the class grants, the feats picked
 //! (the game's picks for those left unpicked), the skill ranks bought, and
 //! the feats TSL's creation grants a player besides (`Class::pc_granted`:
-//! `CSWGuiFeatsCharGen::InitiateFeats` asks `AddGrantedFeats` for them). It
+//! `CSWGuiFeatsCharGen::InitiateFeats` asks `AddGrantedFeats` for them
+//! before the feat screen is built, so the screen shows them known and
+//! never offers them as picks; `unmade_of`). It
 //! knows no powers: neither game's creation offers them (TSL's Jedi first
 //! level would pick two, `classpowergain.2da`; its creation screens have no
 //! such step and its character is saved knowing none). It wears and holds
@@ -43,24 +46,54 @@ pub fn cost(score: u8) -> u8 {
     ((i32::from(score) - 10).div_euclid(2)).clamp(least, most) as u8
 }
 
+/// The points a score costs bought from `LOWEST`. A score below `LOWEST`
+/// counts as the points that raising it to `LOWEST` would cost, taken off.
+fn bought(score: u8) -> i32 {
+    let costs = |scores: std::ops::Range<u8>| scores.map(|from| i32::from(cost(from))).sum::<i32>();
+    if score >= LOWEST {
+        costs(LOWEST..score)
+    } else {
+        -costs(score..LOWEST)
+    }
+}
+
 /// The points `abilities` cost bought from `LOWEST`, if each is in range.
 pub fn spent(abilities: &[u8; 6]) -> Option<u32> {
     abilities
         .iter()
         .map(|&score| {
-            (LOWEST..=HIGHEST).contains(&score).then(|| {
-                (LOWEST..score)
-                    .map(|from| u32::from(cost(from)))
-                    .sum::<u32>()
-            })
+            (LOWEST..=HIGHEST)
+                .contains(&score)
+                .then(|| bought(score) as u32)
         })
         .sum()
+}
+
+/// Whether the creation screen can make `abilities` for a class that
+/// recommends `recommended` (`Class::recommended`).
+///
+/// The screen makes scores in two ways. The first starts every score at
+/// `LOWEST` with `POINTS` to spend, and raises a score no higher than
+/// `HIGHEST`. The second starts at the recommended scores with no points
+/// left: quick creation, or the Recommended button. From there a score may
+/// be lowered for the points it refunds and another raised with them. A
+/// mod's `classes.2da` may recommend scores that cost more than `POINTS`,
+/// or that lie outside `LOWEST` to `HIGHEST`. The original game takes such
+/// scores as they are, and so does this check.
+pub fn makeable(abilities: &[u8; 6], recommended: &[u8; 6]) -> bool {
+    let total = |scores: &[u8; 6]| scores.iter().map(|&score| bought(score)).sum::<i32>();
+    let bought_freely = spent(abilities).is_some_and(|spent| spent <= u32::from(POINTS));
+    let from_recommended =
+        abilities.iter().zip(recommended).all(|(&score, &advised)| {
+            (advised.min(LOWEST)..=advised.max(HIGHEST)).contains(&score)
+        }) && total(abilities) <= total(recommended);
+    bought_freely || from_recommended
 }
 
 /// Why a creation is refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
-    /// Scores out of range, or more points spent than there are.
+    /// Scores the creation screen cannot make (`makeable`).
     Scores,
     /// Its first level is not the class's to take (`Classes::take`).
     Level,
@@ -74,10 +107,15 @@ pub fn sheet(
     creation: &Creation,
     faction: u8,
 ) -> Result<(Sheet, Career, u8), Refused> {
-    if spent(&creation.abilities).is_none_or(|spent| spent > u32::from(POINTS)) {
+    let recommended = classes
+        .classes
+        .get(usize::from(creation.choices.class))
+        .map_or([LOWEST; 6], |class| class.recommended);
+    if !makeable(&creation.abilities, &recommended) {
         return Err(Refused::Scores);
     }
-    let unmade = unmade(creation.abilities, faction);
+    let class = creation.choices.class;
+    let unmade = unmade_of(classes, class, creation.abilities, faction);
     let none = Career::new();
     let choices = Choices {
         powers: Vec::new(),
@@ -86,14 +124,31 @@ pub fn sheet(
     let (mut sheet, career, unspent) = classes
         .take(&unmade, &none, &choices, 0)
         .ok_or(Refused::Level)?;
-    let of = &classes.classes[usize::from(choices.class)];
-    for &feat in &of.pc_granted {
-        if !sheet.feats.has(feat) {
-            sheet.feats.insert(feat);
-            crate::combat::passive::learn(&mut sheet, feat, 0);
-        }
+    for &feat in pc_granted(classes, class) {
+        crate::combat::passive::learn(&mut sheet, feat, 0);
     }
     Ok((sheet, career, unspent))
+}
+
+/// The feats TSL's creation grants a player of `class` besides its class's
+/// own (`Class::pc_granted`); none in K1.
+fn pc_granted(classes: &Classes, class: u8) -> &[u16] {
+    classes
+        .classes
+        .get(usize::from(class))
+        .map_or(&[], |of| of.pc_granted.as_slice())
+}
+
+/// A character of `abilities` and `faction` before its first level of
+/// `class`, as the creation screens see it (`unmade`): it already knows the
+/// feats TSL's creation grants a player of that class (`pc_granted`), so
+/// its first level neither offers them nor picks them for it.
+pub fn unmade_of(classes: &Classes, class: u8, abilities: [u8; 6], faction: u8) -> Sheet {
+    let mut sheet = unmade(abilities, faction);
+    for &feat in pc_granted(classes, class) {
+        sheet.feats.insert(feat);
+    }
+    sheet
 }
 
 /// A character of `abilities` and `faction` before its first level: level

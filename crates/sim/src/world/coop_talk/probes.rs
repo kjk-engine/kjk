@@ -5,6 +5,7 @@ use super::*;
 use crate::action::Action;
 use crate::combat::fighter::Fighter;
 use crate::combat::mind;
+use crate::combat::sheet::skills;
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::module::{ObjectData, ObjectKind, Placement};
 use crate::motion::{self};
@@ -165,6 +166,15 @@ const ABORT_TOKEN: i32 = 8;
 const BUSY_TOKEN: i32 = 9;
 /// The custom token `probe_pattern` sets: `GetListenPatternNumber()`.
 const PATTERN_TOKEN: i32 = 10;
+/// The custom tokens `probe_who` sets to the Computer Use rank of
+/// `GetPartyMemberByIndex(0)` (what K1's computers read) and of
+/// `GetPCSpeaker()` (what its Persuade and Repair checks read).
+const LEADER_SKILL_TOKEN: i32 = 11;
+const SPEAKER_SKILL_TOKEN: i32 = 12;
+/// The Computer Use ranks the guest-click phase gives the host's character
+/// and the guest's companion.
+const HOST_COMPUTER_USE: u8 = 0;
+const GUEST_COMPUTER_USE: u8 = 4;
 /// The user-defined event K1's `k_ai_master` signals for a click
 /// (`probe_ask`).
 const USER_DIALOGUE: i32 = 1004;
@@ -190,6 +200,10 @@ pub fn probes() -> Vec<Case> {
     cases.extend(one_seat_leading().unwrap_or_else(|why| vec![("one_seat_leading", Err(why))]));
     cases.extend(led_back_to_talk().unwrap_or_else(|why| vec![("led_back_to_talk", Err(why))]));
     cases.extend(
+        one_seat_leading_shops().unwrap_or_else(|why| vec![("one_seat_leading_shops", Err(why))]),
+    );
+    cases.extend(base_shows_waiting().unwrap_or_else(|why| vec![("base_shows_waiting", Err(why))]));
+    cases.extend(
         one_seat_no_watchers().unwrap_or_else(|why| vec![("one_seat_no_watchers", Err(why))]),
     );
     cases.extend(
@@ -202,6 +216,11 @@ pub fn probes() -> Vec<Case> {
             .unwrap_or_else(|why| vec![("trigger_call_gathers_there", Err(why))]),
     );
     cases.push(("click_pattern_kept", click_pattern_kept()));
+    cases.push(("unspoken_begins_nothing", unspoken_begins_nothing()));
+    cases.push((
+        "first_seat_away_in_talk_answers_once",
+        first_seat_away_in_talk(),
+    ));
     cases.push((
         "trigger_destroyed_hears_once",
         trigger_destroyed_hears_once(),
@@ -608,10 +627,10 @@ impl Run {
     }
 
     /// A script of the one whose dialogue hook begins its conversation
-    /// begins it: a party conversation, with the host's character as its
-    /// PC.
+    /// begins it, naming the first PC (`probe_scene`): a party
+    /// conversation, with the host's character as its PC.
     fn cutscene(&mut self) -> Result<(), String> {
-        self.run_script("probe_begin")
+        self.run_script("probe_scene")
     }
 
     /// The one whose dialogue hook begins its conversation runs `script`,
@@ -889,6 +908,7 @@ impl Run {
             level: level.id(),
             snapshot: self.last.clone(),
             script: self.world.script_state().clone(),
+            stances: self.world.stance_ids(),
         };
         let save = crate::Save::decode(&save.encode()).map_err(|why| why.to_string())?;
         Ok(Run {
@@ -1170,7 +1190,8 @@ fn program(ops: &[Op]) -> Ncs {
 /// - `probe_aborted` sets `ABORT_TOKEN` to 1;
 /// - `probe_console` queues `probe_talk` with the first PC
 ///   (`ActionStartConversation`), `probe_lever` begins it with whoever
-///   used it (`BeginConversation`);
+///   used it (`BeginConversation`), `probe_scene` begins `probe_talk`
+///   with the first PC (`BeginConversation` naming it);
 /// - `probe_global` sets a global (the story's);
 /// - `probe_busy` sets `BUSY_TOKEN` to `GetIsInConversation(GetFirstPC())`;
 /// - `probe_pause` pauses the PC speaker's conversation
@@ -1252,15 +1273,40 @@ int GetListenPatternNumber();
 void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f);
 // 27
 int SetPartyLeader(int nNPC);
+// 28
+object GetPartyMemberByIndex(int nIndex);
+// 29
+int GetSkillRank(int nSkill, object oTarget=OBJECT_SELF);
 "#;
     let call = |routine, args| Op::Action { routine, args };
-    let who = program(&[
+    // `SetCustomToken(token, IntToString(GetSkillRank(SKILL_COMPUTER_USE,
+    // whom)))`, `whom` pushed by `whom`.
+    let computer_use = |whom: &[Op], token| {
+        let mut ops = whom.to_vec();
+        ops.extend([
+            Op::Const(Const::Int(
+                i32::try_from(skills::COMPUTER_USE).unwrap_or(-1),
+            )),
+            call(29, 2),
+            call(4, 1),
+            Op::Const(Const::Int(token)),
+            call(3, 2),
+        ]);
+        ops
+    };
+    let mut who = vec![
         call(1, 0),
         call(5, 1),
         call(4, 1),
         Op::Const(Const::Int(WHO_TOKEN)),
         call(3, 2),
-    ]);
+    ];
+    who.extend(computer_use(
+        &[Op::Const(Const::Int(0)), call(28, 1)],
+        LEADER_SKILL_TOKEN,
+    ));
+    who.extend(computer_use(&[call(1, 0)], SPEAKER_SKILL_TOKEN));
+    let who = program(&who);
     let store = program(&[
         Op::Const(Const::Int(0)),
         Op::Const(Const::Int(0)),
@@ -1273,6 +1319,13 @@ int SetPartyLeader(int nNPC);
     // `BeginConversation("probe_talk")`, as the games' dialogue hooks do.
     let begin = program(&[
         Op::Const(Const::Object(1)),
+        Op::Const(Const::String(b"probe_talk".to_vec())),
+        call(6, 2),
+    ]);
+    // `BeginConversation("probe_talk", GetFirstPC())`: a scene's script,
+    // run by no dialogue event, names the PC.
+    let scene = program(&[
+        call(9, 0),
         Op::Const(Const::String(b"probe_talk".to_vec())),
         call(6, 2),
     ]);
@@ -1521,6 +1574,7 @@ int SetPartyLeader(int nNPC);
             ("probe_who", who),
             ("probe_store", store),
             ("probe_begin", begin),
+            ("probe_scene", scene),
             ("probe_dark", dark),
             ("probe_deal", deal),
             ("probe_aborted", aborted),
@@ -1810,13 +1864,56 @@ fn marks(run: &mut Run) -> Result<Vec<Case>, String> {
 fn guest_click(run: &mut Run) -> Result<Vec<Case>, String> {
     run.forget_tokens();
     let (host, buddy) = (run.body(0)?, run.body(1)?);
+    // Both on the host's sheet, the companion's own from now, each with its
+    // Computer Use.
+    run.rebuilt(|snapshot| {
+        for (id, rank) in [(host, HOST_COMPUTER_USE), (buddy, GUEST_COMPUTER_USE)] {
+            let entity = (snapshot.entities.iter_mut())
+                .find(|entity| entity.id == id)
+                .ok_or(format!("{id:?} is gone"))?;
+            let sheet = entity
+                .sheet
+                .get_or_insert_with(crate::combat::Sheet::dev_soldier);
+            sheet.skills[skills::COMPUTER_USE] = rank;
+        }
+        Ok(())
+    })?;
+    // What `GetSkillRank` reads for each (`stealth::rank`).
+    let library = library();
+    let rank = |id: SimId| {
+        let sheet = run.last.get(id).and_then(|entity| entity.sheet);
+        sheet.map(|sheet| {
+            let rank =
+                crate::stealth::rank(Some(&library), &sheet, &sheet, skills::COMPUTER_USE, false);
+            rank.to_string()
+        })
+    };
+    let (host_rank, guest_rank) = (rank(host), rank(buddy));
     run.put(host, HOST_ASIDE);
     run.click(1, TALK_FROM, 0.0)?;
     let talk = run.talk().cloned();
-    let token = run.last.talk.tokens.get(&WHO_TOKEN).cloned();
+    let tokens = &run.last.talk.tokens;
+    let token = tokens.get(&WHO_TOKEN).cloned();
+    let skill_tokens = [LEADER_SKILL_TOKEN, SPEAKER_SKILL_TOKEN].map(|at| tokens.get(&at).cloned());
     run.answers(&[(1, Pick::Reply(GOODBYE))]);
     let ended = run.last.talk.conversations.is_empty();
+    let own_skill = |read: &Option<String>| {
+        check(
+            guest_rank.is_some() && host_rank != guest_rank && *read == guest_rank,
+            format!("read {read:?}, the guest's {guest_rank:?}, the host's {host_rank:?}"),
+        )
+    };
     Ok(vec![
+        // A guest's companion slicing a computer: K1's `k_con_com32` reads
+        // `GetSkillRank` on `GetPartyMemberByIndex(0)`.
+        ("guest_slices_with_own_skill", own_skill(&skill_tokens[0])),
+        // A guest's companion persuading or repairing: K1's
+        // `k_con_perseasy` and `k_con_repair` read it on `GetPCSpeaker()`,
+        // the host's character.
+        (
+            "guest_persuades_with_own_skill",
+            own_skill(&skill_tokens[1]),
+        ),
         (
             "guest_click_pc_is_host",
             check(
@@ -3321,10 +3418,7 @@ fn interruptions(run: &mut Run) -> Result<Vec<Case>, String> {
     };
     table.available.insert(0, npc);
     table.members = vec![0];
-    table.selection = Some(Selection {
-        exit: String::new(),
-        forced: Vec::new(),
-    });
+    table.selection = Some(Selection::in_play());
     run.world.set_script_state(state);
     run.click(1, TALK_FROM, 0.0)?;
     let choose = |picks: [u8; 2]| {
@@ -4449,6 +4543,42 @@ fn endings(run: &mut Run) -> Result<Vec<Case>, String> {
 /// on through a cutscene and a fight (R9); its store stays open hurt and
 /// through a cutscene (R8); its ready for an exit leaves neither its
 /// conversation nor its store (R11).
+/// The first seat's player drops in the middle of its own conversation: the
+/// first seat sends no command for 20 seconds, and the conversation waits
+/// with no reply picked. Then the first seat's commands come again from the
+/// host's player in its place, whose answer count stands elsewhere: its
+/// first command picks nothing, and its one answer then picks one reply,
+/// once.
+fn first_seat_away_in_talk() -> Result<String, String> {
+    let mut run = Run::new(3, None)?;
+    let talk = run.start(0, TALKER, "probe_talk")?;
+    run.replies_up();
+    // The replies picked in the conversation so far, and the entry it is on.
+    let state = |run: &Run| {
+        let picks = (run.world.script_report().talk.iter())
+            .filter(|line| matches!(line, Line::Picked { id, .. } if *id == talk))
+            .count();
+        (picks, run.conversation(talk).map(|c| c.entry))
+    };
+    let before = state(&run);
+    run.silent = vec![0];
+    run.idle(steps(20_000));
+    run.silent.clear();
+    let waited = state(&run);
+    run.replies[0] = run.replies[0].wrapping_add(7);
+    run.step(&[]);
+    let first = state(&run);
+    run.answers(&[(0, Pick::Reply(AGAIN))]);
+    run.idle(steps(2_000));
+    let answered = state(&run).0;
+    check(
+        before.1.is_some() && waited == before && first.0 == before.0 && answered == before.0 + 1,
+        format!(
+            "picks and entry before {before:?}, after 20 s away {waited:?}, after the host's first command {first:?}; picks after its answer {answered}"
+        ),
+    )
+}
+
 fn one_seat_as_before() -> Result<Vec<Case>, String> {
     let mut run = Run::new(1, None)?;
     let (host, buddy) = (run.body(0)?, object(&run.last, BUDDY)?);
@@ -4775,6 +4905,25 @@ fn click_pattern_kept() -> Result<String, String> {
     )
 }
 
+/// `BeginConversation` naming no one talks to its caller's last speaker.
+/// The dialogue hook run by no click and no line heard (an end-of-
+/// conversation script that is a dialogue script, as two of TSL's restored
+/// Handmaiden sisters have) has no one to talk to and begins nothing. The
+/// same hook run by a click begins the conversation with the one who
+/// clicked.
+fn unspoken_begins_nothing() -> Result<String, String> {
+    let mut run = Run::on_ground(1, None, |_| {})?;
+    run.run_script("probe_begin")?;
+    let unspoken = run.last.talk.conversations.len();
+    run.click(0, HOOK_FROM, 0.0)?;
+    let host = run.body(0)?;
+    let clicked = run.talk().map(|c| c.listener.0);
+    check(
+        unspoken == 0 && clicked == Some(host.0),
+        format!("conversations begun unspoken {unspoken}, clicked with {clicked:?}"),
+    )
+}
+
 /// R9a: one seat alone has no one to watch it. Its companion, its own
 /// mind's, stands free beside the table and does not watch; asking to watch
 /// its own match does nothing.
@@ -4829,6 +4978,90 @@ fn one_seat_leading() -> Result<Vec<Case>, String> {
                 && kept,
             format!(
                 "{lent:?}; GetIsInConversation(GetFirstPC()) {busy:?}, in the minds' scene {in_scene:?}; a script's refused {refused}, the player's kept {kept}"
+            ),
+        ),
+    )])
+}
+
+/// One seat alone leading through its companion (`world::lent`) trades at
+/// the merchant's store. The merchant's line opens the store for the
+/// companion, and the companion buys a cell with the party's credits and
+/// leaves. Then the merchant's store script runs on its own after the
+/// conversation, as Larrim's on Taris does (`k_ptar_larrimsto`). Its PC
+/// speaker is then the main character, and the store opens for the
+/// companion leading all the same.
+fn one_seat_leading_shops() -> Result<Vec<Case>, String> {
+    let mut run = Run::new(1, None)?;
+    let buddy = object(&run.last, BUDDY)?;
+    let pc = run.last.own(Seat(0)).map(|own| own.id).ok_or("no PC")?;
+    run.lead(Some(BUDDY))?;
+    run.shop(&[0])?;
+    let talked = (run.trading(buddy), run.trading(pc));
+    let cell = run.stock(1, 100)?;
+    let told = run.buy(&[(0, cell[0])])?;
+    let bought = run.holder(cell[0]);
+    let store = object(&run.last, STORE)?.0;
+    let mut input = TickInput::default();
+    input.act(Seat(0), Action::Leave(store));
+    run.step_with(input);
+    let left = run.trading(buddy);
+    let merchant = object(&run.last, MERCHANT)?;
+    let mut state = run.world.script_state().clone();
+    state.pending.push(crate::script::Pending::new(
+        "probe_store",
+        ObjectId(merchant.0),
+    ));
+    run.world.set_script_state(state);
+    run.idle(4);
+    let later = (run.trading(buddy), run.trading(pc));
+    Ok(vec![(
+        "one_seat_leading_shops",
+        check(
+            talked == (true, false)
+                && bought == Some(crate::inventory::PARTY)
+                && !left
+                && later == (true, false),
+            format!(
+                "trading (companion, PC) after the talk {talked:?}; the cell's holder {bought:?}, told {told:?}; left {}; after the late script {later:?}",
+                !left
+            ),
+        ),
+    )])
+}
+
+/// One seat alone, with a companion that is available but out of the party
+/// standing in the area, as the Ebon Hawk's scripts leave the companions
+/// (`k_pebn_pophawk`). In one of the party's bases
+/// (`script::party::BASES`) the snapshot names that companion as waiting,
+/// for the in-game pages. In any other module it names none.
+fn base_shows_waiting() -> Result<Vec<Case>, String> {
+    let waiting = |base: Option<&str>| -> Result<(Vec<SimId>, SimId), String> {
+        let mut run = Run::on_ground(1, None, |data| {
+            if let Some(base) = base {
+                data.name = base.into();
+            }
+        })?;
+        let aide = object(&run.last, AIDE)?;
+        let mut state = run.world.script_state().clone();
+        let npc = crate::script::party::Npc {
+            template: String::new(),
+            object: Some(aide.0),
+            kept: None,
+            template_data: None,
+        };
+        state.party.available.insert(1, npc);
+        run.world.set_script_state(state);
+        run.step(&[]);
+        Ok((run.last.waiting.clone(), aide))
+    };
+    let (aboard, aide) = waiting(Some("ebo_m12aa"))?;
+    let (elsewhere, _) = waiting(None)?;
+    Ok(vec![(
+        "base_shows_waiting",
+        check(
+            aboard == [aide] && elsewhere.is_empty(),
+            format!(
+                "waiting on the Ebon Hawk {aboard:?}, the companion {aide:?}; elsewhere {elsewhere:?}"
             ),
         ),
     )])

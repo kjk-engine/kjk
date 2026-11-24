@@ -3,9 +3,14 @@
 - **The rule** (`combat::damage::apply`): at 0 HP a party member (a seat's
   avatar, a companion, driven or not) is downed: `Life::Downed`, recorded
   in `Fighter::fallen` (when, who revives it); anyone else dies. A
-  script's `EffectDeath` kills a party member too, standing or downed, past
-  shields and protect; Min1HP still holds (Trask's scene lifts it). JA's
-  saber-lock loss downs a party member, kills a creature.
+  script's `EffectDeath` kills a companion too, standing or downed, past
+  shields and protect; Min1HP still holds (Trask's scene lifts it). The
+  same `EffectDeath` on a player's own character (a seat's avatar) downs it
+  as 0 HP does (`damage::Member`), so it gets up after the fight, and the
+  whole party down is still the loss. Dead for good, it lay there with its
+  companions standing and nothing to end the game: the pillars on South
+  Beach (`unk_m41ab`'s `blow1`…`blowd6`) kill everyone within 10 m of them.
+  JA's saber-lock loss downs a party member, kills a creature.
 - `alive()` stays "can act": the downed press nothing, are not hit, healed
   (medpacs, Force heals [verify]) or perceived, lie as the dead do (no
   ragdoll; `game::cast`), and hold no exit (no doorway's or trigger's
@@ -44,7 +49,9 @@
   last save". The host's Load (`ui reload`) loads its own latest save
   (never a copy) in place for every machine (`sim_host::ReloadRequest`,
   `play::from_save`); one that does not read is told over the box; with
-  no save, the menu.
+  no save, the menu. A save loaded in place, or from the menu, writes no
+  autosave, as KOTOR writes none when a game is loaded. Only a module
+  entered owes one (`sim_host::autosave`).
 - **Control**: when the body the first seat leads through goes down, the
   next standing party member in the leader key's order leads
   (`world::scripts::passes_on`, as Tab would), past a companion a guest
@@ -75,7 +82,7 @@
   `GetNearestCreature` skips the downed unless asked [verify]; the downed
   have 0 HP (`GetIsDead` [verify]), stay in their script triggers, keep
   their bodies when the party is picked again. No `Mod_OnPlrDying`/`Death`.
-- **Probes**: `kjk sim probes --only falls` (20), `--only "up again"`
+- **Probes**: `kjk sim probes --only falls` (21), `--only "up again"`
   (each of the 19 get-ups' turned first frame against its death's last:
   side, head, pelvis), `kjk combat duel --only
   lock_down`, `kjk gui probes`; approved test `downed_and_revive`.

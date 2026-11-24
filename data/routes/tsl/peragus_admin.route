@@ -52,7 +52,11 @@ save peragus_guardroom
 # The administration center: six droids, killed for their XP (DSimpson),
 # then the console's override switch drops the prison's force field.
 to Adm_Console
-fight 25
+fight 65             # all six, through the centre's halls: one left alive is
+                     # switched off by the console and stands where it
+                     # stopped, and one that stopped in the trigger by the
+                     # bridge started HK-50's scene before Kreia's when the
+                     # party came back (peragus_harbinger)
 say control override switch
 say activate the switch
 use Adm_Console

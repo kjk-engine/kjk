@@ -25,6 +25,17 @@ pub fn all() -> Vec<Probe> {
         ("learn_unlearn_identity", sheets::learn_unlearn_identity()),
         ("sheet_setters", sheets::sheet_setters()),
         ("pick_warnings_k1", sheets::pick_warnings(vfs::Game::Kotor1)),
+        (
+            "class_and_influence_k1",
+            sheets::class_and_influence(vfs::Game::Kotor1),
+        ),
+        (
+            "class_and_influence_tsl",
+            sheets::class_and_influence(vfs::Game::Kotor2),
+        ),
+        ("head_preset", head::head_preset()),
+        ("class_body_k1", head::class_body(vfs::Game::Kotor1)),
+        ("class_body_tsl", head::class_body(vfs::Game::Kotor2)),
         ("party_queued", party::party_queued()),
         ("party_joins_k1", party::party_joins_k1()),
         ("checked_k1", party::checked_k1()),
@@ -38,6 +49,7 @@ pub fn all() -> Vec<Probe> {
 }
 
 mod companions;
+mod head;
 mod party;
 mod sheets;
 
@@ -373,12 +385,49 @@ fn data_of(game: vfs::Game) -> Result<String, String> {
             data.catalog.len()
         ));
     }
+    let lent = lent_barrier(&discovery, &data, game)?;
     Ok(format!(
-        "{} items ({} unread), {} classes ({force} with the Force)",
+        "{} items ({} unread), {} classes ({force} with the Force){lent}",
         data.catalog.len(),
         data.unreadable.len(),
         data.classes.classes.len()
     ))
+}
+
+/// KOTOR 1's data as the editor reads it, with KOTOR 2's powers lent as the
+/// game lends them where this machine has KOTOR 2 (`vfs::lent`): a Jedi
+/// class offers Force Barrier (row 135), and its row is named "Force
+/// Barrier". Nothing for KOTOR 2's own data or without KOTOR 2.
+fn lent_barrier(
+    discovery: &vfs::Discovery,
+    data: &crate::Data,
+    game: vfs::Game,
+) -> Result<String, String> {
+    use asset_odyssey::module::Source;
+    const BARRIER: u16 = sim::combat::spells::FORCE_POWER_FORCE_BARRIER;
+    if game != vfs::Game::Kotor1 || discovery.get(vfs::Game::Kotor2).is_none() {
+        return Ok(String::new());
+    }
+    let offered = data
+        .classes
+        .classes
+        .iter()
+        .any(|class| class.powers.iter().any(|(_, power)| *power == BARRIER));
+    let name = data
+        .source
+        .0
+        .two_da("spells")
+        .and_then(|table| table.int(usize::from(BARRIER), "name"))
+        .and_then(|strref| u32::try_from(strref).ok())
+        .zip(data.source.talk())
+        .and_then(|(strref, talk)| talk.text(strref).map(<[u8]>::to_vec));
+    match (offered, name.as_deref()) {
+        (true, Some(b"Force Barrier")) => Ok("; KOTOR 2's Force Barrier offered".into()),
+        _ => Err(format!(
+            "KOTOR 2's Force Barrier: offered {offered}, named {:?}",
+            name.map(|name| String::from_utf8_lossy(&name).into_owned())
+        )),
+    }
 }
 
 /// The fixtures' save with every kind of state in it, encoded.

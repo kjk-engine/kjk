@@ -463,8 +463,8 @@ pub const FORCE_BODY_SHARE: [i32; 3] = rules::force_effects::force_body::SHARE;
 /// The hit points a cast under Force Body must leave more than.
 pub const FORCE_BODY_LEAST_HP: i32 = rules::force_effects::force_body::LEAST_HP_LEFT;
 
-/// What a power's cost (whole Force points) takes under Force Body at
-/// `level`: that share of it, rounded down, from Force points and as much
+/// What a power's cost takes under Force Body at `level`, in the cost's own
+/// unit: that share of it, rounded down, from Force points and as much
 /// again from hit points.
 pub fn force_body_share(cost: i32, level: u8) -> i32 {
     cost * FORCE_BODY_SHARE[usize::from(level.min(2))] / 100
@@ -473,7 +473,10 @@ pub fn force_body_share(cost: i32, level: u8) -> i32 {
 /// What a power costing `cost` (hundredths) takes from one with `lasting`
 /// effects at `now` (hundredths): from its Force points, and from its hit
 /// points (Force Body's share of each, the first running one's level, or
-/// all of it from Force points).
+/// all of it from Force points). A cast's cost in whole points has its
+/// share rounded down to whole points, as TSL's executable does. A held
+/// power's cost for one step is a fraction of a point, and its share is
+/// kept in hundredths, so the caster keeps paying while it holds the power.
 pub fn power_cost(lasting: &[Option<Lasting>], cost: i32, now: u64) -> (i32, i32) {
     let level = lasting
         .iter()
@@ -481,8 +484,12 @@ pub fn power_cost(lasting: &[Option<Lasting>], cost: i32, now: u64) -> (i32, i32
         .find(|l| l.modifies == Modifies::ForceBody && l.until > now)
         .map(|l| l.of);
     match level {
-        Some(level) => {
+        Some(level) if cost % 100 == 0 => {
             let share = force_body_share(cost / 100, level) * 100;
+            (share, share)
+        }
+        Some(level) => {
+            let share = force_body_share(cost, level).max(1);
             (share, share)
         }
         None => (cost, 0),
@@ -986,23 +993,32 @@ pub fn regenerate(fighter: &mut Fighter, (max_hp, pool): (u16, u16), (now, msec)
     }
 }
 
-/// When the toggle that `spell` (a `spells.2da` row) belongs to ends, for
-/// the powers JA toggles and KOTOR's scripts buff with (speed, protect,
-/// absorb); `None` for the others.
-fn toggle_until(force: &mut ForceState, spell: u16) -> Option<&mut u64> {
-    match of_row(spell)? {
-        (Power::Speed, _) => Some(&mut force.speed_until),
-        (Power::Protect, _) => Some(&mut force.protect_until),
-        (Power::Absorb, _) => Some(&mut force.absorb_until),
+/// The toggle slot that `spell` (a `spells.2da` row) belongs to (`until`,
+/// `running_level`, and `spell`'s own level), for the powers JA toggles and
+/// KOTOR's scripts buff with (speed, protect, absorb); `None` for the
+/// others.
+fn toggle_slot(force: &mut ForceState, spell: u16) -> Option<(&mut u64, &mut u8, u8)> {
+    let (power, level) = of_row(spell)?;
+    match power {
+        Power::Speed => Some((&mut force.speed_until, &mut force.speed_level, level)),
+        Power::Protect => Some((&mut force.protect_until, &mut force.protect_level, level)),
+        Power::Absorb => Some((&mut force.absorb_until, &mut force.absorb_level, level)),
         _ => None,
     }
 }
 
 /// Puts a script's lasting effect on `fighter`. A toggled power's own
-/// effects last as long as the toggle does (JA's length, turned off early).
+/// effects last as long as the toggle does (JA's length, turned off early);
+/// when the script puts one on a fighter whose toggle is not running
+/// (Kreia's Force Chain, or a script's cast), it starts the toggle for the
+/// effect's time.
 pub fn add(fighter: &mut Fighter, mut lasting: Lasting, now: u64) {
-    if let Some(until) = toggle_until(&mut fighter.force, lasting.spell) {
-        lasting.until = lasting.until.min(*until);
+    if let Some((until, running_level, level)) = toggle_slot(&mut fighter.force, lasting.spell) {
+        if *until > now && level <= *running_level {
+            lasting.until = lasting.until.min(*until);
+        } else if lasting.until > now {
+            (*until, *running_level) = (lasting.until, level);
+        }
     }
     fighter.effects.add(lasting, now);
 }
@@ -1044,7 +1060,9 @@ pub fn remove(fighter: &mut Fighter, id: Option<u32>, now: u64) {
             }
             _ => *slot = None,
         }
-        if let Some(until) = toggle_until(&mut fighter.force, lasting.spell) {
+        if let Some((until, running_level, level)) = toggle_slot(&mut fighter.force, lasting.spell)
+            && (id.is_none() || *running_level == level)
+        {
             *until = (*until).min(now);
         }
     }

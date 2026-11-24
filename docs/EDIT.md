@@ -56,6 +56,58 @@ equipment changes. Its sheet is its module's: give the editor the save's
 level (`edit::level_of`, `Editor::with_level`) to edit it, and to list it
 (`characters`, `unsheeted`).
 
+## Classes and influence
+
+`Editor::change_class` turns every level a character has in one class
+into the same number of levels in another class. A soldier of level 8
+becomes a Jedi Guardian of level 8, for example. The editor needs the
+game's class tables for this (`Editor::with_classes`). The character's
+base attack bonus, saves and class defence are worked out again from the
+new class's tables (`sim::levels::Classes::swapped`). Each level's hit die
+and force die are traded for the new class's, so a character who becomes
+a Jedi gets Force points. The feats the old class granted at those levels
+are replaced by the feats the new class grants. Skills, abilities, powers
+and the feats the player picked stay as they are. Powers are added on the
+Powers page. When a player's first class changes, the player also takes
+the body of the new class's build, as described in the next section.
+
+`Editor::add_class` adds a second class with no levels in it, the way a
+script's `AddMultiClass` does on Dantooine. The character takes levels in
+that class at their next level-up in kjk, once the party has the XP.
+
+`Editor::set_influence` sets a TSL companion's influence, from 0 to the
+most the game allows. A companion's alignment follows its influence the
+next time the player's alignment changes in play.
+
+## A player's head preset
+
+`Editor::set_portrait` gives a player another of the portraits that
+character creation offers (`portraits.2da` rows with `forpc` set). The
+editor needs the game's portraits for this (`Editor::with_portraits`).
+The player takes that portrait's head and one of its three bodies. A
+soldier or a Jedi Guardian wears the large body, a scoundrel or a Jedi
+Consular wears the small body, and every other class wears the middle
+body. The body is chosen from the player's first class
+(`session::portraits`). When the save does not record the player's
+class, the player keeps the build of the body they wear now.
+
+Only a change of the player's first class changes the body. A change of
+the second class leaves the body as it is. When the body cannot follow a
+first-class change, the editor warns of it (`Editor::body_warning`). That
+happens when the game's portraits did not read, or when the player's
+portrait is not a player portrait. The save editor also writes the new
+portrait's texture and the new first class into the save's meta, so the
+meta agrees with the save.
+
+Only portraits of the player's gender are accepted, because scripts read
+the player's gender for romances and some dialogue. Companions are
+refused, because their look comes from their own creature templates.
+
+The edit rewrites the seat's persona (`sim::persona`), which the save
+writes and loads back unchanged. The 3D model, the menu portrait and the
+scripts all read the head from it. A script's disguise is an effect laid
+over the persona, so a disguised player shows the disguise until it ends.
+
 ## Party changes are queued
 
 Making a companion's creature is the engine's (`make_npc`: its sheet,

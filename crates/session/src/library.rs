@@ -67,7 +67,9 @@ impl Seeds<'_> {
 /// name (the module's, the area's, its objects') and those `hooked` (the
 /// creature templates' hooks), its traps' rows' scripts, the DLGs its objects speak and those of the
 /// creature templates (`spoken`: template, DLG) that are companions or that
-/// a script names, every script a DLG names, and every script or DLG a
+/// a script names, those of the templates the module carries in its own
+/// archives (`carried`: a script may make one by a name it builds), every
+/// script a DLG names, and every script or DLG a
 /// script names in a string constant (`ExecuteScript`'s,
 /// `ActionStartConversation`'s), with the game's routines; and every
 /// resref-like string the scripts hold. Its gathering taken from `bakes` when gathered
@@ -77,7 +79,7 @@ pub(crate) fn script_library(
     source: &dyn Source,
     data: &sim::module::ModuleData,
     hooked: Vec<String>,
-    spoken: &BTreeMap<String, String>,
+    (spoken, carried): (&BTreeMap<String, String>, &[String]),
     voiced: Option<&BTreeMap<String, u32>>,
     bakes: Option<(&Bakes, &Request)>,
 ) -> Option<Library> {
@@ -128,6 +130,7 @@ pub(crate) fn script_library(
                 .filter(|(template, _)| template.starts_with("p_"))
                 .map(|(_, dialog)| dialog.clone()),
         )
+        .chain(carried.iter().cloned())
         .filter(|name| !name.is_empty())
         .collect();
     let seeds = Seeds {
@@ -220,7 +223,20 @@ pub(crate) fn script_library(
         true => asset_odyssey::creature::animation_rows(source),
         false => Vec::new(),
     };
+    // The lent scripts speak canonical row numbers, the rest install rows
+    // (`rules::rows`).
+    let row_maps = crate::rows::row_maps(source);
+    let lent_scripts = match row_maps.is_identity() {
+        true => std::collections::BTreeSet::new(),
+        false => gathered
+            .scripts
+            .keys()
+            .filter(|name| source.lent_script(name))
+            .cloned()
+            .collect(),
+    };
     let library = sim::script::Library::new(catalog, gathered.scripts, talents)
+        .with_rows(row_maps, lent_scripts)
         .with_dialogues(gathered.dialogues, voices)
         .with_camera_clips(clips)
         .with_clips(stored_body_clips(
@@ -236,6 +252,8 @@ pub(crate) fn script_library(
         .with_head_arcs(head_arcs(source))
         .with_move_rates(move_rates(source))
         .with_drive_walks(drive_walks(source))
+        .with_footsteps(footsteps(source))
+        .with_appearance_rates(appearance_rates(source))
         .with_regeneration(regeneration(source))
         .with_health_regeneration(health_regeneration(source))
         .with_influence(influence(source))
@@ -440,12 +458,25 @@ fn drive_walks(source: &dyn Source) -> Vec<f32> {
     appearance_column(source, "driveanimwalk")
 }
 
+/// Each `appearance.2da` row's `footsteptype`, a `footstepsounds.2da` row
+/// (`sim::script::NO_FOOTSTEPS` where blank): whether its body has legs to
+/// jump with (`Library::legless`).
+fn footsteps(source: &dyn Source) -> Vec<u8> {
+    let Some(table) = appearance_table(source) else {
+        return Vec::new();
+    };
+    (0..table.cells.len())
+        .map(|row| {
+            (table.int(row, "footsteptype"))
+                .and_then(|row| u8::try_from(row).ok())
+                .unwrap_or(sim::script::NO_FOOTSTEPS)
+        })
+        .collect()
+}
+
 /// One number column of `appearance.2da`, by row (0 where blank).
 fn appearance_column(source: &dyn Source, column: &str) -> Vec<f32> {
-    let Some(table) = source
-        .read("appearance", ResType::TWO_DA)
-        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
-    else {
+    let Some(table) = appearance_table(source) else {
         return Vec::new();
     };
     (0..table.cells.len())
@@ -453,34 +484,62 @@ fn appearance_column(source: &dyn Source, column: &str) -> Vec<f32> {
         .collect()
 }
 
+/// The install's `appearance.2da`.
+fn appearance_table(source: &dyn Source) -> Option<fmt_odyssey::twoda::TwoDa> {
+    source
+        .read("appearance", ResType::TWO_DA)
+        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
+}
+
+/// `creaturespeed.2da`'s `walkrate` and `runrate` (m/s) of the row whose
+/// `2daname` is `name`, if the table has one.
+fn speed_named(table: &fmt_odyssey::twoda::TwoDa, name: &str) -> Option<(f32, f32)> {
+    let row = (0..table.cells.len()).find(|&row| {
+        table
+            .text(row, "2daname")
+            .is_some_and(|label| label.eq_ignore_ascii_case(name))
+    })?;
+    Some((table.float(row, "walkrate")?, table.float(row, "runrate")?))
+}
+
+/// The install's `creaturespeed.2da`.
+fn creature_speeds(source: &dyn Source) -> Option<fmt_odyssey::twoda::TwoDa> {
+    source
+        .read("creaturespeed", ResType::TWO_DA)
+        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
+}
+
 /// `creaturespeed.2da`'s `PLAYER` and `DEFAULT` rows, by `2daname`: their
 /// `walkrate` and `runrate` (m/s), a player's body's and a creature's whose
 /// own row reads as nothing (`sim::walk::rates`).
 pub(crate) fn move_rates(source: &dyn Source) -> sim::script::MoveRates {
-    let Some(table) = source
-        .read("creaturespeed", ResType::TWO_DA)
-        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
-    else {
+    let Some(table) = creature_speeds(source) else {
         return sim::script::MoveRates::default();
     };
-    let row = |name: &str| {
-        let row = (0..table.cells.len()).find(|&row| {
-            table
-                .text(row, "2daname")
-                .is_some_and(|label| label.eq_ignore_ascii_case(name))
-        })?;
-        Some((table.float(row, "walkrate")?, table.float(row, "runrate")?))
-    };
     sim::script::MoveRates {
-        player: row("PLAYER"),
-        default: row("DEFAULT"),
+        player: speed_named(&table, "PLAYER"),
+        default: speed_named(&table, "DEFAULT"),
     }
+}
+
+/// Each `appearance.2da` row's rates: the `creaturespeed.2da` row its
+/// `moverate` names (`Library::appearance_rates`), none where it names none.
+fn appearance_rates(source: &dyn Source) -> Vec<Option<(f32, f32)>> {
+    let appearances = source
+        .read("appearance", ResType::TWO_DA)
+        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok());
+    let (Some(appearances), Some(speeds)) = (appearances, creature_speeds(source)) else {
+        return Vec::new();
+    };
+    (0..appearances.cells.len())
+        .map(|row| speed_named(&speeds, &appearances.text(row, "moverate")?))
+        .collect()
 }
 
 /// TSL's `regeneration.2da`: its rows by label, each one `value`; none
 /// when the table has no `timeperhp` row (K1's has columns per combat
 /// state instead: `health_regeneration`).
-fn regeneration(source: &dyn Source) -> Option<sim::script::Regeneration> {
+pub fn regeneration(source: &dyn Source) -> Option<sim::script::Regeneration> {
     let table = source
         .read("regeneration", ResType::TWO_DA)
         .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())?;
@@ -509,7 +568,7 @@ fn regeneration(source: &dyn Source) -> Option<sim::script::Regeneration> {
 /// K1's `regeneration.2da`: `healthregen` in row 0 (in combat) and row 1
 /// (out of it), by number as its executable reads them; none for TSL's
 /// table, which has no such column.
-fn health_regeneration(source: &dyn Source) -> Option<sim::script::HealthRegeneration> {
+pub fn health_regeneration(source: &dyn Source) -> Option<sim::script::HealthRegeneration> {
     let table = source
         .read("regeneration", ResType::TWO_DA)
         .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())?;
@@ -813,7 +872,8 @@ fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
                 // end script, `ExecuteScript`'s, a conversation started).
                 for named in parsed
                     .strings()
-                    .into_iter()
+                    .iter()
+                    .map(|named| sim::script::resref(named))
                     .filter(|named| resref_like(named))
                 {
                     if source.exists(&named, ncs) {
@@ -841,7 +901,9 @@ fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
         };
         for instruction in &program.code {
             if let Op::Const(Const::String(bytes)) = &instruction.op {
-                let named = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+                // As a resref: a longer name's first 16 characters
+                // (`sim::script::resref`).
+                let named = sim::script::resref(&String::from_utf8_lossy(bytes));
                 if !resref_like(&named) {
                     continue;
                 }

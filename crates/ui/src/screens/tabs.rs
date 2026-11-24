@@ -10,8 +10,9 @@
 use crate::input::Key;
 use crate::intent::Intent;
 use crate::paint::ControlState;
+use crate::screens::action_bar::ActionBar;
 use crate::screens::hud::level_up_mark;
-use crate::screens::tab::{hidden, image, text};
+use crate::screens::tab::{Page, hidden, image, text};
 use crate::vm::ViewModel;
 
 /// Each tab: its button, its icon, its screen; in the bar's order. KOTOR
@@ -30,13 +31,21 @@ pub const TABS: [(&str, &str, &str); 8] = [
 /// The bar's layout.
 pub const BAR: &str = "top";
 
-/// The tab a screen is under: the messages are the journal's.
+/// The tab a screen is under. The messages are under the journal's tab, and
+/// the action bar setup is under the abilities' tab.
 fn tab_of(screen: &str) -> &str {
-    if screen == "messages" {
-        "journal"
-    } else {
-        screen
+    match screen {
+        "messages" => "journal",
+        ActionBar::NAME => "abilities",
+        _ => screen,
     }
+}
+
+/// Whether `screen` is a page under one of the bar's tabs, so that a page's
+/// key turns the open menu to it as a tab's button does.
+pub fn under_tabs(screen: &str) -> bool {
+    let tab = tab_of(screen);
+    TABS.iter().any(|(_, _, shown)| *shown == tab)
 }
 
 /// The other two members' portrait, its frame, its button and its level-up
@@ -47,14 +56,12 @@ const OTHERS: [[&str; 4]; 2] = [
 ];
 
 /// The bar's party controls with nothing behind them yet: the states over
-/// the portraits, a second class.
-const PARTY_LATER: [&str; 6] = [
+/// the portraits.
+const PARTY_LATER: [&str; 4] = [
     "LBL_DISABLE1",
     "LBL_DEBILATATED1",
     "LBL_CMBTEFCTINC1",
     "LBL_CMBTEFCTRED1",
-    "LBL_TOP_CLASS2",
-    "LBL_TOP_CLASS2LEVEL",
 ];
 
 /// A share of `(current, most)`, 0 to 1.
@@ -68,9 +75,12 @@ fn share((current, most): (i32, i32)) -> ControlState {
 /// How the bar shows `tag` while `current` is open; `None` for a control
 /// not the bar's.
 pub fn state(tag: &str, current: &str, vm: &ViewModel) -> Option<ControlState> {
-    if let Some(state) = party(tag, vm) {
-        return Some(state);
-    }
+    party(tag, vm).or_else(|| icon(tag, current))
+}
+
+/// How the bar shows the tab icon `tag` while `current` is open: lit when
+/// it is `current`'s tab. `None` for a control that is no tab icon.
+pub fn icon(tag: &str, current: &str) -> Option<ControlState> {
     let (_, _, screen) = TABS.iter().find(|(_, icon, _)| *icon == tag)?;
     Some(ControlState {
         selected: *screen == tab_of(current),
@@ -78,9 +88,55 @@ pub fn state(tag: &str, current: &str, vm: &ViewModel) -> Option<ControlState> {
     })
 }
 
-/// The party's members other than the one shown, in the party's order.
+/// The bar's controls that show the member the pages are about: the
+/// portrait, its frame, the vitality and Force bars, the name, the classes
+/// and the level-up mark.
+const VIEWED: [&str; 10] = [
+    "LBL_BACK1",
+    "LBL_CHAR1",
+    "PB_VIT1",
+    "PB_FORCE1",
+    "LBL_CHARNAME",
+    "LBL_TOP_CLASS1",
+    "LBL_TOP_CLASS2",
+    "LBL_TOP_CLASS1LEVEL",
+    "LBL_TOP_CLASS2LEVEL",
+    "LBL_LEVELUP1",
+];
+
+/// Takes the bar's party panel out of `gui`, a layout the bar was put
+/// under (`Screen::under`), and leaves the bar's tabs. The party selection
+/// screen shows the whole party itself, and its layout has controls with
+/// the same tags as the panel's portraits (`LBL_CHAR1` to `LBL_CHAR3`).
+/// The bar's controls come first in `gui`, so of two controls with one tag
+/// the first is the bar's.
+pub fn without_party(gui: &mut fmt_odyssey::gui::Gui) {
+    let panel = |tag: &str| {
+        VIEWED.contains(&tag)
+            || PARTY_LATER.contains(&tag)
+            || OTHERS.iter().flatten().any(|other| *other == tag)
+    };
+    let mut seen: Vec<String> = Vec::new();
+    gui.controls.retain(|control| {
+        let first = !seen.contains(&control.tag);
+        seen.push(control.tag.clone());
+        !(first && panel(&control.tag))
+    });
+}
+
+/// The members the bar's two small portraits show: the party's members
+/// other than the one shown, in the party's order. At a base the pages list
+/// more than three characters (the companions waiting there). Then the
+/// portraits show the one before the shown one and the one after it, going
+/// round, so the player can step through them all, as K1's buttons for
+/// another character do there.
 fn others(vm: &ViewModel) -> Vec<usize> {
-    (0..vm.party.len()).filter(|at| *at != vm.viewed).collect()
+    let count = vm.party.len();
+    if count > OTHERS.len() + 1 {
+        let viewed = vm.viewed.min(count - 1);
+        return vec![(viewed + count - 1) % count, (viewed + 1) % count];
+    }
+    (0..count).filter(|at| *at != vm.viewed).collect()
 }
 
 /// The member at the bar's `place`th small portrait, and which of its
@@ -149,11 +205,21 @@ fn party(tag: &str, vm: &ViewModel) -> Option<ControlState> {
             text: Some(me.map_or(Vec::new(), |me| me.name.clone())),
             ..ControlState::default()
         },
-        "LBL_TOP_CLASS1" => ControlState {
-            text: Some(me.map_or(Vec::new(), |me| me.class.clone())),
-            ..ControlState::default()
-        },
-        "LBL_TOP_CLASS1LEVEL" => text(me.map_or(0, |me| me.level)),
+        "LBL_TOP_CLASS1" | "LBL_TOP_CLASS2" | "LBL_TOP_CLASS1LEVEL" | "LBL_TOP_CLASS2LEVEL" => {
+            // Each class it has and its levels in it: a second class only
+            // once it has taken one up (a Jedi's on top of its first).
+            let at = usize::from(tag.starts_with("LBL_TOP_CLASS2"));
+            let class = me.and_then(|me| me.classes.get(at));
+            match (class, tag.ends_with("LEVEL")) {
+                (None, _) if at > 0 => hidden(),
+                (Some((_, levels)), true) => text(levels),
+                (None, true) => text(me.map_or(0, |me| me.level)),
+                (class, false) => ControlState {
+                    text: Some(class.map_or(Vec::new(), |(name, _)| name.clone())),
+                    ..ControlState::default()
+                },
+            }
+        }
         tag if PARTY_LATER.contains(&tag) => hidden(),
         _ => return None,
     })

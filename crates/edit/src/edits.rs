@@ -5,10 +5,12 @@
 //! there as they are set, so the view agrees before that step too, and the
 //! items are gathered on it.
 
+use session::portraits::Portraits;
 use sim::action::Action;
 use sim::combat::passive;
 use sim::inventory::Catalog;
 use sim::inventory::properties::Wearer;
+use sim::levels::Classes;
 use sim::notice::Notice;
 use sim::script::items::Limits;
 use sim::script::set_global;
@@ -23,6 +25,8 @@ pub struct Editor<'a> {
     pub(crate) save: &'a mut Save,
     pub(crate) catalog: &'a Catalog,
     pub(crate) level: Option<&'a Level>,
+    pub(crate) classes: Option<&'a Classes>,
+    pub(crate) portraits: Option<&'a Portraits>,
 }
 
 impl<'a> Editor<'a> {
@@ -31,6 +35,27 @@ impl<'a> Editor<'a> {
             save,
             catalog,
             level: None,
+            classes: None,
+            portraits: None,
+        }
+    }
+
+    /// The same, with the game's class tables: what a class change regrows
+    /// the sheet by (`change_class`).
+    pub fn with_classes(self, classes: &'a Classes) -> Editor<'a> {
+        Editor {
+            classes: Some(classes),
+            ..self
+        }
+    }
+
+    /// The same, with the game's player portraits. A player's head is
+    /// picked from them (`set_portrait`). A change of a player's first class
+    /// takes the body of the new build from them (`change_class`).
+    pub fn with_portraits(self, portraits: &'a Portraits) -> Editor<'a> {
+        Editor {
+            portraits: Some(portraits),
+            ..self
         }
     }
 
@@ -220,7 +245,7 @@ impl Editor<'_> {
     /// `holder` as an item's use limits ask of it: its sheet's alignment,
     /// race, feats and scores, the classes its career gives, the game's
     /// rules.
-    fn wearer(&self, holder: u32, sheet: &sim::combat::sheet::Sheet, player: bool) -> Wearer {
+    fn wearer(&self, holder: u32, sheet: &sim::combat::sheet::Sheet, is_pc: bool) -> Wearer {
         let mut classes = [u8::MAX; 2];
         if let Some(career) = self.save.script.careers.get(&holder) {
             for (into, (class, _)) in classes.iter_mut().zip(career) {
@@ -241,7 +266,7 @@ impl Editor<'_> {
             feats: sheet.feats,
             gender: 0,
             abilities: sheet.abilities,
-            player,
+            is_pc,
             tag: String::new(),
             tsl: passive::Game::named(game) == passive::Game::Tsl,
             // The editor warns of limits rather than holding to them, and a

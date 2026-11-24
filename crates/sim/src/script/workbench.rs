@@ -21,7 +21,6 @@ use super::state::State;
 use super::{Character, Library, View};
 use crate::action::Workbench;
 use crate::combat::Sheet;
-use crate::combat::sheet::Ability;
 use crate::inventory::workshop::{self, Pool, Recipe};
 use crate::inventory::{Catalog, PARTY};
 use crate::notice::{Bench, Notice, Screen, Sound};
@@ -69,12 +68,14 @@ impl Acquired {
     }
 }
 
-/// `sheet`'s total in skill `skill` (`skills.2da` row) whose key ability is
-/// `key`: its ranks with what feats add and the ability's modifier, 0 at
-/// least.
-pub fn total(sheet: &Sheet, skill: u8, key: Option<Ability>) -> u8 {
-    let ability = key.map_or(0, |ability| sheet.modifier(ability));
-    (sheet.skill(usize::from(skill)) + ability).clamp(0, 255) as u8
+/// A maker's total in skill `skill` (`skills.2da` row), 0 at least. TSL's
+/// workbench and lab station read it as `GetSkillRank` does
+/// (`stealth::rank`). It is the ranks with what effects, items and feats
+/// add and the key ability's modifier. It is 0 for a skill only the trained
+/// may use that `worn` (the maker's sheet without effects) has no ranks in.
+/// `now` is the sheet as effects leave it.
+pub fn total(library: Option<&Library>, worn: &Sheet, now: &Sheet, skill: u8) -> u8 {
+    crate::stealth::rank(library, worn, now, usize::from(skill), true).clamp(0, 255) as u8
 }
 
 /// The bench's maker, a party member; refused for anyone else.
@@ -87,11 +88,7 @@ fn maker<'a>(view: &'a View, bench: &Workbench) -> Result<&'a Character, Notice>
 
 /// `maker`'s total in skill `skill`.
 fn rank(library: &Library, maker: &Character, skill: u8) -> u8 {
-    total(
-        &maker.sheet,
-        skill,
-        library.skill_ability(usize::from(skill)),
-    )
+    total(Some(library), &maker.worn, &maker.sheet, skill)
 }
 
 impl State {

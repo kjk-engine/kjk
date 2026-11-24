@@ -82,14 +82,17 @@ pub struct Stage {
 }
 
 /// What a scene's script asks for at a sim time since its start: buttons,
-/// the selected power, forward movement.
-pub type Script<'a> = dyn FnMut(u64) -> (u16, u8, i8) + 'a;
+/// the power the force button casts (`Command::force`), forward movement.
+pub type Script<'a> = dyn FnMut(u64) -> (u16, u16, i8) + 'a;
 
 /// A scene's result: every snapshot after the start, and whether the
 /// recording replayed to its end.
 pub struct Run {
     pub snapshots: Vec<Snapshot>,
     pub replayed: bool,
+    /// The script runs the VM stopped at a routine's argument of the
+    /// wrong type (`script::Report::aborted`).
+    pub aborted: Vec<String>,
 }
 
 impl Stage {
@@ -133,7 +136,7 @@ impl Stage {
         let mut start = self.start.clone();
         let me = seat0(&start);
         let mut fighter = Fighter::of(&sheet);
-        fighter.force.regen_at = start.time_ms + force::regen_every(sheet.pool());
+        fighter.force.regen_at = start.time_ms + force::regen_every(&sheet.feats, sheet.pool());
         start.entities[me].sheet = Some(sheet);
         start.entities[me].fighter = Some(fighter);
         start
@@ -222,7 +225,7 @@ impl Stage {
             SimWorld::from_snapshot(start, self.level.clone()).expect("the scene starts");
         world.set_script_state(self.script.clone());
         let mut last = start.clone();
-        let mut recorder = Recorder::new(self.rate.hz(), last.clone(), self.level.id(), 100)
+        let mut recorder = Recorder::new(self.rate.hz(), last.clone(), self.level.id(), 100, world.stance_ids())
             .with_script(self.script.clone());
         let mut snapshots = Vec::new();
         while self.rate.time_ms(last.tick) < start.time_ms + ms {
@@ -243,6 +246,7 @@ impl Stage {
                 eprintln!("DEBUG {line}");
             }
         }
+        let aborted = world.script_report().aborted.clone();
         let recording = recorder.finish(&last);
         let replayed = recording
             .play(&self.level)
@@ -250,6 +254,7 @@ impl Stage {
         Run {
             snapshots,
             replayed,
+            aborted,
         }
     }
 }
@@ -300,7 +305,7 @@ pub fn aim(
     last: &Snapshot,
     me: usize,
     target: usize,
-    (held, power, forward): (u16, u8, i8),
+    (held, power, forward): (u16, u16, i8),
 ) -> Command {
     let (Some(player), Some(them)) = (last.entities[me].player, last.entities[target].player)
     else {
@@ -316,6 +321,6 @@ pub fn aim(
 }
 
 /// Holds `held` from the start for `for_ms`.
-pub fn hold(held: u16, for_ms: u64) -> impl FnMut(u64) -> (u16, u8, i8) {
+pub fn hold(held: u16, for_ms: u64) -> impl FnMut(u64) -> (u16, u16, i8) {
     move |ms| (if ms < for_ms { held } else { 0 }, 0, 0)
 }

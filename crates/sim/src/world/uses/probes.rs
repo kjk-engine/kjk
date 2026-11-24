@@ -542,6 +542,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("talk_across_height", across_height()));
     checks.push(("use_from_action_point", action_point()));
     checks.push(("use_reached_at_action_point", reach_to_action_point()));
+    checks.push(("use_reached_at_drawn_shape", reach_to_drawn_shape()));
     checks.extend(crate::target::probes());
     checks
 }
@@ -594,6 +595,58 @@ fn action_point() -> Result<String, String> {
 /// container with no action point is not.
 fn reach_to_action_point() -> Result<String, String> {
     used_by_its_action_point([-3.0, -1.5], [-3.0, 2.0], [-3.0, -0.5])
+}
+
+/// A placeable at the origin whose drawn shape stands out 3 m toward the
+/// player, who stands 3.5 m from where it stands and 0.5 m from the shape:
+/// in reach measured to the shape's surface (`body_point`), as the Ebon
+/// Hawk's hyperdrive is used from where its model stops the player; the
+/// same placeable without a drawn shape is not.
+fn reach_to_drawn_shape() -> Result<String, String> {
+    use collision::{Contents, LevelBuilder, Tag};
+    let level_of = |shaped: bool| {
+        let mut builder = LevelBuilder::new();
+        builder.aabb(
+            [-10.0, -10.0, -0.2],
+            [10.0, 10.0, 0.0],
+            Tag::level(Contents::SOLID, 1),
+        );
+        if shaped {
+            builder.aabb(
+                [-0.5, -1.0, 0.0],
+                [3.0, 1.0, 1.5],
+                Tag {
+                    entity: Some(0),
+                    states: 1,
+                    ..Tag::level(Contents::SHAPE | Contents::NONWALK, 0)
+                },
+            );
+        }
+        super::super::Level::new(
+            "shaped",
+            std::sync::Arc::new(builder.build()),
+            std::sync::Arc::new(crate::motion::AnimTable::stand_in()),
+        )
+    };
+    let me = [3.5, 0.0, 0.0];
+    let player = crate::motion::MotionState::standing(me.map(|v| v / collision::UNIT), 0.0);
+    let facts = crate::module::ObjectData::bare(ObjectKind::Placeable, "hyperdrive", [0.0; 3]);
+    let may = |shaped: bool| {
+        let level = level_of(shaped);
+        let target =
+            super::Target::new(0, None, [0.0; 3]).aimed(&level, ObjectKind::Placeable, &facts, me);
+        super::may_use(
+            &level,
+            None,
+            &player,
+            &target,
+            ObjectKind::Placeable,
+            Verb::Use,
+        )
+    };
+    let (shaped, bare) = (may(true), may(false));
+    let what = format!("with a drawn shape {shaped}, without {bare}");
+    if shaped && !bare { Ok(what) } else { Err(what) }
 }
 
 /// Whether a container placed at `placed`, opened by the player at `me`
@@ -737,6 +790,17 @@ fn npc_library() -> crate::script::Library {
             .label(skip);
     }
     flips.op(Op::Retn);
+    // `SetLocked(OBJECT_SELF, TRUE)`.
+    let mut sets_lock = script_ncs::probes::Asm::default();
+    sets_lock
+        .op(Op::Const(Const::Int(1)))
+        .op(Op::Const(Const::Object(0)))
+        .op(Op::Action {
+            routine: 10,
+            args: 2,
+        })
+        .op(Op::Retn);
+    let sets_lock = sets_lock.build();
     crate::probe::library(
         NPC_CATALOG,
         [
@@ -747,6 +811,8 @@ fn npc_library() -> crate::script::Library {
             ("probe_opens_itself", on_itself(8)),
             ("probe_locks_itself", on_itself(9)),
             ("probe_flips_its_lock", flips.build()),
+            ("probe_sets_its_lock", sets_lock.clone()),
+            ("probe_also_sets_its_lock", sets_lock),
         ],
     )
 }
@@ -774,7 +840,19 @@ fn npc_scenario() -> Result<NpcRan, String> {
 /// doorman) or none, run for `steps`.
 fn ground_scenario(
     scripts: &[(&str, &str)],
-    lockable: Option<bool>,
+    lock: Option<(bool, bool)>,
+    npcs: bool,
+    steps: usize,
+) -> Result<NpcRan, String> {
+    spared_ground_scenario(&[], scripts, lock, npcs, steps)
+}
+
+/// `ground_scenario` with the scripts whose `SetLocked` never locks the
+/// gate (`ObjectData::spared_locks`).
+fn spared_ground_scenario(
+    spared: &[&str],
+    scripts: &[(&str, &str)],
+    lock: Option<(bool, bool)>,
     npcs: bool,
     steps: usize,
 ) -> Result<NpcRan, String> {
@@ -787,13 +865,15 @@ fn ground_scenario(
     let Some(Placement::Own(gate)) = data.placements.first_mut() else {
         return Err("the ground's first object is not its door".into());
     };
+    gate.spared_locks = spared.iter().map(|script| (*script).to_string()).collect();
     gate.scripts = scripts
         .iter()
         .map(|(hook, script)| ((*hook).into(), (*script).into()))
         .collect();
-    if let Some(lockable) = lockable {
+    if let Some((lockable, key_required)) = lock {
         gate.lock = Some(crate::module::Lock {
             lockable,
+            key_required,
             ..gate
                 .lock
                 .clone()
@@ -891,6 +971,15 @@ fn ground_scenario(
     Ok((gates, told, last.ok_or("no steps")?))
 }
 
+/// Whether the gate ends locked. It is None when there is no gate.
+fn gate_locked(last: &crate::Snapshot) -> Option<bool> {
+    last.entities
+        .iter()
+        .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
+        .and_then(|entity| entity.object)
+        .map(|object| object.lock == crate::snapshot::lock::LOCKED)
+}
+
 /// The made-placeable probe's catalog.
 const MAKE_CATALOG: &str = r#"
 int OBJECT_TYPE_CREATURE = 1;
@@ -910,8 +999,9 @@ const BOX_HALF: f32 = 0.4;
 
 /// The player walks from the entry along the world's x while a creature's
 /// spawn script makes a placeable (`CreateObject`) square in its way, a
-/// box of the template's walkmesh size: how far the player got (metres
-/// from the entry), the last snapshot.
+/// box of the template's walkmesh size, its template placing it dead
+/// (`AnimationState` 3): how far the player got (metres from the entry),
+/// the last snapshot.
 fn made_scenario() -> Result<(f32, crate::Snapshot), String> {
     use crate::module::{ObjectData, Placement};
     use crate::{Command, Seat, StepReason, TickInput, WorldConfig};
@@ -951,6 +1041,7 @@ fn made_scenario() -> Result<(f32, crate::Snapshot), String> {
     let template = ObjectData {
         kind: ObjectKind::Placeable,
         geometry: vec![[-BOX_HALF, -BOX_HALF, 0.0], [BOX_HALF, BOX_HALF, 1.0]],
+        state: crate::snapshot::look::DEAD,
         ..ObjectData::unknown("probe_box", [0.0; 3], 0.0)
     };
     let library = crate::probe::library(MAKE_CATALOG, [("probe_make", make.build())])
@@ -1741,17 +1832,13 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         false,
         SELF_OPEN_STEPS,
     );
-    let locked: Result<Vec<_>, String> = [false, true]
+    // The gate's lock as (`Lockable`, `KeyRequired`).
+    let locked: Result<Vec<_>, String> = [(false, false), (true, false), (true, true)]
         .into_iter()
-        .map(|lockable| {
+        .map(|lock| {
             let script = [("OnHeartbeat", "probe_locks_itself")];
-            ground_scenario(&script, Some(lockable), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
-                last.entities
-                    .iter()
-                    .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
-                    .and_then(|entity| entity.object)
-                    .map(|object| object.lock == crate::snapshot::lock::LOCKED)
-            })
+            ground_scenario(&script, Some(lock), false, SELF_OPEN_STEPS)
+                .map(|(_, _, last)| gate_locked(&last))
         })
         .collect();
     // KOTOR's `SetLocked` sets the flag at once: the same script reads it
@@ -1762,6 +1849,18 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         false,
         SELF_OPEN_STEPS,
     );
+    let spared: Result<Vec<_>, String> = [
+        (&["probe_sets_its_lock"][..], "probe_sets_its_lock"),
+        (&["probe_sets_its_lock"][..], "probe_also_sets_its_lock"),
+        (&[][..], "probe_sets_its_lock"),
+    ]
+    .into_iter()
+    .map(|(spared, script)| {
+        let scripts = [("OnHeartbeat", script)];
+        spared_ground_scenario(spared, &scripts, None, false, SELF_OPEN_STEPS)
+            .map(|(_, _, last)| gate_locked(&last))
+    })
+    .collect();
     let opened_at = gates.iter().position(|state| *state == 1);
     let told_by = |tag: &str| -> Vec<usize> {
         told.iter()
@@ -1800,11 +1899,13 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             },
         ),
         (
-            "only_lockable_locks",
+            "lock_action_refused_only_by_a_key",
             match locked {
                 Ok(locked) => check(
-                    locked == [Some(false), Some(true)],
-                    format!("locked after its heartbeat, unlockable and lockable: {locked:?}"),
+                    locked == [Some(true), Some(true), Some(false)],
+                    format!(
+                        "locked after its heartbeat, not lockable, lockable, and lockable with a key required: {locked:?}"
+                    ),
                 ),
                 Err(why) => Err(why),
             },
@@ -1824,16 +1925,48 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             },
         ),
         (
+            "spared_lock_holds_against_its_script",
+            match spared {
+                Ok(locked) => check(
+                    locked == [Some(false), Some(true), Some(true)],
+                    format!(
+                        "locked: the gate sparing the script, by another script, and the gate sparing none: {locked:?}"
+                    ),
+                ),
+                Err(why) => Err(why),
+            },
+        ),
+        (
             "made_placeable_blocks",
-            match made {
+            match &made {
                 Ok((along, _)) => check(
-                    along > 0.3 && along < BOX_AHEAD - BOX_HALF,
+                    *along > 0.3 && *along < BOX_AHEAD - BOX_HALF,
                     format!(
                         "the player stopped {along:.2} m on, the box from {:.2}",
                         BOX_AHEAD - BOX_HALF
                     ),
                 ),
-                Err(why) => Err(why),
+                Err(why) => Err(why.clone()),
+            },
+        ),
+        (
+            "made_placeable_in_its_look",
+            match &made {
+                Ok((_, last)) => {
+                    let looks: Vec<u8> = last
+                        .entities
+                        .iter()
+                        .filter(|entity| {
+                            matches!(entity.kind, crate::Kind::Object(ObjectKind::Placeable, _))
+                        })
+                        .filter_map(|entity| Some(entity.object?.state))
+                        .collect();
+                    check(
+                        looks.contains(&crate::snapshot::look::DEAD),
+                        format!("the placeables' looks {looks:?}, the made one's template dead"),
+                    )
+                }
+                Err(why) => Err(why.clone()),
             },
         ),
         (
@@ -1947,21 +2080,10 @@ fn walk_world_over(
     sheet: crate::combat::Sheet,
     strips: &[[f32; 2]],
 ) -> Result<(super::super::Level, super::super::SimWorld), String> {
-    let triangles: Vec<[[f32; 3]; 3]> = strips
-        .iter()
-        .flat_map(|&[x0, x1]| {
-            let floor = [[x0, -5.5], [x1, -5.5], [x1, 5.5], [x0, 5.5]].map(floor_at);
-            [
-                [floor[0], floor[1], floor[2]],
-                [floor[0], floor[2], floor[3]],
-            ]
-        })
-        .collect();
-    let nav = collision::nav::NavMesh::build(&triangles, crate::walk::CLEARANCE * collision::UNIT);
     let level = crate::determinism::proving_ground()
         .with_module(data)
         .with_scripts(library())
-        .with_nav(nav);
+        .with_nav(floor_nav(strips));
     let kept = level.clone();
     let world = super::super::SimWorld::new(
         crate::WorldConfig {
@@ -1979,13 +2101,29 @@ fn walk_world_over(
     Ok((kept, world))
 }
 
+/// A walkmesh over the floor between each pair of `strips` (the ground's
+/// own x, metres), each its own island where they do not meet.
+pub(crate) fn floor_nav(strips: &[[f32; 2]]) -> collision::nav::NavMesh {
+    let triangles: Vec<[[f32; 3]; 3]> = strips
+        .iter()
+        .flat_map(|&[x0, x1]| {
+            let floor = [[x0, -5.5], [x1, -5.5], [x1, 5.5], [x0, 5.5]].map(floor_at);
+            [
+                [floor[0], floor[1], floor[2]],
+                [floor[0], floor[2], floor[3]],
+            ]
+        })
+        .collect();
+    collision::nav::NavMesh::build(&triangles, crate::walk::CLEARANCE * collision::UNIT)
+}
+
 /// How seat 0's player chooses in a walk probe, as the target block does
 /// (`game::target_view`): from `stand` (the ground's own axes; `None`, the
 /// entry), running forward its first `run_in` steps (already moving when
 /// it chooses), then `choice` on object `object` of `kind`: asked at once
 /// where it stands near enough, else walked to and asked on arriving; with
 /// `cancel_at`, its own forward key that step of the walk cancels it.
-pub(crate) struct Choosing {
+pub struct Choosing {
     pub stand: Option<[f32; 2]>,
     pub run_in: usize,
     pub object: u32,
@@ -1997,7 +2135,7 @@ pub(crate) struct Choosing {
 /// A walk probe's run: the step the choice was asked (none if it was not),
 /// whether the player's own command cancelled the walk, the step the run
 /// ended on (`WALK_STEPS` if it never did), the last snapshot.
-pub(crate) struct Walked {
+pub struct Walked {
     pub asked: Option<usize>,
     pub cancelled: bool,
     pub ended: usize,
@@ -2011,19 +2149,31 @@ pub(crate) fn walk_and_choose(
     kept: &super::super::Level,
     world: &mut super::super::SimWorld,
     how: &Choosing,
+    done: impl FnMut(bool, &crate::Snapshot, &[(Seat, crate::notice::Notice)]) -> bool,
+) -> Result<Walked, String> {
+    walk_and_choose_from(kept, world, how.stand.map(floor_at), how, done)
+}
+
+/// `walk_and_choose` with seat 0's player put at `from` first (its soles,
+/// metres, in the level's own axes; `None`, where it stands), its
+/// `Choosing::stand` unread: a walk in one of the games' own levels.
+pub fn walk_and_choose_from(
+    kept: &super::super::Level,
+    world: &mut super::super::SimWorld,
+    from: Option<[f32; 3]>,
+    how: &Choosing,
     mut done: impl FnMut(bool, &crate::Snapshot, &[(Seat, crate::notice::Notice)]) -> bool,
 ) -> Result<Walked, String> {
     use crate::target::{Stride, Walk};
     use crate::{StepReason, TickInput};
 
-    if let Some(stand) = how.stand {
-        let at = floor_at(stand);
+    if let Some(at) = from {
         let mut players = world
             .world
             .query::<(&super::super::Avatar, &mut super::super::Player)>();
         for (_, mut player) in players.iter_mut(&mut world.world) {
-            player.0.origin[0] = at[0] / collision::UNIT;
-            player.0.origin[1] = at[1] / collision::UNIT;
+            player.0.origin = crate::math::scale(at, 1.0 / collision::UNIT);
+            player.0.origin[2] -= crate::motion::SOLE_Z;
         }
     }
     // A walk after another goes on from the world's tick.

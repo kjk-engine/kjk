@@ -2,6 +2,8 @@
 //! a shot meets.
 
 use super::*;
+use crate::combat::bloom;
+use crate::input::holds;
 
 /// Weapons, in the characters' move order: each ranged weapon's cadence
 /// (`weapons::cadence`) with its trigger; a shot leaves the muzzle as
@@ -21,7 +23,12 @@ pub(super) fn fire(
     mut next_id: ResMut<NextId>,
     (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
     mut heals: ResMut<Heals>,
-    (scripts, scene): (Res<scripts::Scripts>, Res<super::scene::Held>),
+    (scripts, scene, talking, rules): (
+        Res<scripts::Scripts>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+        Res<super::Rules>,
+    ),
     (mut casts, mut spent): (ResMut<scripts::Casts>, ResMut<scripts::Spent>),
     objects: Query<&Object>,
     mut actors: Query<(
@@ -35,6 +42,7 @@ pub(super) fn fire(
     mut commands: Commands,
 ) {
     let states = door_states(&level.0, &objects);
+    let lent = super::lent(&scripts.state.party);
     spent.0.clear();
     // An item whose row has an impact script is cast, its script doing what
     // it does (`combat::items::press`).
@@ -100,7 +108,7 @@ pub(super) fn fire(
             // press after.
             let held = fighter.last_command.buttons;
             fighter.shooting.interrupt();
-            fighter.shooting.alt_held = held & buttons::ALT_ATTACK != 0;
+            fighter.shooting.alt_held = fighter.last_command.holds & holds::FEAT != 0;
             fighter.pack.hold(held);
             fighter.pack.charging_from = None;
             // An item's use with it (KOTOR's stun or knockdown ends the
@@ -177,6 +185,7 @@ pub(super) fn fire(
             if !used && held(&sheet, fighter).delivery.ranged() {
                 weapons::count_down(&mut fighter.weapon_wait_ms, clock.msec);
             }
+            fighter.shooting.lower();
             continue;
         }
         // A grenade: charged while its button is held, thrown on release,
@@ -190,6 +199,18 @@ pub(super) fn fire(
         // one, rockets and darts stay carried.
         let launcher = sheet.gear.has(gear::traits::WRIST_LAUNCHER);
         let usable = grenades::usable(&sheet.items, launcher);
+        // A grenade readied (`ready_grenades`) is put away once the
+        // character has none left to throw.
+        let readied = fighter.pack.readied == items::Readied::On;
+        if readied
+            && fighter.pack.charging_from.is_none()
+            && fighter
+                .pack
+                .next(&usable, |u| u == items::Use::Grenade)
+                .is_none()
+        {
+            stow_grenade(fighter, items::Readied::Off, false);
+        }
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
             (&usable, sheet.picks.item(items::Shelf::Grenade)),
@@ -199,6 +220,11 @@ pub(super) fn fire(
         ) {
             if authority {
                 spent.0.push((id.0, carried.row));
+            }
+            // A readied grenade is thrown once: the character draws its
+            // weapon again after the throw.
+            if readied {
+                stow_grenade(fighter, items::Readied::Off, false);
             }
             fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(0) + grenades::REFIRE_MS;
             fighter.combat_until = clock.time_ms + COMBAT_MS;
@@ -269,9 +295,11 @@ pub(super) fn fire(
                     }),
                     held: None,
                     scripted: scene_throw && !homing,
+                    power: false,
                 }),
             ));
             next_id.0 += 1;
+            fighter.shooting.lower();
             continue;
         }
         let weapon = held(&sheet, fighter);
@@ -287,29 +315,51 @@ pub(super) fn fire(
             if weapon.delivery.ranged() {
                 weapons::count_down(&mut fighter.weapon_wait_ms, clock.msec);
             }
+            fighter.shooting.lower();
             continue;
         }
+        // Only a blaster aims. A blade, bare hands and a wrist launcher
+        // never do.
         let Delivery::Blaster(blaster) = weapon.delivery else {
             fighter.shooting.interrupt();
             continue;
         };
         // A gun put away fires not: the press raises it first (`move_body`).
         if fighter.weapon_away(clock.time_ms) {
+            fighter.shooting.clear_bloom();
+            fighter.shooting.lower();
             continue;
         }
         // A pistol in each hand: each gun its own (`combat::pair`).
         let pair = sheet.pistol_pair();
+        // A weapon switch starts only once the gun is ready. A Sniper Shot
+        // still steadying, or waiting for the gun, is dropped as soon as the
+        // switch is asked for, so it never leaves first.
+        let wanted = fighter.last_command.weapon;
+        let switching = !pair
+            && wanted != fighter.hand
+            && sheet
+                .weapons
+                .get(usize::from(wanted))
+                .is_some_and(Option::is_some);
+        if switching {
+            fighter.shooting.drop_steadying();
+        }
         let blasters = [0, 1].map(|hand| match in_hand(&sheet, fighter, hand).delivery {
             Delivery::Blaster(own) if pair => own,
             _ => blaster,
         });
         let special = specials::Special::of(&sheet, blaster);
-        let spec = weapons::primary(blaster);
         // A creature's mind spaces its shots (`combat::troop`): their damage
-        // keeps to that pace (C2), and they spread by its aim.
-        let creature = avatar.is_none() && fighter.mind.driver.is_none();
+        // keeps to that pace (C2), and they spread by its aim. A body a seat
+        // plays (its avatar, a companion it drives, the one leading the
+        // party) shoots as its player.
+        let creature = !super::played(id.0, avatar, lent);
         let troop = fighter.mind.troop;
         let paced = (creature && troop.pace_ms > 0).then_some(troop.pace_ms);
+        // The aim moves before the trigger, so a shot on the step the gun
+        // is fully raised leaves aimed (`specials::pull` reads it).
+        raise_to_aim(fighter, &sheet, creature, clock.time_ms, clock.msec);
         // A scene's attacker (`CutsceneAttack`, a passive attack) fires the
         // script's shots, and a gunner with a blow decided for it (an
         // assured one) that blow's: what they do is the script's (`fly`),
@@ -322,6 +372,9 @@ pub(super) fn fire(
             .is_some_and(|intent| intent.passive)
             || state.strikes.iter().any(|strike| strike.by.0 == id.0.0);
         let pressed = |button: u16| fighter.alive() && fighter.last_command.buttons & button != 0;
+        // [Feat attack] fires the feat attack, and while it is held [Attack]
+        // counts as not held. [Alt attack] does nothing with a blaster.
+        let feat = fighter.alive() && fighter.last_command.holds & holds::FEAT != 0;
         let refires = blasters.map(|own| {
             if scripted {
                 clock.msec
@@ -332,14 +385,18 @@ pub(super) fn fire(
             }
         });
         let trigger = specials::Trigger {
-            attack: pressed(buttons::ATTACK),
-            alt: pressed(buttons::ALT_ATTACK),
+            attack: pressed(buttons::ATTACK) && !feat,
+            alt: feat,
             now: clock.time_ms,
             msec: clock.msec,
             refire_ms: refires[0],
-            pace_ms: paced.unwrap_or(spec.refire_ms),
+            pace_ms: paced.unwrap_or_else(|| weapons::pace_ms(blaster)),
         };
-        // What each hand fires this step (a Power Blast both at once).
+        // What each hand fires this step (a Power Blast both at once). A
+        // special is paid from the bar it reads (`specials::Bar`).
+        let duel = scene.saber_rules(&talking.0, id.0, rules.0).duel();
+        let bar = specials::Bar::of(&base, fighter, duel);
+        let mut pool = bar.pool;
         let fired: [Option<(specials::Shot, u8)>; 2] = if pair {
             // A scene's shot leaves the hand its clip fires it from
             // (`minds::scene_attack`, `Discharge::hand`).
@@ -348,12 +405,12 @@ pub(super) fn fire(
             }
             let hands = pair::Hands {
                 refires,
-                paces: blasters.map(|own| paced.unwrap_or(weapons::primary(own).refire_ms)),
+                paces: blasters.map(|own| paced.unwrap_or_else(|| weapons::pace_ms(own))),
             };
             let shots = pair::pull_special(
                 &mut fighter.shooting,
-                (&mut fighter.weapon_wait_ms, &mut fighter.fp),
-                (special, specials::cost(&base)),
+                (&mut fighter.weapon_wait_ms, &mut pool),
+                (special, bar.cost),
                 trigger,
                 hands,
             );
@@ -362,9 +419,9 @@ pub(super) fn fire(
             let shot = specials::pull(
                 &mut fighter.shooting,
                 &mut fighter.weapon_wait_ms,
-                &mut fighter.fp,
+                &mut pool,
                 special,
-                specials::cost(&base),
+                bar.cost,
                 trigger,
             );
             if shot.is_some() {
@@ -372,6 +429,17 @@ pub(super) fn fire(
             }
             [shot.map(|shot| (shot, fighter.hand)), None]
         };
+        bar.settle(fighter, pool);
+        // The spread and kick the crosshair showed for this step: both guns
+        // of a pair firing at once leave by it, the bloom of the first not
+        // yet on the second (`combat::bloom`).
+        let step_shooting = fighter.shooting;
+        // The torso starts its shot once in a step, even when both guns of
+        // a pair fire in it (a Sniper Shot, a Power Blast). A second start
+        // would toggle the flip bit back, and a torso already in its shot
+        // would then look unchanged to a view, which sees no shot, so it
+        // plays no sound and no muzzle flash (issue 556).
+        let mut torso_started = false;
         for (shot, hand) in fired.into_iter().flatten() {
             let mut weapon = weapon;
             let blaster = if pair {
@@ -404,13 +472,11 @@ pub(super) fn fire(
             fighter.combat_until = clock.time_ms + COMBAT_MS;
             // Attacking shows a mind-tricking character again (JA).
             fighter.force.tricked = 0;
-            let anim = if blaster == crate::combat::sheet::Blaster::Pistol {
-                motion::Anim::BOTH_ATTACK2
-            } else {
-                motion::Anim::BOTH_ATTACK3
-            };
-            let shown = sent.0.get(&id.0).copied().unwrap_or(player.0.torso.anim);
-            motion::begin_torso(&mut player.0, &level.0.anims, anim, shown);
+            if !std::mem::replace(&mut torso_started, true) {
+                let anim = motion::gun_shot(weapon.one_handed());
+                let shown = sent.0.get(&id.0).copied().unwrap_or(player.0.torso.anim);
+                motion::begin_torso(&mut player.0, &level.0.anims, anim, shown);
+            }
             let ps = &player.0;
             let eye = mind::eye(ps);
             let muzzle = hand_muzzle(ps, spec.muzzle, if pair { hand } else { 0 });
@@ -434,13 +500,41 @@ pub(super) fn fire(
             // line meets, a lit blade too (as its bolts do), from the muzzle (a
             // bolt) or the eye (a hitscan): the gun is below and beside the line
             // the screen's middle is on. A creature shoots along its view.
-            let (forward, ..) = math::angle_vectors(ps.view);
-            let aimed_at = (avatar.is_some() || fighter.mind.driver.is_some()).then(|| {
+            // A player's own shots bloom and kick (`combat::bloom`): the
+            // spread is the one its crosshair showed, and the kick turns the
+            // line it aims along, never the view it looks along.
+            let now = clock.time_ms;
+            // A Sniper Shot flies with no spread and no kick. The bloom
+            // still grows after it.
+            let steadied = matches!(shot.special, Some(specials::Special::SniperShot(_)));
+            let (kick, cone) = if creature {
+                if duel {
+                    fighter.shooting.fired_at = now;
+                }
+                ([0.0; 2], spec.spread)
+            } else {
+                let kick = bloom::kick_at(&step_shooting, now);
+                let cone = bloom::shot_cone(ps, &step_shooting, blaster, now);
+                let tune = bloom::tune(blaster);
+                let mut side =
+                    SimRng::new(clock.tick, u64::from(id.0.0) << 8 | 0x40 | u64::from(hand));
+                let side = side.range(-tune.kick_side, tune.kick_side);
+                bloom::on_shot(&mut fighter.shooting, &tune, now, side);
+                (kick, cone)
+            };
+            let (kick, cone) = if steadied {
+                ([0.0; 2], 0.0)
+            } else {
+                (kick, cone)
+            };
+            let aim_view = [ps.view[0] + kick[0], ps.view[1] + kick[1], ps.view[2]];
+            let (forward, ..) = math::angle_vectors(aim_view);
+            let aimed_at = (!creature).then(|| {
                 let from = mind::crosshair(ps);
                 let end = math::mad(from, weapons::HITSCAN_RANGE, forward);
                 let seen: Vec<Body> = bodies.iter().copied().chain(blades.bodies(id.0)).collect();
                 let met = level.0.with(states.as_deref(), |world| {
-                    Bodies::new(world, &seen).skipping(id.0.0 | BODY).trace(
+                    Bodies::new(world, &seen).skipping(id.0.0 | BODY).shot(
                         scale(from, UNIT),
                         scale(end, UNIT),
                         &Extents::POINT,
@@ -454,17 +548,24 @@ pub(super) fn fire(
                 // muzzle, is shot along the view.)
                 let origin = if spec.speed.is_some() { muzzle } else { eye };
                 let ahead = |point: &[f32; 3]| math::dot(math::sub(*point, origin), forward) > 0.0;
-                let mut view = aimed_at.filter(ahead).map_or(ps.view, |point| {
+                let mut view = aimed_at.filter(ahead).map_or(aim_view, |point| {
                     let (pitch, yaw) = mind::aim(origin, point);
                     [pitch, yaw, 0.0]
                 });
                 // The first of several shards flies true; the rest, and every
                 // bolt of a spraying weapon, spread.
-                if spec.spread > 0.0 && (shard > 0 || spec.shards == 1) {
+                // A player's strays inside a disc, as round as its crosshair;
+                // a creature's on each axis.
+                if cone > 0.0 && (shard > 0 || spec.shards == 1) {
                     let mut spread =
                         SimRng::new(clock.tick, u64::from(id.0.0) << 8 | u64::from(shard));
-                    view[0] += spread.range(-spec.spread, spec.spread);
-                    view[1] += spread.range(-spec.spread, spec.spread);
+                    let [pitch, yaw] = if creature {
+                        [spread.range(-cone, cone), spread.range(-cone, cone)]
+                    } else {
+                        bloom::disc(&mut spread, cone)
+                    };
+                    view[0] += pitch;
+                    view[1] += yaw;
                 }
                 // A creature's aim, wide at first and closing as it keeps a
                 // clear shot (JA's NPCs' `currentAim`).
@@ -481,13 +582,15 @@ pub(super) fn fire(
                     cadence_ms: shot.cadence_ms,
                     share,
                     area: false,
+                    second: None,
+                    sure: false,
                 };
                 match spec.speed {
                     // A hitscan: from the eye, at once.
                     None => {
                         let end = math::mad(eye, weapons::HITSCAN_RANGE, direction);
                         let trace = level.0.with(states.as_deref(), |world| {
-                            Bodies::new(world, &bodies).skipping(id.0.0 | BODY).trace(
+                            Bodies::new(world, &bodies).skipping(id.0.0 | BODY).shot(
                                 scale(eye, UNIT),
                                 scale(end, UNIT),
                                 &Extents::POINT,
@@ -529,6 +632,7 @@ pub(super) fn fire(
                             lob: None,
                             held: None,
                             scripted,
+                            power: matches!(shot.special, Some(specials::Special::PowerBlast(_))),
                         };
                         if lag_ms > 0 {
                             let half = bolt.half_size * UNIT;
@@ -538,7 +642,7 @@ pub(super) fn fire(
                             };
                             let reach = bolt.at(clock.time_ms);
                             let met = level.0.with(states.as_deref(), |world| {
-                                Bodies::new(world, &bodies).skipping(id.0.0 | BODY).trace(
+                                Bodies::new(world, &bodies).skipping(id.0.0 | BODY).shot(
                                     scale(muzzle, UNIT),
                                     scale(reach, UNIT),
                                     &extents,
@@ -570,6 +674,37 @@ pub(super) fn fire(
     }
 }
 
+/// Whether `command` raises the gun in `fighter`'s hand at `now`. The body
+/// must be alive and not a `creature`, the command must hold [Aim], the
+/// weapon in hand must be a blaster, and the gun must not be put away.
+pub(super) fn aims(
+    command: &Command,
+    fighter: &Fighter,
+    sheet: &Sheet,
+    creature: bool,
+    now: u64,
+) -> bool {
+    !creature
+        && fighter.alive()
+        && command.holds & holds::AIM != 0
+        && matches!(held(sheet, fighter).delivery, Delivery::Blaster(_))
+        && !fighter.weapon_away(now)
+}
+
+/// Raises the blaster in `fighter`'s hand for `msec` while its player holds
+/// [Aim] (`aims`), and lowers it otherwise. A `creature` never aims. Its
+/// mind keeps its own accuracy and speed.
+pub(super) fn raise_to_aim(
+    fighter: &mut Fighter,
+    sheet: &Sheet,
+    creature: bool,
+    now: u64,
+    msec: u32,
+) {
+    let raising = aims(&fighter.last_command, fighter, sheet, creature, now);
+    fighter.shooting.aim_step(raising, msec);
+}
+
 /// Where a shot or a throw leaves a character standing as `ps`: `offsets`
 /// units forward, right and up of its eye along its view
 /// (`CalcMuzzlePoint`), snapped to whole units.
@@ -599,16 +734,10 @@ pub(super) fn held(sheet: &Sheet, fighter: &Fighter) -> crate::combat::Weapon {
 /// (two-weapon fighting, Dueling: `combat::passive`) and what TSL's Form in
 /// use does to it (`combat::forms`).
 pub(super) fn in_hand(sheet: &Sheet, fighter: &Fighter, hand: u8) -> crate::combat::Weapon {
-    // TSL's Form in use: damage, criticals, deflection (`combat::forms`).
-    let mut weapon = crate::combat::forms::weapon(sheet, sheet.held(hand));
-    weapon.deflect = weapon
-        .deflect
-        .saturating_add(crate::combat::forms::deflection(sheet));
+    let mut weapon = crate::combat::damage::in_hand(sheet, hand);
     weapon.damage_bonus = weapon
         .damage_bonus
         .saturating_add(items::stim_damage(&fighter.pack));
-    let aim = crate::combat::passive::hand_attack(sheet, hand);
-    weapon.attack_bonus = (i32::from(weapon.attack_bonus) + aim).clamp(-128, 127) as i8;
     weapon
 }
 
@@ -736,6 +865,50 @@ impl Sides {
             .copied()
             .collect()
     }
+}
+
+/// The bodies other than its own that `shooter`'s shots may stop on in
+/// `world` now, by entity number (`SimId`), as `fire` picks them:
+/// `Targets::met_by`, then `Sides::met` (the shot's trace skips the
+/// shooter's own body). The probes hold the view's
+/// `Snapshot::shot_stops_on` to it.
+#[cfg(feature = "probes")]
+pub(crate) fn stopped_by(world: &mut World, shooter: SimId) -> Vec<u32> {
+    let level = world.resource::<Static>().0.clone();
+    let mut actors = world.query::<(
+        &Id,
+        Option<&Avatar>,
+        Option<&Object>,
+        Option<&PlayerSheet>,
+        &Player,
+        &Fighting,
+    )>();
+    let scripts = world.resource::<scripts::Scripts>();
+    let sides = sides_of(
+        &level,
+        scripts,
+        (actors.iter(world)).map(|(id, avatar, object, sheet, _, fighting)| {
+            (id.0, avatar, object, sheet, fighting)
+        }),
+    );
+    let targets = Targets::of(
+        level.friendly_fire,
+        (actors.iter(world)).map(|(id, avatar, object, _, player, fighting)| {
+            (
+                id.0,
+                &player.0,
+                object_bulk(object),
+                fighting.0.alive(),
+                in_party(avatar, &fighting.0),
+            )
+        }),
+    );
+    let mut stopped: Vec<u32> = (sides.met(shooter, targets.met_by(shooter)).iter())
+        .map(|body| body.entity & !BODY)
+        .filter(|&entity| entity != shooter.0)
+        .collect();
+    stopped.sort();
+    stopped
 }
 
 /// `Sides` of the characters `actors` holds, with what scripts changed of

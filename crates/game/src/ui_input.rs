@@ -114,6 +114,12 @@ pub(crate) fn gather(
     };
     for event in typed.read() {
         if event.state != ButtonState::Pressed {
+            // A key let go, for binding a modifier key alone (`KeyEntry`).
+            input.raw.push(format!(
+                "{}{:?}",
+                ui::screens::key_mapping::RELEASED_RAW,
+                event.key_code
+            ));
             continue;
         }
         if !event.repeat {
@@ -187,20 +193,30 @@ pub(crate) fn gather(
             }
         }
         // Each button pressed by its chord's name, for binding it
-        // (`key_mapping`): LB alone is none, it is the chord's shift.
+        // (`key_mapping`). LB is the chord's layer, so LB's own press is
+        // named alone. LB let go is sent too, so that the entry can bind LB
+        // alone.
+        use ui::screens::key_mapping::{PAD_RAW, RELEASED_RAW};
+        let layer = crate::pad::Layer::of(gamepad);
+        let named = |button: GamepadButton| {
+            let layer = if button == crate::pad::SHIFT {
+                crate::pad::Layer::Alone
+            } else {
+                layer
+            };
+            format!("{PAD_RAW}{}", crate::pad::Chord { layer, button }.name())
+        };
         input.raw.extend(
             gamepad
                 .digital()
                 .get_just_pressed()
-                .filter(|button| **button != crate::pad::SHIFT)
-                .map(|button| {
-                    let chord = crate::pad::Chord {
-                        shifted: shift,
-                        button: *button,
-                    };
-                    format!("{}{}", ui::screens::key_mapping::PAD_RAW, chord.name())
-                }),
+                .map(|button| named(*button)),
         );
+        if gamepad.just_released(crate::pad::SHIFT) {
+            input
+                .raw
+                .push(format!("{RELEASED_RAW}{}", named(crate::pad::SHIFT)));
+        }
         let (left, right) = (sticks.left, sticks.right);
         if stick.length() < left.length() {
             stick = left;

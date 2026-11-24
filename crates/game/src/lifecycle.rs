@@ -12,6 +12,7 @@ use asset_odyssey::module::ModuleIr;
 use asset_odyssey::texture::TextureIr;
 use session::{Plan, Request};
 use sim::motion::AnimTable;
+use sim::script::Hints;
 
 use vfs::resolver::Resolver;
 use vfs::{DirIndex, Discovery, Game};
@@ -19,6 +20,12 @@ use vfs::{DirIndex, Discovery, Game};
 use crate::installs::{self, Install};
 use crate::modules::ResolverSource;
 use crate::viewer::{self, LoadedScene};
+
+/// How far a module's preparation has got (0 to 1, the loading screen's
+/// bar) once its archives are open, and once its plan and scene are done.
+/// The plan fills what lies between.
+const OPENED: f32 = 0.25;
+const PLANNED: f32 = 0.9;
 
 /// Whether this process's plans open the ways the games keep sealed
 /// (`data/links`, `session::Overrides::playtest_links`): set once at start
@@ -44,6 +51,16 @@ pub struct Installer {
     /// Its plans open the sealed ways whatever the process does
     /// (`playtest_links`).
     links: bool,
+}
+
+/// What a loading screen needs to pick its hint. It holds where the hints
+/// stand in the world or save the module is loaded for. It also says whether
+/// that world or save has been in the module before, which the original asks
+/// as `GetModulePreviouslyVisited`. Showing a hint moves `hints` on.
+#[derive(Debug, Clone, Copy)]
+pub struct HintAsk {
+    pub hints: sim::script::Hints,
+    pub visited: bool,
 }
 
 /// What a loading screen shows: the module's image, the progress bar's
@@ -115,6 +132,14 @@ impl ModuleResolver {
         opened.or_else(|| self.base.clone())
     }
 
+    /// The resolver of the module whose own archives hold item `template`
+    /// (`sim::inventory::own_template`), opened anew; `None` for any other
+    /// template.
+    pub fn owner(&self, template: &str) -> Option<Arc<Resolver>> {
+        let module = sim::inventory::module_of(template)?;
+        self.open.as_ref()?(module).map(Arc::new)
+    }
+
     /// Whether there is anything to read from.
     pub fn is_some(&self) -> bool {
         self.base.is_some()
@@ -147,7 +172,13 @@ pub fn module_resolver_probes() -> sim::probe::Checks {
     let in_module = has(resources.get());
     let dressed = resources.get().and_then(|resolver| {
         let mut tables = asset_odyssey::tables::Tables::default();
-        crate::persona::wear(&resolver, &mut tables, (PLAYER, Some(ROBE.into()), None))
+        let look = (
+            PLAYER,
+            Some(ROBE.into()),
+            None,
+            crate::alignment_look::neutral(false),
+        );
+        crate::persona::wear((&resolver, None), &mut tables, look)
     });
     let left = resources.enter("tar_m02aa");
     let elsewhere = has(resources.get());
@@ -367,6 +398,7 @@ impl Installer {
             self.anims.clone(),
             self.overrides(false),
             Some(&self.areas),
+            &|_| {},
         )
         .map_err(|error| error.to_string())
     }
@@ -391,7 +423,7 @@ impl Installer {
         let started = Instant::now();
         let resolver = self.resolver(&request.module)?;
         let open_ms = started.elapsed().as_secs_f64() * 1000.0;
-        progress(0.25);
+        progress(OPENED);
         // The scene needs only the module's IR, read again for it (a few
         // milliseconds): it is built beside the plan rather than after.
         let ((plan, plan_ms), scene) = std::thread::scope(|scope| {
@@ -403,6 +435,7 @@ impl Installer {
                 self.anims.clone(),
                 self.overrides(true),
                 Some(&self.areas),
+                &|done| progress(OPENED + done * (PLANNED - OPENED)),
             );
             let plan_ms = started.elapsed().as_secs_f64() * 1000.0;
             let scene =
@@ -418,7 +451,7 @@ impl Installer {
             }
             None => (None, 0.0),
         };
-        progress(0.9);
+        progress(PLANNED);
         Ok(Prepared {
             plan,
             scene,
@@ -501,13 +534,53 @@ impl Installer {
         self.install
             .talk()?
             .text(strref)
-            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            .map(fmt_odyssey::code_page)
+    }
+
+    /// The code page `dialog.tlk` is written in.
+    pub fn code_page(&self) -> fmt_odyssey::CodePage {
+        self.install
+            .talk()
+            .map_or(fmt_odyssey::CodePage::Western, |talk| {
+                fmt_odyssey::CodePage::of(&talk)
+            })
+    }
+
+    /// The hint the loading screen shows for `module`, and `ask` moved on.
+    /// A module the party has been to shows a story hint and any other a
+    /// gameplay hint. Each kind goes down its column one row for each
+    /// loading screen, and starts over at the first row once the next row
+    /// has no value. KOTOR 1 keeps one story counter and takes its hints
+    /// from `loadscreenhints.2da`. KOTOR 2 keeps one for each planet, the
+    /// digit its module's name starts with, and takes them from
+    /// `loadstoryhints.2da`.
+    fn hint(&self, module: &str, ask: &mut HintAsk) -> Option<String> {
+        let base = self.install.base().ok()?;
+        let strref = if !ask.visited {
+            let table = base.two_da("loadscreenhints")?;
+            let cell = |row| table.int(row, "gameplayhint");
+            Hints::take_row(&mut ask.hints.gameplay, cell)
+        } else if self.game == Game::Kotor1 {
+            let table = base.two_da("loadscreenhints")?;
+            let cell = |row| table.int(row, "storyhint");
+            Hints::take_row(&mut ask.hints.story[0], cell)
+        } else {
+            let table = base.two_da("loadstoryhints")?;
+            let planet = module.bytes().next()?.wrapping_sub(b'0');
+            let area = |row| table.int(row, "areanumber");
+            let hint = |row| table.int(row, "storyhint");
+            let next = ask.hints.story.get_mut(usize::from(planet))?;
+            Hints::take_planet_row(next, planet, table.cells.len(), area, hint)
+        };
+        self.text(u32::try_from(strref?).ok()?)
     }
 
     /// What the loading screen shows for `module`: its image (reone's
     /// `load_<module>`, else the area's `loadscreens.2da` row), the bar's
-    /// fill (`loadscreen.gui`'s `bluefill`), the area's name.
-    pub fn loading_screen(&self, module: &str) -> LoadingScreen {
+    /// fill (`loadscreen.gui`'s `bluefill`), and the hint under "Loading". A
+    /// module with no `load_<module>` image and no hint shows the area's
+    /// name there.
+    pub fn loading_screen(&self, module: &str, ask: Option<&mut HintAsk>) -> LoadingScreen {
         let global = self.install.base().ok();
         let bar = global.and_then(|resolver| viewer::texture(resolver, "bluefill"));
         let name = format!("load_{module}");
@@ -516,7 +589,7 @@ impl Installer {
                 image: Some(image),
                 name: Some(name),
                 bar,
-                title: None,
+                title: ask.and_then(|ask| self.hint(module, ask)),
             };
         }
         let Ok(resolver) = self.resolver(module) else {
@@ -540,9 +613,10 @@ impl Installer {
                 .resref(row as usize, "bmpresref")?;
             Some((viewer::texture(&resolver, &name)?, name))
         });
-        let title = area
-            .and_then(|area| area.name_strref)
-            .and_then(|strref| self.text(strref));
+        let title = ask.and_then(|ask| self.hint(module, ask)).or_else(|| {
+            area.and_then(|area| area.name_strref)
+                .and_then(|strref| self.text(strref))
+        });
         let (image, name) = found.unzip();
         LoadingScreen {
             image,

@@ -1,0 +1,43 @@
+[package]
+name = "original_hook"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The library `kjk original` loads into the original games, and the program
+# that loads it on Windows (`src/bin/kjk-inject.rs`). Both do their work only
+# with the `game` feature and when built for a game's own architecture. That
+# is x86_64 macOS for the Mac ports and 32-bit Windows for the Windows
+# builds. kjk itself uses the crate without the feature, for what it needs
+# to know to start a game with the library in it (`src/launch.rs`).
+[lib]
+name = "kjk_original"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "kjk-inject"
+path = "src/bin/kjk-inject.rs"
+required-features = ["game"]
+
+[features]
+game = ["dep:original_find", "dep:windows-sys"]
+
+[dependencies]
+original_find = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

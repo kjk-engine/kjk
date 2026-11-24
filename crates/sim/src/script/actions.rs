@@ -40,10 +40,13 @@
 //!   power's reach (a power pressed or held, a ranged feat's special, a
 //!   melee feat's saber style); begun on itself, it is in combat
 //!   (`Change::InCombat`), as the exes' cast starts a combat round, so its
-//!   end of round runs;
+//!   end of round runs; a feat used on another creature with a blade or
+//!   fists is in combat while that creature stands in reach, as an attack
+//!   is;
 //! - **random walk** (`ActionRandomWalk`): to random points within
-//!   `WANDER_M` of where the walker stood as the walk began, one after
-//!   another, until the queue is cleared;
+//!   `WANDER_REACH_M` of where the walker stood as the walk began, one
+//!   after another, until the queue is cleared. The walker only goes to a
+//!   point it reaches in a straight line, so it never opens a door;
 //! - **converse** (`ActionStartConversation`, after its move): asks for
 //!   the conversation (`script::dialogue`) and completes;
 //! - **hold** (`ActionResumeConversation`): the conversation its object
@@ -65,6 +68,12 @@
 //!   completes;
 //! - **bark** (`ActionBarkString`): the object barks the line as
 //!   `BarkString` does, and completes;
+//! - **sound** (`PlaySound`): the object plays the sound, and completes.
+//!   TSL's executable queues `PlaySound` behind the object's other
+//!   actions, so a sound waits for what is before it [verify in K1's
+//!   exe]. A Tach on Kashyyyk wanders (`ActionRandomWalk`, which never
+//!   completes), so the screech its conversation event queues for every
+//!   combat shout it hears waits, and the next heartbeat clears it;
 //! - **follow owner** (TSL's `ActionFollowOwner`, a puppet's): while its
 //!   owner (`GetPUPOwner`) stands within its range (2D), or it has none, it
 //!   holds the queue; farther, a run to where the owner stands, within the
@@ -92,7 +101,13 @@
 //! A player's queue moves on too, but its moves are dropped: a player's
 //! legs are its seat's (I22 C14), except while it is held in a
 //! conversation (a cinematic's), when a script walks it as a creature
-//! (`world::Driven`).
+//! (`world::Driven`). A walk begun in the conversation walks on after it
+//! ends. The player's own character while a companion leads is no seat's,
+//! and its queue runs as a companion's.
+//!
+//! A character's walk to a door (`ActionMoveToObject`) heads for the
+//! door's action point nearest it and ends within its use range of that
+//! point, as TSL's `CSWSCreature::AIActionMoveToPoint` sends it there.
 
 use script_ncs::vm::{Deferred, ObjectId};
 
@@ -163,7 +178,8 @@ pub enum Action {
     },
     /// `ActionRandomWalk`: where the walker stood as it began, and where
     /// it walks now (metres), picked afresh when reached or after
-    /// `WANDER_MS`; it never completes.
+    /// `WANDER_MS`. `to` is none while no straight line was clear, and the
+    /// walker stands until it picks again. It never completes.
     RandomWalk {
         from: Option<[f32; 3]>,
         to: Option<[f32; 3]>,
@@ -208,6 +224,11 @@ pub enum Action {
     /// `BarkString` would, when its turn comes.
     Bark {
         strref: u32,
+    },
+    /// `PlaySound`: the object plays the sound `resref` when its turn
+    /// comes.
+    Sound {
+        resref: String,
     },
     /// TSL's `ActionFollowOwner`: a puppet keeps within `range` (metres) of
     /// its owner.
@@ -256,6 +277,7 @@ impl Action {
             Action::Cast { .. } => "cast",
             Action::Surrender => "surrender",
             Action::Bark { .. } => "bark",
+            Action::Sound { .. } => "sound",
             Action::FollowOwner { .. } => "follow owner",
             Action::Follow { .. } => "force follow",
             Action::PickUp { .. } => "pick up",
@@ -293,7 +315,8 @@ impl Action {
             | Action::SwitchWeapons
             | Action::Instant { .. }
             | Action::Surrender
-            | Action::Bark { .. } => "ACTION_INVALID",
+            | Action::Bark { .. }
+            | Action::Sound { .. } => "ACTION_INVALID",
         }
     }
 }
@@ -303,6 +326,23 @@ impl Action {
 pub struct Queued {
     pub action: Action,
     pub started_ms: Option<u64>,
+}
+
+/// Whether the script move first in `queue` waits at a door that will not
+/// open for its walk (`walk::ThroughShut`): a move to an object, not a
+/// forced one. TSL's `ActionMoveToObject` keeps its move going until the
+/// mover is in range, and a forced move jumps at its timeout instead.
+pub fn waits_at_doors(queue: Option<&Vec<Queued>>) -> bool {
+    queue.and_then(|queue| queue.first()).is_some_and(|queued| {
+        matches!(
+            queued.action,
+            Action::Move {
+                to: Target::Object(_),
+                force_ms: None,
+                ..
+            }
+        )
+    })
 }
 
 /// Where a moving object's mind should route it this step (units).
@@ -334,9 +374,9 @@ pub struct Intent {
 /// event's period.
 pub use crate::combat::ROUND_MS;
 
-/// A random walk's next point: within this far (metres), picked again
-/// after this long (ms) if not reached.
-pub const WANDER_M: f32 = rules::scripts::wander::REACH_M;
+/// A random walk's next point: at most this many whole metres off along
+/// each axis, picked again after this long (ms) if not reached.
+pub const WANDER_REACH_M: u32 = rules::scripts::wander::REACH_M;
 pub const WANDER_MS: u64 = rules::scripts::wander::REPICK_MS;
 
 /// How near an item (3D) a character picks it up or puts it down

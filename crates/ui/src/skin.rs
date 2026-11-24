@@ -27,18 +27,19 @@ const RENAMED: &[(&str, &str)] = &[
     ("areatransition", "areatrans_p"),
 ];
 
-/// Layouts that hold the campaign's own world, read from the campaign and
-/// drawn with its art: the galaxy map's buttons are its planets (KOTOR 2's
-/// layout holds KOTOR 2's).
-const OWN: &[&str] = &["galaxymap"];
+/// Layouts the campaign draws itself, read from the campaign and drawn
+/// with its art. The galaxy map's buttons are its planets (KOTOR 2's layout
+/// holds KOTOR 2's). The loading screen's pictures have a slot in the art
+/// for the progress bar and KOTOR 2's layout does not put the bar there.
+/// KOTOR 2 has no `loadscreen`, so its campaign reads its own `loadscreen_p`.
+const OWN: &[&str] = &["galaxymap", "loadscreen"];
 
 /// The campaign's own layout is drawn for `name` (`OWN`).
 pub fn own(name: &str) -> bool {
     OWN.contains(&name)
 }
 
-/// The campaign's logo, in place of KOTOR 2's on the main menu and the
-/// loading screen.
+/// The campaign's logo, in place of KOTOR 2's on the main menu.
 pub const CAMPAIGN_LOGO: &str = "logo_sw_02";
 
 /// The skin's layout in place of the campaign's `name`: KOTOR 2 names its
@@ -108,7 +109,7 @@ pub fn recolour(color: [f32; 3]) -> [f32; 3] {
 
 /// The palette KOTOR 2's layouts set (their most used colours after white:
 /// base, highlight, disabled), beside its engine's own (`Palette::TSL`).
-const TSL_LAYOUT: Palette = Palette {
+pub(crate) const TSL_LAYOUT: Palette = Palette {
     base: [0.101_96, 0.698_04, 0.549_02],
     hilight: [0.8, 0.8, 0.698_04],
     disabled: [0.050_98, 0.349_02, 0.270_59],
@@ -121,6 +122,18 @@ pub const TSL_ENGINE: Palette = Palette {
     hilight: [0.7, 0.7, 0.6],
     disabled: [0.05, 0.35, 0.27],
 };
+
+/// The colour of the interface's lines and text. It is the green that
+/// KOTOR 2's layouts set, or KOTOR 1's blue while the interface is
+/// recoloured for KOTOR 1 (`recoloured`, `draw::Textures::recoloured`). The
+/// HUD's crosshair is drawn in it.
+pub fn interface_colour(recoloured: bool) -> [f32; 3] {
+    if recoloured {
+        Palette::K1.base
+    } else {
+        TSL_LAYOUT.base
+    }
+}
 
 /// A layout's colour in KOTOR 1's: KOTOR 2's palette onto KOTOR 1's (its
 /// pale highlight becomes KOTOR 1's yellow), any other as art (a neutral

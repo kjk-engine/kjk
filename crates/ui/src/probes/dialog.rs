@@ -111,6 +111,22 @@ pub(super) fn all() -> Vec<Check> {
         end: glyphs(&WORD[1..2]),
         waiting: None,
     };
+    // The bars while a line plays, as shares of the window's height, in
+    // windows of one height from 16:10 to 32:9.
+    let shares: Vec<[f32; 2]> = [
+        16.0 / 10.0,
+        16.0 / 9.0,
+        64.0 / 27.0,
+        43.0 / 18.0,
+        32.0 / 9.0,
+    ]
+    .iter()
+    .filter_map(|shape| {
+        let placed = dialog.place(&mut fake, &playing, (1440.0 * shape, 1440.0))?;
+        let tall = placed.gui.extent.height as f32;
+        Some(placed.bars.map(|bar| bar[3] / tall))
+    })
+    .collect();
     let card = dialog.card(&mut fake, &requests, WINDOW, None);
     let mut place = |view: &DialogView| dialog.place(&mut fake, view, WINDOW);
     let (playing_at, turn_at, many_at) = (place(&playing), place(&turn), place(&many));
@@ -285,6 +301,20 @@ pub(super) fn all() -> Vec<Check> {
             })(),
         ),
         check(
+            "dialog_bars_alike_at_every_shape",
+            (|| {
+                let layout = [100.0 / 480.0, 102.0 / 480.0];
+                expect(
+                    &format!("100 and 102 of the layout's 480 in each window: {shares:?}"),
+                    shares.len() == 5
+                        && shares
+                            .iter()
+                            .all(|share| near(share[0], layout[0]) && near(share[1], layout[1])),
+                )?;
+                Ok("16:10, 16:9, 21:9 and 32:9 alike".into())
+            })(),
+        ),
+        check(
             "dialog_pointer_finds_replies",
             (|| {
                 let placed = turn_at.as_ref().ok_or("not placed")?;
@@ -418,5 +448,32 @@ pub(super) fn all() -> Vec<Check> {
                 Ok(format!("{:?}", card.rect))
             })(),
         ),
+        check("dialog_colours_by_campaign", campaign_colours()),
     ]
+}
+
+/// In KOTOR 2 the conversation's line and replies are KOTOR 2's own text
+/// green and the highlighted reply its pale grey (`skin::TSL_ENGINE`). In
+/// KOTOR 1, and with no campaign known, the screens' palette stays.
+fn campaign_colours() -> Result<String, String> {
+    use crate::skin::TSL_ENGINE;
+    use vfs::Game;
+    let screens = Palette::K1;
+    let cases = [
+        (Some(Game::Kotor2), TSL_ENGINE.base, TSL_ENGINE.hilight),
+        (Some(Game::Kotor1), screens.base, screens.hilight),
+        (None, screens.base, screens.hilight),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(campaign, base, hilight)| {
+            let shown = crate::screens::dialog::palette(*campaign, screens);
+            let right = shown.base == *base
+                && shown.hilight == *hilight
+                && shown.disabled == screens.disabled;
+            (!right).then(|| format!("{campaign:?} {:?} {:?}", shown.base, shown.hilight))
+        })
+        .collect();
+    expect(&format!("wrong {wrong:?}"), wrong.is_empty())?;
+    Ok("KOTOR 2's green and pale grey, KOTOR 1's palette kept".into())
 }

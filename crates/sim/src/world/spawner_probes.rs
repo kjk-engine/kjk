@@ -1017,6 +1017,7 @@ fn save_drops_links() -> Result<String, String> {
         level: level.id(),
         snapshot: run.world.snapshot(),
         script: run.world.script_state().clone(),
+        stances: run.world.stance_ids(),
     };
     let loaded = crate::Save::decode(&save.encode()).map_err(|error| error.to_string())?;
     let kept = loaded

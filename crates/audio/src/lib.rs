@@ -9,7 +9,11 @@
 
 mod clip;
 mod decode;
+mod device;
 mod mixer;
+mod output;
+#[cfg(feature = "probes")]
+pub mod probes;
 pub mod spatial;
 mod stream;
 pub mod wav;

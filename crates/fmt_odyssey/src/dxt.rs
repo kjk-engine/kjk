@@ -112,6 +112,16 @@ pub fn decode(data: &[u8], width: usize, height: usize, dxt5: bool) -> Option<Ve
     Some(out)
 }
 
+/// Whether any texel of the DXT5 blocks in `data` is less than opaque.
+pub fn dxt5_see_through(data: &[u8]) -> bool {
+    data.as_chunks::<16>().0.iter().any(|block| {
+        let values = alpha_palette(block[0], block[1]);
+        let bits = (block[2..8].iter().enumerate())
+            .fold(0u64, |acc, (i, &byte)| acc | (u64::from(byte) << (8 * i)));
+        (0..16).any(|i| values[((bits >> (3 * i)) & 7) as usize] < 255)
+    })
+}
+
 /// Whether any DXT1 block in `data` uses its transparent texel: a block
 /// whose first colour is not above its second has three colours and
 /// transparent black, and a texel indexing 3 picks the latter. The games

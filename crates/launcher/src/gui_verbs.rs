@@ -101,8 +101,21 @@ pub fn screen(
 ) -> ExitCode {
     let result = (|| -> Result<PathBuf, String> {
         let game = Game::from_key(game).ok_or(format!("{game}: use k1 or tsl"))?;
-        let mut assets = crate::runtime::skinned(GuiAssets::open(discovery, game)?, discovery)?;
-        let mut vm = ui::vm::ViewModel::default();
+        // The data as play opens it: KOTOR 1's with KOTOR 2's powers and
+        // feats lent.
+        let install = kjk_game::installs::open(discovery, game)?;
+        let assets = GuiAssets::with(game, install.index.clone(), install.base()?.clone());
+        let mut assets = crate::runtime::skinned(assets, discovery)?;
+        // The settings as play shows them (`KJK_SETTINGS` names another).
+        let movie_duels = discovery
+            .get(Game::JediAcademy)
+            .map_or(vfs::MovieDuels::Absent, vfs::Install::movie_duels_found);
+        let mut vm = ui::vm::ViewModel {
+            settings: kjk_game::settings::Settings::load().values_shown(),
+            movie_duels: movie_duels == vfs::MovieDuels::Installed,
+            movie_duels_incomplete: matches!(movie_duels, vfs::MovieDuels::Incomplete { .. }),
+            ..ui::vm::ViewModel::default()
+        };
         vm.session.error = error;
         (vm.keys, vm.pad_keys) = kjk_game::key_rows();
         let padded = |vm: &mut ui::vm::ViewModel, kind: kjk_game::pad::PadKind| {
@@ -116,6 +129,30 @@ pub fn screen(
         if matches!(name, "workbench" | "chemical") {
             vm.workbench = Some(stand_in_bench(&mut assets, name == "chemical"));
         }
+        if name == "character" {
+            vm.character = Some(stand_in_member());
+            let folders = kjk_game::stance_sets::offered_folders(discovery).unwrap_or_else(|why| {
+                outln!("no stance sets offered: {why}");
+                Vec::new()
+            });
+            vm.stances = folders
+                .into_iter()
+                .map(|folder| {
+                    let title = kjk_game::stance_sets::title(&folder);
+                    (folder, title)
+                })
+                .collect();
+        }
+        if name == "lobby" {
+            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0));
+        }
+        // `level CLASS N` sets the member before the screen opens, so the
+        // level-up screen opens on its next level.
+        for step in steps {
+            if let Some(("level", level)) = step.split_once(' ') {
+                stand_in_level(&mut vm, &mut assets, level)?;
+            }
+        }
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         if !stack.open(name, &vm) {
             return Err(format!("{name}: no such screen"));
@@ -126,6 +163,8 @@ pub fn screen(
             ..ui::input::UiInput::default()
         };
         stack.step(&mut assets, &vm, &quiet);
+        // Where the pointer is: the window's middle until `point` moves it.
+        let mut pointer = [size.0 as f32 / 2.0, size.1 as f32 / 2.0];
         for step in steps {
             match step.split_once(' ') {
                 Some(("press", tag)) => stack.press(tag),
@@ -134,6 +173,52 @@ pub fn screen(
                         .split_once(' ')
                         .ok_or(format!("{step}: set KEY VALUE"))?;
                     vm.settings.insert(key.to_string(), value.to_string());
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("session", rules)) => {
+                    vm.session_rules = Some(rules.to_string());
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "guest")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2, 0));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "hero")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 1));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "hero guest")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 1, 1));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "droid")) => {
+                    vm.lobby = Some(droid_lobby(&mut assets, game));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", lobby))
+                    if lobby.starts_with("save ") || lobby.starts_with("checkpoint ") =>
+                {
+                    let id = match lobby.strip_prefix("checkpoint ") {
+                        Some(path) => checkpoint_save(game, path)?,
+                        None => lobby["save ".len()..].to_string(),
+                    };
+                    let chosen = kjk_game::lobby_host::choose(discovery, Some(id), None, None)?;
+                    let mut lobby = kjk_game::lobby_host::lobby_of(&chosen);
+                    lobby.join("Mia".into());
+                    lobby.join("Kalle".into());
+                    outln!("lobby facts {}", lobby_facts(&chosen, &lobby));
+                    vm.lobby = Some(ui::vm::LobbyView {
+                        address: "192.168.1.20 : 7777".into(),
+                        steam: true,
+                        ..kjk_game::lobby_host::view(&lobby, 0)
+                    });
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("level", _)) => {}
+                Some(("stands", folder)) => {
+                    if let Some(me) = vm.character.as_mut() {
+                        me.stance = Some(kjk_game::stance_sets::set_title(folder));
+                    }
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("type", text)) => {
@@ -183,12 +268,25 @@ pub fn screen(
                         outln!("{step}: {intent:?}");
                     }
                 }
+                Some(("point", at)) => {
+                    let parsed: Vec<f32> = at.split(' ').filter_map(|n| n.parse().ok()).collect();
+                    let [x, y] = parsed[..] else {
+                        return Err(format!("{step:?}: `point X Y`, a pixel of the frame"));
+                    };
+                    pointer = [x, y];
+                    let moved = ui::input::UiInput {
+                        pointer: Some(pointer),
+                        moved: true,
+                        ..quiet.clone()
+                    };
+                    stack.step(&mut assets, &vm, &moved);
+                }
                 Some(("scroll", notches)) => {
                     let notches: f32 = notches
                         .parse()
                         .map_err(|_| format!("{step:?}: `scroll N`, N notches down"))?;
                     let wheeled = ui::input::UiInput {
-                        pointer: Some([size.0 as f32 / 2.0, size.1 as f32 / 2.0]),
+                        pointer: Some(pointer),
                         moved: true,
                         wheel: -notches,
                         ..quiet.clone()
@@ -197,7 +295,7 @@ pub fn screen(
                 }
                 _ => {
                     return Err(format!(
-                        "{step:?}: `press TAG`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
+                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME` or `pad KIND`"
                     ));
                 }
             }
@@ -230,6 +328,267 @@ pub fn screen(
             ExitCode::FAILURE
         }
     }
+}
+
+/// The save id the `lobby checkpoint PATH` step opens: the checkpoint at
+/// `path` written into the saves folder (`KJK_SAVES`, a scratch folder in a
+/// check) as the game's checkpoint save 99 (`tsl-99`), named by the
+/// checkpoint's file name, so the lobby reads a copy.
+fn checkpoint_save(game: Game, path: &str) -> Result<String, String> {
+    let path = std::path::Path::new(path);
+    let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let name = (path.file_stem())
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .ok_or(format!("{}: no file name", path.display()))?;
+    let key = if game == Game::Kotor2 { "tsl" } else { "k1" };
+    let id = saves::checkpoint_id(key, 99);
+    let root = crate::save_view::folder().ok_or("no folder for saves here")?;
+    saves::write_checkpoint(&root, &id, &bytes, (&name, &name), saves::now())?;
+    Ok(id)
+}
+
+/// What the lobby on a real save shows, as one line of JSON for the lobby's
+/// checks (`cargo xtask lobby --sections`): the story's character in the
+/// main character's place, each companion offered and its choice, what each
+/// slot plays, how the save's party table marks the part of the story (the
+/// companion the first seat is switched to, the companion leading, the
+/// party's members and its puppets), the main character (`main_facts`),
+/// and the companion leading once Start has written the lobby's party.
+fn lobby_facts(chosen: &kjk_game::lobby_host::Chosen, lobby: &session::lobby::Lobby) -> String {
+    let text = |bytes: &[u8]| fmt_odyssey::code_page(bytes);
+    let summary = &chosen.summary;
+    let party = chosen.save.as_ref().map(|save| &save.script.party);
+    let companions: Vec<serde_json::Value> = (lobby.companions.iter())
+        .map(|companion| {
+            serde_json::json!({
+                "npc": companion.npc,
+                "name": text(&companion.name),
+                "choice": format!("{:?}", companion.choice),
+            })
+        })
+        .collect();
+    let slots: Vec<String> = (lobby.slots.iter())
+        .map(|slot| slot.as_ref().map_or("empty".into(), |slot| format!("{:?}", slot.playing)))
+        .collect();
+    serde_json::json!({
+        "save": text(&summary.save),
+        "hero": text(&summary.hero),
+        "hero_portrait": summary.hero_portrait,
+        "hero_class": text(&summary.hero_class),
+        "hero_level": summary.hero_level,
+        "companions": companions,
+        "slots": slots,
+        "party": lobby.party(),
+        "switched": party.and_then(|party| party.switched),
+        "leader": party.and_then(|party| party.leader),
+        "members": party.map(|party| party.members.clone()),
+        "puppets": party.map(|party| party.puppets.keys().copied().collect::<Vec<u8>>()),
+        "main": chosen.save.as_ref().map(main_facts),
+        "start_leader": (chosen.save.as_ref())
+            .and_then(|save| kjk_game::lobby_host::started(save, lobby).ok())
+            .map(|started| started.script.party.leader),
+    })
+    .to_string()
+}
+
+/// The main character as `save` holds it: whether its avatar is there,
+/// whether it can be played (`lobby_host::main_playable`), and how far it
+/// stands from the companion leading the party.
+fn main_facts(save: &sim::Save) -> serde_json::Value {
+    let snapshot = &save.snapshot;
+    let own = snapshot.own(sim::Seat(0));
+    let leader = (save.script.party.leader)
+        .and_then(|npc| save.script.party.available.get(&npc)?.object)
+        .and_then(|id| snapshot.get(sim::SimId(id)));
+    let apart = own.zip(leader).map(|(own, leader)| {
+        (0..3)
+            .map(|axis| (own.position[axis] - leader.position[axis]).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    });
+    serde_json::json!({
+        "present": own.is_some(),
+        "playable": kjk_game::lobby_host::main_playable(save),
+        "apart_m": apart,
+    })
+}
+
+/// The companions a stand-in lobby lists, by party number and template, in
+/// each game's party selection order.
+const LOBBY_K1: &[(u8, &str)] = &[
+    (0, "p_bastilla"),
+    (1, "p_cand"),
+    (2, "p_carth"),
+    (3, "p_hk47"),
+    (4, "p_jolee"),
+    (5, "p_juhani"),
+    (6, "p_mission"),
+    (7, "p_t3m4"),
+    (8, "p_zaalbar"),
+];
+const LOBBY_TSL: &[(u8, &str)] = &[
+    (0, "p_atton"),
+    (1, "p_baodur"),
+    (2, "p_mand"),
+    (3, "p_g0t0"),
+    (4, "p_handmaiden"),
+    (5, "p_hk47"),
+    (6, "p_kreia"),
+    (7, "p_mira"),
+    (8, "p_t3m4"),
+    (9, "p_visas"),
+];
+
+/// A lobby the lobby screen shows (`kjk gui screen <game> lobby`, the
+/// `lobby guest` step for a guest's view, and the `lobby hero` and `lobby
+/// hero guest` steps where the first guest plays the main character): the
+/// game's companions by its own names and portraits, two guests who chose
+/// the third and first, the fifth taken away by the story, the main
+/// character played by slot `hero`, seen from slot `own`.
+fn stand_in_lobby(
+    assets: &mut GuiAssets,
+    game: Game,
+    own: usize,
+    hero: usize,
+) -> ui::vm::LobbyView {
+    use session::lobby::{Collision, Companion, Game as Played, Lobby, Summary};
+    use sim::script::party_choice::Choice;
+    let roster = if game == Game::Kotor2 { LOBBY_TSL } else { LOBBY_K1 };
+    let class = |assets: &mut GuiAssets, row: usize| {
+        assets.cell_text("classes", row, "name").unwrap_or_else(Vec::new)
+    };
+    let companions = (roster.iter().enumerate())
+        .map(|(at, &(npc, template))| Companion {
+            npc,
+            name: (assets.template_name(template, fmt_odyssey::ResType::UTC))
+                .unwrap_or_else(|| template.as_bytes().to_vec()),
+            portrait: assets.portrait_of(template, 0).unwrap_or_else(String::new),
+            class: class(assets, at % 3),
+            level: 4,
+            choice: if at == 4 { Choice::Unavailable } else { Choice::Open },
+        })
+        .collect();
+    let summary = Summary {
+        save: b"Endar Spire".to_vec(),
+        area: b"Command Module".to_vec(),
+        game: if game == Game::Kotor2 { Played::Tsl } else { Played::K1 },
+        saved: 1_794_700_800,
+        hero: b"Dax Tyrell".to_vec(),
+        hero_class: class(assets, 0),
+        hero_level: 4,
+        // The game's first male player portrait (`portraits.2da`).
+        hero_portrait: (0..assets.rows("portraits"))
+            .find(|row| {
+                (assets.cell("portraits", *row, "baseresref"))
+                    .is_some_and(|name| name.to_ascii_lowercase().starts_with("po_pm"))
+            })
+            .and_then(|row| assets.portrait(row, 0))
+            .unwrap_or_else(String::new),
+    };
+    let current = [roster[2].0, roster[0].0];
+    let mut lobby = Lobby::new("Host".into(), "ja".into(), Collision::Limited);
+    lobby.reset(summary, companions, &current);
+    lobby.join("Mia".into());
+    lobby.join("Kalle".into());
+    lobby.choose(hero, session::lobby::Pick::Hero, true);
+    lobby.ready(2, true);
+    for slot in lobby.slots.iter_mut().skip(1).flatten() {
+        slot.delay_ms = 32;
+    }
+    ui::vm::LobbyView {
+        host: own == 0,
+        address: "192.168.1.20 : 7777".into(),
+        steam: own == 0,
+        ..kjk_game::lobby_host::view(&lobby, own)
+    }
+}
+
+/// A lobby whose save's party has one companion and no other recruited
+/// (the Endar Spire with Trask): the first guest plays him and the second
+/// flies a remote droid, seen from the second guest's slot.
+fn droid_lobby(assets: &mut GuiAssets, game: Game) -> ui::vm::LobbyView {
+    let mut view = stand_in_lobby(assets, game, 2, 0);
+    view.companions.truncate(1);
+    view.companions[0].state = ui::vm::LobbyCompanionState::Played {
+        slot: 1,
+        player: "Mia".into(),
+    };
+    if let Some(Some(slot)) = view.slots.get_mut(1) {
+        slot.character = view.companions[0].name.clone();
+        slot.portrait = view.companions[0].portrait.clone();
+    }
+    if let Some(Some(slot)) = view.slots.get_mut(2) {
+        slot.character = ui::strings::bytes(ui::strings::LOBBY_DROID);
+        slot.class_level.clear();
+        slot.portrait = None;
+        slot.droid = true;
+    }
+    if let Some(save) = view.save.as_mut() {
+        save.party.truncate(2);
+        save.party[1] = view.companions[0].name.clone();
+    }
+    view
+}
+
+/// The member the character page shows: the first seat's character, whose
+/// stance may be picked, with level 1 and scores of 10.
+fn stand_in_member() -> ui::vm::CharacterView {
+    ui::vm::CharacterView {
+        stance_setting: Some(kjk_game::stance_sets::pick_setting("seat0")),
+        level: 1,
+        abilities: [10; 6],
+        ..ui::vm::CharacterView::default()
+    }
+}
+
+/// The member the character page shows and the level-up screen levels
+/// (`level CLASS N`): a level `N` character of `CLASS` (a `classes.2da`
+/// row) with the class's recommended scores and every feat the class grants
+/// up to level `N`, who has the experience for level `N + 1`. The level-up
+/// screen offers that level's picks as the game's levelling counts them.
+fn stand_in_level(vm: &mut ui::vm::ViewModel, assets: &mut GuiAssets, spec: &str) -> Result<(), String> {
+    let usage = || format!("{spec:?}: `level CLASS N`, a classes.2da row and a level");
+    let (class, level) = spec.split_once(' ').ok_or_else(usage)?;
+    let class: u8 = class.parse().map_err(|_| usage())?;
+    let level: u8 = level.parse().map_err(|_| usage())?;
+    let classes = session::classes::classes(&kjk_game::viewer::ResolverSource(assets.resolver()));
+    let of = classes
+        .classes
+        .get(usize::from(class))
+        .ok_or(format!("classes.2da has no row {class}"))?;
+    let mut sheet = sim::combat::Sheet {
+        level,
+        abilities: of.recommended,
+        ..sim::combat::Sheet::commoner()
+    };
+    sheet.feats = Default::default();
+    for &(_, feat) in of.granted.iter().filter(|(at, _)| *at <= level) {
+        sheet.feats.insert(feat);
+    }
+    let career = vec![(class, level)];
+    let picks = classes
+        .picks(&sheet, &career, class)
+        .ok_or(format!("class {class} offers no level {}", level.saturating_add(1)))?;
+    let name = assets.cell_text("classes", usize::from(class), "name").unwrap_or_else(Default::default);
+    vm.character = Some(ui::vm::CharacterView {
+        class_row: Some(class),
+        classes: vec![(name, level)],
+        level,
+        abilities: of.recommended,
+        own_abilities: of.recommended,
+        xp: classes.next(level).unwrap_or(0),
+        next_xp: classes.next(level),
+        may_level: true,
+        ..stand_in_member()
+    });
+    vm.levelup = Some(ui::vm::LevelUpView {
+        class,
+        level: level.saturating_add(1),
+        abilities: of.recommended,
+        picks: kjk_game::character::picks_view(assets, &picks),
+        ..ui::vm::LevelUpView::default()
+    });
+    Ok(())
 }
 
 /// What the bench draws (`workbench_view::of`): TSL's prologue's table
@@ -280,7 +639,7 @@ fn stand_in_bench(assets: &mut GuiAssets, lab: bool) -> ui::vm::WorkbenchView {
         .enumerate()
         .map(|(at, item)| (sim::inventory::FIRST_ITEM + at as u32, item))
         .collect();
-    crate::workbench_view::of(assets, (&bench, &shop), &sheet, (&carried, false))
+    crate::workbench_view::of(assets, (&bench, &shop), (&sheet, &sheet), None, (&carried, false))
 }
 
 /// `top`, drawn over nothing (its colour already carries its alpha), laid

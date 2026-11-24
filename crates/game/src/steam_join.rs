@@ -43,7 +43,7 @@ fn joins(
         if playing.is_some() {
             ui.vm
                 .feedback
-                .push("Leave this game for the main menu to join a friend's.".into());
+                .push("Return to the main menu to join a friend's game.".into());
             continue;
         }
         info!(target: "steam", host, "a friend's game, joined from Steam");

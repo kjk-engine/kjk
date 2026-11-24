@@ -8,6 +8,7 @@
 use crate::combat::ai::Mind;
 use crate::combat::effects::Effects;
 use crate::combat::force::ForceState;
+use crate::combat::grab::Grapple;
 use crate::combat::idle::{Acting, Rest};
 use crate::combat::items::Pack;
 use crate::combat::saber::SaberState;
@@ -252,6 +253,10 @@ pub struct Event {
     pub at: Option<[i32; 3]>,
     /// A script's visual effect (`Outcome::Visual`).
     pub visual: Option<Visual>,
+    /// A bolt that met a blade which was not blocking it and was turned
+    /// wildly (`Outcome::Deflected`). The holder did not choose this block,
+    /// so `defence::bolts_turned_lately` does not count it.
+    pub wild: bool,
 }
 
 /// How many events a fighter keeps: enough for a shotgun's shards and a
@@ -270,6 +275,7 @@ impl Event {
         weapon: None,
         at: None,
         visual: None,
+        wild: false,
     };
 
     /// `point` (units) as an event keeps it.
@@ -311,6 +317,7 @@ impl Event {
             }
         });
         write_fixed(out, self.visual.as_ref(), &Visual::BLANK, Visual::encode);
+        out.u8(u8::from(self.wild));
     }
 
     fn decode(input: &mut Reader) -> Result<Event, DecodeError> {
@@ -322,32 +329,46 @@ impl Event {
         let at = input.at();
         let location =
             Location::from_index(input.u8()?).ok_or(input.invalid("event location", at))?;
+        let damage = input.u32()? as i32;
+        let weapon = read_fixed(
+            input,
+            &Delivery::Unarmed,
+            decode_delivery,
+            "event weapon flag",
+        )?;
+        let point = read_fixed(
+            input,
+            &[0; 3],
+            |input| {
+                Ok([
+                    input.u32()? as i32,
+                    input.u32()? as i32,
+                    input.u32()? as i32,
+                ])
+            },
+            "event point flag",
+        )?;
+        let visual = read_fixed(input, &Visual::BLANK, Visual::decode, "event visual flag")?;
+        let mut wild = false;
+        if input.since(crate::since::snapshot::FEAT_BLASTERS_AGAINST_JEDI) {
+            let at = input.at();
+            let flag = input.u8()?;
+            if flag > 1 {
+                return Err(input.invalid("event wild flag", at));
+            }
+            wild = flag == 1;
+        }
         Ok(Event {
             sequence,
             tick,
             by,
             result,
             location,
-            damage: input.u32()? as i32,
-            weapon: read_fixed(
-                input,
-                &Delivery::Unarmed,
-                decode_delivery,
-                "event weapon flag",
-            )?,
-            at: read_fixed(
-                input,
-                &[0; 3],
-                |input| {
-                    Ok([
-                        input.u32()? as i32,
-                        input.u32()? as i32,
-                        input.u32()? as i32,
-                    ])
-                },
-                "event point flag",
-            )?,
-            visual: read_fixed(input, &Visual::BLANK, Visual::decode, "event visual flag")?,
+            damage,
+            weapon,
+            at: point,
+            visual,
+            wild,
         })
     }
 }
@@ -355,6 +376,28 @@ impl Event {
 fn decode_delivery(input: &mut Reader) -> Result<Delivery, DecodeError> {
     let at = input.at();
     Delivery::from_index(input.u8()?).ok_or(input.invalid("event weapon", at))
+}
+
+/// The attack button as punches with bare hands read it under the Advanced
+/// rules (`world::strikes`): whether it was held on the step before, and
+/// whether it was pressed during a punch, so the next punch follows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Fists {
+    pub held: bool,
+    pub queued: bool,
+}
+
+impl Fists {
+    fn code(self) -> u8 {
+        u8::from(self.held) | u8::from(self.queued) << 1
+    }
+
+    fn decode(code: u8) -> Option<Fists> {
+        (code < 4).then_some(Fists {
+            held: code & 1 != 0,
+            queued: code & 2 != 0,
+        })
+    }
 }
 
 /// See the module documentation. Its encoding has one width whatever it
@@ -379,12 +422,35 @@ pub struct Fighter {
     /// Sim ms until which a pain animation plays: a creature does nothing
     /// new meanwhile (JA's pain debounce).
     pub pain_until: u64,
+    /// When (sim ms) its last punch with bare hands began, 0 for never: the
+    /// spin kick's combo reads it (`motion::Move::spin_combo`).
+    pub punched_at: u64,
+    /// Its attack button as the punches with bare hands under the Advanced
+    /// rules read it (`world::strikes`): held on the step before, and a
+    /// press made during a punch, kept for the next.
+    pub fists: Fists,
+    /// The finisher (1 to 3) the movement keys picked as its grab began,
+    /// 0 for no key (`world::grapples`).
+    pub grab_pick: u8,
+    /// When (sim ms) its last stun baton swing began, 0 for never: only a
+    /// swing's own time lands a baton blow (`world::strikes`), not the
+    /// weapon timer a grenade's throw or a weapon change raises.
+    pub swung_at: u64,
     /// The last to hurt it, and when (sim ms).
     pub last_attacker: Option<(SimId, u64)>,
+    /// The grab it is in, holding or held, while a grapple finisher plays
+    /// (`world::grapples`).
+    pub grapple: Option<Grapple>,
     /// When (sim ms) a script's push last threw it (`EffectForcePushed`,
     /// `EffectForcePushTargeted`: a blast), 0 for never: the view throws
     /// it as a ragdoll from then (`cast::blasted`).
     pub blasted_ms: u64,
+    /// The stance set it stands, walks and holds a block in under MDA, 0
+    /// for none (`skeleton::stance`).
+    pub stance_set: u8,
+    /// The stance set it was given that it takes up when its swing allows,
+    /// if any.
+    pub stance_queued: Option<u8>,
     /// A faction set at run time (`ChangeToStandardFaction`), else the
     /// sheet's.
     pub faction: Option<u8>,
@@ -490,6 +556,11 @@ pub enum Sheath {
     /// not yet done with it (a swing finishing): the put-away plays (a
     /// blade's flourish, a gun lowered), then `Holstered`.
     Holstering,
+    /// Its player drew it (the draw or holster key, `Action::Holster`). The
+    /// 8 s rule does not put it away. It ends when the key is pressed again,
+    /// when a conversation begins, in the player restrict mode, and when no
+    /// player controls its body any more.
+    Drawn,
 }
 
 impl Sheath {
@@ -504,6 +575,7 @@ impl Sheath {
             1 => Sheath::Holstered,
             2 => Sheath::Lit,
             3 => Sheath::Holstering,
+            4 => Sheath::Drawn,
             _ => return Err(input.invalid("sheath", at)),
         })
     }
@@ -553,8 +625,15 @@ impl Fighter {
             hand: 0,
             combat_until: 0,
             pain_until: 0,
+            punched_at: 0,
+            fists: Fists::default(),
+            grab_pick: 0,
+            swung_at: 0,
             last_attacker: None,
+            grapple: None,
             blasted_ms: 0,
+            stance_set: 0,
+            stance_queued: None,
             faction: None,
             target: None,
             last_command: Command::default(),
@@ -613,6 +692,18 @@ impl Fighter {
         }
     }
 
+    /// Whether it may put a hand out at `now` (sim ms) for a Force power.
+    /// No hand may be out, its weapon's timer must have run out, and no
+    /// item may be in use (`Pack::busy`). A character knocked down has no
+    /// free hand, as in JA. A push or a pull (`throwing`) may still come
+    /// while it gets up.
+    pub fn hand_free(&self, now: u64, throwing: bool) -> bool {
+        let saber = &self.saber;
+        let down =
+            saber.floored() && !(throwing && saber.getup != crate::combat::saber::Getup::Down);
+        !down && !self.force.hand_out(now) && self.weapon_wait_ms <= 0 && !self.pack.busy()
+    }
+
     /// Whether its weapon is put away at `now` (sim ms) by who says so
     /// (`Sheath`): its player's holster, or the game's rule (no one it
     /// fights, `COMBAT_MS` past its last blow and its own last attack); a script's
@@ -620,7 +711,7 @@ impl Fighter {
     pub fn weapon_away(&self, now: u64) -> bool {
         match self.sheath {
             Sheath::Holstered | Sheath::Holstering => true,
-            Sheath::Lit => false,
+            Sheath::Lit | Sheath::Drawn => false,
             Sheath::Fight => {
                 self.target.is_none()
                     && self.combat_until <= now
@@ -657,6 +748,19 @@ impl Fighter {
             || force.stunned_until > now
             || (force.state_until > now
                 && !matches!(force.state, 0 | state::CONFUSED | state::DROID_CONFUSED))
+    }
+
+    /// Whether it can defend itself at `now`: block a blow, or deflect or
+    /// reflect a blaster bolt. A character cannot defend while it is dead
+    /// or down, held still by a stun or by a KOTOR state that stops it
+    /// acting (`ForceState::stunned`: stun, stasis, sleep, a whirlwind, a
+    /// choke, horror, a disabled droid and the rest), held by Force Grip,
+    /// or knocked down.
+    pub fn can_defend(&self, now: u64) -> bool {
+        self.alive()
+            && !self.force.stunned(now)
+            && self.force.gripped_by.is_none()
+            && !self.saber.floored()
     }
 
     /// Dead: no getting up.
@@ -757,6 +861,15 @@ impl Fighter {
         out.u64(self.flourish_ready);
         self.look.encode(out);
         out.u64(self.blasted_ms);
+        out.u8(self.stance_set);
+        write_fixed(out, self.stance_queued.as_ref(), &0, |set, out| {
+            out.u8(*set)
+        });
+        out.u64(self.punched_at);
+        write_fixed(out, self.grapple.as_ref(), &Grapple::BLANK, Grapple::encode);
+        out.u8(self.fists.code());
+        out.u8(self.grab_pick);
+        out.u64(self.swung_at);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -815,6 +928,51 @@ impl Fighter {
         } else {
             0
         };
+        // Older snapshots: no stance set, and none waited for.
+        let (stance_set, stance_queued) = if input.since(crate::since::snapshot::SIM_STANCE_SETS) {
+            (
+                input.u8()?,
+                read_fixed(input, &0, |input| input.u8(), "stance queued flag")?,
+            )
+        } else {
+            (0, None)
+        };
+        // Older snapshots: no punch to kick out of.
+        let punched_at = if input.since(crate::since::snapshot::FEAT_UNARMED_KICKS) {
+            input.u64()?
+        } else {
+            0
+        };
+        // Older snapshots: in no grab.
+        let at = input.at();
+        let grapple = if input.since(crate::since::snapshot::FEAT_UNARMED_GRAPPLES) {
+            read_fixed(input, &Grapple::BLANK, Grapple::decode, "grapple flag")?
+        } else {
+            None
+        };
+        // A grab under way plays finisher 1, 2 or 3.
+        if grapple.is_some_and(|held| held.finisher == 0) {
+            return Err(input.invalid("grapple finisher", at));
+        }
+        // Older snapshots: no attack held or kept, and no grab's keys.
+        let (fists, grab_pick) = if input.since(crate::since::snapshot::FEAT_UNARMED_PLAYTEST) {
+            let at = input.at();
+            let fists = Fists::decode(input.u8()?).ok_or_else(|| input.invalid("fists", at))?;
+            let at = input.at();
+            let pick = input.u8()?;
+            if pick > 3 {
+                return Err(input.invalid("grab pick", at));
+            }
+            (fists, pick)
+        } else {
+            (Fists::default(), 0)
+        };
+        // Older snapshots: no baton swing under way.
+        let swung_at = if input.since(crate::since::snapshot::FEAT_BATON_SWINGS) {
+            input.u64()?
+        } else {
+            0
+        };
         Ok(Fighter {
             hp,
             fp,
@@ -823,8 +981,15 @@ impl Fighter {
             hand,
             combat_until,
             pain_until,
+            punched_at,
+            fists,
+            grab_pick,
+            swung_at,
             last_attacker,
+            grapple,
             blasted_ms,
+            stance_set,
+            stance_queued,
             faction,
             target,
             last_command,
@@ -869,11 +1034,12 @@ pub(crate) fn encode_command(command: &Command, out: &mut Writer) {
     out.i8(command.up);
     out.u16(command.buttons);
     out.u8(command.weapon);
-    out.u8(command.force);
+    out.u16(command.force);
     out.u8(command.reply);
     for step in command.aim {
         out.i8(step);
     }
+    out.u8(command.holds);
 }
 
 pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError> {
@@ -888,8 +1054,17 @@ pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError>
         up: input.i8()?,
         buttons: input.u16()?,
         weapon: input.u8()?,
-        force: input.u8()?,
+        // Before two bytes, one: the same row (none past 254 could be
+        // selected, and 255 was the pull it still is).
+        force: match input.since(crate::since::snapshot::FIX_FORCE_CYCLE) {
+            true => input.u16()?,
+            false => u16::from(input.u8()?),
+        },
         reply: input.u8()?,
         aim: [input.i8()?, input.i8()?, input.i8()?],
+        holds: match input.since(crate::since::snapshot::SABER_MODES) {
+            true => input.u8()?,
+            false => 0,
+        },
     })
 }

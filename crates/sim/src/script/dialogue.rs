@@ -287,18 +287,22 @@ fn holds_world(conversations: &[Conversation], seat_bodies: &[ObjectId]) -> bool
 /// How long the line `node` lasts (ms): with a `Delay`, that delay; with
 /// none, its voice's length (`voice`: its own or its alien speech's,
 /// `Library::entry_voice`), or with none or one under `MIN_VOICE_MS` its
-/// text's (`READ_TENTHS_MS_PER_CHAR` a character of the text as stored, its
-/// developer notes and tokens counted, as TSL's `CSWSDialog::SetDialogDelay`
-/// counts the talk table's string). Either is raised to its voice's length
+/// text's (`READ_TENTHS_MS_PER_CHAR` a character of the text it shows,
+/// `read_chars`). Either is raised to its voice's length
 /// where its wait flags hold it for the voice, to its fade's end where they
 /// hold it for its fade (`fade_ms`), and to `LEAST_LINE_MS`. A line with no
 /// wait flags in an animated cut lasts nothing: the cut's animation times
-/// it, and one held by its camera clip (`clip_held`) has no timer of its
-/// own: the clip and its other flagged waits time it, so a voice running
-/// over several shots (Zhar's training speech, `k_player_dialog`: one
-/// voiced line, then voiceless ones under it) plays on through the next
-/// shots instead of freezing the first until it ends (reone times such a
-/// line by its clip alone). As the games' loader has it, a `Delay` counts as a wait flag and a
+/// it. A line held by its camera model's clip (`clip_held`) has no timer of
+/// its own in an animated cut, nor anywhere when it is voiced: the clip and
+/// its other flagged waits time it, so a voice running over several shots
+/// plays on through the next shots instead of freezing the first until it
+/// ends (reone times such a line by its clip alone). Zhar's training
+/// speech (`k_player_dialog`, an animated cut) is one voiced line with
+/// voiceless ones under it; so is the sea floor survivor's death on Manaan
+/// (`m28ab_c01`, a camera model and stunts but no animated cut), whose
+/// scream played before the shots of him being taken, which then showed
+/// silently. An unvoiced line outside an animated cut keeps its text's
+/// timer. As the games' loader has it, a `Delay` counts as a wait flag and a
 /// voiced line (`voiced`: naming a voice of its own or alien speech) with
 /// neither waits for its voice. TSL's `SetDialogDelay` reads a delayed
 /// line's text or voice time only for a conversation no player is in (its
@@ -314,8 +318,8 @@ fn line_ms(
     (animated_cut, clip_held): (bool, bool),
 ) -> u64 {
     let voice = u64::from(voice.unwrap_or(0));
-    let chars = shown_text(library, node).chars().count() as u64;
-    let base = if node.delay.is_some() || animated_cut && clip_held {
+    let chars = read_chars(library, node);
+    let base = if node.delay.is_some() || clip_held && (animated_cut || voiced) {
         0
     } else if voice >= MIN_VOICE_MS {
         voice
@@ -362,14 +366,31 @@ fn shown_text(library: &super::Library, node: &Node) -> String {
     }
 }
 
+/// The text a line shows with its developer notes left out (`tlk::unbraced`)
+/// and the spaces round it trimmed.
+fn said_text(library: &super::Library, node: &Node) -> Vec<u8> {
+    fmt_odyssey::tlk::unbraced(&fmt_odyssey::code_page_bytes(&shown_text(library, node)))
+        .trim_ascii()
+        .to_vec()
+}
+
+/// The characters an unvoiced line is timed by, in both games: its text
+/// without developer notes and without the spaces before and after it, as
+/// TSL's executable times a line of a conversation the player is in (`CSWSDialog::SendDialogEntry` reads `GetSpokenTimeEstimate`, which
+/// parses the talk table's string first; the raw string's length in
+/// `SetDialogDelay` counts only where no player is in the conversation).
+/// A line that is only a note lasts the shortest line: Zherron's "{play
+/// movies}" in TSLRCM's battle of Khoonda ends before his script's
+/// half-second wait for Azkul's conversation has run [verify in K1's exe].
+fn read_chars(library: &super::Library, node: &Node) -> u64 {
+    said_text(library, node).len() as u64
+}
+
 /// Whether a node says nothing: no text (`Node::is_silent`), or only
 /// developer notes (`tlk::unbraced`), as TSL's lone replies of `101awake`
 /// and `003disci` (`{camera 33}`) are. Such a reply is taken, not offered.
 pub(super) fn says_nothing(library: &super::Library, node: &Node) -> bool {
-    node.is_silent()
-        || fmt_odyssey::tlk::unbraced(shown_text(library, node).as_bytes())
-            .trim_ascii()
-            .is_empty()
+    node.is_silent() || said_text(library, node).is_empty()
 }
 
 /// Conversations and what they keep (`State::talk`).
@@ -389,6 +410,11 @@ pub struct Talk {
     pub(super) running: Option<ObjectId>,
     /// The conversation whose script runs now (not saved: within a step).
     pub(super) current: Option<u32>,
+    /// The body using the conversation whose script runs now: its
+    /// listener, the one standing in it (not saved: within a step). A
+    /// guest's companion that uses a terminal is its user, while the
+    /// scripts' PC is the host's character (`View::pc_for`).
+    pub(super) user: Option<ObjectId>,
     /// The asker of the conversation whose end script runs now (not saved:
     /// within a step).
     pub(super) ending: Option<ObjectId>,
@@ -816,18 +842,18 @@ impl Talk {
         });
     }
 
-    /// The conversations under way and asked for with PC `from` go on with
-    /// `to` (`SwitchPlayerCharacter`): its seat answers them, and it is
-    /// their `GetPCSpeaker`.
+    /// The conversations under way and asked for with `from` as their
+    /// `GetPCSpeaker` go on with `to` (`SwitchPlayerCharacter`). The seat
+    /// of `to` answers them, and `to` is now their `GetPCSpeaker`.
     pub(super) fn retarget(&mut self, from: ObjectId, to: ObjectId) {
-        let pcs = self
+        let speakers = self
             .conversations
             .iter_mut()
             .map(|c| &mut c.pc)
             .chain(self.asked.iter_mut().map(|start| &mut start.pc))
             .chain(self.running.as_mut());
-        for pc in pcs.filter(|pc| **pc == from) {
-            *pc = to;
+        for speaker in speakers.filter(|speaker| **speaker == from) {
+            *speaker = to;
         }
         let bodies = self
             .conversations
@@ -1101,10 +1127,11 @@ pub fn story_abort(library: &super::Library, dlg: &Dlg) -> bool {
     moves(library, &dlg.on_abort)
 }
 
-/// Whether a conversation with PC `id` is the party's: `id` is one of the
-/// scripts' PCs (`View::pcs`), or the companion leading the party (`lent`).
-fn party_pc(pcs: &[ObjectId], lent: Option<ObjectId>, id: ObjectId) -> bool {
-    pcs.contains(&id) || lent == Some(id)
+/// Whether a conversation with the character `id` is the party's. It is when
+/// `id` is one of the main characters (`View::main_characters`), or the
+/// companion leading the party (`lent`).
+fn party_pc(mains: &[ObjectId], lent: Option<ObjectId>, id: ObjectId) -> bool {
+    mains.contains(&id) || lent == Some(id)
 }
 
 /// Who a DLG names by `tag` (a line's `AnimList`, an animated cutscene's
@@ -1137,42 +1164,44 @@ impl View<'_> {
         Some(object.conversation.as_str()).filter(|name| !name.is_empty())
     }
 
-    /// The PC of a conversation that `user` starts by using something
-    /// (I30 P8). It is `user` itself when that is a PC. Otherwise `user`
-    /// is a companion a guest drives, and the PC is the first one: the
-    /// host's character. The scripts see one PC.
+    /// The character the scripts see as `GetPCSpeaker` of a conversation
+    /// that `user` starts by using something (I30 P8). It is `user` itself
+    /// when that is a main character. Otherwise `user` is a companion a
+    /// guest drives, and it is the host's main character. The scripts see
+    /// one such character.
     pub(crate) fn pc_for(&self, table: &Party, user: ObjectId) -> ObjectId {
-        if self.is_player(table, user) {
+        if self.is_main_character(table, user) {
             user
         } else {
-            self.first_pc(table)
+            self.first_main_character(table)
         }
     }
 
-    /// The scripts' PCs, by seat: the seats' own characters (`party`), the
-    /// first seat's the creature it is switched to while it is
-    /// (`Party::switched`, `world::switch`), from the moment a script
-    /// switches it.
-    pub(crate) fn pcs(&self, table: &Party) -> Vec<ObjectId> {
-        let mut pcs = self.party.to_vec();
+    /// The main characters, by seat: the seats' own characters (`party`).
+    /// While the first seat is switched to a creature (`Party::switched`,
+    /// `world::switch`), that creature is the first seat's main character,
+    /// from the moment a script switches it.
+    pub(crate) fn main_characters(&self, table: &Party) -> Vec<ObjectId> {
+        let mut mains = self.party.to_vec();
         if let Some(body) = table.switched_body().map(ObjectId) {
-            match pcs.first_mut() {
+            match mains.first_mut() {
                 Some(first) => *first = body,
-                None => pcs.push(body),
+                None => mains.push(body),
             }
         }
-        pcs
+        mains
     }
 
-    pub(crate) fn first_pc(&self, table: &Party) -> ObjectId {
-        self.pcs(table)
+    /// The first seat's main character, which is the host's.
+    pub(crate) fn first_main_character(&self, table: &Party) -> ObjectId {
+        self.main_characters(table)
             .first()
             .copied()
             .unwrap_or(ObjectId::INVALID)
     }
 
-    pub(crate) fn is_player(&self, table: &Party, id: ObjectId) -> bool {
-        self.pcs(table).contains(&id)
+    pub(crate) fn is_main_character(&self, table: &Party, id: ObjectId) -> bool {
+        self.main_characters(table).contains(&id)
     }
 
     /// A conversation's PC and asker when a script names `named` as its
@@ -1190,8 +1219,8 @@ impl View<'_> {
         let guest = self
             .seat_of(named)
             .is_some_and(|seat| seat != crate::world::LEADER_SEAT.0);
-        let pc = if guest && !self.is_player(table, named) {
-            self.first_pc(table)
+        let pc = if guest && !self.is_main_character(table, named) {
+            self.first_main_character(table)
         } else {
             named
         };
@@ -1201,18 +1230,19 @@ impl View<'_> {
         (pc, asker)
     }
 
-    /// The host's character (the scripts' first PC), and the body its seat
-    /// acts through: the companion leading, while one does (`world::lent`).
-    /// Both are read off the party table as it stands, as `pcs` reads a
-    /// switch, not off the step's `seats`: a script's `SetPartyLeader`
-    /// earlier in the step leaves those behind. A companion's own talk
-    /// trigger (K1's `k_trg_partyinit`) hands the lead back to the PC,
-    /// then has the companion start its conversation with `GetFirstPC()`:
-    /// the companion, still the seat's body, was taken for the player's
-    /// side and the PC made the owner, who then said the companion's lines
-    /// (#147, Bastila's on Taris).
+    /// The host's main character (the first of the main characters), and
+    /// the body its seat acts through: the companion leading, while one
+    /// does (`world::lent`). Both are read off the party table as it
+    /// stands, as `main_characters` reads a switch, not off the step's
+    /// `seats`: a script's `SetPartyLeader` earlier in the step leaves
+    /// those behind. A companion's own talk trigger (K1's
+    /// `k_trg_partyinit`) hands the lead back to the main character, then
+    /// has the companion start its conversation with `GetFirstPC()`: the
+    /// companion, still the seat's body, was taken for the main
+    /// character's side and the main character made the owner, who then
+    /// said the companion's lines (#147, Bastila's on Taris).
     pub(crate) fn host(&self, table: &Party) -> [ObjectId; 2] {
-        let pc = self.first_pc(table);
+        let pc = self.first_main_character(table);
         let seated = (self.seats.iter()).any(|(seat, _)| *seat == crate::world::LEADER_SEAT.0);
         let acting = crate::world::lent(table)
             .filter(|_| seated)
@@ -1266,9 +1296,18 @@ impl Step<'_> {
             return None;
         }
         // Another conversation's, should this one run within its script,
-        // goes on after it.
+        // goes on after it. Its user is its listener. A conversation that
+        // is starting or ending is not among the conversations, so its user
+        // is the one `begin` or `end` set.
         let talk = &mut self.state.talk;
-        let before = (talk.running.replace(pc), talk.current.replace(id));
+        let user = (talk.index(id))
+            .map(|at| talk.conversations[at].listener)
+            .or(talk.user);
+        let before = (
+            talk.running.replace(pc),
+            talk.current.replace(id),
+            std::mem::replace(&mut talk.user, user),
+        );
         let event = Event {
             params: Some(Arc::new(call.clone())),
             ..Event::default()
@@ -1276,7 +1315,8 @@ impl Step<'_> {
         #[cfg(feature = "probes")]
         let queues = self.state.actions.clone();
         let returned = self.run(&call.script, owner, event, None);
-        (self.state.talk.running, self.state.talk.current) = before;
+        let talk = &mut self.state.talk;
+        (talk.running, talk.current, talk.user) = before;
         // The objects whose queues the conversation's script changed are
         // the ones it directs (`kjk dialogue check`'s scene moves).
         #[cfg(feature = "probes")]
@@ -1350,8 +1390,9 @@ impl Step<'_> {
         self.out.video_effect = Some(None);
         // Its end script's store opens for whoever asked, as its nodes' do.
         self.state.talk.ending = Some(c.asker);
+        let user = self.state.talk.user.replace(c.listener);
         self.finish(id, (c.owner, c.pc), &c.dialog, (aborted, Heard::Area));
-        self.state.talk.ending = None;
+        (self.state.talk.ending, self.state.talk.user) = (None, user);
         if !aborted {
             super::pazaak::watch_after_talk(self.view, self.state, &c);
         }

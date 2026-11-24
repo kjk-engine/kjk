@@ -1,0 +1,531 @@
+//! What a blow meeting a blade decides under a duel mode
+//! (`docs/SABER-RULES.md` 3 to 5): how the blocker blocks (`Guard`), what
+//! each side plays (`Took`) and what it pays in block points, whether the
+//! blow is stopped, and whether a lock is forced. Block points alone decide
+//! the bounce a blocked attacker plays (`bounce`), an empty block and a
+//! disarm. No exchange gives block points to the attacker: the only reward
+//! here is the blocker's for a perfect block. A pure decision, and a
+//! decision without dice: the world applies it (`world::sabers`), and
+//! nothing here reads a random number.
+
+use rules::duel::block;
+use rules::duel::gains;
+use rules::duel::kicks;
+use rules::duel::meters;
+use rules::duel::perfect;
+
+/// How a blocker blocks, in the order the decision tests them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Guard {
+    /// Block and attack held, the perfect window open.
+    Perfect,
+    /// Block and attack held, the window closed.
+    Active,
+    /// Block held alone.
+    Held,
+    /// A creature's own block (creatures always block when they can).
+    Npc,
+    /// Standing ready, not blocking.
+    None,
+}
+
+/// What a side plays after the exchange.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Took {
+    #[default]
+    Nothing,
+    /// Its swing bounces off (blocked or parried), at the pace given.
+    Bounce(super::Pace),
+    /// An attack's bounce, one of the style's (both bounced).
+    AttackBounce,
+    /// A heavy stagger (an attacker's).
+    HeavyStagger,
+    /// A stagger (a blocker's, and an empty block's against a plain swing).
+    Stagger,
+    /// Knocked to the ground: an empty block against a heavy swing.
+    KnockedDown,
+    /// The perfect parry: a knockaway where the blow came in.
+    Knockaway,
+    /// Knocked aside: a knockaway of the tired.
+    KnockedAside,
+    /// A parry where the blow came in.
+    Parry,
+    /// A weary parry: the blocker spent, or the blow heavy.
+    WearyParry,
+    /// The saber knocked out of the hand.
+    Disarm,
+}
+
+/// One side of an exchange, as the decision reads it.
+#[derive(Debug, Clone, Copy)]
+pub struct Side {
+    pub npc: bool,
+    /// Its block points.
+    pub points: i32,
+    /// KOTOR's chance that this side's swing hits the other side, in
+    /// thousandths (500 is a chance of one in two). Only the attacking
+    /// side's is read, in `Deal::blocker_pays`: a blocking side carries
+    /// `Side::NO_ODDS`, so the world draws nothing for it.
+    pub chance: i64,
+    /// This side's swing is a KOTOR critical hit. Read where `chance` is.
+    pub critical: bool,
+    /// Swinging a heavy style (`duel::heavy`).
+    pub heavy: bool,
+    /// Its swing's power (`power::attack`).
+    pub power: i32,
+    pub attacking: bool,
+    pub faking: bool,
+    pub kata: bool,
+    /// Its move cannot be blocked but perfectly (`duel::unblockable`).
+    pub unblockable: bool,
+    /// A lunge or a spin (`duel::lunge_or_spin`).
+    pub lunge: bool,
+    /// Its swing is a lock's super break won.
+    pub super_break: bool,
+    pub guard: Guard,
+}
+
+impl Side {
+    /// What a side whose swing no rule weighs carries in `chance` and
+    /// `critical`: no chance to hit and no critical hit. A blocking side
+    /// is given this, so that the world draws no d20 for it.
+    pub const NO_ODDS: (i64, bool) = (0, false);
+}
+
+/// What the exchange decided, attacker first in each pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Exchange {
+    /// The blow is stopped: it harms no one.
+    pub stopped: bool,
+    /// A lock is forced (a fake that broke a guard).
+    pub forced_lock: bool,
+    /// An empty block: the blocker's Stamina could not pay for the block.
+    pub emptied: bool,
+    /// A perfect block (`Duel::perfect_at`), and the riposte with it.
+    pub perfect: bool,
+    pub riposte: bool,
+    /// A creature's good parry (block points above the plain band), which
+    /// plays a perfect parry's animation.
+    pub good: bool,
+    /// The blow struck the blade of a fighter who neither guards nor swings.
+    /// Nobody parried it, so no parry is recorded.
+    pub passed: bool,
+    pub took: [Took; 2],
+    /// Each side's block points moved (paid when negative).
+    pub points: [i32; 2],
+    /// Each side's Force moved (a parried fake's reward, in both modes).
+    pub force: [i32; 2],
+}
+
+impl Exchange {
+    /// A perfect block's rewards (`docs/SABER-RULES.md` 3). The blocker
+    /// gains `gains::PERFECT` points, and the attacker loses
+    /// `perfect::ATTACKER_COST` points.
+    fn reward_perfect(&mut self) {
+        self.perfect = true;
+        self.riposte = true;
+        self.stopped = true;
+        self.points[1] += gains::PERFECT;
+        self.points[0] -= perfect::ATTACKER_COST;
+    }
+
+    /// A held block that a late press of attack turned into a perfect block
+    /// (`perfect::LATE_GRACE_MS`). The ordinary block has already been
+    /// applied, and this exchange comes on top of it. The blocker gains the
+    /// perfect block's points and plays the perfect parry. The attacker,
+    /// who has `attacker_points` points left, loses the perfect block's
+    /// cost and is heavily staggered, or disarmed when the cost leaves it
+    /// with no points.
+    pub fn late_perfect(attacker_points: i32) -> Exchange {
+        let mut x = Exchange::default();
+        x.reward_perfect();
+        x.took = [perfectly_blocked(attacker_points), Took::Knockaway];
+        x
+    }
+}
+
+/// What an attacker with `points` block points plays when its swing is
+/// blocked perfectly. It is heavily staggered, or disarmed when the
+/// perfect block's cost leaves it with no points.
+fn perfectly_blocked(points: i32) -> Took {
+    if points - perfect::ATTACKER_COST <= 0 {
+        Took::Disarm
+    } else {
+        Took::HeavyStagger
+    }
+}
+
+/// Whether a press of attack `late_ms` after a blow that a held block
+/// stopped still makes the block perfect (`perfect::LATE_GRACE_MS`). A
+/// press on the step of the blow, or before it, is not late.
+pub fn in_late_grace(late_ms: u64) -> bool {
+    (1..=perfect::LATE_GRACE_MS).contains(&late_ms)
+}
+
+/// Whether a late press of attack may make the block of exchange `x`, the
+/// decision for `a` and `d` (`resolve`), perfect (`perfect::LATE_GRACE_MS`).
+/// The ordinary block must have stopped the blow, and a perfect guard must
+/// have blocked the same blow perfectly. A lunge that passes a tired
+/// blocker's guard, two swings that meet and an unblockable blow are never
+/// made perfect late.
+pub fn late_upgradeable(a: &Side, d: &Side, met: bool, x: &Exchange) -> bool {
+    let perfect_guard = Side {
+        guard: Guard::Perfect,
+        ..*d
+    };
+    x.stopped && !x.perfect && resolve(a, &perfect_guard, met).perfect
+}
+
+/// How a kick ends for the NPC it strikes under the Advanced rules
+/// (`docs/SABER-RULES.md` 9.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kicked {
+    /// The NPC absorbs the kick.
+    Absorbed,
+    /// The kick breaks the NPC's guard.
+    GuardBroken,
+    /// The kick knocks the NPC down.
+    Down,
+}
+
+/// Whether an NPC actively guards against a kick (`docs/SABER-RULES.md`
+/// 9.2). `guards` says that it guards at all (its blade out, on the ground,
+/// not down, locked or in a scene), `tired` that it is tired, and `mv` is
+/// its saber move. It actively guards only when it is not tired and its
+/// move is one in which a player could hold block. An attack, a bounce, a
+/// knockaway, a stagger, a kick and a special move are not.
+pub fn guards_kick(guards: bool, tired: bool, mv: crate::combat::saber::Move) -> bool {
+    let busy =
+        mv.attack() || mv.bounce() || mv.knockaway() || mv.broken() || mv.kick() || mv.special();
+    guards && !tired && !busy
+}
+
+/// How a kick ends for an NPC. `kick_guard` says that the NPC is still in
+/// its kick guard, `guards` that it actively guards (`guards_kick`), and
+/// `tired` that it is tired.
+/// `roll(percent)` draws a chance of `percent` in 100.
+///
+/// An NPC in its kick guard absorbs the kick, and nothing is drawn. A kick
+/// breaks a guarding NPC's guard `kicks::GUARD_BREAK`% of the time. It
+/// knocks any other NPC down `kicks::DOWN_CHANCE[0]`% of the time, or
+/// `kicks::DOWN_CHANCE[1]`% of the time when the NPC is tired. Otherwise the
+/// NPC absorbs the kick.
+pub fn npc_kicked(
+    kick_guard: bool,
+    guards: bool,
+    tired: bool,
+    roll: impl FnOnce(i32) -> bool,
+) -> Kicked {
+    let (percent, then) = match (kick_guard, guards) {
+        (true, _) => return Kicked::Absorbed,
+        (false, true) => (kicks::GUARD_BREAK, Kicked::GuardBroken),
+        (false, false) => (kicks::DOWN_CHANCE[usize::from(tired)], Kicked::Down),
+    };
+    if roll(percent) {
+        then
+    } else {
+        Kicked::Absorbed
+    }
+}
+
+/// Whether a fighter with `points` block points is tired
+/// (`meters::TIRED`). A tired fighter cannot parry a blow and cannot block
+/// a lunge or a spin. It can still hold a block, which stops a plain blow.
+pub fn tired(points: i32) -> bool {
+    points <= meters::TIRED
+}
+
+/// What a block of `base` block points really costs its blocker: the base
+/// raised by the attacker's `chance` to hit (half the base at a chance of
+/// nothing, the whole base at one in two, one and a half at a certainty),
+/// never less than one point, and multiplied by `block::CRITICAL_TIMES`
+/// when the swing is a critical hit. Integer division, so a fraction of a
+/// point is dropped.
+pub fn blocked_cost(base: i32, chance: i64, critical: bool) -> i32 {
+    if base <= 0 {
+        return base;
+    }
+    let cost = (i64::from(base) * (500 + chance) / 1000).max(1) as i32;
+    if critical {
+        cost * block::CRITICAL_TIMES
+    } else {
+        cost
+    }
+}
+
+/// What an attacker whose swing was blocked (not perfectly) plays, by the
+/// `points` it has left once the swing and the block are paid for
+/// (`block::BOUNCE_BANDS`): a heavy stagger when it is nearly spent, the
+/// small bounce in the middle band, and `plain` (the bounce its own
+/// exchange would play) above both.
+pub fn bounce(points: i32, plain: Took) -> Took {
+    let [staggers, small] = block::BOUNCE_BANDS;
+    match points {
+        points if points < staggers => Took::HeavyStagger,
+        points if points < small => Took::Bounce(super::Pace::Blocked),
+        _ => plain,
+    }
+}
+
+/// Whether a lock is tried by chance on two blades meeting
+/// (`docs/SABER-RULES.md` 8.1): both attacking with equal power, one
+/// attacking and the other not of equal power, or a fake on either side;
+/// never with a special or an unblockable blow.
+pub fn lock_chance(a: &Side, d: &Side) -> bool {
+    if a.kata || d.kata || a.unblockable || d.unblockable {
+        return false;
+    }
+    let fake = a.faking || d.faking;
+    let both = a.attacking && d.attacking;
+    let one = a.attacking != d.attacking;
+    fake || (both && a.power == d.power) || (one && a.power != d.power)
+}
+
+/// How a blocker's guard answered a blockable blow.
+enum Guarded {
+    /// It parried the blow, or blocked it perfectly.
+    Parried,
+    /// Too tired to parry: the blow is stopped and knocks it aside.
+    TooTired,
+    /// Not enough block points to pay for the block: the blow is stopped,
+    /// and the blocker pays for it in another way.
+    Emptied,
+}
+
+/// The decision's running state.
+struct Deal<'a> {
+    a: &'a Side,
+    d: &'a Side,
+    x: Exchange,
+}
+
+impl Deal<'_> {
+    /// The blocker pays for the block: `base` raised by the attacker's
+    /// chance and its critical hit (`blocked_cost`). A block that would
+    /// take it under 0 points is an empty block: the blow is still stopped,
+    /// and the blocker is knocked down by a heavy swing, disarmed by a
+    /// critical hit and staggered by any other. It is left with
+    /// `meters::BROKEN_TO` points, above the tired mark, so that the very
+    /// next swing does not do the same again.
+    fn blocker_pays(&mut self, base: i32) -> Guarded {
+        let cost = blocked_cost(base, self.a.chance, self.a.critical);
+        if self.d.points - cost < 0 {
+            self.x.took[1] = match (self.a.critical, self.a.heavy) {
+                (true, _) => Took::Disarm,
+                (false, true) => Took::KnockedDown,
+                (false, false) => Took::Stagger,
+            };
+            self.x.points[1] = meters::BROKEN_TO - self.d.points;
+            self.x.emptied = true;
+            return Guarded::Emptied;
+        }
+        self.x.points[1] -= cost;
+        Guarded::Parried
+    }
+
+    /// A perfect block's rewards (`docs/SABER-RULES.md` 3), for a blow
+    /// blockable or not: the blocker gains `gains::PERFECT` points and the
+    /// attacker loses `perfect::ATTACKER_COST`.
+    fn perfect(&mut self) {
+        self.x.reward_perfect();
+    }
+
+    /// An unblockable blow (`docs/SABER-RULES.md` 4.2, 4.3 1): a perfect
+    /// block disarms its attacker; anything else is knocked aside and
+    /// harmed. A fighter who neither guards nor swings did not parry it, so
+    /// no parry is recorded (`Exchange::passed`).
+    fn unblockable(&mut self) {
+        if self.d.guard == Guard::Perfect {
+            self.perfect();
+            self.x.took[0] = Took::Disarm;
+            self.x.took[1] = Took::Knockaway;
+            return;
+        }
+        self.x.took[1] = Took::KnockedAside;
+        self.x.points[1] -= block::UNBLOCKABLE;
+        self.x.passed = self.d.guard == Guard::None && !self.d.attacking;
+    }
+
+    /// Two swings meeting (`docs/SABER-RULES.md` 4.4): a special attack
+    /// staggers the ordinary swing it meets, or disarms a fighter nearly
+    /// spent (`block::KATA_DISARM_UNDER`); a fake on either side simply
+    /// stops the blow; two plain swings both bounce by their own points.
+    fn both_swing(&mut self) {
+        let (a, d) = (self.a, self.d);
+        self.x.stopped = true;
+        if a.faking || d.faking {
+            return;
+        }
+        if a.kata || d.kata {
+            let loser = usize::from(a.kata);
+            let points = [a.points, d.points][loser];
+            if points < block::KATA_DISARM_UNDER {
+                self.x.took[loser] = Took::Disarm;
+            } else {
+                self.x.took[loser] = Took::Stagger;
+                self.x.points[loser] -= block::KATA;
+            }
+            return;
+        }
+        for (at, points) in [a.points, d.points].into_iter().enumerate() {
+            self.x.points[at] -= block::BLOCKED;
+            self.x.took[at] = bounce(points - block::BLOCKED, Took::AttackBounce);
+        }
+    }
+
+    /// The blocker's side of a blockable blow (`docs/SABER-RULES.md` 4.1):
+    /// what its block costs it, which parry it plays, and how its guard
+    /// answered.
+    fn blocker(&mut self) -> Guarded {
+        let d = self.d;
+        let who = usize::from(d.npc);
+        if d.guard == Guard::Perfect {
+            self.x.took[1] = Took::Knockaway;
+            return Guarded::Parried;
+        }
+        if tired(d.points) {
+            self.x.took[1] = Took::KnockedAside;
+            return match self.blocker_pays(block::LOW_COST) {
+                Guarded::Emptied => Guarded::Emptied,
+                _ => Guarded::TooTired,
+            };
+        }
+        let weary = d.points <= block::WEARY_PARRY || self.a.heavy;
+        let cost = match d.guard {
+            Guard::Active => block::HELD[0],
+            Guard::Held => block::HELD[who],
+            Guard::Npc => {
+                let [weary_to, plain_to] = block::CREATURE_BANDS;
+                let band = match d.points {
+                    _ if self.a.heavy => None,
+                    points if points <= weary_to => Some(0),
+                    points if points <= plain_to => Some(1),
+                    _ => Some(2),
+                };
+                if band.is_none_or(|band| band == 0) {
+                    self.x.took[1] = Took::WearyParry;
+                }
+                self.x.good = band == Some(2) && d.npc;
+                match band {
+                    None => 0,
+                    Some(2) if !d.npc => block::PLAYER_GOOD,
+                    Some(band) => block::CREATURE_PARRY[band],
+                }
+            }
+            Guard::Perfect | Guard::None => unreachable!("a blocker blocks"),
+        };
+        if self.x.took[1] == Took::Nothing {
+            self.x.took[1] = if weary && d.guard != Guard::Npc {
+                Took::WearyParry
+            } else {
+                Took::Parry
+            };
+        }
+        self.blocker_pays(cost)
+    }
+
+    /// A plain swing against a block (`docs/SABER-RULES.md` 4.3 5): the
+    /// blocker's side first, then the attacker's. A perfect block costs the
+    /// attacker `perfect::ATTACKER_COST` and disarms it when that leaves it
+    /// with no points. Any other block costs it `block::BLOCKED`, and the
+    /// points it has left pick what it plays (`bounce`).
+    fn blocked(&mut self) {
+        self.x.stopped = true;
+        let guarded = self.blocker();
+        if self.d.guard == Guard::Perfect {
+            self.perfect();
+            self.x.took[0] = perfectly_blocked(self.a.points);
+            return;
+        }
+        self.x.points[0] -= block::BLOCKED;
+        if matches!(guarded, Guarded::TooTired | Guarded::Emptied) {
+            return;
+        }
+        let plain = match self.d.guard {
+            Guard::Held => Took::Bounce(super::Pace::Parried),
+            _ => Took::Bounce(super::Pace::Blocked),
+        };
+        self.x.took[0] = bounce(self.a.points - block::BLOCKED, plain);
+    }
+
+    /// A fake met by a guard (`docs/SABER-RULES.md` 4.3 4): parried by a
+    /// perfect or a creature's block, which costs the faker
+    /// `block::FAKE_PARRIED` points and disarms it only when that leaves it
+    /// with none; or breaking the guard into a lock. A fake that strikes the
+    /// blade of a fighter who does not guard goes on as a plain swing does
+    /// (`unguarded`).
+    fn fake(&mut self) {
+        if !matches!(self.d.guard, Guard::Perfect | Guard::Npc) {
+            self.x.forced_lock = true;
+            return;
+        }
+        self.x.points[0] -= block::FAKE_PARRIED;
+        self.x.took[0] = if self.a.points - block::FAKE_PARRIED <= 0 {
+            Took::Disarm
+        } else {
+            Took::Bounce(super::Pace::Parried)
+        };
+        self.x.force[1] += gains::FAKE_PARRIED;
+        self.x.took[1] = Took::Parry;
+        self.x.stopped = true;
+    }
+
+    /// No block (`docs/SABER-RULES.md` 4.1, 4.3 6). The blow is not stopped. A player loses
+    /// `block::UNBLOCKED` points for the blade struck, and a tired one is staggered. If the
+    /// struck fighter does not guard at all, nobody records a parry. In that case the attacker's
+    /// swing goes on to the body, unless the struck fighter's own move is unblockable. When the
+    /// struck fighter's own move is unblockable, the attacker is heavily staggered instead. When
+    /// a lunge or a spin passes a tired fighter who holds a guard, the attacker bounces, as a
+    /// blocked swing does.
+    fn unguarded(&mut self) {
+        let (a, d) = (self.a, self.d);
+        if !d.npc {
+            self.x.points[1] -= block::UNBLOCKED;
+        }
+        self.x.took[1] = if tired(d.points) {
+            Took::Stagger
+        } else {
+            Took::Nothing
+        };
+        self.x.passed = d.guard == Guard::None;
+        if d.unblockable {
+            self.x.took[0] = Took::HeavyStagger;
+            return;
+        }
+        if self.x.passed {
+            return;
+        }
+        self.x.points[0] -= block::BLOCKED;
+        self.x.took[0] = bounce(a.points - block::BLOCKED, Took::AttackBounce);
+    }
+}
+
+/// What `a`'s blow meeting `d`'s blade decides (`docs/SABER-RULES.md` 4):
+/// an unblockable blow; two swings (`met`, both attacking); a super
+/// break's win blocked; a fake against a guard; a plain blow against a
+/// block; or no block, which a fake against no guard also is. Lunges and
+/// spins pass a tired blocker unblocked.
+pub fn resolve(a: &Side, d: &Side, met: bool) -> Exchange {
+    let mut deal = Deal {
+        a,
+        d,
+        x: Exchange::default(),
+    };
+    let unguarded = d.guard == Guard::None || (a.lunge && tired(d.points));
+    if a.unblockable {
+        deal.unblockable();
+    } else if met && d.attacking && d.guard != Guard::Npc {
+        deal.both_swing();
+    } else if a.super_break && !unguarded {
+        deal.x.points[0] -= block::BLOCKED;
+        deal.x.took[0] = Took::HeavyStagger;
+        deal.x.stopped = true;
+    } else if a.faking && d.guard != Guard::None {
+        deal.fake();
+    } else if unguarded {
+        deal.unguarded();
+    } else {
+        deal.blocked();
+    }
+    deal.x
+}

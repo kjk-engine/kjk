@@ -21,6 +21,14 @@
 //! - A module's own upgrade fitted to an item (TSL's `Item::fitted`), the
 //!   item carried out of the module: the upgrade still counts
 //!   (`ItemFacts::fitted` looks it up as items in play are).
+//! - A module's own item a save names by its bare resref (made before own
+//!   items carried their module's name), carried out of its module: still
+//!   its own tag there and a module further (TSL's Hangar 25 control
+//!   conduit, which the hangar's console asks for by tag; issue 266).
+//! - A module's own template of a resref the shared templates also hold
+//!   replaces the shared one in the catalog, so the catalog is the same
+//!   whether the shared templates came from the import step or from the
+//!   module's archives (tar_m02ae's `ptar_sbpasscrd`).
 
 use crate::inventory::{
     Catalog, ItemFacts, PARTY, module_of, names, own_template, resref_of, slots,
@@ -78,6 +86,8 @@ pub fn probes() -> Checks {
 
     checks.push(carried_out());
     checks.push(fitted_carried_out());
+    checks.push(bare_carried_out());
+    checks.push(shared_replaced());
 
     let found = spaceport.get(DATAPAD).map(|facts| facts.template.clone());
     let own = found.as_deref().unwrap_or("");
@@ -157,6 +167,32 @@ pub fn probes() -> Checks {
     checks
 }
 
+/// A module's own template of a resref the shared templates also hold
+/// (tar_m02ae's `ptar_sbpasscrd`) replaces the shared one. A machine that
+/// read the shared templates once for every module (the import step) and
+/// one that read them through the module's archives, which hide the
+/// shared copy, then build the same catalog and the same level digest.
+fn shared_replaced() -> (&'static str, Result<String, String>) {
+    const PASS: &str = "ptar_sbpasscrd";
+    let module = "tar_m02ae";
+    let own = || Catalog::new([item(&own_template(PASS, module), "own pass", 1)]);
+    let medpac = || item("medpac", "medpac", 10);
+    let imported = Catalog::new([medpac(), item(PASS, "shared pass", 1)]).with(own());
+    let direct = Catalog::new([medpac()]).with(own());
+    let tag = imported.get(PASS).map_or("", |facts| facts.tag.as_str());
+    (
+        "a module's own template replaces the shared one of its resref",
+        check(
+            imported == direct && imported.len() == 2 && tag == "own pass",
+            format!(
+                "{} templates with the shared one read first, {} without it; the pass reads as {tag:?}",
+                imported.len(),
+                direct.len()
+            ),
+        ),
+    )
+}
+
 /// A module's own body item carried out of it, worn in the next module.
 fn carried_out() -> (&'static str, Result<String, String>) {
     let mut clothes = item(&own_template("fore01", TARIS_SPACEPORT), "fore01", 1);
@@ -171,7 +207,7 @@ fn carried_out() -> (&'static str, Result<String, String>) {
         .items
         .get(&id)
         .map_or_else(String::new, |item| item.template.clone());
-    let goods = state.goods(&[], [], &[], SITH_BASE);
+    let goods = state.goods(&[], [], &[], &[], SITH_BASE);
     let mut out = crate::wire::Writer::default();
     goods.encode(&mut out);
     let wired = crate::inventory::Goods::decode(&mut crate::wire::Reader::new("goods", &out.0));
@@ -187,7 +223,7 @@ fn carried_out() -> (&'static str, Result<String, String>) {
         feats: Default::default(),
         gender: 0,
         abilities: [10; 6],
-        player: true,
+        is_pc: true,
         tag: String::new(),
         tsl: true,
         locked: 0,
@@ -213,6 +249,39 @@ fn carried_out() -> (&'static str, Result<String, String>) {
             format!(
                 "{template}: the goods' slots {seen:?} (sent and read back), worn {worn:?} in {slot:?}"
             ),
+        ),
+    )
+}
+
+/// A module's own item saved before own items carried their module's name
+/// (its bare resref), carried out of its module (issue 266).
+fn bare_carried_out() -> (&'static str, Result<String, String>) {
+    let conduit = item(
+        &own_template("hangar25control", TARIS_SPACEPORT),
+        "hangar25control",
+        1,
+    );
+    let spaceport = catalog(TARIS_SPACEPORT, "tar_calojournal").with(Catalog::new([conduit]));
+    let base = catalog(SITH_BASE, "tar09_techlog");
+    let mut state = State::default();
+    let id = state
+        .make_item(&spaceport, "hangar25control", PARTY, 1, None)
+        .map_or(0, |id| id.0);
+    // As a save from before own items were named for their module holds it.
+    if let Some(mut held) = state.items.get_mut(&id) {
+        held.template = "hangar25control".into();
+    }
+    let home = tag(&state, &spaceport, id);
+    state.carry_known(&spaceport, &base);
+    let out = tag(&state, &base, id);
+    let further = catalog("tar_m10aa", "tar10_log");
+    state.carry_known(&base, &further);
+    let tags = [home, out, tag(&state, &further, id)];
+    (
+        "a module's own item saved by its bare resref, carried out of its module: still its tag",
+        check(
+            base.get("hangar25control").is_none() && tags == ["hangar25control"; 3],
+            format!("its tag in its module, out of it and one further: {tags:?}"),
         ),
     )
 }

@@ -83,17 +83,30 @@ pub fn collision() -> BrushWorld {
         .with(cuboid([px1, py0, -PIT_DEPTH], [px1 + 0.5, py1, -1.0]))
         .with(cuboid([px0, py0 - 0.5, -PIT_DEPTH], [px1, py0, -1.0]))
         .with(cuboid([px0, py1, -PIT_DEPTH], [px1, py1 + 0.5, -1.0]))
-        .with(cuboid([px0, py0, -PIT_DEPTH - 1.0], [px1, py1, -PIT_DEPTH]))
-        // The walls.
-        .with(cuboid([-HALF - 0.5, -HALF, 0.0], [-HALF, HALF, WALL]))
-        .with(cuboid([HALF, -HALF, 0.0], [HALF + 0.5, HALF, WALL]))
-        .with(cuboid([-HALF - 0.5, -HALF - 0.5, 0.0], [HALF + 0.5, -HALF, WALL]))
-        .with(cuboid([-HALF - 0.5, HALF, 0.0], [HALF + 0.5, HALF + 0.5, WALL]))
-        .with(Brush::ramp(RAMP.0, RAMP.1, 1, false));
+        .with(cuboid([px0, py0, -PIT_DEPTH - 1.0], [px1, py1, -PIT_DEPTH]));
+    for (min, max) in WALLS {
+        world = world.with(cuboid(min, max));
+    }
+    world = world.with(Brush::ramp(RAMP.0, RAMP.1, 1, false));
     for (min, max) in SOLIDS {
         world = world.with(cuboid(min, max));
     }
     world
+}
+
+/// The arena's walls (min, max corners, metres).
+const WALLS: [([f32; 3], [f32; 3]); 4] = [
+    ([-HALF - 0.5, -HALF, 0.0], [-HALF, HALF, WALL]),
+    ([HALF, -HALF, 0.0], [HALF + 0.5, HALF, WALL]),
+    ([-HALF - 0.5, -HALF - 0.5, 0.0], [HALF + 0.5, -HALF, WALL]),
+    ([-HALF - 0.5, HALF, 0.0], [HALF + 0.5, HALF + 0.5, WALL]),
+];
+
+/// The boxes that hide what is behind them (min, max corners, metres):
+/// the walls, what stands on the floor, and the box the ramp fills. A
+/// camera placed to film a body checks its view against them.
+pub fn sight_blocks() -> impl Iterator<Item = ([f32; 3], [f32; 3])> {
+    WALLS.into_iter().chain(SOLIDS).chain([RAMP])
 }
 
 /// The floor's walkable faces as a navigation mesh: half-metre squares of
@@ -201,6 +214,59 @@ pub const ROSTER: [(&str, &str); 11] = [
     ("Rancor", "g_rancor01"),
 ];
 
+/// The arena's player on `level`'s data (`sheet`), knowing every KOTOR 2
+/// power its scripts cast as well (`kotor2_powers`): in a KOTOR 1 level the
+/// ones KOTOR 2 lends KOTOR 1, in a KOTOR 2 level all of KOTOR 2's, so each
+/// can be tried there.
+pub fn sheet_for(level: &sim::Level) -> Sheet {
+    let mut sheet = sheet();
+    if let Some(library) = level.scripts() {
+        sheet.powers = with_level_powers(sheet.powers, library);
+    }
+    sheet
+}
+
+/// `powers` with every KOTOR 2 power `library` casts (`kotor2_powers`), and
+/// without the rows its table has no power at (`Library::lacks_power`), so
+/// the bar and the wheel show no blank power.
+pub fn with_level_powers(
+    powers: sim::combat::sheet::Powers,
+    library: &sim::script::Library,
+) -> sim::combat::sheet::Powers {
+    let mut powers = kotor2_powers(library)
+        .into_iter()
+        .fold(powers, |known, row| known.with(row));
+    for row in powers.rows().collect::<Vec<_>>() {
+        if library.lacks_power(row) {
+            powers.remove(row);
+        }
+    }
+    powers
+}
+
+/// The KOTOR 2 Force powers `library` casts: the rows past KOTOR 1's own
+/// that a radial menu offers (`forcehostile` or `forcefriendly`) and that
+/// KOTOR 2's power script casts (Force Barrier's), and that a screen can
+/// show (`Library::lacks_power`). The droids' items have scripts of their
+/// own, and the Enemy Battle Meditation rows, which only creatures use,
+/// have no icon.
+pub fn kotor2_powers(library: &sim::script::Library) -> Vec<u16> {
+    use sim::combat::spells::{FORCE_POWER_FORCE_BARRIER, K1_SPELL_ROWS};
+    let Some(script) = library
+        .impact(FORCE_POWER_FORCE_BARRIER)
+        .filter(|s| !s.is_empty())
+    else {
+        return Vec::new();
+    };
+    (K1_SPELL_ROWS..sim::combat::sheet::Powers::ROWS)
+        .filter(|&row| {
+            library.impact(row) == Some(script)
+                && library.spell(row).menu != sim::script::Menu::None
+                && !library.lacks_power(row)
+        })
+        .collect()
+}
+
 /// The arena's player: the dev Jedi at level 20, a deep pool, every K1
 /// power known and no other, proficient with every weapon it carries
 /// (Proficiency All) and knowing the guns' feat attacks to their tops (Power
@@ -238,6 +304,28 @@ pub const SABER: &str = "g_w_lghtsbr01";
 /// The saber a two-saber arena player (`--class duelist@dual`) holds in
 /// its left hand: another template, so wearing it leaves `SABER` in the right.
 pub const LEFT_SABER: &str = "g_w_lghtsbr02";
+
+/// The double-bladed one, for a sheet that holds a staff (`--class
+/// duelist@staff`).
+pub const STAFF: &str = "g_w_dblsbr001";
+
+/// The sabers the arena's player is handed at the start, as its sheet
+/// holds them (`--class duelist@staff`, `duelist@dual`): the staff, `SABER`
+/// and `LEFT_SABER` in each hand, else `SABER` in the right.
+pub fn sabers(sheet: &Sheet) -> Vec<(&'static str, u8)> {
+    use sim::inventory::slots::{LEFT_WEAPON, RIGHT_WEAPON};
+    let saber = |hand: usize| {
+        sheet.weapons[hand].filter(|w| matches!(w.delivery, sim::combat::Delivery::Saber(_)))
+    };
+    match (saber(0), saber(1)) {
+        (Some(staff), None) if staff.base_item == STAFF_ROW => vec![(STAFF, RIGHT_WEAPON)],
+        (Some(_), Some(_)) => vec![(SABER, RIGHT_WEAPON), (LEFT_SABER, LEFT_WEAPON)],
+        _ => vec![(SABER, RIGHT_WEAPON)],
+    }
+}
+
+/// `baseitems.2da`'s double-bladed lightsaber.
+const STAFF_ROW: u16 = 9;
 
 /// Every hand weapon and every armour K1 has (`library`'s item templates a
 /// right hand holds or a body wears, but plot items), by template: what the

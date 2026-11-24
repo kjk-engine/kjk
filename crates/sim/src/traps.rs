@@ -14,7 +14,7 @@ use rules::traps::recover;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use crate::world::traps::probes::walk_probes;
+pub use crate::world::traps::probes::{lay_while_running, walk_probes};
 #[cfg(feature = "probes")]
 pub use probes::probes;
 
@@ -40,6 +40,58 @@ pub const LAID_HALF_M: f32 = rules::traps::lay::HALF_M;
 pub const HOPELESS_DC: i16 = rules::traps::disarm::HOPELESS_DC;
 /// What a laid mine's template is named (no resref holds `*`).
 pub const LAID_PREFIX: &str = "*mine";
+
+/// Whether the party carries a trap kit, as every seat sees the party's
+/// items (`Snapshot::goods`). `catalog` is the module's.
+pub fn party_has_kit(goods: &crate::inventory::Goods, catalog: &crate::inventory::Catalog) -> bool {
+    party_kits(goods, catalog) > 0
+}
+
+/// How many trap kits the party carries, counting each kit in a stack.
+/// Kits a member has equipped are not counted, as `world::traps::kits`
+/// leaves them out. `catalog` is the module's.
+pub fn party_kits(goods: &crate::inventory::Goods, catalog: &crate::inventory::Catalog) -> u32 {
+    goods
+        .carried(crate::inventory::PARTY)
+        .filter(|(_, item)| {
+            goods
+                .facts(catalog, &item.template)
+                .is_some_and(|facts| facts.trap.is_some())
+        })
+        .map(|(_, item)| u32::from(item.stack))
+        .sum()
+}
+
+/// The kit a lay sets (`world::traps`): its template, its `traps.2da` row
+/// and how many kits of that row the party carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaidKit {
+    pub template: String,
+    pub row: u8,
+    pub left: u32,
+}
+
+/// The kit the party's next lay sets, as every seat sees the party's items:
+/// the best of the kits it carries (`best_kit`), the first in id order of
+/// that row, as the lay picks it. `catalog` is the module's.
+pub fn laid_kit(
+    goods: &crate::inventory::Goods,
+    catalog: &crate::inventory::Catalog,
+) -> Option<LaidKit> {
+    let kits: Vec<(&crate::inventory::Item, u8)> = goods
+        .carried(crate::inventory::PARTY)
+        .filter_map(|(_, item)| Some((item, goods.facts(catalog, &item.template)?.trap?)))
+        .collect();
+    let row = best_kit(kits.iter().map(|(_, row)| *row))?;
+    let of_row = || kits.iter().filter(move |(_, at)| *at == row);
+    let template = of_row().next()?.0.template.clone();
+    let left = of_row().map(|(item, _)| u32::from(item.stack)).sum();
+    Some(LaidKit {
+        template,
+        row,
+        left,
+    })
+}
 
 /// A `traps.2da` row.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -182,12 +234,23 @@ pub fn best_kit(rows: impl IntoIterator<Item = u8>) -> Option<u8> {
         .max_by_key(|row| (row % 3, *row))
 }
 
-/// TSL's mine on a door (its exe's set-mine action and door events): set
-/// never rolled (in combat too), it blasts the lock `BLAST_MS` later, and a
-/// blasted door opens `OPEN_AFTER_MS` after that, unlocked, even a plot
-/// door (no `NotBlastable` is read).
+/// TSL's mine on a lock (its exe's set-mine action and door and placeable
+/// events): set never rolled (in combat too), it blasts the lock `BLAST_MS`
+/// later; a blasted lock opens at once, and a blasted door swings open
+/// `OPEN_AFTER_MS` after that. The blast itself hurts nothing and runs no
+/// trap script.
 pub const BLAST_MS: u64 = rules::traps::door_mines::BLAST_MS;
 pub const OPEN_AFTER_MS: u64 = rules::traps::door_mines::OPEN_AFTER_MS;
+
+/// Whether a mine may be set on `facts`' lock, `locked` now: a locked door
+/// or placeable its data does not mark `NotBlastable` (both exes' menus
+/// list mines only then; the blast reads neither again).
+pub fn blastable(facts: &crate::module::ObjectData, locked: bool) -> bool {
+    use crate::module::ObjectKind;
+    matches!(facts.kind, ObjectKind::Door | ObjectKind::Placeable)
+        && locked
+        && !facts.toughness.not_blastable
+}
 
 /// A kit's blast strength against a lock, by its `traps.2da` row: TSL's
 /// exe's table for rows 4 to 26 (`door_mines::STRENGTH`), none for the
@@ -200,25 +263,34 @@ pub fn blast_strength(row: u8) -> u8 {
 }
 
 /// A blast on a lock: the sum (`door_mines::BLAST_BASE`, the setter's
-/// Demolitions over `door_mines::DEMOLITIONS_DIVISOR`, rounded toward zero,
+/// Demolitions over `door_mines::DEMOLITIONS_DIVISOR` on a door, over
+/// `door_mines::PLACEABLE_DIVISOR` on a placeable, rounded toward zero,
 /// and the mine's strength) and whether it reaches the lock's open DC
-/// (TSL's line 128535 shows it).
-pub fn blasts(demolitions: i16, strength: u8, dc: u8) -> (i16, bool) {
-    let sum = door_mines::BLAST_BASE
-        + demolitions / door_mines::DEMOLITIONS_DIVISOR
-        + i16::from(strength);
+/// (TSL's line 128535 shows a door's).
+pub fn blasts(demolitions: i16, strength: u8, dc: u8, door: bool) -> (i16, bool) {
+    let divisor = if door {
+        door_mines::DEMOLITIONS_DIVISOR
+    } else {
+        door_mines::PLACEABLE_DIVISOR
+    };
+    let sum = door_mines::BLAST_BASE + demolitions / divisor + i16::from(strength);
     (sum, sum >= i16::from(dc))
 }
 
-/// The kit a player sets on a door with lock DC `dc`: the weakest whose
-/// blast opens it, else the strongest (TSL's menu lists each kit; the
-/// choice is the player's there).
-pub fn door_kit(demolitions: i16, dc: u8, rows: impl IntoIterator<Item = u8>) -> Option<u8> {
+/// The kit a player sets on a lock with DC `dc` (a door's, `door`): the
+/// weakest whose blast opens it, else the strongest (TSL's menu lists each
+/// kit; the choice is the player's there).
+pub fn lock_kit(
+    demolitions: i16,
+    dc: u8,
+    door: bool,
+    rows: impl IntoIterator<Item = u8>,
+) -> Option<u8> {
     let rows: Vec<u8> = rows.into_iter().collect();
     let key = |row: &u8| (blast_strength(*row), *row);
     let opens = rows
         .iter()
-        .filter(|row| blasts(demolitions, blast_strength(**row), dc).1)
+        .filter(|row| blasts(demolitions, blast_strength(**row), dc, door).1)
         .min_by_key(|row| key(row));
     opens
         .or_else(|| rows.iter().max_by_key(|row| key(row)))
