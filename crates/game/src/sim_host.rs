@@ -551,8 +551,9 @@ fn resumed_view(mut snapshot: Snapshot) -> Result<String, String> {
 
 /// What a planning thread sends back.
 enum JobMessage {
-    /// The loading screen, and where the hints stand after its hint, when
-    /// it showed one.
+    /// The loading screen, and where the hints stand after it. The hints
+    /// are given only when the job was asked for a hint, and they have not
+    /// moved if no hint was found.
     Screen(
         Box<crate::lifecycle::LoadingScreen>,
         Option<sim::script::Hints>,

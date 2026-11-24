@@ -353,10 +353,11 @@ pub struct State {
     pub subscreen: u8,
 }
 
-/// Where the loading screen's hints stand, as the games save them: the next
-/// row of the gameplay hints, and of the story hints (KOTOR 1 keeps one
-/// counter of them, `story[0]`; KOTOR 2 keeps one for each planet, by the
-/// digit its module's name starts with).
+/// Where the loading screen's hints stand, as the games save them. Each
+/// counter is the next row to show in a column of hints. There is one
+/// counter for the gameplay hints. KOTOR 1 has one counter for the story
+/// hints, which is `story[0]`. KOTOR 2 has one for each planet, picked by
+/// the digit its module's name starts with.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Hints {
     pub gameplay: u8,

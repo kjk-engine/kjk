@@ -2,6 +2,7 @@ sim = "GetFirstPC and GetNextPC name each seat's main character, never the compa
 
 [formats]
 save = "the script state keeps where the loading screens' hints stand (`script::State::hints`), as the games' saves do."
+replay = "the recording's script state keeps where the loading screens' hints stand (`script::State::hints`)."
 
 [migrations]
 save = "an older save reads the first row of every hint: the hints start again at the beginning"

@@ -230,10 +230,11 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
 ///   its build, its time and the place within the 2 m snap, and for what
 ///   each case names as lost, each with why;
 /// - where the loading screens' hints stand is kept in the story and
-///   restored with it, a story without them starts each at its first row,
-///   a new game starts there with no module visited, and the hint rows go
-///   down their columns, start over at a blank cell, and keep KOTOR 2's
-///   planets apart.
+///   restored with it;
+/// - a story without hints starts each at its first row;
+/// - a new game starts every hint at its first row with no module visited;
+/// - the hint rows go down their columns and start over at a blank cell,
+///   and KOTOR 2's planets keep their own rows.
 pub fn story_probes() -> sim::probe::Checks {
     let (level, save) = sim::fixtures::kitchen_sink();
     let story = Story::of(&save, &level);
@@ -1179,13 +1180,14 @@ fn keeps_hints(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
     let story = Story::of(&save, level);
     let text = serde_json::to_string(&story).map_err(|error| error.to_string())?;
     let back: Story = serde_json::from_str(&text).map_err(|error| error.to_string())?;
-    let (world, _) = back.restore(level, 1, &|_| None)?;
+    let (mut world, _) = back.restore(level, 1, &|_| None)?;
     let bytes = save.encode();
     let decoded = sim::Save::decode(&bytes).map_err(|error| error.to_string())?;
     check(
         story.hints.gameplay == 3
             && story.hints.story.get(3) == Some(&5)
             && world.hints() == some_hints()
+            && world.snapshot().visited(&story.place.module)
             && decoded.script.hints == some_hints(),
         format!("{:?}", world.hints()),
     )?;

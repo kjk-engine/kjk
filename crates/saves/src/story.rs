@@ -68,14 +68,12 @@ pub struct Story {
     pub transit: BTreeMap<String, bool>,
     /// What is kept of each module visited, by lowercase name.
     pub visited: BTreeMap<String, StoryModule>,
-    /// Where the loading screens' hints stand.
     pub hints: StoryHints,
 }
 
-/// Where the loading screens' hints stand: the next row of the gameplay
-/// hints, and of the story hints (one counter in KOTOR 1, one for each
-/// planet in KOTOR 2). A story from before they were kept reads as the
-/// first row of each.
+/// The next row to show of the gameplay hints, and of the story hints. KOTOR
+/// 1 has one story counter and KOTOR 2 has one for each planet. A story
+/// from before the counters were kept starts each at its first row.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StoryHints {

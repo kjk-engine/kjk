@@ -2105,7 +2105,6 @@ impl SimWorld {
         &self.world.resource::<Scripts>().state
     }
 
-    /// Where the loading screens' hints stand now.
     pub fn hints(&self) -> crate::script::Hints {
         self.script_state().hints
     }

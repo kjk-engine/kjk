@@ -53,10 +53,10 @@ pub struct Installer {
     links: bool,
 }
 
-/// What picks the hint a loading screen shows: where the hints stand in
-/// the world or the save the module is loaded for, and whether that world
-/// or save has been in the module before (the original's
-/// `GetModulePreviouslyVisited`). Showing a hint moves `hints` on.
+/// What a loading screen needs to pick its hint. It holds where the hints
+/// stand in the world or save the module is loaded for. It also says whether
+/// that world or save has been in the module before, which the original asks
+/// as `GetModulePreviouslyVisited`. Showing a hint moves `hints` on.
 #[derive(Debug, Clone, Copy)]
 pub struct HintAsk {
     pub hints: sim::script::Hints,
