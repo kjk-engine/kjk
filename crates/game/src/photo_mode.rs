@@ -211,20 +211,26 @@ pub fn step(camera: Camera, input: &Input, limits: &Limits, dt: f32) -> Camera {
         * speed;
     let velocity = camera.velocity + (wanted - camera.velocity).clamp_length_max(speed / EASE * dt);
     Camera {
-        at: clamp(camera.at + velocity * dt, limits),
+        at: clamp(camera.at + velocity * dt, camera.at, limits),
         angles: [pitch, yaw, roll],
         fov,
         velocity,
     }
 }
 
-/// `at` kept within `REACH` of the soles and within the area's box grown by
-/// `AREA_MARGIN`. The part of a move past either limit is taken away and
-/// the rest kept, so the camera slides along the limit.
-pub fn clamp(at: Vec3, limits: &Limits) -> Vec3 {
-    let at = limits.soles + (at - limits.soles).clamp_length_max(REACH);
+/// `at`, moved to from `from`, kept within `REACH` of the soles and within
+/// the area's box grown by `AREA_MARGIN`. The part of a move past either
+/// limit is taken away and the rest kept, so the camera slides along the
+/// limit. A camera already past a limit (a cutscene's shot far from the
+/// character) stays where it is rather than jump, and goes no farther out.
+pub fn clamp(at: Vec3, from: Vec3, limits: &Limits) -> Vec3 {
+    let reach = REACH.max(from.distance(limits.soles));
+    let at = limits.soles + (at - limits.soles).clamp_length_max(reach);
     match limits.area {
-        Some((low, high)) => at.clamp(low - AREA_MARGIN, high + AREA_MARGIN),
+        Some((low, high)) => at.clamp(
+            (low - AREA_MARGIN).min(from),
+            (high + AREA_MARGIN).max(from),
+        ),
         None => at,
     }
 }

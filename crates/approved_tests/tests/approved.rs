@@ -346,14 +346,16 @@ fn disruptor_beams() {
 /// slower the more it is zoomed. It takes a shot whose pitch is a whole
 /// turn off as the shot looks. It stays within 40 metres of the player's
 /// character and within the box round the area's rooms grown by 2 metres,
-/// sliding along either limit. Needs `--features rig`; no installs
+/// sliding along either limit. A shot past a limit, such as a cutscene's
+/// far from the character, does not jump, and the camera goes no farther
+/// out from it. Needs `--features rig`; no installs
 /// (proposed 2026-11-24, awaiting approval).
 #[test]
 fn photo_camera() {
     #[cfg(not(feature = "rig"))]
     println!("photo_camera skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("photo camera", &kjk_game::photo_mode::camera_probes(), 15);
+    probed("photo camera", &kjk_game::photo_mode::camera_probes(), 17);
 }
 
 /// Both blades of a double-bladed lightsaber whose blade nodes share one

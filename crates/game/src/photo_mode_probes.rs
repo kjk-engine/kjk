@@ -79,7 +79,11 @@ pub fn camera_probes() -> Checks {
     // at an even rate, so the camera goes the speed less half of `EASE`'s
     // worth of it.
     let eased = |speed: f32| speed * (1.0 - EASE / 2.0);
-    let cases: [Case; 15] = [
+    let far = Camera {
+        at: Vec3::new(REACH + 10.0, 0.0, 0.0),
+        ..level()
+    };
+    let cases: [Case; 17] = [
         (
             "speed",
             level(),
@@ -247,6 +251,26 @@ pub fn camera_probes() -> Checks {
             |c| c.at.y.min(10.0),
             10.0,
             1e-4,
+        ),
+        (
+            "a shot past the reach does not jump",
+            far,
+            Input::default(),
+            OPEN,
+            1.0,
+            |c| c.at.x,
+            REACH + 10.0,
+            1e-4,
+        ),
+        (
+            "goes no farther past the reach",
+            far,
+            fast,
+            OPEN,
+            1.0,
+            |c| c.at.length(),
+            REACH + 10.0,
+            1e-3,
         ),
         (
             "slides along the rooms' box",
