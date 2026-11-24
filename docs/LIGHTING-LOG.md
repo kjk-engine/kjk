@@ -225,6 +225,23 @@ The review tools are not on this branch. These are the picture harness, its shot
 - Ambient Occlusion is an option of its own under Enhanced, off by default. The owner chose on 14 November 2026 that lightmapped surfaces take it in full (`LIGHTMAP_SHARE` 1) and that contact darkening stays. It costs 0.12 to 0.24 ms a frame.
 - Classic is still the default lighting. The owner's sign-offs on Enhanced are owed.
 
+## Cost under Classic and Enhanced
+
+- The fitted lights and the trials cost GPU time under Classic and plain Enhanced, although none of their code ran there. Under Classic the Harbinger's medbay took 1.80 ms of GPU time against 1.41 ms on the merge base. The crowd brawl's particles took 0.71 ms against 0.14 ms. Leaving out only the calls to `fitted_lights`, or only the trials' code, each brought back about half. Leaving out both brought back all of it.
+- The shaders now hold that code only in a run that may show it (`FITTED_LIGHTS`, `fitted_lights::in_shaders`). That is a run with Enhanced Lightmaps chosen and installed, `KJK_FITTED_LIGHTS` set to anything but `off`, `KJK_SHADOW_DEBUG=7`, `KJK_FOUND_LIGHTS` or `KJK_MODEL_LIGHT`. Classic then cost what it cost on the merge base, in the medbay, the upper cantina, the crowd brawl and the refugee brawl. The baked look of `305nar` stayed the same, with a mean difference of 0.012 to 0.026 of 255 (commit e5af06ca).
+- A light's cone and the sun's share in the room shadows came only from the trials, and they cost plain Enhanced about 0.02 ms in the medbay. They are now part of `FITTED_LIGHTS`. The particles of an emitter are always unlit, so their pipelines leave the trials out under Enhanced Lightmaps too. The crowd brawl's 930 particles then took 0.14 ms there, against 0.75 ms (commit 55c5d0a3).
+- A larger light record (`GpuLight::aim`) and the new probe fields cost nothing. The base shader with the branch's buffer layouts ran at the base's speed.
+- Under plain Enhanced the refugee brawl still cost about 0.25 ms more than the merge base with the depth prepass forced the same in both. Its load check therefore turned on the depth prepass more often. This is open.
+
+## A lost graphics device while pipelines compile
+
+- Some windowed runs end in their first second with "Caught DeviceLost error: Unknown Device is lost", after "TimeSpanScope::end was never called". The backend is Vulkan, on NVIDIA's driver 621.14. Each loss comes with an `nvlddmkm` Event 153 ("Error occurred on GPUID") in the Windows system log at the same second. No Event 4101, a driver reset, was logged.
+- It happens only while pipelines compile fresh in the first frames of an area. Then about 100 to 340 pipelines are still compiling while the area is drawn.
+- This machine's NVIDIA shader cache is full at 1 GiB. Shaders cached before it filled still load from it. A new shader is compiled again on every run. So the branch's shaders compile fresh each time. The render thread then waits 12.4 s in Bevy's `prepare_view_upscaling_pipelines`, the load takes 13 to 14 s against 5.4 s, and the pipeline pre-warm never finishes before the area is drawn.
+- Short loads of the medbay under plain Enhanced, on 24 November 2026, gave these counts. The branch as it is lost the device in 4 of 30 runs. In a second loop it lost it in 3 of 20 runs, 2 of 10 as it is and 1 of 10 with bounds-checked shaders (`KJK_CHECKED_SHADERS=1`). Commit f4dd2a93 lost it in 0 of 30 runs, and in 1 of 30 with ambient occlusion, whose shader variants are not in the cache. The merge base lost it in 0 of 30 runs from the cache. With bounds-checked shaders, which are new and so compile fresh, it lost it in 3 of 10 runs.
+- So this branch does not cause the crash. It shows here because the branch's shaders cannot enter the full cache. A player meets the same fresh compile on a first run or after any change of the shaders. The crash also came with bounds-checked shaders, so it is not a read past a list in kjk's own shaders.
+- What runs in that first second is not known. Vulkan's validation layer, DX12, which render pass runs during the burst of compiles, and waiting for the pipeline warm-up before an area is drawn are all untested. This is open.
+
 ## Other
 
 - The HDR frame stays gamma-encoded, decided with the owner on 12 November 2026. Every blend, fog, fade and the HUD keep their look. New light is worked out in linear light inside the surface shader.
