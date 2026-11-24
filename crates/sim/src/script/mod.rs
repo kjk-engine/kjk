@@ -3373,6 +3373,14 @@ impl Step<'_> {
             // A player's legs are its seat's, but in a conversation (a
             // cinematic's) a script walks it.
             let legs_free = player && !self.state.talk.conversations.iter().any(|c| c.pc == who);
+            // A character in a grapple finisher, holding or held, starts its
+            // queued actions only when the finisher lets it go
+            // (`world::grapples`): an animation or a conversation a script
+            // queued for it waits, as Marl's surrender in the Taris dueling
+            // ring waits for the finisher that beat him.
+            if thing.character.as_ref().is_some_and(|c| c.grappled) {
+                continue;
+            }
             for _ in 0..ACTIONS_PER_STEP {
                 if self.runs >= RUNS_PER_STEP {
                     return;

@@ -573,9 +573,7 @@ fn struck_by(
             }
         }
         gear::Struck::Knockdown => {
-            fighter
-                .saber
-                .knock_down(now, crate::combat::force::ja::KNOCKDOWN_MS);
+            fighter.knock_down(now, crate::combat::force::ja::KNOCKDOWN_MS);
         }
         gear::Struck::Death => {}
     }
@@ -610,13 +608,14 @@ fn thrown(
     knockdown: Option<u64>,
 ) {
     use crate::combat::force::ja;
-    if !fighter.alive() {
+    // A grapple finisher holds its pair where it put them (`world::grapples`).
+    if !fighter.alive() || fighter.grapple.is_some() {
         return;
     }
     if let Some(ms) = knockdown
         && !fighter.saber.floored()
     {
-        fighter.saber.knock_down(now, ms);
+        fighter.knock_down(now, ms);
     }
     let mut direction = math::sub(ps.origin, centre);
     direction[2] = 0.0;

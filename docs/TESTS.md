@@ -298,6 +298,10 @@ probes go from 4 to 5);
 approval (issue 705: items added to a stack with room for only some of
 them fill it, and the rest are a stack of their own, as both games'
 executables merge an item);
+`kicked_victim_stays_held` (group "grapples") proposed 2026-11-24,
+awaiting approval (a third fighter kicks a victim held in a grapple
+finisher eight times; the kicks hurt it, it never lies down while held,
+and it is held exactly as long as without the kicks);
 `cargo xtask publish-check` refuses tests anywhere else. All 164
 are in `tests/approved.rs`. They call library code and open no window.
 A test may also read the repository's own source files to check a rule

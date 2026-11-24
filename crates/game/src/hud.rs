@@ -621,6 +621,7 @@ fn bar_view(
                 dim: content.is_some() && !now[at].ready,
                 lit: pressed || now[at].on,
                 kinds: shelf.map_or(0, |at| counts[at]),
+                fire: None,
             }
         })
         .collect::<Vec<_>>();
@@ -676,14 +677,17 @@ fn form_slot(
 /// attacks (`Picks::shown`), or while a double-bladed lightsaber has one
 /// blade lit, as the next-feat key then does nothing (`feat_view`).
 /// Otherwise it holds the `feat.2da` icon of the feat attack in use (none
-/// while it uses none) and the next-feat key.
+/// while it uses none) and the next-feat key. With a blaster in hand it also
+/// shows the key that fires the feat attack (`fire`), because a controller
+/// player otherwise has no sign of which buttons do it.
 fn feat_slot(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
     fighter: &sim::combat::Fighter,
-    key: ui::vm::KeyLabel,
+    (key, fire): (ui::vm::KeyLabel, ui::vm::KeyLabel),
 ) -> Option<ui::vm::BarSlot> {
     use sim::combat::picks::{Picks, Shown};
+    use sim::combat::saber::{Held, Kit};
     if fighter.saber.second_off {
         return None;
     }
@@ -693,9 +697,11 @@ fn feat_slot(
         }
         Shown::Nothing => None,
     };
+    let blaster = matches!(Kit::of(sheet).held(fighter.hand), Held::Blaster(_));
     Some(ui::vm::BarSlot {
         icon,
         key,
+        fire: blaster.then_some(fire),
         ..ui::vm::BarSlot::default()
     })
 }
@@ -1201,7 +1207,15 @@ fn show(
                 .and_then(|picking| picking.label(real.elapsed_secs())),
         );
         let form = form_slot(ui, &sheet, prompts.label(Action::Form));
-        let feat = feat_slot(ui, &sheet, &fighter, prompts.label(Action::NextFeat));
+        let feat = feat_slot(
+            ui,
+            &sheet,
+            &fighter,
+            (
+                prompts.label(Action::NextFeat),
+                prompts.label(Action::DuelAltAttack),
+            ),
+        );
         ui.vm.hud = Some(ui::vm::HudView {
             minimap,
             form,

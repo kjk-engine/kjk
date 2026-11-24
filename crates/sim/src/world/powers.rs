@@ -1318,6 +1318,9 @@ impl Cast<'_, '_> {
                 || self.spared(at, them)
                 || !self.fighters[them].alive()
                 || self.fighters[them].saber.floored()
+                // A grapple finisher holds its pair where it put them
+                // (`world::grapples`).
+                || self.fighters[them].grapple.is_some()
             {
                 continue;
             }

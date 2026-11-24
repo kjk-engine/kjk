@@ -669,6 +669,16 @@ impl Fighter {
         self.life == Life::Alive
     }
 
+    /// Knocked down for `ms` from `now` (`SaberState::knock_down`), unless
+    /// it is in a grapple finisher, holding or held. A finisher holds both
+    /// characters until it lets them go (`world::grapples`), so no blow,
+    /// power, grenade or script knocks them down meanwhile.
+    pub fn knock_down(&mut self, now: u64, ms: u64) {
+        if self.grapple.is_none() {
+            self.saber.knock_down(now, ms);
+        }
+    }
+
     /// Short of full by what a template's current hit points are under its
     /// most (`module::ObjectData::hit_points`: a creature placed or made
     /// hurt), never below 1.

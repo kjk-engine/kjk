@@ -2039,6 +2039,24 @@ pub(crate) fn slot_marks<'a>(
                 out,
             );
         }
+        // The key that fires what the slot holds, at the slot's bottom.
+        match &slot.fire {
+            Some(KeyLabel {
+                badge: Some(badge), ..
+            }) => badges.push((
+                badge,
+                [x + 2.0, y + h - 2.0 - BADGE_TALL, w - 4.0, BADGE_TALL],
+            )),
+            Some(key) => ringed(
+                painter,
+                &key.words,
+                [x + 2.0, y + h - 20.0, w - 4.0, 18.0],
+                align::CENTRE | align::BOTTOM,
+                palette.hilight,
+                out,
+            ),
+            None => {}
+        }
     }
     for (badge, area) in badges {
         painter.badge(badge, area, out);

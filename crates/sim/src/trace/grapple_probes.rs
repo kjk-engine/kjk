@@ -604,6 +604,53 @@ fn third_party_kill_waits_for_release() -> Result<String, String> {
     )
 }
 
+/// A third fighter kicks the victim again and again during the finisher. The
+/// kicks hurt it, but none knocks it down or moves it while it is held, and
+/// the finisher plays on to its end.
+fn kicked_victim_stays_held() -> Result<String, String> {
+    let table = duel_anims(&Missing::None)?;
+    let reach = table.get(Anim::BOTH_KYLE_GRAB).length_ms() + grab::REACH_LEFT_MS[0];
+    let run = |kicks: &str| {
+        play(&format!(
+            "scenario probe\nrules advanced\nseed 7\n{}begin\nwound 1 {HURT}\nduel 0 points={}\n\
+             tick 20\ntick 1 b0=alt\ntick {}\n{kicks}tick {}\n",
+            fighters(
+                "fists",
+                "fighter 2 fists x=47 y=24 yaw=-90 defence=2 tiers=2 fp=100 hp=400\n\
+                 sheet 2 bab=40\n"
+            ),
+            rules::duel::meters::POINTS_MAX,
+            steps(reach),
+            steps(6_000),
+        ))
+    };
+    let held = |ticks: &[Snapshot]| {
+        states(ticks, 1)
+            .iter()
+            .filter(|(_, f)| f.grapple.is_some())
+            .count()
+    };
+    let calm = held(&run("")?);
+    let ticks = run(&"tick 1 h2=kick\ntick 8\n".repeat(8))?;
+    let b = states(&ticks, 1);
+    let kicked = b.iter().any(|(_, f)| {
+        f.newest()
+            .any(|event| event.by == Some(crate::SimId(2)) && event.damage > 0)
+    });
+    let floored_held = b
+        .iter()
+        .filter(|(_, f)| f.grapple.is_some() && f.saber.floored())
+        .count();
+    let kicked_held = held(&ticks);
+    check(
+        kicked && floored_held == 0 && kicked_held == calm,
+        format!(
+            "the third fighter's kicks landed {kicked}; steps the victim lay down while held \
+             {floored_held}; held for {kicked_held} steps, {calm} without the kicks"
+        ),
+    )
+}
+
 /// The grabber knocked down during a finisher lets go: neither is held, and
 /// the victim falls.
 fn grabber_down_breaks() -> Result<String, String> {
@@ -987,7 +1034,8 @@ fn finisher_three_throws_marked_victim_limp() -> Result<String, String> {
 type Probe = (&'static str, fn() -> Result<String, String>);
 
 pub fn probes() -> Checks {
-    let all: [Probe; 29] = [
+    let all: [Probe; 30] = [
+        ("kicked_victim_stays_held", kicked_victim_stays_held),
         (
             "finisher_three_throws_marked_victim_limp",
             finisher_three_throws_marked_victim_limp,
