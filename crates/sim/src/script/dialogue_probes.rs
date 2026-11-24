@@ -433,6 +433,8 @@ fn state() -> Check {
     let mut out = Writer::default();
     state.encode(&mut out);
     let read = State::decode(&mut Reader::new("state", &out.0));
+    // A save keeps no screen open: each player's game sends it again.
+    state.talk.screens.clear();
     check(
         "state",
         read.is_ok_and(|read| read == state),
