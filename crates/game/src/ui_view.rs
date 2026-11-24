@@ -123,8 +123,8 @@ pub struct Ui {
     /// The player hid the HUD with the Hide interface key (`play_keys`).
     /// Any open screen shows it again.
     pub(crate) hud_hidden: bool,
-    /// Photo mode's corner line while photo mode is on (`photo_mode`). The
-    /// rest of the interface is hidden meanwhile, and the player's own
+    /// Photo mode's corner lines while photo mode is on (`photo_mode`).
+    /// The rest of the interface is hidden meanwhile, and the player's own
     /// Hide interface choice is kept for after.
     pub(crate) photo: Option<crate::photo_mode::Line>,
 }
@@ -1251,7 +1251,7 @@ fn step(
     {
         layers.push(banner);
     }
-    // Photo mode's corner line over the world, alone.
+    // Photo mode's corner lines over the world, alone.
     layers.extend(photo_layer(ui, (size.x, size.y)));
     ui.layers = layers;
     // In a window the summary waiting for its OK frees the pointer and
