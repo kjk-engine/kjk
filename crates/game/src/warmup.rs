@@ -85,6 +85,12 @@ impl Plugin for WarmupPlugin {
     }
 }
 
+/// A layer only the stand-ins are on, besides the scene's own. While the
+/// loading screen waits for a new area's warm-up, the scene's cameras see
+/// this layer alone, so they draw the stand-ins and nothing of the area
+/// (`lifecycle_view::hold_scene`).
+pub(crate) const LAYER: usize = 12;
+
 /// The log's message for a pipeline compiled after a warm-up, which the
 /// bench looks for.
 pub const LATE_PIPELINE: &str = "a pipeline compiled after the warm-up";
@@ -368,6 +374,7 @@ fn stand_ins<M: Material>(
                 MeshMaterial3d(material.clone()),
                 Transform::from_scale(Vec3::ZERO),
                 NoFrustumCulling,
+                RenderLayers::from_layers(&[0, LAYER]),
             ));
             // Every joint is the stand-in itself, so a skinned one shrinks
             // to the point too.
