@@ -359,6 +359,7 @@ pub fn install(app: &mut App, state: EditorState, headless: bool) {
                 state::commands_from_console.after(ConsoleQueue),
                 pick_pending,
                 state::follow,
+                crate::listen::hold,
                 make_thumbnails,
                 state::publish,
                 take_shot,
@@ -2164,6 +2165,9 @@ fn behaviour(
     }
     ui.separator();
     ui.label(egui::RichText::new("Behaviour").strong());
+    if kind == Kind::Sound {
+        listen_object(ui, state, &entry.template);
+    }
     let users = state.editor.users(&entry.template);
     let about = match state.editor.project.templates.get(&entry.template) {
         _ if restype.is_none() => format!(
@@ -3084,7 +3088,10 @@ fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
     let git = state.editor.project.git.clone();
     let music = sound_rows(state, "ambientmusic");
     let ambience = sound_rows(state, "ambientsound");
-    egui::Grid::new("area sound").num_columns(2).show(ui, |ui| {
+    let playing = state.listening.what().map(String::from);
+    // The music or ambient sound to play (its field), or `None` to stop.
+    let mut listen: Option<Option<String>> = None;
+    egui::Grid::new("area sound").num_columns(3).show(ui, |ui| {
         let mut row_combo =
             |ui: &mut egui::Ui, label: &str, shown: &str, rows: &[(u32, String)]| {
                 let now = level_edit::settings::property(&git, label);
@@ -3106,6 +3113,13 @@ fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
                             }
                         }
                     });
+                listen_button(
+                    ui,
+                    playing.as_deref() == Some(label),
+                    now != 0,
+                    label,
+                    &mut listen,
+                );
                 ui.end_row();
             };
         row_combo(ui, "MusicDay", "Music by day", &music);
@@ -3122,6 +3136,7 @@ fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
             if ui.add(egui::Slider::new(&mut volume, 0..=127)).changed() {
                 asked.push(AreaChange::Property(label.to_string(), volume));
             }
+            ui.label("");
             ui.end_row();
         }
     });
@@ -3282,9 +3297,88 @@ fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
             .small(),
         );
     }
+    // A change to the music or ambient sound playing plays the new one, at
+    // its new volume.
+    let replay = playing.as_deref().filter(|label| {
+        asked.iter().any(|change| {
+            matches!(change, AreaChange::Property(field, _)
+                if field == label || (state::HEARD_SLOTS.iter())
+                    .any(|(slot, volume, _)| slot == label && *volume == Some(field.as_str())))
+        })
+    });
+    let replay = replay.map(String::from);
     for change in asked {
         state::change_area(state, change);
     }
+    if let Some(label) = replay {
+        listen = Some(Some(label));
+    }
+    match listen {
+        Some(Some(label)) => {
+            if let Err(why) = state::listen_area(state, &label) {
+                state.say(why);
+            }
+        }
+        Some(None) => state.listening.stop(),
+        None => {}
+    }
+}
+
+/// A button that plays the area's music or ambient sound of the field
+/// `label`, or stops it while it plays. A field set to row 0 (none) has
+/// nothing to play.
+fn listen_button(
+    ui: &mut egui::Ui,
+    playing: bool,
+    has_sound: bool,
+    label: &str,
+    listen: &mut Option<Option<String>>,
+) {
+    if playing {
+        if ui
+            .button("Stop")
+            .on_hover_text("Stops playing it.")
+            .clicked()
+        {
+            *listen = Some(None);
+        }
+    } else if ui
+        .add_enabled(has_sound, egui::Button::new("Play"))
+        .on_hover_text("Plays it in the editor, at the level the game plays it at.")
+        .clicked()
+    {
+        *listen = Some(Some(label.to_string()));
+    }
+}
+
+/// The selected sound object's Play button: it plays the object's sounds
+/// as they sound next to the player, or stops them.
+fn listen_object(ui: &mut egui::Ui, state: &mut EditorState, template: &str) {
+    let key = state::listen_key(template);
+    ui.horizontal(|ui| {
+        if state.listening.is(&key) {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(250));
+            let file = match (state.listening.file(), state.listening.waits()) {
+                (Some(file), _) => file.to_string(),
+                (None, Some(seconds)) => format!("the next sound in {seconds} s"),
+                (None, None) => String::new(),
+            };
+            if ui.button("Stop").clicked() {
+                state.listening.stop();
+            }
+            ui.label(egui::RichText::new(file).small());
+        } else if ui
+            .button("Play its sounds")
+            .on_hover_text(
+                "Plays the object's sounds in the editor, as they sound next to the player, with the pauses between them.",
+            )
+            .clicked()
+            && let Err(why) = state::listen_template(state, template)
+        {
+            state.say(why);
+        }
+    });
 }
 
 /// The logic blocks an object runs on `event`: each block's values, moved
@@ -5775,6 +5869,22 @@ fn assets(
                                 }
                                 if response.double_clicked() {
                                     placed = Some(asset.clone());
+                                }
+                                if let Asset::Object(Kind::Sound, name) = asset {
+                                    response.context_menu(|ui| {
+                                        let key = state::listen_key(name);
+                                        if state.listening.is(&key) {
+                                            if ui.button("Stop").clicked() {
+                                                state.listening.stop();
+                                                ui.close();
+                                            }
+                                        } else if ui.button("Play its sounds").clicked() {
+                                            if let Err(why) = state::listen_template(state, name) {
+                                                state.say(why);
+                                            }
+                                            ui.close();
+                                        }
+                                    });
                                 }
                             }
                         });

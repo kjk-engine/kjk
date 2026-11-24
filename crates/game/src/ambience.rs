@@ -1464,12 +1464,7 @@ fn emit(
             placed: emitter.positional,
         }
     };
-    let group = match (emitter.looping, emitter.positional) {
-        (true, true) => Group::PositionalAmbient,
-        (true, false) => Group::AreaAmbient,
-        (false, true) => Group::PositionalShot,
-        (false, false) => Group::GlobalShot,
-    };
+    let group = emitter.group();
     let gain = |volume: u8| placed_gain(tables, group, volume, emitter.looping);
     // One looping sound loops seamlessly; several play in turn.
     if emitter.looping && emitter.sounds.len() == 1 {
@@ -1780,4 +1775,87 @@ fn step_row(
         },
         _ => None,
     }
+}
+
+/// What the level editor plays for its user to hear: a row of
+/// `ambientmusic.2da`, a row of `ambientsound.2da` at a volume (0 to 127),
+/// or a sound object as its template makes it.
+pub enum Hear {
+    Music(u16),
+    Ambient(u16, u8),
+    Object(Emitter),
+}
+
+/// How the level editor plays what it was asked to (`Hear`): its files,
+/// each played to its end as a bed, one after another; the pause between
+/// two (ms); whether it goes round again after the last; and the files
+/// that did not read.
+pub struct Preview {
+    pub files: Vec<(String, Stream)>,
+    pub bed: Bed,
+    pub pause_ms: u32,
+    pub again: bool,
+    pub not_read: Vec<String>,
+}
+
+/// The files of `heard`, read from `resolver`, and how loud the game plays
+/// them. Music plays through once, as the area's music does, at the
+/// music's level. The ambient sound loops at its volume. A sound object
+/// plays as it would next to the player. A looping one with one sound
+/// loops that sound. Any other plays its sounds in turn with its interval
+/// between two, and starts again after the last when it is continuous or
+/// looping.
+pub fn preview(resolver: &Resolver, heard: &Hear) -> Preview {
+    let tables = Tables::read(&crate::modules::ResolverSource(resolver));
+    let (names, bed, pause_ms, again): (Vec<String>, Bed, u32, bool) = match heard {
+        Hear::Music(row) => (
+            tables.music(*row).map(String::from).into_iter().collect(),
+            group_bed(SONG, &tables, Group::Music, 127),
+            0,
+            false,
+        ),
+        Hear::Ambient(row, volume) => (
+            tables.ambient(*row).map(String::from).into_iter().collect(),
+            group_bed(AMBIENT, &tables, Group::AreaAmbient, *volume),
+            0,
+            false,
+        ),
+        Hear::Object(emitter) => {
+            let group = emitter.group();
+            let seamless = emitter.looping && emitter.sounds.len() == 1;
+            let bed = Bed {
+                bus: Bus::Effects,
+                gain: audio::spatial::EAR_SHARE
+                    * placed_gain(&tables, group, emitter.volume, emitter.looping),
+                looping: seamless,
+                fade: 0.0,
+            };
+            let pause_ms = if emitter.looping {
+                0
+            } else {
+                emitter.interval_ms
+            };
+            (
+                emitter.sounds.clone(),
+                bed,
+                pause_ms,
+                emitter.continuous || emitter.looping,
+            )
+        }
+    };
+    let mut preview = Preview {
+        files: Vec::new(),
+        bed,
+        pause_ms,
+        again,
+        not_read: Vec::new(),
+    };
+    for name in names {
+        match crate::sound::kotor_file(resolver, &name).map(|bytes| Stream::kotor(&bytes)) {
+            Some(Ok(stream)) => preview.files.push((name, stream)),
+            Some(Err(error)) => preview.not_read.push(format!("{name} ({error})")),
+            None => preview.not_read.push(name),
+        }
+    }
+    preview
 }

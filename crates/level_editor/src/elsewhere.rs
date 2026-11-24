@@ -211,6 +211,16 @@ pub(crate) fn needs(state: &EditorState) -> Vec<(String, std::path::PathBuf)> {
     needs.into_iter().collect()
 }
 
+/// Reads the template `name` of `restype` alone from the other level that
+/// has it, with that level's name. `None` when no other level has it.
+pub(crate) fn read(state: &EditorState, name: &str, restype: ResType) -> Option<(Gff, String)> {
+    let module = state.elsewhere().module_of(name, restype)?.to_string();
+    let discovery = kjk_game::discover();
+    let source = kjk_game::viewer::resolver(&discovery, state.setup.game, Some(&module)).ok()?;
+    let gff = Gff::parse(&source.read(&name.to_ascii_lowercase(), restype)?).ok()?;
+    Some((gff, module))
+}
+
 /// Reads the template `name` of `restype` from the other level that has it,
 /// with what it names. `None` when no other level has it. `as_template` is
 /// whether the template itself becomes one of the project's (a door and a

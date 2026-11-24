@@ -10179,3 +10179,50 @@ fn lamp_light_mesh() {
     assert!(light_mesh(room.clone(), "nothing").is_err());
     assert!(light_mesh(room, "m01aa_01a").is_err());
 }
+
+/// A sound object's template as the level editor plays it for its user
+/// (`asset_odyssey::sound::Emitter`): its flags, its pause and its sounds
+/// are read from the UTS, and its mixing group follows from whether it
+/// loops and whether it is positional.
+#[test]
+fn sound_object_template_for_the_editor() {
+    use asset_odyssey::sound::{Emitter, Group};
+    use fmt_odyssey::gff::{GffField, GffStruct, GffValue};
+
+    let field = |label: &str, value: GffValue| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let sound = |name: &str| GffStruct {
+        id: 0,
+        fields: vec![field("Sound", GffValue::ResRef(name.as_bytes().to_vec()))],
+    };
+    let uts = GffStruct {
+        id: u32::MAX,
+        fields: vec![
+            field("Active", GffValue::Byte(1)),
+            field("Continuous", GffValue::Byte(1)),
+            field("Looping", GffValue::Byte(0)),
+            field("Positional", GffValue::Byte(0)),
+            field("Interval", GffValue::Dword(20000)),
+            field("IntervalVrtn", GffValue::Dword(5000)),
+            field("Volume", GffValue::Byte(52)),
+            field(
+                "Sounds",
+                GffValue::List(vec![sound("as_pl_tarwal2_01"), sound("as_pl_tarwal2_02")]),
+            ),
+        ],
+    };
+    let emitter = Emitter::read(&uts);
+    assert!(emitter.active && emitter.continuous && !emitter.looping);
+    assert_eq!(emitter.interval_ms, 20000);
+    assert_eq!(emitter.volume, 52);
+    assert_eq!(emitter.sounds, ["as_pl_tarwal2_01", "as_pl_tarwal2_02"]);
+    assert_eq!(emitter.group(), Group::GlobalShot);
+    let looping = Emitter {
+        looping: true,
+        positional: true,
+        ..emitter
+    };
+    assert_eq!(looping.group(), Group::PositionalAmbient);
+}

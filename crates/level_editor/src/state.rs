@@ -376,6 +376,8 @@ pub struct EditorState {
     /// Why the last edit was refused (`refuse`), until the command that
     /// asked for it takes it.
     refused: Option<String>,
+    /// What the editor plays for its user to hear (`listen`).
+    pub(crate) listening: crate::listen::Listening,
     /// The install's templates read so far (`template_gff`), by name and
     /// type; `None` for one that does not read. The install does not change
     /// while the editor is open, so each is read and parsed once.
@@ -519,6 +521,7 @@ impl EditorState {
             pending_bare: None,
             answer: None,
             refused: None,
+            listening: Default::default(),
             install_templates: Default::default(),
             elsewhere: Default::default(),
             links: Default::default(),
@@ -3208,6 +3211,7 @@ fn command_words(
             }
             state.apply(Edit::SetEffect(at, effect));
         }
+        ["listen", rest @ ..] => listen_command(state, rest)?,
         ["effects", "list", rest @ ..] => {
             let filter = rest.join(" ").to_ascii_lowercase();
             let found: Vec<String> = (state.setup.effects.iter())
@@ -6394,4 +6398,149 @@ pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
             "other_areas": project.others.keys().collect::<Vec<_>>(),
             "levels_of_the_project": project.level_list(),
     })
+}
+
+/// The area's music and ambient sound that the editor plays (`listen`):
+/// each one's field in the area's settings, its volume's field, and how
+/// the editor names it.
+pub(crate) const HEARD_SLOTS: [(&str, Option<&str>, &str); 5] = [
+    ("MusicDay", None, "The music by day"),
+    ("MusicNight", None, "The music by night"),
+    ("MusicBattle", None, "The music in battle"),
+    (
+        "AmbientSndDay",
+        Some("AmbientSndDayVol"),
+        "The ambient sound by day",
+    ),
+    (
+        "AmbientSndNight",
+        Some("AmbientSndNitVol"),
+        "The ambient sound by night",
+    ),
+];
+
+/// Plays the area's music or ambient sound of the field `label`
+/// (`HEARD_SLOTS`) at the area's volume.
+pub(crate) fn listen_area(state: &mut EditorState, label: &str) -> Result<(), String> {
+    use kjk_game::ambience::Hear;
+    let (_, volume, shown) = (HEARD_SLOTS.iter())
+        .find(|(field, ..)| *field == label)
+        .ok_or_else(|| format!("{label} is not the area's music or ambient sound"))?;
+    let git = &state.editor.project.git;
+    let row = level_edit::settings::property(git, label);
+    let row =
+        u16::try_from(row).map_err(|_| format!("{shown} is row {row}, which no table has"))?;
+    let heard = match volume {
+        None => Hear::Music(row),
+        Some(volume) => Hear::Ambient(
+            row,
+            level_edit::settings::property(git, volume).min(127) as u8,
+        ),
+    };
+    listen(state, label.to_string(), shown, &heard)
+}
+
+/// What the editor calls the sound object template `resref` while it plays
+/// (`crate::listen::Listening::is`).
+pub(crate) fn listen_key(resref: &str) -> String {
+    format!("sound {}", resref.to_ascii_lowercase())
+}
+
+/// Plays the sound object template `resref` (the project's copy, else this
+/// level's, else another level's) as it sounds next to the player.
+pub(crate) fn listen_template(state: &mut EditorState, resref: &str) -> Result<(), String> {
+    let (gff, from) = match state.template_gff(resref, ResType::UTS) {
+        Some(gff) => (gff, None),
+        None => match crate::elsewhere::read(state, resref, ResType::UTS) {
+            Some((gff, module)) => (gff, Some(module)),
+            None => {
+                state.listening.stop();
+                return Err(format!("The sound template {resref} does not read"));
+            }
+        },
+    };
+    let emitter = asset_odyssey::sound::Emitter::read(&gff.root);
+    let shown = match from {
+        Some(module) => format!("The sound {resref} of the level {module}"),
+        None => format!("The sound {resref}"),
+    };
+    listen(
+        state,
+        listen_key(resref),
+        &shown,
+        &kjk_game::ambience::Hear::Object(emitter),
+    )
+}
+
+fn listen(
+    state: &mut EditorState,
+    what: String,
+    shown: &str,
+    heard: &kjk_game::ambience::Hear,
+) -> Result<(), String> {
+    let not_read = state
+        .listening
+        .play((what, shown), heard, &state.setup.resolver)
+        .map_err(|why| format!("{shown} {why}"))?;
+    let files = state.listening.file().unwrap_or("").to_string();
+    state.say(format!("Playing {}: {files}", shown.to_lowercase()));
+    if !not_read.is_empty() {
+        state.say(format!("These files do not read: {}", not_read.join(", ")));
+    }
+    Ok(())
+}
+
+/// `edit listen ...`: plays the area's music or ambient sound, or a sound
+/// object, for the user to hear, or stops it.
+fn listen_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
+    match words {
+        ["stop"] => {
+            state.listening.stop();
+            state.say("Stopped playing");
+            Ok(())
+        }
+        ["music", when] => listen_area(
+            state,
+            match *when {
+                "day" => "MusicDay",
+                "night" => "MusicNight",
+                "battle" => "MusicBattle",
+                _ => return Err("listen music takes day, night or battle".into()),
+            },
+        ),
+        ["ambience", when] => listen_area(
+            state,
+            match *when {
+                "day" => "AmbientSndDay",
+                "night" => "AmbientSndNight",
+                _ => return Err("listen ambience takes day or night".into()),
+            },
+        ),
+        ["sound", resref] => listen_template(state, resref),
+        [] | ["selected"] => {
+            let Target::Object(Kind::Sound, index) = selected(state)? else {
+                return Err("select a sound object first".into());
+            };
+            let entry = state
+                .editor
+                .entry(Kind::Sound, index)
+                .ok_or("the selected sound object is gone")?;
+            listen_template(state, &entry.template)
+        }
+        ["status"] => {
+            let said = match (state.listening.shown(), state.listening.file()) {
+                (Some(what), Some(file)) => format!("Playing {}: {file}", what.to_lowercase()),
+                (Some(what), None) => {
+                    format!("Playing {}, between two sounds", what.to_lowercase())
+                }
+                _ => "Nothing is playing".to_string(),
+            };
+            state.say(said);
+            Ok(())
+        }
+        _ => Err(
+            "listen takes music day|night|battle, ambience day|night, sound TEMPLATE, selected, status or stop"
+                .into(),
+        ),
+    }
 }

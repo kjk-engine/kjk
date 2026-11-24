@@ -15,6 +15,7 @@ mod ja_rooms;
 mod keys;
 mod lamps;
 mod links;
+mod listen;
 mod markers;
 mod picker;
 mod recover;
@@ -109,6 +110,7 @@ fn main() -> ExitCode {
                 scene: runtime::Scene::Loaded(Box::default()),
                 plugins: Some(Box::new(move |app| picker::install(app, headless))),
                 asks_before_closing: false,
+                sound: false,
             });
         }
         _ => {
@@ -134,6 +136,7 @@ fn main() -> ExitCode {
             scene: runtime::Scene::Loaded(Box::new(scene)),
             plugins: Some(Box::new(move |app| ja_rooms::install(app, rooms))),
             asks_before_closing: false,
+            sound: false,
         });
     }
     let new_map = cli
@@ -164,6 +167,7 @@ fn main() -> ExitCode {
         scene: runtime::Scene::Loaded(Box::new(scene)),
         plugins: Some(Box::new(move |app| ui::install(app, state, headless))),
         asks_before_closing: true,
+        sound: true,
     })
 }
 

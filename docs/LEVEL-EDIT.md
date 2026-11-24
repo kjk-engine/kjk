@@ -1362,6 +1362,41 @@ An installed area's `.are` is copied into the project at the first change
 (`Project::are`); a new map's is its own. `level_edit::settings` does the
 work.
 
+### Hearing the level's sound
+
+The editor plays sound for its user to hear before they play the level.
+One sound plays at a time, and playing another stops the first.
+
+- **Music and ambient sound.** Each music and ambient sound setting of
+  **This level** has a **Play** button beside it. The music plays through
+  once, at the level the game plays music at. The ambient sound loops at
+  the volume the level sets for it. Choosing another row, or another
+  volume, while one plays plays the new one. **Stop** stops it.
+- **Sound objects.** A selected sound object's details have a **Play its
+  sounds** button. It plays the sounds of the object's template, the
+  project's copy if it has one, at the level the game plays them next to
+  the player. A looping object with one sound loops it. Any other object
+  plays its sounds in turn, in order, with the pause its template sets
+  between two, and the details count the seconds to the next sound. A
+  continuous or looping object starts again after its last sound, and any
+  other stops. In play the game picks the sounds at random where the
+  template says so, and varies the pause, the pitch and the volume. The
+  editor's preview does not.
+- **The Sounds tab.** A right-click on a sound template in the assets
+  panel plays it in the same way, before it is placed.
+
+The preview plays through kjk's own mixer, at the volumes set in kjk's
+options.
+
+KOTOR 1 keeps every sound object template in the module of the level that
+uses it, so a new map has none of its own. Ticking **Other levels** in the
+assets panel lists the sound templates of every other level, each with
+its level's name. A right-click plays one from its level. Placing one
+copies the template into the project, and the object then plays its
+sounds as any other does. The sound files themselves are shared by the
+whole game, so nothing else needs copying. The first list of the other
+levels takes a few seconds to gather.
+
 ### Weather
 
 kjk plays TSL's weather: rain, snow and lightning. **This level** sets it
@@ -1828,6 +1863,9 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit conversation NAME screen talk\|computer\|rakatan` | shows the conversation as speech between characters, on a computer's screen, or on a Rakatan computer's |
 | `edit outline X1 Y1 X2 Y2 X3 Y3 ...` | sets the selected trigger's or encounter's outline: three corners or more, in metres, at its height |
 | `edit area music day\|night\|battle ROW`, `edit area ambience day\|night ROW`, `edit area volume day\|night N` | the area's music and ambient sound (2DA rows) and the sound's volume (0 to 127) |
+| `edit listen music day\|night\|battle`, `edit listen ambience day\|night` | plays the area's music or ambient sound in the editor |
+| `edit listen sound TEMPLATE`, `edit listen selected` | plays a sound object template, or the selected sound object's, as it sounds next to the player |
+| `edit listen status`, `edit listen stop` | says what plays, or stops it |
 | `edit area fog on\|off`, `edit area fog NEAR FAR`, `edit area fog colour R G B`, `edit area ambient R G B` | the area's fog and ambient light (colours from 0 to 1) |
 | `edit area weather rain\|snow\|lightning N`, `edit area wind N`, `edit area indoors on\|off`, `edit area dry ROOM on\|off` | the area's weather: a chance from 0 to 100, a wind from 0 to 2, whether it is indoors, and whether a room keeps the weather out |
 | `edit area script LABEL SCRIPT`, `edit area module script LABEL SCRIPT` | an area script (`OnEnter`), or a new map's module script (`Mod_OnModLoad`); `-` for none |

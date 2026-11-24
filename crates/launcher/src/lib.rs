@@ -1046,6 +1046,7 @@ fn play(script: &str, headless: bool, size: (u32, u32), scene: runtime::Scene) -
         scene,
         plugins: None,
         asks_before_closing: false,
+        sound: false,
     };
     let exit = runtime::run(options);
     if setup::finished() && !headless {

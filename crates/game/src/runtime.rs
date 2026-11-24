@@ -41,6 +41,10 @@ pub struct RunOptions {
     /// level editor asks first about changes not saved); without it the
     /// window closes.
     pub asks_before_closing: bool,
+    /// The run opens a mixer even when its scene has no thunder to play.
+    /// The level editor plays a level's music, its ambient sound and its
+    /// sound objects through it, for its user to hear them.
+    pub sound: bool,
 }
 
 /// Adds a program's own plugins to the game's app (`RunOptions::plugins`).
@@ -119,8 +123,10 @@ pub fn run(options: RunOptions) -> AppExit {
         Scene::Setup { start } => Some(crate::setup::SetupPlugin { start }),
         _ => None,
     };
-    // A viewer whose scene has thunder to play hears it.
-    let thunder = matches!(&options.scene, Scene::Loaded(scene)
+    // A viewer whose scene has thunder to play hears it, and so does a run
+    // that asks for sound.
+    let thunder = options.sound
+        || matches!(&options.scene, Scene::Loaded(scene)
         if scene.weather.lightning.as_ref().is_some_and(|lightning| !lightning.thunder.is_empty()));
     let mut launch = None;
     let sim = match options.scene {
