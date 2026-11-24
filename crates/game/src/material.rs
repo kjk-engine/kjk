@@ -1569,7 +1569,12 @@ pub fn sort_key_probes() -> sim::probe::Checks {
         ),
         is(
             "a header float of -1 does not fall back to the TXI's alphamean",
-            key(PixelFormat::Rgba8, half.clone(), "alphamean 0.25", Some(-1.0)),
+            key(
+                PixelFormat::Rgba8,
+                half.clone(),
+                "alphamean 0.25",
+                Some(-1.0),
+            ),
             0.5,
         ),
         is(
