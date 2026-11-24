@@ -404,7 +404,16 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 118: a fighter keeps when its last stun baton swing began
 /// (`Fighter::swung_at`). Old saves: old saves read `swung_at = 0`: a baton
 /// swing under way when the game was saved deals no blow after loading.
-pub const VERSION: u32 = 118 + crate::pending::SNAPSHOT;
+/// 119: an action bar slot can hold a device, an item the party carries that
+/// its user uses on itself, such as the Sonic Emitter (`bar::Content::Device`),
+/// and the bar keeps the devices its fill has already put on it
+/// (`bar::Contents::devices`). Old saves: an older save's bar has seen no
+/// device, so the next step puts each device the party carries in the first
+/// empty slot of each member's bar.
+/// 120: a conversation keeps the reply shown before it runs
+/// (`Conversation::chosen`). Old saves: an older snapshot reads no reply shown:
+/// no conversation in it was showing one.
+pub const VERSION: u32 = 120 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
