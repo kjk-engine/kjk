@@ -1,0 +1,5 @@
+# A player's use while a script has the player attacking waits in the
+# player's action queue behind the attack, as KOTOR queues a click. A
+# script's walk of the companion the host leads moves it by the script's
+# route in co-op too, as it moves the host's own character.
+sim = "a use during a script's attack is queued behind it (`Action::UseObject`); a script walks the companion the host leads (`Driven`)"

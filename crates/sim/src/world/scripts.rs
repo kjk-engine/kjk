@@ -337,6 +337,15 @@ fn struck_with(state: &mut State, by: u32) {
     };
 }
 
+/// Whether a script's attack waits in `who`'s action queue (`ActionAttack`).
+fn attacking(state: &State, who: ObjectId) -> bool {
+    use script::actions::Action;
+    state.actions.get(&who.0).is_some_and(|queue| {
+        (queue.iter())
+            .any(|queued| matches!(queued.action, Action::Attack { .. } | Action::Bash { .. }))
+    })
+}
+
 /// Whether the moment `phase` (ms) of every `period` falls in this step,
 /// the one ending at `now_ms`, `msec` long.
 pub(super) fn moment(now_ms: u64, msec: u32, period: u64, phase: u64) -> bool {
@@ -1325,6 +1334,18 @@ pub(super) fn scripts(
         }
         if view.thing(object).and_then(|thing| thing.kind) == Some(ObjectKind::Door) {
             doors.push((object, player));
+        } else if attacking(state, player) {
+            // A use while a script has the user attacking waits behind the
+            // attack, as KOTOR queues a click behind the character's
+            // actions. The script that hears the blow can then clear it.
+            // Peragus's turbolift console is destroyed by an attack on a
+            // hidden object beside it (`a_bash_console`). The blow's script
+            // (`k_destroytu`) clears the player's actions and starts the
+            // conversation that unlocks the door. The console's menu,
+            // opened at once by a use during the attack, held the world
+            // then, so that conversation was refused and the door stayed
+            // locked for good.
+            state.queue(player, script::actions::Action::UseObject { object });
         } else {
             talk_to(&view, state, object, player);
         }
