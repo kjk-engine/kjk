@@ -77,6 +77,11 @@ struct Mesh {
     push: Option<Vec<[f32; 4]>>,
 }
 
+/// How far a link between two chains must stretch, as a share of its rest
+/// length, for its frame to count as spread. The cloth drawn between two
+/// chains stretched this far shows as a long thin triangle.
+const SPREAD_FROM: f32 = 1.5;
+
 /// Steps the solver of `options.body` on the record and counts, in each
 /// frame, the boot vertices through the robe's back. Returns the report.
 pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, String> {
@@ -124,6 +129,8 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
     let (mut steps, mut solving) = (0usize, 0.0f64);
     let mut locals = Vec::new();
     let mut squeezes: Vec<f32> = Vec::new();
+    let mut spread_frames = 0usize;
+    let mut spread_most = 0.0f32;
     let mut last_ms = None;
     let (mut moving, mut heading) = (None, Vec3::ZERO);
     for line in text.lines() {
@@ -184,6 +191,12 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
                 .filter(|&(_, _, rest, _)| rest > 0.0)
                 .map(|(_, _, rest, now)| (1.0 - now / rest).max(0.0)),
         );
+        let widest = (solver.links())
+            .filter(|&(_, _, rest, _)| rest > 0.0)
+            .map(|(_, _, rest, now)| now / rest)
+            .fold(0.0f32, f32::max);
+        spread_frames += usize::from(widest > SPREAD_FROM);
+        spread_most = spread_most.max(widest);
         let world: Vec<Mat4> = walked(&parents, &locals)
             .iter()
             .map(|f| {
@@ -283,7 +296,7 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
             .unwrap_or(0.0)
     };
     let squeeze = format!(
-        "; links between chains squeezed: median {:.2}, 90% {:.2}, 99% {:.2}",
+        "; links between chains squeezed: median {:.2}, 90% {:.2}, 99% {:.2}; {spread_frames} frames with a link stretched past {SPREAD_FROM} times its rest, {spread_most:.1} times at most",
         at(0.5),
         at(0.9),
         at(0.99)

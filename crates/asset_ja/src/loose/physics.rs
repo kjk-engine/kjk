@@ -94,7 +94,10 @@ pub struct Defaults {
 ///   backflip, where 1.2 lifted it less. A robe's bend is 3e-5, against a
 ///   cape's 2e-3. At 1e-3, 6.5% of a robe's joints folded past a right
 ///   angle in a run of flips and spins, and the skirt crumpled like paper.
-///   At 3e-5, 0.4% do.
+///   At 3e-5, 0.4% do. A robe's links are 1e-6, 100 times stiffer than
+///   at first. At 1e-4 a leg thrust between two strands spread them up to
+///   6 times their rest distance, and the cloth between them was drawn as
+///   long spikes. At 1e-6 they spread less than 3 times on a KOTOR robe.
 /// - **Flap.** A short piece, such as a belt strip, a thigh flap or a piece
 ///   on the chest.
 /// - **Sleeve.** A sleeve hangs from a forearm and swings with the arm. It
@@ -140,7 +143,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             aero: 2.5,
             radius: 0.04,
             hang: 0.6,
-            link: 1e-4,
+            link: 1e-6,
         },
     ),
     (

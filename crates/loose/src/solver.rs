@@ -943,12 +943,29 @@ impl Solver {
 
     /// One pass over the constraints that keep the shape. They are the
     /// lengths, the bends, the siblings, the links, the pull toward the
-    /// target and the tethers.
+    /// target and the tethers. A link pulls two strands together, as cloth
+    /// that barely stretches but folds freely, and pushes them apart only
+    /// nearer than `FOLD_LEAST` of its rest length. A link that pushed at
+    /// any length held a robe's skirt flared at its rest pose's width,
+    /// wider than its hanging target.
     fn constrain(&mut self, h: f32) {
         let scale = 1.0 / (h * h);
-        for list in [&self.lengths, &self.siblings, &self.bends, &self.links] {
+        for list in [&self.lengths, &self.siblings, &self.bends] {
             for &distance in list {
                 keep_distance(&mut self.positions, &self.points, distance, scale);
+            }
+        }
+        for index in 0..self.links.len() {
+            let link = self.links[index];
+            let now = self.positions[link.a].distance(self.positions[link.b]);
+            let least = Distance {
+                rest: link.rest * FOLD_LEAST,
+                ..link
+            };
+            if now < least.rest {
+                keep_distance(&mut self.positions, &self.points, least, scale);
+            } else if now > link.rest {
+                keep_distance(&mut self.positions, &self.points, link, scale);
             }
         }
         for index in 0..self.points.len() {
@@ -1013,6 +1030,7 @@ impl Solver {
         if tracing {
             self.record.before_bones(&self.positions);
         }
+        let before_contacts = self.positions.clone();
         self.segments();
         if tracing {
             self.record.after_bones(&self.positions);
@@ -1104,6 +1122,15 @@ impl Solver {
             for &distance in &self.lengths {
                 keep_distance(&mut self.positions, &self.points, distance, scale);
             }
+        }
+        let moved = self.positions.iter().zip(&before_contacts);
+        for ((&now, &before), previous) in moved.zip(&mut self.previous) {
+            let Some(normal) = (now - before).try_normalize() else {
+                continue;
+            };
+            let velocity = now - *previous;
+            let sliding = velocity - normal * velocity.dot(normal);
+            *previous += sliding * FRICTION;
         }
     }
 
@@ -1209,7 +1236,10 @@ impl Solver {
     /// that bound, a contact next to a pinned root would throw the free end
     /// by the depth divided by its tiny share of the bone, metres away in
     /// one substep. Such a contact is then only partly cleared, and the free
-    /// point's own capsule test does the rest.
+    /// point's own capsule test does the rest. A bone is never kept farther
+    /// from a capsule's axis than its target bone is. A KOTOR robe's back
+    /// strands hang from inside the fitted thigh, and the thigh held them
+    /// out behind the body as rods.
     fn segments(&mut self) {
         let Some(collision) = &self.collision else {
             return;
@@ -1228,7 +1258,17 @@ impl Solver {
                 );
                 let out = on_bone - on_axis;
                 let distance = out.length();
-                if distance >= contact.radius {
+                let (_, on_target, on_target_axis) = closest_between(
+                    (self.targets_now[parent], self.targets_now[index]),
+                    (capsule.ends[0], capsule.ends[1]),
+                );
+                let radius = contact
+                    .radius
+                    .min(on_target.distance(on_target_axis) - INSIDE_MARGIN);
+                if radius < SMALLEST {
+                    continue;
+                }
+                if distance >= radius {
                     continue;
                 }
                 let way = if distance > 1e-6 {
@@ -1251,9 +1291,9 @@ impl Solver {
                     .is_some_and(|b| b.lower_leg(contact.capsule));
                 let outward = self.outward[index];
                 let out = (lower && self.points[parent].weight > 0.0)
-                    .then(|| out_along(on_bone, capsule, contact.radius, outward))
+                    .then(|| out_along(on_bone, capsule, radius, outward))
                     .flatten()
-                    .map_or(way * (contact.radius - distance), |exit| exit - on_bone);
+                    .map_or(way * (radius - distance), |exit| exit - on_bone);
                 let push = out / sum;
                 self.positions[parent] += push * near_parent;
                 self.positions[index] += push * near_point;
@@ -1261,7 +1301,7 @@ impl Solver {
                     self.record.pushes[index].push(Push {
                         capsule: contact.capsule,
                         share,
-                        depth: contact.radius - distance,
+                        depth: radius - distance,
                         point: (push * near_point).length(),
                         parent: (push * near_parent).length(),
                     });
@@ -1527,6 +1567,15 @@ fn keep_apart(positions: &mut [Vec3], points: &[Resolved], targets: &[Vec3], apa
     positions[q1] -= push * (w1 * t);
 }
 
+/// The share of its speed along a body part that a point pushed out of it
+/// loses in a substep. Without it, a robe resting on a leg slid around it
+/// in every substep and flapped instead of sitting still.
+const FRICTION: f32 = 0.1;
+/// The share of its rest length below which a link pushes its strands
+/// apart. At 0.5 a leg kicked through a skirt pushed one strand 6 mm into
+/// the capsule. At 0.85 a robe held its flare 16% less than with links
+/// that pushed at any length.
+const FOLD_LEAST: f32 = 0.85;
 /// How many more times a point under a pinned root is pushed out of its
 /// capsules and put back at its bone's length. Each time turns its bone
 /// further out of a capsule near the root, such as the trunk's over a
