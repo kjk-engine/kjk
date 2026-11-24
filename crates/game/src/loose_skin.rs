@@ -248,15 +248,30 @@ pub(crate) struct LegWrites {
 
 impl LegWrites {
     /// Sends model `model`'s capsules and ripples this frame, with those it
-    /// sent the frame before. A model past `ENTRIES` is left out.
+    /// sent the frame before. A model past `ENTRIES` is left out. `weight`,
+    /// from 0 to 1, scales the push, the folds and the flutter, while the
+    /// body blends between its clips and the solver. It scales each
+    /// capsule's scale, which scales its radius and the depth that a vertex
+    /// rests inside it alike (`LegCapsule::packed`). The radius a vertex
+    /// keeps from the leg's axis is then that share of the full one.
     pub(crate) fn set(
         &mut self,
         model: usize,
-        now: [LegCapsule; CAPSULES],
-        ripples: [Ripple; CHAINS],
+        mut now: [LegCapsule; CAPSULES],
+        mut ripples: [Ripple; CHAINS],
+        weight: f32,
     ) {
         if model >= ENTRIES {
             return;
+        }
+        if weight < 1.0 {
+            for capsule in &mut now {
+                capsule.scale *= weight;
+            }
+            for ripple in &mut ripples {
+                ripple.height *= weight;
+                ripple.squeeze *= weight;
+            }
         }
         let (was, ripples_was) = (self.last)
             .insert(model, (now, ripples))

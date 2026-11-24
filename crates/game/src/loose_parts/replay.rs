@@ -82,6 +82,14 @@ struct Mesh {
 /// chains stretched this far shows as a long thin triangle.
 const SPREAD_FROM: f32 = 1.5;
 
+/// The solver's substeps per second for the replay, from
+/// `KJK_LOOSE_RATE`, to test a rate lower than the game's 240 for the
+/// robes far from the camera (`loose_parts::REDUCED_RATE`).
+fn replay_rate() -> Option<f32> {
+    let rate = std::env::var("KJK_LOOSE_RATE").ok()?.parse::<f32>().ok()?;
+    (rate > 0.0).then_some(rate)
+}
+
 /// Steps the solver of `options.body` on the record and counts, in each
 /// frame, the boot vertices through the robe's back. Returns the report.
 pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, String> {
@@ -122,6 +130,9 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
         None => None,
     };
     let mut solver = model.solver.clone();
+    if let Some(rate) = replay_rate() {
+        solver.set_rate(rate);
+    }
     let mut body = None;
     let mut csv = String::from("ms,through,sunk\n");
     let (mut frames, mut shows, mut total) = (0usize, 0usize, 0usize);

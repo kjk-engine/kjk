@@ -3815,6 +3815,11 @@ impl Cast {
         }
         self.body_clips.clear();
         self.worn.clear();
+        let players: Vec<SimId> = newest.map_or_else(Vec::new, |newest| {
+            (0..newest.seats())
+                .filter_map(|seat| Some(newest.body(Seat(seat))?.id))
+                .collect()
+        });
         let mut placing = Vec::new();
         for (&id, member) in &mut self.members {
             let Some(member) = member else {
@@ -3982,6 +3987,7 @@ impl Cast {
                     floor: (member.floor.as_ref())
                         .and_then(|(_, floor)| floor.as_ref())
                         .map(|floor| floor.z),
+                    player: players.contains(&id),
                 });
             }
             if !still {

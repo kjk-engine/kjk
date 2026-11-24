@@ -375,6 +375,9 @@ const ULTRA: &str = "ultra";
 /// The ambient occlusion setting (`game::ambient_occlusion`).
 const AO_KEY: &str = "display.ambient_occlusion";
 
+/// The cloth physics setting (`game::loose_parts::ClothPhysics`).
+const CLOTH_KEY: &str = "display.cloth";
+
 /// Whether `value` of `key` may be chosen as far as Movie Duels goes:
 /// every value with Movie Duels installed, and without it only those
 /// `JA_OWN` lists. A value held back is shown and played as the first.
@@ -456,6 +459,15 @@ const EFFECTS: &[(&str, &str)] = &[
 const AMBIENT_OCCLUSION: &[(&str, &str)] = &[
     ("off", strings::AMBIENT_OCCLUSION_OFF),
     ("on", strings::AMBIENT_OCCLUSION_ON),
+];
+
+/// Cloth Physics: which characters' robes and capes move with physics
+/// (`display.cloth`).
+const CLOTH: &[(&str, &str)] = &[
+    ("off", strings::CLOTH_OFF),
+    ("low", strings::CLOTH_LOW),
+    ("medium", strings::CLOTH_MEDIUM),
+    ("high", strings::CLOTH_HIGH),
 ];
 
 const DEAD_ZONES: &[(&str, &str)] = &[
@@ -738,9 +750,11 @@ const PAGES: [Spec; 12] = [
             // Lighting sits in KOTOR 2's Frame Buffer Effects box. That box
             // turned the game's own glow on and off.
             ("CB_FRAMEBUFF", Stepped("display.lighting", LIGHTING)),
-            ("BTN_TEXQUAL", Greyed),
-            ("BTN_TEXQUALLEFT", Greyed),
-            ("BTN_TEXQUALRIGHT", Greyed),
+            // Cloth Physics sits in KOTOR 2's Texture Quality row, which
+            // kjk does not use.
+            ("BTN_TEXQUAL", Cycle(CLOTH_KEY, CLOTH, Step::Shown)),
+            ("BTN_TEXQUALLEFT", Cycle(CLOTH_KEY, CLOTH, Step::Back)),
+            ("BTN_TEXQUALRIGHT", Cycle(CLOTH_KEY, CLOTH, Step::On)),
             // Ambient Occlusion sits in KOTOR 2's Anisotropy row, which kjk
             // does not use, just above Lighting.
             (
@@ -765,7 +779,9 @@ const PAGES: [Spec; 12] = [
             ("BTN_ANTIALIAS", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
-            ("BTN_TEXQUAL", Told(48712)),
+            ("BTN_TEXQUAL", Ours(strings::CLOTH_HELP)),
+            ("BTN_TEXQUALLEFT", Ours(strings::CLOTH_HELP)),
+            ("BTN_TEXQUALRIGHT", Ours(strings::CLOTH_HELP)),
             ("CB_FRAMEBUFF", Ours(strings::LIGHTING_HELP)),
             ("BTN_ANISOTROPY", Ours(strings::AMBIENT_OCCLUSION_HELP)),
             ("BTN_ANISOTROPYLEFT", Ours(strings::AMBIENT_OCCLUSION_HELP)),

@@ -26,6 +26,7 @@ KJK_LOOSE_PAINT=1 kjk play …          # the bodies the robe solver moves are d
 KJK_LOOSE_TRACE=t.jsonl kjk play …    # the robe and cape solver writes one JSON line per body per frame, and one per substep from KJK_LOOSE_TRACE_FROM to KJK_LOOSE_TRACE_TO seconds of game time; the log lists each model's points (`game::loose_parts`)
 KJK_LOOSE_RECORD=r.jsonl kjk play …   # the robe and cape solver writes the animated skeleton it reads, one JSON line per body per frame, for `kjk loose-replay` (`game::loose_parts`)
 KJK_LOOSE_OVERLAY=1 kjk play …        # draws the robe solver's capsules, points, bones and targets over a body in play; KJK_LOOSE_GHOST=0.5 fades that body (`game::loose_view`)
+KJK_CLOTH_AT=3:off,5:high kjk play …  # the Cloth Physics level changes at those seconds of game time, to record a robe blending between its clips and the solver (`game::loose_parts`)
 KJK_SIDE_CAM=90,3.2,1,8,40 kjk play --camera side …  # places the side camera: yaw around the player from the side, distance, height, pitch and field of view, here behind the player
 KJK_STEP_BATCH=off kjk …              # each frame steps all but its last tick on the main thread, as before the step thread took them all (docs/SIM.md, "The step thread")
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
@@ -57,6 +58,7 @@ kjk view k1 n_darthmalak --clip cut013w --clip-from m44aa_c02_char02 --bones --g
 kjk rig a --game tsl --body pmbim --head pmha01 --moves acrobatics --capsules --marks --bones --ghost 0.4   # the 14 ragdoll capsules over a robed body doing acrobatics
 kjk rig a --game tsl --body pmbim --head pmha01 --moves acrobatics --sim   # the robe moved by the robe and cape solver (docs/RAGDOLLS.md)
 kjk loose-replay tsl pmbim r.jsonl --frames f.csv   # the robe solver stepped again on a KJK_LOOSE_RECORD record, the same way every time, with a count of the boot vertices through the robe's back in each frame and the solver's time per step (`game::loose_parts::replay`)
+KJK_LOOSE_RATE=120 kjk loose-replay tsl pmbim r.jsonl   # the same, with the solver at 120 substeps a second instead of 240, to test a lower rate against passing through the body (`game::loose_parts::replay`)
 ```
 
 `KJK_HOME` names kjk's folder for its settings, saves and logs. When the

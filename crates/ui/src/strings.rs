@@ -179,6 +179,18 @@ pub const AMBIENT_OCCLUSION_ON: &str = "Ambient Occlusion: On";
 pub const AMBIENT_OCCLUSION_HELP: &str = "Adds soft shade in corners, and where characters and objects stand close to each other, to walls or to the floor.
 
 Ambient Occlusion needs Enhanced lighting, and TAA or DLSS anti-aliasing. With other settings it has no effect.";
+pub const CLOTH_OFF: &str = "Cloth Physics: Off";
+pub const CLOTH_LOW: &str = "Cloth Physics: Low";
+pub const CLOTH_MEDIUM: &str = "Cloth Physics: Medium";
+pub const CLOTH_HIGH: &str = "Cloth Physics: High";
+pub const CLOTH_HELP: &str = "Sets which characters' robes and capes swing and fly with physics. Physics also keeps a character's legs inside their robe.
+
+Off: robes and capes move as in the original game.
+Low: only your own character's robe or cape moves with physics. In co-op, each player's character does.
+Medium: characters within 12 metres of the camera move with physics. Characters from 12 to 25 metres away move with physics at half the rate. Characters farther away or out of view move as in the original game.
+High: every character moves with physics. This costs the most on the processor.
+
+A change to or from Off takes full effect the next time the game starts.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.

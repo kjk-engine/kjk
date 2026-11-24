@@ -573,6 +573,18 @@ impl Solver {
         self.before = None;
     }
 
+    /// The substeps per second of game time (`Settings::rate`).
+    pub fn rate(&self) -> f32 {
+        self.settings.rate
+    }
+
+    /// Sets the substeps per second from the next step on. The time left
+    /// over from the last step is kept, up to one substep at the new rate.
+    pub fn set_rate(&mut self, rate: f32) {
+        self.settings.rate = rate;
+        self.carry = self.carry.min(1.0 / rate);
+    }
+
     /// Steps the points by `seconds` of game time. `model` is the model's
     /// place in the world, and `locals` is each skeleton node's animated
     /// frame in its parent's frame. The floor is a height in the world.

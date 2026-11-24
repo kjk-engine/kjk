@@ -322,7 +322,8 @@ pub(crate) enum Verb {
         /// and `enhanced` for the Lighting setting. `effects-high` and
         /// `effects-low` set the Effects Quality setting alone. `ao-off`
         /// and `ao-on` set Ambient Occlusion alone, over TAA and Enhanced
-        /// lighting. `taa`,
+        /// lighting. `cloth-off`, `cloth-low`, `cloth-medium` and
+        /// `cloth-high` set Cloth Physics alone. `taa`,
         /// `taa-quality`, `taa-balanced`, `taa-performance`,
         /// `taa-ultra-performance` and `dlss-performance` set the
         /// anti-aliasing alone

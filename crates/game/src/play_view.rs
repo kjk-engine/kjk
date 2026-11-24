@@ -1788,7 +1788,11 @@ fn draw(
     // A cutscene's next staged line is a cut, which puts every robe back on
     // its target.
     let line = staged_line(view);
-    loose.posed(std::mem::take(&mut view.cast.worn), line != view.staged);
+    loose.posed(
+        std::mem::take(&mut view.cast.worn),
+        line != view.staged,
+        camera.map(|_| crate::loose_parts::Seen { eye, sees }),
+    );
     view.staged = line;
     // What KOTOR's clips' own events bring as drawn (`clip_events`): the
     // scripts' and rounds' clips, and a cutscene's stunts.

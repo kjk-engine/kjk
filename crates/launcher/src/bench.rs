@@ -370,6 +370,12 @@ fn preset(name: &str) -> Option<Value> {
             "display.lighting": "enhanced",
             "display.ambient_occlusion": "on",
         }),
+        // The Cloth Physics setting alone (`game::loose_parts::ClothPhysics`).
+        // The robe_acrobatics scene weighs it.
+        "cloth-off" => json!({ "display.cloth": "off" }),
+        "cloth-low" => json!({ "display.cloth": "low" }),
+        "cloth-medium" => json!({ "display.cloth": "medium" }),
+        "cloth-high" => json!({ "display.cloth": "high" }),
         // The anti-aliasing setting alone: TAA at the window's size, kjk's
         // upscaler at its four sizes, and DLSS at a half of the side where
         // the build and the card have it. The lighting plan's step 6a
@@ -750,20 +756,29 @@ fn dangly_between(first: &Value, last: &Value) -> Option<Value> {
 }
 
 /// The robe and cape solver's mean time and work per frame between two
-/// dumps, and whether it was on.
+/// dumps, whether it was on, and its Cloth Physics level. A build from
+/// before the level has no `level`, and its counts of bodies by tier are
+/// left out.
 fn loose_between(first: &Value, last: &Value) -> Option<Value> {
     let between = |key: &str| {
         Some(last["facts"]["loose"][key].as_f64()? - first["facts"]["loose"][key].as_f64()?)
     };
     let frames = between("frames").filter(|frames| *frames > 0.0)?;
-    Some(json!({
+    let mut loose = json!({
         "on": last["facts"]["loose"]["on"],
+        "level": last["facts"]["loose"]["level"],
         "solve_ms": between("ms_sum")? / frames,
         "bodies": between("bodies_sum")? / frames,
         "points": between("points_sum")? / frames,
         "substeps": between("substeps_sum")? / frames,
         "resets": between("resets_sum")? / frames,
-    }))
+    });
+    for key in ["reduced", "blending", "animated"] {
+        if let Some(count) = between(&format!("{key}_sum")) {
+            loose[key] = json!(count / frames);
+        }
+    }
+    Some(loose)
 }
 
 fn depth_prepass_between(first: &Value, last: &Value) -> Option<Value> {
@@ -817,7 +832,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         report.check(
             false,
             format!(
-                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, ao-off, ao-on, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, ao-off, ao-on, cloth-off, cloth-low, cloth-medium, cloth-high, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
                 options.preset
             ),
         );

@@ -29,6 +29,25 @@
 //! `KJK_LOOSE=off` turns the solver off for the run. The clips then keep
 //! their keys on every loose bone.
 //!
+//! The options' Cloth physics (`ClothPhysics`) chooses which bodies the
+//! solver moves. At Off, the solver is off for the run, as with
+//! `KJK_LOOSE=off`. At Low, it moves only the players' own characters. At
+//! Medium, it moves the bodies near the camera at the full rate and those
+//! farther away at `REDUCED_RATE`, and leaves those far away or out of view
+//! to their clips (`Tier`). At High, it moves every body at the full rate.
+//! A body that starts or stops being moved blends between its clips and
+//! the solver over `BLEND_SECONDS`, its push out of the legs, its folds
+//! and its flutter with it (`loose_skin::LegWrites::set`).
+//!
+//! Low, Medium and High change in play. Off is read once, when the game
+//! starts (`off_at_start`). The solver changes the models as they are
+//! read: it gives them generated skirt chains (`add_skirt_chains`) and
+//! drops their clips' keys on the bones it moves (`dropped`). A model
+//! already read keeps those changes until the game starts again. Turned to
+//! Off in play, every body blends back to its clips and its push fades,
+//! but the robes keep their generated chains and their dropped keys. Turned
+//! from Off in play, nothing is moved until the game starts again.
+//!
 //! What the finder finds, and each model's solver, are kept once per model
 //! name for the whole process. One process plays one game, so a name names
 //! one model.
@@ -71,8 +90,176 @@ pub(crate) fn solve_in_this_run(on: bool) {
     SOLVING.store(on, Ordering::Relaxed);
 }
 
+/// Whether the options' Cloth physics was Off when the game started. The
+/// settings set it when they are read (`settings::SettingsPlugin`), before
+/// any model is read. Nothing turns it back on for the run.
+static OFF_AT_START: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn off_at_start() {
+    OFF_AT_START.store(true, Ordering::Relaxed);
+}
+
 fn running() -> bool {
-    SOLVING.load(Ordering::Relaxed)
+    SOLVING.load(Ordering::Relaxed) && !OFF_AT_START.load(Ordering::Relaxed)
+}
+
+/// The options' Cloth physics (`display.cloth`): which bodies the solver
+/// moves, and how often.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ClothPhysics {
+    /// No solver and no push out of the legs. Robes and capes move as in
+    /// the original games.
+    Off,
+    /// Only the players' own characters, at the full rate.
+    Low,
+    /// The bodies near the camera at the full rate, those farther away at
+    /// `REDUCED_RATE`, and none far away or out of view (`Tier`).
+    #[default]
+    Medium,
+    /// Every body at the full rate.
+    High,
+}
+
+impl ClothPhysics {
+    /// The value named by a value from the settings file.
+    pub fn named(value: &str) -> ClothPhysics {
+        match value {
+            "off" => ClothPhysics::Off,
+            "low" => ClothPhysics::Low,
+            "high" => ClothPhysics::High,
+            _ => ClothPhysics::Medium,
+        }
+    }
+
+    /// Its value in the settings file.
+    pub fn name(self) -> &'static str {
+        match self {
+            ClothPhysics::Off => "off",
+            ClothPhysics::Low => "low",
+            ClothPhysics::Medium => "medium",
+            ClothPhysics::High => "high",
+        }
+    }
+}
+
+/// How a body's robe moves this frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Tier {
+    /// Stepped at the solver's full rate, 240 substeps a second.
+    Full,
+    /// Stepped at `REDUCED_RATE`.
+    Reduced,
+    /// Not stepped. The robe follows its clips.
+    Animated,
+}
+
+/// How long a body takes to blend from its clips to the solver, or back
+/// (seconds of game time). A quarter of a second is 15 frames at 60 frames
+/// a second. A robe that swings 60 degrees from its rest pose turns back
+/// about 4 degrees a frame, which reads as the robe settling, not as a
+/// jump.
+const BLEND_SECONDS: f32 = 0.25;
+
+/// At Medium, a body this close to the camera (metres) is stepped at the
+/// full rate. At the game's view angle of 55 degrees, a body of 1.8 m is
+/// then at least 14% of the frame's height (150 pixels of 1080), and its
+/// robe about 75. The solver's limits against passing through the body
+/// were tuned at the full rate, and a robe this large shows a leg through
+/// it.
+const FULL_WITHIN: f32 = 12.0;
+
+/// At Medium, a body this close to the camera (metres), and farther than
+/// `FULL_WITHIN`, is stepped at `REDUCED_RATE`. Its robe is then 35 to 75
+/// pixels tall in a frame 1080 pixels high, so a few centimetres of cloth
+/// in a leg is one or two pixels. It is within the cast's `POSE_RANGE` of
+/// 30 m, past which a body is posed only every few frames and could not be
+/// stepped every frame anyway. Past it the robe follows its clips.
+const REDUCED_WITHIN: f32 = 25.0;
+
+/// How much farther a body may go (metres) before it drops to the next
+/// tier, so that a body that stands at the line does not switch back and
+/// forth every frame.
+const TIER_MARGIN: f32 = 1.0;
+
+/// The solver's substeps per second for a body at `Tier::Reduced`, half of
+/// the full 240. It was tested on the 14 records of play that weigh the
+/// solver against passing through the body (`replay::replay_rate`). At 240
+/// they gave 1 frame of 12,569 with 10 or more robe corners sunk in the
+/// body, and 1,119 frames with 3 or more boot vertices through the robe's
+/// back. At 120 they gave 0 and 1,353. At 80 they gave 5 and 1,464. At 120
+/// the robe sinks no more, and a boot shows through it in 10.8% of the
+/// frames instead of 8.9%. At `FULL_WITHIN` and farther, a few boot
+/// vertices through the robe are a pixel or two.
+const REDUCED_RATE: f32 = 120.0;
+
+/// The solver's full substeps per second (`loose::Settings::rate`).
+const FULL_RATE: f32 = 240.0;
+
+/// At Medium, a body counts as in view while a sphere this large (metres)
+/// around its middle touches the camera's view. A body just past the
+/// frame's edge is then still moved, so that one that comes into view is
+/// already moving.
+const IN_VIEW_RADIUS: f32 = 2.5;
+
+/// The levels that `KJK_CLOTH_AT` sets during the run, a debugging aid to
+/// record a body blending between its clips and the solver. Each is a game
+/// time in seconds and a level, such as `3:off,5:high`.
+fn scheduled_levels() -> &'static [(f64, ClothPhysics)] {
+    static LEVELS: OnceLock<Vec<(f64, ClothPhysics)>> = OnceLock::new();
+    LEVELS.get_or_init(|| {
+        let Ok(spec) = std::env::var("KJK_CLOTH_AT") else {
+            return Vec::new();
+        };
+        let mut levels: Vec<(f64, ClothPhysics)> = (spec.split(','))
+            .filter_map(|one| {
+                let (at, level) = one.split_once(':')?;
+                Some((at.trim().parse().ok()?, ClothPhysics::named(level.trim())))
+            })
+            .collect();
+        levels.sort_by(|a, b| a.0.total_cmp(&b.0));
+        levels
+    })
+}
+
+/// Where the camera was last frame, in game space (metres), and what it
+/// saw, for Medium's tiers.
+pub(crate) struct Seen {
+    pub(crate) eye: Vec3,
+    pub(crate) sees: Option<bevy::camera::primitives::Frustum>,
+}
+
+/// The tier of a body at `level`, standing at `at` (game space, metres).
+/// `was` is its tier last frame, and `seen` the camera.
+fn tier(level: ClothPhysics, (player, at): (bool, Vec3), seen: Option<&Seen>, was: Tier) -> Tier {
+    match level {
+        ClothPhysics::Off => Tier::Animated,
+        ClothPhysics::Low if player => Tier::Full,
+        ClothPhysics::Low => Tier::Animated,
+        ClothPhysics::High => Tier::Full,
+        ClothPhysics::Medium => {
+            let Some(seen) = seen.filter(|_| !player) else {
+                return Tier::Full;
+            };
+            let kept = |tier: Tier| if was <= tier { TIER_MARGIN } else { 0.0 };
+            let in_view = seen.sees.is_none_or(|sees| {
+                let sphere = bevy::camera::primitives::Sphere {
+                    center: (crate::scene::game_to_bevy() * (at + Vec3::Z)).into(),
+                    radius: IN_VIEW_RADIUS + kept(Tier::Reduced),
+                };
+                sees.intersects_sphere(&sphere, true)
+            });
+            let distance = at.distance(seen.eye);
+            if !in_view {
+                Tier::Animated
+            } else if distance <= FULL_WITHIN + kept(Tier::Full) {
+                Tier::Full
+            } else if distance <= REDUCED_WITHIN + kept(Tier::Reduced) {
+                Tier::Reduced
+            } else {
+                Tier::Animated
+            }
+        }
+    }
 }
 
 /// Gives the body model `ir` its generated skirt chains
@@ -831,6 +1018,8 @@ pub(crate) struct Worn {
     pub(crate) ms: f64,
     /// The height of the floor last found under the body (metres).
     pub(crate) floor: Option<f32>,
+    /// Whether the body is a player's own character.
+    pub(crate) player: bool,
 }
 
 /// One body's solver between frames, in play or in a viewer, and the turns
@@ -911,6 +1100,12 @@ struct State {
     model: usize,
     /// Each chain's ripple, sent to the vertex shader (`loose_skin`).
     ripples: [crate::loose_skin::Ripple; crate::loose_skin::CHAINS],
+    /// How much the solver's turns weigh against the clips', from 0 to 1.
+    /// The push, the folds and the flutter are scaled by it.
+    weight: f32,
+    tier: Tier,
+    /// The game time the body was last posed at (ms).
+    posed: Option<f64>,
 }
 
 impl State {
@@ -921,7 +1116,31 @@ impl State {
             last: None,
             model,
             ripples: Default::default(),
+            weight: 0.0,
+            tier: Tier::Animated,
+            posed: None,
         }
+    }
+
+    /// Moves the body to `tier` for the frame posed at `ms`, and its weight
+    /// toward the tier's by the game time since it was last posed. Returns
+    /// whether the solver steps it this frame.
+    fn enter(&mut self, tier: Tier, ms: f64) -> bool {
+        let seconds = self.posed.map_or(0.0, |was| ((ms - was) / 1000.0) as f32);
+        self.posed = Some(ms);
+        let wanted = if tier == Tier::Animated { 0.0 } else { 1.0 };
+        let change = (seconds.max(0.0) / BLEND_SECONDS).min(1.0);
+        self.weight += (wanted - self.weight).clamp(-change, change);
+        self.tier = tier;
+        let rate = if tier == Tier::Reduced {
+            REDUCED_RATE
+        } else {
+            FULL_RATE
+        };
+        if self.wearing.solver.rate() != rate {
+            self.wearing.solver.set_rate(rate);
+        }
+        tier != Tier::Animated || self.weight > 0.0
     }
 
     /// A step to the game time of `worn` in frame `frame`. The points go
@@ -1082,6 +1301,7 @@ impl State {
 pub(crate) struct Solving {
     worn: Vec<Worn>,
     cut: bool,
+    seen: Option<Seen>,
     states: HashMap<Entity, State>,
     /// The models whose entry of `loose_skin::LEGS` must be emptied.
     freed: Vec<usize>,
@@ -1090,11 +1310,13 @@ pub(crate) struct Solving {
 }
 
 impl Solving {
-    /// The bodies the cast posed this frame, and whether a cutscene cut to
-    /// another staged line. `solve` steps them later in the frame.
-    pub(crate) fn posed(&mut self, worn: Vec<Worn>, cut: bool) {
+    /// The bodies the cast posed this frame, whether a cutscene cut to
+    /// another staged line, and the camera. `solve` steps them later in the
+    /// frame.
+    pub(crate) fn posed(&mut self, worn: Vec<Worn>, cut: bool, seen: Option<Seen>) {
         self.worn = worn;
         self.cut = cut;
+        self.seen = seen;
     }
 }
 
@@ -1106,15 +1328,21 @@ struct Totals {
     points: u64,
     substeps: u64,
     resets: u64,
+    reduced: u64,
+    blending: u64,
+    animated: u64,
 }
 
-/// Steps the solver of every body the cast posed this frame, and turns its
-/// loose bones. Bodies are solved in parallel on the compute pool from
-/// `cast::PARALLEL_FROM` of them.
+/// Steps the solver of every body the cast posed this frame that its tier
+/// moves (`tier`), and turns its loose bones by the body's weight. Bodies
+/// are solved in parallel on the compute pool from `cast::PARALLEL_FROM`
+/// of them. A body back on its clips is forgotten, and its next step
+/// starts from its target pose.
 fn solve(
     mut debug_view: ResMut<DebugView>,
     mut solving: ResMut<Solving>,
     mut transforms: Query<&mut Transform>,
+    mut level: ResMut<ClothPhysics>,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
 ) {
     let started = Instant::now();
@@ -1122,6 +1350,19 @@ fn solve(
     solving.frame += 1;
     let (frame, cut) = (solving.frame, std::mem::take(&mut solving.cut));
     let worn = std::mem::take(&mut solving.worn);
+    let seen = solving.seen.take();
+    if let Some(one) = worn.first()
+        && let Some(&(_, scheduled)) = (scheduled_levels().iter())
+            .rev()
+            .find(|(at, _)| *at * 1000.0 <= one.ms)
+        && level.set_if_neq(scheduled)
+    {
+        info!(
+            "cloth physics {} at {:.2} s",
+            scheduled.name(),
+            one.ms / 1000.0
+        );
+    }
     let states = &mut solving.states;
     let freed = &mut solving.freed;
     states.retain(|&root, state| {
@@ -1139,14 +1380,25 @@ fn solve(
             || !Arc::ptr_eq(&state.wearer.nodes, &one.wearer.nodes)
             || state.model != one.model
         {
-            solving.freed.push(state.model);
+            freed.push(state.model);
             *state = State::new(&one.wearer, one.model);
         }
     }
     let index: HashMap<Entity, &Worn> = worn.iter().map(|one| (one.root, one)).collect();
+    let mut animated = 0;
     let mut jobs: Vec<(&Worn, &mut State)> = states
         .iter_mut()
-        .filter_map(|(root, state)| Some((*index.get(root)?, state)))
+        .filter_map(|(root, state)| {
+            let one = *index.get(root)?;
+            let at = transforms.get(one.root).ok()?.translation;
+            let tier = tier(*level, (one.player, at), seen.as_ref(), state.tier);
+            if state.enter(tier, one.ms) {
+                Some((one, state))
+            } else {
+                animated += 1;
+                None
+            }
+        })
         .collect();
     let world = &transforms;
     match ComputeTaskPool::try_get().filter(|_| jobs.len() >= crate::cast::PARALLEL_FROM) {
@@ -1174,18 +1426,32 @@ fn solve(
         totals.points += state.wearing.points() as u64;
         totals.substeps += u64::from(state.wearing.substeps());
         totals.resets += u64::from(state.wearing.reset());
+        totals.reduced += u64::from(state.tier == Tier::Reduced);
+        totals.blending += u64::from(state.weight < 1.0);
     }
+    totals.animated += animated;
     if let Some((one, state)) = jobs.first().filter(|_| crate::loose_view::overlaid()) {
         debug_view.view = Some(state.wearing.solver.view());
         debug_view.root = Some(one.root);
     }
     for (_, state) in jobs {
+        let weight = state.weight;
         for &(entity, turn) in state.wearing.turns() {
             if let Ok(mut transform) = transforms.get_mut(entity) {
-                transform.rotation = turn;
+                transform.rotation = match weight < 1.0 {
+                    true => transform.rotation.slerp(turn, weight),
+                    false => turn,
+                };
             }
         }
     }
+    states.retain(|_, state| {
+        let kept = state.tier != Tier::Animated || state.weight > 0.0;
+        if !kept {
+            freed.push(state.model);
+        }
+        kept
+    });
     totals.ms += started.elapsed().as_secs_f64() * 1000.0;
     totals.frames += 1;
     if dump_due.0 {
@@ -1199,6 +1465,10 @@ fn solve(
                 "points_sum": totals.points,
                 "substeps_sum": totals.substeps,
                 "resets_sum": totals.resets,
+                "reduced_sum": totals.reduced,
+                "blending_sum": totals.blending,
+                "animated_sum": totals.animated,
+                "level": level.name(),
             }),
         );
     }
@@ -1233,7 +1503,7 @@ fn place_legs(
                 scale: global.affine().matrix3.x_axis.length(),
             };
         }
-        writes.set(state.model, capsules, state.ripples);
+        writes.set(state.model, capsules, state.ripples, state.weight);
     }
 }
 
@@ -1251,6 +1521,7 @@ impl Plugin for LoosePartsPlugin {
         tune();
         app.init_resource::<Solving>()
             .init_resource::<DebugView>()
+            .init_resource::<ClothPhysics>()
             .add_systems(
                 PostUpdate,
                 crate::loose_view::debug_overlay
