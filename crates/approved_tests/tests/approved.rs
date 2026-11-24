@@ -3848,7 +3848,9 @@ fn corpse_remains() {
 /// script state alone. A module's own template replaces the shared one of
 /// its resref, so a machine with the import step's templates and one
 /// without build the same catalog (tar_m02ae's `ptar_sbpasscrd`, added and
-/// approved 2026-11-15).
+/// approved 2026-11-15). Nine medpacs of ten and three more, made there or
+/// moved there, are a stack of ten and a stack of two (`nearly_full`,
+/// issue 705, proposed 2026-11-24, awaiting approval).
 #[test]
 fn own_items() {
     probed("own items", &sim::own_item_probes::probes(), 4);

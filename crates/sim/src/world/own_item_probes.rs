@@ -29,6 +29,9 @@
 //!   replaces the shared one in the catalog, so the catalog is the same
 //!   whether the shared templates came from the import step or from the
 //!   module's archives (tar_m02ae's `ptar_sbpasscrd`).
+//! - Items added to a stack that has room for only some of them fill that
+//!   stack up to its most, and the rest are a stack of their own (issue
+//!   705).
 
 use crate::inventory::{
     Catalog, ItemFacts, PARTY, module_of, names, own_template, resref_of, slots,
@@ -84,6 +87,7 @@ pub fn probes() -> Checks {
     let spaceport = catalog(TARIS_SPACEPORT, "tar_calojournal");
     let base = catalog(SITH_BASE, "tar09_techlog");
 
+    checks.push(nearly_full());
     checks.push(carried_out());
     checks.push(fitted_carried_out());
     checks.push(bare_carried_out());
@@ -165,6 +169,41 @@ pub fn probes() -> Checks {
         ),
     ));
     checks
+}
+
+/// Items added to a stack with too little room for all of them (issue
+/// 705). Both games fill the stack up to its most and keep only the rest
+/// as a second stack, whether the items are made there or moved there.
+/// Nine medpacs of ten and three more are ten and two.
+fn nearly_full() -> (&'static str, Result<String, String>) {
+    let catalog = catalog(TARIS_SPACEPORT, "tar_calojournal");
+    let stacks = |state: &State| -> Vec<u16> {
+        let mut stacks: Vec<u16> = state
+            .items
+            .held_by(PARTY)
+            .map(|(_, item)| item.stack)
+            .collect();
+        stacks.sort_unstable();
+        stacks
+    };
+    let nine = |state: &mut State| state.make_item(&catalog, "medpac", PARTY, 9, None);
+    let mut made = State::default();
+    nine(&mut made);
+    made.make_item(&catalog, "medpac", PARTY, 3, None);
+    let mut moved = State::default();
+    nine(&mut moved);
+    let three = moved.make_item(&catalog, "medpac", JOINER, 3, None);
+    if let Some(three) = three {
+        moved.add_to(&catalog, three.0, PARTY);
+    }
+    let (made, moved) = (stacks(&made), stacks(&moved));
+    (
+        "items added to a nearly full stack: the stack filled, the rest a stack of their own",
+        check(
+            made == [2, 10] && moved == [2, 10],
+            format!("made there {made:?}, moved there {moved:?}"),
+        ),
+    )
 }
 
 /// A module's own template of a resref the shared templates also hold
