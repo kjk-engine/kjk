@@ -5799,9 +5799,16 @@ impl Engine<'_> {
         };
         match bound {
             // A component or chemical made on a creature is a count, no
-            // item (`State::pool_carried`).
+            // item (`State::pool_carried`). An object that is not there (the
+            // object of a tag no object of the area has) gets nothing, and
+            // the call gives `OBJECT_INVALID`. KOTOR 2's Akkere stocks
+            // `store_adum001`, a tag no store of Dantooine has, and that
+            // item was made held by no one.
             CreateItemOnObject => {
                 let on = object(args, 1);
+                if !self.exists(on) {
+                    return Value::Object(ObjectId::INVALID);
+                }
                 let holder = items::holder(view, on);
                 let stack = int(args, 2).clamp(1, i32::from(u16::MAX)) as u16;
                 let mut made =
