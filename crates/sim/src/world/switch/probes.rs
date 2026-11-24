@@ -516,7 +516,38 @@ pub fn probes() -> crate::probe::Checks {
         led_min_one_hp(),
     ));
     checks.push(("led_companion_faces_the_arrival", led_faces_arrival()));
+    checks.push(("xp_gained_while_switched_stays_behind", xp_stays_behind()));
     checks
+}
+
+/// The experience the party gains while seat 0 plays a companion does not
+/// reach seat 0's own character. Switched back, the party's XP is what it
+/// was at the switch, as both executables give experience only to the
+/// party's members and the character played (TSL's prologue: T3-M4's
+/// experience is not the Exile's on Peragus).
+fn xp_stays_behind() -> Result<String, String> {
+    use crate::inventory::PARTY;
+    let (mut world, ..) = switch_world(1, false)?;
+    let mut state = world.script_state().clone();
+    state.set_xp(PARTY, 1000);
+    world.set_script_state(state);
+    run(&mut world, 1, 0);
+    queue(&mut world, &format!("probe_sw_to{MADE}"));
+    run(&mut world, 1, 0);
+    run(&mut world, 1, 0);
+    let mut state = world.script_state().clone();
+    state.give_xp(PARTY, 750);
+    let during = state.xp(PARTY);
+    world.set_script_state(state);
+    queue(&mut world, "probe_sw_back");
+    run(&mut world, 1, 0);
+    let after = world.script_state().xp(PARTY);
+    check(
+        during == 1750 && after == 1000,
+        format!(
+            "the party's XP while switched {during}, switched back {after} (1000 at the switch)"
+        ),
+    )
 }
 
 /// Seat 0 leading `body` (the portrait click, `Action::Lead`): the step.
