@@ -4991,10 +4991,12 @@ fn item_properties() {
 /// arrival's way (issue 412, approved 2026-11-16); the creature played
 /// taken through two modules that lack its template, still played and with
 /// its facts in both (TSL's B-4D4 through the docks, added 2026-11-17,
-/// awaiting approval); the sim alone.
+/// awaiting approval); the experience gained while switched left behind
+/// when switching back (TSL's prologue, added 2026-11-24, awaiting
+/// approval); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 28);
+    probed("switch", &sim::switch::probes(), 29);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

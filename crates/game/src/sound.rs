@@ -72,6 +72,11 @@ pub fn kotor_file(resolver: &Resolver, resref: &str) -> Option<Vec<u8>> {
     resolver.sound(resref)?.read().ok()
 }
 
+/// A KOTOR music track's file by resref (`Resolver::music`).
+pub fn kotor_music_file(resolver: &Resolver, resref: &str) -> Option<Vec<u8>> {
+    resolver.music(resref)?.read().ok()
+}
+
 impl Bank {
     /// KOTOR 1's sounds by resref (WAVs), named `k1/<resref>`.
     pub fn load_kotor(

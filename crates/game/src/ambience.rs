@@ -324,7 +324,12 @@ fn got(resolver: &Resolver, name: String, keep: Keep) -> Got {
             }
             None => name.clone(),
         };
-        let bytes = crate::sound::kotor_file(resolver, &file).ok_or("not found")?;
+        // A bed is music or ambience, streamed as the games stream it.
+        let bytes = match keep {
+            Keep::Clip => crate::sound::kotor_file(resolver, &file),
+            Keep::Bed => crate::sound::kotor_music_file(resolver, &file),
+        };
+        let bytes = bytes.ok_or("not found")?;
         match keep {
             Keep::Clip => Clip::kotor(&bytes).map(|clip| Kept::Clip(Box::new(clip))),
             Keep::Bed => Stream::kotor(&bytes).map(Kept::Bed),
