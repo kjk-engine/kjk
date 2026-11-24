@@ -5,7 +5,9 @@
 use glam::{Quat, Vec3, Vec4};
 use ragdoll::closest_on_segment;
 
-use crate::body::{Capsule, Collision, Resting, closest_between, contacts};
+use crate::body::{
+    Capsule, Collision, Contact, INSIDE_MARGIN, Resting, SMALLEST, closest_between, contacts,
+};
 use crate::trace::{self, Push, Record, Touch};
 use crate::{Body, Frame, Place, Rig, Skeleton};
 
@@ -136,9 +138,34 @@ struct Resolved {
     drive: Option<f32>,
     damping: f32,
     inertia: f32,
+    aero: f32,
     thickness: f32,
     hang: f32,
 }
+
+/// A sample of the garment's skin (`crate::Sample`), worked out against the
+/// points.
+#[derive(Debug, Clone)]
+struct Skin {
+    /// Each node that carries the vertex, its weight and the vertex's place
+    /// in the node's frame.
+    parts: Vec<(usize, f32, Vec3)>,
+    /// Each loose bone that carries it: the point at the bone's head, the
+    /// point at its end, and the weight.
+    bones: Vec<(usize, usize, f32)>,
+    /// The share of the vertex that loose bones carry. The rest follows the
+    /// animation.
+    loose: f32,
+    /// The point whose way out of the garment the vertex shares.
+    main: usize,
+    contacts: Vec<Contact>,
+}
+
+/// How thick the cloth is around a sample of the skin (metres).
+const SKIN_THICKNESS: f32 = 0.01;
+/// How many times each substep pushes the skin out of the body. A push on
+/// one sample moves the bones under its neighbours.
+const SKIN_PASSES: usize = 2;
 
 /// The frame before, in its own anchor space.
 #[derive(Debug, Clone)]
@@ -172,6 +199,21 @@ pub struct Solver {
     outward_rest: Vec<(usize, Vec3)>,
     /// The same in the anchor's space this frame.
     outward: Vec<Vec3>,
+    /// Each point's way around the body, level and square to its way out,
+    /// in the anchor's space this frame. With the point's chain, it gives
+    /// the face of the cloth that the air meets.
+    around: Vec<Vec3>,
+    /// Straight up in the frame of the node each point's tree hangs on, at
+    /// rest.
+    rest_up: Vec<Vec3>,
+    /// Each point's speed through still air in the last substep (metres
+    /// per second), before the air's drag.
+    airflow: Vec<f32>,
+    skin: Vec<Skin>,
+    /// Each sample of the skin where the animated skeleton puts it.
+    skin_posed: Vec<Vec3>,
+    /// Each point's bone turned from its animated way to its solved way.
+    swings: Vec<Quat>,
     positions: Vec<Vec3>,
     previous: Vec<Vec3>,
     targets: Vec<Vec3>,
@@ -240,6 +282,7 @@ impl Solver {
                 point.drive.unwrap_or(0.0),
                 point.damping,
                 point.inertia,
+                point.aero,
                 point.thickness,
                 point.hang,
             ];
@@ -289,6 +332,7 @@ impl Solver {
                 drive: point.drive,
                 damping: point.damping,
                 inertia: point.inertia,
+                aero: point.aero,
                 thickness: point.thickness,
                 hang: point.hang,
             });
@@ -373,7 +417,7 @@ impl Solver {
                     pinned: points[index].weight == 0.0,
                 })
                 .collect();
-            contacts(&resting, body, &posed, &skeleton.parents)
+            contacts(&resting, body, &posed)
         });
         let outward_rest = (0..count)
             .map(|index| {
@@ -387,10 +431,64 @@ impl Solver {
                 (node, way)
             })
             .collect();
+        let rest_up = (0..count)
+            .map(|index| {
+                let node = points[root_of[index]].attach.unwrap_or(skeleton.anchor);
+                rest[node].rotation.inverse() * Vec3::Z
+            })
+            .collect();
+        let mut skin = Vec::with_capacity(rig.samples.len());
+        if let Some(body) = &body {
+            let mut posed = Vec::new();
+            body.pose(|node| rest[node], &mut posed);
+            for (index, sample) in rig.samples.iter().enumerate() {
+                if sample.parts.iter().any(|&(node, weight, local)| {
+                    node >= nodes || !finite(&[weight]) || !local.is_finite()
+                }) {
+                    return Err(format!("sample {index} names a node the skeleton lacks"));
+                }
+                let bones: Vec<(usize, usize, f32)> = (sample.parts.iter())
+                    .filter_map(|&(node, weight, _)| {
+                        let head = point_of[node]?;
+                        Some((head, *children[head].first()?, weight))
+                    })
+                    .collect();
+                let Some(&(main, ..)) = bones.iter().max_by(|a, b| a.2.total_cmp(&b.2)) else {
+                    continue;
+                };
+                let at: Vec3 = (sample.parts.iter())
+                    .map(|&(node, weight, local)| rest[node].point(local) * weight)
+                    .sum();
+                let thigh = |capsule: usize| body.parts[capsule].leg && !body.lower_leg(capsule);
+                let contacts = (0..posed.len())
+                    .filter(|&capsule| !thigh(capsule) && !body.upper_trunk(capsule))
+                    .filter_map(|capsule| {
+                        let [a, b] = posed[capsule].ends;
+                        let from_axis = at.distance(closest_on_segment(at, a, b));
+                        let radius =
+                            (posed[capsule].radius + SKIN_THICKNESS).min(from_axis - INSIDE_MARGIN);
+                        (radius > SMALLEST).then_some(Contact { capsule, radius })
+                    })
+                    .collect();
+                skin.push(Skin {
+                    parts: sample.parts.clone(),
+                    loose: bones.iter().map(|b| b.2).sum::<f32>().min(1.0),
+                    bones,
+                    main,
+                    contacts,
+                });
+            }
+        }
         Ok(Solver {
             settings,
+            skin_posed: vec![Vec3::ZERO; skin.len()],
+            swings: vec![Quat::IDENTITY; count],
+            skin,
             outward_rest,
             outward: vec![Vec3::ZERO; count],
+            around: vec![Vec3::ZERO; count],
+            rest_up,
+            airflow: vec![0.0; count],
             parents: skeleton.parents.clone(),
             anchor: skeleton.anchor,
             body,
@@ -425,6 +523,39 @@ impl Solver {
     /// again.
     pub fn trace(&self) -> &[String] {
         &self.trace
+    }
+
+    /// Each point's speed through still air in the last substep (metres per
+    /// second).
+    pub fn airflow(&self) -> &[f32] {
+        &self.airflow
+    }
+
+    /// Each point's chain, numbered by its root in the order of the points,
+    /// and the skeleton node whose joint the point is, if any. A chain is
+    /// one pinned root and every point that hangs from it.
+    pub fn chains(&self) -> Vec<(usize, Option<usize>)> {
+        let mut root_of: Vec<usize> = Vec::with_capacity(self.points.len());
+        let mut number = Vec::new();
+        for (index, point) in self.points.iter().enumerate() {
+            let root = point.parent.map_or(index, |parent| root_of[parent]);
+            root_of.push(root);
+            if root == index {
+                number.push(index);
+            }
+        }
+        (root_of.iter().zip(&self.points))
+            .map(|(root, point)| (number.binary_search(root).unwrap_or(0), point.node))
+            .collect()
+    }
+
+    /// Each link between neighbouring chains: its two points, its rest
+    /// length and its length now (metres).
+    pub fn links(&self) -> impl Iterator<Item = (usize, usize, f32, f32)> + '_ {
+        (self.links.iter()).map(|link| {
+            let now = self.positions[link.a].distance(self.positions[link.b]);
+            (link.a, link.b, link.rest, now)
+        })
     }
 
     /// How many points it moves.
@@ -465,8 +596,16 @@ impl Solver {
         let to_anchor = frames[self.anchor].inverse();
         let down = (anchor.rotation.inverse() * self.settings.gravity).normalize_or_zero();
         self.target_pose(&frames, to_anchor, down);
-        for (outward, &(node, way)) in self.outward.iter_mut().zip(&self.outward_rest) {
-            *outward = (to_anchor.rotation * frames[node].rotation) * way;
+        for (posed, skin) in self.skin_posed.iter_mut().zip(&self.skin) {
+            *posed = (skin.parts.iter())
+                .map(|&(node, weight, local)| to_anchor.then(frames[node]).point(local) * weight)
+                .sum();
+        }
+        for (index, &(node, way)) in self.outward_rest.iter().enumerate() {
+            let turn = to_anchor.rotation * frames[node].rotation;
+            self.outward[index] = turn * way;
+            let up = turn * self.rest_up[index];
+            self.around[index] = up.cross(self.outward[index]).normalize_or_zero();
         }
         let mut capsules = std::mem::take(&mut self.capsules);
         if let Some(body) = &self.body {
@@ -641,7 +780,24 @@ impl Solver {
                 continue;
             }
             let keep = (1.0 - self.points[index].damping * h).max(0.0);
-            let velocity = (start - self.previous[index]) / h * keep + gravity * h;
+            let mut velocity = (start - self.previous[index]) / h * keep + gravity * h;
+            let still = (delta.point(start) - start) / h;
+            self.airflow[index] = still.distance(velocity);
+            let point = self.points[index];
+            let chain = match point.parent {
+                Some(parent) => start - self.previous[parent],
+                None => Vec3::ZERO,
+            };
+            let face = chain.cross(self.around[index]).try_normalize();
+            if point.aero > 0.0 {
+                velocity = match face {
+                    Some(face) => aerodynamic(velocity, still, face, point.aero, h),
+                    None => {
+                        let against = still - velocity;
+                        velocity + against * (1.0 - (-point.aero * against.length() * h).exp())
+                    }
+                };
+            }
             if tracing {
                 self.record.speed[index] = velocity.length();
             }
@@ -653,7 +809,12 @@ impl Solver {
         }
         if last {
             for index in 0..self.apart.len() {
-                keep_apart(&mut self.positions, &self.points, self.apart[index]);
+                keep_apart(
+                    &mut self.positions,
+                    &self.points,
+                    &self.targets_now,
+                    self.apart[index],
+                );
             }
         }
         self.limit(anchor_to, floor);
@@ -935,6 +1096,110 @@ impl Solver {
             }
             self.positions[index] = at;
         }
+        if !self.skin.is_empty() {
+            for _ in 0..SKIN_PASSES {
+                self.skin_out();
+            }
+            let scale = self.settings.rate * self.settings.rate;
+            for &distance in &self.lengths {
+                keep_distance(&mut self.positions, &self.points, distance, scale);
+            }
+        }
+    }
+
+    /// Each sample of the skin kept out of the capsules it meets. A sample
+    /// sits where its bones put it: each loose bone carries it from its
+    /// animated place, turned as far as the bone turned from its animated
+    /// way. A sample found inside a capsule moves the points of its bones,
+    /// each by its share of the sample, as one XPBD contact on the sample.
+    /// No point moves farther than the depth, for the same reason as in
+    /// `segments`: a sample next to a pinned root would throw the free end.
+    ///
+    /// A sample meets no thigh, and no leg it lies on the inner side of,
+    /// toward the middle of its garment. Pushed out of a raised thigh, or
+    /// out the inner way, the skin held its bones out like a lifted skirt
+    /// for seconds after a backflip. A sample meets no part of the trunk
+    /// above the pelvis either. A skirt thrown up in a flip came down
+    /// against the belly and the chest, and their push held it there,
+    /// bunched against the body, for most of a second after the landing.
+    /// The vertex shader keeps the skin out of the thighs, the belly and
+    /// the chest instead (`loose_skin`). A sample leaves the head and the
+    /// pelvis on its tree's way out (`out_on_side`). Pushed out the nearest
+    /// way, the samples on either side of the head went to either side of
+    /// it, and the head came out through the middle of the skirt.
+    fn skin_out(&mut self) {
+        for index in 0..self.points.len() {
+            let Some(&child) = self.children[index].first() else {
+                continue;
+            };
+            let was = self.posed[child] - self.posed[index];
+            let now = self.positions[child] - self.positions[index];
+            self.swings[index] = match (was.try_normalize(), now.try_normalize()) {
+                (Some(was), Some(now)) => Quat::from_rotation_arc(was, now),
+                _ => Quat::IDENTITY,
+            };
+        }
+        let mut shares: Vec<(usize, f32)> = Vec::with_capacity(8);
+        for (skin, &posed) in self.skin.iter().zip(&self.skin_posed) {
+            let place = |positions: &[Vec3]| -> Vec3 {
+                let mut at = posed * (1.0 - skin.loose);
+                for &(head, _, weight) in &skin.bones {
+                    let carried = self.swings[head] * (posed - self.posed[head]);
+                    at += (positions[head] + carried) * weight;
+                }
+                at
+            };
+            for contact in &skin.contacts {
+                let Some(capsule) = self.capsules_now.get(contact.capsule) else {
+                    continue;
+                };
+                let at = place(&self.positions);
+                let [a, b] = capsule.ends;
+                let closest = closest_on_segment(at, a, b);
+                if at.distance(closest) >= contact.radius {
+                    continue;
+                }
+                let leg = (self.body.as_ref()).is_some_and(|b| b.parts[contact.capsule].leg);
+                if leg && (at - closest).dot(self.outward[skin.main]) < 0.0 {
+                    continue;
+                }
+                let part = self.body.as_ref().map(|b| {
+                    let p = &b.parts[contact.capsule];
+                    (b.lower_leg(contact.capsule), p.trunk || p.head)
+                });
+                let outward = self.outward[skin.main];
+                let exit = match part {
+                    Some((true, _)) => out_along(at, capsule, contact.radius, outward),
+                    Some((_, true)) => out_on_side(at, capsule, contact.radius, outward),
+                    _ => None,
+                }
+                .unwrap_or_else(|| pushed_out(at, posed, capsule, contact.radius));
+                let push = exit - at;
+                let depth = push.length();
+                if depth < 1e-6 {
+                    continue;
+                }
+                shares.clear();
+                for &(head, end, weight) in &skin.bones {
+                    let bone = self.positions[end] - self.positions[head];
+                    let along = ((at - self.positions[head]).dot(bone)
+                        / bone.length_squared().max(1e-8))
+                    .clamp(0.0, 1.0);
+                    shares.push((head, weight * (1.0 - along)));
+                    shares.push((end, weight * along));
+                }
+                let sum: f32 = (shares.iter())
+                    .map(|&(point, share)| self.points[point].weight * share * share)
+                    .sum();
+                if sum < 1e-6 {
+                    continue;
+                }
+                for &(point, share) in &shares {
+                    let moved = push * (self.points[point].weight * share / sum);
+                    self.positions[point] += moved.clamp_length_max(depth);
+                }
+            }
+        }
     }
 
     /// Each bone kept out of the capsules it meets. The bone's closest
@@ -1116,6 +1381,35 @@ impl Solver {
     }
 }
 
+/// How much of the air's speed the drag along the cloth's face takes,
+/// against the drag on it.
+const AERO_ALONG: f32 = 0.1;
+/// How strong the lift across the airflow is, against the drag on the face.
+const AERO_LIFT: f32 = 0.5;
+
+/// A point's `velocity` after one substep `h` of air that moves at `still`,
+/// on cloth whose face is `face`, with the drag `aero` on that face (per
+/// metre). The air's speed against the cloth is split into its part along
+/// the face's normal and its part along the face. Each part decays toward
+/// the air's speed at a rate that grows with that part's speed. The decay
+/// is exact for a rate held through the substep, so it never passes the
+/// air's speed. The lift pushes across the airflow, in the plane of the flow
+/// and the face's normal, and it is held to half the speed against the air.
+fn aerodynamic(velocity: Vec3, still: Vec3, face: Vec3, aero: f32, h: f32) -> Vec3 {
+    let against = still - velocity;
+    let on_face = face * against.dot(face);
+    let along = against - on_face;
+    let mut out = velocity
+        + on_face * (1.0 - (-aero * on_face.length() * h).exp())
+        + along * (1.0 - (-aero * AERO_ALONG * along.length() * h).exp());
+    let speed = against.length();
+    if let Some(across) = against.cross(face).cross(against).try_normalize() {
+        let lift = across * (aero * AERO_LIFT * against.dot(face) * along.length() * h);
+        out += lift.clamp_length_max(0.5 * speed);
+    }
+    out
+}
+
 /// The XPBD distance constraint between two points.
 fn keep_distance(positions: &mut [Vec3], points: &[Resolved], distance: Distance, scale: f32) {
     let Distance {
@@ -1197,7 +1491,13 @@ fn apart(points: &[Resolved], links: &[Distance], root_of: &[usize], at: &[Vec3]
 /// A point pushed off a segment to its least distance. The point and the
 /// segment's two ends share the push by how freely each moves, the ends by
 /// how near each is to the segment's closest point.
-fn keep_apart(positions: &mut [Vec3], points: &[Resolved], apart: Apart) {
+///
+/// A point on the other side of the segment from the side its target is on
+/// is left alone. Two chains that crossed in a flip would
+/// otherwise be held crossed, each kept off the other on the wrong side,
+/// and the robe would stay bunched against the body. Left alone, the pull
+/// toward the targets takes them back through each other.
+fn keep_apart(positions: &mut [Vec3], points: &[Resolved], targets: &[Vec3], apart: Apart) {
     let Apart {
         point,
         ends: [q0, q1],
@@ -1209,6 +1509,11 @@ fn keep_apart(positions: &mut [Vec3], points: &[Resolved], apart: Apart) {
     let between = positions[point] - (a + ab * t);
     let distance = between.length();
     if distance >= least || distance < 1e-9 {
+        return;
+    }
+    let (ta, tb) = (targets[q0], targets[q1]);
+    let side = targets[point] - closest_on_segment(targets[point], ta, tb);
+    if between.dot(side) < 0.0 {
         return;
     }
     let (wp, w0, w1) = (points[point].weight, points[q0].weight, points[q1].weight);
@@ -1328,6 +1633,47 @@ fn leaves(from: Vec3, way: Vec3, radius: f32) -> Option<f32> {
     let c = from.length_squared() - radius * radius;
     let disc = half * half - a * c;
     (disc >= 0.0).then(|| (-half + disc.sqrt()) / a)
+}
+
+/// `at` moved out of a capsule of the trunk or the head to `radius` from
+/// its axis, on the side `way` points to, its garment's way out at the
+/// point, when it lies deep in the capsule's other half: more than
+/// `THROUGH` of the radius past the axis, as if it had passed through the
+/// body. `None` when `at` is outside, on `way`'s half or near the axis, or
+/// `way` is unknown: such a point leaves the nearest way. Sent out along `way` from every side, a point that lay
+/// against the side of the hip was thrown round to the front, and pulled
+/// back in the next substep, and the robe flickered.
+///
+/// A robe is sewn around the waist, so its skirt flips up over the body
+/// only on the outside. Pushed out the nearest way, a skirt thrown up in a
+/// flip slid in through the belly and out of the face, and after the flip
+/// it was held up inside the body until the landing.
+/// How much of a point's way out must lie square to a capsule's axis for
+/// `out_on_side` to send it out that way. The trunk's capsules lie across
+/// the body, so a chain at the hip has its way out nearly along the axis,
+/// and the side it gave turned from one frame to the next.
+const SIDE_LEAST: f32 = 0.5;
+
+fn out_on_side(at: Vec3, capsule: &Capsule, radius: f32, way: Vec3) -> Option<Vec3> {
+    let [a, b] = capsule.ends;
+    let closest = closest_on_segment(at, a, b);
+    let out = at - closest;
+    if out.length() >= radius || way == Vec3::ZERO {
+        return None;
+    }
+    let axis = (b - a).normalize_or_zero();
+    let across = way - axis * way.dot(axis);
+    if across.length() < SIDE_LEAST {
+        return None;
+    }
+    let side = across.normalize();
+    let along = out.dot(side);
+    if along >= -radius * THROUGH {
+        return None;
+    }
+    let level = out - side * along;
+    let reach = (radius * radius - level.length_squared()).max(0.0).sqrt();
+    Some(closest + level + side * reach)
 }
 
 /// `at` put back on `target`'s side of a trunk capsule when it is deep in

@@ -57,6 +57,9 @@ pub struct Defaults {
     /// feels. At 0 the point is carried with the character. At 1 it is left
     /// behind in the world.
     pub inertia: f32,
+    /// The drag of air that stays still in the world on the face of the
+    /// cloth (per metre, `loose::Point::aero`).
+    pub aero: f32,
     /// The garment's thickness around a point (metres).
     pub radius: f32,
     /// The share of the way that a free point's target turns from the rest
@@ -82,7 +85,16 @@ pub struct Defaults {
 ///   31 to 33 degrees back from straight down, in a stiff A-line. The target
 ///   therefore hangs 60% of the way from the rest pose toward straight down,
 ///   which leaves those chains about 13 degrees back. The legs' capsules
-///   hold the robe off the legs.
+///   hold the robe off the legs. A robe feels all of the character's
+///   movement through the world, and still air drags on the face of its
+///   cloth. On the way down from a jump the air holds the robe back, so it
+///   rises above the falling body as real cloth does. With a quarter of
+///   the movement and no such drag, the robe kept its hanging pose in a
+///   fall. A drag of 2.5 per metre lifts it right over the body in a
+///   backflip, where 1.2 lifted it less. A robe's bend is 3e-5, against a
+///   cape's 2e-3. At 1e-3, 6.5% of a robe's joints folded past a right
+///   angle in a run of flips and spins, and the skirt crumpled like paper.
+///   At 3e-5, 0.4% do.
 /// - **Flap.** A short piece, such as a belt strip, a thigh flap or a piece
 ///   on the chest.
 /// - **Sleeve.** A sleeve hangs from a forearm and swings with the arm. It
@@ -109,6 +121,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             drive: 2e-2,
             damping: 4.0,
             inertia: 0.3,
+            aero: 0.0,
             radius: 0.03,
             hang: 0.5,
             link: 2e-4,
@@ -120,10 +133,11 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             reach_share: 1.4,
             max_distance: 1.5,
             stretch: 0.0,
-            bend: 1e-3,
+            bend: 3e-5,
             drive: 1e-2,
             damping: 6.0,
-            inertia: 0.25,
+            inertia: 1.0,
+            aero: 2.5,
             radius: 0.04,
             hang: 0.6,
             link: 1e-4,
@@ -139,6 +153,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             drive: 2e-3,
             damping: 2.0,
             inertia: 0.2,
+            aero: 0.0,
             radius: 0.025,
             hang: 0.0,
             link: 1e-4,
@@ -154,6 +169,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             drive: 2e-4,
             damping: 3.0,
             inertia: 0.15,
+            aero: 0.0,
             radius: 0.03,
             hang: 0.0,
             link: 1e-4,
@@ -169,6 +185,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             drive: 2e-5,
             damping: 4.0,
             inertia: 0.05,
+            aero: 0.0,
             radius: 0.03,
             hang: 0.0,
             link: 2e-5,
@@ -184,6 +201,7 @@ pub const DEFAULTS: [(Kind, Defaults); 6] = [
             drive: 2e-6,
             damping: 6.0,
             inertia: 0.05,
+            aero: 0.0,
             radius: 0.02,
             hang: 0.0,
             link: 2e-6,
@@ -228,6 +246,7 @@ enum Field {
     Drive,
     Damping,
     Inertia,
+    Aero,
     Radius,
     Hang,
     Link,
@@ -242,6 +261,7 @@ fn field_of(d: &mut Defaults, field: Field) -> &mut f32 {
         Field::Drive => &mut d.drive,
         Field::Damping => &mut d.damping,
         Field::Inertia => &mut d.inertia,
+        Field::Aero => &mut d.aero,
         Field::Radius => &mut d.radius,
         Field::Hang => &mut d.hang,
         Field::Link => &mut d.link,
@@ -254,7 +274,7 @@ fn field_of(d: &mut Defaults, field: Field) -> &mut f32 {
 /// `damping=12,cape.bend=5e-4`. A name alone changes robes and capes, and
 /// `robe.` or `cape.` before it changes one kind. The names are `reach`
 /// (`reach_share`), `max_distance`, `stretch`, `bend`, `drive`, `damping`,
-/// `inertia`, `radius`, `hang` and `link`. It gives back the pairs it does
+/// `inertia`, `aero`, `radius`, `hang` and `link`. It gives back the pairs it does
 /// not understand. A second call changes nothing.
 pub fn tune(spec: &str) -> Vec<String> {
     let mut changes = Vec::new();
@@ -280,6 +300,7 @@ pub fn tune(spec: &str) -> Vec<String> {
                 "drive" => Field::Drive,
                 "damping" => Field::Damping,
                 "inertia" => Field::Inertia,
+                "aero" => Field::Aero,
                 "radius" => Field::Radius,
                 "hang" => Field::Hang,
                 "link" => Field::Link,
@@ -317,6 +338,8 @@ pub struct Physics {
     /// The share of the character's movement through the world that the
     /// point feels, from 0 to 1.
     pub inertia: f32,
+    /// The drag of still air on the face of the cloth, per metre.
+    pub aero: f32,
     /// The garment's thickness around the point (metres).
     pub radius: f32,
     /// The share of the way that the point's target turns from the rest
@@ -357,6 +380,7 @@ pub(crate) fn values(kind: Kind, input: &Input) -> Physics {
             drive: Some(d.drive * softer_to_tip),
             damping: d.damping,
             inertia: d.inertia,
+            aero: d.aero,
             radius: d.radius,
             hang: 0.0,
         };
@@ -371,6 +395,7 @@ pub(crate) fn values(kind: Kind, input: &Input) -> Physics {
         drive: Some(d.drive * softer_to_tip),
         damping: d.damping,
         inertia: d.inertia,
+        aero: d.aero,
         radius: d.radius,
         hang: d.hang,
     }

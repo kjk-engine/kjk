@@ -418,6 +418,11 @@ enum Command {
         /// world here, one JSON line a frame, to plot them
         #[arg(long)]
         dump: Option<std::path::PathBuf>,
+        /// Write every frame's skinned body into this folder, as the
+        /// animation poses it and as the solver poses it, for an offline
+        /// renderer or cloth solver
+        #[arg(long)]
+        export: Option<std::path::PathBuf>,
     },
     /// Decode a texture (tpc, else tga) and write its first mip as PNG.
     Texture {
@@ -866,6 +871,7 @@ pub fn run() -> ExitCode {
             record,
             frames,
             dump,
+            export,
         }) => {
             let game = match game.to_ascii_lowercase().as_str() {
                 "k1" => Game::Kotor1,
@@ -881,6 +887,7 @@ pub fn run() -> ExitCode {
                 record: &record,
                 frames: frames.as_deref(),
                 dump: dump.as_deref(),
+                export: export.as_deref(),
             };
             match kjk_game::loose_replay::replay(&discover(), &options) {
                 Ok(report) => {

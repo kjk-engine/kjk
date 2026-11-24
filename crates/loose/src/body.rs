@@ -64,6 +64,8 @@ pub(crate) struct Part {
     pub(crate) name: &'static str,
     /// A thigh, a shin or a foot.
     pub(crate) leg: bool,
+    /// The head.
+    pub(crate) head: bool,
 }
 
 /// The body's capsules, each fixed to a node of the skeleton.
@@ -72,6 +74,11 @@ pub struct Body {
     pub(crate) parts: Vec<Part>,
 }
 
+/// How much longer the head is made at the top than the ragdoll's
+/// (metres). The ragdoll's head starts at the neck and reaches the eyes,
+/// and a robe's skirt thrown over the head in a flip went through the
+/// skull above them.
+const CROWN: f32 = 0.12;
 /// The fewest points a part is refitted around (`Body::wrap`).
 const WRAP_LEAST: usize = 8;
 /// The largest radius of a refitted part (metres).
@@ -79,14 +86,9 @@ const WRAP_MOST: f32 = 0.10;
 
 /// How much less than its rest distance from a capsule's axis a point
 /// keeps, when it starts closer than the capsule's radius (metres).
-const INSIDE_MARGIN: f32 = 0.005;
+pub(crate) const INSIDE_MARGIN: f32 = 0.005;
 /// A contact with a smaller radius than this keeps nothing out.
-const SMALLEST: f32 = 0.002;
-/// How many steps along the parts' tree a point's capsules may be from the
-/// parts its skin weights reach. A KOTOR 2 robe's skin reaches only the
-/// pelvis and the belly, and two steps take it down to the shins and the
-/// upper arms.
-const HOPS: usize = 2;
+pub(crate) const SMALLEST: f32 = 0.002;
 
 impl Body {
     /// The capsules of a fitted ragdoll. Parts that are boxes (a droid's
@@ -107,7 +109,12 @@ impl Body {
                 trunk: part.group == Group::Core,
                 name: part.name,
                 leg: matches!(part.group, Group::LegLeft | Group::LegRight),
+                head: part.group == Group::Head,
             });
+        }
+        for part in parts.iter_mut().filter(|part| part.head) {
+            let [a, b] = part.ends;
+            part.ends[1] = b + (b - a).normalize_or_zero() * CROWN;
         }
         Body { parts }
     }
@@ -117,6 +124,15 @@ impl Body {
     pub fn legs(&self) -> impl Iterator<Item = (usize, [Vec3; 2], f32)> + '_ {
         (self.parts.iter())
             .filter(|part| part.leg)
+            .map(|part| (part.node, part.ends, part.radius))
+    }
+
+    /// Every capsule of the body, the legs first, in the order of `legs`:
+    /// each one's node, its ends in the node's frame, and its radius.
+    pub fn capsules(&self) -> impl Iterator<Item = (usize, [Vec3; 2], f32)> + '_ {
+        let leg = self.parts.iter().filter(|part| part.leg);
+        let rest = self.parts.iter().filter(|part| !part.leg);
+        leg.chain(rest)
             .map(|part| (part.node, part.ends, part.radius))
     }
 
@@ -136,6 +152,13 @@ impl Body {
     pub(crate) fn lower_leg(&self, part: usize) -> bool {
         let leg = |part: usize| self.parts.get(part).is_some_and(|p| p.leg);
         leg(part) && self.parts[part].parent.is_some_and(leg)
+    }
+
+    /// Whether `part` is of the trunk and hangs on another part of it: the
+    /// belly or the chest, not the pelvis.
+    pub(crate) fn upper_trunk(&self, part: usize) -> bool {
+        let trunk = |part: usize| self.parts.get(part).is_some_and(|p| p.trunk);
+        trunk(part) && self.parts[part].parent.is_some_and(trunk)
     }
 
     /// Part `part` refitted around `points`, in its node's frame, along its
@@ -187,58 +210,6 @@ impl Body {
             }
         }));
     }
-
-    /// The part that owns node `node`: the part of the nearest node at or
-    /// above it.
-    fn part_of(&self, parents: &[Option<usize>], node: usize) -> Option<usize> {
-        let mut at = node;
-        loop {
-            if let Some(part) = self.parts.iter().position(|part| part.node == at) {
-                return Some(part);
-            }
-            at = (*parents.get(at)?)?;
-        }
-    }
-
-    /// The parts within `hops` steps of `seeds` along the parts' tree, and
-    /// the rest of each leg below a leg part among them. A leg swings
-    /// anywhere under a skirt in a kick or a cartwheel, so a point that can
-    /// meet a thigh can meet the shin and the foot below it.
-    fn around(&self, seeds: &[usize], hops: usize) -> Vec<usize> {
-        let mut found: Vec<usize> = seeds.to_vec();
-        found.sort_unstable();
-        found.dedup();
-        let mut edge = found.clone();
-        for _ in 0..hops {
-            let mut next = Vec::new();
-            for &part in &edge {
-                let children =
-                    (0..self.parts.len()).filter(|&i| self.parts[i].parent == Some(part));
-                for neighbour in self.parts[part].parent.into_iter().chain(children) {
-                    if !found.contains(&neighbour) {
-                        found.push(neighbour);
-                        next.push(neighbour);
-                    }
-                }
-            }
-            edge = next;
-        }
-        let mut at = 0;
-        while at < found.len() {
-            let part = found[at];
-            for below in 0..self.parts.len() {
-                if self.parts[below].leg
-                    && self.parts[below].parent == Some(part)
-                    && !found.contains(&below)
-                {
-                    found.push(below);
-                }
-            }
-            at += 1;
-        }
-        found.sort_unstable();
-        found
-    }
 }
 
 /// A point as the collision sees it: its rest place, its parent's rest
@@ -250,27 +221,13 @@ pub(crate) struct Resting<'a> {
     pub(crate) pinned: bool,
 }
 
-/// What each point meets. `rest` is the capsules in the rest pose and
-/// `parents` the skeleton's parent of each node.
-pub(crate) fn contacts(
-    points: &[Resting],
-    body: &Body,
-    rest: &[Capsule],
-    parents: &[Option<usize>],
-) -> Collision {
+/// What each point meets: every part of the body. `rest` is the capsules in
+/// the rest pose. With only the parts near the robe's waist, a skirt thrown
+/// over the head in a flip passed through it.
+pub(crate) fn contacts(points: &[Resting], body: &Body, rest: &[Capsule]) -> Collision {
     let mut collision = Collision::default();
     for resting in points {
-        let seeds: Vec<usize> = resting
-            .point
-            .reach
-            .iter()
-            .filter_map(|&node| body.part_of(parents, node))
-            .collect();
-        let candidates = if seeds.is_empty() {
-            (0..body.parts.len()).collect()
-        } else {
-            body.around(&seeds, HOPS)
-        };
+        let candidates: Vec<usize> = (0..body.parts.len()).collect();
         let thick = resting.point.thickness;
         let from_axis = |capsule: usize, at: Vec3| {
             let [a, b] = rest[capsule].ends;

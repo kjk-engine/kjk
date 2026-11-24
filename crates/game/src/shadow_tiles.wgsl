@@ -75,7 +75,7 @@ struct Vertex {
     @location(7) slot: u32,
 #endif
 #ifdef LOOSE_PUSH
-    @location(8) push: vec2<f32>,
+    @location(8) push: vec4<f32>,
 #endif
 }
 

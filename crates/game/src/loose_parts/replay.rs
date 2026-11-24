@@ -46,6 +46,10 @@ pub struct Options<'a> {
     /// side, up axis, solved points, targets and capsules in the world (one
     /// JSON line a frame), if anywhere.
     pub dump: Option<&'a Path>,
+    /// A folder to write every frame's skinned body into, twice: as the
+    /// animation poses it, and with the solved bones and the push out of
+    /// the legs (`export`).
+    pub export: Option<&'a Path>,
 }
 
 /// How long the pelvis's speed is averaged over to find the robe's
@@ -68,7 +72,9 @@ struct Mesh {
     boots: Vec<usize>,
     /// The robe's triangles: those with a robe vertex.
     triangles: Vec<[usize; 3]>,
-    push: Option<Vec<[f32; 2]>>,
+    /// The share of each vertex that the solved bones carry.
+    loose: Vec<f32>,
+    push: Option<Vec<[f32; 4]>>,
 }
 
 /// Steps the solver of `options.body` on the record and counts, in each
@@ -106,12 +112,18 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
         }
         None => None,
     };
+    let mut export = match options.export {
+        Some(dir) => Some(Export::new(dir, &ir, &meshes)?),
+        None => None,
+    };
     let mut solver = model.solver.clone();
     let mut body = None;
-    let mut csv = String::from("ms,through\n");
+    let mut csv = String::from("ms,through,sunk\n");
     let (mut frames, mut shows, mut total) = (0usize, 0usize, 0usize);
+    let (mut sunk, mut sunk_frames) = (0usize, 0usize);
     let (mut steps, mut solving) = (0usize, 0.0f64);
     let mut locals = Vec::new();
+    let mut squeezes: Vec<f32> = Vec::new();
     let mut last_ms = None;
     let (mut moving, mut heading) = (None, Vec3::ZERO);
     for line in text.lines() {
@@ -158,12 +170,20 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
         if dt.is_none() {
             solver.reset();
         }
+        let animated = export
+            .is_some()
+            .then(|| world_of(&parents, &locals, placed));
         let step = solver.step(dt.unwrap_or(0.0), placed, &locals, floor);
         for &(node, turn) in step.turns {
             locals[node].rotation = turn;
         }
         solving += started.elapsed().as_secs_f64();
         steps += 1;
+        squeezes.extend(
+            (solver.links())
+                .filter(|&(_, _, rest, _)| rest > 0.0)
+                .map(|(_, _, rest, now)| (1.0 - now / rest).max(0.0)),
+        );
         let world: Vec<Mat4> = walked(&parents, &locals)
             .iter()
             .map(|f| {
@@ -173,6 +193,18 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
             .collect();
         let pelvis_at = world[pelvis].w_axis.truncate();
         let ms = value["ms"].as_f64().unwrap_or(0.0);
+        if let (Some(export), Some(animated)) = (export.as_mut(), animated.as_ref())
+            && last_ms != Some(ms)
+        {
+            let up = (world[head].w_axis - world[pelvis].w_axis).truncate();
+            export.frame(
+                &ir,
+                &meshes,
+                (animated, &world),
+                (ms, pelvis_at, up),
+                &model.capsules,
+            )?;
+        }
         if let Some((at, then)) = moving.replace((pelvis_at, ms))
             && ms > then
         {
@@ -187,14 +219,40 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
             .truncate()
             .normalize_or(Vec3::Z);
         let across = heading - up * heading.dot(up);
-        let (robe, boots) = skinned(&ir, &meshes, &world, &model.legs);
+        let (robe, boots) = skinned(&ir, &meshes, &world, &model.capsules);
         let back = -across.normalize_or_zero();
         let through = match across.length() >= LEAST_SPEED {
             true => through(&robe, &boots, (back, up)),
             false => 0,
         };
+        let in_body = {
+            let view = solver.view();
+            let capsules: Vec<([Vec3; 2], f32, bool)> = (view.capsules.iter())
+                .map(|(ends, radius, leg)| (ends.map(|p| view.anchor.point(p)), *radius, *leg))
+                .collect();
+            (robe.iter().flatten())
+                .filter(|&&p| {
+                    capsules.iter().any(|&([a, b], radius, leg)| {
+                        let from_axis = p.distance(ragdoll::closest_on_segment(p, a, b));
+                        match leg {
+                            true => from_axis < radius - SUNK_IN_LEG,
+                            false => from_axis < radius * SUNK_IN_TRUNK,
+                        }
+                    })
+                })
+                .count()
+        };
+        sunk += in_body;
+        sunk_frames += usize::from(in_body >= SUNK_FROM);
         if let Some(file) = dump.as_mut() {
             use std::io::Write;
+            if frames == 0 {
+                let loose: Vec<[f32; 3]> = (meshes.iter().flatten())
+                    .flat_map(|mesh| mesh.triangles.iter().map(|t| t.map(|v| mesh.loose[v])))
+                    .collect();
+                writeln!(file, "{}", serde_json::json!({ "loose": loose }))
+                    .map_err(|why| format!("the dump: {why}"))?;
+            }
             let view = solver.view();
             let world = |p: &Vec3| view.anchor.point(*p).to_array();
             let line = serde_json::json!({
@@ -212,19 +270,157 @@ pub fn replay(discovery: &vfs::Discovery, options: &Options) -> Result<String, S
             });
             writeln!(file, "{line}").map_err(|why| format!("the dump: {why}"))?;
         }
-        let _ = writeln!(csv, "{ms:.2},{through}");
+        let _ = writeln!(csv, "{ms:.2},{through},{in_body}");
         frames += 1;
         total += through;
         shows += usize::from(through >= SHOWS_FROM);
     }
+    squeezes.sort_by(f32::total_cmp);
+    let at = |share: f64| {
+        squeezes
+            .get((share * squeezes.len() as f64) as usize)
+            .copied()
+            .unwrap_or(0.0)
+    };
+    let squeeze = format!(
+        "; links between chains squeezed: median {:.2}, 90% {:.2}, 99% {:.2}",
+        at(0.5),
+        at(0.9),
+        at(0.99)
+    );
     if let Some(path) = options.frames {
         std::fs::write(path, csv).map_err(|why| format!("{}: {why}", path.display()))?;
     }
     Ok(format!(
-        "{}: {frames} frames, {shows} with {SHOWS_FROM} or more boot vertices through the robe's back, {total} in all; the solver took {:.1} µs a step",
+        "{}: {frames} frames, {shows} with {SHOWS_FROM} or more boot vertices through the robe's back, {total} in all; {sunk_frames} with {SUNK_FROM} or more robe corners sunk in the body, {sunk} in all; the solver took {:.1} µs a step",
         ir.name,
         solving * 1e6 / steps.max(1) as f64
-    ))
+    ) + &squeeze)
+}
+
+/// How deep in a leg's capsule a corner of a robe triangle must be to count
+/// as sunk in the body (metres).
+const SUNK_IN_LEG: f32 = 0.03;
+/// How deep in any other capsule, as a share of its radius from the axis.
+/// Many robe vertices rest a little inside the trunk's capsules.
+const SUNK_IN_TRUNK: f32 = 0.5;
+/// The fewest sunk corners that make a frame count.
+const SUNK_FROM: usize = 10;
+
+/// Each node's matrix in the world, with the model placed at `placed`.
+fn world_of(parents: &[Option<usize>], locals: &[Frame], placed: Frame) -> Vec<Mat4> {
+    walked(parents, locals)
+        .iter()
+        .map(|f| {
+            let f = placed.then(*f);
+            Mat4::from_rotation_translation(f.rotation, f.translation)
+        })
+        .collect()
+}
+
+/// The skinned body written for an offline renderer or cloth solver
+/// (`Options::export`). `mesh.json` holds each skinned mesh's triangles and
+/// each vertex's share on the solved bones. `frames.bin` holds, for each
+/// frame, its game time in milliseconds, the pelvis, the body's up axis,
+/// then each mesh's vertices as the animation poses them and as the solved
+/// bones and the push pose them, all as little-endian 32-bit floats.
+struct Export {
+    file: std::io::BufWriter<std::fs::File>,
+}
+
+impl Export {
+    fn new(dir: &Path, ir: &ModelIr, meshes: &[Option<Mesh>]) -> Result<Export, String> {
+        std::fs::create_dir_all(dir).map_err(|why| format!("{}: {why}", dir.display()))?;
+        let list: Vec<serde_json::Value> = (meshes.iter().zip(&ir.meshes))
+            .filter_map(|(mesh, ir_mesh)| {
+                let mesh = mesh.as_ref()?;
+                Some(serde_json::json!({
+                    "node": ir_mesh.node,
+                    "texture": ir_mesh.texture,
+                    "vertices": ir_mesh.positions.len(),
+                    "triangles": ir_mesh.indices.as_chunks::<3>().0,
+                    "loose": mesh.loose,
+                    "uvs": ir_mesh.uv1,
+                }))
+            })
+            .collect();
+        let json = serde_json::json!({ "model": ir.name, "meshes": list });
+        std::fs::write(dir.join("mesh.json"), json.to_string())
+            .map_err(|why| format!("mesh.json: {why}"))?;
+        let file = std::fs::File::create(dir.join("frames.bin"))
+            .map_err(|why| format!("frames.bin: {why}"))?;
+        Ok(Export {
+            file: std::io::BufWriter::new(file),
+        })
+    }
+
+    fn frame(
+        &mut self,
+        ir: &ModelIr,
+        meshes: &[Option<Mesh>],
+        (animated, solved): (&[Mat4], &[Mat4]),
+        (ms, pelvis, up): (f64, Vec3, Vec3),
+        body: &[(usize, [Vec3; 2], f32)],
+    ) -> Result<(), String> {
+        use std::io::Write;
+        let mut out: Vec<f32> = vec![ms as f32];
+        out.extend(pelvis.to_array());
+        out.extend(up.to_array());
+        let capsules: Vec<([Vec3; 2], f32)> = (body.iter())
+            .map(|&(node, ends, radius)| {
+                (
+                    ends.map(|end| solved[node].transform_point3(end)),
+                    radius + crate::loose_skin::CLOTH_OFF_LEG,
+                )
+            })
+            .collect();
+        for (mesh, ir_mesh) in meshes.iter().zip(&ir.meshes) {
+            let Some(mesh) = mesh else { continue };
+            for (world, pushed) in [(animated, false), (solved, true)] {
+                for p in skin_all(ir_mesh, mesh, world) {
+                    let p = match (&mesh.push, pushed) {
+                        (Some(push), true) => out_of_legs(p.0, &capsules, push[p.1]),
+                        _ => p.0,
+                    };
+                    out.extend(p.to_array());
+                }
+            }
+        }
+        let bytes: Vec<u8> = out.iter().flat_map(|f| f.to_le_bytes()).collect();
+        self.file
+            .write_all(&bytes)
+            .map_err(|why| format!("frames.bin: {why}"))
+    }
+}
+
+/// Every vertex of a skinned mesh placed by the nodes at `world`, with its
+/// number.
+fn skin_all(
+    ir_mesh: &asset_odyssey::model::MeshIr,
+    mesh: &Mesh,
+    world: &[Mat4],
+) -> Vec<(Vec3, usize)> {
+    let skin = ir_mesh.skin.as_ref().expect("an exported mesh is skinned");
+    let joint: Vec<Mat4> = (mesh.joints.iter().zip(&mesh.binds))
+        .map(|(&node, bind)| world[node] * *bind)
+        .collect();
+    (0..ir_mesh.positions.len())
+        .map(|vertex| {
+            let mut placed = Mat4::ZERO;
+            for (&slot, &weight) in skin.vertex_joints[vertex]
+                .iter()
+                .zip(&skin.vertex_weights[vertex])
+            {
+                if let Some(m) = joint.get(usize::from(slot)) {
+                    placed += *m * weight;
+                }
+            }
+            (
+                placed.transform_point3(Vec3::from_array(ir_mesh.positions[vertex])),
+                vertex,
+            )
+        })
+        .collect()
 }
 
 /// Each node's frame in model space, from each node's frame in its
@@ -281,6 +477,7 @@ fn meshes(ir: &ModelIr, model: &Model, (moved, feet): (&[usize], &[usize])) -> V
                 joints: skin.joints.clone(),
                 boots,
                 triangles,
+                loose: (0..mesh.positions.len()).map(|v| share(v, moved)).collect(),
                 push: pushing()
                     .then(|| model.pushes.get(index).cloned().flatten())
                     .flatten(),
@@ -290,15 +487,15 @@ fn meshes(ir: &ModelIr, model: &Model, (moved, feet): (&[usize], &[usize])) -> V
 }
 
 /// The robe's triangles and the boot vertices, skinned with the nodes at
-/// `world` and pushed out of the leg capsules `legs` as the vertex shader
+/// `world` and pushed out of the body capsules `body` as the vertex shader
 /// pushes them.
 fn skinned(
     ir: &ModelIr,
     meshes: &[Option<Mesh>],
     world: &[Mat4],
-    legs: &[(usize, [Vec3; 2], f32)],
+    body: &[(usize, [Vec3; 2], f32)],
 ) -> (Vec<[Vec3; 3]>, Vec<Vec3>) {
-    let capsules: Vec<([Vec3; 2], f32)> = (legs.iter())
+    let capsules: Vec<([Vec3; 2], f32)> = (body.iter())
         .map(|&(node, ends, radius)| {
             (
                 ends.map(|end| world[node].transform_point3(end)),
@@ -352,20 +549,27 @@ fn through(robe: &[[Vec3; 3]], boots: &[Vec3], (back, up): (Vec3, Vec3)) -> usiz
         .count()
 }
 
-/// `loose_legs.wgsl`'s `out_of_legs`, on the CPU.
-fn out_of_legs(at: Vec3, capsules: &[([Vec3; 2], f32)], push: [f32; 2]) -> Vec3 {
+/// `loose_legs.wgsl`'s `out_of_legs`, on the CPU. `capsules` are the
+/// body's, the legs first, with `loose_skin::CLOTH_OFF_LEG` in the radius.
+fn out_of_legs(at: Vec3, capsules: &[([Vec3; 2], f32)], push: [f32; 4]) -> Vec3 {
     let mut p = at;
     if push[0] <= 0.0 {
         return p;
     }
-    for &([a, b], radius) in capsules {
-        let radius = radius - push[1];
+    let inside = (push[0] + 0.5) as u32 - 1;
+    for (i, &([a, b], radius)) in capsules.iter().enumerate() {
+        let rests = match i.checked_sub(crate::loose_skin::LEG_CAPSULES) {
+            None => push[1],
+            Some(bit) if inside >> bit & 1 == 1 => continue,
+            Some(_) => 0.0,
+        };
+        let radius = radius - rests;
         let ab = b - a;
         let t = ((p - a).dot(ab) / ab.length_squared().max(1e-8)).clamp(0.0, 1.0);
         let out = p - (a + ab * t);
         let distance = out.length();
         if distance < radius && distance >= 1e-5 {
-            p += out / distance * ((radius - distance) * push[0]);
+            p += out / distance * (radius - distance);
         }
     }
     p

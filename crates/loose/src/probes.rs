@@ -117,6 +117,7 @@ fn point(place: Place) -> Point {
         drive: None,
         damping: 0.5,
         inertia: 0.5,
+        aero: 0.0,
         thickness: 0.02,
         hang: 0.0,
         reach: vec![TRUNK],
@@ -162,7 +163,7 @@ fn chain(right: f32) -> Garment {
     let mut garment = Garment {
         rig: Rig {
             points,
-            links: Vec::new(),
+            ..Rig::default()
         },
         nodes,
     };
@@ -207,7 +208,11 @@ fn tree() -> Garment {
         })
         .collect();
     let mut garment = Garment {
-        rig: Rig { points, links },
+        rig: Rig {
+            points,
+            links,
+            samples: Vec::new(),
+        },
         nodes,
     };
     reach_by_depth(&mut garment);
@@ -232,6 +237,7 @@ fn part(
         trunk,
         name: "",
         leg: !trunk,
+        head: false,
     }
 }
 
@@ -513,6 +519,7 @@ fn on_free(ends: [Vec3; 2], radius: f32) -> Body {
             trunk: false,
             name: "",
             leg: true,
+            head: false,
         }],
     }
 }
@@ -945,7 +952,11 @@ fn skirt() -> Garment {
         }
     }
     let mut garment = Garment {
-        rig: Rig { points, links },
+        rig: Rig {
+            points,
+            links,
+            samples: Vec::new(),
+        },
         nodes,
     };
     reach_by_depth(&mut garment);
@@ -968,6 +979,7 @@ fn figure_with_kick() -> Body {
         trunk: false,
         name: "",
         leg: true,
+        head: false,
     });
     body
 }

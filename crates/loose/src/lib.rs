@@ -78,6 +78,16 @@ pub struct Point {
     /// character and feels none of it. At 1 it stays where it was in the
     /// world, and the character moves away under it.
     pub inertia: f32,
+    /// The drag of air that stays still in the world on the face of the
+    /// cloth (per metre). The damping works against the point's motion
+    /// relative to the character instead. Air that hits
+    /// the cloth's face squarely slows it the most, air that slides along it
+    /// a tenth as much, and air at a slant also lifts it across the flow
+    /// (NVIDIA's NvCloth model, `docs/research/2026-11-24-cloth-air-drag.md`).
+    /// The force grows with the square of the speed through the air. A
+    /// point whose face is unknown, such as one on a chain that hangs
+    /// straight under its root, gets the full drag in every direction.
+    pub aero: f32,
     /// How thick the garment is around the point (metres). The point keeps
     /// this far from the surface of a capsule.
     pub thickness: f32,
@@ -104,12 +114,25 @@ pub struct Link {
     pub compliance: f32,
 }
 
+/// A vertex of a garment's skin that the solver keeps out of the body. It
+/// has no motion of its own. The bones that carry it place it, and a push
+/// on it moves the points of those bones by their share of it. The points
+/// alone leave gaps between the chains and below the hem, where a boot or
+/// a knee comes through the cloth.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sample {
+    /// Each skeleton node that carries the vertex, its skin weight, and
+    /// where the vertex sits in the node's frame at rest.
+    pub parts: Vec<(usize, f32, Vec3)>,
+}
+
 /// The loose points of one body and the links between them: the solver's
 /// input, made once per body model. A point's parent comes before it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Rig {
     pub points: Vec<Point>,
     pub links: Vec<Link>,
+    pub samples: Vec<Sample>,
 }
 
 /// A body's skeleton in its rest pose. Each node's parent comes before it.

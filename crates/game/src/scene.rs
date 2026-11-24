@@ -1489,18 +1489,32 @@ impl<'t> Spawner<'t> {
                 VertexAttributeValues::Uint16x4(skin.vertex_joints.clone()),
             );
             mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, skin.vertex_weights.clone());
+            let push = crate::loose_parts::push(&placed.ir, index);
+            let pushed = push.is_some();
+            if let Some(push) = push {
+                mesh.insert_attribute(crate::loose_skin::PUSH, push);
+            }
+            match crate::loose_parts::paint(&placed.ir, index) {
+                Some(paint) => mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, paint),
+                // White, so that the vertex shader can shade the folds
+                // through the colour the material multiplies by.
+                None if pushed => mesh.insert_attribute(
+                    Mesh::ATTRIBUTE_COLOR,
+                    vec![[1.0f32; 4]; part.positions.len()],
+                ),
+                None => {}
+            }
+            // A robe or cape that the solver moves is cut finer, so that its
+            // skin bends smoothly and its folds show.
+            if pushed && let Some(finer) = crate::loose_subdivide::subdivided(&mesh) {
+                mesh = finer;
+            }
             let whole = skin
                 .vertex_weights
                 .iter()
                 .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT);
             if whole {
                 culled = mesh.generate_skinned_mesh_bounds().is_ok();
-            }
-            if let Some(push) = crate::loose_parts::push(&placed.ir, index) {
-                mesh.insert_attribute(crate::loose_skin::PUSH, push);
-            }
-            if let Some(paint) = crate::loose_parts::paint(&placed.ir, index) {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, paint);
             }
         }
         // A skinned danglymesh is left at rest, since the dangly shaders do not

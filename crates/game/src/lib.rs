@@ -104,6 +104,7 @@ mod loose_parts;
 pub use loose_parts::replay as loose_replay;
 mod loose_sim;
 mod loose_skin;
+mod loose_subdivide;
 pub mod loose_view;
 mod loot;
 mod made;

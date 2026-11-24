@@ -44,7 +44,7 @@ use asset_odyssey::model::ModelIr;
 use bevy::prelude::*;
 use bevy::tasks::ComputeTaskPool;
 use console::{DumpDue, DumpFacts};
-use loose::{Body, Frame, Link, Place, Point, Rig, Settings, Skeleton, Solver};
+use loose::{Body, Frame, Link, Place, Point, Rig, Sample, Settings, Skeleton, Solver};
 use vfs::resolver::Resolver;
 
 use crate::loose_view::Loose;
@@ -192,6 +192,7 @@ fn solver_rig(found: &finder::Rig, kinds: &[Kind]) -> Rig {
                 drive: values.drive,
                 damping: values.damping,
                 inertia: values.inertia,
+                aero: values.aero,
                 thickness: values.radius,
                 hang: values.hang,
                 reach: point.reach.clone(),
@@ -219,11 +220,17 @@ pub(crate) struct Model {
     /// The bones the solver turns, and their rest turns.
     bones: Vec<(usize, Quat)>,
     /// The leg capsules of the body: each one's node, its ends in the
-    /// node's frame and its radius (`loose_skin`).
+    /// node's frame and its radius.
     legs: Vec<(usize, [Vec3; 2], f32)>,
+    /// Every capsule of the body, the legs first, as the vertex shader
+    /// reads them (`loose_skin`).
+    capsules: Vec<(usize, [Vec3; 2], f32)>,
     /// For each mesh of the model, the `loose_skin::PUSH` attribute of a
     /// mesh that the solver moves, or `None`.
-    pushes: Vec<Option<Vec<[f32; 2]>>>,
+    pushes: Vec<Option<Vec<[f32; 4]>>>,
+    /// Each point's chain in the solver (`Solver::chains`), held below
+    /// `loose_skin::CHAINS`, and how many chains there are.
+    chains: (Vec<usize>, usize),
     /// For each skinned mesh of the model, its colours under
     /// `KJK_LOOSE_PAINT` (`paint`).
     paints: Vec<Option<Vec<[f32; 4]>>>,
@@ -237,9 +244,13 @@ impl Model {
     /// of the body's in full.
     pub(crate) fn new(ir: &ModelIr, clips: &[&AnimationIr]) -> Option<Model> {
         let found = finder::rig(ir, clips);
-        let rig = solver_rig(&found, &SIMULATED);
+        let mut rig = solver_rig(&found, &SIMULATED);
         if rig.points.is_empty() {
             return None;
+        }
+        let moved: Vec<usize> = simulated(&found).flat_map(bones_of).collect();
+        if skin_kept_out() {
+            rig.samples = samples(ir, &moved);
         }
         let Some(pelvis) = ir.node_index(asset_odyssey::hooks::PELVIS) else {
             warn!("{}: no robe solver without a pelvis", ir.name);
@@ -273,6 +284,11 @@ impl Model {
         let legs: Vec<(usize, [Vec3; 2], f32)> = body
             .iter()
             .flat_map(|body| body.legs())
+            .take(crate::loose_skin::LEG_CAPSULES)
+            .collect();
+        let capsules: Vec<(usize, [Vec3; 2], f32)> = body
+            .iter()
+            .flat_map(|body| body.capsules())
             .take(crate::loose_skin::CAPSULES)
             .collect();
         let feet_of = body.clone();
@@ -286,9 +302,25 @@ impl Model {
         if settings.trace {
             info!("loose trace {}:\n{}", ir.name, solver.describe());
         }
-        let moved: Vec<usize> = simulated(&found).flat_map(bones_of).collect();
         let bones = moved.iter().map(|&node| (node, rest[node].2)).collect();
-        let pushes = pushes(ir, &moved, &legs);
+        let chains_of_points = solver.chains();
+        let chain_of: HashMap<usize, usize> = (chains_of_points.iter())
+            .filter_map(|&(chain, node)| Some((node?, chain)))
+            .collect();
+        let pushes = pushes(ir, &moved, &capsules, &chain_of);
+        let last = crate::loose_skin::CHAINS - 1;
+        let chains = (
+            chains_of_points
+                .iter()
+                .map(|&(chain, _)| chain.min(last))
+                .collect::<Vec<_>>(),
+            chains_of_points
+                .iter()
+                .map(|&(chain, _)| chain + 1)
+                .max()
+                .unwrap_or(0)
+                .min(last + 1),
+        );
         let feet: Vec<usize> = (feet_of.iter())
             .flat_map(|body| body.legs())
             .enumerate()
@@ -305,6 +337,8 @@ impl Model {
             solver,
             bones,
             legs,
+            capsules,
+            chains,
             pushes,
             paints,
         })
@@ -405,28 +439,96 @@ fn skinned_on(ir: &ModelIr, node: usize) -> Vec<Vec3> {
     points
 }
 
+/// The vertices of `ir`'s skinned meshes that the bones `moved` carry by
+/// half or more, as the solver's samples of the skin (`loose::Sample`). A
+/// vertex that several meshes share, or that rests within a millimetre of
+/// another, is taken once.
+fn samples(ir: &ModelIr, moved: &[usize]) -> Vec<Sample> {
+    let world = |node: usize| crate::scene::to_mat4(&ir.nodes[node].world);
+    let mut seen = std::collections::HashSet::new();
+    let mut samples = Vec::new();
+    for mesh in &ir.meshes {
+        let Some(skin) = mesh.skin.as_ref() else {
+            continue;
+        };
+        for (vertex, p) in mesh.positions.iter().enumerate() {
+            let (Some(slots), Some(weights)) = (
+                skin.vertex_joints.get(vertex),
+                skin.vertex_weights.get(vertex),
+            ) else {
+                continue;
+            };
+            let p = Vec3::from_array(*p);
+            let mut parts = Vec::new();
+            let mut placed = Vec3::ZERO;
+            for (&slot, &weight) in slots.iter().zip(weights) {
+                let slot = usize::from(slot);
+                let (Some(&node), Some(bind)) =
+                    (skin.joints.get(slot), skin.inverse_binds.get(slot))
+                else {
+                    continue;
+                };
+                if weight <= 0.0 {
+                    continue;
+                }
+                let local = crate::scene::to_mat4(bind).transform_point3(p);
+                placed += world(node).transform_point3(local) * weight;
+                parts.push((node, weight, local));
+            }
+            let loose: f32 = (parts.iter())
+                .filter(|(node, ..)| moved.contains(node))
+                .map(|(_, weight, _)| weight)
+                .sum();
+            if loose < 0.5 || !seen.insert((placed * 1000.0).round().as_ivec3().to_array()) {
+                continue;
+            }
+            samples.push(Sample { parts });
+        }
+    }
+    samples
+}
+
+/// Whether the solver keeps samples of the robe's skin out of the body.
+/// `KJK_LOOSE_SKIN=off` leaves only the points and bones to collide.
+fn skin_kept_out() -> bool {
+    static KEPT: OnceLock<bool> = OnceLock::new();
+    *KEPT.get_or_init(|| std::env::var("KJK_LOOSE_SKIN").as_deref() != Ok("off"))
+}
+
 /// How much nearer to a capsule's axis than at rest a vertex that rests
 /// inside the capsule may come before it is pushed (metres).
 const INSIDE_MARGIN: f32 = 0.005;
 
 /// The `loose_skin::PUSH` attribute of each mesh of `ir` that the bones
-/// `moved` move, from the leg capsules `legs` in the rest pose. A vertex's
-/// share is the sum of its weights on the moved bones. Its depth is how far
-/// it rests inside the capsule it is deepest in, with `loose_skin::CLOTH_OFF_LEG`
-/// added to the radius, plus `INSIDE_MARGIN`.
+/// `moved` move, from the body capsules `capsules` in the rest pose, the
+/// legs first. Every vertex of such a mesh is pushed all the way out, also
+/// those the moved bones carry little or not at all. Those are the robe's
+/// skin at the hips, carried by the pelvis and the thighs, and in a flip
+/// the hip bends so far that the skin blended between them folds into the
+/// thigh. A vertex's x is 1 plus a mask of the capsules after the legs that
+/// it rests inside, such as the chest for the top of a robe, which never
+/// push it. Its y is how far it rests inside the leg capsule it is deepest
+/// in, with `loose_skin::CLOTH_OFF_LEG` added to the radius, plus
+/// `INSIDE_MARGIN`. Its z is how far down the garment it hangs at rest
+/// (metres), from the highest vertex the moved bones carry, times the
+/// share they carry of it. Its w packs the two chains (`chain_of`, by node)
+/// whose moved bones carry it most, and its share of the second against
+/// both, the way `loose_legs.wgsl`'s `cloth_at` reads it.
 fn pushes(
     ir: &ModelIr,
     moved: &[usize],
-    legs: &[(usize, [Vec3; 2], f32)],
-) -> Vec<Option<Vec<[f32; 2]>>> {
+    capsules: &[(usize, [Vec3; 2], f32)],
+    chain_of: &HashMap<usize, usize>,
+) -> Vec<Option<Vec<[f32; 4]>>> {
     let world = |node: usize| crate::scene::to_mat4(&ir.nodes[node].world);
-    let rest: Vec<([Vec3; 2], f32)> = legs
+    let rest: Vec<([Vec3; 2], f32)> = capsules
         .iter()
         .map(|&(node, ends, radius)| {
             let frame = world(node);
             (ends.map(|end| frame.transform_point3(end)), radius)
         })
         .collect();
+    let legs = crate::loose_skin::LEG_CAPSULES.min(rest.len());
     ir.meshes
         .iter()
         .map(|mesh| {
@@ -435,7 +537,8 @@ fn pushes(
                 .map(|(&node, bind)| world(node) * crate::scene::to_mat4(bind))
                 .collect();
             let mut any = false;
-            let push = (mesh.positions.iter().enumerate())
+            let mut top = f32::MIN;
+            let push: Vec<([f32; 4], f32, f32)> = (mesh.positions.iter().enumerate())
                 .map(|(vertex, p)| {
                     let p = Vec3::from_array(*p);
                     let (slots, weights) = (
@@ -443,10 +546,11 @@ fn pushes(
                         skin.vertex_weights.get(vertex),
                     );
                     let (Some(slots), Some(weights)) = (slots, weights) else {
-                        return [0.0, 0.0];
+                        return ([0.0; 4], 0.0, 0.0);
                     };
-                    let mut share = 0.0;
                     let mut at = Vec3::ZERO;
+                    let mut share = 0.0f32;
+                    let mut by_chain = [0.0f32; crate::loose_skin::CHAINS];
                     for (&slot, &weight) in slots.iter().zip(weights) {
                         let slot = usize::from(slot);
                         let (Some(&node), Some(bind)) = (skin.joints.get(slot), binds.get(slot))
@@ -454,22 +558,43 @@ fn pushes(
                             continue;
                         };
                         at += bind.transform_point3(p) * weight;
-                        if moved.contains(&node) {
+                        if weight > 0.0 && moved.contains(&node) {
+                            any = true;
                             share += weight;
+                            let chain = chain_of.get(&node).copied().unwrap_or(0);
+                            by_chain[chain.min(crate::loose_skin::CHAINS - 1)] += weight;
                         }
                     }
-                    if share <= 0.0 {
-                        return [0.0, 0.0];
+                    if share > 0.0 {
+                        top = top.max(at.z);
                     }
-                    any = true;
-                    let depth = rest
-                        .iter()
-                        .map(|&([a, b], radius)| {
-                            let from_axis = at.distance(ragdoll::closest_on_segment(at, a, b));
-                            radius + crate::loose_skin::CLOTH_OFF_LEG - from_axis + INSIDE_MARGIN
-                        })
-                        .fold(0.0, f32::max);
-                    [share.min(1.0), depth]
+                    let inside_by = |&([a, b], radius): &([Vec3; 2], f32)| {
+                        let from_axis = at.distance(ragdoll::closest_on_segment(at, a, b));
+                        radius + crate::loose_skin::CLOTH_OFF_LEG - from_axis + INSIDE_MARGIN
+                    };
+                    let depth = rest[..legs].iter().map(inside_by).fold(0.0, f32::max);
+                    let inside = (rest[legs..].iter().enumerate())
+                        .filter(|(_, capsule)| inside_by(capsule) > 0.0)
+                        .fold(0u32, |mask, (bit, _)| mask | 1 << bit);
+                    let mut order: Vec<usize> = (0..by_chain.len()).collect();
+                    order.sort_by(|&a, &b| by_chain[b].total_cmp(&by_chain[a]));
+                    let (first, second) = (order[0], order[1]);
+                    let both = by_chain[first] + by_chain[second];
+                    let (second, across) = match by_chain[second] > 0.0 {
+                        true => (second, by_chain[second] / both),
+                        false => (first, 0.0),
+                    };
+                    let packed = crate::loose_skin::pack_chains(first, second, across);
+                    (
+                        [1.0 + inside as f32, depth, 0.0, packed],
+                        at.z,
+                        share.min(1.0),
+                    )
+                })
+                .collect();
+            let push = (push.into_iter())
+                .map(|([inside, depth, _, chain], z, share)| {
+                    [inside, depth, (top - z).max(0.0) * share, chain]
                 })
                 .collect();
             any.then_some(push)
@@ -481,13 +606,80 @@ fn pushes(
 /// moves it (`Model::pushes`). It is `None` while the solver or the push
 /// is off, for a model it does not move and for a mesh with no vertex on a
 /// moved bone.
-pub(crate) fn push(ir: &ModelIr, mesh: usize) -> Option<Vec<[f32; 2]>> {
+pub(crate) fn push(ir: &ModelIr, mesh: usize) -> Option<Vec<[f32; 4]>> {
     if !running() || !pushing() {
         return None;
     }
     let models = MODELS.lock().unwrap_or_else(|e| e.into_inner());
     let model = models.get(&ir.name.to_ascii_lowercase())?.as_ref()?;
     model.pushes.get(mesh)?.clone()
+}
+
+/// How far the hem flutters at `FLUTTER_SPEED` and above (metres).
+const FLUTTER_HEIGHT: f32 = 0.025;
+/// The speed through still air at which a hem flutters its most (metres per
+/// second).
+const FLUTTER_SPEED: f32 = 8.0;
+/// How many flutters run down a chain each second, and how many more for
+/// each metre per second of speed through the air.
+const FLUTTER_HERTZ: f32 = 1.0;
+const FLUTTER_HERTZ_PER_SPEED: f32 = 0.5;
+/// How quickly a chain's flutter and squeeze follow their values (per
+/// second).
+const RIPPLE_FOLLOW: f32 = 8.0;
+
+/// A value of the cloth's look that a run may change through its variable:
+/// its name and its default.
+struct Tuned {
+    name: &'static str,
+    default: f32,
+    cell: OnceLock<f32>,
+}
+
+/// The share of the deepest fold that the cloth between two chains keeps
+/// when nothing squeezes it, `KJK_LOOSE_FOLD_REST`. A robe hangs in soft
+/// pleats between the places it is held.
+static FOLD_AT_REST: Tuned = Tuned {
+    name: "KJK_LOOSE_FOLD_REST",
+    default: 0.3,
+    cell: OnceLock::new(),
+};
+
+/// The squeeze of two chains, as a share of their rest distance, at which
+/// the cloth between them folds its deepest, `KJK_LOOSE_FOLD_FULL`. Links
+/// between chains shorten by 7% or less nine tenths of the time in the
+/// acrobatics record, and by 44% at the most.
+static FOLD_FULL: Tuned = Tuned {
+    name: "KJK_LOOSE_FOLD_FULL",
+    default: 0.2,
+    cell: OnceLock::new(),
+};
+
+fn tuned(value: &Tuned) -> f32 {
+    *value.cell.get_or_init(|| {
+        (std::env::var(value.name).ok())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(value.default)
+    })
+}
+
+/// A scale for the run from the variable `name`, 1 when it is not set.
+fn strength(name: &str, cell: &'static OnceLock<f32>) -> f32 {
+    *cell.get_or_init(|| {
+        (std::env::var(name).ok())
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(1.0)
+    })
+}
+
+fn fold_strength() -> f32 {
+    static CELL: OnceLock<f32> = OnceLock::new();
+    strength("KJK_LOOSE_FOLDS", &CELL)
+}
+
+fn flutter_strength() -> f32 {
+    static CELL: OnceLock<f32> = OnceLock::new();
+    strength("KJK_LOOSE_FLUTTER", &CELL)
 }
 
 /// Whether robes and capes are pushed out of the legs on the GPU in this
@@ -717,6 +909,8 @@ struct State {
     last: Option<(u64, f64)>,
     /// The body's model in the scene's models (`Worn::model`).
     model: usize,
+    /// Each chain's ripple, sent to the vertex shader (`loose_skin`).
+    ripples: [crate::loose_skin::Ripple; crate::loose_skin::CHAINS],
 }
 
 impl State {
@@ -726,6 +920,7 @@ impl State {
             wearer: wearer.clone(),
             last: None,
             model,
+            ripples: Default::default(),
         }
     }
 
@@ -747,11 +942,67 @@ impl State {
                 let t = transforms.get(node).ok()?;
                 Some(Frame::new(t.translation, t.rotation))
             });
+        self.ripple(seconds.unwrap_or(0.0));
         if let Some(traced) = traced() {
             self.write_trace(traced, worn, (frame, seconds), model);
         }
         if let Some(file) = recorded() {
             self.write_record(file, worn, (seconds, model));
+        }
+    }
+
+    /// Each chain's folds and flutter after a step of `seconds`, for the
+    /// vertex shader. A chain squeezes by how far the links to its
+    /// neighbouring chains have shortened, as a share of their rest length.
+    /// The cloth between chains always hangs in shallow folds
+    /// (`FOLD_AT_REST` of the deepest), and they deepen to the deepest when
+    /// the squeeze reaches `FOLD_FULL`.
+    /// Its hem flutters with the square of its speed through still air, up
+    /// to `FLUTTER_SPEED`, and its flutter runs faster the faster it goes.
+    /// Both follow their values over about an eighth of a second, so that
+    /// the cloth does not flicker. `KJK_LOOSE_FOLDS` and `KJK_LOOSE_FLUTTER`
+    /// scale them for the run, and 0 turns them off.
+    fn ripple(&mut self, seconds: f32) {
+        let solver = &self.wearing.solver;
+        let view = solver.view();
+        let airflow = solver.airflow();
+        let (of_point, count) = &self.wearer.model.chains;
+        let follow = (seconds * RIPPLE_FOLLOW).min(1.0);
+        let mut squeezed = [(0.0f32, 0.0f32); crate::loose_skin::CHAINS];
+        for (a, b, rest, now) in solver.links() {
+            let (ca, cb) = (of_point[a], of_point[b]);
+            if ca == cb || rest <= 0.0 {
+                continue;
+            }
+            let squeeze = (1.0 - now / rest).clamp(0.0, 1.0);
+            for chain in [ca, cb] {
+                squeezed[chain].0 += squeeze;
+                squeezed[chain].1 += 1.0;
+            }
+        }
+        for chain in 0..*count {
+            let mut points = (0..of_point.len()).filter(|&point| of_point[point] == chain);
+            let Some(root) = points.next() else { continue };
+            let world = |point: usize| view.anchor.point(view.positions[point]);
+            let (mut tip, mut sum, mut middle, mut n) = (root, airflow[root], world(root), 1.0);
+            for point in points {
+                (tip, sum, middle, n) =
+                    (point, sum + airflow[point], middle + world(point), n + 1.0);
+            }
+            let speed = (sum / n).min(FLUTTER_SPEED);
+            let ripple = &mut self.ripples[chain];
+            let height = flutter_strength() * FLUTTER_HEIGHT * (speed / FLUTTER_SPEED).powi(2);
+            ripple.height += (height - ripple.height) * follow;
+            let (total, links) = squeezed[chain];
+            let squeeze = if links > 0.0 { total / links } else { 0.0 };
+            let (rest, full) = (tuned(&FOLD_AT_REST), tuned(&FOLD_FULL));
+            let fold = rest + (1.0 - rest) * (squeeze / full.max(1e-3)).min(1.0);
+            ripple.squeeze += (fold_strength() * fold - ripple.squeeze) * follow;
+            ripple.way = (world(tip) - world(root)).normalize_or_zero();
+            ripple.middle = middle / n;
+            let hertz = FLUTTER_HERTZ + FLUTTER_HERTZ_PER_SPEED * speed;
+            ripple.phase = (ripple.phase + seconds * std::f32::consts::TAU * hertz)
+                % (std::f32::consts::TAU * 64.0);
         }
     }
 
@@ -969,7 +1220,9 @@ fn place_legs(
     }
     for state in solving.states.values() {
         let mut capsules = [LegCapsule::NONE; CAPSULES];
-        for (capsule, &(node, ends, radius)) in capsules.iter_mut().zip(&state.wearer.model.legs) {
+        for (capsule, &(node, ends, radius)) in
+            capsules.iter_mut().zip(&state.wearer.model.capsules)
+        {
             let Some(global) = (state.wearer.nodes.get(node)).and_then(|&n| globals.get(n).ok())
             else {
                 continue;
@@ -980,7 +1233,7 @@ fn place_legs(
                 scale: global.affine().matrix3.x_axis.length(),
             };
         }
-        writes.set(state.model, capsules);
+        writes.set(state.model, capsules, state.ripples);
     }
 }
 

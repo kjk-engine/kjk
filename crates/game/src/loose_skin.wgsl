@@ -1,15 +1,11 @@
 // A robe skirt's or a cape's mesh (`loose_skin.rs`). It is skinned as
-// Bevy skins it, then each vertex is pushed out of its wearer's leg
+// Bevy skins it, then each vertex is pushed out of its wearer's body
 // capsules. The robe solver moves only the robe's bones, and the skin
 // between two bones is blended between them, so a leg that swings between
 // two bones would pass through the cloth.
 //
-// `push.x` is the vertex's share of the garment, from 0 to 1: the sum of
-// its skin weights on the bones the solver moves. It scales the push, so
-// the waist, which the pelvis holds, is not pushed. `push.y` is how far
-// inside a leg capsule the vertex rests in the rest pose. The vertex keeps
-// that much less than each capsule's radius, so that nothing moves at
-// rest. The wearer's capsules are found by the model in the mesh's tag
+// The push is described in `loose_legs.wgsl`'s `out_of_legs`. Nothing
+// moves at rest. The wearer's capsules are found by the model in the mesh's tag
 // (`scene::owner_tag`). A mesh with no owner is not pushed.
 
 #import bevy_pbr::{
@@ -17,7 +13,15 @@
     skinning,
     view_transformations::position_world_to_clip,
 }
-#import kjk::loose_legs::{Legs, out_of_legs}
+#import kjk::loose_legs::{Legs, fold_shade, out_of_legs, rippled, rippled_normal}
+#ifndef PREPASS_PIPELINE
+#import bevy_pbr::mesh_view_bindings::view
+#endif
+
+// How much brighter the cloth gets where it turns away from the eye, with
+// `LOOSE_SHEEN` (`KJK_LOOSE_SHEEN=1`): the soft rim that wool and linen
+// catch at a grazing angle.
+const SHEEN: f32 = 0.35;
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::prepass_io::{Vertex, VertexOutput}
 #else
@@ -41,7 +45,7 @@ fn wearer(instance_index: u32) -> u32 {
 @vertex
 fn vertex(
     vertex: Vertex,
-    @location(#{LOOSE_PUSH}) push: vec2<f32>,
+    @location(#{LOOSE_PUSH}) push: vec4<f32>,
 ) -> VertexOutput {
     var out: VertexOutput;
     let mesh_world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
@@ -60,7 +64,19 @@ fn vertex(
         vec4<f32>(vertex.position, 1.0)
     );
     var at = skinned.xyz;
+#ifdef VERTEX_NORMALS
+#ifdef SKINNED
+    var normal = skinning::skin_normals(world_from_local, vertex.normal);
+#else
+    var normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
+#endif
+    let skin_normal = normal;
+#endif
     if slot != NO_WEARER {
+#ifdef VERTEX_NORMALS
+        at = rippled(at, normal, push, wearers[slot].now, wearers[slot].ripples);
+        normal = rippled_normal(normal, push, wearers[slot].ripples);
+#endif
         at = out_of_legs(at, wearers[slot].now, push);
     }
     out.world_position = vec4<f32>(at, 1.0);
@@ -77,18 +93,25 @@ fn vertex(
 #endif
 #ifdef VERTEX_COLORS
     out.color = vertex.color;
+#ifndef LOOSE_PAINT
+    if slot != NO_WEARER {
+        var shade = fold_shade(push, wearers[slot].ripples);
+#ifdef LOOSE_SHEEN
+#ifdef VERTEX_NORMALS
+#ifndef PREPASS_PIPELINE
+        let grazing = 1.0 - abs(dot(normalize(normal), normalize(view.world_position - at)));
+        shade = shade * (1.0 + SHEEN * grazing * grazing * grazing);
+#endif
+#endif
+#endif
+        out.color = vec4<f32>(vertex.color.rgb * shade, vertex.color.a);
+    }
+#endif
 #endif
 #ifdef PREPASS_PIPELINE
 #ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS
 #ifdef VERTEX_NORMALS
-#ifdef SKINNED
-    out.world_normal = skinning::skin_normals(world_from_local, vertex.normal);
-#else
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(
-        vertex.normal,
-        vertex.instance_index
-    );
-#endif
+    out.world_normal = normal;
 #endif
 #endif
 #ifdef MOTION_VECTOR_PREPASS
@@ -111,20 +134,16 @@ fn vertex(
     );
     var was = before.xyz;
     if slot != NO_WEARER {
+#ifdef VERTEX_NORMALS
+        was = rippled(was, skin_normal, push, wearers[slot].was, wearers[slot].ripples_was);
+#endif
         was = out_of_legs(was, wearers[slot].was, push);
     }
     out.previous_world_position = vec4<f32>(was, 1.0);
 #endif
 #else
 #ifdef VERTEX_NORMALS
-#ifdef SKINNED
-    out.world_normal = skinning::skin_normals(world_from_local, vertex.normal);
-#else
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(
-        vertex.normal,
-        vertex.instance_index
-    );
-#endif
+    out.world_normal = normal;
 #endif
 #ifdef VERTEX_TANGENTS
     out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
