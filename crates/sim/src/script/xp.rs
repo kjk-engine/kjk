@@ -294,7 +294,7 @@ pub(crate) fn tell_pc_level(library: &Library, view: &View, state: &mut State) {
 /// plays a companion (`SwitchPlayerCharacter`). Both executables save that
 /// character out of the area when they switch (TSL) or leave it out of the
 /// party (K1), and they hand experience only to the party's members and the
-/// character played (`DistributeExperience`). So the experience gained
+/// character played. So the experience gained
 /// meanwhile never reaches the player's own character. TSL's prologue gives
 /// T3-M4 experience that the Exile does not have on Peragus.
 pub const SWITCHED_OUT: u32 = 0x7e00_0004;
