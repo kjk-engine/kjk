@@ -1216,10 +1216,7 @@ impl View<'_> {
         named: ObjectId,
         asker: Option<ObjectId>,
     ) -> (ObjectId, ObjectId) {
-        let guest = self
-            .seat_of(named)
-            .is_some_and(|seat| seat != crate::world::LEADER_SEAT.0);
-        let pc = if guest && !self.is_main_character(table, named) {
+        let pc = if self.guest_body(named) && !self.is_main_character(table, named) {
             self.first_main_character(table)
         } else {
             named
@@ -1263,6 +1260,28 @@ impl View<'_> {
             .iter()
             .find(|(_, of)| *of == body)
             .map(|(seat, _)| *seat)
+    }
+
+    /// Whether `body` is a guest's: the body of a seat other than the
+    /// first.
+    pub(crate) fn guest_body(&self, body: ObjectId) -> bool {
+        self.seat_of(body)
+            .is_some_and(|seat| seat != crate::world::LEADER_SEAT.0)
+    }
+
+    /// Whether a conversation asked for under `cue` is a trigger's call
+    /// that a guest's body set off by coming into the trigger. Such a call
+    /// waits while the host's character cannot talk (`Step::open`), and a
+    /// scene holding the world does not refuse it (`ActionStartConversation`).
+    /// With one player, only the host's character can set a call off, and
+    /// it is never talking as it walks in. In co-op the guest's companion
+    /// can walk in while the host talks with someone else. Refused then,
+    /// the call was lost for good, as the trigger had already marked itself
+    /// done: K1's Upper City cantina never played the arena's opening
+    /// scene (`k_ptar_strdue_en`), and Bendak Starkiller, whom one of its
+    /// lines makes (`k_ptar_spbendak`), never came.
+    pub(crate) fn guest_call(&self, cue: Option<crate::script::Cue>) -> bool {
+        cue.is_some_and(|cue| self.guest_body(cue.entering))
     }
 }
 

@@ -193,11 +193,11 @@ impl Step<'_> {
     /// its PC, so one player leading through a companion is faced as before
     /// (the dialog camera frames the same, `play_view::talk_camera`).
     pub(super) fn player(&self, c: &Conversation) -> ObjectId {
-        let guest = self
-            .view
-            .seat_of(c.listener)
-            .is_some_and(|seat| seat != crate::world::LEADER_SEAT.0);
-        if guest { c.listener } else { c.pc }
+        if self.view.guest_body(c.listener) {
+            c.listener
+        } else {
+            c.pc
+        }
     }
 
     /// The host's answer to the request to join conversation `id` (R5).

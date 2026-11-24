@@ -837,6 +837,18 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     it cuts every conversation a seat's body stands in short ("a cutscene
     began"), locked or not; a start refused (already talking, nothing to
     say) cuts nothing. A bark holds nobody.
+    A trigger's call that a guest's body set off (its `Cue`) is never
+    refused for the host being busy (`View::guest_call`). When the host
+    stands in another conversation, the call waits and asks again each
+    step until the host is free. A scene that holds the world does not
+    refuse it either: it is queued and waits the same way. With one
+    player only the host's character sets such a call off, and it is never
+    talking as it walks in. In co-op the guest's companion can walk in
+    while the host talks, and the refused call was lost for good, because
+    the trigger had already marked itself done. K1's Upper City cantina
+    then never played the arena's opening scene, and Bendak Starkiller,
+    whom one of its lines makes, never came (probes
+    `trigger_call_waits_for_host_talk`, `trigger_call_waits_for_scene`).
   - **Joining**: a player who uses anyone taking part in another player's
     own conversation (its owner, its speaker, its listener or a body joined)
     joins it (`joined`): held, shown it, marking and answering its free
