@@ -308,8 +308,9 @@ fn known(rows: impl Fn(u16) -> bool, limit: u16) -> impl Iterator<Item = usize> 
     (0..limit).filter(move |row| rows(*row)).map(usize::from)
 }
 
-/// What an item `look` says of itself: TSL's "Cannot Equip: Bao-Dur" lines
-/// first once he has been met (`bao_dur_met`, `sim::cannot_equip`), then
+/// What an item `look` says of itself: what a character needs to use it
+/// (`ItemLook::requirements`), TSL's "Cannot Equip: Bao-Dur" lines once he
+/// has been met (`bao_dur_met`, `sim::cannot_equip`), then
 /// its stats in force (`ItemLook::in_force`: with `item`'s upgrades fitted,
 /// K1's by its bits, TSL's by the upgrade items in its slots, whose own
 /// stats follow), then its own description, then the rulebook's lines for
@@ -341,8 +342,8 @@ pub(crate) fn described(
     text
 }
 
-/// What an item `look` says of itself, in parts (`ItemText`): TSL's
-/// "Cannot Equip: Bao-Dur" lines once he has been met, its stats with
+/// What an item `look` says of itself, in parts (`ItemText`): its
+/// requirements, TSL's "Cannot Equip: Bao-Dur" lines once he has been met, its stats with
 /// `item`'s upgrade bits, and its own text.
 fn item_text(
     assets: &mut GuiAssets,
@@ -352,6 +353,7 @@ fn item_text(
 ) -> ItemText {
     let line = |strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
     ItemText {
+        requirements: look.requirements.clone(),
         head: sim::cannot_equip::lines(look.base_item, bao_dur_met, line),
         stats: look.stats.clone(),
         fitted: look.upgrades | item.map_or(0, |item| item.upgrades),
