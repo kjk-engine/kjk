@@ -343,7 +343,8 @@ fn disruptor_beams() {
 /// 3, 12 and 0.75 metres a second, reaches its speed and stops in 0.2
 /// seconds, zooms between 15 and 100 degrees, tilts up to 45 degrees, stops
 /// short of straight up and down as the follow camera does, and looks
-/// slower the more it is zoomed. It stays within 40 metres of the player's
+/// slower the more it is zoomed. It takes a shot whose pitch is a whole
+/// turn off as the shot looks. It stays within 40 metres of the player's
 /// character and within the box round the area's rooms grown by 2 metres,
 /// sliding along either limit. Needs `--features rig`; no installs
 /// (proposed 2026-11-24, awaiting approval).
@@ -352,7 +353,7 @@ fn photo_camera() {
     #[cfg(not(feature = "rig"))]
     println!("photo_camera skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("photo camera", &kjk_game::photo_mode::camera_probes(), 14);
+    probed("photo camera", &kjk_game::photo_mode::camera_probes(), 15);
 }
 
 /// Both blades of a double-bladed lightsaber whose blade nodes share one

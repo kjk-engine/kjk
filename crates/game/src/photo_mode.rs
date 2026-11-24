@@ -128,11 +128,12 @@ pub struct Camera {
 }
 
 impl Camera {
-    /// A camera standing still at `shot`.
+    /// A camera standing still at `shot`, its angles within half a turn
+    /// either way (a shot's pitch can be a whole turn off).
     pub fn of((at, angles, fov): TalkShot) -> Camera {
         Camera {
             at: Vec3::from_array(at),
-            angles,
+            angles: angles.map(|angle| (angle + 180.0).rem_euclid(360.0) - 180.0),
             fov,
             velocity: Vec3::ZERO,
         }
@@ -343,6 +344,8 @@ enum Ask {
     Off,
     Speed(Speed),
     HideOwn,
+    /// One tick of a replay, as the step control asks.
+    Step,
 }
 
 /// Photo mode's state.
@@ -408,7 +411,7 @@ impl PhotoMode {
     /// A run's request (`ui photo …`): `on`, `on X Y Z PITCH YAW [FOV]`
     /// (metres in game space, degrees), `off`, `speed
     /// stopped|tenth|quarter|normal`, `hide` (the own character hidden or
-    /// shown), and `fly FORWARD RIGHT UP [TURN_RIGHT TURN_DOWN]` (the move
+    /// shown), `step` (one tick of a stopped replay), and `fly FORWARD RIGHT UP [TURN_RIGHT TURN_DOWN]` (the move
     /// held, each from -1 to 1, and the turn in degrees a second; `fly 0 0
     /// 0` lets go). False for anything else.
     pub(crate) fn script(&mut self, words: &[&str]) -> bool {
@@ -429,6 +432,7 @@ impl PhotoMode {
             }
             (["off"], _) => Ask::Off,
             (["hide"], _) => Ask::HideOwn,
+            (["step"], _) => Ask::Step,
             (["speed", word], _) => match Speed::named(word) {
                 Some(speed) => Ask::Speed(speed),
                 None => return false,
@@ -682,11 +686,12 @@ fn line_words(speed: Speed, alone: Option<bool>, device: Device, map: &KeyMap) -
 pub(crate) fn photo_keys(
     mut controls: Controls,
     play: Play,
-    (mut photo, mut ui, mut asked, mut replay): (
+    (mut photo, mut ui, mut asked, mut replay, mut facts): (
         ResMut<PhotoMode>,
         ResMut<crate::ui_view::Ui>,
         ResMut<crate::party_calls::Asked>,
         ResMut<Replay>,
+        ResMut<console::DumpFacts>,
     ),
 ) {
     let photo = &mut *photo;
@@ -745,6 +750,21 @@ pub(crate) fn photo_keys(
             }
         }
     }
+    let limits = play.limits();
+    if facts.wanted() {
+        facts.0.insert(
+            "photo".into(),
+            serde_json::json!({
+                "on": photo.on.is_some(),
+                "shot": photo.shot(),
+                "speed": photo.on.map(|on| format!("{:?}", on.speed)),
+                "hide_own": photo.hides_own(),
+                "called_break": photo.on.is_some_and(|on| on.called_break),
+                "soles": limits.soles.to_array(),
+                "area": limits.area.map(|(low, high)| [low.to_array(), high.to_array()]),
+            }),
+        );
+    }
     let Some(on) = photo.on.as_mut() else {
         if ui.photo.is_some() {
             ui.photo = None;
@@ -770,7 +790,8 @@ pub(crate) fn photo_keys(
     if pressed(Control::Time) && alone {
         on.speed = on.speed.next(replay.playing);
     }
-    if pressed(Control::Step) && replay.playing && on.speed == Speed::Stopped {
+    let stepped = pressed(Control::Step) || asks.contains(&Ask::Step);
+    if stepped && replay.playing && on.speed == Speed::Stopped {
         replay.step = true;
     }
     if pressed(Control::Reset) {
@@ -784,7 +805,7 @@ pub(crate) fn photo_keys(
         photo.shot = Shot::Asked;
     }
     touched |= CONTROLS.iter().any(|(control, ..)| pressed(*control));
-    on.camera = step(on.camera, &input, &play.limits(), dt);
+    on.camera = step(on.camera, &input, &limits, dt);
     on.idle = if touched { 0.0 } else { on.idle + dt };
     // The frame after a screenshot is asked for draws no line, and the
     // picture is taken of it.

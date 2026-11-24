@@ -79,7 +79,7 @@ pub fn camera_probes() -> Checks {
     // at an even rate, so the camera goes the speed less half of `EASE`'s
     // worth of it.
     let eased = |speed: f32| speed * (1.0 - EASE / 2.0);
-    let cases: [Case; 14] = [
+    let cases: [Case; 15] = [
         (
             "speed",
             level(),
@@ -145,6 +145,16 @@ pub fn camera_probes() -> Checks {
             |c| c.velocity.length(),
             0.0,
             1e-4,
+        ),
+        (
+            "a shot's pitch a whole turn off is taken as it looks",
+            Camera::of(([0.0; 3], [-322.9, 0.0, 0.0], 60.0)),
+            Input::default(),
+            OPEN,
+            DT,
+            |c| c.angles[0],
+            37.1,
+            1e-3,
         ),
         (
             "zoom in stops at its narrowest",

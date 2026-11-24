@@ -702,7 +702,8 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 /// `save [name]`, `quicksave`, `load <id>` (`save_view`). The power wheel
 /// takes `powerwheel hold`, `powerwheel point X Y`, `powerwheel step N` and
 /// `powerwheel up` (`wheel_view`). Photo mode takes `photo on`, `photo off`,
-/// `photo speed …`, `photo hide` and `photo fly …` (`photo_mode`).
+/// `photo speed …`, `photo hide`, `photo step` and `photo fly …`
+/// (`photo_mode`).
 #[allow(clippy::type_complexity)]
 fn requests(
     mut ui: ResMut<Ui>,
