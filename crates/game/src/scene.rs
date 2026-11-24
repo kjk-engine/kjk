@@ -3577,10 +3577,10 @@ fn draw_blades(
         if let Some((trail, core)) = trail {
             let empty = trail.is_none();
             if !(empty && blade.trail_empty) {
-                let trail = trail.unwrap_or_else(Quads::default);
+                let trail = trail.unwrap_or(Quads::EMPTY);
                 blade.trail_quads.write(&trail, stores.assets());
                 if let Some(list) = &mut blade.trail_core {
-                    list.write(&core.unwrap_or_else(Quads::default), stores.assets());
+                    list.write(&core.unwrap_or(Quads::EMPTY), stores.assets());
                 }
             }
             blade.trail_empty = empty;

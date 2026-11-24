@@ -839,7 +839,7 @@ fn restores_item_fields(level: &sim::Level, save: &sim::Save) -> Result<String, 
         stances: world.stance_ids(),
     };
     let sorted = |story: &Story| {
-        let mut items = story.items.get("party").cloned().unwrap_or_else(Vec::new);
+        let mut items = story.items.get("party").cloned().unwrap_or(Vec::new());
         items.sort_by_key(|item| format!("{item:?}"));
         items
     };
