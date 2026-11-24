@@ -21,9 +21,9 @@ use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_
 use bevy::render::render_resource::{
     BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BufferInitDescriptor,
     BufferUsages, CachedRenderPipelineId, ColorTargetState, ColorWrites, FilterMode, FragmentState,
-    Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
+    Operations, Origin3d, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
     RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
-    TextureFormat, TextureSampleType,
+    TexelCopyTextureInfo, TextureAspect, TextureFormat, TextureSampleType,
 };
 use bevy::render::renderer::{RenderContext, RenderDevice, ViewQuery};
 use bevy::render::texture::GpuImage;
@@ -32,22 +32,36 @@ use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
 
 const SHADER: Handle<Shader> = uuid_handle!("8e0b6a41-27c3-4f5d-9a1e-6c4d2b7f3e90");
 
-/// On the camera that composites: the screens' image, and the frame's
-/// gamma (1 as drawn).
-#[derive(Component, ExtractComponent, Clone)]
+/// On the camera that composites: the screens' image, the snapshot image for
+/// seamless menu transitions, and the frame's gamma (1 as drawn).
+#[derive(Component, ExtractComponent, Clone, PartialEq)]
 pub struct UiComposite {
     pub screens: Handle<Image>,
+    pub previous: Handle<Image>,
     pub gamma: f32,
+    /// When true, copies `screens` into `previous` on the GPU this frame.
+    pub capture: bool,
+    /// Transition progress in `0.0..1.0` (`< 0.0` when inactive).
+    pub progress: f32,
+    /// Wipe direction: `+1.0` left-to-right, `-1.0` right-to-left.
+    pub direction: f32,
+    /// Accent glow colour along the wipe edge.
+    pub tint: [f32; 3],
     /// The screens are held back, and the window shows the world alone
     /// (the main menu waits for its 3D view: `gui_scene::hold_menu`).
     pub held: bool,
 }
 
 impl UiComposite {
-    pub fn new(screens: Handle<Image>) -> UiComposite {
+    pub fn new(screens: Handle<Image>, previous: Handle<Image>) -> UiComposite {
         UiComposite {
             screens,
+            previous,
             gamma: 1.0,
+            capture: false,
+            progress: -1.0,
+            direction: 1.0,
+            tint: [0.0; 3],
             held: false,
         }
     }
@@ -93,6 +107,7 @@ fn init(mut commands: Commands, device: Res<RenderDevice>, fullscreen: Res<Fulls
         &BindGroupLayoutEntries::sequential(
             ShaderStages::FRAGMENT,
             (
+                texture_2d(TextureSampleType::Float { filterable: true }),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 texture_2d(TextureSampleType::Float { filterable: true }),
                 sampler(SamplerBindingType::Filtering),
@@ -152,21 +167,48 @@ fn composite(
     device: Res<RenderDevice>,
     mut ctx: RenderContext,
 ) {
-    let (target, screens, id) = view.into_inner();
-    if screens.held {
+    let (target, composite, id) = view.into_inner();
+    if composite.held {
         return;
     }
-    let gamma = screens.gamma;
-    let (Some(render), Some(screens)) = (
+    let (Some(render), Some(screens), Some(previous)) = (
         cache.get_render_pipeline(id.0),
-        images.get(&screens.screens),
+        images.get(&composite.screens),
+        images.get(&composite.previous),
     ) else {
         return;
     };
+    if composite.capture && screens.texture_descriptor.size == previous.texture_descriptor.size {
+        ctx.command_encoder().copy_texture_to_texture(
+            TexelCopyTextureInfo {
+                texture: &screens.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            TexelCopyTextureInfo {
+                texture: &previous.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            screens.texture_descriptor.size,
+        );
+    }
     let post = target.post_process_write();
+    let data = [
+        composite.gamma,
+        composite.progress,
+        composite.direction,
+        0.0,
+        composite.tint[0],
+        composite.tint[1],
+        composite.tint[2],
+        0.0,
+    ];
     let settings = device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("ui_composite"),
-        contents: &[gamma, 0.0, 0.0, 0.0]
+        contents: &data
             .iter()
             .flat_map(|value: &f32| value.to_le_bytes())
             .collect::<Vec<u8>>(),
@@ -178,6 +220,7 @@ fn composite(
         &BindGroupEntries::sequential((
             post.source,
             &screens.texture_view,
+            &previous.texture_view,
             &pipeline.sampler,
             settings.as_entire_binding(),
         )),

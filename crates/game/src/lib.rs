@@ -139,6 +139,7 @@ pub mod recoil;
 pub mod report;
 pub mod reticle_view;
 mod rulebook_text;
+pub mod splash;
 pub use minigame_view::takes_view;
 #[cfg(feature = "probes")]
 pub use prepasses::load_check_probes;

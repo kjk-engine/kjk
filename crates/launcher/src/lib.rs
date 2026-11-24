@@ -199,6 +199,9 @@ struct Cli {
     /// `KJK_MUTE=1` does the same
     #[arg(long, global = true)]
     mute: bool,
+    /// Skip the startup splash screen; `KJK_NO_SPLASH=1` does the same
+    #[arg(long, global = true)]
+    no_splash: bool,
     /// Open in a window of the default size: the settings' screen
     /// resolution put back (when a display setting stops the game starting)
     #[arg(long, global = true)]
@@ -638,6 +641,10 @@ pub fn run() -> ExitCode {
         // restart into the menu, a sweep's children) are silent too.
         // SAFETY: set before any thread is started.
         unsafe { std::env::set_var(kjk_game::sound::MUTE, "1") };
+    }
+    if cli.no_splash {
+        // SAFETY: set before any thread is started.
+        unsafe { std::env::set_var(kjk_game::splash::NO_SPLASH, "1") };
     }
     #[cfg(target_os = "linux")]
     linux_environment();

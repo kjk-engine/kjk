@@ -11,10 +11,7 @@ use crate::draw::DrawList;
 use crate::paint::{ControlState, Painter, Palette};
 
 pub fn palette(game: Game) -> Palette {
-    match game {
-        Game::Kotor2 => Palette::TSL,
-        _ => Palette::K1,
-    }
+    Palette::of(game)
 }
 
 /// `gui` painted with every control as the layout has it, and what did

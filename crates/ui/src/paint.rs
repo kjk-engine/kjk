@@ -139,6 +139,14 @@ impl Palette {
         hilight: [0.768_627, 0.768_627, 0.686_275],
         disabled: [0.513_725, 0.513_725, 0.415_686],
     };
+
+    /// The colours of `game`'s own screens.
+    pub fn of(game: vfs::Game) -> Palette {
+        match game {
+            vfs::Game::Kotor2 => Palette::TSL,
+            _ => Palette::K1,
+        }
+    }
 }
 
 /// One list row.
