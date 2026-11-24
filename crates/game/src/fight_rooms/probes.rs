@@ -12,6 +12,7 @@ use crate::viewer::RoomView;
 pub fn probes() -> Checks {
     vec![
         ("linked_rooms", linked_rooms()),
+        ("area_without_vis", area_without_vis()),
         ("unseen_bits", unseen_bits()),
         ("past_the_mask", past_the_mask()),
         ("stacked_floors", stacked_floors()),
@@ -37,6 +38,7 @@ fn room(name: &str, visible: &[&str], square: Option<(Vec2, Vec2, f32)>) -> Room
         name: name.into(),
         model: None,
         visible: visible.iter().map(|name| name.to_string()).collect(),
+        sees_all: false,
         floor,
         floor_error: None,
     }
@@ -80,6 +82,26 @@ fn linked_rooms() -> Result<String, String> {
         .filter(|((a, b), want)| linked(&rooms, *a, *b) != *want)
         .collect();
     check(wrong.is_empty(), format!("pairs judged wrong: {wrong:?}"))
+}
+
+/// In an area with no VIS file, every room is linked with every room, as
+/// KOTOR 2 draws every room there. The rooms are those of `rooms`, so
+/// without the missing file c and e would be cut off from a.
+fn area_without_vis() -> Result<String, String> {
+    let mut rooms = rooms();
+    for room in &mut rooms {
+        room.visible.clear();
+        room.sees_all = true;
+    }
+    let count = rooms.len();
+    let unlinked: Vec<_> = (0..count)
+        .flat_map(|a| (0..count).map(move |b| (a, b)))
+        .filter(|&(a, b)| !linked(&rooms, a, b))
+        .collect();
+    check(
+        unlinked.is_empty(),
+        format!("pairs not linked: {unlinked:?}"),
+    )
 }
 
 /// A light in room a does not reach c or e, and reaches a, b and d.

@@ -739,18 +739,20 @@ fn undrawn_creature_named() {
 
 /// The rooms a fight's light reaches (`kjk::probes::fight_rooms`), on rooms
 /// made in the test. A VIS link one way counts both ways, and a room that
-/// is only seen is linked with every room. A light's mask keeps it out of
+/// is only seen is linked with every room. In an area with no VIS file
+/// every room is linked with every room. A light's mask keeps it out of
 /// the rooms not linked with its own, and rooms past the 128th are always
 /// reached. Over stacked floors a light is in the room whose floor is under
 /// it. Over a pit it is in the smallest room whose bounds hold it, not in a
 /// room far below. Outside every room it is in none. Needs `--features
-/// rig`; no installs. (proposed 2026-11-11)
+/// rig`; no installs. (proposed 2026-11-11; the check without a VIS file
+/// proposed 2026-11-24)
 #[test]
 fn fight_light_rooms() {
     #[cfg(not(feature = "rig"))]
     println!("fight_light_rooms skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("fight light rooms", &kjk::probes::fight_rooms(), 6);
+    probed("fight light rooms", &kjk::probes::fight_rooms(), 7);
 }
 
 /// The rooms the camera is in for the room culling
@@ -2219,6 +2221,53 @@ fn trigger_leads_out_whatever_its_link_flags() {
         ],
         "where each door and trigger leads"
     );
+}
+
+/// A model's collision tree (AABB) whose root is an inner node with both
+/// child pointers -1 reads as an empty tree, and the model reads. Echoes of
+/// the Republic's room models 772qgm_01a, 748kora and 750kora have such a
+/// tree. kjk followed the pointers past the file's end and refused each
+/// model, and with it the whole area. The model is made in the test: one
+/// mesh node with the empty tree. No installs. (proposed 2026-11-24)
+#[test]
+fn mod_empty_aabb_tree() {
+    use fmt_odyssey::mdl::{FLAG_AABB, FLAG_HEADER, FLAG_MESH, Model};
+
+    // Offsets in the model data, which starts after the 12-byte file header.
+    const ROOT: usize = 256;
+    const MESH: usize = ROOT + 80;
+    // A KOTOR 2 mesh header is 340 bytes before its AABB tree's offset.
+    const TREE_POINTER: usize = MESH + 340;
+    const TREE: usize = 800;
+    let mut data = vec![0u8; 1024];
+    let mut put = |at: usize, bytes: &[u8]| data[at..at + bytes.len()].copy_from_slice(bytes);
+    // The geometry header's first word as KOTOR 2's writer leaves it.
+    put(0, &4_285_200u32.to_le_bytes());
+    put(8, b"empty");
+    put(40, &(ROOT as u32).to_le_bytes());
+    // The name table: one offset, to "root".
+    put(184, &200u32.to_le_bytes());
+    put(188, &1u32.to_le_bytes());
+    put(200, &210u32.to_le_bytes());
+    put(210, b"root\0");
+    put(ROOT, &(FLAG_HEADER | FLAG_MESH | FLAG_AABB).to_le_bytes());
+    put(TREE_POINTER, &(TREE as u32).to_le_bytes());
+    // The tree's root: no bounds, both children -1, face -1 (an inner node).
+    put(TREE + 24, &u32::MAX.to_le_bytes());
+    put(TREE + 28, &u32::MAX.to_le_bytes());
+    put(TREE + 32, &(-1i32).to_le_bytes());
+    let mut mdl = vec![0u8; 12];
+    mdl.extend(data);
+
+    let model = Model::parse(&mdl, &[]).expect("a model with an empty AABB tree reads");
+    let tree = model
+        .root
+        .mesh
+        .as_ref()
+        .and_then(|mesh| mesh.aabb.as_ref())
+        .expect("the mesh keeps its tree");
+    assert_eq!(tree.face, -1);
+    assert!(tree.children.is_none(), "the empty tree has no children");
 }
 
 /// A 2DA's stored cell-data size is not read, as in the games and reone:

@@ -10,7 +10,7 @@ use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::creature;
 use asset_odyssey::hooks;
 use asset_odyssey::model::{Matrix, ModelIr};
-use asset_odyssey::module::{AreaGrass, AreaWeather, Kind, ModuleIr, Source};
+use asset_odyssey::module::{AreaGrass, AreaWeather, Kind, Missing, ModuleIr, Source};
 use asset_odyssey::texture::TextureIr;
 use asset_odyssey::weather::Fall;
 use bevy::log::warn;
@@ -101,6 +101,10 @@ pub struct RoomView {
     /// Index into `LoadedScene::models`; `None` when the model is missing.
     pub model: Option<usize>,
     pub visible: Vec<String>,
+    /// The room's area has no VIS file. KOTOR 2 then turns its room culling
+    /// off and draws every room from every room, so every room sees this one
+    /// and this one sees every room (`fight_rooms::linked`).
+    pub sees_all: bool,
     /// Empty for a room that is only seen (sky, backdrops, cutscene
     /// sets): the game ships it no walkmesh, or one without a walkable
     /// face, so nothing stands in it (reone takes an object's room from the walkable face under it).
@@ -847,6 +851,16 @@ pub fn parsed(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> 
     parsed_under(resolver, name, &mut vec![name.to_ascii_lowercase()])
 }
 
+/// `parsed` for a model an area places: a room, a door or a placeable. A
+/// model that does not read is logged and left out, as a missing one is,
+/// so that one broken model does not stop its whole area loading.
+fn parsed_or_left_out(resolver: &Resolver, name: &str) -> Option<Model> {
+    parsed(resolver, name).unwrap_or_else(|why| {
+        warn!("{why}; it is left out of the area");
+        None
+    })
+}
+
 /// `parsed`, inside the chain of models (`chain`, lower case) whose
 /// reference nodes led to `name`.
 fn parsed_under(
@@ -1204,8 +1218,9 @@ pub fn module_scene(
             .map_or_else(Vec::new, |surfaces| surfaces.grass()),
         _ => Vec::new(),
     };
+    let without_vis = area.missing.contains(&Missing::Visibility);
     for room in &area.rooms {
-        let index = match parsed(resolver, &room.model)? {
+        let index = match parsed_or_left_out(resolver, &room.model) {
             Some(parsed) => {
                 if let (Some(placing), Some(drawn)) = (&area.grass, grass.as_mut())
                     && !grassy.is_empty()
@@ -1261,6 +1276,7 @@ pub fn module_scene(
             name: room.model.clone(),
             model: index,
             visible: room.visible.clone(),
+            sees_all: without_vis,
             floor,
             floor_error,
         });
@@ -1285,7 +1301,7 @@ pub fn module_scene(
             continue;
         };
         if !loaded.contains_key(name) {
-            let parsed = parsed(resolver, name)?;
+            let parsed = parsed_or_left_out(resolver, name);
             let ir = parsed.as_ref().map(ModelIr::from_model);
             if instance.kind == Kind::Placeable
                 && let (Some(parsed), Some(ir)) = (&parsed, &ir)

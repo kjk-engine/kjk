@@ -42,11 +42,12 @@ fn lists(rooms: &[RoomView], from: usize, to: usize) -> bool {
 /// Whether room `b` is linked with room `a`. A room is linked with itself
 /// and with every room either of their VIS lists names. K1 makes every link
 /// mutual, so a link one way counts both ways. A room that is only seen is
-/// linked with every room, because no VIS lists it. Culling draws the rooms
-/// linked with the camera's room. A fight's light lights the rooms linked
-/// with its own.
+/// linked with every room, because no VIS lists it. In an area with no VIS
+/// file every room is linked with every room, because KOTOR 2 then turns
+/// its room culling off. Culling draws the rooms linked with the camera's
+/// room. A fight's light lights the rooms linked with its own.
 pub(crate) fn linked(rooms: &[RoomView], a: usize, b: usize) -> bool {
-    a == b || lists(rooms, a, b) || lists(rooms, b, a) || seen_only(&rooms[b])
+    a == b || rooms[a].sees_all || lists(rooms, a, b) || lists(rooms, b, a) || seen_only(&rooms[b])
 }
 
 /// What a scene's rooms give a fight's light, worked out once per scene.

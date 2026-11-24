@@ -246,6 +246,7 @@ fn room(name: &str, visible: &[&str]) -> RoomView {
         name: name.into(),
         model: None,
         visible: visible.iter().map(|name| name.to_string()).collect(),
+        sees_all: false,
         floor: floor(2.0),
         floor_error: None,
     }
