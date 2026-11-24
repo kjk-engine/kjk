@@ -2,9 +2,9 @@
 //! "pull attack"`): a character who presses [Attack] within the window of a
 //! Force Pull attacks the enemy in front with its blade.
 //! - The fast style stabs an enemy within the stab's reach, and pays for it.
-//! - The medium style swings at an enemy between the swing's two reaches.
-//! - The swing is not made at an enemy nearer than its near reach, and the
-//!   stab is not made at one beyond its reach.
+//! - The medium style swings at an enemy within the swing's reach, however
+//!   close, and pays for it.
+//! - Neither the swing nor the stab is made at an enemy beyond its reach.
 //! - Without a pull, the same press makes an ordinary swing.
 //! - After the pull's hand has come down, the window is still open.
 //! - Once the window has closed, the press makes an ordinary swing.
@@ -36,6 +36,8 @@ const LANE: i32 = 250;
 /// How far (units) the foe stands from the fighter beyond what its reach
 /// asks, or within it: a margin that keeps the foe clear of each edge.
 const MARGIN: f32 = 40.0;
+/// How far (units) a foe stands in melee range, the bodies almost touching.
+const MELEE: f32 = 60.0;
 /// A pull of seat 0, a `style` fighter, at a foe `away` units off, with the
 /// window open for `window_ms` and the Pull hand raised for `hand_ms` (neither
 /// if both are 0), and the attack key held after `wait` ticks. What seat 0's
@@ -100,29 +102,33 @@ fn stab_in_reach() -> Result<String, String> {
         ),
     )
 }
-fn swing_between_reaches() -> Result<String, String> {
-    let [near, far] = specials::PULL_SWING_REACH;
-    let away = (near + far) / 2.0;
+/// The medium style's swing at a foe `away` units off: whether the pull swing
+/// was made, and the Force paid (hundredths).
+fn swung(away: f32) -> Result<(bool, i32), String> {
     let fighters = pulled("medium", away, (WINDOW, 400), 0)?;
+    Ok((made(&fighters, Move::PULL_ATTACK_SWING), paid(&fighters)))
+}
+fn swing_in_reach() -> Result<String, String> {
+    let away = specials::PULL_SWING_REACH - MARGIN;
+    let (swing, paid) = swung(away)?;
     check(
-        made(&fighters, Move::PULL_ATTACK_SWING) && paid(&fighters) > 0,
-        format!(
-            "medium style, foe {away} units off: pull swing {}, {} hundredths of Force paid",
-            made(&fighters, Move::PULL_ATTACK_SWING),
-            paid(&fighters)
-        ),
+        swing && paid > 0,
+        format!("medium style, foe {away} units off: pull swing {swing}, {paid} Force paid"),
     )
 }
-fn swing_too_near() -> Result<String, String> {
-    let [near, _] = specials::PULL_SWING_REACH;
-    let away = near - MARGIN;
-    let fighters = pulled("medium", away, (WINDOW, 400), 0)?;
+fn swing_in_melee_range() -> Result<String, String> {
+    let (swing, paid) = swung(MELEE)?;
     check(
-        !pulled_attack(&fighters),
-        format!(
-            "medium style, foe {away} units off: pull attack made: {}",
-            pulled_attack(&fighters)
-        ),
+        swing && paid > 0,
+        format!("medium style, foe {MELEE} units off: pull swing {swing}, {paid} Force paid"),
+    )
+}
+fn swing_too_far() -> Result<String, String> {
+    let away = specials::PULL_SWING_REACH + MARGIN;
+    let (swing, _) = swung(away)?;
+    check(
+        !swing,
+        format!("medium style, foe {away} units off: pull swing made: {swing}"),
     )
 }
 fn stab_too_far() -> Result<String, String> {
@@ -176,11 +182,12 @@ fn stab_with_hand_down() -> Result<String, String> {
 pub fn probes() -> Checks {
     vec![
         ("the fast style stabs after a pull", stab_in_reach()),
+        ("the medium style swings after a pull", swing_in_reach()),
         (
-            "the medium style swings after a pull",
-            swing_between_reaches(),
+            "the medium style swings at an enemy in melee range",
+            swing_in_melee_range(),
         ),
-        ("no pull swing at a near enemy", swing_too_near()),
+        ("no pull swing at a far enemy", swing_too_far()),
         ("no pull stab at a far enemy", stab_too_far()),
         ("no pull attack without a pull", no_pull_no_attack()),
         (

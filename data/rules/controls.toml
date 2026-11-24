@@ -216,9 +216,8 @@ Use Force Pull, then press [Attack] within
 and the character must be on the ground. In the fast style, the character
 stabs the enemy in front, if the enemy stands within
 {saber_moves.specials.pull_stab_reach:m}. In the medium and strong styles, the
-character swings at the enemy in front, if the enemy stands between
-{saber_moves.specials.pull_swing_reach[0]:m} and
-{saber_moves.specials.pull_swing_reach[1]:m}. The character cannot move during
+character swings at the enemy in front, if the enemy stands within
+{saber_moves.specials.pull_swing_reach:m}, however close. The character cannot move during
 the attack, and the blade cannot be blocked except by a perfect block. This
 attack uses up {saber_moves.costs.forward_back} of the second bar.
 """

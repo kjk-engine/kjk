@@ -540,12 +540,11 @@ source = "ours, after the range of JA's disabled pull attack"
 see = "sim::motion::saber"
 [specials.pull_swing_reach]
 name = "Pull Swing Range"
-value = [128.0, 768.0]
-labels = ["at least", "at most"]
+value = 512.0
 unit = "units"
 range = [0.0, 1024.0]
-summary = "In the medium and strong styles, a character who attacks just after using Force Pull makes the pull swing when an enemy stands between {saber_moves.specials.pull_swing_reach[0]:m} and {saber_moves.specials.pull_swing_reach[1]:m} in front of the character."
-detail = "The range is wider at both ends than Jedi Academy's single-player game's, so the swing works from closer in and from beyond the reach of Force Pull."
+summary = "In the medium and strong styles, a character who attacks just after using Force Pull makes the pull swing when an enemy stands within {saber_moves.specials.pull_swing_reach:m} in front of the character, however close."
+detail = "Jedi Academy's single-player game also required the enemy to stand at least some distance away. kjk has no minimum, so the swing also works on an enemy in melee range. The range is the reach of Force Pull on a single target."
 source = "ours, after the range of JA's disabled pull attack"
 see = "sim::motion::saber"
 [specials.pull_window_ms]

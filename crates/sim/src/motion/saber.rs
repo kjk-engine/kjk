@@ -952,8 +952,7 @@ impl Move<'_, '_> {
         let next = if style == Style::Fast {
             ahead(specials::PULL_STAB_REACH).then_some(PULL_ATTACK_STAB)
         } else {
-            let [near, far] = specials::PULL_SWING_REACH;
-            (ahead(far) && !ahead(near)).then_some(PULL_ATTACK_SWING)
+            ahead(specials::PULL_SWING_REACH).then_some(PULL_ATTACK_SWING)
         };
         let Some(next) = next else {
             return false;

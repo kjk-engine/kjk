@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `c8329ea440b58df0`.
+Edition `d4a466ba6e970ab2`.
 
 ## Contents
 
@@ -504,6 +504,18 @@ second bar.
 Hold [Attack] in the last 0.25 seconds of a forward
 roll. The character rises out of the roll with a stab. This attack uses up
 25% of the second bar.
+
+#### <a id="controls-specials-pull"></a>Pull Stab and Pull Swing
+
+Use Force Pull, then press [Attack] within
+1 second of the pull. The blade must be lit and ready,
+and the character must be on the ground. In the fast style, the character
+stabs the enemy in front, if the enemy stands within
+13 meters. In the medium and strong styles, the
+character swings at the enemy in front, if the enemy stands within
+13 meters, however close. The character cannot move during
+the attack, and the blade cannot be blocked except by a perfect block. This
+attack uses up 25% of the second bar.
 
 ### <a id="controls-kicks"></a>Kicks
 
@@ -4146,7 +4158,7 @@ A kata is a long special attack sequence. The player makes one by holding [Attac
 
 <a id="saber-moves-costs-forward-back"></a>**Forward and Back Special Cost** = **25%** · `saber_moves.costs.forward_back`
 
-The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up 25% of the character's maximum Force points under Jedi Academy's rules, and of the character's maximum Stamina under the Advanced rules.
+The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab, the back-flip attack and the pull attacks each use up 25% of the character's maximum Force points under Jedi Academy's rules, and of the character's maximum Stamina under the Advanced rules.
 
 <sub>Source: JA (rulebook 2.12). Code: `sim::motion::saber`.</sub>
 
@@ -4382,6 +4394,40 @@ A character with two blades attacks both sides at once, or the front and back at
 The double attack finds an enemy up to 0.3 meters to either side of each line it attacks along.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-pull-stab-reach"></a>**Pull Stab Range** = **13 meters** (`512 units`) · `saber_moves.specials.pull_stab_reach`
+
+In the fast style, a character who attacks just after using Force Pull makes the pull stab when an enemy stands within 13 meters in front of the character.
+
+Jedi Academy's multiplayer game has this attack switched off. The range is longer than its single-player game's, and equal to the reach of Force Pull on a single target.
+
+<sub>Source: ours, after the range of JA's disabled pull attack. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-pull-swing-reach"></a>**Pull Swing Range** = **13 meters** (`512 units`) · `saber_moves.specials.pull_swing_reach`
+
+In the medium and strong styles, a character who attacks just after using Force Pull makes the pull swing when an enemy stands within 13 meters in front of the character, however close.
+
+Jedi Academy's single-player game also required the enemy to stand at least some distance away. kjk has no minimum, so the swing also works on an enemy in melee range. The range is the reach of Force Pull on a single target.
+
+<sub>Source: ours, after the range of JA's disabled pull attack. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-pull-window-ms"></a>**Pull Attack Window** = **1 second** (`1000 ms`) · `saber_moves.specials.pull_window_ms`
+
+A character can make a pull stab or a pull swing during 1 second after using Force Pull.
+
+In Jedi Academy the window lasts as long as the raised hand of the pull. kjk gives the attack a window of its own, so the hand's other rules stay as they were.
+
+<sub>Source: ours, after the raised hand of JA's Force Pull. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-pull-box"></a>**Pull Attack Width** = **0.61 meters / 0.61 meters / 0.61 meters** (`24 / 24 / 24 units`) · `saber_moves.specials.pull_box`
+
+across **0.61 meters** · along **0.61 meters** · up **0.61 meters**
+
+The pull attack finds an enemy up to 0.61 meters to either side of the line in front of the character, 0.61 meters along it, and 0.61 meters above or below it.
+
+Jedi Academy's code picked the enemy under the crosshair. kjk has no crosshair target in the blade's step, so it looks along the character's view with a box instead.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-cartwheel-rise"></a>**Cartwheel Rise** = **0.51 meters per second** (`20 units/s`) · `saber_moves.specials.cartwheel_rise`
 
