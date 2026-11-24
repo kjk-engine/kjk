@@ -6882,16 +6882,33 @@ fn light_rows(
     // Only what a widget says the user changed is an edit: a colour made
     // again every frame from its hue would round, and be an edit each frame.
     let mut touched = false;
-    // The colour as a hue at full strength, and its strength apart.
-    let strength = light.colour.iter().fold(0.0f32, |a, b| a.max(*b));
-    let mut hue = light.colour.map(|value| {
-        if strength > 0.0 {
-            value / strength
-        } else {
-            1.0
+    // The light stores one colour: the picker's colour times the strength.
+    // The picker's colour and the strength the user set are remembered as
+    // they were set, while they still make the light's colour. Otherwise
+    // each frame would make the picker's colour full again and move its
+    // darkness into the strength, so the picker could not be dragged down
+    // and the strength would fall to 0 while it was dragged.
+    let id = ui.make_persistent_id("light colour");
+    let remembered: Option<([f32; 3], f32)> = ui.data(|data| data.get_temp(id));
+    let (mut hue, mut power) = match remembered {
+        Some((hue, power))
+            if (hue.iter().zip(light.colour)).all(|(h, c)| (h * power - c).abs() <= 1e-4) =>
+        {
+            (hue, power)
         }
-    });
-    let mut power = strength;
+        _ => {
+            let strength = light.colour.iter().fold(0.0f32, |a, b| a.max(*b));
+            let hue = light.colour.map(|value| {
+                if strength > 0.0 {
+                    value / strength
+                } else {
+                    1.0
+                }
+            });
+            (hue, strength)
+        }
+    };
+    let before = hue;
     let mut recoloured = false;
     ui.label("Colour");
     ui.horizontal(|ui| {
@@ -6906,8 +6923,14 @@ fn light_rows(
             .changed();
     });
     ui.end_row();
+    // A black picker colour would lose the colour's hue for good: the
+    // strength turns a light off instead.
+    if hue.iter().all(|value| *value < 1.0 / 255.0) {
+        hue = before;
+    }
     if recoloured {
         light.colour = hue.map(|value| value * power);
+        ui.data_mut(|data| data.insert_temp(id, (hue, power)));
         touched = true;
     }
     ui.label("Reach");
