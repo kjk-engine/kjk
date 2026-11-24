@@ -16,6 +16,7 @@
 //!   the third over; `GetAC`, `GetWillSavingThrow` and
 //!   `GetChallengeRating` read the sheet and template, -1 armour class for
 //!   no object; `GetGoldPieceValue` is at least 1 and 0 for a plot item;
+//!   `CreateItemOnObject` on no object makes nothing;
 //!   `FloatingTextStringOnCreature` tells the player only when not
 //!   broadcast; the effects: haste's speed, Defense and own part (+4 to
 //!   `GetAC`), concealment and miss chance one kind, out-of-range percents
@@ -432,12 +433,13 @@ fn first_tokens(defence: i32, will: i32) -> Vec<(i32, &'static str, String)> {
         (23, "concealment past 100 is none", "0".to_string()),
         (24, "concealment of 30", "1".to_string()),
         (25, "a drain of nothing is none", "0".to_string()),
+        (26, "no item made on no object", "0".to_string()),
     ]
     .into_iter()
     .collect()
 }
 
-/// `probe_mod_world`, run by the module: tokens 11 to 25, then the effects
+/// `probe_mod_world`, run by the module: tokens 11 to 26, then the effects
 /// on the boss (haste, a miss chance, an immunity to every power) and the
 /// brute (a knockdown), the third creature to the brute's faction, and two
 /// floating lines to the player (one broadcast).
@@ -493,6 +495,18 @@ fn mod_world() -> Ncs {
     token(&mut asm, 20, &worth("probe_cheap"));
     token(&mut asm, 21, &worth("probe_gem"));
     token(&mut asm, 22, &worth("probe_relic"));
+    token(
+        &mut asm,
+        26,
+        &valid(
+            [
+                vec![int(1)],
+                tagged("probe_nobody"),
+                vec![text("probe_gem"), call(12, 3)],
+            ]
+            .concat(),
+        ),
+    );
     token(
         &mut asm,
         23,
