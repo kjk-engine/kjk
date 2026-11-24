@@ -77,7 +77,16 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// held hit, and each saber's late swing.
 /// 52: a seat may set the mine kit it chose on a lock (`Action::Mine::kit`, new
 /// action code 68).
-const VERSION: u32 = 52 + crate::pending::REPLAY;
+/// 53: a bar edit can put a device on the bar (`bar::Content::Device`).
+/// 54: the recording's script state keeps where the loading screens' hints
+/// stand (`script::State::hints`).
+/// 55: a seat past the first may take a companion no player controls
+/// (`Action::Play`, new action code 69).
+/// 56: the recording's start keeps the reply shown before it runs, as `KJKS`
+/// and `KJKV` do; a seat may say whether it joins nearby conversations and
+/// whether a screen is open (`Action::JoinTalks`, `Action::Screen`, new action
+/// codes).
+const VERSION: u32 = 56 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

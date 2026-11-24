@@ -1,3 +1,0 @@
-# A character moving round across meets the collision cells of a placeable
-# a script made as boxes, not as rounds, so it no longer walks through them.
-sim = "a body moving round across meets a made placeable's collision cells as boxes"
