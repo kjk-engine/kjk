@@ -258,6 +258,26 @@ struct Stored {
     /// How many new texels the bake writes to each side of a stored texel
     /// (`SCALE`, or more under `KJK_BAKE_TEXEL`).
     scale: usize,
+    /// The lightmap of a Jedi Academy prop the project places (`texels`):
+    /// the room it stands in, whose level it takes, and its line of the
+    /// props' list (`project_props::baked_line`). `None` for a room's.
+    prop: Option<PropMap>,
+}
+
+/// What the bake knows of a prop's lightmap (`Stored::prop`).
+struct PropMap {
+    /// The room the prop stands in, as `room_of_name` names it.
+    room: String,
+    line: String,
+}
+
+/// The room a room's lightmap named `name` belongs to: its name before
+/// `_lm`.
+fn room_of_name(name: &str) -> String {
+    match name.rfind("_lm") {
+        Some(at) => name[..at].to_string(),
+        None => name.to_string(),
+    }
 }
 
 impl Stored {
@@ -322,7 +342,35 @@ fn read_stored(resolver: &Resolver, name: &str) -> Option<Stored> {
         clamp: texture.facts.clamp,
         levels: texture.mips.len(),
         scale: SCALE,
+        prop: None,
     })
+}
+
+/// The mean colour of a prop's texture in linear light, and the mean of its
+/// alpha.
+fn texture_mean(texture: &TextureIr) -> Option<(Vec3, f32)> {
+    let (width, height) = (texture.width as usize, texture.height as usize);
+    let data = texture.mips.first()?;
+    let rgba = match texture.encoding {
+        Encoding::Rgba8 => (data.len() >= width * height * 4).then(|| data.clone())?,
+        Encoding::Bc1 | Encoding::Bc1Holes => dxt::decode(data, width, height, false)?,
+        Encoding::Bc3 => dxt::decode(data, width, height, true)?,
+    };
+    let texels = rgba.as_chunks::<4>().0;
+    if texels.is_empty() {
+        return None;
+    }
+    let (mut colour, mut alpha) = (Vec3::ZERO, 0.0f32);
+    for texel in texels {
+        colour += Vec3::new(
+            linear(f32::from(texel[0]) / 255.0),
+            linear(f32::from(texel[1]) / 255.0),
+            linear(f32::from(texel[2]) / 255.0),
+        );
+        alpha += f32::from(texel[3]) / 255.0;
+    }
+    let count = texels.len() as f32;
+    Some((colour / count, alpha / count))
 }
 
 /// The mean colour of a texture in linear light, from a small level, and
@@ -382,6 +430,9 @@ struct Facts {
     glow: Vec3,
     /// The mesh it belongs to, by its number in `Texels::names`.
     mesh: u32,
+    /// The prop it belongs to, by its number among the project's props
+    /// (`Texels::props`). `None` for a room's.
+    prop: Option<u32>,
 }
 
 /// The triangle a new texel belongs to, while the triangles are read.
@@ -546,6 +597,9 @@ struct Texels {
     /// How many new texels lie under the area's grass and on no drawn mesh
     /// (`grass_texels`).
     grass: usize,
+    /// The Jedi Academy props the project places, by name, each with the
+    /// box round its triangles (lowest and highest corner).
+    props: Vec<(String, Vec3, Vec3)>,
 }
 
 /// The box around every corner of `surfaces`.
@@ -585,12 +639,13 @@ fn texels(
     // Each lightmap's surface in square metres and in stored texels, and the
     // triangles to give texels once its scale is known.
     let mut densities: Vec<(f32, f32)> = Vec::new();
-    // One entry of `pending`, named so the list's type stays readable.
-    type Waiting = (usize, [Vec3; 3], [[f32; 2]; 3], Option<[Vec3; 3]>);
     let mut pending: Vec<Waiting> = Vec::new();
     let mut surfaces: Vec<Surface> = Vec::new();
     let mut facts: Vec<Facts> = Vec::new();
     let mut names: Vec<String> = Vec::new();
+    // The room each room of the layout is, by its first lightmap's name
+    // (`room_of_name`), and its box.
+    let mut room_names: Vec<Option<String>> = vec![None; walkable.len()];
     for object in objects {
         let Owner::Room(room) = object.owner else {
             continue;
@@ -648,6 +703,9 @@ fn texels(
             let mesh_number = (names.len() - 1) as u32;
             let map = match mesh.lightmap.as_deref() {
                 Some(name) if mesh.uv2.len() == mesh.positions.len() => {
+                    if room_names[room].is_none() {
+                        room_names[room] = Some(room_of_name(&name.to_ascii_lowercase()));
+                    }
                     *map_of.entry(name.to_ascii_lowercase()).or_insert_with(|| {
                         let stored = read_stored(resolver, name)?;
                         claims.push(Vec::new());
@@ -695,6 +753,7 @@ fn texels(
                         uv: [a, b, c].map(|i| uv2(i).unwrap_or(Vec2::ZERO)),
                         glow: colour * glow,
                         mesh: mesh_number,
+                        prop: None,
                     });
                 }
                 let Some(map) = map else {
@@ -714,6 +773,14 @@ fn texels(
             }
         }
     }
+    let props = prop_texels(
+        resolver,
+        reader.module(),
+        (&placement, &room_names),
+        (&mut maps, &mut claims, &mut densities),
+        (&mut surfaces, &mut facts, &mut names),
+        &mut pending,
+    );
     // Each lightmap's scale, from how many metres its stored texel covers
     // (`scale_for`), and then its triangles' texels.
     for (map, stored) in maps.iter_mut().enumerate() {
@@ -748,7 +815,170 @@ fn texels(
         unwalked,
         names,
         grass,
+        props,
     })
+}
+
+/// For each lightmap, the triangle each new texel belongs to.
+type Claims = Vec<Vec<Option<Claim>>>;
+
+/// One entry of `texels`'s list of triangles to give texels: the lightmap,
+/// the corners, their places on the lightmap and their normals.
+type Waiting = (usize, [Vec3; 3], [[f32; 2]; 3], Option<[Vec3; 3]>);
+
+/// Adds the Jedi Academy props that the active project places in `module`
+/// (`level_edit::active::props`) to the bake. Each one's triangles block
+/// rays, as a room's do, so it shades the rooms and the other props. Each
+/// gets a lightmap of its own, laid out as the game lays it out
+/// (`project_props::lay_out`), so the bake lights it as it lights a room.
+/// Its lightmap takes the level of the room it stands in: the room whose
+/// box with a walkable face holds it, else the room whose box is nearest.
+/// Gives each prop's name and the box round its triangles. A prop whose
+/// model does not read is left out, with a note.
+fn prop_texels(
+    resolver: &Resolver,
+    module: &str,
+    (placement, room_names): (&Placement, &[Option<String>]),
+    (maps, claims, densities): (&mut Vec<Stored>, &mut Claims, &mut Vec<(f32, f32)>),
+    (surfaces, facts, names): (&mut Vec<Surface>, &mut Vec<Facts>, &mut Vec<String>),
+    pending: &mut Vec<Waiting>,
+) -> Vec<(String, Vec3, Vec3)> {
+    use kjk_game::project_props;
+    let props = level_edit::active::props(resolver.game.key(), module);
+    if props.is_empty() {
+        return Vec::new();
+    }
+    let stack = match kjk_game::viewer_ja::stack(&kjk_game::discover()) {
+        Ok(stack) => stack,
+        Err(why) => {
+            outln!("  the project's props are not baked: {why}");
+            return Vec::new();
+        }
+    };
+    let files = kjk_game::viewer_ja::Files::base(&stack);
+    let mut models: BTreeMap<String, Result<project_props::PropModel, String>> = BTreeMap::new();
+    let mut means: HashMap<String, (Vec3, f32)> = HashMap::new();
+    // The room a place is in: the first room with a walkable face whose box
+    // holds it, else the room whose box's middle is nearest.
+    let room_at = |at: [f32; 3]| -> Option<String> {
+        let inside = |b: &[f32; 6]| (0..3).all(|axis| at[axis] >= b[axis] && at[axis] <= b[axis + 3]);
+        let holding = (placement.walk_boxes.iter().enumerate())
+            .find(|(room, b)| b.is_some_and(|b| inside(&b)) && room_names[*room].is_some())
+            .map(|(room, _)| room);
+        let nearest = || {
+            (placement.boxes.iter().enumerate())
+                .filter(|(room, b)| b.is_some() && room_names[*room].is_some())
+                .min_by(|(_, a), (_, b)| {
+                    let away = |b: &Option<[f32; 6]>| {
+                        let b = b.unwrap_or([0.0; 6]);
+                        (0..3).map(|axis| (at[axis] - (b[axis] + b[axis + 3]) / 2.0).powi(2)).sum::<f32>()
+                    };
+                    away(a).total_cmp(&away(b))
+                })
+                .map(|(room, _)| room)
+        };
+        holding.or_else(nearest).and_then(|room| room_names[room].clone())
+    };
+    let mut baked = Vec::new();
+    for prop in props {
+        let model = models
+            .entry(prop.model.clone())
+            .or_insert_with(|| project_props::read(&files, &prop.model));
+        let model = match model {
+            Ok(model) => model,
+            Err(why) => {
+                outln!("  prop {} is not baked: {why}", prop.name);
+                continue;
+            }
+        };
+        let Some(room) = room_at(prop.position) else {
+            outln!("  prop {} is not baked: it stands in no room", prop.name);
+            continue;
+        };
+        let mut made = project_props::placed(model, prop);
+        let name = project_props::baked_name(prop);
+        let side = project_props::lay_out(&mut made, &name);
+        let frame = kjk_game::scene::placement(&made);
+        maps.push(Stored {
+            name: name.clone(),
+            width: side,
+            height: side,
+            texels: vec![[0.0; 4]; side * side],
+            clamp: true,
+            levels: 1,
+            scale: SCALE,
+            prop: Some(PropMap {
+                room,
+                line: project_props::baked_line(prop, &name),
+            }),
+        });
+        claims.push(Vec::new());
+        densities.push((0.0, 0.0));
+        let map = maps.len() - 1;
+        let number = baked.len() as u32;
+        let (mut low, mut high) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for mesh in &made.ir.meshes {
+            names.push(format!(
+                "{} ({})",
+                prop.name,
+                mesh.texture.as_deref().unwrap_or("no texture")
+            ));
+            let mesh_number = (names.len() - 1) as u32;
+            let (colour, coverage) = mesh.texture.as_deref().map_or((Vec3::splat(0.5), 1.0), |texture| {
+                *means.entry(texture.to_ascii_lowercase()).or_insert_with(|| {
+                    (model.textures.get(texture))
+                        .and_then(texture_mean)
+                        .unwrap_or((Vec3::splat(0.5), 1.0))
+                })
+            });
+            let opaque = coverage >= LAYER_ALPHA;
+            let corners = mesh.positions.as_chunks::<3>().0;
+            let normals = mesh.normals.as_chunks::<3>().0;
+            let places = mesh.uv2.as_chunks::<3>().0;
+            for ((corners, normals), uv) in corners.iter().zip(normals).zip(places) {
+                let [pa, pb, pc] = corners.map(|p| frame.transform_point3(Vec3::from_array(p)));
+                low = low.min(pa.min(pb).min(pc));
+                high = high.max(pa.max(pb).max(pc));
+                let front = (pb - pa).cross(pc - pa);
+                if front.length() < 1e-8 {
+                    continue;
+                }
+                let normal = front.normalize();
+                if opaque {
+                    surfaces.push(Surface {
+                        corners: [pa, pb, pc],
+                        uv: [Vec2::ZERO; 3],
+                        lightmap: None,
+                        texture: None,
+                        texture_uv: [Vec2::ZERO; 3],
+                        glow: Vec3::ZERO,
+                    });
+                    facts.push(Facts {
+                        normal,
+                        albedo: colour,
+                        map: Some(map),
+                        uv: uv.map(Vec2::from_array),
+                        glow: Vec3::ZERO,
+                        mesh: mesh_number,
+                        prop: Some(number),
+                    });
+                }
+                let stored = &maps[map];
+                let twice = (uv[1][0] - uv[0][0]) * (uv[2][1] - uv[0][1])
+                    - (uv[2][0] - uv[0][0]) * (uv[1][1] - uv[0][1]);
+                let density = &mut densities[map];
+                density.0 += front.length();
+                density.1 += twice.abs() * (stored.width * stored.height) as f32;
+                let shading = normals.map(|n| frame.transform_vector3(Vec3::from_array(n)).normalize_or_zero());
+                pending.push((map, [pa, pb, pc], *uv, Some(shading)));
+            }
+        }
+        baked.push((prop.name.clone(), low, high));
+    }
+    if !baked.is_empty() {
+        outln!("  {} of the project's props are baked", baked.len());
+    }
+    baked
 }
 
 /// Gives the new texels that the triangle `corners` covers on its lightmap

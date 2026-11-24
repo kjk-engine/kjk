@@ -1174,10 +1174,16 @@ impl OdysseyMaterial {
         self
     }
 
-    /// A prop whose glow stands in for the room's light (`ROOM_GLOW`).
+    /// A prop whose glow stands in for the room's light (`ROOM_GLOW`). A
+    /// prop whose lightmap stands in for it (`project_props`, under a bake)
+    /// has that lightmap shown as a room's: the baked view shows it at the
+    /// level a room's baked lightmap shows (`ROOM_LIGHTMAP`).
     pub fn room_glow(mut self, stands_in: bool) -> OdysseyMaterial {
         if stands_in {
             self.params.flags |= ROOM_GLOW;
+            if self.params.flags & HAS_LIGHTMAP != 0 {
+                self.params.flags |= ROOM_LIGHTMAP;
+            }
         }
         self
     }

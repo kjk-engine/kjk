@@ -221,6 +221,75 @@ pub fn sky_boxes(discovery: &Discovery) -> Vec<String> {
     }
 }
 
+/// Where a new map places a room cut from a Jedi Academy level: the
+/// level's path, the room's `from` in the level (metres), its place in the
+/// map and its yaw (degrees).
+#[derive(Debug, Clone, PartialEq)]
+struct Placement {
+    level: String,
+    from: [f32; 3],
+    position: [f32; 3],
+    yaw: f32,
+}
+
+/// Each placed Jedi Academy room by the name of its copy in the map's
+/// layout (`set_placements`).
+static PLACEMENTS: std::sync::Mutex<BTreeMap<String, Placement>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// Each built level's light grid, by the level's path (`build_level`).
+type Grids = BTreeMap<String, std::sync::Arc<fmt_ja::bsp::LightGrid>>;
+static GRIDS: std::sync::Mutex<Grids> = std::sync::Mutex::new(BTreeMap::new());
+
+/// Notes where the new map `map` of the module `module` places each room
+/// cut from a Jedi Academy level, by its copy's name, for its props' light
+/// (`grid_light`).
+pub fn set_placements(module: &str, map: &NewMap) {
+    let mut placements = PLACEMENTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for (index, room) in map.rooms.iter().enumerate() {
+        if let Some(ja) = &room.ja {
+            placements.insert(
+                level_edit::map::room_name(module, index),
+                Placement {
+                    level: ja.level.clone(),
+                    from: room.from,
+                    position: room.position,
+                    yaw: room.yaw,
+                },
+            );
+        }
+    }
+}
+
+/// The light Jedi Academy's renderer gives a model standing at `at` (game
+/// space, metres) in the map's room whose copy is named `copy`, when that
+/// room was cut from a Jedi Academy level and the level is built: the
+/// level's light grid read where the place lies in the level
+/// (`asset_ja::light_grid`), a unit over it as the game reads a model's
+/// light. Also gives the room's yaw (degrees), which turns a direction of
+/// the map into one of the level.
+pub fn grid_light(copy: &str, at: [f32; 3]) -> Option<(asset_ja::light_grid::ModelLight, f32)> {
+    let placement = (PLACEMENTS.lock())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&copy.to_ascii_lowercase())?
+        .clone();
+    let grid = (GRIDS.lock())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&placement.level)?
+        .clone();
+    // The map places the room's `from` at its position, turned by its yaw,
+    // so a place of the map is `from` plus its offset turned back.
+    let (sin, cos) = collision::trig::sin_cos_deg(placement.yaw);
+    let [x, y, z] = std::array::from_fn(|axis| at[axis] - placement.position[axis]);
+    let local = [cos * x + sin * y, -sin * x + cos * y, z];
+    let units: [f32; 3] =
+        std::array::from_fn(|axis| (placement.from[axis] + local[axis]) / collision::UNIT);
+    let light = asset_ja::light_grid::light_at(&grid, [units[0], units[1], units[2] + 1.0]);
+    Some((light, placement.yaw))
+}
+
 /// Where the cuts a level's rooms are built from are.
 #[derive(Debug, Clone, Copy)]
 pub enum Cuts<'a> {
@@ -371,6 +440,10 @@ pub fn build_level(
             continue;
         }
         let drawn = asset_ja::level::level(&path, &bsp, &md3, &Paint::Room(&cutter, index));
+        (GRIDS.lock())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(path.clone())
+            .or_insert_with(|| std::sync::Arc::new(bsp.light_grid.clone()));
         let room_floor = cutter.room_part(&collision.floor, &collision.floor_ground, index);
         rooms.push((name.clone(), drawn, room_floor));
     }
@@ -520,6 +593,7 @@ pub fn build_sources(
 /// walkmesh moved to where the map places it (`level_edit::map::room_copy`).
 /// The rooms themselves must be built first (`build_level`).
 pub fn place_copies(game: Game, module: &str, map: &NewMap) -> Vec<String> {
+    set_placements(module, map);
     let read = |name: &str, restype: ResType| {
         vfs::made::get(game, name, restype).map(|bytes| bytes.to_vec())
     };
@@ -565,6 +639,24 @@ pub fn make_mods(discovery: &Discovery, active: &level_edit::active::Active) -> 
     let mut notes = Vec::new();
     for map in &active.ja_maps {
         set_sky(&map.module, map.sky.as_deref());
+        {
+            let mut placements = PLACEMENTS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for (copy, room) in &map.rooms {
+                if let Some(ja) = &room.ja {
+                    placements.insert(
+                        copy.clone(),
+                        Placement {
+                            level: ja.level.clone(),
+                            from: room.from,
+                            position: room.position,
+                            yaw: room.yaw,
+                        },
+                    );
+                }
+            }
+        }
         // The levels whose rooms were not built: their rooms get no copy.
         let mut failed = BTreeSet::new();
         for kept in &map.cuts {

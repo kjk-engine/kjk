@@ -461,6 +461,11 @@ pub(crate) struct Reader<'r> {
 }
 
 impl<'r> Reader<'r> {
+    /// The module it reads.
+    pub(crate) fn module(&self) -> &str {
+        &self.module
+    }
+
     pub(crate) fn new(resolver: &'r Resolver, module: &str) -> Reader<'r> {
         Reader {
             resolver,

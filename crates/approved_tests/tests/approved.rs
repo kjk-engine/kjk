@@ -7034,6 +7034,20 @@ fn level_edit_light_rules() {
         Some("0.383 0.663 0.643 1.07 0.96 0.6 0.42 0.44 0.3 0.01")
     );
     assert_eq!(entry.skylights.as_deref(), Some("sky01 sky02"));
+    // A project's sun 500 m over the level's middle, reaching 2000 m: a
+    // surface facing it takes 2000² / 2500² = 0.64 of its colour, and the
+    // whole sky half of that. A sun out of reach gives the bake none.
+    let sun = level_edit::area::SunLight {
+        at: [0.0, 0.0, 500.0],
+        colour: [0.4, 0.4, 0.4],
+        multiplier: 1.0,
+        radius: 2000.0,
+    };
+    assert_eq!(
+        level_edit::levels::project_sun_args(&sun, [0.0; 3]).as_deref(),
+        Some("0.0000 0.0000 1.0000 0.2560 0.2560 0.2560 0.1280 0.1280 0.1280 0.0100")
+    );
+    assert!(level_edit::levels::project_sun_args(&sun, [0.0, 0.0, -1600.0]).is_none());
 
     let mut editor = Editor::new(Project::new(
         &std::env::temp_dir().join("kjk-light-rules"),

@@ -863,7 +863,7 @@ pub fn set_bake_folder(folder: Option<std::path::PathBuf>) {
 /// the rooms are lit
 /// `Baked`, the bakes the active level editor project keeps
 /// (`level_edit::lighting`).
-fn bake_folders() -> Vec<std::path::PathBuf> {
+pub(crate) fn bake_folders() -> Vec<std::path::PathBuf> {
     if let Some(set) = BAKE_FOLDER
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)

@@ -166,6 +166,39 @@ pub fn bake_entry(text: &str, module: &str) -> BakeEntry {
     }
 }
 
+/// The share of a project's sun's level that the whole sky shows
+/// (`project_sun_args`). The games' outdoor areas in `bake.toml` show 40 to
+/// 80 percent.
+const PROJECT_SKY_SHARE: f32 = 0.5;
+/// Half a project's sun's width in radians (`project_sun_args`), as most
+/// entries of `bake.toml` have it.
+const PROJECT_SUN_WIDTH: f32 = 0.01;
+
+/// The numbers for `kjk detail-bake --sun` from the sun a project sets for
+/// its area (`area::SunLight`), seen from `middle` (game space): the way
+/// to it, the level a surface facing it shows, the level a surface that
+/// sees the whole sky shows (`PROJECT_SKY_SHARE` of the sun's), and half
+/// its width (`PROJECT_SUN_WIDTH`). The level is what the game's light list
+/// gives a character facing the sun at `middle`: its colour times its
+/// multiplier, falling off as `odyssey.wgsl` has a lamp fall off over the
+/// distance. `None` for a sun that does not reach `middle`.
+pub fn project_sun_args(sun: &crate::area::SunLight, middle: [f32; 3]) -> Option<String> {
+    let way: [f32; 3] = std::array::from_fn(|axis| sun.at[axis] - middle[axis]);
+    let distance = way.iter().map(|part| part * part).sum::<f32>().sqrt();
+    if distance <= 0.0 || distance >= sun.radius {
+        return None;
+    }
+    let falloff = (sun.radius * sun.radius) / ((sun.radius + distance) * (sun.radius + distance));
+    let level = sun.colour.map(|part| part * sun.multiplier * falloff);
+    let sky = level.map(|part| part * PROJECT_SKY_SHARE);
+    let toward = way.map(|part| part / distance);
+    let numbers: Vec<String> = (toward.iter().chain(&level).chain(&sky))
+        .chain(std::iter::once(&PROJECT_SUN_WIDTH))
+        .map(|number| format!("{number:.4}"))
+        .collect();
+    Some(numbers.join(" "))
+}
+
 /// A `sun`'s numbers for `--sun`.
 fn sun_args(sun: &Item) -> Option<String> {
     let mut words: Vec<String> = Vec::new();

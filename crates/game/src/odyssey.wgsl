@@ -1212,8 +1212,12 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
         let b = box_at(near_box.x);
         // A box does not shadow a light inside it: a kolto tank's or a Star
         // Map's own light. Its box shaded a wide ring of floor round it from
-        // that light, which the owner saw on Manaan (21 November 2026).
-        if box_distance(position + direction * distance, b) <= 0.0 {
+        // that light, which the owner saw on Manaan (21 November 2026). Nor
+        // does it shadow a lamp's light that sits on it, within
+        // `LIGHT_ON_BOX` (`fitted_visibility`). A fight's light, a blade
+        // beside a crate, is still shadowed by a box it is not inside.
+        let on_box = select(LIGHT_ON_BOX, 0.0, fight);
+        if box_distance(position + direction * distance, b) <= on_box {
             continue;
         }
         // A light with a kept tile of the placeable reads the tile. The
@@ -1580,9 +1584,12 @@ const FITTED_SOURCE: f32 = 0.35;
 // The traced lights' shadows count for at most this many times their own
 // light, in the place of the lights not traced.
 const FITTED_REST: f32 = 2.0;
-// Under a shadow a baked room keeps this share of its light: the light
-// bounced about the room, which no character blocks.
-const FITTED_BOUNCE: f32 = 0.3;
+// A light this near a placeable's box (metres) sits on that placeable, and
+// the box does not shadow it.
+const LIGHT_ON_BOX: f32 = 0.5;
+// The curve the bake adds the fittings' light on (`GAMMA` in
+// `detail_bake.rs`).
+const BAKED_GAMMA: f32 = 2.2;
 // Under a fitted light, and under the room's light in the fitted lights'
 // trials, a placeable's source is at least this wide across its half
 // (radians). Its shadow is then soft away from its foot. A cart's
@@ -1616,9 +1623,12 @@ fn fitted_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
     var placeables = near.box_at;
     for (var k = 0u; k < near.boxes; k++) {
         let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
-        // A box does not shadow a light inside it (`cone_visibility`).
+        // A box does not shadow a light inside it (`cone_visibility`), nor
+        // one within `LIGHT_ON_BOX` of it: a lamp set on a heater or on a
+        // crate lights the floor round its object, and the object's box
+        // darkened a wide ring there (24 November 2026).
         if (b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b)
-            || box_distance(position + direction * distance, b) <= 0.0 {
+            || box_distance(position + direction * distance, b) <= LIGHT_ON_BOX {
             continue;
         }
         let centre = b.centre.xyz - position;
@@ -1922,6 +1932,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // (`ROOM_GLOW`). Where the light probes light it, under Enhanced
     // lighting, it glows not at all, so the room's light is not counted
     // twice.
+    // A prop whose lightmap stands in for the room's light (under a bake)
+    // keeps that lightmap: the probes do not light a lightmapped surface,
+    // so it is the prop's only light under Enhanced lighting too. Left
+    // out, such a prop was black.
     if (params.flags & ROOM_GLOW) != 0u && lights.enhanced != 0u && (params.flags & PROBED) != 0u
         && probe_light(mesh_owner(in.instance_index), vec3<f32>(0.0)).w > 0.5 {
         self_lit = vec3<f32>(0.0);
@@ -2063,6 +2077,17 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // The owner said on 21 November 2026: "plasteel cylinders a bit too
         // evenly illuminated by corner light".
         let probed_bake = shadows.debug == 8u && from_probes;
+        // A prop whose lightmap stands in for the room's light, as a room's
+        // lightmap does (`project_props`: a Jedi Academy prop lit by its
+        // level's light grid, or by the bake). It takes the light a room's
+        // surface takes, and no more. The lamps of the list and the area's
+        // sun are in that lightmap already, or are not in the room's, so
+        // they are left out. Under a bake the fitted lights are in it too.
+        // A fight's lights (a blade, a bolt) still light it. The owner saw
+        // the rocks' faces toward a lamp lit twice under a bake (24 November
+        // 2026).
+        let stands_in = (params.flags & HAS_LIGHTMAP) != 0u && (params.flags & ROOM_LIGHTMAP) != 0u
+            && (params.flags & ROOM) == 0u;
         // Whether a light reaches a mesh is judged once for the whole mesh,
         // from its origin, so a creature is lit or not as one piece. The
         // light then fades out over the last tenth of its radius. (The
@@ -2095,7 +2120,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 }
                 continue;
             }
-            if probed_bake && light.kind.x != 0u {
+            if (probed_bake && light.kind.x != 0u) || stands_in {
                 continue;
             }
             let at = light.position_radius.xyz;
@@ -2126,7 +2151,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
         }
         // The area's light fittings light it as they light the rooms.
-        if !probed_bake {
+        if !probed_bake && !(stands_in && shadows.debug == 8u) {
             fight = fight + fitted_lights(position, fight_normal, has_normal, VIS_ROOMS, no_casters(), 1.0).whole * params.diffuse.rgb;
         }
         // The diffuse sum never goes below black; the total stops at full.
@@ -2236,18 +2261,30 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // light already.
         // The fittings' own shadows of the characters and placeables near.
         var fitted_kept = 1.0;
+        // The same share as linear light.
+        var fitted_kept_linear = 1.0;
         if !baked_room {
             fight = fight + fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near, 1.0).lit * unshadowed;
         } else if near.count != 0u || near.boxes != 0u {
-            // The bake holds the fittings' light, so a shadow takes the
-            // blocked fittings' share of it. The light bounced about the
-            // room stays.
+            // The bake holds the fittings' light, so a shadow takes out the
+            // direct light of the fittings it blocks, and nothing more. The
+            // bake adds a fitting's direct light as `(FIGHT_GAIN_ENHANCED ×
+            // its sum)^BAKED_GAMMA` in linear light (`direct` in
+            // `detail_bake.rs`), and that is weighed against all the baked
+            // light of the texel. The sun, the sky and the light bounced
+            // about the room stay. A shadow that weighed the fittings alone
+            // took 70% of the sunlight under a weak lamp in a snowfield, and
+            // the owner said of it on 24 November 2026: "Shadows of people
+            // seem to be getting baked as well?"
             let given = fitted_lights(in.world_position.xyz, fitted_normal, has_normal, room, near, lightmap_texel.a);
+            let direct_whole = pow(max(given.whole, vec3<f32>(0.0)) * FIGHT_GAIN_ENHANCED, vec3<f32>(BAKED_GAMMA));
+            let direct_lit = pow(max(given.lit, vec3<f32>(0.0)) * FIGHT_GAIN_ENHANCED, vec3<f32>(BAKED_GAMMA));
+            let blocked = dot(max(direct_whole - direct_lit, vec3<f32>(0.0)), LUMA);
+            let all = dot(pow(max(baked, vec3<f32>(0.0)), vec3<f32>(BAKED_GAMMA)), LUMA);
             // Where no fitting reaches, nothing is blocked.
-            let whole = dot(given.whole, LUMA);
-            if whole > 1e-4 {
-                let share = saturate(dot(given.lit, LUMA) / whole);
-                fitted_kept = mix(FITTED_BOUNCE, 1.0, share);
+            if blocked > 1e-6 && all > 1e-6 {
+                fitted_kept_linear = saturate(1.0 - blocked / all);
+                fitted_kept = pow(fitted_kept_linear, 1.0 / BAKED_GAMMA);
             }
             lighting = lighting * fitted_kept;
         }
@@ -2259,7 +2296,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             if baked_room {
                 // A glowing surface's own glow is not part of it: a lamp's
                 // tube shows as bright as it does under the live lights.
-                let over = (decode(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0)) * unshadowed * fitted_kept;
+                let over = (decode(max(baked, vec3<f32>(1.0))) - vec3<f32>(1.0)) * unshadowed * fitted_kept_linear;
                 if max3(over) > 0.0 {
                     fight_added = encode(decode(fight_added) + over);
                 }

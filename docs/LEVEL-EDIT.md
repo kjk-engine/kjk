@@ -408,6 +408,19 @@ keep one. A level of the game whose lights the project did not change is
 lit as the game stores it. `KJK_FITTED_LIGHTS` still chooses the lighting
 when it is set.
 
+**Shadows under a bake.** The characters' shadows are not baked. They
+are drawn every frame and move with the characters. A character's shadow
+from a lamp takes out only that lamp's light, weighed against all the
+light the bake holds at that place. So under a weak lamp in a sunlit
+snowfield, a character's shadow from the lamp is faint, and the sunlight
+stays. Before, such a shadow took out 70% of all the baked light up to
+the edge of the lamp's reach, and it showed as a dark fan with a hard
+edge. A placeable does not shadow a light that stands inside it or
+within half a metre of it, such as a lamp set on a heater or on a
+crate. The bake does the same for a Jedi Academy prop and the light that
+stands on it. A placeable's box still shadows a lightsaber's or a
+blaster bolt's light.
+
 A kept bake does not follow the lights. A bake the editor makes notes
 what it was made from: the level's lights and lamps placed by hand, its
 sun, the kinds of fitting and room levels the project changed, and a new
@@ -592,6 +605,18 @@ shadows. The rooms keep the light stored in their lightmaps, so the
 ground and the walls do not change with it until the area is baked again
 (`kjk detail-bake`).
 
+**Bake now** bakes with the project's sun when the module's entry in
+`bake.toml` sets none, which is so for every new map. The bake takes the
+way to the sun from the middle of the level's floors. A surface that
+faces the sun takes the light the sun gives a character there: its
+colour times its brightness, falling off over the distance as a lamp of
+the game does. A surface that sees the whole sky takes half of that. The
+sun's shadows are as sharp as those of most of the games' suns in
+`bake.toml` (0.01 radians across half the sun). Before, a new map's bake
+had no sun at all, and a snowfield came out of it an even grey. A weak
+sun gives a bake with soft shadows. A stronger one gives the rocks a lit
+side and a shaded side, and long shadows on the snow.
+
 ## How props are lit
 
 A KOTOR room is lit by its lightmaps, which a Jedi Academy prop does not
@@ -624,6 +649,49 @@ reads the light of the floor straight under it, however far down, and
 else that of the nearest floor round it. A rock stacked on others used to
 be read at its own height, found no probe that high, and glowed with the
 fixed 0.45, much brighter than the rocks round it.
+
+**A prop in a room cut from a Jedi Academy level** is lit as Jedi Academy
+lights it, by that level's light grid. Every Jedi Academy level stores a
+grid of light through its space: at each place an ambient light, a
+directed light and the way the directed light comes from. kjk reads the
+grid where the prop stands in the level, and shades each corner of the
+prop with the ambient light and the directed light by how much the
+corner faces it. The light is kept as a small lightmap of the prop's
+own, as the level's own models are kept in its rooms. Such a prop does
+not glow. So a rock in a shadowed hollow of Hoth is dark, a rock in the
+open is bright, and each side of a rock is lit by the way it faces. The
+probes' glow above is for props in KOTOR rooms, and for a prop whose Jedi
+Academy level was not built.
+
+**Under a bake** (the Baked view, and play with a kept bake) the rooms
+show the bake's light, which replaces Jedi Academy's own. The bake lights
+the props too. Each prop is part of the bake's scene: it casts shadows on
+the rooms and on the other props, from the sun and from every light, and
+the bake lights it as it lights a room, with bounced light. Each prop
+gets a lightmap of its own, and the view shows it as it shows the rooms'
+bake. So a rock is as light as the snow beside it, its side away from the
+sun is in shade, and the snow behind it lies in its shadow. The bake
+lists the props it lit, with where each stood, in `props.txt` beside its
+lightmaps.
+
+A prop added, moved, turned, scaled or given another model since the bake
+is not in it. Until the next bake such a prop takes its light from the
+light probes, which read the baked lightmaps. Each corner of the prop
+reads the probes at its own place, seen from above, and takes the light
+of the probe's side it faces: east, west, north, south, up or down,
+weighed by how much it faces it. A corner whose reading is less than 35%
+as bright from above as the prop's other corners read a pocket under an
+overhang or between rocks, and takes the reading at the prop's own place
+instead. A prop read at one place took one reading for all of it, and
+four rocks within 5 metres of each other read 0.81, 0.14, 0.82 and 0.27.
+
+A prop whose lightmap stands for the room's light, from the bake, the
+probes or a Jedi Academy level's light grid, takes the light a room's
+surface takes and no more. The lamps of the area's light list and its sun
+are not added on top, under either lighting option, and under a bake the
+fitted lights are not added either, because the bake holds them. A
+lightsaber's, a blaster bolt's and Force lightning's light still light
+it.
 
 In a room cut from a Jedi Academy level, the probes read the room's
 lightmap at its full size. That lightmap is one atlas of the level, and
@@ -2287,9 +2355,10 @@ match the KOTOR rooms' light yet.
   A walkable box or a nav blocker placed with it does that.
 - **Props are lit by the floor under them, not by their lamps.** A KOTOR
   room is lit by its lightmaps, which a Jedi Academy prop does not have
-  (below, "How props are lit"). A prop takes the room's light where it
-  stands as a whole, so a prop beside a lamp is not brighter on the side
-  that faces it, except from the live fitted lights.
+  (below, "How props are lit"). Without a bake, a prop takes the room's
+  light where it stands as a whole, so a prop beside a lamp is not
+  brighter on the side that faces it, except from the live fitted
+  lights. A bake lights each prop texel by texel.
 - **Everything but a lamp turns about Z only.** A box has a yaw but no
   pitch or roll, so a ramp is built from boxes laid as steps. A Jedi
   Academy prop has a yaw alone too.

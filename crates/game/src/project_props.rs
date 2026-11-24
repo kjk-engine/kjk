@@ -25,6 +25,10 @@ use crate::viewer_ja::Files;
 /// ambient light alone leaves a prop nearly black.
 const PROP_GLOW: f32 = 0.45;
 
+/// How much stronger a baked lightmap shows than it is stored
+/// (`BAKED_GAIN` in `odyssey.wgsl`).
+const BAKED_GAIN: f32 = 2.0;
+
 /// How far over the floor (metres) a prop's light is read: where the light
 /// probes stand (`light_probes`).
 const PROBE_RISE: f32 = 1.0;
@@ -42,7 +46,9 @@ const FLOOR_ABOVE: f32 = 0.5;
 /// brighter than the props round it. The light is then taken times the
 /// share of a room's stored light the view keeps (all of it with the
 /// game's lighting, half with the live fitted lights, none with the lamps
-/// alone). `None` where no probe with light is near.
+/// alone). Under a bake the probes read the baked lightmaps, which are
+/// stored at half their level, so their light is doubled (`BAKED_GAIN`).
+/// `None` where no probe with light is near.
 ///
 /// A prop with no floor that near, such as a rock on an outcrop with no
 /// walkable top, reads the light of the floor straight under it, however
@@ -56,8 +62,11 @@ fn room_glow(scene: &LoadedScene, at: [f32; 3]) -> Option<[f32; 3]> {
         .light_at(&scene.rooms, Some(room), sample)
         .ok()?;
     use crate::fitted_lights::Mode;
+    // A baked lightmap is stored at half its level (`BAKED_GAIN` in
+    // `odyssey.wgsl`), and the probes read it as stored.
     let kept = match crate::fitted_lights::mode() {
-        Mode::Off | Mode::Baked => 1.0,
+        Mode::Off => 1.0,
+        Mode::Baked => BAKED_GAIN,
         Mode::Live => 0.5,
         Mode::LampsOnly => 0.0,
     };
@@ -104,6 +113,278 @@ fn floor_for(scene: &LoadedScene, at: [f32; 3]) -> Option<(usize, bevy::math::Ve
         (None, Some((room, _, [x, y, z]))) => Some((room, rise(x, y, z))),
         (None, None) => None,
     }
+}
+
+/// The side of a triangle's block in a prop's grid lightmap, in texels.
+const GRID_BLOCK: usize = 2;
+
+/// Lights the prop `made` (placed as `prop`) with the Jedi Academy light
+/// `light` of the room it stands in, whose yaw is `room_yaw` (degrees), as
+/// Jedi Academy lights a model: each corner takes the ambient light and
+/// the directed light by how much its normal faces it
+/// (`ModelLight::shade`). The light is stored as a lightmap of its own,
+/// named `name`, a block of 2 by 2 texels for each triangle with its
+/// corners' light, as the level's converter stores a model's light in a
+/// room. Each mesh's corners are made its triangles' own, so each has its
+/// place in the lightmap. The prop then glows not at all: its lightmap is
+/// its light, as a room's is. Gives the lightmap.
+fn lit_by_grid(
+    made: &mut Placed,
+    prop: &Prop,
+    (light, room_yaw): (&asset_ja::light_grid::ModelLight, f32),
+    name: &str,
+) -> TextureIr {
+    // A direction of the game turned into one of the level: back by the
+    // room's yaw.
+    let (sin, cos) = collision::trig::sin_cos_deg(-room_yaw);
+    let to_level = |n: [f32; 3]| [cos * n[0] - sin * n[1], sin * n[0] + cos * n[1], n[2]];
+    // Jedi Academy scales a model's normals with the model.
+    let shade = |normal: [f32; 3], _: bevy::math::Vec3| {
+        light.shade(to_level(normal).map(|part| part * prop.scale))
+    };
+    lit_per_corner(made, name, &shade)
+}
+
+/// A corner whose light from above is less than this share of the middle
+/// value of its prop's corners read a pocket the rest of the prop is not in
+/// (`lit_by_probes`).
+const POCKET_SHARE: f32 = 0.35;
+
+/// Lights the prop `made` under a bake that does not hold it, from the
+/// light probes' six sides (`AreaProbes::light_at`, which holds the baked
+/// lightmaps' light). Each corner reads the probes at its own place seen
+/// from above, at the height of the floor under the prop (`light_near`;
+/// `None` where no probe is near). So a large prop is lit along its length,
+/// and two rocks side by side read the same probes where they meet. A
+/// prop read at one place took one reading for all of it, and four rocks
+/// within 5 metres read 0.81, 0.14, 0.82 and 0.27 from above (24 November
+/// 2026). A corner with no reading, or one far darker than the prop's other
+/// corners (`POCKET_SHARE`), takes the reading at the prop's own place
+/// (`base`): it read a pocket, under an overhang or between rocks. Each
+/// corner then takes the side it faces, weighed by how much it faces it, as
+/// the shader weighs a probe (`probe_light` in `odyssey.wgsl`). The light is
+/// stored as the bake stores its lightmaps, at half its level, and the
+/// prop's material shows it as a room's baked lightmap
+/// (`OdysseyMaterial::room_glow`). Gives the lightmap.
+fn lit_by_probes(
+    made: &mut Placed,
+    base: &[bevy::math::Vec3; 6],
+    light_near: &dyn Fn(bevy::math::Vec3) -> Option<[bevy::math::Vec3; 6]>,
+    name: &str,
+) -> TextureIr {
+    use bevy::math::Vec3;
+    let frame = crate::scene::placement(made);
+    let luma = |light: Vec3| light.dot(Vec3::new(0.2126, 0.7152, 0.0722));
+    // Each corner's reading, by its place in the game seen from above, to
+    // the centimetre.
+    let key = |at: Vec3| ((at.x * 100.0).round() as i64, (at.y * 100.0).round() as i64);
+    let mut read: BTreeMap<(i64, i64), Option<[Vec3; 6]>> = BTreeMap::new();
+    for mesh in &made.ir.meshes {
+        for &at in &mesh.indices {
+            let Some(point) = mesh.positions.get(at as usize) else {
+                continue;
+            };
+            let at = frame.transform_point3(Vec3::from_array(*point));
+            read.entry(key(at)).or_insert_with(|| light_near(at));
+        }
+    }
+    let mut above: Vec<f32> = (read.values().flatten())
+        .map(|light| luma(light[crate::light_probes::FROM_ABOVE]))
+        .collect();
+    above.sort_by(f32::total_cmp);
+    let middle = above.get(above.len() / 2).copied().unwrap_or(0.0);
+    let reading = |at: Vec3| -> [Vec3; 6] {
+        match read.get(&key(at)).copied().flatten() {
+            Some(light)
+                if luma(light[crate::light_probes::FROM_ABOVE]) >= POCKET_SHARE * middle =>
+            {
+                light
+            }
+            _ => *base,
+        }
+    };
+    let shade = |normal: [f32; 3], at: Vec3| {
+        let light = reading(at);
+        let [x, y, z] = normal;
+        let length = (x * x + y * y + z * z).sqrt();
+        if length <= 0.0 {
+            return [0u8; 3];
+        }
+        let [x, y, z] = [x / length, y / length, z / length];
+        // The sides in the probe's order: east, west, up, down, south,
+        // north; the game's y is north.
+        let east_west = if x > 0.0 { light[0] } else { light[1] };
+        let up_down = if z > 0.0 { light[2] } else { light[3] };
+        let north_south = if y > 0.0 { light[5] } else { light[4] };
+        let lit = east_west * x * x + up_down * z * z + north_south * y * y;
+        lit.to_array()
+            .map(|part| (part * 255.0).round().clamp(0.0, 255.0) as u8)
+    };
+    lit_per_corner(made, name, &shade)
+}
+
+/// Gives the prop `made` a lightmap of its own named `name`, laid out as
+/// the level's converter lays out a model's light in a room: a block of 2
+/// by 2 texels for each triangle, in the order of the meshes and their
+/// triangles, `across` blocks to a row. Each mesh's corners are made its
+/// triangles' own, so each corner has its place in the lightmap: the
+/// middle of its texel of the block (the first, second and third texel).
+/// The prop then glows not at all. The bake lays a prop out the same way
+/// and bakes into that lightmap (`kjk detail-bake`, `detail_bake.rs`).
+/// Gives the lightmap's side in texels.
+pub fn lay_out(made: &mut Placed, name: &str) -> usize {
+    let triangles: usize = (made.ir.meshes.iter())
+        .map(|mesh| mesh.indices.len() / 3)
+        .sum();
+    let across = (triangles as f32).sqrt().ceil().max(1.0) as usize;
+    let side = across * GRID_BLOCK;
+    let mut block = 0usize;
+    for mesh in &mut made.ir.meshes {
+        let mut positions = Vec::with_capacity(mesh.indices.len());
+        let (mut normals, mut uv1, mut uv2) = (Vec::new(), Vec::new(), Vec::new());
+        for triangle in mesh.indices.as_chunks::<3>().0 {
+            let (left, top) = (block % across * GRID_BLOCK, block / across * GRID_BLOCK);
+            for (corner, &at) in triangle.iter().enumerate() {
+                let at = at as usize;
+                positions.push(mesh.positions[at]);
+                normals.push(mesh.normals.get(at).copied().unwrap_or([0.0, 0.0, 1.0]));
+                uv1.push(mesh.uv1.get(at).copied().unwrap_or([0.0; 2]));
+                let (column, row) = (corner % 2, corner / 2);
+                uv2.push([
+                    (left + column) as f32 / side as f32 + 0.5 / side as f32,
+                    (top + row) as f32 / side as f32 + 0.5 / side as f32,
+                ]);
+            }
+            block += 1;
+        }
+        mesh.indices = (0..positions.len() as u32).collect();
+        mesh.positions = positions;
+        mesh.normals = normals;
+        mesh.uv1 = uv1;
+        mesh.uv2 = uv2;
+        mesh.lightmap = Some(name.to_string());
+        mesh.self_illum = [0.0; 3];
+    }
+    side
+}
+
+/// Lights the prop `made` by `shade`, the light of a corner whose normal
+/// (in the game's space) and place (game space) are given, kept as a
+/// lightmap of its own named `name` (`lay_out`): each triangle's block holds
+/// its corners' light, and its fourth texel lies between the second and
+/// third corners'. Gives the lightmap.
+fn lit_per_corner(
+    made: &mut Placed,
+    name: &str,
+    shade: &dyn Fn([f32; 3], bevy::math::Vec3) -> [u8; 3],
+) -> TextureIr {
+    use bevy::math::Vec3;
+    let side = lay_out(made, name);
+    let across = side / GRID_BLOCK;
+    let mut rgba = vec![255u8; side * side * 4];
+    // The prop's model turned and moved into the game.
+    let frame = crate::scene::placement(made);
+    let mut block = 0usize;
+    for mesh in &made.ir.meshes {
+        for (positions, normals) in
+            (mesh.positions.as_chunks::<3>().0.iter()).zip(mesh.normals.as_chunks::<3>().0)
+        {
+            let (left, top) = (block % across * GRID_BLOCK, block / across * GRID_BLOCK);
+            let colours: [[u8; 3]; 3] = std::array::from_fn(|corner| {
+                let normal = frame.transform_vector3(Vec3::from_array(normals[corner]));
+                let at = frame.transform_point3(Vec3::from_array(positions[corner]));
+                shade(normal.to_array(), at)
+            });
+            let fourth: [u8; 3] = std::array::from_fn(|channel| {
+                ((u16::from(colours[1][channel]) + u16::from(colours[2][channel])) / 2) as u8
+            });
+            for (texel, colour) in [colours[0], colours[1], colours[2], fourth]
+                .iter()
+                .enumerate()
+            {
+                let (x, y) = (left + texel % 2, top + texel / 2);
+                let at = (y * side + x) * 4;
+                rgba[at..at + 3].copy_from_slice(colour);
+            }
+            block += 1;
+        }
+    }
+    lightmap_of(side as u32, side as u32, rgba)
+}
+
+/// A lightmap of `width` by `height` texels from its RGBA bytes.
+fn lightmap_of(width: u32, height: u32, rgba: Vec<u8>) -> TextureIr {
+    TextureIr {
+        width,
+        height,
+        encoding: asset_odyssey::texture::Encoding::Rgba8,
+        mips: vec![rgba],
+        cube: false,
+        frames: 1,
+        facts: asset_odyssey::texture::TextureFacts::default(),
+        faces: Vec::new(),
+        frame_mips: Vec::new(),
+    }
+}
+
+/// The name of the lightmap a bake gives `prop` (`kjk detail-bake`): its
+/// name in lower case after `jprop_`, each character that is not a letter,
+/// a digit, `-` or `_` made `_`.
+pub fn baked_name(prop: &Prop) -> String {
+    let name: String = (prop.name.chars())
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => c.to_ascii_lowercase(),
+            _ => '_',
+        })
+        .collect();
+    format!("jprop_{name}")
+}
+
+/// The file beside a bake's lightmaps that lists the props it baked
+/// (`kjk detail-bake`), one line each: the lightmap's name, the prop's
+/// place (three numbers), its yaw, its scale and its model.
+pub const BAKED_PROPS: &str = "props.txt";
+
+/// The line of `BAKED_PROPS` for `prop`, whose lightmap is `name`.
+pub fn baked_line(prop: &Prop, name: &str) -> String {
+    let [x, y, z] = prop.position;
+    format!(
+        "{name} {x:.3} {y:.3} {z:.3} {:.2} {:.3} {}",
+        prop.yaw, prop.scale, prop.model
+    )
+}
+
+/// The lightmap a bake gives `prop`, when a folder of baked lightmaps
+/// holds one for it as the prop stands now: its line of `BAKED_PROPS`
+/// matches the prop's line (`baked_line`), and its picture reads. A prop
+/// moved, turned, scaled or given another model since the bake takes none,
+/// and is lit by the probes (`lit_by_probes`).
+fn baked_lightmap(prop: &Prop) -> Option<TextureIr> {
+    let name = baked_name(prop);
+    let line = baked_line(prop, &name);
+    for folder in crate::viewer::bake_folders() {
+        let Ok(text) = std::fs::read_to_string(folder.join(BAKED_PROPS)) else {
+            continue;
+        };
+        if !text.lines().any(|listed| listed.trim() == line) {
+            continue;
+        }
+        let path = folder.join(format!("{name}.png"));
+        match image::open(&path) {
+            Ok(picture) => {
+                let picture = picture.into_rgba8();
+                return Some(lightmap_of(
+                    picture.width(),
+                    picture.height(),
+                    picture.into_raw(),
+                ));
+            }
+            Err(error) => {
+                bevy::log::warn!("baked lightmap {} does not read: {error}", path.display());
+            }
+        }
+    }
+    None
 }
 
 /// A prop's model read once: its meshes at scale 1 (metres) and the
@@ -277,12 +558,70 @@ pub fn add(
                 // Its glow is the room's light where it stands; the light
                 // probes give it that light instead under Enhanced lighting
                 // (`Placed::room_glow`).
-                let glow = room_glow(scene, prop.position).unwrap_or([PROP_GLOW; 3]);
                 let mut made = placed(model, prop);
-                for mesh in &mut made.ir.meshes {
-                    mesh.self_illum = glow;
+                // A prop in a room cut from a Jedi Academy level is lit by
+                // that level's light grid, as Jedi Academy lights it, while
+                // the rooms show their stored light. A bake replaces that
+                // light, so under a bake the prop takes the probes' light,
+                // which the bake gives them.
+                let grid = (!crate::fitted_lights::baked())
+                    .then(|| floor_for(scene, prop.position))
+                    .flatten()
+                    .and_then(|(room, _)| scene.rooms.get(room))
+                    .and_then(|room| crate::ja_made::grid_light(&room.name, prop.position));
+                // Under a bake that holds the prop, its own baked lightmap.
+                let from_bake = (crate::fitted_lights::baked())
+                    .then(|| baked_lightmap(prop))
+                    .flatten();
+                // Under a bake that does not, the probes' light from each
+                // side, which holds the bake's light: at the prop's own
+                // place, and at each corner's (`lit_by_probes`).
+                let floor = (crate::fitted_lights::baked() && from_bake.is_none())
+                    .then(|| floor_for(scene, prop.position))
+                    .flatten();
+                let baked = floor.and_then(|(room, sample)| {
+                    scene.probes.light_at(&scene.rooms, Some(room), sample).ok()
+                });
+                if let Some(lightmap) = from_bake {
+                    let name = baked_name(prop);
+                    lay_out(&mut made, &name);
+                    scene.textures.insert(name, lightmap);
+                    // Shown as a room's baked lightmap is
+                    // (`OdysseyMaterial::room_glow`).
+                    made.room_glow = true;
+                    scene.models.push(made);
+                    continue;
                 }
-                made.room_glow = true;
+                match (grid, baked) {
+                    (Some((light, room_yaw)), _) => {
+                        let name = format!("{}#grid", prop.name);
+                        let lightmap = lit_by_grid(&mut made, prop, (&light, room_yaw), &name);
+                        scene.textures.insert(name, lightmap);
+                        // Its lightmap stands in for the room's light, as a
+                        // room's does (`OdysseyMaterial::room_glow`).
+                        made.room_glow = true;
+                    }
+                    (None, Some(light)) => {
+                        let name = format!("{}#baked", prop.name);
+                        let light_near = |at: bevy::math::Vec3| {
+                            let (room, sample) = floor?;
+                            let at = bevy::math::Vec3::new(at.x, at.y, sample.z);
+                            scene.probes.light_at(&scene.rooms, Some(room), at).ok()
+                        };
+                        let lightmap = lit_by_probes(&mut made, &light, &light_near, &name);
+                        scene.textures.insert(name, lightmap);
+                        // Shown as a room's baked lightmap is
+                        // (`OdysseyMaterial::room_glow`).
+                        made.room_glow = true;
+                    }
+                    (None, None) => {
+                        let glow = room_glow(scene, prop.position).unwrap_or([PROP_GLOW; 3]);
+                        for mesh in &mut made.ir.meshes {
+                            mesh.self_illum = glow;
+                        }
+                        made.room_glow = true;
+                    }
+                }
                 scene.models.push(made);
             }
             Err(why) => {

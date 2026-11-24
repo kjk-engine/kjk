@@ -1186,6 +1186,10 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
     // A new map's Jedi Academy sky, as the project has it now.
     let sky = (state.editor.project.map.as_ref()).and_then(|map| map.ja_sky.clone());
     kjk_game::ja_made::set_sky(&module, sky.as_deref());
+    // Where it places its Jedi Academy rooms, for their props' light.
+    if let Some(map) = &state.editor.project.map {
+        kjk_game::ja_made::set_placements(&module, map);
+    }
     // The kinds of fitting changed, and the ones changed back.
     let mut kinds = String::new();
     for (key, original) in &state.kind_originals {
@@ -3988,9 +3992,29 @@ fn start_bake(
             dump.display()
         ));
     }
-    let entry = std::fs::read_to_string(light_data.join("bake.toml"))
+    let mut entry = std::fs::read_to_string(light_data.join("bake.toml"))
         .map(|text| level_edit::levels::bake_entry(&text, &project.module))
         .map_err(|error| format!("bake.toml: {error}"))?;
+    // A module whose entry sets no sun takes the sun the project sets for
+    // its area, seen from the middle of its floors. A new map's sun lit
+    // its characters and none of its bake, and the owner's snowfield came
+    // out of the bake evenly grey (24 November 2026).
+    if entry.sun_args.is_none()
+        && let Some(sun) = state.editor.sun()
+    {
+        let (low, high) = (scene.rooms.iter())
+            .flat_map(|room| room.floor.iter().flatten())
+            .fold(([f32::MAX; 3], [f32::MIN; 3]), |(low, high), p| {
+                (
+                    std::array::from_fn(|axis| low[axis].min(p[axis])),
+                    std::array::from_fn(|axis| high[axis].max(p[axis])),
+                )
+            });
+        if low[0] <= high[0] {
+            let middle = std::array::from_fn(|axis| (low[axis] + high[axis]) / 2.0);
+            entry.sun_args = level_edit::levels::project_sun_args(&sun, middle);
+        }
+    }
     Ok(crate::bake::BakeJob::start(crate::bake::Plan {
         program: state.setup.program.clone(),
         project: project.name.clone(),

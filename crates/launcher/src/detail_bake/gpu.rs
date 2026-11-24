@@ -32,7 +32,8 @@ use wgpu::util::DeviceExt as _;
 
 use super::{
     FAR_LIGHT, Field, Fitted, GAMMA, LIFT, LIGHT_CELL, LightGrid, Point, SHORT, Stored, Texels,
-    WALL_RAYS, bounds, direct, directions, field_of, points, stored_level, texels, write_sets,
+    WALL_RAYS, bounds, direct, directions, field_of, points, room_of_name, stored_level, texels,
+    write_sets,
 };
 use crate::light_probes::Level;
 use crate::room_lights::Reader;
@@ -90,6 +91,16 @@ const B_MOST: f32 = 6.0;
 /// Where a room's lamps do not reach its level in `b`, an even light shows
 /// this share of the level.
 const B_FILL_SHARE: f32 = 0.4;
+
+/// A light this near a prop's box (metres) is held by the prop, which then
+/// casts no shadow of it (`LIGHT_ON_BOX` in `odyssey.wgsl`).
+const LIGHT_ON_PROP: f32 = 0.5;
+/// How many groups the props that hold a light are put in, each with its
+/// own bit of the acceleration structure's instance mask, from
+/// `HOLDER_MASK` up. The first two bits are the rooms' blocking triangles
+/// and the lamps' glass (`gpu.wgsl`).
+const HOLDER_GROUPS: usize = 6;
+const HOLDER_MASK: u32 = 4;
 
 const MODE_DIRECT_OLD: u32 = 0;
 const MODE_DIRECT_SOFT: u32 = 1;
@@ -565,6 +576,7 @@ pub(super) fn bake_lights(
         unwalked,
         names,
         grass,
+        props,
     } = texels(reader, resolver, area, options.sun.is_some() || options.every_room)?;
     if std::env::var_os("KJK_BAKE_LAPS").is_some() {
         eprintln!("{} triangles, bounds {:?}", surfaces.len(), bounds(&surfaces));
@@ -634,13 +646,38 @@ pub(super) fn bake_lights(
             ]
         })
         .collect();
-    let light_values: Vec<[f32; 4]> = (lights.iter())
-        .flat_map(|light| {
+    // The props that hold a light: a lamp placed on a heater or in a
+    // brazier. Such a prop casts no shadow of its own light, and the light
+    // lights the floor round it (`LIGHT_ON_PROP`). Each holding prop is in
+    // one of `HOLDER_GROUPS` groups of the acceleration structure, and a
+    // light's shadow rays leave its prop's group out. The game's live
+    // shadows do the same with a placeable's box (`LIGHT_ON_BOX` in
+    // `odyssey.wgsl`).
+    let holder_of: Vec<Option<usize>> = (lights.iter())
+        .map(|light| {
+            (props.iter()).position(|(_, low, high)| {
+                (light.at - light.at.clamp(*low, *high)).length() <= LIGHT_ON_PROP
+            })
+        })
+        .collect();
+    let mut holders: Vec<usize> = holder_of.iter().flatten().copied().collect();
+    holders.sort_unstable();
+    holders.dedup();
+    let group_of = |prop: usize| holders.iter().position(|&held| held == prop).map(|k| k % HOLDER_GROUPS);
+    if holders.len() > HOLDER_GROUPS {
+        outln!(
+            "  {} props hold a light, more than {HOLDER_GROUPS}: props of one group cast no shadow of each other's lights",
+            holders.len()
+        );
+    }
+    let light_values: Vec<[f32; 4]> = (lights.iter().zip(&holder_of))
+        .flat_map(|(light, holder)| {
+            let left_out = holder.and_then(group_of).map_or(0, |group| HOLDER_MASK << group);
             [
                 four(light.at, light.radius),
                 four(light.colour, light.half),
                 four(light.way, light.cone),
-                four(light.aim, 0.0),
+                four(light.aim, f32::from_bits(left_out)),
             ]
         })
         .collect();
@@ -677,17 +714,34 @@ pub(super) fn bake_lights(
             options.skylights.iter().any(|name| node == Some(name.as_str()))
         })
         .collect();
-    let (blocking, glass): (Vec<u32>, Vec<u32>) =
-        (0..surfaces.len() as u32).partition(|&t| !lamps.glass[t as usize]);
+    let (glass, solid): (Vec<u32>, Vec<u32>) =
+        (0..surfaces.len() as u32).partition(|&t| lamps.glass[t as usize]);
+    // The triangles of a prop that holds a light, by its group.
+    let group_of_tri = |t: u32| {
+        facts[t as usize]
+            .prop
+            .and_then(|prop| group_of(prop as usize))
+    };
+    let blocking: Vec<u32> = solid.iter().copied().filter(|&t| group_of_tri(t).is_none()).collect();
+    let held: Vec<Vec<u32>> = (0..HOLDER_GROUPS)
+        .map(|group| solid.iter().copied().filter(|&t| group_of_tri(t) == Some(group)).collect())
+        .collect();
     let mut ids = blocking.clone();
+    let mut starts = vec![(0u32, 1u8)];
+    starts.push((ids.len() as u32, 2u8));
     ids.extend(&glass);
-    let parts: Vec<(&[u32], u32, u8)> = [
-        (&blocking[..], 0, 1u8),
-        (&glass[..], blocking.len() as u32, 2u8),
-    ]
-    .into_iter()
-    .filter(|(part, _, _)| !part.is_empty())
-    .collect();
+    for (group, tris) in held.iter().enumerate() {
+        starts.push((ids.len() as u32, (HOLDER_MASK << group) as u8));
+        ids.extend(tris);
+    }
+    let lists: Vec<&[u32]> = std::iter::once(&blocking[..])
+        .chain(std::iter::once(&glass[..]))
+        .chain(held.iter().map(Vec::as_slice))
+        .collect();
+    let parts: Vec<(&[u32], u32, u8)> = (lists.into_iter().zip(starts))
+        .map(|(part, (start, mask))| (part, start, mask))
+        .filter(|(part, _, _)| !part.is_empty())
+        .collect();
     let built: Vec<(
         wgpu::Buffer,
         wgpu::BlasTriangleGeometrySizeDescriptor,
@@ -1001,7 +1055,9 @@ pub(super) fn bake_lights(
             // The share of each room's upward texels that lie under the open
             // sky, and from it how far the room is under a roof.
             let mut floors: HashMap<String, (f32, f32)> = HashMap::new();
-            for i in (0..count).filter(|&i| points[i].inside && counts[i] && points[i].normal.z > 0.5) {
+            for i in (0..count).filter(|&i| {
+                points[i].inside && counts[i] && points[i].normal.z > 0.5 && maps[points[i].map].prop.is_none()
+            }) {
                 let floor = floors.entry(room_name(&maps[points[i].map])).or_default();
                 floor.0 += 1.0;
                 if sky[i].x > OPENING_TO {
@@ -1241,8 +1297,9 @@ pub(super) fn bake_lights(
     let shown_live: Vec<Vec3> = (0..count)
         .map(|i| stored_level(base[i] + unshadowed[i]))
         .collect();
+    // A prop's texels take their room's level and do not count toward it.
     let counted: Vec<usize> = (0..count)
-        .filter(|&i| points[i].inside && counts[i])
+        .filter(|&i| points[i].inside && counts[i] && maps[points[i].map].prop.is_none())
         .collect();
     let mean = |values: &dyn Fn(usize) -> Vec3| {
         counted.iter().map(|&i| luma(values(i))).sum::<f32>() / counted.len().max(1) as f32
@@ -1453,7 +1510,9 @@ pub(super) fn bake_lights(
         let written: Vec<Vec3> = (0..count)
             .map(|i| {
                 let map = points[i].map;
-                if fills.contains_key(&room_name(&maps[map])) {
+                // A prop's lightmap gets no stored light when the game loads
+                // it, so it keeps its share of the room's fill.
+                if fills.contains_key(&room_name(&maps[map])) && maps[map].prop.is_none() {
                     let scale = even[map].map_or(rooms.scale[map], |(_, scale)| scale);
                     eased_level(sun_light[i] + lamps_alone[i] * scale)
                 } else {
@@ -1476,6 +1535,24 @@ pub(super) fn bake_lights(
         sunlit.as_deref(),
         options.stored_backdrop,
     )?;
+    // The props baked, beside both sets' lightmaps, so the game takes a
+    // prop's lightmap only while the prop stands as it was baked
+    // (`project_props::baked_lightmap`).
+    for set in ["a", "b"] {
+        let path = folder.join(set).join(kjk_game::project_props::BAKED_PROPS);
+        let lines: Vec<&str> = (maps.iter())
+            .filter_map(|map| map.prop.as_ref().map(|prop| prop.line.as_str()))
+            .collect();
+        if lines.is_empty() {
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+        let text = format!(
+            "# The props this bake lit: each one's lightmap, place, yaw, scale and model.\n{}\n",
+            lines.join("\n")
+        );
+        std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+    }
     // A set baked earlier into the same folder may hold a `fill.txt` or a
     // `floor.txt` that this bake does not ask for.
     for name in ["fill.txt", "floor.txt"] {
@@ -1823,11 +1900,12 @@ struct RoomLevel {
     scale: f32,
 }
 
-/// The room a lightmap belongs to: its name before `_lm`.
+/// The room a lightmap belongs to: its name before `_lm`. A prop's
+/// lightmap belongs to the room the prop stands in.
 fn room_name(map: &Stored) -> String {
-    match map.name.rfind("_lm") {
-        Some(at) => map.name[..at].to_string(),
-        None => map.name.clone(),
+    match &map.prop {
+        Some(prop) => prop.room.clone(),
+        None => room_of_name(&map.name),
     }
 }
 
