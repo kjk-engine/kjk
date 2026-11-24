@@ -635,39 +635,50 @@ fn requests_keys(
 }
 
 /// The host must hear this player's conversation options again: this game
-/// joined it, or joined it again after a drop (`net_join`). Options are not
-/// part of a save, so the host's world knows them only from what each
-/// player's game sends.
+/// joined it, or joined it again after a drop (`net_join`).
 #[derive(Resource, Default)]
 pub(crate) struct SendTalkOptions(pub bool);
 
 /// Tells the host this player's "Join nearby conversations" option
 /// (`Action::JoinTalks`) and whether a screen is open here
-/// (`Action::Screen`): each as it changes, and both when the host must hear
-/// them again (`SendTalkOptions`, and the first frame of play). While a
-/// screen is open the host counts this player as busy, so it joins no
-/// conversation by standing near it.
+/// (`Action::Screen`), while more than one player plays. Each is sent as it
+/// changes. Both are sent again when the host must hear them again: as
+/// play starts or becomes shared, after every load or level change
+/// (`SceneSwap::generation`), and on `SendTalkOptions`. A load sends them
+/// again because a save keeps no screen open, and its saved option must not
+/// stand in for this player's setting now. While a screen is open the host
+/// counts this player as busy, so it joins no conversation by standing
+/// near it.
 fn talk_options(
-    settings: Option<Res<crate::settings::Settings>>,
-    open: Option<Res<UiOpen>>,
+    (settings, open, presented, swap): (
+        Option<Res<crate::settings::Settings>>,
+        Option<Res<UiOpen>>,
+        Res<PresentedSnapshot>,
+        Option<Res<SceneSwap>>,
+    ),
     mut again: ResMut<SendTalkOptions>,
     outgoing: Option<ResMut<crate::loot::Outgoing>>,
-    mut sent: Local<Option<(bool, bool)>>,
+    mut sent: Local<Option<(bool, bool, u32)>>,
 ) {
     let Some(mut outgoing) = outgoing else {
         return;
     };
+    if !presented.0.current().together() {
+        *sent = None;
+        return;
+    }
     let join = settings.is_none_or(|settings| settings.on(ui::screens::options::JOIN_TALKS));
     let screen = open.is_some_and(|open| open.0);
-    let all = std::mem::take(&mut again.0) || sent.is_none();
-    let (joined, screened) = sent.unwrap_or((join, screen));
+    let generation = swap.map_or(0, |swap| swap.generation);
+    let (joined, screened, seen) = sent.unwrap_or((join, screen, generation));
+    let all = std::mem::take(&mut again.0) || sent.is_none() || seen != generation;
     if all || joined != join {
         outgoing.0.push(Action::JoinTalks(join));
     }
     if all || screened != screen {
         outgoing.0.push(Action::Screen(screen));
     }
-    *sent = Some((join, screen));
+    *sent = Some((join, screen, generation));
 }
 
 /// Whether `talk` is a computer's (its DLG's `ConversationType` 1): the
@@ -716,10 +727,10 @@ fn show(
         let fill = Fill::to(snapshot, talk.pc);
         let (_, offered) = words(&screen, talk, &swap, fill);
         let said = match (talk.chosen, &line) {
-            (Some(_), Some((by, said))) => {
-                let who = name_of(snapshot, &objects, *by);
-                [&who[..], b": ", said].concat()
-            }
+            (Some(_), Some((by, said))) => match name_of(snapshot, &objects, *by) {
+                who if who.is_empty() => said.clone(),
+                who => [&who[..], b": ", said].concat(),
+            },
             (_, line) => line
                 .as_ref()
                 .map_or_else(Vec::new, |(_, said)| said.clone()),

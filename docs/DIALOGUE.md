@@ -856,9 +856,14 @@ kjk play --stage end_m01ab --arrive end_explode04 --skill computer=8 \
     workbench: `Action::Screen`, wire code 73, `Talk::screens`) or turned
     the option "Join nearby conversations" off (`Action::JoinTalks`, wire
     code 72, `Talk::quiet`). Both are kept per seat in the scripts' state,
-    so a recording replays the same. Options are not part of a save, so a
-    player's game sends both again each time it joins the host
-    (`game::dialogue_view::talk_options`).
+    so a recording replays the same. A save keeps the option but no screen
+    open. A computer's screen (a DLG of `ConversationType` 1) brings nobody
+    in, because one player uses a computer at a time. While more than one
+    player plays, each player's game sends both again as play starts or
+    becomes shared, after every load or level change, and each time it
+    joins the host (`game::dialogue_view::talk_options`). So the value a
+    save kept never stands in for a player's setting now. A game played
+    alone sends neither.
   - **The chosen reply** (issue 637): while more than one player is in a
     conversation (a party one holds every seat; a player's own its listener
     and those joined), the reply a player takes is shown before it runs

@@ -4662,7 +4662,7 @@ fn guests_drive_companions() {
 /// 637) await approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 165);
+    probed("coop talk", &sim::coop_talk::probes(), 166);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,

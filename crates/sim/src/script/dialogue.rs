@@ -47,6 +47,13 @@ fn chosen_ms(library: &super::Library, node: &Node) -> u64 {
         .clamp(LEAST_LINE_MS, SHOWN_REPLY_MOST_MS)
 }
 
+/// Whether `dlg` runs on a computer's screen rather than as a conversation.
+/// One player uses a computer, so nobody is brought into it and a reply
+/// taken on it is never shown first.
+fn is_computer(dlg: &fmt_odyssey::dlg::Dlg) -> bool {
+    dlg.kind == fmt_odyssey::dlg::Kind::Computer
+}
+
 /// How long a line with no usable voice stays up for each character of its
 /// text, in tenths of a millisecond.
 const READ_TENTHS_MS_PER_CHAR: u64 = rules::dialogue::lines::READ_TENTHS_MS_PER_CHAR;
@@ -956,11 +963,11 @@ impl Talk {
             out.u32(*seat);
             out.u8(*answer);
         }
-        for seats in [&self.quiet, &self.screens] {
-            out.u8(seats.len() as u8);
-            for seat in seats {
-                out.u8(*seat);
-            }
+        // Not `screens`: a screen open is the player's machine's state as it
+        // is now, which each player's game sends again after a load.
+        out.u8(self.quiet.len() as u8);
+        for seat in &self.quiet {
+            out.u8(*seat);
         }
         out.u8(u8::from(self.hide_replies));
     }
@@ -991,15 +998,14 @@ impl Talk {
         for _ in 0..input.u32()? {
             talk.heard.insert(input.u32()?, input.u8()?);
         }
-        // Older saves: every seat joins, no screen is open, replies shown.
+        // Older saves: every seat joins and replies are shown. No save keeps
+        // a screen open (`screens`).
         if input.since(crate::since::save::FEAT_COOP_SHARED_TALK) {
-            for seats in [&mut talk.quiet, &mut talk.screens] {
-                for _ in 0..input.u8()? {
-                    let at = input.at();
-                    let seat = input.u8()?;
-                    if seat >= crate::MAX_SEATS || !seats.insert(seat) {
-                        return Err(input.invalid("seat", at));
-                    }
+            for _ in 0..input.u8()? {
+                let at = input.at();
+                let seat = input.u8()?;
+                if seat >= crate::MAX_SEATS || !talk.quiet.insert(seat) {
+                    return Err(input.invalid("seat", at));
                 }
             }
             talk.hide_replies = input.u8()? != 0;

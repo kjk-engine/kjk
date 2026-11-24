@@ -6,9 +6,9 @@ sim = "free players near the first seat's own conversation join it; a reply take
 
 [formats]
 snapshot = "a conversation keeps the reply shown before it runs (`Conversation::chosen`)."
-save = "a conversation keeps the reply shown before it runs (`Conversation::chosen`), and the scripts' state keeps the seats that do not join nearby conversations, the seats with a screen open, and whether chosen replies are shown (`Talk::quiet`, `Talk::screens`, `Talk::hide_replies`)."
+save = "a conversation keeps the reply shown before it runs (`Conversation::chosen`), and the scripts' state keeps the seats that do not join nearby conversations and whether chosen replies are shown (`Talk::quiet`, `Talk::hide_replies`). The seats with a screen open are not saved."
 replay = "the recording's start keeps the reply shown before it runs, as `KJKS` and `KJKV` do; a seat may say whether it joins nearby conversations and whether a screen is open (`Action::JoinTalks`, `Action::Screen`, new action codes)."
 
 [migrations]
 snapshot = "an older snapshot reads no reply shown: no conversation in it was showing one"
-save = "an older save reads no reply shown, every seat joining nearby conversations, no screen open, and chosen replies shown"
+save = "an older save reads no reply shown, every seat joining nearby conversations, and chosen replies shown"

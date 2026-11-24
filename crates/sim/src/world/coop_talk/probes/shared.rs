@@ -16,7 +16,8 @@
 //!   taken after (in an unskippable conversation too), a cut running it at
 //!   once;
 //! - a player alone, and a host who turned the option off, seeing a reply
-//!   run at once.
+//!   run at once;
+//! - a computer's screen bringing in nobody, and its reply running at once.
 
 use super::*;
 use crate::script::dialogue::{Chosen, SKIP_AFTER_MS};
@@ -334,6 +335,15 @@ fn shown(run: &mut Run) -> Result<Vec<Case>, String> {
     );
     run.goodbye();
     run.world.set_show_replies(true);
+    // A computer the host uses with the guest near: one player uses a
+    // computer, so the guest is not brought in and the reply runs at once.
+    let buddy = run.body(1)?;
+    run.put(buddy, BUDDY_AT);
+    let screen = run.start(0, TALKER, "probe_screen")?;
+    let screen_joined = run.conversation(screen).map(|c| c.joined.len());
+    run.answers(&[(0, Pick::Reply(AGAIN))]);
+    let screen_ran = (run.chosen(screen).is_none(), run.picked(screen));
+    run.goodbye();
     let read_ms = |text: &str| {
         (text.len() as u64 * rules::dialogue::lines::READ_TENTHS_MS_PER_CHAR / 10).clamp(
             rules::dialogue::lines::LEAST_LINE_MS,
@@ -403,6 +413,13 @@ fn shown(run: &mut Run) -> Result<Vec<Case>, String> {
             check(
                 hidden_ran == (1, true, 1),
                 format!("joined, run at once, replies run {hidden_ran:?}"),
+            ),
+        ),
+        (
+            "shared_computer_not_shared",
+            check(
+                screen_joined == Some(0) && screen_ran == (true, 1),
+                format!("joined {screen_joined:?}; run at once, replies run {screen_ran:?}"),
             ),
         ),
     ])

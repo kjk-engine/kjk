@@ -183,7 +183,11 @@ impl Step<'_> {
                 .changes
                 .push(crate::script::Change::Gather { around, who });
         }
-        if private && self.view.seat_of(listener) == Some(crate::world::LEADER_SEAT.0) {
+        // One player at a time uses a computer, so nobody joins its screen.
+        if private
+            && !is_computer(dlg)
+            && self.view.seat_of(listener) == Some(crate::world::LEADER_SEAT.0)
+        {
             self.bring_near(id);
         }
         self.out.lift_fade(self.view);

@@ -1561,8 +1561,15 @@ int GetSkillRank(int nSkill, object oTarget=OBJECT_SELF);
     // script, which runs before its replies are offered.
     let mut opened = talking(2, "probe_global");
     opened.entries[0].links[usize::from(AGAIN)].active.script = "probe_set".into();
+    // A computer's screen, as K1's and TSL's terminals are
+    // (`ConversationType` 1).
+    let screen = Dlg {
+        kind: fmt_odyssey::dlg::Kind::Computer,
+        ..talking(2, "")
+    };
     let dialogues: BTreeMap<String, Dlg> = [
         ("probe_talk", talk),
+        ("probe_screen", screen),
         ("probe_bark", talking(0, "")),
         ("probe_shop", talking(2, "probe_store")),
         ("probe_deal", talking(2, "probe_deal")),
