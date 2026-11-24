@@ -155,7 +155,7 @@ impl Party {
     /// Whether a slot is the one of its stand-in pair not drawn.
     fn stood_in(&self, tag: &str, vm: &ViewModel) -> bool {
         let crowded = self.crowded.lock().map(|crowded| crowded.clone());
-        stood_in(tag, Party::table(vm), &crowded.unwrap_or_default())
+        stood_in(tag, Party::table(vm), &crowded.unwrap_or(Vec::new()))
     }
 
     fn table(vm: &ViewModel) -> Option<&PartySelectionView> {
