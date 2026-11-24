@@ -1041,13 +1041,6 @@ impl Chargen {
     fn back_out(&mut self, out: &mut Vec<Intent>) {
         match self.step {
             Step::Class => {
-                // The menu reads K1's data again.
-                if self
-                    .campaign
-                    .is_some_and(|campaign| campaign != vfs::Game::Kotor1)
-                {
-                    out.push(Intent::Campaign(vfs::Game::Kotor1));
-                }
                 out.push(Intent::Close);
             }
             Step::QuickOrCustom => self.step = Step::Class,

@@ -26,9 +26,9 @@ impl Step<'_> {
         // body; the game's, or a cutscene's, holds every seat, its listener
         // the PC (R1, R2). One with someone else as its PC (two others
         // talking) is neither.
-        let (pcs, lent) = (self.view.pcs(&self.state.party), self.lent());
+        let (mains, lent) = (self.view.main_characters(&self.state.party), self.lent());
         let private = self.view.seat_of(start.asker).is_some() && !cutscene(dlg);
-        let party = !private && party_pc(&pcs, lent, start.pc);
+        let party = !private && party_pc(&mains, lent, start.pc);
         let listener = if private { start.asker } else { start.pc };
         self.state.talk.user = Some(listener);
         if !start.bark && private && self.join(&start) {
@@ -43,6 +43,12 @@ impl Step<'_> {
             [listener; 2]
         };
         if !start.bark && (busy(start.owner) || listeners.into_iter().any(busy)) {
+            // A trigger's call that a guest's body set off asks again next
+            // step, until both sides are free (`View::guest_call`).
+            if self.view.guest_call(start.cue) {
+                self.state.talk.asked.push(start);
+                return;
+            }
             self.line(Line::Refused {
                 ms: now,
                 dialog: start.dialog,
@@ -74,6 +80,13 @@ impl Step<'_> {
                     && self.holds(link, id, start.owner, start.pc)
             })
             .map(|link| link.index);
+        // The module's fade in held for a conversation goes on whether this
+        // one shows a line, speaks one over the scene or has nothing to say:
+        // the games let go of the hold as a conversation is started, not
+        // only once its first line shows. The Ebon Hawk's vision talk after
+        // the last Star Map holds it for a conversation with no line left
+        // to say (issue 645).
+        self.out.release_held_fade(self.view);
         let Some(entry) = first else {
             // Nothing to say: it ends where it starts, as a normal end the
             // whole area hears [verify: that K1's exe runs the end scripts
@@ -188,7 +201,11 @@ impl Step<'_> {
     pub(super) fn join(&mut self, start: &Start) -> bool {
         let view = self.view;
         let (pc, host) = (
-            party_pc(&view.pcs(&self.state.party), self.lent(), start.asker),
+            party_pc(
+                &view.main_characters(&self.state.party),
+                self.lent(),
+                start.asker,
+            ),
             self.host(),
         );
         let talk = &mut self.state.talk;

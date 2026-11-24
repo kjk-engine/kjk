@@ -1,15 +1,21 @@
 //! The games' movies as kjk plays them (`docs/SOUND.md`, "Movies").
-//! KOTOR's are Bink; nothing here decodes Bink. `ffmpeg` turns each one,
-//! once, into a movie of our own (`ffmpeg::Ffmpeg::transcode`), kept in the
+//! KOTOR's and TSL's are Bink 1, which the `bink` crate decodes as a movie
+//! plays (`player`). A movie of another kind is turned by `ffmpeg`, once,
+//! into a movie of our own (`ffmpeg::Ffmpeg::transcode`), kept in the
 //! store: its pictures as JPEGs, one a frame, and its sound as one MP3 (or
 //! FLAC where `ffmpeg` has no MP3 encoder), which the mixer plays.
+//! `compare` checks the `bink` crate against `ffmpeg`.
 //!
 //! The file: `KJKMOVIE`, the picture's width and height, the frame rate
 //! as a fraction, the frame count, the sound's coding (0 none, 1 MP3, 2
 //! FLAC), offset and length, then each frame's offset and length, then the
 //! bytes. Numbers are little-endian `u32`s, offsets and lengths `u64`s.
 
+pub mod compare;
 pub mod ffmpeg;
+pub mod player;
+
+pub use bink::Bink;
 
 use std::ops::Range;
 

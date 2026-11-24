@@ -7,6 +7,7 @@ pub mod arena_panel;
 pub mod bark;
 pub mod campaign;
 pub mod chargen;
+pub mod companion_places;
 pub mod computer;
 pub mod container;
 pub mod credits;
@@ -135,7 +136,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "load" => Box::new(save_load::SaveLoad::loading()),
         "host" => Box::new(new_or_load::NewOrLoad::host()),
         "loading" => Box::new(loading::Loading),
-        "lobby" => Box::new(lobby::Lobby::default()),
+        "lobby" => Box::new(lobby::Lobby::new(vm)),
         "report" => Box::new(report::Report::default()),
         "message" => Box::new(message::Message::new(
             vm.session.error.as_deref().unwrap_or(""),

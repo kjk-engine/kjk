@@ -180,7 +180,7 @@ see = "sim::combat::damage::assess"
 
 [fragmentation]
 title = "Fragmentation Grenade"
-summary = "This grenade deals piercing damage. A successful save halves the damage."
+summary = "Deals {grenades.fragmentation.points:bare} piercing damage (Reflex save DC {grenades.blast.dc} for half)."
 applies = ["spell:ITEM_ABILITY_GRENADE_FRAGMENTATION", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_FRAGMENTATION"]
 
 [fragmentation.points]
@@ -189,13 +189,13 @@ type = "u16"
 value = 20
 unit = "points"
 range = [0, 1000]
-summary = "A fragmentation grenade deals {grenades.fragmentation.points:bare} points of piercing damage."
+summary = "Deals {grenades.fragmentation.points:bare} piercing damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [stun]
 title = "Concussion Grenade"
-summary = "This grenade deals no damage. A character who fails the save is stunned."
+summary = "Deals no damage. Stuns targets on a failed Reflex save (DC {grenades.blast.dc}) for up to {force.crowd.hold_ms:s}."
 applies = ["spell:ITEM_ABILITY_GRENADE_STUN", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_STUN"]
 
 [stun.hold_ms]
@@ -204,13 +204,13 @@ type = "u64"
 value = 9000
 unit = "ms"
 range = [0, 60000]
-summary = "A concussion grenade stuns for {grenades.stun.hold_ms:s}. A stun never lasts longer than {force.crowd.hold_ms:s}, so the shorter of the two applies."
+summary = "Stuns for {grenades.stun.hold_ms:s} (capped at {force.crowd.hold_ms:s})."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [thermal_detonator]
 title = "Thermal Detonator"
-summary = "This grenade deals energy damage and knocks characters down. A successful save halves the damage and prevents the knockdown."
+summary = "Deals {grenades.thermal_detonator.points:bare} energy damage and knocks targets down (Reflex save DC {grenades.blast.dc} for half damage and no knockdown)."
 applies = ["spell:ITEM_ABILITY_GRENADE_THERMAL_DETONATOR", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_THERMAL_DETONATOR"]
 
 [thermal_detonator.points]
@@ -219,13 +219,13 @@ type = "u16"
 value = 60
 unit = "points"
 range = [0, 1000]
-summary = "A thermal detonator deals {grenades.thermal_detonator.points:bare} points of energy damage."
+summary = "Deals {grenades.thermal_detonator.points:bare} energy damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [poison]
 title = "Poison Grenade"
-summary = "This grenade deals no damage when it explodes. A character who fails the save is poisoned, and this grenade's save is harder than the others. A character with Knight Valor, Master Valor or Improved Energy Resistance is immune to the poison."
+summary = "Poisons targets on a failed Reflex save (DC {grenades.poison.dc}), dealing {grenades.poison.points:bare} damage every {grenades.poison.every_ms:s} for {grenades.poison.for_ms:s}. Blocked by poison immunity (Knight/Master Valor, Improved Energy Resistance)."
 applies = ["spell:ITEM_ABILITY_GRENADE_POISON", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_POISON"]
 
 [poison.dc]
@@ -269,7 +269,7 @@ see = "sim::combat::grenades::effect"
 
 [sonic]
 title = "Sonic Grenade"
-summary = "This grenade deals sonic damage and lowers Dexterity. A successful save halves the damage and prevents the Dexterity loss."
+summary = "Deals {grenades.sonic.points:bare} sonic damage and -{grenades.sonic.dex:bare} Dexterity for {grenades.sonic.for_ms:s} (Reflex save DC {grenades.blast.dc} for half damage and no Dexterity loss)."
 applies = ["spell:ITEM_ABILITY_GRENADE_SONIC", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_SONIC"]
 
 [sonic.points]
@@ -278,7 +278,7 @@ type = "u16"
 value = 20
 unit = "points"
 range = [0, 1000]
-summary = "A sonic grenade deals {grenades.sonic.points:bare} points of sonic damage."
+summary = "Deals {grenades.sonic.points:bare} sonic damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -288,7 +288,7 @@ type = "u8"
 value = 6
 unit = "points"
 range = [0, 30]
-summary = "A character who fails the save suffers -{grenades.sonic.dex:bare} to Dexterity for {grenades.sonic.for_ms:s}."
+summary = "Inflicts -{grenades.sonic.dex:bare} Dexterity for {grenades.sonic.for_ms:s} on a failed save."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -298,13 +298,13 @@ type = "u64"
 value = 30_000
 unit = "ms"
 range = [0, 600000]
-summary = "A character who fails the save suffers -{grenades.sonic.dex:bare} to Dexterity for {grenades.sonic.for_ms:s}."
+summary = "Dexterity loss lasts {grenades.sonic.for_ms:s}."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [adhesive]
 title = "Adhesive Grenade"
-summary = "This grenade deals no damage. Every character caught in the blast is entangled, and there is no save."
+summary = "Deals no damage. Entangles everyone in the blast for up to {force.crowd.hold_ms:s} (no save)."
 applies = ["spell:ITEM_ABILITY_GRENADE_ADHESIVE", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_ADHESIVE"]
 
 [adhesive.hold_ms]
@@ -313,13 +313,13 @@ type = "u64"
 value = 15_000
 unit = "ms"
 range = [0, 60000]
-summary = "An adhesive grenade entangles for {grenades.adhesive.hold_ms:s}. An entanglement never lasts longer than {force.crowd.hold_ms:s}, so the shorter of the two applies."
+summary = "Entangles for {grenades.adhesive.hold_ms:s} (capped at {force.crowd.hold_ms:s})."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [cryoban]
 title = "CryoBan Grenade"
-summary = "This grenade deals cold damage and paralyzes. A successful save halves the damage and prevents the paralysis."
+summary = "Deals {grenades.cryoban.points:bare} cold damage and paralyzes for up to {force.crowd.hold_ms:s} (Reflex save DC {grenades.blast.dc} for half damage and no paralysis)."
 applies = ["spell:ITEM_ABILITY_GRENADE_CRYOBAN", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_CRYOBAN"]
 
 [cryoban.points]
@@ -328,7 +328,7 @@ type = "u16"
 value = 20
 unit = "points"
 range = [0, 1000]
-summary = "A CryoBan grenade deals {grenades.cryoban.points:bare} points of cold damage."
+summary = "Deals {grenades.cryoban.points:bare} cold damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -338,13 +338,13 @@ type = "u64"
 value = 6000
 unit = "ms"
 range = [0, 60000]
-summary = "A CryoBan grenade paralyzes for {grenades.cryoban.hold_ms:s}. A paralysis never lasts longer than {force.crowd.hold_ms:s}, so the shorter of the two applies."
+summary = "Paralyzes for {grenades.cryoban.hold_ms:s} (capped at {force.crowd.hold_ms:s})."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [fire]
 title = "Plasma Grenade"
-summary = "This grenade deals fire damage. A successful save halves the damage."
+summary = "Deals {grenades.fire.points:bare} fire damage (Reflex save DC {grenades.blast.dc} for half)."
 applies = ["spell:ITEM_ABILITY_GRENADE_FIRE", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_FIRE"]
 
 [fire.points]
@@ -353,13 +353,13 @@ type = "u16"
 value = 36
 unit = "points"
 range = [0, 1000]
-summary = "A plasma grenade deals {grenades.fire.points:bare} points of fire damage."
+summary = "Deals {grenades.fire.points:bare} fire damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [ion]
 title = "Ion Grenade"
-summary = "This grenade deals ion damage, and much more of it against droids. A successful save halves the damage."
+summary = "Deals {grenades.ion.points:bare} ion damage ({grenades.ion.droid_points:bare} to droids; Reflex save DC {grenades.blast.dc} for half)."
 applies = ["spell:ITEM_ABILITY_GRENADE_ION", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_ION", "kind:droid"]
 
 [ion.points]

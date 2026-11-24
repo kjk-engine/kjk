@@ -1,7 +1,8 @@
 //! The resolver's precedence on installs written here (journal
 //! 2026-11-05-override-precedence): `override/` over a module's archives, a
 //! `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
-//! a module's `.rim` over its `_s.rim`, TSL's override subfolders,
+//! a module's `.rim` over its `_s.rim`, TSL's override subfolders, a
+//! texture held as both a TPC and a TGA,
 //! co-op's check covering just the override files the resolver reads, and
 //! the Steam Workshop items TSL loads, in its load order.
 
@@ -455,6 +456,119 @@ fn workshop_case(
     }
 }
 
+const TPC: ResType = ResType::TPC;
+const TGA: ResType = ResType::TGA;
+
+/// Which copy of each texture in `names` the games load from `index`'s
+/// install: its layer, its type and its bytes.
+fn textures_in(index: &DirIndex, game: Game, names: &[&str]) -> Vec<String> {
+    let resolver = match Resolver::open(game, index, Some("m01"), TextureQuality::High) {
+        Ok(resolver) => resolver,
+        Err(error) => return vec![error.to_string()],
+    };
+    names
+        .iter()
+        .map(|name| match resolver.find_any(name, &[TPC, TGA]) {
+            Some((restype, found)) => format!(
+                "{name}={}:{}:{}",
+                found.layer.name,
+                restype.extension().unwrap_or("?"),
+                found.location.read().map_or_else(
+                    |error| format!("unreadable ({error})"),
+                    |bytes| String::from_utf8_lossy(&bytes).into_owned()
+                )
+            ),
+            None => format!("{name}=-"),
+        })
+        .collect()
+}
+
+/// A texture held as both a TPC and a TGA loads as both games' executables
+/// choose. The copy of each type comes from its best source, and the type
+/// whose source is of the better kind wins: a folder, then a RIM, then an
+/// ERF, then a BIF. Between two sources of one kind the TPC wins. So a TPC
+/// and a TGA both in `override/` load the TPC (Vurt's Visual Resurgence
+/// with High Quality Blasters), and a TGA in `override/` loads over a
+/// texture pack's TPC. A module's `.mod` and `patch.erf` are ERFs like the
+/// texture pack, so their TGA loses to the pack's TPC. A RIM's TGA beats
+/// it. In TSL, a TGA in a Workshop item's `override/` loses to a TPC in the
+/// game's own `override/`, because both are folders.
+fn texture_formats() -> Result<String, String> {
+    let pack = archive(
+        b"ERF V1.0",
+        &[
+            ("both", TPC, b"pack"),
+            ("loose", TPC, b"pack"),
+            ("in_mod", TPC, b"pack"),
+            ("in_patch", TPC, b"pack"),
+            ("in_rim", TPC, b"pack"),
+        ],
+    );
+    let files = [
+        ("texturepacks/swpc_tex_tpa.erf", pack),
+        ("override/both.tpc", b"override".to_vec()),
+        ("override/both.tga", b"override".to_vec()),
+        ("override/loose.tga", b"override".to_vec()),
+        (
+            "modules/m01.mod",
+            archive(b"MOD V1.0", &[("in_mod", TGA, b"mod")]),
+        ),
+        (
+            "patch.erf",
+            archive(b"ERF V1.0", &[("in_patch", TGA, b"patch")]),
+        ),
+        (
+            "rims/global.rim",
+            archive(b"RIM V1.0", &[("in_rim", TGA, b"rim")]),
+        ),
+    ];
+    let root = install("texture-formats", &files)?;
+    let k1 = DirIndex::build(&root)
+        .map(|index| {
+            textures_in(
+                &index,
+                Game::Kotor1,
+                &["both", "loose", "in_mod", "in_patch", "in_rim"],
+            )
+        })
+        .map_err(|error| error.to_string());
+    let _ = std::fs::remove_dir_all(&root);
+    let k1 = k1?;
+    let picks = [
+        "both=override:tpc:override",
+        "loose=override:tga:override",
+        "in_mod=texturepacks/swpc_tex_tpa.erf:tpc:pack",
+        "in_patch=texturepacks/swpc_tex_tpa.erf:tpc:pack",
+        "in_rim=rims/global.rim:tga:rim",
+    ];
+    if k1 != picks {
+        return Err(format!("got {k1:?}, the games pick {picks:?}"));
+    }
+    let files = [
+        ("modules/m01.rim", archive(b"RIM V1.0", &[])),
+        ("override/game_tpc.tpc", b"game".to_vec()),
+        ("override/item_tpc.tga", b"game".to_vec()),
+    ];
+    let items = [(
+        7,
+        vec![
+            ("override/game_tpc.tga", b"item".to_vec()),
+            ("override/item_tpc.tpc", b"item".to_vec()),
+        ],
+    )];
+    let (written, index) = workshop_install("texture-formats-ws", &files, &items)?;
+    let tsl = textures_in(&index, Game::Kotor2, &["game_tpc", "item_tpc"]);
+    remove(&written);
+    let picks = [
+        "game_tpc=override:tpc:game",
+        "item_tpc=workshop/7/override:tpc:item",
+    ];
+    if tsl != picks {
+        return Err(format!("got {tsl:?}, TSL picks {picks:?}"));
+    }
+    Ok(format!("k1: {}; tsl: {}", k1.join(", "), tsl.join(", ")))
+}
+
 /// The Workshop items' `override/` beat the game's, the last item's
 /// winning; an item's subfolders are not read; its `.mod` beats the game's
 /// module, and of two items' `.mod`s the last one's, every copy read.
@@ -606,13 +720,16 @@ fn workshop_module_rims() -> Result<String, String> {
 /// `dialog.tlk`, movies and each stream folder's files are the last
 /// item's that has them, the game folder's when none has; an item's `.mp3`
 /// is the sound of its name as a `.wav` is, to the stream folder and to a
-/// sound asked for by name (`Resolver::sound`, the music's lookup).
+/// sound asked for by name (`Resolver::sound`). A sound asked for by name
+/// is the archives' first, the override's here, and a music track is
+/// `streammusic`'s first (`Resolver::music`).
 fn workshop_talk_and_streams() -> Result<String, String> {
     let files = [
         ("dialog.tlk", b"game".to_vec()),
         ("streammusic/a.wav", b"game".to_vec()),
         ("streammusic/c.wav", b"game".to_vec()),
         ("streammusic/d.wav", b"game".to_vec()),
+        ("override/d.wav", b"override".to_vec()),
         ("movies/m.bik", b"game".to_vec()),
     ];
     let items = [
@@ -662,6 +779,9 @@ fn workshop_talk_and_streams() -> Result<String, String> {
             got.push(format!("{folder}/{name}={found}"));
         }
         got.push(format!("sound c={}", text(base.sound("c"))));
+        got.push(format!("sound d={}", text(base.sound("d"))));
+        got.push(format!("music c={}", text(base.music("c"))));
+        got.push(format!("music d={}", text(base.music("d"))));
         Ok(got)
     });
     remove(&written);
@@ -674,6 +794,9 @@ fn workshop_talk_and_streams() -> Result<String, String> {
         "streammusic/d=game",
         "movies/m=w2",
         "sound c=w2",
+        "sound d=override",
+        "music c=w2",
+        "music d=game",
     ];
     if got == expected {
         Ok(got.join(", "))
@@ -1121,6 +1244,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("mod_stands_for_rims", mod_stands_for_rims()),
         ("ranks_between_archives", ranks_between_archives()),
         ("override_subfolders", override_subfolders()),
+        ("texture_formats", texture_formats()),
         ("override_fingerprint", override_fingerprint()),
         (
             "world_fingerprint_reads_world",

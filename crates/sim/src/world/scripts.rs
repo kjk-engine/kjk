@@ -337,6 +337,15 @@ fn struck_with(state: &mut State, by: u32) {
     };
 }
 
+/// Whether a script's attack waits in `who`'s action queue (`ActionAttack`).
+fn attacking(state: &State, who: ObjectId) -> bool {
+    use script::actions::Action;
+    state.actions.get(&who.0).is_some_and(|queue| {
+        (queue.iter())
+            .any(|queued| matches!(queued.action, Action::Attack { .. } | Action::Bash { .. }))
+    })
+}
+
 /// Whether the moment `phase` (ms) of every `period` falls in this step,
 /// the one ending at `now_ms`, `msec` long.
 pub(super) fn moment(now_ms: u64, msec: u32, period: u64, phase: u64) -> bool {
@@ -353,20 +362,22 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
     let worth = || {
         let thing = view.thing(dead)?;
         let character = thing.character?;
-        let player = view.thing(view.first_pc(&state.party))?.character?;
+        let main = view
+            .thing(view.first_main_character(&state.party))?
+            .character?;
         if character.party
             || !view
                 .module
                 .repute
                 .with(&state.reputation)
-                .hostile(character.faction, player.faction)
+                .hostile(character.faction, main.faction)
         {
             return None;
         }
         let facts = view.facts(dead)?;
         let experience = library.experience();
         let xp = state.xp(crate::inventory::PARTY);
-        let potential = library.classes().potential_level(player.level, xp);
+        let potential = library.classes().potential_level(main.level, xp);
         if crate::combat::passive::Game::named(&view.module.game)
             != crate::combat::passive::Game::Tsl
         {
@@ -379,7 +390,7 @@ fn kill_xp(view: &View, library: &script::Library, state: &script::State, dead: 
         let autobalanced = (facts.multiplier_set != 0).then(|| {
             let pc_level = script::global(&state.numbers, script::xp::PC_LEVEL)
                 .and_then(|level| u8::try_from(*level).ok())
-                .unwrap_or(player.level);
+                .unwrap_or(main.level);
             (facts.multiplier_set, pc_level)
         });
         let members = state.party.members.len() + 1;
@@ -791,21 +802,36 @@ pub(super) fn scripts(
     let leading_before = super::lent(&scripts.state.party)
         .map(|body| body.0)
         .or(leader_own);
+    let fighters: BTreeMap<u32, &crate::combat::Fighter> = things
+        .iter()
+        .filter_map(|(id, .., fighting, _, _, _)| Some((id.0.0, &fighting?.0)))
+        .collect();
+    // A companion another seat plays is that seat's, so the first seat
+    // cannot lead through it.
+    let guests = |body: Option<u32>| {
+        body.and_then(|body| fighters.get(&body))
+            .and_then(|fighter| fighter.mind.driver)
+            .is_some_and(|seat| seat != super::LEADER_SEAT)
+    };
     for (seat, action) in inputs.0.actions() {
         let table = &mut scripts.state.party;
         let leads = *seat == super::LEADER_SEAT;
         match *action {
             Action::SetLeader(u8::MAX) if leads => table.leader = None,
-            Action::SetLeader(npc) if leads && table.has(npc) => table.leader = Some(npc),
-            Action::Lead(body) if leads => table.lead(body.0, leader_own),
+            Action::SetLeader(npc)
+                if leads
+                    && table.has(npc)
+                    && !guests(table.available.get(&npc).and_then(|slot| slot.object)) =>
+            {
+                table.leader = Some(npc);
+            }
+            Action::Lead(body) if leads && !guests(Some(body.0)) => {
+                table.lead(body.0, leader_own);
+            }
             Action::Solo(on) if leads => table.solo = on,
             _ => {}
         }
     }
-    let fighters: BTreeMap<u32, &crate::combat::Fighter> = things
-        .iter()
-        .filter_map(|(id, .., fighting, _, _, _)| Some((id.0.0, &fighting?.0)))
-        .collect();
     if let Some(next) = passes_on(&scripts.state.party, leader_own, &fighters) {
         scripts.state.party.lead(next, leader_own);
     }
@@ -907,10 +933,11 @@ pub(super) fn scripts(
         .filter(|thing| thing.character.is_some_and(|character| character.party))
         .map(|thing| thing.id.0)
         .collect();
-    // The seats' own characters, by seat, for the scripts' PCs
-    // (`View::pcs`: the first seat's the creature it is switched to while
-    // it is). A companion a guest drives is still the companion to them
-    // (I30 P2), never a second PC.
+    // The seats' own characters, by seat, for the main characters
+    // (`View::main_characters`). While the first seat is switched to a
+    // creature, that creature is the first seat's main character. A
+    // companion a guest drives is still the companion to the scripts
+    // (I30 P2), never a second main character.
     own.sort();
     let party: Vec<ObjectId> = own.into_iter().map(|(_, id)| id).collect();
     // Few steps' scripts ask about the doors, and no door changes during
@@ -1325,6 +1352,18 @@ pub(super) fn scripts(
         }
         if view.thing(object).and_then(|thing| thing.kind) == Some(ObjectKind::Door) {
             doors.push((object, player));
+        } else if attacking(state, player) {
+            // A use while a script has the user attacking waits behind the
+            // attack, as KOTOR queues a click behind the character's
+            // actions. The script that hears the blow can then clear it.
+            // Peragus's turbolift console is destroyed by an attack on a
+            // hidden object beside it (`a_bash_console`). The blow's script
+            // (`k_destroytu`) clears the player's actions and starts the
+            // conversation that unlocks the door. The console's menu,
+            // opened at once by a use during the attack, held the world
+            // then, so that conversation was refused and the door stayed
+            // locked for good.
+            state.queue(player, script::actions::Action::UseObject { object });
         } else {
             talk_to(&view, state, object, player);
         }
@@ -1425,7 +1464,14 @@ pub(super) fn scripts(
         // (Davik, held at 1 HP by his script, waits for the event that sees
         // him there; the blow taking him from 2 to 1 came inside the wait,
         // and none after can take more).
-        let owed = hp < was.hp && was.alive;
+        // A death effect (`EffectDeath`) raises no damaged event: TSL's
+        // death effect signals only the death [verify in K1's exe].
+        // Malachor's Sion, killed so by his last talk's `a_sion`, would
+        // otherwise run his damaged event at 1 HP or less (`k_sion_ud`)
+        // and start the talk again from his body.
+        let death_effect =
+            i64::from(was.hp) - i64::from(hp) >= i64::from(crate::combat::damage::DEATH_BLOW);
+        let owed = hp < was.hp && was.alive && !death_effect;
         let due = damaged_at.is_none_or(|at| now >= at + DAMAGED_EVERY_MS);
         if owed && due {
             damaged_at = Some(now);
@@ -1904,11 +1950,21 @@ fn door_speaks(view: &View, state: &mut State, changes: &[Change], doors: &[(Obj
 /// run all the same, for a script's attack lasts to the end of its round
 /// (`Action::Attack`): a conversation's owner told to spar while its line
 /// pauses (Garrum on Tar'eelok, a mod's `dan13_cort`) ends its attack, and
-/// the resume queued behind it comes.
+/// the resume queued behind it comes. A round a scene's blow began
+/// (`CutsceneAttack`, `script::last::SCENE_ROUND`) ends with no event
+/// either, as TSL's executable ends a cutscene round with no end-of-round
+/// script and no attack of its own queued [verify in K1's exe]: the
+/// Handmaiden, sparring in TSLRCM's `atthand` with blows the scene
+/// scripts, would otherwise turn her own AI on Atton as he stands by, and
+/// Kreia, hearing him shout, would come and kill her.
 fn rounds(view: &View, state: &mut State, life: &Life) {
     let id = life.id;
     if !(life.creature && life.alive && life.in_combat) {
-        state.rounds.remove(&id.0);
+        // A scene's blow is given before its giver is in combat (the blow
+        // lands half a round on): its mark goes only with a fight that was.
+        if state.rounds.remove(&id.0).is_some() {
+            state.last.remove(&(id.0, crate::script::last::SCENE_ROUND));
+        }
         return;
     }
     let now = view.now_ms;
@@ -1916,9 +1972,10 @@ fn rounds(view: &View, state: &mut State, life: &Life) {
     if now >= *next {
         *next = now + ROUND_MS;
         let talking = state.talk.with(id, view.host(&state.party)).is_some();
+        let scene = (state.last).contains_key(&(id.0, crate::script::last::SCENE_ROUND));
         // A character in a grapple finisher decides nothing until it is let
         // go: its AI would change its weapon or use a talent in the hold.
-        if !talking && !life.grappled {
+        if !talking && !scene && !life.grappled {
             raise(view, state, id, Hook::EndRound, None);
         }
     }
@@ -2063,6 +2120,15 @@ impl SimWorld {
         &self.world.resource::<Scripts>().state
     }
 
+    pub fn hints(&self) -> crate::script::Hints {
+        self.script_state().hints
+    }
+
+    /// The loading screens' hints, as they stand after one was shown.
+    pub fn set_hints(&mut self, hints: crate::script::Hints) {
+        self.world.resource_mut::<Scripts>().state.hints = hints;
+    }
+
     /// The scripts' state from a save.
     pub fn set_script_state(&mut self, state: State) {
         let mut scripts = self.world.resource_mut::<Scripts>();
@@ -2184,14 +2250,14 @@ impl SimWorld {
         // that died in place keeps its dying clip, so it still lies as the
         // clip left it when the party comes back. Without the clip the views
         // drop it as a ragdoll again (the krayt dragon's body fell through
-        // the dunes).
+        // the dunes). A loop played until stopped loops on as well
+        // (`Acting::outlives_a_clear`).
         for mut fighting in self
             .world
             .query::<&mut Fighting>()
             .iter_mut(&mut self.world)
         {
-            let dying = |acting: Acting| acting.animation == crate::combat::death::DIE;
-            if !fighting.0.acting.is_some_and(dying) {
+            if !fighting.0.acting.is_some_and(Acting::outlives_a_clear) {
                 fighting.0.acting = None;
             }
             // The new area makes its bodies afresh: a script's lit saber
@@ -2258,9 +2324,9 @@ impl SimWorld {
             // CSWSArea::AddObjectToArea signals script event 12 for a
             // creature, a player's or not; the module's OnClientEnter is a
             // client's alone). So a script asking whether the one entering
-            // is GetFirstPC finds the leader among them while a companion
-            // leads (232TEL's k_232_enter gives the Exile back after
-            // Bao-Dur led the party in). The order [verify in the exe].
+            // is GetFirstPC finds the main character among them, even while
+            // a companion leads (232TEL's k_232_enter gives the Exile back
+            // after Bao-Dur led the party in). The order [verify in the exe].
             let bodies: BTreeSet<u32> = self
                 .world
                 .query::<&Id>()

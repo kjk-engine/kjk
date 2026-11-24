@@ -27,6 +27,8 @@ const FORMAT: &str = "MDL";
 const DATA: usize = 12;
 const NODE_HEADER: usize = 80;
 const AABB_NODE: usize = 40;
+/// An AABB node's child pointer when it has no child.
+const NO_CHILD: usize = u32::MAX as usize;
 /// How many times over the file's bytes its node and AABB headers may be
 /// read. A tree reads each header once; a file whose nodes list a shared
 /// child would otherwise read it once per path, which doubles per level.
@@ -826,7 +828,10 @@ impl Cursor<'_> {
         let right = self.u32(at + 28)? as usize;
         let face = self.u32(at + 32)? as i32;
         let plane = self.u32(at + 36)?;
-        let children = if face == -1 {
+        // A child pointer of -1 means there is no child. Some modded room
+        // models (Echoes of the Republic's 772qgm_01a) have an empty tree:
+        // a root that is an inner node with both pointers -1.
+        let children = if face == -1 && left != NO_CHILD && right != NO_CHILD {
             Some(Box::new((
                 self.aabb(left, depth + 1)?,
                 self.aabb(right, depth + 1)?,

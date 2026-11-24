@@ -628,13 +628,15 @@ const FRAME_TICKS: u64 = 25;
 
 /// A module installed for one player and stepped on the authority, its
 /// scripts running: the world at the end, its level, how long stepping
-/// took (ms), and the frames asked for (`Coverage::frames`, written).
+/// took (ms), the frames asked for (`Coverage::frames`, written), and how
+/// many times each script sound was heard (`Notice::Sound`, by resref).
 pub(crate) struct Stepped {
     pub world: sim::SimWorld,
     pub level: sim::Level,
     pub library_size: Option<usize>,
     pub script_ms: f64,
     pub ms: f64,
+    pub sounds: BTreeMap<String, usize>,
 }
 
 /// Steps `module` as `options` say (see `coverage`).
@@ -700,6 +702,7 @@ pub(crate) fn step_module_watched(
         _ => None,
     };
     let mut shots = Vec::new();
+    let mut sounds = BTreeMap::new();
     let started = std::time::Instant::now();
     for tick in 1..=ticks {
         let mut input = sim::TickInput::default();
@@ -717,6 +720,11 @@ pub(crate) fn step_module_watched(
             sim::StepReason::Authority,
         );
         watch(&last, &world);
+        for (_, notice) in world.take_notices() {
+            if let sim::notice::Notice::Sound(sound) = notice {
+                *sounds.entry(sound.resref()).or_insert(0) += 1;
+            }
+        }
         if frames.is_some() && tick % FRAME_TICKS == 0 {
             shots.push(perception_frame(&last, &world));
         }
@@ -741,6 +749,7 @@ pub(crate) fn step_module_watched(
         library_size: facts.library,
         script_ms: facts.script_ms,
         ms,
+        sounds,
     })
 }
 
@@ -760,6 +769,7 @@ pub fn coverage(discovery: &Discovery, game: &str, module: &str, options: &Cover
             library_size,
             script_ms,
             ms,
+            sounds,
         } = step_module(&installer, module, options)?;
         let library = level.scripts().cloned().ok_or("no library")?;
         outln!(
@@ -813,6 +823,7 @@ pub fn coverage(discovery: &Discovery, game: &str, module: &str, options: &Cover
             .map(|(kind, count)| (kind.to_string(), *count))
             .collect();
         list("actions completed", &actions);
+        list("sounds heard", &sounds);
         outln!("  faults: {}", report.faults.len());
         for fault in &report.faults {
             outln!("    {fault}");

@@ -15,13 +15,16 @@ use crate::snapshot::{EntityState, Kind, SimId, Snapshot};
 use crate::{Guests, Level, StepReason, WorldConfig};
 use std::sync::Arc;
 
+mod takes;
+pub use takes::droid_take;
+
 /// The companions' templates, in the party's joining order.
 const COMPANIONS: [&str; 2] = ["probe_comp_a", "probe_comp_b"];
 
-/// The party check's script (`pcs_script`).
-const PCS: &str = "probe_pcs";
+/// The party check's script (`party_script`).
+const PARTY: &str = "probe_party";
 /// The first companion's end-of-round hook, and a story's script: each
-/// moves the first companion to the second (`pcs_script`).
+/// moves the first companion to the second (`party_script`).
 const AI: &str = "probe_ai";
 const STORY: &str = "probe_story";
 /// The first companion's heartbeat (an AI hook) and a story's script: each
@@ -75,6 +78,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         leader_blows_on_a_tank_count(),
     ));
     checks.push(("leader_by_body_seat_0s_only", leader_by_body()));
+    checks.push(("leader_while_paused", leader_while_paused()));
     checks.push(("leader_keeps_the_view", leader_view()));
     checks.push(("leader_uses_from_its_body", leader_uses()));
     checks.push(("leader_walks_out", leader_walks_out()));
@@ -85,6 +89,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("guest_comings_are_a_pcs", guest_comings()));
     checks.push(("guest_companion_pushes_in_scenes", guest_pushes()));
     checks.extend(kept_for_seats());
+    checks.extend(takes::takes());
     match scenario() {
         Ok(ran) => {
             checks.extend(assigned(&ran));
@@ -122,7 +127,7 @@ fn companion(template: &str, at: [f32; 3]) -> ObjectData {
     ObjectData::creature(template, template, at, Sheet::dev_soldier())
 }
 
-/// The probes' scripts (the party check, `PCS`) and the companions'
+/// The probes' scripts (the party check, `PARTY`) and the companions'
 /// templates (what an install makes them again from).
 fn library() -> crate::script::Library {
     let creatures = COMPANIONS
@@ -134,15 +139,15 @@ fn library() -> crate::script::Library {
             )
         })
         .collect();
-    pcs_script().with_creatures(creatures)
+    party_script().with_creatures(creatures)
 }
 
-/// The party check, run by the module (`PCS`): three message boxes for
-/// every player, numbered `GetIsPC(GetPartyMemberByIndex(1))`,
+/// The party check, run by the module (`PARTY`): three message boxes for
+/// every seat, numbered `GetIsPC(GetPartyMemberByIndex(1))`,
 /// `GetPartyMemberCount()` and `GetIsObjectValid(GetNextPC())` after
-/// `GetFirstPC()`: 0, 3 and 0 when the scripts see one player and two
-/// companions.
-fn pcs_script() -> crate::script::Library {
+/// `GetFirstPC()`: 0, 3 and 0 when the scripts see one main character
+/// and two companions.
+fn party_script() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     const CATALOG: &str = r#"
 // 0
@@ -297,7 +302,7 @@ int RemovePartyMember(int nNPC);
     crate::probe::library(
         CATALOG,
         [
-            (PCS, asm.build()),
+            (PARTY, asm.build()),
             (ENTERED_SCRIPT, entered.build()),
             (CAME_SCRIPT, comings(13, CAME)),
             (WENT_SCRIPT, comings(14, WENT)),
@@ -1079,12 +1084,13 @@ fn led_own_walked() -> Result<String, String> {
     )
 }
 
-/// The area's OnEnter runs for the player and for each companion the
-/// party brings in: arriving in a module whose area counts its entries,
-/// the player and the two companions make three, as the executables raise
-/// the area's entered event for every creature added to it (TSL's
-/// `k_232_enter` gives the Exile back when the one entering is the leader
-/// `GetFirstPC` names, Bao-Dur after the landing pad).
+/// The area's OnEnter runs for the main character and for each companion
+/// the party brings in. Arriving in a module whose area counts its entries,
+/// the main character and the two companions make three. The executables
+/// raise the area's entered event for every creature added to it. TSL's
+/// `k_232_enter` gives the Exile back when the creature entering is the
+/// main character that `GetFirstPC` names, whoever leads. This happens
+/// after the landing pad, where Bao-Dur leads.
 fn entered_by_the_party() -> Result<String, String> {
     let (mut world, ..) = party_world(Guests::Companions, 1)?;
     let ground = exit_ground()?;
@@ -1436,6 +1442,51 @@ fn leader_by_body() -> Result<String, String> {
     )
 }
 
+/// The leader changed while the game is paused, as KOTOR allows: with a
+/// guest's break holding, seat 0 makes the second companion lead, and the
+/// break still holds after it. A guest's pick changes nothing then either,
+/// and the steps without a pick move no time.
+fn leader_while_paused() -> Result<String, String> {
+    let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
+    let mut step = |actions: &[(u8, crate::action::Action)]| {
+        let mut input = TickInput::default();
+        for seat in 0..2 {
+            input.insert(Seat(seat), command(0));
+        }
+        for (seat, action) in actions {
+            input.act(Seat(*seat), action.clone());
+        }
+        let tick = world.tick() + 1;
+        crate::step(&mut world, tick, &input, 8, StepReason::Authority)
+    };
+    use crate::action::Action::{Break, Lead};
+    let paused = step(&[(1, Break)]);
+    let guest = step(&[(1, Lead(a))]);
+    let picked = step(&[(0, Lead(b))]);
+    let held = step(&[]);
+    let after = step(&[]);
+    check(
+        paused.paused_by == Some(Seat(1))
+            && guest.leading.is_none()
+            && guest.time_ms == paused.time_ms
+            && picked.leading == Some(b)
+            && picked.paused_by == Some(Seat(1))
+            && held.paused_by == Some(Seat(1))
+            && after.time_ms == held.time_ms,
+        format!(
+            "paused by {:?}; a guest's pick: leading {:?}; seat 0's pick of {b:?}: leading {:?}, paused by {:?}; time {} → {} → {} → {}",
+            paused.paused_by,
+            guest.leading,
+            picked.leading,
+            picked.paused_by,
+            paused.time_ms,
+            picked.time_ms,
+            held.time_ms,
+            after.time_ms
+        ),
+    )
+}
+
 /// The first companion down: a guest joining takes the second, standing;
 /// with the second down too, the first.
 fn standing_first() -> Result<String, String> {
@@ -1676,7 +1727,7 @@ fn drive(snapshot: &mut Snapshot, id: SimId, seat: Seat) {
 struct Ran {
     /// The snapshot after each tick, the first after tick 1.
     snapshots: Vec<Snapshot>,
-    /// The message boxes the party check (`PCS`) showed seat 0.
+    /// The message boxes the party check (`PARTY`) showed seat 0.
     boxes: Vec<i32>,
     /// Whether seat 2's companion still carried `Avatar` after tick 52.
     kept_avatar: bool,
@@ -1759,7 +1810,7 @@ fn right_of_entry(level: &Level) -> [f32; 3] {
 /// cases name the ticks):
 /// - tick 1: seat 0 alone;
 /// - ticks 2–31: seats 1 and 2 too, seat 1 running; the party check
-///   (`PCS`) runs at tick 30;
+///   (`PARTY`) runs at tick 30;
 /// - ticks 32–51: the same, with a scripted move on seat 1's companion (no
 ///   route on the ground: its mind stands it still, and it slows to a stop
 ///   while seat 1 runs);
@@ -1775,7 +1826,7 @@ fn scenario() -> Result<Ran, String> {
     let mut boxes = Vec::new();
     for tick in 2..=51 {
         if tick == 30 {
-            let check = Pending::new(PCS, MODULE);
+            let check = Pending::new(PARTY, MODULE);
             scripts_of(&mut world).state.pending.push(check);
         }
         if tick >= 32 {

@@ -138,6 +138,16 @@ fn sound_device_layouts() {
     probed("sound device", &audio::probes::device_layouts(), 45);
 }
 
+/// `bink::probes`: the movie decoder's parts, without a movie. The Huffman
+/// trees are whole, bits are read least significant first, both inverse
+/// DCTs give what their definitions give, a header's audio track reads, and
+/// headers other than Bink 1 revision "i" with DCT audio are refused.
+/// Approved 2026-11-23.
+#[test]
+fn bink_decoder_parts() {
+    probed("bink decoder", &bink::probes::probes(), 11);
+}
+
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
     assert!(
         (measured - expected).abs() <= tolerance,
@@ -536,7 +546,7 @@ fn coop_look() {
     #[cfg(not(feature = "rig"))]
     println!("coop_look skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("look", &kjk_game::sim_host::look_probes(), 2);
+    probed("look", &kjk_game::sim_host::look_probes(), 3);
 }
 
 /// The world held after an install until its area can be drawn
@@ -557,6 +567,20 @@ fn loading_hold() {
         &kjk_game::sim_host::loading_hold_probes(),
         2,
     );
+}
+
+/// A save loaded in place while a menu or the lost box holds the world
+/// (`kjk_game::solo_reload_probes`, also `kjk sim probes --only "solo
+/// reload"`). The install's message reaches the host's own client after
+/// the host committed it. The client still gets the level, loads, and the
+/// world goes on. Needs `--features rig`; no installs (proposed
+/// 2026-11-22, issue 643, not yet approved).
+#[test]
+fn reload_while_held() {
+    #[cfg(not(feature = "rig"))]
+    println!("reload_while_held skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("solo reload", &kjk_game::solo_reload_probes(), 1);
 }
 
 /// The headgear a conversation hides (`kjk_game::headgear::probes`): a DLG
@@ -715,18 +739,20 @@ fn undrawn_creature_named() {
 
 /// The rooms a fight's light reaches (`kjk::probes::fight_rooms`), on rooms
 /// made in the test. A VIS link one way counts both ways, and a room that
-/// is only seen is linked with every room. A light's mask keeps it out of
+/// is only seen is linked with every room. In an area with no VIS file
+/// every room is linked with every room. A light's mask keeps it out of
 /// the rooms not linked with its own, and rooms past the 128th are always
 /// reached. Over stacked floors a light is in the room whose floor is under
 /// it. Over a pit it is in the smallest room whose bounds hold it, not in a
 /// room far below. Outside every room it is in none. Needs `--features
-/// rig`; no installs. (proposed 2026-11-11)
+/// rig`; no installs. (proposed 2026-11-11; the check without a VIS file
+/// approved 2026-11-24)
 #[test]
 fn fight_light_rooms() {
     #[cfg(not(feature = "rig"))]
     println!("fight_light_rooms skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("fight light rooms", &kjk::probes::fight_rooms(), 6);
+    probed("fight light rooms", &kjk::probes::fight_rooms(), 7);
 }
 
 /// The rooms the camera is in for the room culling
@@ -735,13 +761,14 @@ fn fight_light_rooms() {
 /// is in every room with a floor whose bounds hold it, so a camera in the
 /// wall between two rooms shows what both rooms see. A sky's bounds do not
 /// count. Outside every room it is in none, and every room shows. Needs
-/// `--features rig`; no installs. (proposed 2026-11-15, #464)
+/// `--features rig`; no installs. (proposed 2026-11-15, #464; a fifth check
+/// proposed 2026-11-23, #638)
 #[test]
 fn camera_rooms() {
     #[cfg(not(feature = "rig"))]
     println!("camera_rooms skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("camera rooms", &kjk::probes::camera_rooms(), 4);
+    probed("camera rooms", &kjk::probes::camera_rooms(), 5);
 }
 
 /// What the capsule shadows send the shader (`kjk::probes::capsule_shadows`),
@@ -2312,6 +2339,53 @@ fn trigger_leads_out_whatever_its_link_flags() {
     );
 }
 
+/// A model's collision tree (AABB) whose root is an inner node with both
+/// child pointers -1 reads as an empty tree, and the model reads. Echoes of
+/// the Republic's room models 772qgm_01a, 748kora and 750kora have such a
+/// tree. kjk followed the pointers past the file's end and refused each
+/// model, and with it the whole area. The model is made in the test: one
+/// mesh node with the empty tree. No installs. (approved 2026-11-24)
+#[test]
+fn mod_empty_aabb_tree() {
+    use fmt_odyssey::mdl::{FLAG_AABB, FLAG_HEADER, FLAG_MESH, Model};
+
+    // Offsets in the model data, which starts after the 12-byte file header.
+    const ROOT: usize = 256;
+    const MESH: usize = ROOT + 80;
+    // A KOTOR 2 mesh header is 340 bytes before its AABB tree's offset.
+    const TREE_POINTER: usize = MESH + 340;
+    const TREE: usize = 800;
+    let mut data = vec![0u8; 1024];
+    let mut put = |at: usize, bytes: &[u8]| data[at..at + bytes.len()].copy_from_slice(bytes);
+    // The geometry header's first word as KOTOR 2's writer leaves it.
+    put(0, &4_285_200u32.to_le_bytes());
+    put(8, b"empty");
+    put(40, &(ROOT as u32).to_le_bytes());
+    // The name table: one offset, to "root".
+    put(184, &200u32.to_le_bytes());
+    put(188, &1u32.to_le_bytes());
+    put(200, &210u32.to_le_bytes());
+    put(210, b"root\0");
+    put(ROOT, &(FLAG_HEADER | FLAG_MESH | FLAG_AABB).to_le_bytes());
+    put(TREE_POINTER, &(TREE as u32).to_le_bytes());
+    // The tree's root: no bounds, both children -1, face -1 (an inner node).
+    put(TREE + 24, &u32::MAX.to_le_bytes());
+    put(TREE + 28, &u32::MAX.to_le_bytes());
+    put(TREE + 32, &(-1i32).to_le_bytes());
+    let mut mdl = vec![0u8; 12];
+    mdl.extend(data);
+
+    let model = Model::parse(&mdl, &[]).expect("a model with an empty AABB tree reads");
+    let tree = model
+        .root
+        .mesh
+        .as_ref()
+        .and_then(|mesh| mesh.aabb.as_ref())
+        .expect("the mesh keeps its tree");
+    assert_eq!(tree.face, -1);
+    assert!(tree.children.is_none(), "the empty tree has no children");
+}
+
 /// A 2DA's stored cell-data size is not read, as in the games and reone:
 /// a mod's table storing 0 there (High Quality Blasters' baseitems.2da) or
 /// any other wrong size reads as written. No installs (approved
@@ -3159,6 +3233,7 @@ fn opaque_alpha_channel_is_no_alpha() {
         missing_mips: 0,
         declared_size: None,
         mips_stored: true,
+        header_key: None,
     };
     let rgba = |last: u8| {
         let mut data = [200, 200, 200, 255].repeat(16);
@@ -3244,7 +3319,9 @@ fn lightmapped_cut_out_by_diffuse() {
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
 /// TSL's override subfolders one level down, co-op's check covering just
 /// the override files read. On installs written there; no
-/// installs needed (approved 2026-11-05).
+/// installs needed (approved 2026-11-05). A texture held as both a TPC and
+/// a TGA loads the copy the games load (`texture_formats`, proposed
+/// 2026-11-24, not yet approved).
 #[test]
 fn mod_precedence() {
     probed("precedence", &vfs::probes::probes(), 5);
@@ -4355,7 +4432,7 @@ fn feat_picks() {
 /// alone. [approved on 2026-11-16]
 #[test]
 fn action_bar_state() {
-    probed("action bar", &sim::combat::bar_probes::probes(), 22);
+    probed("action bar", &sim::combat::bar_probes::probes(), 24);
 }
 
 /// The Force powers and feat attacks that the action bar and the power
@@ -4541,7 +4618,7 @@ fn real_mods() {
 /// Assemble. The sim alone (proposed 2026-11-17, awaiting approval).
 #[test]
 fn workbench() {
-    probed("workbench", &sim::workshop_probes::probes(), 16);
+    probed("workbench", &sim::workshop_probes::probes(), 18);
 }
 
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
@@ -4724,7 +4801,7 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 /// player's own character standing meanwhile is played by its mind.
 #[test]
 fn guests_drive_companions() {
-    probed("drivers", &sim::drivers::probes(), 41);
+    probed("drivers", &sim::drivers::probes(), 52);
 }
 
 /// Conversations in co-op (I31): `sim::coop_talk::probes`, every phase's
@@ -4758,13 +4835,23 @@ fn dialogue_coop() {
 /// awaits approval. The check that a forced move to a point of a shut
 /// door's doorway, short of the panel, arrives there and leaves the door
 /// shut (`walks_into_doorway_short_of_door`, issue 501) awaits approval.
+/// The check that a walk to an object past a locked door waits for the
+/// door and goes through once it opens, while a walk to a place there ends
+/// (`object_walk_waits_for_locked_door`, Atris at the Telos academy)
+/// awaits approval.
 /// The check that a door a script closes waits for a body walking through
 /// its doorway but shuts on one standing still there
 /// (`door_shuts_on_one_standing`, the apartment door on Citadel Station)
+/// awaits approval. The checks that a conversation with no entry to start
+/// from lets go of the module's fade in held for one
+/// (`empty_talk_lifts_held_fade`), and that a loaded game's area fades in
+/// (`load_fades_in`), both issue 645, await approval. The check that a
+/// looping animation played until stopped outlives a `ClearAllActions` on
+/// its body (`loop_outlives_a_clear`, the broken droid 3CFD on Peragus)
 /// awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 78);
+    probed("scene", &sim::scene_probes::all(), 82);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -5057,10 +5144,12 @@ fn item_properties() {
 /// arrival's way (issue 412, approved 2026-11-16); the creature played
 /// taken through two modules that lack its template, still played and with
 /// its facts in both (TSL's B-4D4 through the docks, added 2026-11-17,
-/// awaiting approval); the sim alone.
+/// awaiting approval); the experience gained while switched left behind
+/// when switching back (TSL's prologue, added 2026-11-24, awaiting
+/// approval); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 27);
+    probed("switch", &sim::switch::probes(), 29);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
@@ -5089,10 +5178,12 @@ fn kill_xp_tables() {
 /// 20 s at most), the turret's gunner per seat with its own aim and bolts,
 /// fighters scaled per gunner, a gunner's own compass through its lens, a
 /// course with runs and gunners encoded and stepped twice alike; no
-/// install.
+/// install. The check that the turret's gun fires once a press of the key,
+/// not a stream while it is held (`turret_fires_once_a_press`), awaits
+/// approval.
 #[test]
 fn minigame_coop() {
-    probed("minigame", &sim::minigame::probes::probes(), 13);
+    probed("minigame", &sim::minigame::probes::probes(), 16);
 }
 
 /// A swoop's sideways motion and hits as both executables have them

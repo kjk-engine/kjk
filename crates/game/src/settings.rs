@@ -982,7 +982,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 39] = [
+const DEFAULTS: [(&str, &str); 40] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -1005,6 +1005,7 @@ const DEFAULTS: [(&str, &str); 39] = [
     ("display.lighting", "classic"),
     (EFFECTS, "high"),
     (AMBIENT_OCCLUSION, "off"),
+    (ANISOTROPY, "16"),
     (ui::draw::SmallFonts::SETTING, "auto"),
     (ui::draw::TextScale::SETTING, ui::draw::TextScale::DEFAULT),
     (ui::draw::MenuWidth::SETTING, "16x9"),
@@ -1039,6 +1040,9 @@ const EFFECTS: &str = "display.effects";
 
 /// The key of Ambient Occlusion (`ambient_occlusion`).
 const AMBIENT_OCCLUSION: &str = "display.ambient_occlusion";
+
+/// The key of Anisotropic Filtering (`scene::set_anisotropy`).
+const ANISOTROPY: &str = ui::screens::options::ANISOTROPY_KEY;
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
@@ -1247,6 +1251,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             "display.lighting",
             EFFECTS,
             AMBIENT_OCCLUSION,
+            ANISOTROPY,
         ],
         "options_interface" => &[
             ui::draw::MenuWidth::SETTING,
@@ -1744,6 +1749,17 @@ impl Settings {
         crate::ambient_occlusion::AmbientOcclusion::named(value.map_or("off", String::as_str))
     }
 
+    /// How many samples a texture seen at a shallow angle takes (the
+    /// options' Anisotropic Filtering): 1 (off), 2, 4, 8 or 16. A value
+    /// that is not one of these counts as 16.
+    pub fn anisotropy(&self) -> u16 {
+        self.values
+            .get(ANISOTROPY)
+            .and_then(|value| value.parse().ok())
+            .filter(|samples| [1, 2, 4, 8, 16].contains(samples))
+            .unwrap_or(16)
+    }
+
     /// The key rows the key mapping shows, each with its binding's name
     /// (empty where none is bound).
     pub fn rows(&self) -> Vec<KeyRow> {
@@ -2140,6 +2156,7 @@ impl Plugin for SettingsPlugin {
         if windowed && let Some(reset) = crate::display::recover(&mut settings) {
             app.insert_resource(reset);
         }
+        crate::scene::set_anisotropy(settings.anisotropy());
         app.insert_resource(settings.keys())
             .insert_resource(settings.mouse())
             .insert_resource(settings.pads())
@@ -2225,6 +2242,7 @@ fn apply(
         lighting.set_if_neq(settings.lighting());
         effects.set_if_neq(settings.effects());
         occlusion.set_if_neq(settings.ambient_occlusion());
+        crate::scene::set_anisotropy(settings.anisotropy());
         camera.set_if_neq(settings.camera());
         if let Some(mut ui) = ui {
             settings.shown(&mut ui);

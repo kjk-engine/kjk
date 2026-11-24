@@ -95,7 +95,7 @@ pub mod installs;
 mod ja_footsteps;
 mod landing_fx;
 pub mod launch_times;
-mod leader_view;
+pub mod leader_view;
 pub mod lifecycle;
 mod lifecycle_view;
 pub mod light_probes;
@@ -143,6 +143,7 @@ pub mod recoil;
 pub mod report;
 pub mod reticle_view;
 mod rulebook_text;
+pub mod splash;
 pub use minigame_view::takes_view;
 #[cfg(feature = "probes")]
 pub use prepasses::load_check_probes;
@@ -189,6 +190,8 @@ mod sim_worker;
 pub mod skeleton;
 mod skin_once;
 mod solo;
+#[cfg(feature = "probes")]
+pub use solo::reload_probes as solo_reload_probes;
 pub mod sound;
 mod speed_blur;
 pub mod stage;

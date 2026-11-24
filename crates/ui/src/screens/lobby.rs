@@ -39,6 +39,7 @@ use crate::draw::{DrawList, Quad};
 use crate::intent::{Intent, LobbyIntent, LobbyPick};
 use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{Screen, ScreenId};
+use crate::screens::companion_places;
 use crate::screens::tab::{hidden, image, text};
 use crate::strings;
 use crate::vm::{
@@ -46,16 +47,15 @@ use crate::vm::{
     LobbyView, ViewModel,
 };
 
-/// The most companions the row shows: ten, the most either game has
-/// recruited at once (KOTOR 1 has nine; of KOTOR 2's twelve, Hanharr and
-/// Mira never travel together, nor the Disciple and the Handmaiden). The
-/// main character goes before them, so the row has eleven places, and the
-/// layout's last place is hidden.
-const COMPANIONS: usize = 10;
+/// The most companions the row shows: twelve, all of KOTOR 2's. The game
+/// itself never recruits both Hanharr and Mira, nor both the Disciple and
+/// the Handmaiden, so it has ten at most. A mod can recruit all twelve. The
+/// main character goes before them, so the row has up to thirteen places.
+/// Places past the layout's own are copies of its first place
+/// (`companion_places::put`).
+const COMPANIONS: usize = 12;
 /// The row's places: the main character and the companions.
 const ROW: usize = COMPANIONS + 1;
-/// The layout's companion places.
-const PLACES: usize = 12;
 /// The player slots.
 const SLOTS: usize = 3;
 /// KOTOR 2's small dialogue font, for the rows under the portraits and the
@@ -91,8 +91,12 @@ const SLOT_PORTRAIT: i32 = 56;
 /// The companions' row: its left, the pitch between portraits, the top of
 /// the portraits, and their side.
 const ROW_LEFT: i32 = 78;
-/// Eleven places fit the 644-unit panel above the description strip.
+/// Eleven places 58 units apart fill the 644-unit panel above the
+/// description strip. A row of up to eleven places keeps that spacing. A
+/// longer row narrows its spacing so that all its places fit the panel.
 const ROW_PITCH: i32 = 58;
+const ROW_FULL: usize = 11;
+const ROW_WIDTH: i32 = 644;
 const ROW_TOP: i32 = 372;
 const ROW_PORTRAIT: i32 = 38;
 /// The bottom row's buttons: tag, left, width.
@@ -137,10 +141,47 @@ fn entry(lobby: &LobbyView, at: usize) -> Option<Entry<'_>> {
     }
 }
 
-#[derive(Default)]
 pub struct Lobby {
     /// The control under the cursor, which the description strip describes.
     focus: Option<String>,
+    /// The places the row needs, as the lobby told them last frame, and as
+    /// the layout was shaped for.
+    places: usize,
+    shaped: usize,
+}
+
+impl Lobby {
+    /// The lobby, its row laid out for the places `vm`'s lobby needs, so the
+    /// layout is not shaped a second time on the first frame.
+    pub fn new(vm: &ViewModel) -> Lobby {
+        let places = places(Lobby::lobby(vm));
+        Lobby {
+            focus: None,
+            places,
+            shaped: places,
+        }
+    }
+}
+
+impl Default for Lobby {
+    fn default() -> Lobby {
+        Lobby {
+            focus: None,
+            places: ROW_FULL,
+            shaped: ROW_FULL,
+        }
+    }
+}
+
+/// The places the row of `lobby` is laid out for: the main character, when
+/// the lobby has a save, and each companion. A row of fewer than
+/// `ROW_FULL` places is laid out as one of `ROW_FULL`, so the layout is
+/// shaped again only when a longer row narrows its spacing.
+fn places(lobby: Option<&LobbyView>) -> usize {
+    let needed = lobby.map_or(0, |lobby| {
+        usize::from(lobby.hero.is_some()) + lobby.companions.len()
+    });
+    needed.clamp(ROW_FULL, ROW)
 }
 
 fn rect([left, top, width, height]: [i32; 4]) -> Rect {
@@ -502,19 +543,20 @@ impl Screen for Lobby {
             ("LBL_NPC_NAME", "LBL_DESC".into(), [86, 456, 628, 42], small),
             ("BTN_BACK", "BTN_INVITE".into(), [0, 516, 0, 28], None),
         ]);
-        for at in 0..PLACES as i32 {
-            let left = ROW_LEFT + at.min(ROW as i32 - 1) * ROW_PITCH;
-            for prefix in ["BTN_NPC", "LBL_CHAR", "LBL_NA"] {
-                let side = ROW_PORTRAIT;
-                place(
-                    gui,
-                    &format!("{prefix}{at}"),
-                    [left + (ROW_PITCH - side) / 2, ROW_TOP, side, side],
-                );
-            }
+        // The places the row does not use sit on its last one, hidden.
+        let shown = self.places.clamp(ROW_FULL, ROW) as i32;
+        let pitch = match shown <= ROW_FULL as i32 {
+            true => ROW_PITCH,
+            false => ROW_WIDTH / shown,
+        };
+        for at in 0..ROW as i32 {
+            let left = ROW_LEFT + at.min(shown - 1) * pitch;
+            let side = ROW_PORTRAIT;
+            let portrait = [left + (pitch - side) / 2, ROW_TOP, side, side];
+            companion_places::put(gui, at as usize, rect(portrait));
             // Inside its column, so neighbouring labels never touch: a long
             // name wraps (`shorter` in `companion_state`).
-            let under = [left + 1, ROW_TOP + ROW_PORTRAIT + 2, ROW_PITCH - 2, 36];
+            let under = [left + 1, ROW_TOP + ROW_PORTRAIT + 2, pitch - 2, 36];
             made.push((
                 "LBL_NPC_NAME",
                 format!("LBL_CNAME{at}"),
@@ -619,6 +661,21 @@ impl Screen for Lobby {
     /// Back leaves the lobby, as Leave does.
     fn back(&mut self, out: &mut Vec<Intent>) {
         out.push(Intent::Lobby(LobbyIntent::Leave));
+    }
+
+    /// The layout is shaped again when the row needs another number of
+    /// places.
+    fn reshapes(&mut self) -> bool {
+        let changed = self.shaped != self.places;
+        self.shaped = self.places;
+        changed
+    }
+
+    /// The stack asks this each frame. The screen uses it to count the
+    /// places its row needs.
+    fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
+        self.places = places(Lobby::lobby(vm));
+        None
     }
 
     fn focused(&mut self, tag: &str, _vm: &ViewModel) {

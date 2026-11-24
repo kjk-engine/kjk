@@ -800,6 +800,25 @@ impl Level {
         overlaps
     }
 
+    /// The entities with a brush whose bounds meet the box `min`..`max`,
+    /// lowest first: the only ones a box standing inside it can overlap
+    /// (`entity_overlaps`). A caller that asks about every entity in turn
+    /// asks about these alone.
+    pub fn entities_near(&self, min: [f32; 3], max: [f32; 3]) -> Vec<u32> {
+        let mut found: Vec<u32> = Vec::new();
+        self.visit(min, max, |_, brush| {
+            if brush.slot == u32::MAX {
+                return;
+            }
+            let entity = self.entities[brush.slot as usize];
+            if !found.contains(&entity) {
+                found.push(entity);
+            }
+        });
+        found.sort_unstable();
+        found
+    }
+
     /// The entities `wanted` takes whose brushes of `state` the box
     /// overlaps, lowest first.
     pub fn entities_overlapping(

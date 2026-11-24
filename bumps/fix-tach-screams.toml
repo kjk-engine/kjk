@@ -1,0 +1,9 @@
+# A script's PlaySound waits in its object's action queue, as TSL's
+# executable queues it, instead of playing at once.
+sim = "PlaySound is queued behind its object's actions (`Action::Sound`)"
+
+[formats]
+save = "an object's action queue can hold a sound a script played (`Action::Sound`)."
+
+[migrations]
+save = "an older save has no queued sound, so its queues read as before"

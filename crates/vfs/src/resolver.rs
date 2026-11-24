@@ -249,6 +249,26 @@ pub enum Rank {
     Rows,
 }
 
+impl Rank {
+    /// How the games weigh a source when a texture is held as both a TPC
+    /// and a TGA (`Resolver::find_any`), highest best. Both games' executables
+    /// sort the sources into four kinds here. A folder (`override/`, its
+    /// subfolders, a Workshop item's `override/`) comes first, then a RIM,
+    /// then an ERF (`patch.erf`, a texture pack, lips, a module's `.mod`),
+    /// then a BIF. Unlike a lookup of one type, `patch.erf` ranks with the
+    /// other ERFs here, below the RIMs. kjk's own layers rank above them all.
+    fn format_kind(self) -> u8 {
+        match self {
+            Rank::LentFiles => 0,
+            Rank::Key => 1,
+            Rank::Erf2 | Rank::Erf1 => 2,
+            Rank::Rim => 3,
+            Rank::Directory => 4,
+            Rank::Rulebook | Rank::Lent | Rank::Rows => 5,
+        }
+    }
+}
+
 /// A source that exists but could not be read, or a loose file whose
 /// extension is not a resource type. The layer is kept without it.
 #[derive(Debug, Clone)]
@@ -1031,6 +1051,19 @@ impl Resolver {
             })
     }
 
+    /// A music track by resref as the games stream one: from `streammusic`
+    /// first (the area's music, the battle music, its stingers, the
+    /// ambience and a conversation's track all play from there), else as
+    /// any sound. Only two names differ between the two places, both in
+    /// TSL. Its `mus_s_lightshort` and `mus_s_darkshort` in the archives
+    /// are the jingles of an alignment shift, and in `streammusic` they
+    /// are other pieces that conversations play (the prologue's
+    /// `treatinj.dlg`).
+    pub fn music(&self, resref: &str) -> Option<&Location> {
+        self.stream("streammusic", resref, ResType::WAV)
+            .or_else(|| self.sound(resref))
+    }
+
     /// A voiced line's WAV: K1's `streamwaves`, TSL's `streamvoice`.
     pub fn voice(&self, resref: &str) -> Option<&Location> {
         let wav = ResType::WAV;
@@ -1062,24 +1095,34 @@ impl Resolver {
         })
     }
 
-    /// The first of `restypes` the highest layer holding any of them has,
-    /// with its type: a texture is a TPC or a TGA, and a TGA in `override/`
-    /// replaces the texture pack's TPC, as the games load mods. A long name
-    /// as `find` looks it up.
+    /// The copy of a texture the games load when it is held in more than one
+    /// of `restypes` (a TPC and a TGA, in that order), with its type. Both
+    /// games' executables first find the copy of each type that a lookup of
+    /// that type alone finds. They then take the type whose copy comes from
+    /// the best kind of source (`Rank::format_kind`). When two copies come
+    /// from sources of one kind, the type listed first wins, so a TPC beats
+    /// a TGA. A TGA in `override/` therefore replaces a texture pack's TPC,
+    /// but a TPC and a TGA both in `override/` load the TPC. A TGA in a
+    /// Workshop item's `override/` also loses to a TPC in the game's own
+    /// `override/`. A long name is looked up as `find` looks it up.
     pub fn find_any(&self, resref: &str, restypes: &[ResType]) -> Option<(ResType, Resolved<'_>)> {
         resrefs(resref).find_map(|resref| {
-            let restype = self.layers.iter().rev().find_map(|layer| {
-                restypes
-                    .iter()
-                    .copied()
-                    .find(|&restype| layer.resources.contains_key(&(resref.clone(), restype)))
-            })?;
-            Some((restype, self.find_exact(&resref, restype)?))
+            restypes
+                .iter()
+                .filter_map(|&restype| Some((restype, self.find_exact(&resref, restype)?)))
+                .reduce(|best, next| {
+                    let kind = |found: &(ResType, Resolved)| found.1.layer.rank.format_kind();
+                    if kind(&next) > kind(&best) {
+                        next
+                    } else {
+                        best
+                    }
+                })
         })
     }
 
-    /// The texture the games would pick for a name, parsed: the highest
-    /// layer's TPC or TGA (`find_any`). `None` when there is neither, the
+    /// The texture the games would pick for a name, parsed: its TPC or its
+    /// TGA, as `find_any` chooses between them. `None` when there is neither, the
     /// reason when the one there does not read. A TGA's TXI is its loose
     /// one, else the one in the TPC it replaces (`texture_txi`). A TGA whose
     /// TXI says `cube`

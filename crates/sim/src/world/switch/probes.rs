@@ -20,6 +20,11 @@ const TEMPLATES: [(u8, &str); 2] = [(MADE, "probe_switch"), (STANDING, "probe_sw
 const UNKNOWN: u8 = 7;
 /// The custom token `probe_first` sets to `GetTag(GetFirstPC())`.
 const FIRST_TOKEN: i32 = 12;
+/// The custom token `probe_first` sets to `GetIsObjectValid(GetFirstPC())`.
+const FIRST_VALID_TOKEN: i32 = 18;
+/// The custom token `probe_first` sets to `GetIsPC` of the standing
+/// companion.
+const STANDING_IS_PC_TOKEN: i32 = 19;
 /// The custom tokens `probe_droid` and `probe_let_go` set (`library`).
 const DROID_TOKENS: [i32; 4] = [13, 14, 15, 16];
 /// The custom token `probe_rejoin` sets to what `AddPartyMember` returned.
@@ -36,10 +41,14 @@ const ONE_HANDED: u16 = 627;
 /// - `probe_sw_seen`: 5 `GetTag(GetPCSpeaker())` (no conversation: the
 ///   first PC), 6 `GetPartyMemberCount()`;
 /// - `probe_sw_back`: 7 `SwitchPlayerCharacter(NPC_PLAYER)`, then 8
-///   `GetTag(GetFirstPC())` (the player's own: no tag), 9
+///   `GetTag(GetFirstPC())` (the main character: no tag), 9
 ///   `GetIsPC(GetObjectByTag(the made companion))`, 10
 ///   `SwitchPlayerCharacter(UNKNOWN)`;
-/// - `probe_first`: `FIRST_TOKEN` `GetTag(GetFirstPC())`.
+/// - `probe_min_one_on` and `probe_min_one_off`: `SetMinOneHP(GetFirstPC(),
+///   TRUE)` and `SetMinOneHP(GetFirstPC(), FALSE)`;
+/// - `probe_first`: `FIRST_TOKEN` `GetTag(GetFirstPC())`,
+///   `FIRST_VALID_TOKEN` `GetIsObjectValid(GetFirstPC())` and
+///   `STANDING_IS_PC_TOKEN` `GetIsPC(the standing companion)`.
 fn library() -> crate::script::Library {
     use fmt_odyssey::ncs::{Const, Op};
     const CATALOG: &str = r#"
@@ -79,6 +88,10 @@ int AddAvailableNPCByObject(int nNPC, object oCreature);
 int RemoveAvailableNPC(int nNPC);
 // 17
 int AddPartyMember(int nNPC, object oCreature);
+// 18
+int GetIsObjectValid(object oObject);
+// 19
+void SetMinOneHP(object oCreature, int nMinOne);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let int = |value: i32| Op::Const(Const::Int(value));
@@ -168,10 +181,33 @@ int AddPartyMember(int nNPC, object oCreature);
         changed.op(op.clone());
     }
     changed.op(call(14, 2)).op(Op::Retn);
-    // `probe_first`: 12 `GetTag(GetFirstPC())`.
     let mut first = script_ncs::probes::Asm::default();
     token(&mut first, FIRST_TOKEN, &first_tag, true);
+    token(
+        &mut first,
+        FIRST_VALID_TOKEN,
+        &[call(4, 0), call(18, 1)],
+        false,
+    );
+    token(
+        &mut first,
+        STANDING_IS_PC_TOKEN,
+        &[
+            standing[0].clone(),
+            standing[1].clone(),
+            standing[2].clone(),
+            call(6, 1),
+        ],
+        false,
+    );
     first.op(Op::Retn);
+    // `probe_min_one_on` and `probe_min_one_off`, as Taris's duel scripts
+    // `k_ptar_duelring` and `k_ptar_duelend` set and clear it.
+    let min_one = |on: i32| {
+        let mut asm = script_ncs::probes::Asm::default();
+        asm.op(int(on)).op(call(4, 0)).op(call(19, 2)).op(Op::Retn);
+        asm.build()
+    };
     // `probe_droid`, as TSL's Telos makes B-4D4 the player (`a_b4d4control`):
     // 13 `AddAvailableNPCByObject(STANDING, the standing one)`, 14
     // `SwitchPlayerCharacter(STANDING)`, then the standing one destroyed.
@@ -214,6 +250,8 @@ int AddPartyMember(int nNPC, object oCreature);
         ("probe_spawn".to_string(), spawn.build()),
         ("probe_spawn_changed".to_string(), changed.build()),
         ("probe_first".to_string(), first.build()),
+        ("probe_min_one_on".to_string(), min_one(1)),
+        ("probe_min_one_off".to_string(), min_one(0)),
         ("probe_droid".to_string(), droid.build()),
         ("probe_let_go".to_string(), let_go.build()),
         ("probe_rejoin".to_string(), rejoin.build()),
@@ -472,9 +510,44 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("install_after_switching_back", install_after_back()));
     checks.push(("led_companion_throws_punches", led_punches()));
     checks.push(("led_companion_has_its_players_aids", led_aids()));
-    checks.push(("led_companion_is_first_pc", led_first_pc()));
+    checks.push(("first_pc_is_the_main_character_while_led", led_first_pc()));
+    checks.push((
+        "min_one_hp_set_while_led_stays_on_the_main_character",
+        led_min_one_hp(),
+    ));
     checks.push(("led_companion_faces_the_arrival", led_faces_arrival()));
+    checks.push(("xp_gained_while_switched_stays_behind", xp_stays_behind()));
     checks
+}
+
+/// The experience the party gains while seat 0 plays a companion does not
+/// reach seat 0's own character. Switched back, the party's XP is what it
+/// was at the switch, as both executables give experience only to the
+/// party's members and the character played (TSL's prologue: T3-M4's
+/// experience is not the Exile's on Peragus).
+fn xp_stays_behind() -> Result<String, String> {
+    use crate::inventory::PARTY;
+    let (mut world, ..) = switch_world(1, false)?;
+    let mut state = world.script_state().clone();
+    state.set_xp(PARTY, 1000);
+    world.set_script_state(state);
+    run(&mut world, 1, 0);
+    queue(&mut world, &format!("probe_sw_to{MADE}"));
+    run(&mut world, 1, 0);
+    run(&mut world, 1, 0);
+    let mut state = world.script_state().clone();
+    state.give_xp(PARTY, 750);
+    let during = state.xp(PARTY);
+    world.set_script_state(state);
+    queue(&mut world, "probe_sw_back");
+    run(&mut world, 1, 0);
+    let after = world.script_state().xp(PARTY);
+    check(
+        during == 1750 && after == 1000,
+        format!(
+            "the party's XP while switched {during}, switched back {after} (1000 at the switch)"
+        ),
+    )
 }
 
 /// Seat 0 leading `body` (the portrait click, `Action::Lead`): the step.
@@ -486,23 +559,72 @@ fn lead(world: &mut SimWorld, body: SimId) -> Snapshot {
     crate::step(world, tick, &input, 8, StepReason::Authority)
 }
 
-/// `GetFirstPC()` is the body the first seat controls: the standing
-/// companion while it leads, the player's own once its portrait takes the
-/// lead back (TSL's Goto's yacht: the command centre's trigger, asking
-/// for `GetFirstPC()`, entered by Mira at the head of the party).
+/// `GetFirstPC()` is the main character, whoever leads the party, as in
+/// the original (TSL's Goto's yacht: the command centre's trigger asks
+/// for `GetFirstPC()`, and Mira at the head of the party does not fire it
+/// when she enters). A main character is the character the story is about.
+/// `GetIsPC` is true for the companion the first seat leads, because the
+/// original reads it from the character a player controls.
 fn led_first_pc() -> Result<String, String> {
     let (mut world, _, standing) = switch_world(1, true)?;
     let start = run(&mut world, 1, 0);
-    let own = start.own(Seat(0)).map(|e| e.id).ok_or("no player")?;
+    let main = start
+        .own(Seat(0))
+        .map(|e| e.id)
+        .ok_or("no main character")?;
     let first = |world: &mut SimWorld, body: SimId| {
         lead(world, body);
         queue(world, "probe_first");
-        tokens(&run(world, 1, 0), FIRST_TOKEN..=FIRST_TOKEN).concat()
+        let snapshot = run(world, 1, 0);
+        tokens(&snapshot, FIRST_TOKEN..=FIRST_TOKEN)
+            .into_iter()
+            .chain(tokens(&snapshot, FIRST_VALID_TOKEN..=STANDING_IS_PC_TOKEN))
+            .collect::<Vec<_>>()
     };
-    let (led, back) = (first(&mut world, standing), first(&mut world, own));
+    let (led, back) = (first(&mut world, standing), first(&mut world, main));
     check(
-        led == TEMPLATES[1].1 && back.is_empty(),
-        format!("GetFirstPC()'s tag with the companion leading {led:?}, the player again {back:?}"),
+        led == ["", "1", "1"] && back == ["", "1", "0"],
+        format!(
+            "GetFirstPC()'s tag, its validity and GetIsPC(the companion) with the companion leading {led:?}, with the main character leading {back:?}"
+        ),
+    )
+}
+
+/// A script that sets `SetMinOneHP(GetFirstPC(), TRUE)` while a companion
+/// leads, and clears it with `FALSE` after the main character leads again,
+/// as Taris's duel scripts do (`k_ptar_duelring` and `k_ptar_duelend`),
+/// leaves the flag on the main character and then off it. The companion
+/// never gets the flag.
+fn led_min_one_hp() -> Result<String, String> {
+    let (mut world, _, standing) = switch_world(1, true)?;
+    let start = run(&mut world, 1, 0);
+    let main = start
+        .own(Seat(0))
+        .map(|e| e.id)
+        .ok_or("no main character")?;
+    let kept = |snapshot: &Snapshot, id: SimId| {
+        let sheet = snapshot.get(id).and_then(|entity| entity.sheet);
+        sheet.is_some_and(|sheet| sheet.flags & crate::combat::sheet::flags::MIN_ONE_HP != 0)
+    };
+    lead(&mut world, standing);
+    queue(&mut world, "probe_min_one_on");
+    let during = run(&mut world, 1, 0);
+    lead(&mut world, main);
+    queue(&mut world, "probe_min_one_off");
+    let after = run(&mut world, 1, 0);
+    let seen = (
+        kept(&during, main),
+        kept(&during, standing),
+        kept(&after, main),
+        kept(&after, standing),
+    );
+    check(
+        seen == (true, false, false, false),
+        format!(
+            "kept at 1 HP, as (main character, companion) while the companion leads {:?} and after the main character leads again {:?}",
+            (seen.0, seen.1),
+            (seen.2, seen.3)
+        ),
     )
 }
 

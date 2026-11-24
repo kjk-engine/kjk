@@ -296,6 +296,9 @@ pub struct MemberView {
     pub may_level: bool,
     /// What the player playing it is in, its portrait's icon (R10).
     pub busy: Option<Busy>,
+    /// The seat of another player who plays it, if one does: its HUD
+    /// portrait names that player (`hud::players`).
+    pub played_by: Option<u8>,
     /// Its running effects' icons, in the order they took hold, as
     /// KOTOR's portrait counts them (`effecticon.2da`'s `good`, an icon
     /// without one not counted): stacked on its portraits

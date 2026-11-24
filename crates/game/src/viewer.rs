@@ -10,7 +10,7 @@ use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::creature;
 use asset_odyssey::hooks;
 use asset_odyssey::model::{Matrix, ModelIr};
-use asset_odyssey::module::{AreaGrass, AreaWeather, Kind, ModuleIr, Source};
+use asset_odyssey::module::{AreaGrass, AreaWeather, Kind, Missing, ModuleIr, Source};
 use asset_odyssey::texture::TextureIr;
 use asset_odyssey::weather::Fall;
 use bevy::log::warn;
@@ -101,6 +101,10 @@ pub struct RoomView {
     /// Index into `LoadedScene::models`; `None` when the model is missing.
     pub model: Option<usize>,
     pub visible: Vec<String>,
+    /// The room's area has no VIS file. KOTOR 2 then turns its room culling
+    /// off and draws every room from every room, so every room sees this one
+    /// and this one sees every room (`fight_rooms::linked`).
+    pub sees_all: bool,
     /// Empty for a room that is only seen (sky, backdrops, cutscene
     /// sets): the game ships it no walkmesh, or one without a walkable
     /// face, so nothing stands in it (reone takes an object's room from the walkable face under it).
@@ -1567,6 +1571,16 @@ pub fn parsed(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> 
     parsed_under(resolver, name, &mut vec![name.to_ascii_lowercase()])
 }
 
+/// `parsed` for a model an area places: a room, a door or a placeable. A
+/// model that does not read is logged and left out, as a missing one is,
+/// so that one broken model does not stop its whole area loading.
+fn parsed_or_left_out(resolver: &Resolver, name: &str) -> Option<Model> {
+    parsed(resolver, name).unwrap_or_else(|why| {
+        warn!("{why}; it is left out of the area");
+        None
+    })
+}
+
 /// `parsed`, inside the chain of models (`chain`, lower case) whose
 /// reference nodes led to `name`.
 fn parsed_under(
@@ -1932,8 +1946,9 @@ pub fn module_scene(
             .map_or_else(Vec::new, |surfaces| surfaces.grass()),
         _ => Vec::new(),
     };
+    let without_vis = area.missing.contains(&Missing::Visibility);
     for room in &area.rooms {
-        let index = match parsed(resolver, &room.model)? {
+        let index = match parsed_or_left_out(resolver, &room.model) {
             Some(parsed) => {
                 if let (Some(placing), Some(drawn)) = (&area.grass, grass.as_mut())
                     && !grassy.is_empty()
@@ -1989,6 +2004,7 @@ pub fn module_scene(
             name: room.model.clone(),
             model: index,
             visible: room.visible.clone(),
+            sees_all: without_vis,
             floor,
             floor_error,
         });
@@ -2019,7 +2035,7 @@ pub fn module_scene(
             continue;
         };
         if !loaded.contains_key(name) {
-            let parsed = parsed(resolver, name)?;
+            let parsed = parsed_or_left_out(resolver, name);
             let ir = parsed.as_ref().map(ModelIr::from_model);
             if instance.kind == Kind::Placeable
                 && let (Some(parsed), Some(ir)) = (&parsed, &ir)
@@ -2873,18 +2889,41 @@ pub fn clip(
     if let Some(found) = find(model) {
         return Ok(Some(found));
     }
+    let talking = name.starts_with("tlk");
     let mut seen = vec![model.name.to_ascii_lowercase()];
     let mut next = next_supermodel(model, &mut seen);
     while let Some(super_name) = next {
         let Some(parent) = read_into(cache, resolver, &super_name)? else {
             break;
         };
-        if let Some(found) = find(parent) {
-            return Ok(Some(found));
+        let found = find(parent).filter(|found| !talking || shares_rest_pose(model, parent, found));
+        if found.is_some() {
+            return Ok(found);
         }
         next = next_supermodel(parent, &mut seen);
     }
     Ok(None)
+}
+
+const REST_TURN_TOLERANCE_DEGREES: f32 = 20.0;
+
+/// A clip keys absolute turns, so it only suits a body that rests as its
+/// supermodel does. A Rakata does not: its eye nodes rest at about 90 degrees,
+/// and the human `tlknorm` of `s_male02` turns them 86 to 178 degrees away.
+fn shares_rest_pose(body: &ModelIr, parent: &ModelIr, clip: &AnimationIr) -> bool {
+    clip.tracks
+        .iter()
+        .filter(|track| !track.orientations.is_empty())
+        .all(|track| {
+            let (Some(own), Some(shared)) = (body.node(&track.node), parent.node(&track.node))
+            else {
+                return true;
+            };
+            let turn = bevy::math::Quat::from_array(own.rotation)
+                .normalize()
+                .angle_between(bevy::math::Quat::from_array(shared.rotation).normalize());
+            turn.to_degrees() <= REST_TURN_TOLERANCE_DEGREES
+        })
 }
 
 /// The clips `clip` found, by the model whose animation each is and its

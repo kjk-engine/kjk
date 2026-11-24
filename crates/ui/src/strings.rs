@@ -189,6 +189,14 @@ pub const AMBIENT_OCCLUSION_ON: &str = "Ambient Occlusion: On";
 pub const AMBIENT_OCCLUSION_HELP: &str = "Adds soft shade in corners, and where characters and objects stand close to each other, to walls or to the floor.
 
 Ambient Occlusion needs Enhanced lighting, and TAA or DLSS anti-aliasing. With other settings it has no effect.";
+pub const ANISOTROPY_OFF: &str = "Anisotropic Filtering: Off";
+pub const ANISOTROPY_2X: &str = "Anisotropic Filtering: 2x";
+pub const ANISOTROPY_4X: &str = "Anisotropic Filtering: 4x";
+pub const ANISOTROPY_8X: &str = "Anisotropic Filtering: 8x";
+pub const ANISOTROPY_16X: &str = "Anisotropic Filtering: 16x";
+pub const ANISOTROPY_HELP: &str = "Keeps floors and walls sharp when the camera sees them at a shallow angle. Higher values are sharper. Lower values can raise the frame rate on slower graphics cards.
+
+A change applies when the next area loads.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.
@@ -229,6 +237,8 @@ pub const NEW_GAME: &str = "New game";
 pub const CAMPAIGN: &str = "Select game";
 pub const KOTOR: &str = "KOTOR";
 pub const SITH_LORDS: &str = "The Sith Lords";
+pub const KOTOR_1: &str = "KOTOR 1";
+pub const KOTOR_2: &str = "KOTOR 2";
 pub const SOLO_TITLE: &str = "Play alone";
 pub const HOST_TITLE: &str = "Host a game";
 pub const PORT_HINT: &str = "Port: type to change";

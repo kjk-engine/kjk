@@ -16,10 +16,11 @@ pub(super) fn settle(
     mut members: Query<(&mut PlayerSheet, &Fighting, Option<&Avatar>)>,
 ) {
     let library = level.0.scripts().map(|library| &**library);
-    // `Bar::settle` never reads whether the party carries a mine kit,
-    // because a fill places only powers, feat attacks, grenades and
-    // medpacs. The power wheel's list passes the real answer.
-    Rules::with(library, false, |rules| {
+    // `Bar::settle` never reads whether the party carries a mine kit or a
+    // device, because a fill places only powers, feat attacks, grenades
+    // and medpacs. The power wheel's list passes the real answer, and the
+    // items' step places devices (`item_uses::usable`).
+    Rules::with(library, (false, &[]), |rules| {
         for (mut sheet, fighting, avatar) in &mut members {
             if !in_party(avatar, &fighting.0) {
                 continue;

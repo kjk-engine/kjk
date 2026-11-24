@@ -537,12 +537,14 @@ pub fn install(
 /// drawn meanwhile from the stage's start, which never stepped, for as long
 /// as the keyframe took. Headless that showed a black screen, and the
 /// Discord report of 2026-11-11 (over Radmin VPN) saw characters in their
-/// bind pose (a T-pose).
+/// bind pose (a T-pose). The screen shows no hint. The hints' counters are
+/// part of the host's world, which the guest has not got yet, and the host's
+/// own screen advances them.
 fn waiting_screen(level: &Level, lifecycle: Option<&Lifecycle>) -> Loading {
     let screen = level
         .module()
         .zip(lifecycle)
-        .map(|(module, lifecycle)| lifecycle.installer.loading_screen(&module.name));
+        .map(|(module, lifecycle)| lifecycle.installer.loading_screen(&module.name, None));
     let (image, image_name, bar) = screen.map_or((None, None, None), |screen| {
         (screen.image, screen.name, screen.bar)
     });
@@ -642,6 +644,7 @@ pub(crate) fn advance(
                     joined.job = Some(Job::spawn(
                         lifecycle.installer.clone(),
                         planned(&request),
+                        None,
                         lifecycle.body.is_some(),
                         joined.joining.plan_delay,
                         &mut loading,
@@ -752,6 +755,7 @@ pub(crate) fn advance(
                         joined.job = Some(Job::spawn(
                             lifecycle.installer.clone(),
                             planned(&InstallRequest::of(announcement)),
+                            None,
                             lifecycle.body.is_some(),
                             joined.joining.plan_delay,
                             &mut loading,

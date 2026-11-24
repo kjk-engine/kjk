@@ -6,7 +6,8 @@
 //! `grab::REACH_LEFT_MS[1]` of it are left (JA's `G_GrabClient`), it reaches
 //! for the victim: a living humanoid in front of the grabber within a
 //! punch's reach (`strikes::punch_reach`), standing on the ground at the
-//! grabber's height, not a beast or a droid, not knocked down, not in a
+//! grabber's height (on a slope, as much higher or lower as the slope
+//! rises between them: `level_within`), not a beast or a droid, not knocked down, not in a
 //! saber lock and not in a grab already; with friendly fire off, the party
 //! never grabs the party. The grabber's target comes first, else the
 //! nearest. The grab's roll (`grab_roll`) decides. A miss, or no one to
@@ -98,6 +99,15 @@ pub(crate) fn finisher(forward: i8, right: i8, began: u8) -> u8 {
     keyed_finisher(forward, right)
         .or((1..=3).contains(&began).then_some(began))
         .unwrap_or(1)
+}
+
+/// How far (units) a victim `distance` units away may stand above or below
+/// the grabber: JA's `grab::HEIGHT_UNITS`, plus what a slope of
+/// `grab::SLOPE_DEG` rises over that distance, so a grab works on KOTOR's
+/// hills as on JA's flat floors.
+pub(crate) fn level_within(distance: f32) -> f32 {
+    let (sin, cos) = collision::trig::sin_cos_deg(grab::SLOPE_DEG);
+    grab::HEIGHT_UNITS + distance * sin / cos
 }
 
 /// How far apart (units) the finisher `finisher` (1 to 3) stands its pair.
@@ -251,7 +261,7 @@ impl Step<'_> {
                 && man.ps.ground.is_some()
                 && !(apart && man.party)
                 && distance <= reach
-                && (man.ps.origin[2] - ps.origin[2]).abs() <= grab::HEIGHT_UNITS
+                && (man.ps.origin[2] - ps.origin[2]).abs() <= level_within(distance)
                 && (distance == 0.0 || math::dot(way, forward) >= rules::creatures::fists::FRONT)
         };
         let near = |at: &usize| math::flat_length(flat(&self.men[*at]));

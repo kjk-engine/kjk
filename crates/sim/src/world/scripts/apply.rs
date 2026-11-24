@@ -447,9 +447,7 @@ pub(in crate::world) fn apply(
                 if let Some((_, mut fighting)) = fighters.iter_mut().find(|(id, _)| id.0.0 == who.0)
                 {
                     let fighter = &mut fighting.0;
-                    // A body dying in place keeps its dying clip.
-                    let dying = |acting: Acting| acting.animation == crate::combat::death::DIE;
-                    if !fighter.acting.is_some_and(dying) {
+                    if !fighter.acting.is_some_and(Acting::outlives_a_clear) {
                         fighter.acting = None;
                     }
                     fighter.mind.last_seen = None;

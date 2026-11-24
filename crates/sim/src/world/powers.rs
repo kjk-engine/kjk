@@ -17,7 +17,7 @@
 //! Not yet: pushing bolts back and pull's disarm (with I24's bolt
 //! deflection), rage and sight (KOTOR has no rows for them).
 
-use collision::{Bodies, CollisionWorld, Extents, UNIT};
+use collision::{Bodies, Extents, UNIT};
 
 use super::{
     Avatar, BODY, Clock, Fighting, Hit, Hits, Id, Inputs, Object, Player, PlayerSheet, SHOT,
@@ -154,7 +154,8 @@ impl Scene<'_> {
 
     /// The first body a line from `from` along `caster`'s view meets
     /// within `range`, with where (units): among the bodies as the caster
-    /// saw them, if it is a player behind the authority.
+    /// saw them, if it is a player behind the authority. A body whose box
+    /// the line starts in is met where it starts (`Bodies::shot`).
     fn aimed(&self, caster: usize, from: Vec3, range: f32) -> Option<(usize, Vec3)> {
         let me = &self.people[caster];
         let end = math::mad(from, range, me.forward());
@@ -162,7 +163,7 @@ impl Scene<'_> {
         let trace = self.level.with(self.states, |world| {
             Bodies::new(world, targets.met_by(me.id))
                 .skipping(me.id.0 | BODY)
-                .trace(scale(from, UNIT), scale(end, UNIT), &Extents::POINT, SHOT)
+                .shot(scale(from, UNIT), scale(end, UNIT), &Extents::POINT, SHOT)
         });
         let id = trace.entity.filter(|entity| entity & BODY != 0)?;
         let at = self.find(SimId(id & !BODY))?;
@@ -1136,7 +1137,7 @@ impl Cast<'_, '_> {
     /// A toggled power (speed, protect, absorb, mind trick): pressed while
     /// it runs, it stops if it has run `ja::TOGGLE_MIN_MS`; else it starts,
     /// paid now.
-    /// Protect and absorb exclude each other.
+    /// JA's protect and absorb exclude each other; KOTOR's do not.
     fn toggle(&mut self, at: usize, power: Power, level: u8, cost: i32) {
         let force = self.fighters[at].force;
         let (until, running_level) = match power {
@@ -1178,8 +1179,12 @@ impl Cast<'_, '_> {
         if power != Power::MindTrick && self.scripted() {
             self.cast_at(at, Some(at), &[at]);
         }
-        // Protect, absorb and rage exclude each other.
+        // JA's protect, absorb and rage exclude each other. KOTOR's scripts
+        // replace only the powers of the cast power's own tree (Force Aura,
+        // Shield and Armor; Resist Force and Force Immunity), so a power
+        // cast through its script leaves the other trees running.
         let excluded: &[Power] = match power {
+            _ if self.scripted() => &[],
             Power::Protect => &[Power::Absorb, Power::Rage],
             Power::Absorb => &[Power::Protect, Power::Rage],
             Power::Rage => &[Power::Protect, Power::Absorb],

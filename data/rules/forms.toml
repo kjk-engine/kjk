@@ -17,10 +17,9 @@ current target is the enemy that the character is attacking.
 [shii_cho]
 title = "Shii-Cho (Form I)"
 summary = """
-Shii-Cho is the Determination Form. A character using Shii-Cho gains
-+{forms.shii_cho.to_hit:bare} to attack. The character also gains
+Grants +{forms.shii_cho.to_hit:bare} to hit and
 +{forms.shii_cho.defence_others:bare} Defense against every attacker except
-its current target.
+your current target.
 """
 applies = ["spell:FORM_SABER_I_SHII_CHO"]
 
@@ -28,28 +27,24 @@ applies = ["spell:FORM_SABER_I_SHII_CHO"]
 name = "Shii-Cho Attack Bonus"
 value = 1
 range = [-20, 20]
-summary = "A character using Shii-Cho gains +{forms.shii_cho.to_hit:bare} to attack."
+summary = "Grants +{forms.shii_cho.to_hit:bare} to hit."
 source = "TSL's executable"
 see = "sim::combat::forms::to_hit"
-applies = ["spell:FORM_SABER_I_SHII_CHO"]
 
 [shii_cho.defence_others]
 name = "Shii-Cho Defense"
 value = 3
 range = [-20, 20]
-summary = "A character using Shii-Cho gains +{forms.shii_cho.defence_others:bare} Defense against every attacker except its current target."
+summary = "Grants +{forms.shii_cho.defence_others:bare} Defense against attackers other than your current target."
 source = "TSL's executable"
 see = "sim::combat::forms::defence"
-applies = ["spell:FORM_SABER_I_SHII_CHO"]
 
 [makashi]
 title = "Makashi (Form II)"
 summary = """
-Makashi is the Contention Form. A character using Makashi gains
-+{forms.makashi.to_hit_saber:bare} to attack against an enemy who wields a
-lightsaber. Every weapon hit by the character deals
-+{forms.makashi.damage:bare} damage. The character suffers a
-{forms.makashi.deflection:bare} penalty to blaster bolt deflection.
+Grants +{forms.makashi.to_hit_saber:bare} to hit against lightsaber
+wielders and +{forms.makashi.damage:bare} weapon damage, at a
+{forms.makashi.deflection:bare} penalty to blaster deflection.
 """
 applies = ["spell:FORM_SABER_II_MAKASHI"]
 
@@ -57,10 +52,9 @@ applies = ["spell:FORM_SABER_II_MAKASHI"]
 name = "Makashi Attack Bonus"
 value = 3
 range = [-20, 20]
-summary = "A character using Makashi gains +{forms.makashi.to_hit_saber:bare} to attack against an enemy who wields a lightsaber."
+summary = "Grants +{forms.makashi.to_hit_saber:bare} to hit against lightsaber wielders."
 source = "TSL's executable"
 see = "sim::combat::forms::to_hit"
-applies = ["spell:FORM_SABER_II_MAKASHI"]
 
 [makashi.damage]
 name = "Makashi Damage"
@@ -68,33 +62,26 @@ type = "i8"
 value = 3
 unit = "HP"
 range = [-20, 20]
-summary = "Every weapon hit by a character using Makashi deals +{forms.makashi.damage:bare} damage."
+summary = "Adds +{forms.makashi.damage:bare} damage to every weapon hit."
 source = "TSL's executable"
 see = "sim::combat::forms::weapon"
-applies = ["spell:FORM_SABER_II_MAKASHI"]
 
 [makashi.deflection]
 name = "Makashi Bolt Deflection"
 type = "i8"
 value = -5
 range = [-20, 20]
-summary = "A character using Makashi suffers a {forms.makashi.deflection:bare} penalty to blaster bolt deflection."
+summary = "Inflicts {forms.makashi.deflection:bare} to blaster bolt deflection."
 source = "TSL's executable"
 see = "sim::combat::forms::deflection"
-applies = ["spell:FORM_SABER_II_MAKASHI"]
 
 [soresu]
 title = "Soresu (Form III)"
 summary = """
-Soresu is the Resilience Form. A character using Soresu gains
-+{forms.soresu.defence_target:bare} Defense against its current target. The
-character also gains +{forms.soresu.deflection:bare} to blaster bolt
-deflection. The critical threat range of the character's weapons shrinks by
-{forms.soresu.threat:bare}.
-"""
-detail = """
-The critical threat range is the set of attack rolls that can score a
-critical hit. Soresu never shrinks it below a natural 20.
+Grants +{forms.soresu.defence_target:bare} Defense against your current
+target and +{forms.soresu.deflection:bare} to blaster deflection. Shrinks
+your critical threat range by {forms.soresu.threat:bare} (never below a
+natural 20).
 """
 applies = ["spell:FORM_SABER_III_SORESU"]
 
@@ -102,92 +89,79 @@ applies = ["spell:FORM_SABER_III_SORESU"]
 name = "Soresu Defense"
 value = 2
 range = [-20, 20]
-summary = "A character using Soresu gains +{forms.soresu.defence_target:bare} Defense against its current target."
+summary = "Grants +{forms.soresu.defence_target:bare} Defense against your current target."
 source = "TSL's executable"
 see = "sim::combat::forms::defence"
-applies = ["spell:FORM_SABER_III_SORESU"]
 
 [soresu.threat]
 name = "Soresu Threat Range"
 type = "u8"
 value = 1
 range = [0, 19]
-summary = "The critical threat range of a character using Soresu shrinks by {forms.soresu.threat:bare}."
+summary = "Shrinks critical threat range by {forms.soresu.threat:bare}."
 source = "TSL's executable"
 see = "sim::combat::forms::weapon"
-applies = ["spell:FORM_SABER_III_SORESU"]
 
 [soresu.deflection]
 name = "Soresu Bolt Deflection"
 type = "i8"
 value = 4
 range = [-20, 20]
-summary = "A character using Soresu gains +{forms.soresu.deflection:bare} to blaster bolt deflection."
+summary = "Grants +{forms.soresu.deflection:bare} to blaster bolt deflection."
 source = "TSL's executable"
 see = "sim::combat::forms::deflection"
-applies = ["spell:FORM_SABER_III_SORESU"]
 
 [ataru]
 title = "Ataru (Form IV)"
 summary = """
-Ataru is the Aggression Form. A character using Ataru gains
-+{forms.ataru.defence_target:bare} Defense against its current target. The
-character suffers a {forms.ataru.defence_others:bare} penalty to Defense
-against every other attacker. The character also suffers a
-{forms.ataru.deflection:bare} penalty to blaster bolt deflection. The
-critical threat range of the character's weapons grows by
-{forms.ataru.threat:bare}.
+Grants +{forms.ataru.defence_target:bare} Defense against your current
+target and +{forms.ataru.threat:bare} to critical threat range, at
+{forms.ataru.defence_others:bare} Defense against other attackers and
+{forms.ataru.deflection:bare} to blaster deflection.
 """
-detail = "Ataru never makes every attack roll a critical threat."
 applies = ["spell:FORM_SABER_IV_ATARU"]
 
 [ataru.defence_target]
 name = "Ataru Defense"
 value = 3
 range = [-20, 20]
-summary = "A character using Ataru gains +{forms.ataru.defence_target:bare} Defense against its current target."
+summary = "Grants +{forms.ataru.defence_target:bare} Defense against your current target."
 source = "TSL's executable"
 see = "sim::combat::forms::defence"
-applies = ["spell:FORM_SABER_IV_ATARU"]
 
 [ataru.defence_others]
 name = "Ataru Defense Penalty"
 value = -2
 range = [-20, 20]
-summary = "A character using Ataru suffers a {forms.ataru.defence_others:bare} penalty to Defense against every attacker except its current target."
+summary = "Inflicts {forms.ataru.defence_others:bare} Defense against attackers other than your current target."
 source = "TSL's executable"
 see = "sim::combat::forms::defence"
-applies = ["spell:FORM_SABER_IV_ATARU"]
 
 [ataru.threat]
 name = "Ataru Threat Range"
 type = "u8"
 value = 1
 range = [0, 19]
-summary = "The critical threat range of a character using Ataru grows by {forms.ataru.threat:bare}."
+summary = "Widens critical threat range by {forms.ataru.threat:bare}."
 source = "TSL's executable"
 see = "sim::combat::forms::weapon"
-applies = ["spell:FORM_SABER_IV_ATARU"]
 
 [ataru.deflection]
 name = "Ataru Bolt Deflection"
 type = "i8"
 value = -4
 range = [-20, 20]
-summary = "A character using Ataru suffers a {forms.ataru.deflection:bare} penalty to blaster bolt deflection."
+summary = "Inflicts {forms.ataru.deflection:bare} to blaster bolt deflection."
 source = "TSL's executable"
 see = "sim::combat::forms::deflection"
-applies = ["spell:FORM_SABER_IV_ATARU"]
 
 [shien]
 title = "Shien (Form V)"
 summary = """
-Shien is the Perseverance Form. A character using Shien gains
-+{forms.shien.to_hit:bare} to attack and +{forms.shien.deflection:bare} to
-blaster bolt deflection. The character suffers a
-{forms.shien.defence_target:bare} penalty to Defense against its current
-target. The critical multiplier of the character's weapons rises by
-{forms.shien.crit_mult:bare}.
+Grants +{forms.shien.to_hit:bare} to hit, +{forms.shien.deflection:bare} to
+blaster deflection, and +{forms.shien.crit_mult:bare} to critical
+multiplier, at {forms.shien.defence_target:bare} Defense against your
+current target.
 """
 applies = ["spell:FORM_SABER_V_SHIEN"]
 
@@ -195,19 +169,17 @@ applies = ["spell:FORM_SABER_V_SHIEN"]
 name = "Shien Attack Bonus"
 value = 2
 range = [-20, 20]
-summary = "A character using Shien gains +{forms.shien.to_hit:bare} to attack."
+summary = "Grants +{forms.shien.to_hit:bare} to hit."
 source = "TSL's executable"
 see = "sim::combat::forms::to_hit"
-applies = ["spell:FORM_SABER_V_SHIEN"]
 
 [shien.defence_target]
 name = "Shien Defense Penalty"
 value = -5
 range = [-20, 20]
-summary = "A character using Shien suffers a {forms.shien.defence_target:bare} penalty to Defense against its current target."
+summary = "Inflicts {forms.shien.defence_target:bare} Defense against your current target."
 source = "TSL's executable"
 see = "sim::combat::forms::defence"
-applies = ["spell:FORM_SABER_V_SHIEN"]
 
 [shien.crit_mult]
 name = "Shien Critical Multiplier"
@@ -215,29 +187,25 @@ type = "u8"
 value = 1
 unit = "×"
 range = [0, 5]
-summary = "The critical multiplier of a character using Shien rises by {forms.shien.crit_mult:bare}. A critical hit by the character then deals that many more times the normal damage."
+summary = "Raises critical hit multiplier by +{forms.shien.crit_mult:bare}."
 source = "TSL's executable"
 see = "sim::combat::forms::weapon"
-applies = ["spell:FORM_SABER_V_SHIEN"]
 
 [shien.deflection]
 name = "Shien Bolt Deflection"
 type = "i8"
 value = 2
 range = [-20, 20]
-summary = "A character using Shien gains +{forms.shien.deflection:bare} to blaster bolt deflection."
+summary = "Grants +{forms.shien.deflection:bare} to blaster bolt deflection."
 source = "TSL's executable"
 see = "sim::combat::forms::deflection"
-applies = ["spell:FORM_SABER_V_SHIEN"]
 
 [niman]
 title = "Niman (Form VI)"
 summary = """
-Niman is the Moderation Form. A character using Niman gains
-+{forms.niman.to_hit:bare} to attack, +{forms.niman.defence:bare} Defense
-against every attacker and +{forms.niman.deflection:bare} to blaster bolt
-deflection. In combat, the character's Force points regenerate at
-{forms.niman.fp_base:bare} times the rate at which they regenerate out of
+Grants +{forms.niman.to_hit:bare} to hit, +{forms.niman.defence:bare}
+Defense, +{forms.niman.deflection:bare} to blaster deflection, and
+{forms.niman.fp_base:bare}× out-of-combat Force regeneration while in
 combat.
 """
 applies = ["spell:FORM_SABER_VI_NIMAN"]
@@ -246,49 +214,43 @@ applies = ["spell:FORM_SABER_VI_NIMAN"]
 name = "Niman Attack Bonus"
 value = 1
 range = [-20, 20]
-summary = "A character using Niman gains +{forms.niman.to_hit:bare} to attack."
+summary = "Grants +{forms.niman.to_hit:bare} to hit."
 source = "TSL's executable"
 see = "sim::combat::forms::to_hit"
-applies = ["spell:FORM_SABER_VI_NIMAN"]
 
 [niman.defence]
 name = "Niman Defense"
 value = 1
 range = [-20, 20]
-summary = "A character using Niman gains +{forms.niman.defence:bare} Defense against every attacker."
+summary = "Grants +{forms.niman.defence:bare} Defense."
 source = "TSL's executable"
 see = "sim::combat::forms::defence"
-applies = ["spell:FORM_SABER_VI_NIMAN"]
 
 [niman.deflection]
 name = "Niman Bolt Deflection"
 type = "i8"
 value = 1
 range = [-20, 20]
-summary = "A character using Niman gains +{forms.niman.deflection:bare} to blaster bolt deflection."
+summary = "Grants +{forms.niman.deflection:bare} to blaster bolt deflection."
 source = "TSL's executable"
 see = "sim::combat::forms::deflection"
-applies = ["spell:FORM_SABER_VI_NIMAN"]
 
 [niman.fp_base]
 name = "Niman Force Regeneration"
 value = 0.3
 unit = "×"
 range = [0, 2]
-summary = "In combat, the Force points of a character using Niman regenerate at {forms.niman.fp_base:bare} times the rate at which they regenerate out of combat."
+summary = "In combat, Force points regenerate at {forms.niman.fp_base:bare}× your out-of-combat rate."
 source = "TSL's executable (`HandleFPRegeneration`)"
 see = "sim::combat::forms::fp_base"
-applies = ["spell:FORM_SABER_VI_NIMAN"]
 
 [juyo]
 title = "Juyo (Form VII)"
 summary = """
-Juyo is the Ferocity Form. A character using Juyo makes
-{forms.juyo.extra_attacks:bare} extra attack each round. The character gains
-+{forms.juyo.confirm:bare} to the roll that confirms a critical hit. The
-character suffers a {forms.juyo.defence_target:bare} penalty to Defense
-against its current target, and a {forms.juyo.defence_others:bare} penalty
-to Defense against every other attacker.
+Grants +{forms.juyo.extra_attacks:bare} extra main-hand attack per round
+and +{forms.juyo.confirm:bare} to critical confirmation rolls, at
+{forms.juyo.defence_target:bare} Defense against your current target and
+{forms.juyo.defence_others:bare} against other attackers.
 """
 applies = ["spell:FORM_SABER_VII_JUYO"]
 
@@ -296,60 +258,51 @@ applies = ["spell:FORM_SABER_VII_JUYO"]
 name = "Juyo Defense Penalty against the Target"
 value = -2
 range = [-20, 20]
-summary = "A character using Juyo suffers a {forms.juyo.defence_target:bare} penalty to Defense against its current target."
+summary = "Inflicts {forms.juyo.defence_target:bare} Defense against your current target."
 source = "TSL's executable"
 see = "sim::combat::forms::defence"
-applies = ["spell:FORM_SABER_VII_JUYO"]
 
 [juyo.defence_others]
 name = "Juyo Defense Penalty"
 value = -4
 range = [-20, 20]
-summary = "A character using Juyo suffers a {forms.juyo.defence_others:bare} penalty to Defense against every attacker except its current target."
+summary = "Inflicts {forms.juyo.defence_others:bare} Defense against attackers other than your current target."
 source = "TSL's executable"
 see = "sim::combat::forms::defence"
-applies = ["spell:FORM_SABER_VII_JUYO"]
 
 [juyo.confirm]
 name = "Juyo Critical Hit Bonus"
 value = 4
 range = [-20, 20]
-summary = "A character using Juyo gains +{forms.juyo.confirm:bare} to the roll that confirms a critical hit."
+summary = "Grants +{forms.juyo.confirm:bare} to critical confirmation rolls."
 source = "TSL's executable"
 see = "sim::combat::forms::confirm"
-applies = ["spell:FORM_SABER_VII_JUYO"]
 
 [juyo.extra_attacks]
 name = "Juyo Extra Attack"
 value = 1
 range = [0, 5]
-summary = "A character using Juyo makes {forms.juyo.extra_attacks:bare} extra attack each round with the weapon in the main hand."
-detail = """
-In kjk, a character attacks whenever the player swings, not once per round.
-Instead of an extra swing, each extra attack per round adds the damage of
-one more attack to every weapon hit the character makes.
-"""
+summary = "Adds +{forms.juyo.extra_attacks:bare} extra main-hand attack per round."
+detail = "In kjk, each extra attack per round adds one extra attack's damage to every weapon hit."
 source = "TSL's executable"
 see = "sim::combat::forms::extra_attacks"
-applies = ["spell:FORM_SABER_VII_JUYO"]
 
 [focus]
 title = "Force Focus (Force Form I)"
-summary = "A character using Force Focus regenerates Force points faster, both in and out of combat. The Form adds {forms.focus.fp_bonus:bare} to the regeneration rate."
+summary = "Adds +{forms.focus.fp_bonus:bare} to your Force regeneration rate (in and out of combat)."
 applies = ["spell:FORM_FORCE_I_FOCUS"]
 
 [focus.fp_bonus]
 name = "Force Focus Regeneration"
 value = 0.5
 range = [0, 5]
-summary = "Force Focus adds {forms.focus.fp_bonus:bare} to the rate at which the character's Force points regenerate."
+summary = "Adds +{forms.focus.fp_bonus:bare} to Force regeneration."
 source = "TSL's executable (`HandleFPRegeneration`)"
 see = "sim::combat::forms::fp_bonus"
-applies = ["spell:FORM_FORCE_I_FOCUS"]
 
 [affinity]
 title = "Force Affinity (Force Form III)"
-summary = "In combat, the Force points of a character using Force Affinity regenerate at {forms.affinity.fp_base:bare} times the rate at which they regenerate out of combat."
+summary = "In combat, Force points regenerate at {forms.affinity.fp_base:bare}× your out-of-combat rate."
 applies = ["spell:FORM_FORCE_III_AFFINITY"]
 
 [affinity.fp_base]
@@ -357,18 +310,15 @@ name = "Force Affinity Regeneration"
 value = 0.6
 unit = "×"
 range = [0, 2]
-summary = "In combat, the Force points of a character using Force Affinity regenerate at {forms.affinity.fp_base:bare} times the rate at which they regenerate out of combat."
+summary = "In combat, Force points regenerate at {forms.affinity.fp_base:bare}× your out-of-combat rate."
 source = "TSL's executable (`HandleFPRegeneration`)"
 see = "sim::combat::forms::fp_base"
-applies = ["spell:FORM_FORCE_III_AFFINITY"]
 
 [costs]
 title = "Force Potency and Force Mastery (Force Forms II and IV)"
 summary = """
-A character using Force Potency or Force Mastery spends
-{forms.costs.multiplier:bare} times the normal Force points on every Force
-power, rounded down. Each Force power decides for itself how much stronger
-it becomes under these Forms.
+Multiplies Force power costs by {forms.costs.multiplier:bare}× (rounded
+down) while boosting your Force powers.
 """
 applies = ["spell:FORM_FORCE_II_POTENCY", "spell:FORM_FORCE_IV_MASTERY"]
 
@@ -377,7 +327,6 @@ name = "Potency and Mastery Cost"
 value = 1.2
 unit = "×"
 range = [0, 5]
-summary = "A character using Force Potency or Force Mastery spends {forms.costs.multiplier:bare} times the normal Force points on every Force power."
+summary = "Multiplies Force power costs by {forms.costs.multiplier:bare}×."
 source = "TSL's executable (`CSWSpell::GetAdjustedForcePoints`)"
 see = "sim::combat::forms::cost"
-applies = ["spell:FORM_FORCE_II_POTENCY", "spell:FORM_FORCE_IV_MASTERY"]

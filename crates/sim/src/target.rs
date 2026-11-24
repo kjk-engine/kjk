@@ -804,6 +804,10 @@ const TRAP_CLEAR_M: f32 = rules::targeting::walk::TRAP_CLEAR_M;
 const TRAP_ARRIVE_M: f32 = rules::targeting::walk::TRAP_ARRIVE_M;
 /// How far (metres) a target may move before its walk is planned again.
 const MOVED: f32 = rules::targeting::walk::MOVED;
+/// The rings round a target a walk no way leads to the front of looks for
+/// a stand on (shares of its arrival), and how many places to a ring.
+const ROUND_RINGS: [f32; 3] = rules::targeting::walk::ROUND_RINGS;
+const ROUND_DIRECTIONS: u8 = rules::targeting::walk::ROUND_DIRECTIONS;
 
 /// A walk to a target to do a choice there (T16, T17): a walker to a point
 /// before the target inside the choice's reach, or, where no route leads
@@ -909,10 +913,57 @@ impl Walk {
             ],
             1.0 / UNIT,
         );
-        self.walker = crate::walk::Walker::new([goal[0], goal[1], goal[2] - crate::motion::SOLE_Z]);
-        self.direct =
-            crate::walk::route_ways(level, player.origin, self.walker.goal, ways).is_none();
+        let line = [goal[0], goal[1], goal[2] - crate::motion::SOLE_Z];
+        let routed =
+            |goal: Vec3| crate::walk::route_ways(level, player.origin, goal, ways).is_some();
+        let goal = if routed(line) {
+            Some(line)
+        } else {
+            self.round_stand(level, player, spot, &routed)
+        };
+        self.direct = goal.is_none();
+        self.walker = crate::walk::Walker::new(goal.unwrap_or(line));
         self.toward = to;
+    }
+
+    /// Where a walk heads when no way leads to the stand before its target
+    /// (the target stands deep behind a counter, as Mika Dorin does at the
+    /// back of Dreshdae's cantina bar on Korriban): the place round the target
+    /// nearest the player that a way leads to, on rings `ROUND_RINGS` of the
+    /// arrival out from it, `ROUND_DIRECTIONS` places to a ring. Arrived
+    /// there, the walk is near enough to do the choice. Only a talk and a
+    /// placeable's use look round: any other walk (a door, a lock, a mine)
+    /// heads straight at its stand. None when no place round it is led to.
+    fn round_stand(
+        &self,
+        level: &Level,
+        player: &crate::motion::MotionState,
+        spot: Spot,
+        routed: &dyn Fn(Vec3) -> bool,
+    ) -> Option<Vec3> {
+        if !matches!(self.choice, Choice::Talk | Choice::Use) {
+            return None;
+        }
+        let feet = feet_of(player);
+        let mut stands: Vec<(f32, Vec3)> = ROUND_RINGS
+            .iter()
+            .flat_map(|share| {
+                (0..ROUND_DIRECTIONS).map(move |k| {
+                    let (sin, cos) =
+                        math::sin_cos_deg(360.0 * f32::from(k) / f32::from(ROUND_DIRECTIONS));
+                    let far = share * spot.within;
+                    [spot.at[0] + far * cos, spot.at[1] + far * sin, spot.at[2]]
+                })
+            })
+            .map(|at| (math::flat_distance(at, feet), at))
+            .collect();
+        stands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        stands.into_iter().find_map(|(_, at)| {
+            let origin = math::scale(at, 1.0 / UNIT);
+            let origin = [origin[0], origin[1], origin[2] - crate::motion::SOLE_Z];
+            let goal = crate::walk::on_floor(level, origin);
+            routed(goal).then_some(goal)
+        })
     }
 
     /// Whether the walk has come no nearer `spot` for a walker's stall

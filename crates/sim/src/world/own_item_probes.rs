@@ -223,7 +223,7 @@ fn carried_out() -> (&'static str, Result<String, String>) {
         feats: Default::default(),
         gender: 0,
         abilities: [10; 6],
-        player: true,
+        is_pc: true,
         tag: String::new(),
         tsl: true,
         locked: 0,

@@ -70,7 +70,7 @@ use crate::player::{
     BASE_SPEED, GRAVITY, HALF_WIDTH, SOLE_Z, STAND_HEIGHT, STEP_HEIGHT,
     WALKABLE_NORMAL_Z as WALK_NORMAL,
 };
-use crate::{CollisionWorld, Contents, DropIndex, Extents, Level, Trace, UNIT, trig};
+use crate::{CollisionWorld, Contents, DropIndex, Extents, Level, PERCH, Trace, UNIT, trig};
 
 /// How a level of reach moves: `ledge` is how high above the floor the
 /// feet can get onto something, `distance` how far a jump carries.
@@ -151,11 +151,6 @@ pub const IN_BOUNDS_UP: f32 = 0.35;
 pub const IN_BOUNDS_ACROSS: f32 = 1.0;
 /// A spot the player's box cannot rise this far from is under a roof.
 const ROOF: f32 = 10.0;
-/// How high over the walkable walkmesh an unroofed spot is still a perch:
-/// a plain jump's reach (1.68 m) from a floor that falls away beneath
-/// where it lands. A hull or a roof over a deck (the Endar Spire's, 2.7 m
-/// and more) is outside.
-const PERCH: f32 = 2.5;
 
 impl Default for Config {
     fn default() -> Config {

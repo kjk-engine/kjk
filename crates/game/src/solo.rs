@@ -116,6 +116,11 @@ pub struct Solo {
     client_end: Loopback,
     /// The level the client builds when asked (the host's own).
     level: Level,
+    /// The host committed an install whose level its own client was not
+    /// given yet. The client gets it once it has heard of the install. A
+    /// large install message, such as a whole snapshot after a hold, can
+    /// reach the client only after the host committed (issue 643).
+    level_owed: bool,
     /// The angles of the last command made: a seat with nothing to press
     /// keeps looking there.
     angles: [i16; 3],
@@ -460,6 +465,7 @@ impl Solo {
             client,
             client_end,
             level: level.clone(),
+            level_owed: false,
             angles: [0; 3],
             net,
             address,
@@ -528,6 +534,11 @@ impl Solo {
                     _ => {}
                 }
             }
+            if self.level_owed && self.client.awaits_level() {
+                self.level_owed = false;
+                self.client.provide_level(now, Ok(self.level.clone()));
+                moved = true;
+            }
             while let Some(event) = hosted.server.poll_event() {
                 match event {
                     ServerEvent::Asked { peer } => {
@@ -581,13 +592,17 @@ impl Solo {
 
     /// Whether a resume waits for the next tick: while a break holds, the
     /// host steps for it (its caller's or the host's ends the break,
-    /// another's is told no, `Notice::NotYourBreak`).
+    /// another's is told no, `Notice::NotYourBreak`). A leader or solo mode
+    /// change from the first seat counts too (`sim::party::passes_break`):
+    /// the host steps one tick for it, and the break holds again after it.
     pub fn resume_waiting(&self) -> bool {
         lock(&self.hosted)
             .server
             .waiting()
             .iter()
-            .any(|(_, action)| *action == Action::Resume)
+            .any(|(seat, action)| {
+                *action == Action::Resume || sim::party::passes_break(*seat, action)
+            })
     }
 
     /// Whether any player's action waits for the next tick (an item
@@ -616,7 +631,8 @@ impl Solo {
     /// The commands the server has for `tick`, by seat, with the players'
     /// actions that came since the last tick. A tick the break `paused_by`
     /// holds after (no resume from its caller or the host) takes only the
-    /// resumes: the rest wait for the tick that ends it.
+    /// resumes and the first seat's leader and solo mode changes
+    /// (`sim::party::passes_break`): the rest wait for the tick that ends it.
     pub fn commands_for(&mut self, tick: u64, paused_by: Option<Seat>) -> TickInput {
         let mut hosted = lock(&self.hosted);
         let mut input = hosted.server.commands_for(tick);
@@ -628,7 +644,7 @@ impl Solo {
             })
         });
         for (seat, action) in actions {
-            if ends || action == Action::Resume {
+            if ends || action == Action::Resume || sim::party::passes_break(seat, &action) {
                 input.act(seat, action);
             } else {
                 self.after_break.push((seat, action));
@@ -796,6 +812,7 @@ impl Solo {
     /// held for a break's end name the old module's objects: dropped.
     pub fn installing(&mut self, request: &session::Request) {
         self.after_break.clear();
+        self.level_owed = false;
         lock(&self.hosted).server.installing(InstallRequest {
             game: request.game.clone(),
             module: request.module.clone(),
@@ -808,6 +825,8 @@ impl Solo {
 
     /// The host committed `level`'s install (`after`): the client commits
     /// the same level itself, and once it has loaded the world resumes.
+    /// The client is given the level once it has heard of the install,
+    /// in this pump or a later one (`level_owed`).
     pub fn installed(&mut self, announcement: Announcement, after: &Snapshot, level: &Level) {
         let now = self.now();
         self.level = level.clone();
@@ -815,8 +834,8 @@ impl Solo {
             .server
             .installed(now, announcement, after);
         self.log_hash(after);
+        self.level_owed = true;
         self.pump();
-        self.client.provide_level(now, Ok(level.clone()));
         // Loaded here; `pump` resumes once the other players are too.
         self.pump();
     }
@@ -865,6 +884,7 @@ impl Solo {
 
     /// The module's plan failed: the world goes on where it stopped.
     pub fn abandon(&mut self) {
+        self.level_owed = false;
         let now = self.now();
         lock(&self.hosted).server.abandon_install(now);
         self.pump();
@@ -961,4 +981,107 @@ struct Player {
     every: u8,
     link: net::link::Stats,
     stats: net::session::server::ConnectionStats,
+}
+
+/// A reload whose install message reaches the host's own client only after
+/// the host committed it (issue 643). The party fell and the lost box held
+/// the world, so the install went out as a whole snapshot, which came in
+/// over several pumps. The client must still get the level, load, and let
+/// the world go on.
+#[cfg(feature = "probes")]
+pub fn reload_probes() -> sim::probe::Checks {
+    vec![("reload_message_late", reload_message_late())]
+}
+
+#[cfg(feature = "probes")]
+fn reload_message_late() -> Result<String, String> {
+    use sim::{SimWorld, StepReason};
+
+    /// Pumps given to the client to load before the world counts as stuck.
+    const PUMPS: usize = 200;
+    let arena = Level::arena();
+    let ground = sim::determinism::proving_ground();
+    let rate = TickRate::default();
+    let mut world = SimWorld::new(sim::WorldConfig::one_seat(), arena.clone())
+        .map_err(|error| error.to_string())?;
+    let start = world.snapshot();
+    let mut solo = Solo::new(
+        &arena,
+        LevelRequest::Stage(arena.id()),
+        rate,
+        &start,
+        None,
+        &std::env::temp_dir(),
+    )?;
+    let request = session::Request {
+        game: "kjk".into(),
+        module: sim::determinism::GROUND.into(),
+        arrival: None,
+        seats: 1,
+        players: 1,
+        collision: session::collision(),
+    };
+    let input = TickInput::default();
+    // The host steps `ticks` ticks, then pumps until its client plays: how
+    // many pumps that took, if it did.
+    let run = |world: &mut SimWorld, solo: &mut Solo, ticks: u64| {
+        for _ in 0..ticks {
+            let tick = world.snapshot().tick + 1;
+            let stepped = sim::step(world, tick, &input, rate.msec(tick), StepReason::Authority);
+            solo.stepped(&input, &Arc::new(stepped));
+        }
+        (1..=PUMPS).find(|_| {
+            solo.hold(false);
+            solo.pump();
+            solo.playing()
+        })
+    };
+    let install = |world: &mut SimWorld| {
+        let after = world
+            .install(ground.clone(), None)
+            .map_err(|error| error.to_string())?;
+        let announcement =
+            Announcement::new(&ground, None, &after).ok_or("the proving ground is not a module")?;
+        Ok::<_, String>((after, announcement))
+    };
+    run(&mut world, &mut solo, 0).ok_or("the client never played")?;
+    run(&mut world, &mut solo, 10).ok_or("the client stopped playing")?;
+    solo.installing(&request);
+    let (after, announcement) = install(&mut world)?;
+    solo.installed(announcement, &after, &ground);
+    run(&mut world, &mut solo, 0).ok_or("the client never loaded the first install")?;
+    run(&mut world, &mut solo, 10).ok_or("the client stopped playing")?;
+    // The reload: a menu holds the world, the host plans the install, and
+    // its message to the client is held back until the host has committed.
+    solo.hold(true);
+    solo.pump();
+    solo.level_owed = false;
+    let now = solo.now();
+    let late: Vec<net::Datagram> = {
+        let mut hosted = lock(&solo.hosted);
+        hosted.server.installing(InstallRequest {
+            game: request.game.clone(),
+            module: request.module.clone(),
+            arrival: String::new(),
+            seats: 1,
+            players: 1,
+        });
+        hosted.route(now);
+        drop(hosted);
+        std::iter::from_fn(|| solo.client_end.recv_at(now)).collect()
+    };
+    let (after, announcement) = install(&mut world)?;
+    solo.installed(announcement, &after, &ground);
+    for datagram in &late {
+        solo.client
+            .receive(datagram.at, datagram.from, &datagram.bytes);
+    }
+    let pumps = run(&mut world, &mut solo, 0);
+    sim::probe::check(
+        !late.is_empty() && pumps.is_some(),
+        format!(
+            "{} datagrams of the install held back; the client played again after {pumps:?} pumps",
+            late.len()
+        ),
+    )
 }

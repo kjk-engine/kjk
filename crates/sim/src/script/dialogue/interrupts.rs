@@ -84,7 +84,11 @@ impl Step<'_> {
             }
             None => {}
         }
-        let pc = party_pc(&view.pcs(&self.state.party), self.lent(), speaker);
+        let pc = party_pc(
+            &view.main_characters(&self.state.party),
+            self.lent(),
+            speaker,
+        );
         let talk = &mut self.state.talk;
         let Some(at) = talk.index(id) else {
             return false;

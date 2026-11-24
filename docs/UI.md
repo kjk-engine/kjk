@@ -60,7 +60,9 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`skin::RENAMED`: the main menu, the party selection, the advanced
   graphics options). Screens are written for KOTOR 2's controls. A layout of the
   campaign's own world stays the campaign's, drawn with its art
-  (`skin::own`: the galaxy map, whose buttons are its planets). A layout drawn under
+  (`skin::own`). The galaxy map is one, because its buttons are its
+  planets. The loading screen is the other, because KOTOR 1's pictures have
+  a slot for its bar. A layout drawn under
   a screen's (the bar) is read from where the screen's came from.
 - A layout from an override folder (the game's own or a Workshop item's)
   is a mod's, unless it is one of the files Aspyr's update ships there
@@ -103,8 +105,9 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
 - The inventory's and the store's filters sort items by kind
   (`vm::ItemKind`, from the template). An item row shows its icon in a
   square beside its name, as in KOTOR 2.
-- The main menu and loading screen show KOTOR 1's logos (the main menu
-  KOTOR 2's own in a KOTOR 2 campaign).
+- The main menu shows KOTOR 1's logo (KOTOR 2's own in a KOTOR 2
+  campaign). The loading screen is the campaign's own layout, so it shows
+  the campaign's own logo.
 - The main menu is in the game played last (`game::menu_figure`): the
   newer of the newest save (one's own or a copy of a host's) and the note
   every machine keeps beside the saves of the module it last played and
@@ -309,7 +312,8 @@ the Players and Game panels and the description strip are copies of the
 panel behind the companion's name, the player portraits are copies of the
 companion portraits, and the saber rules and collision rows are copies of
 the Add button. The companions keep the layout's own portraits, set in one
-row of at most ten. Every piece is KOTOR 2's own art. A companion the story
+row with the main character. The row holds up to twelve companions and the
+main character. Every piece is KOTOR 2's own art. A companion the story
 took away shows the layout's "no companion" art in place of the portrait,
 as KOTOR 2's party selection shows one who is not available. The player
 slots are the screen's main part, with larger portraits than the

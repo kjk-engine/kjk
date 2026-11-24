@@ -10,7 +10,7 @@ pub mod camera_room_probes;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::FRAC_PI_2;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 
 use asset_odyssey::model::Matrix;
 use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
@@ -104,6 +104,10 @@ pub(crate) struct Culling {
     /// The rooms the VIS and the fog pick, before the occlusion queries
     /// (`room_queries`) leave out those hidden behind walls.
     picked: Vec<bool>,
+    /// The room the controlled character (the one the local seat's body
+    /// is) last stood in. It stays when that character steps off every
+    /// floor, as the original keeps its last room.
+    controlled_room: Option<usize>,
     /// What the rooms give a fight's light (its room, the rooms it does
     /// not reach), worked out when the scene is spawned.
     pub(crate) fight: crate::fight_rooms::FightRooms,
@@ -122,8 +126,9 @@ impl Culling {
     /// a floor whose model's bounds, grown by `EYE_ROOM_MARGIN`, hold it,
     /// so a camera inside the wall between two rooms is in both. A room
     /// that is only seen (a sky) does not count, because its bounds can
-    /// hold the whole area. A room whose walkmesh did not read counts. Outside every room it is in none (`None`), and
-    /// then every room shows.
+    /// hold the whole area. A room whose walkmesh did not read counts.
+    /// Outside every room it is in none (`None`), and then every room
+    /// shows.
     fn eye_rooms(&self, rooms: &[RoomView], eye: Vec3) -> Option<Vec<usize>> {
         if let Some(room) = room_at(rooms, eye.x, eye.y) {
             return Some(vec![room]);
@@ -144,8 +149,39 @@ impl Culling {
         (!held.is_empty()).then_some(held)
     }
 
+    /// Remembers the room the controlled character stands in, `room` of
+    /// `count` rooms. A controlled character off every floor (`None`) or a
+    /// room past the scene's last one (left over from the scene before)
+    /// changes nothing. Returns whether the remembered room changed.
+    fn see_controlled(&mut self, room: Option<usize>, count: usize) -> bool {
+        let changed = room.is_some_and(|room| room < count && self.controlled_room != Some(room));
+        if changed {
+            self.controlled_room = room;
+        }
+        changed
+    }
+
+    /// The rooms whose lists decide what shows: the rooms the camera is in
+    /// (`eye_rooms`, `camera`) and the room the controlled character last
+    /// stood in. The original picks the room from the controlled character
+    /// alone. The camera here can stand further away, in a room that the
+    /// controlled character's room does not list, so the camera's room
+    /// counts too. The controlled character's room always counts, so a
+    /// camera in a neighbouring room never hides what the controlled
+    /// character's room lists. A camera in no room (a cutscene or a free
+    /// camera) gives `None`, and then every room shows.
+    fn shown_from(&self, camera: Option<Vec<usize>>) -> Option<Vec<usize>> {
+        let mut here = camera?;
+        if let Some(controlled) = self.controlled_room
+            && !here.contains(&controlled)
+        {
+            here.push(controlled);
+        }
+        Some(here)
+    }
+
     /// Whether room `room` shows to an eye at `eye` (game space) standing
-    /// in the rooms `here` (`eye_rooms`). The rooms linked with any room of
+    /// in the rooms `here` (`shown_from`). The rooms linked with any room of
     /// `here` show (`fight_rooms::linked`). That covers the rooms either
     /// VIS lists and the rooms that are only seen, such as the Ebon Hawk's
     /// space outside its cockpit (003eboq). In an area with fog, any room some part of
@@ -247,16 +283,16 @@ pub fn local_triangles(ir: &asset_odyssey::model::ModelIr) -> Vec<[Vec3; 3]> {
         .collect()
 }
 
-/// The room the player stands in (`room_at` under its feet), found each
-/// frame; `None` off every floor.
+/// The room the controlled character stands in (`room_at` under its
+/// feet), found each frame; `None` off every floor.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) struct PlayerRoom(pub Option<usize>);
+pub(crate) struct ControlledRoom(pub Option<usize>);
 
-/// Where the player stands (game space, metres): its feet as the sim
-/// presents them, else (the viewers, no sim) on the floor under the
-/// camera (the eye height under it off every floor).
+/// Where the controlled character stands (game space, metres): its feet
+/// as the sim presents them, else (the viewers, no sim) on the floor
+/// under the camera (the eye height under it off every floor).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
-pub(crate) struct PlayerAt(pub Option<Vec3>);
+pub(crate) struct ControlledAt(pub Option<Vec3>);
 
 /// What a scene spawned at its top level: despawned (with everything
 /// under it) when the next scene replaces it.
@@ -347,8 +383,8 @@ impl Plugin for ScenePlugin {
                 .before(apply_camera_request),
         )
         .init_resource::<Culling>()
-        .init_resource::<PlayerRoom>()
-        .init_resource::<PlayerAt>()
+        .init_resource::<ControlledRoom>()
+        .init_resource::<ControlledAt>()
         .init_resource::<SceneLights>()
         .init_resource::<CarriedLights>()
         .init_resource::<crate::blaster_view::ShotLights>()
@@ -363,7 +399,7 @@ impl Plugin for ScenePlugin {
                 apply_camera_request,
                 fly,
                 cull_rooms.in_set(RoomsCulled).before(console::ConsoleQueue),
-                find_player,
+                find_controlled,
                 pick_lights
                     .in_set(LightsPicked)
                     .before(console::ConsoleQueue),
@@ -774,6 +810,18 @@ pub(crate) fn fit_to_gpu(texture: &TextureIr, name: Option<&str>) -> Option<Text
     Some(fitted)
 }
 
+/// The anisotropic filtering every texture uploaded from now on samples
+/// with (the options' Anisotropic Filtering, `Settings::anisotropy`). A
+/// texture keeps the filtering it was uploaded with, so a change applies
+/// when the next area uploads its textures.
+static ANISOTROPY: AtomicU16 = AtomicU16::new(16);
+
+/// Sets the anisotropic filtering of textures uploaded from now on: 1
+/// (off), 2, 4, 8 or 16.
+pub(crate) fn set_anisotropy(samples: u16) {
+    ANISOTROPY.store(samples, Ordering::Relaxed);
+}
+
 /// `texture` for any material: a DXT1 with holes is decoded (its holes
 /// opaque black), as only the scene's material samples it as the games did.
 pub(crate) fn image(texture: &TextureIr) -> Image {
@@ -884,9 +932,10 @@ fn upload(texture: &TextureIr) -> Image {
         mag_filter: ImageFilterMode::Linear,
         min_filter: ImageFilterMode::Linear,
         mipmap_filter: ImageFilterMode::Linear,
-        // 16x anisotropic filtering keeps floors and walls sharp when the
-        // camera sees them at a shallow angle.
-        anisotropy_clamp: 16,
+        // Anisotropic filtering keeps floors and walls sharp when the
+        // camera sees them at a shallow angle (the options' Anisotropic
+        // Filtering, 16x unless the player chose less).
+        anisotropy_clamp: ANISOTROPY.load(Ordering::Relaxed),
         ..default()
     });
     image
@@ -1550,6 +1599,13 @@ impl<'t> Spawner<'t> {
                     .lamp_texels(switched > 0.0)
                     .vertex_light(light.is_some())
                     .culled(culled)
+                    .ranked(match (is_room, surface) {
+                        (true, Surface::OpaqueAlpha) => texture
+                            .and_then(|name| self.irs.get(name))
+                            .map_or(0.0, |texture| 1.0 - texture.sort_key().clamp(0.0, 1.0)),
+                        (false, Surface::OpaqueAlpha) => crate::material::OBJECTS_RANK,
+                        _ => 0.0,
+                    })
                 };
                 let material = match whole {
                     Some(whole) => made(surface).whole_as(&made(whole)),
@@ -1854,6 +1910,11 @@ impl<'t> Spawner<'t> {
         let glow = list(material(&spec.glow, true, 1.0), false);
         let core = list(material(&spec.core, true, BLADE_CORE_GLOW), false);
         let trail_quads = list(material(&spec.trail_texture, false, 1.0), true);
+        let trail_core_name = crate::viewer_ja::second_stage(&spec.trail_texture);
+        let trail_core = self
+            .textures
+            .contains_key(trail_core_name.as_str())
+            .then(|| list(material(&trail_core_name, false, 1.0), true));
         if shipped.is_empty() {
             parts.push(glow.drawn());
             parts.push(core.drawn());
@@ -1861,6 +1922,9 @@ impl<'t> Spawner<'t> {
         let (origin, dir) = (Vec3::from_array(spec.origin), Vec3::from_array(spec.dir));
         if !spec.trail.is_empty() || spec.live {
             parts.push(trail_quads.drawn());
+            if let Some(core) = &trail_core {
+                parts.push(core.drawn());
+            }
         }
         commands
             .spawn((
@@ -1885,6 +1949,7 @@ impl<'t> Spawner<'t> {
                     period: spec.period,
                     trail: spec.trail.clone(),
                     trail_quads,
+                    trail_core,
                     trail_color: own.unwrap_or(spec.trail_color),
                     shown: spec.shown.clone(),
                     glow_empty: true,
@@ -1966,6 +2031,7 @@ pub(crate) fn spawn_scene(
         bounds,
         shown: Vec::new(),
         picked: Vec::new(),
+        controlled_room: None,
     };
     queries.reset(&culling.bounds);
     let (images, mut stores) = assets.split();
@@ -2446,15 +2512,15 @@ fn floor_at(rooms: &[RoomView], x: f32, y: f32) -> Option<(usize, f32)> {
     best
 }
 
-/// Where the player stands and the room it stands in: its body's feet in
-/// the presented snapshot (the own seat's, seat 0's without one), else the
-/// floor under the camera.
-fn find_player(
+/// Where the controlled character stands and the room it stands in: its
+/// body's feet in the presented snapshot (the own seat's, seat 0's
+/// without one), else the floor under the camera.
+fn find_controlled(
     scene: Option<Res<SceneContent>>,
     presented: Option<Res<crate::sim_host::PresentedSnapshot>>,
     seat: Option<Res<crate::sim_host::OwnSeat>>,
     cameras: Query<&Transform, crate::lifecycle_view::SceneCamera>,
-    (mut at, mut room): (ResMut<PlayerAt>, ResMut<PlayerRoom>),
+    (mut at, mut room): (ResMut<ControlledAt>, ResMut<ControlledRoom>),
 ) {
     let Some(scene) = scene else { return };
     let rooms = &scene.0.rooms;
@@ -2474,8 +2540,10 @@ fn find_player(
         Some(eye.with_z(floor))
     };
     let found = feet.or_else(under_eye);
-    if at.set_if_neq(PlayerAt(found)) || scene.is_changed() {
-        room.set_if_neq(PlayerRoom(found.and_then(|at| room_at(rooms, at.x, at.y))));
+    if at.set_if_neq(ControlledAt(found)) || scene.is_changed() {
+        room.set_if_neq(ControlledRoom(
+            found.and_then(|at| room_at(rooms, at.x, at.y)),
+        ));
     }
 }
 
@@ -2577,7 +2645,7 @@ fn cull_rooms(
     scene: Option<Res<SceneContent>>,
     cameras: Query<(Ref<Transform>, &bevy::camera::primitives::Frustum), With<FlyCamera>>,
     mut rooms: Query<(&RoomOf, &mut Visibility)>,
-    mut culling: ResMut<Culling>,
+    (mut culling, controlled): (ResMut<Culling>, Res<ControlledRoom>),
     mut occlusion: crate::room_queries::Occlusion,
     mut facts: ResMut<DumpFacts>,
     (casters, mut doors, mut exempt): (
@@ -2596,17 +2664,21 @@ fn cull_rooms(
         return;
     }
     let eye = game_to_bevy().inverse() * camera.translation;
-    let moved = camera.is_changed() || culling.picked.len() != all.len();
+    // `find_controlled` runs after this system, so a new scene's first frame
+    // still holds the room of the scene before.
+    let controlled_moved = !scene.is_changed() && culling.see_controlled(controlled.0, all.len());
+    let moved = camera.is_changed() || controlled_moved || culling.picked.len() != all.len();
     let current = moved.then(|| culling.eye_rooms(all, eye));
     let mut picked_changed = false;
     if let Some(current) = &current {
         let fog_far = scene.0.fog.as_ref().map_or(f32::INFINITY, |fog| fog.far);
+        let from = culling.shown_from(current.clone());
         let picked: Vec<bool> = (0..all.len())
-            .map(|index| culling.room_visible(all, current.as_deref(), eye, fog_far, index))
+            .map(|index| culling.room_visible(all, from.as_deref(), eye, fog_far, index))
             .collect();
         *exempt = (0..all.len())
             .map(|index| {
-                current.as_deref().is_none_or(|here| here.contains(&index))
+                from.as_deref().is_none_or(|here| here.contains(&index))
                     || crate::fight_rooms::seen_only(&all[index])
             })
             .collect();
@@ -3271,6 +3343,9 @@ struct Blade {
     period: f32,
     trail: Vec<crate::viewer::TrailKey>,
     trail_quads: QuadList,
+    /// The trail's second shader stage, which Jedi Academy draws untinted
+    /// as the white core of the trail.
+    trail_core: Option<QuadList>,
     trail_color: [f32; 3],
     /// Seconds of the period the blade is drawn in; empty for always.
     shown: Vec<(f32, f32)>,
@@ -3512,6 +3587,32 @@ pub(crate) fn blade_mesh(mut positions: Vec<[f32; 3]>, mut uvs: Vec<[f32; 2]>) -
 /// life and fading out over it, its texture sliding along as it ages.
 /// Coloured `color`; none when no segment shows.
 fn trail_quads(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Option<Quads> {
+    trail_quads_of(keys, at, |age| [color[0], color[1], color[2], 1.0 - age])
+}
+
+/// The trail's untinted second stage over the same segments (JA's
+/// `rgbGen identity`: white, with no fade of its own).
+fn trail_core_quads(keys: &[crate::viewer::TrailKey], at: f32) -> Option<Quads> {
+    trail_quads_of(keys, at, |_| [1.0; 4])
+}
+
+/// The trail's quads and, when the blade draws one (`with_core`), those of
+/// its core over the same segments.
+fn trail_and_core(
+    keys: &[crate::viewer::TrailKey],
+    at: f32,
+    color: [f32; 3],
+    with_core: bool,
+) -> (Option<Quads>, Option<Quads>) {
+    let core = with_core.then(|| trail_core_quads(keys, at)).flatten();
+    (trail_quads(keys, at, color), core)
+}
+
+fn trail_quads_of(
+    keys: &[crate::viewer::TrailKey],
+    at: f32,
+    colour: impl Fn(f32) -> [f32; 4],
+) -> Option<Quads> {
     let game = game_to_bevy();
     let mut positions = Vec::new();
     let mut uvs = Vec::new();
@@ -3528,7 +3629,7 @@ fn trail_quads(keys: &[crate::viewer::TrailKey], at: f32, color: [f32; 3]) -> Op
         // How far back the older edge's texture starts: one less what is
         // left of that edge's alpha.
         let back = 1.0 - (1.0 - (new.time - old.time) / life);
-        let colour = [color[0], color[1], color[2], 1.0 - age];
+        let colour = colour(age);
         let corners = [
             (new.base, [age, 1.0]),
             (new.tip, [age, 0.0]),
@@ -3664,7 +3765,9 @@ fn draw_blades(
                     tip: (to_game * (origin + dir * (current + 3.0) * unit)).to_array(),
                     life_ms: if current >= 0.5 { wanted.trail_ms } else { 0.0 },
                 });
-                let trail = trail_quads(live.recent.make_contiguous(), seconds, blade.trail_color);
+                let keys = live.recent.make_contiguous();
+                let trail =
+                    trail_and_core(keys, seconds, blade.trail_color, blade.trail_core.is_some());
                 (current, Some(trail))
             }
             None => {
@@ -3676,16 +3779,25 @@ fn draw_blades(
                     asset_odyssey::anim::sample_position(&blade.extend, at)
                         .map_or(blade.length, |extent| extent[0])
                 };
-                let trail = (!blade.trail.is_empty())
-                    .then(|| trail_quads(&blade.trail, at, blade.trail_color));
+                let trail = (!blade.trail.is_empty()).then(|| {
+                    trail_and_core(
+                        &blade.trail,
+                        at,
+                        blade.trail_color,
+                        blade.trail_core.is_some(),
+                    )
+                });
                 (length, trail)
             }
         };
-        if let Some(trail) = trail {
+        if let Some((trail, core)) = trail {
             let empty = trail.is_none();
             if !(empty && blade.trail_empty) {
-                let trail = trail.unwrap_or_else(Quads::default);
+                let trail = trail.unwrap_or(Quads::EMPTY);
                 blade.trail_quads.write(&trail, stores.assets());
+                if let Some(list) = &mut blade.trail_core {
+                    list.write(&core.unwrap_or(Quads::EMPTY), stores.assets());
+                }
             }
             blade.trail_empty = empty;
         }
@@ -3693,7 +3805,7 @@ fn draw_blades(
         if current < 0.5 {
             if !blade.glow_empty {
                 for list in [&mut blade.glow, &mut blade.core] {
-                    list.write(&Quads::default(), stores.assets());
+                    list.write(&Quads::EMPTY, stores.assets());
                 }
                 let (meshes, ..) = stores.assets();
                 for part in &blade.shipped {

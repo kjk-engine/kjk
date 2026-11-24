@@ -682,7 +682,8 @@ impl Limit {
 
 /// Who would wear an item, as its use limits ask: its alignment (0 dark
 /// to 100 light), classes (`classes.2da` rows, `u8::MAX` for none), race,
-/// subrace, feats, gender, scores, whether a player character and its tag;
+/// subrace, feats, gender, scores, whether it is a main character or
+/// a character a player controls (what `GetIsPC` says) and its tag;
 /// whether TSL's rules are played; and the slots its body has locked
 /// (`slots::locked`'s mask: TSL's one-handed Kreia's off hands).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -694,7 +695,7 @@ pub struct Wearer {
     pub feats: crate::combat::sheet::Feats,
     pub gender: u8,
     pub abilities: [u8; 6],
-    pub player: bool,
+    pub is_pc: bool,
     pub tag: String,
     pub tsl: bool,
     pub locked: u32,
@@ -731,7 +732,7 @@ impl Limit {
             Limit::Feat(feat) => wearer.feats.has(*feat),
             // 0 male, 1 female; 2 both.
             Limit::Gender(gender) => *gender == 2 && wearer.gender <= 1 || *gender == wearer.gender,
-            Limit::Player => wearer.player,
+            Limit::Player => wearer.is_pc,
             Limit::Tag(tag) => wearer.tag.eq_ignore_ascii_case(tag),
             Limit::Ability { ability, at_least } => wearer
                 .abilities

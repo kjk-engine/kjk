@@ -49,6 +49,29 @@ override files that are (`resolver::read_from_override`). On the
 unmodded installs this order picks the same file as the order kjk used
 before for every name in every module (checked 2026-11-05).
 
+## A texture held as both a TPC and a TGA
+
+A texture can be held as a TPC in one place and as a TGA in another. Both
+games' executables choose between them in the same way, and
+`Resolver::find_any` follows them. First, the copy of each type is found
+as a lookup of that type alone finds it. Then the type whose copy comes
+from the better kind of source is loaded. The kinds are, best first, a
+folder (`override/`, its subfolders and every Workshop item's
+`override/`), a RIM, an ERF (`patch.erf`, a texture pack, lips and a
+module's `.mod`) and a BIF. When both copies come from sources of one
+kind, the TPC is loaded.
+
+So a TGA in `override/` replaces a texture pack's TPC, as players expect.
+A TPC and a TGA of one name both in `override/` load the TPC, and its
+pixels are drawn whatever the TGA holds. A TGA in a Workshop item's
+`override/` loses to a TPC in the game's own `override/`, because both are
+folders. A TGA in a module's `.mod` or in `patch.erf` loses to the texture
+pack's TPC, because all three are ERFs. The TXI is looked up on its own, by
+name, as any other resource (`fmt_odyssey::texture::texture_txi`). On the
+unmodded installs, and on TSL with TSLRCM from the Workshop, this rule picks
+the same copy as kjk's earlier rule for every texture of every module
+(checked 2026-11-24).
+
 ## kjk's layers over the game's
 
 Three layers of kjk's own sit over every source above. Each is made from

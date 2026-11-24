@@ -1350,8 +1350,19 @@ name = "Grab Height"
 type = "f32"
 value = 8.0
 unit = "units"
-summary = "A grab takes only a victim standing on the ground within {duel.grab.height_units:bare} units of the grabber's height, in front of the grabber and within the reach of a punch."
+summary = "A grab takes only a victim standing on the ground within {duel.grab.height_units:bare} units of the grabber's height, in front of the grabber and within the reach of a punch. On a slope the victim may stand higher or lower by what the slope rises over the distance between them (Grab Slope)."
 source = "G_GrabClient in code/game/g_active.cpp:2286"
+see = "sim::world::grapples"
+applies = ["kind:unarmed"]
+
+[grab.slope_deg]
+name = "Grab Slope"
+type = "f32"
+value = 25.0
+unit = "°"
+range = [0, 60]
+summary = "A grab takes a victim on a hillside. The victim may stand higher or lower than the grabber by {duel.grab.height_units:bare} units, plus what a slope of {duel.grab.slope_deg:bare} degrees rises over the distance between the two characters. Jedi Academy's maps are flat where its characters fight, but KOTOR's outdoor areas, such as the plains of Dantooine, are hilly."
+source = "kjk, for KOTOR's hilly ground (a grab on a Mandalorian on Dantooine's plains failed, reported on 22 November 2026)"
 see = "sim::world::grapples"
 applies = ["kind:unarmed"]
 

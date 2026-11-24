@@ -19,6 +19,8 @@
 //!   so the character stands still while it sets the mine.
 //! - A feat attack is chosen for the weapon in hand on the press
 //!   (`Action::Feat`).
+//! - A device, such as the Sonic Emitter, is used on the character itself
+//!   on the press, as the inventory's Use button uses it (`device_use`).
 //!
 //! A slot's Force power or mine pressed while the character is busy, or
 //! while uses from the power wheel wait, joins the wheel's queue of uses
@@ -37,6 +39,7 @@ use sim::combat::bar::{self, Content, Rules, SLOTS};
 use sim::combat::items::{Readied, Shelf};
 use sim::combat::picks::Picks;
 use sim::combat::{Fighter, Sheet, force};
+use sim::inventory::Device;
 use sim::{Seat, SimId, Snapshot};
 
 use crate::loot::Outgoing;
@@ -81,7 +84,17 @@ pub struct Means<'a> {
     pub choices: Vec<u16>,
     /// What the character can put on the bar now (`bar::assignable`).
     pub assignable: Vec<Content>,
+    /// The devices the party carries (`sim::inventory::devices`). A device's
+    /// slot uses the item named here.
+    pub devices: Vec<Device>,
     pub now_ms: u64,
+}
+
+impl Means<'_> {
+    /// The device the party carries that casts `spells.2da` row `row`.
+    pub fn device(&self, row: u16) -> Option<&Device> {
+        self.devices.iter().find(|device| device.row == row)
+    }
 }
 
 /// Whether the character has the Force points to start the power that
@@ -135,13 +148,18 @@ pub(crate) fn with_bar_of<R>(
     let library = level.scripts().map(|library| &**library);
     let mines =
         library.is_some_and(|library| sim::traps::party_has_kit(&snapshot.goods, library.items()));
+    let devices = library.map_or(Vec::new(), |library| {
+        let rows = |row| library.item_row(row);
+        sim::inventory::devices(&snapshot.goods, library.items(), sheet.race, rows)
+    });
+    let device_rows: Vec<u16> = devices.iter().map(|device| device.row).collect();
     let cost = |row| level.module()?.power_cost(row, &sheet, true, body.position);
     let barred = |row| {
         level
             .module()
             .is_some_and(|module| module.power_barred(row, sheet.gear.force_items))
     };
-    Some(Rules::with(library, mines, |rules| {
+    Some(Rules::with(library, (mines, &device_rows), |rules| {
         let means = Means {
             sheet,
             fighter,
@@ -150,6 +168,7 @@ pub(crate) fn with_bar_of<R>(
             barred: &barred,
             choices: force::choices(&sheet.powers, library),
             assignable: bar::assignable(&sheet, rules),
+            devices,
             now_ms: snapshot.time_ms,
         };
         run(&means, rules)
@@ -178,7 +197,25 @@ pub fn usable(content: Content, means: &Means) -> bool {
                 && line.fits(sheet, fighter.hand)
         }
         Content::Mine | Content::Stealth => means.assignable.contains(&content),
+        Content::Device(row) => means.device(row).is_some(),
     }
+}
+
+/// What pressing a slot that holds `content` sends when `content` is a
+/// device: its item used by the character on itself, as the inventory's
+/// Use button would. The host refuses a use the player may not make, as it
+/// refuses one from the inventory. Any other content, or a key that is only
+/// held, sends nothing here (`slot_use`).
+pub fn device_use(content: Content, means: &Means, pressed: bool) -> Option<Action> {
+    let Content::Device(row) = content else {
+        return None;
+    };
+    let device = means.device(row).filter(|_| pressed)?;
+    Some(Action::UseItem {
+        who: means.me.0,
+        item: device.item,
+        target: means.me.0,
+    })
 }
 
 /// Whether the slot holding `content` shows as on: the feat attack the
@@ -190,7 +227,7 @@ pub fn lit(content: Content, sheet: &Sheet, fighter: &Fighter) -> bool {
         Content::Feat(line) => Picks::in_use(sheet, fighter.hand) == Some(line),
         Content::Stealth => fighter.covert.stealth,
         Content::Item(Shelf::Grenade) => fighter.pack.readied == Readied::On,
-        Content::Power(_) | Content::Item(_) | Content::Mine => false,
+        Content::Power(_) | Content::Item(_) | Content::Mine | Content::Device(_) => false,
     }
 }
 
@@ -263,6 +300,9 @@ pub fn slot_use(
                 out.actions.push(Action::Feat { hand, line });
             }
         }
+        // The item a device's slot uses is known only to the bar's caller
+        // (`device_use`).
+        Content::Device(_) => {}
     }
     out
 }
@@ -424,15 +464,9 @@ fn use_bar(
             )));
         }
         let hand = means.fighter.hand;
-        Some(Ok(slot_use(
-            content,
-            &means.choices,
-            usable,
-            pressed,
-            true,
-            hand,
-            target,
-        )))
+        let mut used = slot_use(content, &means.choices, usable, pressed, true, hand, target);
+        used.actions.extend(device_use(content, means, pressed));
+        Some(Ok(used))
     });
     let used = match used.flatten() {
         Some(Ok(used)) => used,
@@ -908,7 +942,7 @@ pub mod probes {
         (cost, barred): (Cost<'_>, &dyn Fn(u16) -> bool),
         run: impl FnOnce(&Means) -> R,
     ) -> R {
-        Rules::with(None, false, |rules| {
+        Rules::with(None, (false, &[]), |rules| {
             run(&Means {
                 sheet,
                 fighter,
@@ -917,6 +951,7 @@ pub mod probes {
                 barred,
                 choices: force::choices(&sheet.powers, None),
                 assignable: bar::assignable(&sheet, rules),
+                devices: Vec::new(),
                 now_ms: 0,
             })
         })
@@ -944,14 +979,14 @@ pub mod probes {
         let stack = ui::screen::Stack::new(ui::screens::open);
         let mut gui = crate::ui_view::Ui::new(stack, Some(assets), Default::default(), true);
         let chosen = crate::hud::Chosen::default();
-        let name = crate::hud::bar_name(
-            &mut gui,
-            Content::Power(force::PULL),
-            &sheet,
-            (&chosen, None),
-        );
+        let stock = crate::hud::Stock {
+            chosen: &chosen,
+            mine: None,
+            devices: &[],
+        };
+        let name = crate::hud::bar_name(&mut gui, Content::Power(force::PULL), &sheet, stock);
         let told = |gui: &mut crate::ui_view::Ui, row| {
-            crate::hud::bar_description(gui, Content::Power(row), &sheet, &chosen)
+            crate::hud::bar_description(gui, Content::Power(row), &sheet, stock)
         };
         let (pull, push) = (told(&mut gui, force::PULL), told(&mut gui, PUSH));
         check(
@@ -990,8 +1025,13 @@ pub mod probes {
         let mut gui = crate::ui_view::Ui::new(stack, Some(assets), Default::default(), true);
         let (sheet, _) = soldier();
         let chosen = crate::hud::Chosen::default();
+        let stock = crate::hud::Stock {
+            chosen: &chosen,
+            mine: None,
+            devices: &[],
+        };
         let quotes = [STUN, STASIS].map(|row| {
-            let told = crate::hud::bar_description(&mut gui, Content::Power(row), &sheet, &chosen);
+            let told = crate::hud::bar_description(&mut gui, Content::Power(row), &sheet, stock);
             told.windows(longest.len())
                 .any(|part| part == longest.as_bytes())
         });
@@ -1032,7 +1072,7 @@ pub mod probes {
             Content::Power(row) if listed => &[row],
             _ => &[],
         };
-        Rules::with(None, false, |rules| {
+        Rules::with(None, (false, &[]), |rules| {
             let target = cast_target(rules, content, foe, ME);
             slot_use(content, choices, usable, keys.0, keys.1, HAND, target)
         })

@@ -42,8 +42,8 @@ pub(in crate::script) fn advance(step: &mut Step) {
             step.mark(seat, answer.by, nth);
         }
     }
-    let (pcs, lent) = (view.pcs(&step.state.party), step.lent());
-    let pc = |id: ObjectId| party_pc(&pcs, lent, id);
+    let (mains, lent) = (view.main_characters(&step.state.party), step.lent());
+    let pc = |id: ObjectId| party_pc(&mains, lent, id);
     // The first answer wins: in seat order, one a conversation a step. A
     // leave is each seat's own, whoever answered.
     let mut answered = Vec::new();
@@ -186,20 +186,20 @@ impl Step<'_> {
     /// it ends (Taris's Sith base, `tar09_trap_dlg`). A bolt in flight
     /// still lands. One not commandable keeps its own; a script's
     /// `CutsceneAttack` blows are no action. A co-op guest's private
-    /// conversation, holding no world, holds no one. The player is the
-    /// character it controls: a companion it leads with is the player of a
-    /// conversation a script started with `GetFirstPC()`, as Darth Bandon's
-    /// on Manaan (`k_pman_survivex`).
+    /// conversation, holding no world, holds no one. A conversation a
+    /// script starts with `GetFirstPC()`, the main character, holds the
+    /// hostiles even while a companion leads, as Darth Bandon's on Manaan
+    /// does (`k_pman_survivex`).
     fn hold_hostiles(&mut self) {
         let view = self.view;
         if !view.held {
             return;
         }
-        let pcs = view.pcs(&self.state.party);
+        let mains = view.main_characters(&self.state.party);
         let led = crate::world::lent(&self.state.party).map(|body| ObjectId(body.0));
-        let Some(player) = (self.state.talk.conversations.iter())
+        let Some(speaker_faction) = (self.state.talk.conversations.iter())
             .map(|c| c.pc)
-            .find(|pc| pcs.contains(pc) || led == Some(*pc))
+            .find(|pc| mains.contains(pc) || led == Some(*pc))
             .and_then(|pc| self.out.faction(view, pc))
         else {
             return;
@@ -209,12 +209,12 @@ impl Step<'_> {
         // A line that turns a creature hostile holds it in the same step
         // (`Out::faction`), before its first blow.
         let hostiles: Vec<ObjectId> = (view.things.iter())
-            .filter(|thing| !pcs.contains(&thing.id) && !party.contains(&thing.id.0))
+            .filter(|thing| !mains.contains(&thing.id) && !party.contains(&thing.id.0))
             .filter(|thing| !self.state.uncommandable.contains(&thing.id.0))
             .filter(|thing| {
                 self.out
                     .faction(view, thing.id)
-                    .is_some_and(|faction| repute.hostile(faction, player))
+                    .is_some_and(|faction| repute.hostile(faction, speaker_faction))
             })
             .map(|thing| thing.id)
             .collect();
@@ -255,8 +255,13 @@ impl Engine<'_> {
             // Refused while a conversation holds the world, as both games'
             // executables refuse it (their dialog state set), its own
             // nodes' scripts too: a locked door's line as a scene walks
-            // someone into it is never said.
-            ActionStartConversation if self.state.talk.holds_world(&view.seat_bodies()) => {
+            // someone into it is never said. A trigger's call that a guest's
+            // body set off is queued, and waits for the scene to end
+            // (`View::guest_call`).
+            ActionStartConversation
+                if self.state.talk.holds_world(&view.seat_bodies())
+                    && !view.guest_call(self.event.cue) =>
+            {
                 Value::Int(0)
             }
             // Begun where the asker stands, however far: both games'
@@ -340,7 +345,7 @@ impl Engine<'_> {
                 if let Some(dialog) = dialog {
                     self.state.talk.asked.push(Start {
                         owner: caller,
-                        pc: view.first_pc(&self.state.party),
+                        pc: view.first_main_character(&self.state.party),
                         asker: ObjectId::INVALID,
                         dialog,
                         bark: true,
@@ -375,7 +380,7 @@ impl Engine<'_> {
                 let pc = talk
                     .running
                     .or_else(|| talk.with(caller, host).map(|c| c.pc));
-                Value::Object(pc.unwrap_or_else(|| view.first_pc(&self.state.party)))
+                Value::Object(pc.unwrap_or_else(|| view.first_main_character(&self.state.party)))
             }
             // A cut to a placed camera now, for the conversation whose script
             // runs it (`running`), else the one the caller is in, else
@@ -487,8 +492,8 @@ impl Step<'_> {
     /// (an invisible placeable a scene speaks through: Taris's raid, the
     /// swoop pits' Brejik). reone keeps the asker's DLG [verify in the
     /// game]. A companion in the party is not such a one: the script
-    /// names it as its PC (`GetFirstPC()` while it led), and the asker's
-    /// DLG plays (the Endar Spire's room-3 door opened by Trask).
+    /// passes it as the one conversed with, and the asker's DLG plays
+    /// (the Endar Spire's room-3 door opened by Trask).
     pub(in crate::script) fn converse(
         &mut self,
         who: ObjectId,
@@ -504,7 +509,7 @@ impl Step<'_> {
         // with the console's own dialog, TSL's 3C-FD at the Ebon Hawk's
         // security console; the Endar Spire's `k_pend_comp07` talks to
         // `GetLastUsedBy()`, whoever used it).
-        let characters = view.pcs(&self.state.party);
+        let characters = view.main_characters(&self.state.party);
         let mut pcs = characters.clone();
         pcs.extend(self.host());
         let guests = (view.seats.iter()).filter(|(seat, _)| *seat != crate::world::LEADER_SEAT.0);
@@ -525,9 +530,9 @@ impl Step<'_> {
             // `OnDialog` begins it: the owner is that one, whoever asked (a
             // scene's `a_start_miraend` runs for Visquis, naming Mira, who
             // says the lines with no `Speaker`).
-            (with, view.first_pc(&self.state.party))
+            (with, view.first_main_character(&self.state.party))
         } else {
-            (who, view.first_pc(&self.state.party))
+            (who, view.first_main_character(&self.state.party))
         };
         let through =
             (dialog.is_empty() && with != ObjectId::INVALID && !pcs.contains(&with) && !companion)

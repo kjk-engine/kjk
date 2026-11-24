@@ -290,6 +290,7 @@ impl SimWorld {
         world.insert_resource(party::PartyState {
             paused_by: snapshot.paused_by,
             ready: snapshot.ready.clone(),
+            through: false,
         });
         world.insert_resource(drivers::Kept(snapshot.kept.clone()));
         world.init_resource::<drivers::Phantoms>();
