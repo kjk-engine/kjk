@@ -155,16 +155,19 @@ pub struct TextureIr {
 }
 
 /// The number KOTOR's executable sorts a texture by when it draws a room's
-/// meshes, the highest first. It is the TXI's `alphamean`, else the float in
-/// a TPC's header. A texture with neither, and stored uncompressed, gets the
-/// mean alpha of its pixels, 1 when they have no alpha. A compressed texture
-/// with neither gets 1. The executable starts the number at exactly -1 and
-/// takes that value, wherever it came from, as "no number". A TXI line of
-/// `alphamean -1` therefore hides the header's float, and a header float of
-/// -1 counts as none.
+/// meshes, the highest first. The executable reads the TXI first and the TPC
+/// afterwards, and the TPC's header float replaces the number the TXI's
+/// `alphamean` gave. The key is therefore the float in a TPC's header, and the
+/// TXI's `alphamean` only for a texture that has no TPC header. A texture
+/// with neither, and stored uncompressed, gets the mean alpha of its pixels,
+/// 1 when they have no alpha. A compressed texture with neither gets 1. The
+/// executable starts the number at exactly -1 and takes that value as "no
+/// number", so a header float of -1 counts as none, and it does not fall
+/// back to the TXI.
 fn sort_key(texture: &Texture, txi_key: Option<f32>) -> f32 {
-    if let Some(key) = txi_key
-        .or(texture.header_key)
+    if let Some(key) = texture
+        .header_key
+        .or(txi_key)
         .filter(|key| key.is_finite() && *key != -1.0)
     {
         return key;

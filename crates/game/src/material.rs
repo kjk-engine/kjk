@@ -1491,11 +1491,12 @@ pub fn cutout_probes() -> sim::probe::Checks {
 }
 
 /// The number a texture is sorted by (`TextureIr::sort_key`), as KOTOR's
-/// executable takes it. The TXI's `alphamean` comes first, the float in a
-/// TPC's header second. Only a texture stored uncompressed, with neither,
-/// gets the mean alpha of its pixels. A compressed texture with neither
-/// gets 1. A number of exactly -1, from either source, counts as none
-/// (`kjk sim probes --only "texture sort key"`; proposed 2026-11-23).
+/// executable takes it. The float in a TPC's header comes first, and the
+/// TXI's `alphamean` is used only without a header float. Only a texture
+/// stored uncompressed, with neither, gets the mean alpha of its pixels. A
+/// compressed texture with neither gets 1. A header float of exactly -1
+/// counts as none (`kjk sim probes --only "texture sort key"`; proposed
+/// 2026-11-23).
 #[cfg(feature = "probes")]
 pub fn sort_key_probes() -> sim::probe::Checks {
     use asset_odyssey::texture::TextureIr;
@@ -1531,19 +1532,19 @@ pub fn sort_key_probes() -> sim::probe::Checks {
     };
     vec![
         is(
-            "the TXI's alphamean beats the header and the pixels",
+            "the header's float beats the TXI's alphamean and the pixels",
             key(
                 PixelFormat::Rgba8,
                 half.clone(),
                 "alphamean 0.25",
                 Some(0.75),
             ),
-            0.25,
+            0.75,
         ),
         is(
-            "the header's float comes second",
-            key(PixelFormat::Rgba8, half.clone(), "", Some(0.75)),
-            0.75,
+            "the TXI's alphamean is used when there is no header float",
+            key(PixelFormat::Rgba8, half.clone(), "alphamean 0.25", None),
+            0.25,
         ),
         is(
             "an uncompressed texture with neither averages its alpha",
@@ -1571,8 +1572,8 @@ pub fn sort_key_probes() -> sim::probe::Checks {
             0.5,
         ),
         is(
-            "a TXI alphamean of -1 hides the header's float",
-            key(PixelFormat::Rgba8, half.clone(), "alphamean -1", Some(0.75)),
+            "a header float of -1 does not fall back to the TXI's alphamean",
+            key(PixelFormat::Rgba8, half.clone(), "alphamean 0.25", Some(-1.0)),
             0.5,
         ),
         is(

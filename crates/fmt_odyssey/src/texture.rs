@@ -72,7 +72,7 @@ pub struct Texture {
     /// loaded (`asset_odyssey::texture::TextureIr::from_texture`).
     pub mips_stored: bool,
     /// The float at bytes 4 to 8 of a TPC's header, which KOTOR's executable
-    /// sorts its textures by when the TXI has no `alphamean`. A TGA has
+    /// sorts its textures by, whatever the TXI's `alphamean` says. A TGA has
     /// none.
     pub header_key: Option<f32>,
 }
