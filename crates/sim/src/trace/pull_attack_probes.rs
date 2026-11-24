@@ -1,12 +1,13 @@
 //! The probes of the pull stab and the pull swing (`kjk sim probes --only
-//! "pull attack"`): a character who presses [Attack] while the hand of a
-//! Force Pull is still raised attacks the enemy in front with its blade.
+//! "pull attack"`): a character who presses [Attack] within the window of a
+//! Force Pull attacks the enemy in front with its blade.
 //! - The fast style stabs an enemy within the stab's reach, and pays for it.
 //! - The medium style swings at an enemy between the swing's two reaches.
 //! - The swing is not made at an enemy nearer than its near reach, and the
 //!   stab is not made at one beyond its reach.
-//! - Without a raised Pull hand, the same press makes an ordinary swing.
-//! - Once the Pull hand has come down, the press makes an ordinary swing.
+//! - Without a pull, the same press makes an ordinary swing.
+//! - After the pull's hand has come down, the window is still open.
+//! - Once the window has closed, the press makes an ordinary swing.
 //!
 //! Each is played from a trace scenario (`trace::duels`) under Jedi
 //! Academy's rules.
@@ -27,6 +28,8 @@ const TICK_MS: usize = 8;
 const HELD: usize = 20;
 /// The Force points the fighter starts with.
 const FP: u16 = 100;
+/// The window of a pull (ms).
+const WINDOW: u64 = specials::PULL_WINDOW_MS;
 /// How far along the arena's y axis (units) the fighters stand, clear of its
 /// steps and its block.
 const LANE: i32 = 250;
@@ -34,13 +37,19 @@ const LANE: i32 = 250;
 /// asks, or within it: a margin that keeps the foe clear of each edge.
 const MARGIN: f32 = 40.0;
 /// A pull of seat 0, a `style` fighter, at a foe `away` units off, with the
-/// Pull hand raised for `hand_ms` before the attack key is held. What seat 0's
-/// fighter did through the ticks after the hand was raised.
-fn pulled(style: &str, away: f32, hand_ms: usize, wait: usize) -> Result<Vec<Fighter>, String> {
-    let hand = if hand_ms > 0 {
-        format!("force 0 pull_hand={hand_ms}\n")
-    } else {
-        String::new()
+/// window open for `window_ms` and the Pull hand raised for `hand_ms` (neither
+/// if both are 0), and the attack key held after `wait` ticks. What seat 0's
+/// fighter did through the ticks after the pull.
+fn pulled(
+    style: &str,
+    away: f32,
+    (window_ms, hand_ms): (u64, usize),
+    wait: usize,
+) -> Result<Vec<Fighter>, String> {
+    let hand = match (window_ms, hand_ms) {
+        (0, 0) => String::new(),
+        (_, 0) => format!("force 0 pull_window={window_ms}\n"),
+        _ => format!("force 0 pull_window={window_ms} pull_hand={hand_ms}\n"),
     };
     let waiting = if wait > 0 {
         format!("tick {wait}\n")
@@ -81,7 +90,7 @@ fn paid(fighters: &[Fighter]) -> i32 {
 }
 fn stab_in_reach() -> Result<String, String> {
     let away = specials::PULL_STAB_REACH - MARGIN;
-    let fighters = pulled("fast", away, 400, 0)?;
+    let fighters = pulled("fast", away, (WINDOW, 400), 0)?;
     check(
         made(&fighters, Move::PULL_ATTACK_STAB) && paid(&fighters) > 0,
         format!(
@@ -94,7 +103,7 @@ fn stab_in_reach() -> Result<String, String> {
 fn swing_between_reaches() -> Result<String, String> {
     let [near, far] = specials::PULL_SWING_REACH;
     let away = (near + far) / 2.0;
-    let fighters = pulled("medium", away, 400, 0)?;
+    let fighters = pulled("medium", away, (WINDOW, 400), 0)?;
     check(
         made(&fighters, Move::PULL_ATTACK_SWING) && paid(&fighters) > 0,
         format!(
@@ -107,7 +116,7 @@ fn swing_between_reaches() -> Result<String, String> {
 fn swing_too_near() -> Result<String, String> {
     let [near, _] = specials::PULL_SWING_REACH;
     let away = near - MARGIN;
-    let fighters = pulled("medium", away, 400, 0)?;
+    let fighters = pulled("medium", away, (WINDOW, 400), 0)?;
     check(
         !pulled_attack(&fighters),
         format!(
@@ -118,7 +127,7 @@ fn swing_too_near() -> Result<String, String> {
 }
 fn stab_too_far() -> Result<String, String> {
     let away = specials::PULL_STAB_REACH + MARGIN;
-    let fighters = pulled("fast", away, 400, 0)?;
+    let fighters = pulled("fast", away, (WINDOW, 400), 0)?;
     check(
         !pulled_attack(&fighters),
         format!(
@@ -129,7 +138,7 @@ fn stab_too_far() -> Result<String, String> {
 }
 fn no_pull_no_attack() -> Result<String, String> {
     let away = specials::PULL_STAB_REACH - MARGIN;
-    let fighters = pulled("fast", away, 0, 0)?;
+    let fighters = pulled("fast", away, (0, 0), 0)?;
     check(
         !pulled_attack(&fighters),
         format!(
@@ -138,16 +147,29 @@ fn no_pull_no_attack() -> Result<String, String> {
         ),
     )
 }
-fn hand_down_no_attack() -> Result<String, String> {
+fn window_closed_no_attack() -> Result<String, String> {
     let away = specials::PULL_STAB_REACH - MARGIN;
-    // The key is first pressed after the hand has come down.
-    let wait = 400 / TICK_MS + 10;
-    let fighters = pulled("fast", away, 400, wait)?;
+    // The key is first pressed after the window has closed.
+    let wait = WINDOW as usize / TICK_MS + 10;
+    let fighters = pulled("fast", away, (WINDOW, 0), wait)?;
     check(
         !pulled_attack(&fighters),
         format!(
             "fast style, key pressed {wait} ticks after the pull: pull attack made: {}",
             pulled_attack(&fighters)
+        ),
+    )
+}
+fn stab_with_hand_down() -> Result<String, String> {
+    let away = specials::PULL_STAB_REACH - MARGIN;
+    // The key is pressed after the pull's hand has come down, inside the window.
+    let wait = (specials::PULL_WINDOW_MS as usize / 2) / TICK_MS;
+    let fighters = pulled("fast", away, (WINDOW, 0), wait)?;
+    check(
+        made(&fighters, Move::PULL_ATTACK_STAB),
+        format!(
+            "fast style, key pressed {wait} ticks after the pull: pull stab {}",
+            made(&fighters, Move::PULL_ATTACK_STAB)
         ),
     )
 }
@@ -162,8 +184,12 @@ pub fn probes() -> Checks {
         ("no pull stab at a far enemy", stab_too_far()),
         ("no pull attack without a pull", no_pull_no_attack()),
         (
-            "no pull attack after the hand is down",
-            hand_down_no_attack(),
+            "the window is open with the hand down",
+            stab_with_hand_down(),
+        ),
+        (
+            "no pull attack after the window closes",
+            window_closed_no_attack(),
         ),
     ]
 }

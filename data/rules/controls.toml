@@ -211,8 +211,8 @@ roll. The character rises out of the roll with a stab. This attack uses up
 [specials.pull]
 title = "Pull Stab and Pull Swing"
 summary = """
-Use Force Pull, then press [Attack] while the Jedi's hand is still raised
-({force.push.pull_hand_ms:s} after the pull). The blade must be lit and ready,
+Use Force Pull, then press [Attack] within
+{saber_moves.specials.pull_window_ms:s} of the pull. The blade must be lit and ready,
 and the character must be on the ground. In the fast style, the character
 stabs the enemy in front, if the enemy stands within
 {saber_moves.specials.pull_stab_reach:m}. In the medium and strong styles, the

@@ -1298,6 +1298,9 @@ impl Cast<'_, '_> {
         let force = &mut self.fighters[at].force;
         force.hand = Some((gesture, self.now + hand));
         force.push_pull_ready = self.now + wait;
+        if pull {
+            force.pull_attack_until = self.now + rules::saber_moves::specials::PULL_WINDOW_MS;
+        }
         force.tricked = 0;
         let caught: Vec<usize> = if level < 2 {
             let eye = self.person(at).eye();

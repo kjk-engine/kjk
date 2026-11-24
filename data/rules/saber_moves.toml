@@ -531,21 +531,32 @@ see = "sim::motion::saber"
 
 [specials.pull_stab_reach]
 name = "Pull Stab Range"
-value = 384.0
+value = 512.0
 unit = "units"
 range = [0.0, 1024.0]
 summary = "In the fast style, a character who attacks just after using Force Pull makes the pull stab when an enemy stands within {saber_moves.specials.pull_stab_reach:m} in front of the character."
-detail = "Jedi Academy's multiplayer game has this attack switched off. The range is the one its single-player game's older control scheme used."
-source = "JA: the pull attack's disabled code"
+detail = "Jedi Academy's multiplayer game has this attack switched off. The range is longer than its single-player game's, and equal to the reach of Force Pull on a single target."
+source = "ours, after the range of JA's disabled pull attack"
 see = "sim::motion::saber"
 [specials.pull_swing_reach]
 name = "Pull Swing Range"
-value = [192.0, 512.0]
+value = [128.0, 768.0]
 labels = ["at least", "at most"]
 unit = "units"
 range = [0.0, 1024.0]
 summary = "In the medium and strong styles, a character who attacks just after using Force Pull makes the pull swing when an enemy stands between {saber_moves.specials.pull_swing_reach[0]:m} and {saber_moves.specials.pull_swing_reach[1]:m} in front of the character."
-source = "JA: the pull attack's disabled code"
+detail = "The range is wider at both ends than Jedi Academy's single-player game's, so the swing works from closer in and from beyond the reach of Force Pull."
+source = "ours, after the range of JA's disabled pull attack"
+see = "sim::motion::saber"
+[specials.pull_window_ms]
+name = "Pull Attack Window"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 5000]
+summary = "A character can make a pull stab or a pull swing during {saber_moves.specials.pull_window_ms:s} after using Force Pull."
+detail = "In Jedi Academy the window lasts as long as the raised hand of the pull. kjk gives the attack a window of its own, so the hand's other rules stay as they were."
+source = "ours, after the raised hand of JA's Force Pull"
 see = "sim::motion::saber"
 [specials.pull_box]
 name = "Pull Attack Width"
