@@ -1087,7 +1087,7 @@ impl GuiAssets {
             .into_iter()
             .filter(|(_, lines)| !lines.is_empty())
             .map(|(heading, lines)| Requirements {
-                heading: self.text(Source::Campaign, heading).unwrap_or_default(),
+                heading: self.text(Source::Campaign, heading).unwrap_or(Vec::new()),
                 lines,
             })
             .collect()
