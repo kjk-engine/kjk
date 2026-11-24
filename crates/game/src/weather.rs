@@ -4,26 +4,26 @@
 //!
 //! The weather is the area's roll for the 300 s the presented sim clock is
 //! in (`asset_odyssey::weather`; the scene's clock in the viewers), alike on
-//! every peer and outside the sim. While rain or snow falls and the player
+//! every peer and outside the sim. While rain or snow falls and the controlled character
 //! stands outdoors, six copies of the area's `fx_rain` or `fx_snow` stand on
 //! a hexagon of radius 4.5 m round the camera's ground point, turned with
 //! the camera (one ahead, one behind, four at the sides 5 m higher), 8 m
-//! over the player's feet, moved there every frame. Their particles are
+//! over the controlled character's feet, moved there every frame. Their particles are
 //! folded into a 10 m square round the camera, so the camera never walks
 //! out of the fall, and those of emitters the wind moves (`fx_rain`'s and
 //! `fx_snow`'s all) drift along +X+Y at the area's `WindPower` in metres a
 //! second; the executable's gusts on top of that are not copied [verify].
 //!
-//! In a room the area keeps dry (`DisableWeather`), found by the player's
+//! In a room the area keeps dry (`DisableWeather`), found by the controlled character's
 //! feet, the copies are gone at once, no drop finishing its fall, and made
 //! again on stepping out (the original's pop). When the weather stops, the
 //! fall goes on for 6 s and is then gone at once: the executable's 6 s fade
 //! scrubs a clip neither model has.
 //!
-//! While the weather has a chance of lightning and the player stands
+//! While the weather has a chance of lightning and the controlled character stands
 //! outdoors, a check comes every 5 to 10 s (`LIGHTNING_INTERVAL`); one that
 //! passes is distant thunder alone, or a flash: `fx_lightning01`'s light
-//! 10 m over the player, a few metres aside, keyed by one of its three flash
+//! 10 m over the controlled character, a few metres aside, keyed by one of its three flash
 //! clips while that plays (`LIGHTNING_CLIP`, `LIGHTNING_LIGHT`), with close
 //! thunder. The light is a term every Odyssey material and the grass add
 //! (`Flash`), rooms included, which the light list leaves to their
@@ -61,7 +61,7 @@ use crate::scene::{
 use crate::sim_host::PresentedSnapshot;
 use crate::sound::{Added, Cue, Cues};
 
-/// How far over the player's feet the copies stand (the side four 5 m
+/// How far over the controlled character's feet the copies stand (the side four 5 m
 /// more, `rig_offsets`).
 const LIFT_M: f32 = 8.0;
 /// The side of the square the particles are folded into.
@@ -71,7 +71,7 @@ const STOP_MS: f64 = 6000.0;
 /// The model whose light a flash is, and that light's node.
 const LIGHTNING_MODEL: &str = "fx_lightning01";
 const LIGHTNING_LIGHT: &str = "auroralight01";
-/// How high over the player's feet a flash's light stands.
+/// How high over the controlled character's feet a flash's light stands.
 const FLASH_LIFT_M: f32 = 10.0;
 /// TSL's thunder by its pair: close (with a flash), then distant.
 const THUNDER: [&str; 4] = [
@@ -111,7 +111,7 @@ impl Plugin for WeatherPlugin {
 }
 
 /// The weather now: what falls, the lightning's chance and the wind
-/// (`asset_odyssey::weather::Weather`), whether the player stands in a room
+/// (`asset_odyssey::weather::Weather`), whether the controlled character stands in a room
 /// kept dry, and the lightning flashes so far.
 #[derive(Resource, Default, Debug)]
 pub(crate) struct WeatherNow {
@@ -240,7 +240,7 @@ fn controller(node: &Node, kind: u32) -> Option<&Controller> {
 pub(crate) struct Storm {
     rand: MsvcRand,
     next_check_s: f32,
-    /// Its clip (1 to 3), the time into it and its offset from the player
+    /// Its clip (1 to 3), the time into it and its offset from the controlled character
     /// (game space).
     flash: Option<(u8, f32, Vec3)>,
 }
@@ -372,7 +372,7 @@ struct Held {
 
 /// Where the six weather emitters stand round the camera's ground point,
 /// turned by the camera's yaw (radians, game space, +Z up), before the
-/// player-height lift: front, back and four sides 5 m higher.
+/// controlled-character-height lift: front, back and four sides 5 m higher.
 ///
 /// The yaw is the camera's turn from looking along +Y (as models face), so
 /// the first stands straight ahead. The executable's table: 0, ±4.5 and
@@ -426,9 +426,9 @@ fn thunder_name(resref: &str) -> String {
 }
 
 /// The lightning: the storm stepped while the weather has a chance of it
-/// and the player stands outdoors; a strike counted, its thunder heard
+/// and the controlled character stands outdoors; a strike counted, its thunder heard
 /// while the area's ambient sound plays; and the flash's light over the
-/// player while its clip plays.
+/// controlled character while its clip plays.
 fn storm(
     mut held: ResMut<Held>,
     (mut now, at): (ResMut<WeatherNow>, Res<ControlledAt>),
@@ -514,7 +514,7 @@ fn light(
 }
 
 /// The weather the area's roll gives for the 300 s the clock is in, and
-/// whether the player stands in a room the area keeps dry.
+/// whether the controlled character stands in a room the area keeps dry.
 fn now(
     scene: Option<Res<SceneContent>>,
     presented: Option<Res<PresentedSnapshot>>,
@@ -641,8 +641,8 @@ fn hold(
                 "wind": weather.wind,
                 "running": weather.fall != Fall::None || weather.lightning != 0,
                 "indoors": now.indoors,
-                "player_room": room.0,
-                "player_at": at.0.map(|at| at.to_array()),
+                "controlled_room": room.0,
+                "controlled_at": at.0.map(|at| at.to_array()),
                 "emitters": held.out.as_ref().map_or(0, |out| out.copies.len()),
                 "particles": particles,
                 "flashes": now.flashes,
@@ -841,7 +841,7 @@ fn made_lightning() -> Lightning {
 type Frame = (Flash, Option<(u8, f32, Vec3)>, Vec4, Vec4);
 
 /// An app with the storm and the light over an area of lightning chance
-/// 100, the player at (1, 2, 3), stepped at 0.1 s for 30 s, outdoors or
+/// 100, the controlled character at (1, 2, 3), stepped at 0.1 s for 30 s, outdoors or
 /// in: each frame's `Flash` with the storm's flash, the shared light list's
 /// flash, and the thunder asked for.
 #[cfg(feature = "probes")]
@@ -938,7 +938,7 @@ fn stepped(indoors: bool) -> Stepped {
     }
 }
 
-/// Outdoors: while a flash plays its light is 20 m round the player + its
+/// Outdoors: while a flash plays its light is 20 m round the controlled character + its
 /// offset (Bevy space) in the colour its clip keys × 100, the shared light
 /// list carrying the same, uploaded; none after; each flash counted, with close thunder,
 /// and the distant strikes with distant thunder. Indoors: nothing in 30 s.
@@ -1175,7 +1175,7 @@ fn held_probes() -> Checks {
         .add_systems(Update, (now, keep, hold).chain());
     app.world_mut()
         .spawn((SceneRoot, Transform::IDENTITY, Visibility::default()));
-    // The player in `room` at `seconds`: the copies out after a frame.
+    // The controlled character in `room` at `seconds`: the copies out after a frame.
     let step = |app: &mut App, room: usize, seconds: f32| {
         app.world_mut().resource_mut::<ControlledRoom>().0 = Some(room);
         app.world_mut().resource_mut::<AnimationTime>().0 = Some(seconds);

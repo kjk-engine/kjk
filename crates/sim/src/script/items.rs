@@ -263,7 +263,8 @@ impl State {
 
     /// A new item of `template` as a save held it, never joining a stack,
     /// as the original games add a saved item; none if the template is not
-    /// known. The caller sets the charges, upgrades and flags the save kept.
+    /// known. The caller then puts the charges, upgrades and flags the save
+    /// kept onto it (`StoryItem::apply` in `saves`).
     pub fn restore_item_unstacked(
         &mut self,
         catalog: &Catalog,

@@ -188,9 +188,10 @@ pub struct StoryItem {
 
 impl StoryItem {
     /// What a story keeps of `item`. Every field of `Item` is named, so an
-    /// `Item` that gains a field does not compile until it is either kept
-    /// here or left out on purpose: the holder, which the story's key
-    /// names, and `infinite`, which a store's template gives again.
+    /// `Item` that gains a field does not compile until the story keeps it
+    /// or leaves it out on purpose. Two fields are left out on purpose.
+    /// The holder is left out because the story's key names it, and
+    /// `infinite` is left out because a store's template gives it again.
     pub fn of(item: &sim::inventory::Item) -> StoryItem {
         let sim::inventory::Item {
             template,

@@ -3589,7 +3589,7 @@ fn draw_blades(
         if current < 0.5 {
             if !blade.glow_empty {
                 for list in [&mut blade.glow, &mut blade.core] {
-                    list.write(&Quads::default(), stores.assets());
+                    list.write(&Quads::EMPTY, stores.assets());
                 }
                 let (meshes, ..) = stores.assets();
                 for part in &blade.shipped {
