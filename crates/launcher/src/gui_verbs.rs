@@ -144,7 +144,10 @@ pub fn screen(
                 .collect();
         }
         if name == "lobby" {
-            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0));
+            vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0, false));
+        }
+        if name == "party" {
+            vm.party_selection = Some(stand_in_party(&mut assets, game, false));
         }
         // `level CLASS N` sets the member before the screen opens, so the
         // level-up screen opens on its next level.
@@ -180,15 +183,23 @@ pub fn screen(
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "guest")) => {
-                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2, 0));
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 2, 0, false));
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "hero")) => {
-                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 1));
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 1, false));
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "hero guest")) => {
-                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 1, 1));
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 1, 1, false));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", "all")) => {
+                    vm.lobby = Some(stand_in_lobby(&mut assets, game, 0, 0, true));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("party", "all")) => {
+                    vm.party_selection = Some(stand_in_party(&mut assets, game, true));
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "droid")) => {
@@ -438,22 +449,70 @@ const LOBBY_TSL: &[(u8, &str)] = &[
     (8, "p_t3m4"),
     (9, "p_visas"),
 ];
+/// The two KOTOR 2 companions that take another's place, Hanharr (in
+/// Mira's) and the Disciple (in the Handmaiden's). A mod can recruit them
+/// beside the companions whose place they take.
+const LOBBY_TSL_STAND_INS: &[(u8, &str)] = &[(10, "p_hanharr"), (11, "p_disciple")];
+
+/// The companions a stand-in screen lists: the game's usual ten (nine in
+/// KOTOR 1), and with `all` KOTOR 2's stand-ins too, as a mod that recruits
+/// every companion makes them.
+fn stand_in_roster(game: Game, all: bool) -> Vec<(u8, &'static str)> {
+    match game {
+        Game::Kotor2 if all => [LOBBY_TSL, LOBBY_TSL_STAND_INS].concat(),
+        Game::Kotor2 => LOBBY_TSL.to_vec(),
+        _ => LOBBY_K1.to_vec(),
+    }
+}
+
+/// The table a script's party selection screen shows (`kjk gui screen
+/// <game> party`, and the `party all` step for every companion of KOTOR 2
+/// available): the game's companions by their own names and portraits,
+/// the first and third picked.
+fn stand_in_party(assets: &mut GuiAssets, game: Game, all: bool) -> ui::vm::PartySelectionView {
+    let roster = stand_in_roster(game, all);
+    let slots = if game == Game::Kotor2 { 12 } else { 9 };
+    let mut companions = vec![None; slots];
+    for &(npc, template) in &roster {
+        companions[usize::from(npc)] = Some(ui::vm::CompanionView {
+            portrait: assets.portrait_of(template, 0),
+            appearance: None,
+            armour: None,
+            good_evil: None,
+            name: (assets.template_name(template, fmt_odyssey::ResType::UTC))
+                .unwrap_or_else(|| template.as_bytes().to_vec()),
+            selectable: true,
+        });
+    }
+    ui::vm::PartySelectionView {
+        slots,
+        companions,
+        opening: vec![roster[0].0, roster[2].0],
+        forced: Vec::new(),
+        open: true,
+        cancel: true,
+        change: ui::vm::PartyChange::May,
+    }
+}
 
 /// A lobby the lobby screen shows (`kjk gui screen <game> lobby`, the
 /// `lobby guest` step for a guest's view, and the `lobby hero` and `lobby
 /// hero guest` steps where the first guest plays the main character): the
 /// game's companions by its own names and portraits, two guests who chose
 /// the third and first, the fifth taken away by the story, the main
-/// character played by slot `hero`, seen from slot `own`.
+/// character played by slot `hero`, seen from slot `own`. With `all` (the
+/// `lobby all` step) every companion of KOTOR 2 is recruited, as a mod
+/// makes them, and none is taken away.
 fn stand_in_lobby(
     assets: &mut GuiAssets,
     game: Game,
     own: usize,
     hero: usize,
+    all: bool,
 ) -> ui::vm::LobbyView {
     use session::lobby::{Collision, Companion, Game as Played, Lobby, Summary};
     use sim::script::party_choice::Choice;
-    let roster = if game == Game::Kotor2 { LOBBY_TSL } else { LOBBY_K1 };
+    let roster = stand_in_roster(game, all);
     let class = |assets: &mut GuiAssets, row: usize| {
         assets.cell_text("classes", row, "name").unwrap_or_else(Vec::new)
     };
@@ -465,7 +524,11 @@ fn stand_in_lobby(
             portrait: assets.portrait_of(template, 0).unwrap_or_else(String::new),
             class: class(assets, at % 3),
             level: 4,
-            choice: if at == 4 { Choice::Unavailable } else { Choice::Open },
+            choice: if at == 4 && !all {
+                Choice::Unavailable
+            } else {
+                Choice::Open
+            },
         })
         .collect();
     let summary = Summary {
@@ -507,7 +570,7 @@ fn stand_in_lobby(
 /// (the Endar Spire with Trask): the first guest plays him and the second
 /// flies a remote droid, seen from the second guest's slot.
 fn droid_lobby(assets: &mut GuiAssets, game: Game) -> ui::vm::LobbyView {
-    let mut view = stand_in_lobby(assets, game, 2, 0);
+    let mut view = stand_in_lobby(assets, game, 2, 0, false);
     view.companions.truncate(1);
     view.companions[0].state = ui::vm::LobbyCompanionState::Played {
         slot: 1,
