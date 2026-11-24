@@ -230,7 +230,7 @@ impl State {
         let facts = &facts;
         let mut left = stack.max(1);
         let mut joined = None;
-        if slot.is_none() && facts.stacking > 1 {
+        if slot.is_none() {
             let new = Kind {
                 template: facts.template.as_str(),
                 upgrades: 0,
@@ -238,27 +238,52 @@ impl State {
                 plot: facts.plot,
                 charges: facts.charges,
             };
-            let stacks: Vec<u32> = self
-                .items
-                .held_by(holder)
-                .filter(|(_, item)| joinable(item, new, holder))
-                .map(|(id, _)| id)
-                .collect();
-            for id in stacks {
-                let Some(mut item) = self.items.get_mut(&id) else {
-                    continue;
-                };
-                let room = facts.stacking.saturating_sub(item.stack).min(left);
-                item.stack += room;
-                left -= room;
-                joined = Some(ObjectId(id));
-                if left == 0 {
-                    return joined;
-                }
+            (left, joined) = self.fill_stacks(holder, new, facts.stacking, left, None);
+            if left == 0 {
+                return joined;
             }
         }
         let rest = self.new_item(facts, holder, left, slot);
         Some(joined.unwrap_or(rest))
+    }
+
+    /// `count` of an item of `kind` put onto the stacks of that kind that
+    /// `holder` carries, in id order, each filled up to `most` before the
+    /// next, as both games merge an item into an inventory. `skip` is the
+    /// item being added, which never joins itself. How many are left over
+    /// for a stack of their own, and the last stack joined.
+    fn fill_stacks(
+        &mut self,
+        holder: u32,
+        kind: Kind,
+        most: u16,
+        count: u16,
+        skip: Option<u32>,
+    ) -> (u16, Option<ObjectId>) {
+        if most <= 1 {
+            return (count, None);
+        }
+        let stacks: Vec<u32> = self
+            .items
+            .held_by(holder)
+            .filter(|(id, item)| Some(*id) != skip && joinable(item, kind, holder))
+            .map(|(id, _)| id)
+            .collect();
+        let mut left = count;
+        let mut joined = None;
+        for id in stacks {
+            let Some(mut item) = self.items.get_mut(&id) else {
+                continue;
+            };
+            let room = most.saturating_sub(item.stack).min(left);
+            item.stack += room;
+            left -= room;
+            joined = Some(ObjectId(id));
+            if left == 0 {
+                break;
+            }
+        }
+        (left, joined)
     }
 
     /// A new item of `template` as a save held it, never joining a stack,
@@ -390,33 +415,21 @@ impl State {
     }
 
     /// `item` added to `holder`'s carried items, as the games add an item
-    /// to an inventory: it joins a stack of the same kind (`joinable`)
-    /// with room for it, else it is a stack of its own there.
-    fn add_to(&mut self, catalog: &Catalog, item: u32, holder: u32) {
-        let Some(adding) = self.items.get(&item) else {
+    /// to an inventory: it fills the stacks of the same kind (`joinable`)
+    /// up to their most (`fill_stacks`), and what is left of it is a stack
+    /// of its own there. Nine of ten and three more are ten and two.
+    pub(crate) fn add_to(&mut self, catalog: &Catalog, item: u32, holder: u32) {
+        let Some(adding) = self.items.get(&item).cloned() else {
             return;
         };
         let most = self
             .item_facts(catalog, &adding.template)
             .map_or(1, |facts| facts.stacking);
-        let count = adding.stack;
-        let stack = self
-            .items
-            .held_by(holder)
-            .find(|(id, held)| {
-                *id != item
-                    && most > 1
-                    && joinable(held, kind_of(adding), holder)
-                    && held.stack.saturating_add(count) <= most
-            })
-            .map(|(id, _)| id);
-        if let Some(id) = stack {
-            if let Some(mut joined) = self.items.get_mut(&id) {
-                joined.stack += count;
-            }
+        let (left, _) = self.fill_stacks(holder, kind_of(&adding), most, adding.stack, Some(item));
+        if left == 0 {
             self.items.remove(&item);
         } else if let Some(mut moved) = self.items.get_mut(&item) {
-            (moved.holder, moved.slot) = (holder, None);
+            (moved.holder, moved.slot, moved.stack) = (holder, None, left);
         }
     }
 

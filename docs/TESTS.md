@@ -294,6 +294,10 @@ approval;
 `prepass_readers_declared` proposed 2026-11-18, awaiting approval;
 `collision_probes` changed 2026-11-18, awaiting approval (its module
 probes go from 4 to 5);
+`own_items`'s `nearly_full` check proposed 2026-11-24, awaiting
+approval (issue 705: items added to a stack with room for only some of
+them fill it, and the rest are a stack of their own, as both games'
+executables merge an item);
 `cargo xtask publish-check` refuses tests anywhere else. All 164
 are in `tests/approved.rs`. They call library code and open no window.
 A test may also read the repository's own source files to check a rule
