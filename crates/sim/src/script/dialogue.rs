@@ -44,8 +44,7 @@ const SHOWN_REPLY_MOST_MS: u64 = rules::dialogue::coop::SHOWN_REPLY_MOST_MS;
 /// `SHOWN_REPLY_MOST_MS`.
 fn chosen_ms(library: &super::Library, node: &Node) -> u64 {
     (read_chars(library, node) * READ_TENTHS_MS_PER_CHAR / 10)
-        .max(LEAST_LINE_MS)
-        .min(SHOWN_REPLY_MOST_MS)
+        .clamp(LEAST_LINE_MS, SHOWN_REPLY_MOST_MS)
 }
 
 /// How long a line with no usable voice stays up for each character of its
