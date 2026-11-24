@@ -46,6 +46,9 @@ fn wearer(instance_index: u32) -> u32 {
 fn vertex(
     vertex: Vertex,
     @location(#{LOOSE_PUSH}) push: vec4<f32>,
+#ifdef LOOSE_PREPASS_NORMAL
+    @location(#{LOOSE_PREPASS_NORMAL}) prepass_normal: vec3<f32>,
+#endif
 ) -> VertexOutput {
     var out: VertexOutput;
     let mesh_world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
@@ -64,16 +67,21 @@ fn vertex(
         vec4<f32>(vertex.position, 1.0)
     );
     var at = skinned.xyz;
-#ifdef VERTEX_NORMALS
-#ifdef SKINNED
-    var normal = skinning::skin_normals(world_from_local, vertex.normal);
+#ifdef LOOSE_NORMALS
+#ifdef LOOSE_PREPASS_NORMAL
+    let local_normal = prepass_normal;
 #else
-    var normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
+    let local_normal = vertex.normal;
+#endif
+#ifdef SKINNED
+    var normal = skinning::skin_normals(world_from_local, local_normal);
+#else
+    var normal = mesh_functions::mesh_normal_local_to_world(local_normal, vertex.instance_index);
 #endif
     let skin_normal = normal;
 #endif
     if slot != NO_WEARER {
-#ifdef VERTEX_NORMALS
+#ifdef LOOSE_NORMALS
         at = rippled(at, normal, push, wearers[slot].now, wearers[slot].ripples);
         normal = rippled_normal(normal, push, wearers[slot].ripples);
 #endif
@@ -134,7 +142,7 @@ fn vertex(
     );
     var was = before.xyz;
     if slot != NO_WEARER {
-#ifdef VERTEX_NORMALS
+#ifdef LOOSE_NORMALS
         was = rippled(was, skin_normal, push, wearers[slot].was, wearers[slot].ripples_was);
 #endif
         was = out_of_legs(was, wearers[slot].was, push);

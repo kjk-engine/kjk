@@ -51,6 +51,9 @@ pub const PUSH_LOCATION: u32 = 9;
 /// Its location in the shadow tiles' pass (`shadow_tiles.wgsl`).
 pub(crate) const SHADOW_PUSH_LOCATION: u32 = 8;
 
+/// The normal's location in a prepass that has no normals of its own.
+const PREPASS_NORMAL_LOCATION: u32 = 10;
+
 /// `loose_legs.wgsl`'s `LEG_CAPSULES`: the thighs, the shins and the feet.
 pub(crate) const LEG_CAPSULES: usize = 6;
 
@@ -322,18 +325,31 @@ pub(crate) fn pushed(
     if !layout.0.contains(PUSH) {
         return Ok(false);
     }
-    let push = layout
-        .0
-        .get_layout(&[PUSH.at_shader_location(PUSH_LOCATION)])?;
-    if let Some(buffer) = descriptor.vertex.buffers.first_mut() {
-        buffer.attributes.extend(push.attributes);
+    let mut wanted = vec![PUSH.at_shader_location(PUSH_LOCATION)];
+    let defs = &mut descriptor.vertex.shader_defs;
+    // A prepass without normals drew the robe without its folds and
+    // flutter. Where its depth and the main pass's cloth parted, nothing
+    // was coloured, and the cloth showed black holes.
+    if defs.contains(&"VERTEX_NORMALS".into()) {
+        defs.push("LOOSE_NORMALS".into());
+    } else if layout.0.contains(Mesh::ATTRIBUTE_NORMAL) {
+        wanted.push(Mesh::ATTRIBUTE_NORMAL.at_shader_location(PREPASS_NORMAL_LOCATION));
+        defs.push(ShaderDefVal::UInt(
+            "LOOSE_PREPASS_NORMAL".into(),
+            PREPASS_NORMAL_LOCATION,
+        ));
+        defs.push("LOOSE_NORMALS".into());
     }
-    descriptor
-        .vertex
-        .shader_defs
-        .push(ShaderDefVal::UInt("LOOSE_PUSH".into(), PUSH_LOCATION));
+    defs.push(ShaderDefVal::UInt("LOOSE_PUSH".into(), PUSH_LOCATION));
+    let added = layout.0.get_layout(&wanted)?;
+    if let Some(buffer) = descriptor.vertex.buffers.first_mut() {
+        buffer.attributes.extend(added.attributes);
+    }
     if sheen() {
         descriptor.vertex.shader_defs.push("LOOSE_SHEEN".into());
+    }
+    if let Some(fragment) = descriptor.fragment.as_mut() {
+        fragment.shader_defs.push("THIN_CLOTH".into());
     }
     descriptor.vertex.shader = SHADER;
     Ok(true)

@@ -567,6 +567,29 @@ fn mesh_owner(instance_index: u32) -> u32 {
     return select(NO_OWNER, tag & ~OWNER_TAG, (tag & OWNER_TAG) != 0u);
 }
 
+// How much of a light at the cosine `cosine` from a surface's normal it
+// takes. A robe's or a cape's cloth (`THIN_CLOTH`) is thin and takes it on
+// either face. Its inner layer faces the body, and where it showed, in an
+// open front or a panel thrown out behind, every light was behind it and it
+// was drawn pure black.
+fn lit_side(cosine: f32) -> f32 {
+#ifdef THIN_CLOTH
+    return abs(cosine);
+#else
+    return max(0.0, cosine);
+#endif
+}
+
+// The light probes' light of `owner` along `normal` (`probe_light`). Thin
+// cloth (`THIN_CLOTH`) takes the brighter of its two faces.
+fn probe_both_sides(owner: u32, normal: vec3<f32>) -> vec4<f32> {
+#ifdef THIN_CLOTH
+    return max(probe_light(owner, normal), probe_light(owner, -normal));
+#else
+    return probe_light(owner, normal);
+#endif
+}
+
 // The light probes' light of model `owner` on a surface facing `normal`:
 // the six colours weighed by the normal's squared parts. A zero normal
 // takes the mean of the six. The w part is 0 when the model has no entry
@@ -1450,7 +1473,7 @@ fn fight_light(light: GpuLight, position: vec3<f32>, normal: vec3<f32>, has_norm
     }
     var facing = 1.0;
     if has_normal && light.kind.x == 0u {
-        let lambert = max(0.0, dot(normal, to_light / max(1e-4, distance)));
+        let lambert = lit_side(dot(normal, to_light / max(1e-4, distance)));
         facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * lambert;
     }
     return light.color_multiplier.rgb * (light.color_multiplier.w * fight_falloff(distance, radius) * facing);
@@ -1682,7 +1705,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             // flat ambient.
             var area_ambient = params.world_ambient.rgb;
             if enhanced && (params.flags & PROBED) != 0u {
-                let probed = probe_light(mesh_owner(in.instance_index), select(vec3<f32>(0.0), normal, has_normal));
+                let probed = probe_both_sides(mesh_owner(in.instance_index), select(vec3<f32>(0.0), normal, has_normal));
                 if probed.w > 0.5 {
                     area_ambient = max(probed.rgb, params.world_ambient.rgb * PROBE_FLOOR);
                     if probe_list.mode == 1u {
@@ -1743,7 +1766,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             // The fragment's own distance sets only the falloff and the
             // direction: there is no cut-off but the reach above.
             let direction = to_light / max(1e-4, distance);
-            let facing = select(max(0.0, dot(normal, direction)), 1.0, even);
+            let facing = select(lit_side(dot(normal, direction)), 1.0, even);
             let falloff = (radius * radius) / ((radius + distance) * (radius + distance));
             let strength = ((reach * light.color_multiplier.w) * falloff) * light.color_multiplier.rgb;
             if light.kind.x != 0u {
