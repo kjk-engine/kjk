@@ -228,7 +228,12 @@ pub fn refusal_probes() -> Vec<(&'static str, Result<String, String>)> {
 /// - an item the module lacks is restored from the lookup, else lost;
 /// - a story restored and written again is the story (spec 4c), but for
 ///   its build, its time and the place within the 2 m snap, and for what
-///   each case names as lost, each with why.
+///   each case names as lost, each with why;
+/// - where the loading screens' hints stand is kept in the story and
+///   restored with it, a story without them starts each at its first row,
+///   a new game starts there with no module visited, and the hint rows go
+///   down their columns, start over at a blank cell, and keep KOTOR 2's
+///   planets apart.
 pub fn story_probes() -> sim::probe::Checks {
     let (level, save) = sim::fixtures::kitchen_sink();
     let story = Story::of(&save, &level);
@@ -268,6 +273,13 @@ pub fn story_probes() -> sim::probe::Checks {
             "story_restores_item_fields",
             restores_item_fields(&level, &save),
         ),
+        ("story_keeps_hints", keeps_hints(&level, &save)),
+        (
+            "story_without_hints_reads",
+            reads_without_hints(&level, &save),
+        ),
+        ("new_game_has_no_hints_or_visits", new_game()),
+        ("hint_rows_follow_the_original", hint_rows()),
         ("story_restores_twins_left", restores_twins_left(&save)),
         ("story_restores_twins_here", restores_twins_here(&save)),
     ];
@@ -1147,4 +1159,127 @@ fn restores_twins_here(save: &sim::Save) -> Result<String, String> {
     story.visited.insert(here, twins_kept(&level));
     let (mut world, said) = story.restore(&moved, 1, &|_| None)?;
     twins_right(&moved, &mut world, &said)
+}
+
+/// Hints as a save keeps them: three rows in, and a story counter of the
+/// first planet and the fourth.
+fn some_hints() -> sim::script::Hints {
+    let mut hints = sim::script::Hints {
+        gameplay: 3,
+        ..sim::script::Hints::default()
+    };
+    hints.story[0] = 2;
+    hints.story[3] = 5;
+    hints
+}
+
+fn keeps_hints(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    let mut save = save.clone();
+    save.script.hints = some_hints();
+    let story = Story::of(&save, level);
+    let text = serde_json::to_string(&story).map_err(|error| error.to_string())?;
+    let back: Story = serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    let (world, _) = back.restore(level, 1, &|_| None)?;
+    let bytes = save.encode();
+    let decoded = sim::Save::decode(&bytes).map_err(|error| error.to_string())?;
+    check(
+        story.hints.gameplay == 3
+            && story.hints.story.get(3) == Some(&5)
+            && world.hints() == some_hints()
+            && decoded.script.hints == some_hints(),
+        format!("{:?}", world.hints()),
+    )?;
+    round_trip(&story, level, &[], &[])
+}
+
+fn reads_without_hints(level: &sim::Level, save: &sim::Save) -> Result<String, String> {
+    let mut story = Story::of(save, level);
+    let mut value = serde_json::to_value(&story).map_err(|error| error.to_string())?;
+    value
+        .as_object_mut()
+        .and_then(|fields| fields.remove("hints"))
+        .ok_or("the story has no hints field")?;
+    story = serde_json::from_value(value).map_err(|error| error.to_string())?;
+    let (world, _) = story.restore(level, 1, &|_| None)?;
+    check(
+        story.hints == story::StoryHints::default()
+            && world.hints() == sim::script::Hints::default(),
+        format!("{:?}", world.hints()),
+    )
+}
+
+fn new_game() -> Result<String, String> {
+    let (level, left) = (with_carth()?, sim::fixtures::left());
+    let fresh = Story::default();
+    let mut world = sim::SimWorld::new(sim::WorldConfig::one_seat(), level.clone())
+        .map_err(|error| error.to_string())?;
+    let here = world
+        .snapshot()
+        .place
+        .as_ref()
+        .map(|place| place.module.clone())
+        .ok_or("the new world is in no module")?;
+    let before = world.snapshot();
+    let left_module = left
+        .place()
+        .map(|place| place.module.clone())
+        .ok_or("the left ground is in no module")?;
+    let others = !before.visited("a_module_never_entered");
+    world
+        .install(left.clone(), None)
+        .map_err(|error| format!("entering the module left: {error}"))?;
+    let after = world.snapshot();
+    check(
+        fresh.hints == story::StoryHints::default()
+            && fresh.visited.is_empty()
+            && world.hints() == sim::script::Hints::default()
+            && others
+            && !before.visited(&left_module)
+            && before.visited(&here)
+            && after.visited(&here)
+            && after.visited(&left_module),
+        format!("{:?}", world.hints()),
+    )
+}
+
+/// A column's cells, as the table gives them: a number, or none.
+fn cells(column: &[Option<i64>]) -> impl Fn(usize) -> Option<i64> + '_ {
+    |row| column.get(row).copied().flatten()
+}
+
+fn hint_rows() -> Result<String, String> {
+    use sim::script::Hints;
+    let column = [Some(10), Some(11), None, Some(13)];
+    let mut next = 0;
+    let shown: Vec<Option<i64>> = (0..5)
+        .map(|_| Hints::take_row(&mut next, cells(&column)))
+        .collect();
+    check(
+        shown == [Some(10), Some(11), Some(10), Some(11), Some(10)] && next == 1,
+        format!("a blank cell sends the column back to its first row: {shown:?}, next {next}"),
+    )?;
+    let empty = [None, Some(1)];
+    let mut next = 5;
+    let none = Hints::take_row(&mut next, cells(&empty));
+    check(
+        none.is_none() && next == 0,
+        format!("a column with no first row gives nothing: {none:?}, next {next}"),
+    )?;
+    let areas = [Some(1), Some(2), Some(1), Some(2), Some(2)];
+    let hints = [Some(101), Some(202), Some(103), Some(204), Some(205)];
+    let (mut one, mut two) = (0, 0);
+    let rows = areas.len();
+    let ask = |planet, next: &mut u8| {
+        Hints::take_planet_row(next, planet, rows, cells(&areas), cells(&hints))
+    };
+    let shown = [
+        ask(1, &mut one),
+        ask(2, &mut two),
+        ask(1, &mut one),
+        ask(1, &mut one),
+    ];
+    check(
+        shown == [Some(101), Some(202), Some(103), Some(101)],
+        format!("each planet goes down its own rows and starts over: {shown:?}"),
+    )
 }

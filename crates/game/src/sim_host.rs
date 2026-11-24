@@ -52,7 +52,7 @@ use sim::{
     SimWorld, Snapshot, StepReason, TickInput, TickRate, buttons, step,
 };
 
-use crate::lifecycle::{Installer, Prepared};
+use crate::lifecycle::{HintAsk, Installer, Prepared};
 use crate::pad::Actions;
 use crate::play::BodyScene;
 use crate::scene::{Headless, SceneContent};
@@ -551,7 +551,12 @@ fn resumed_view(mut snapshot: Snapshot) -> Result<String, String> {
 
 /// What a planning thread sends back.
 enum JobMessage {
-    Screen(Box<crate::lifecycle::LoadingScreen>),
+    /// The loading screen, and where the hints stand after its hint, when
+    /// it showed one.
+    Screen(
+        Box<crate::lifecycle::LoadingScreen>,
+        Option<sim::script::Hints>,
+    ),
     Progress(f32),
     Prepared(Box<Result<Prepared, String>>),
 }
@@ -567,15 +572,18 @@ pub(crate) struct Job {
     expect: Option<Announcement>,
     /// A save made the world at commit, in place of the install (I30 P13).
     reload: Option<Box<Save>>,
+    /// Where the hints stand after the one the loading screen showed.
+    hints: Mutex<Option<sim::script::Hints>>,
 }
 
 impl Job {
     /// Starts planning `request` with `installer` on a thread of its own
     /// (with its scene when `scene`, `delay` late), and shows the loading
-    /// screen for it.
+    /// screen for it, with a hint when `ask` is given.
     pub(crate) fn spawn(
         installer: Arc<Installer>,
         request: Request,
+        ask: Option<HintAsk>,
         scene: bool,
         delay: Duration,
         loading: &mut Loading,
@@ -583,8 +591,10 @@ impl Job {
         let (sender, receiver) = channel();
         let job_request = request.clone();
         std::thread::spawn(move || {
-            let screen = installer.loading_screen(&job_request.module);
-            let _ = sender.send(JobMessage::Screen(Box::new(screen)));
+            let mut ask = ask;
+            let screen = installer.loading_screen(&job_request.module, ask.as_mut());
+            let hints = ask.map(|ask| ask.hints);
+            let _ = sender.send(JobMessage::Screen(Box::new(screen), hints));
             let progress = sender.clone();
             std::thread::sleep(delay);
             let prepared = installer.prepare_with(&job_request, scene, &move |done| {
@@ -613,6 +623,7 @@ impl Job {
             commanded: false,
             expect: None,
             reload: None,
+            hints: Mutex::new(None),
         }
     }
 
@@ -626,7 +637,8 @@ impl Job {
                 .expect("the job channel lock")
                 .try_recv();
             match message {
-                Ok(JobMessage::Screen(screen)) => {
+                Ok(JobMessage::Screen(screen, hints)) => {
+                    *self.hints.lock().expect("the job hints lock") = hints;
                     loading.image = screen.image;
                     loading.image_name = screen.name;
                     loading.bar = screen.bar;
@@ -1547,14 +1559,26 @@ impl Authority {
 
     /// Starts planning `request` on a thread of its own, if the session
     /// installs modules and this transition did not fail before (a command
-    /// or a replay asks regardless).
+    /// or a replay asks regardless). Its loading screen's hint comes from
+    /// where the hints stand in `ask`, else in the world now.
     fn start(
         &mut self,
         request: Request,
         commanded: bool,
         expect: Option<Announcement>,
+        ask: Option<HintAsk>,
         loading: &mut Loading,
     ) -> bool {
+        if self.lifecycle.is_none() {
+            return false;
+        }
+        let ask = ask.unwrap_or_else(|| {
+            self.settle();
+            HintAsk {
+                hints: self.world.hints(),
+                visited: self.last.visited(&request.module),
+            }
+        });
         let Some(lifecycle) = &self.lifecycle else {
             return false;
         };
@@ -1575,7 +1599,14 @@ impl Authority {
         self.job = Some(Job {
             commanded,
             expect,
-            ..Job::spawn(installer, request, scene, Duration::ZERO, loading)
+            ..Job::spawn(
+                installer,
+                request,
+                Some(ask),
+                scene,
+                Duration::ZERO,
+                loading,
+            )
         });
         true
     }
@@ -1608,6 +1639,7 @@ impl Authority {
             Request::of(&announcement),
             false,
             Some(announcement),
+            None,
             loading,
         )
     }
@@ -2010,7 +2042,11 @@ fn reload_start(authority: &mut Authority, id: &str, loading: &mut Loading) -> R
          or the save is not in one.",
     )?;
     info!(target: "saves", id, module = %request.module, "reloading");
-    if authority.start(request, true, None, loading)
+    let ask = HintAsk {
+        hints: save.script.hints,
+        visited: save.snapshot.visited(&request.module),
+    };
+    if authority.start(request, true, None, Some(ask), loading)
         && let Some(job) = authority.job.as_mut()
     {
         job.reload = Some(Box::new(save));
@@ -2172,7 +2208,7 @@ fn advance(
                     lifecycle
                         .installer
                         .request_from(&authority.last, &module, arrival.as_deref());
-                authority.start(request, true, None, &mut loading);
+                authority.start(request, true, None, None, &mut loading);
             }
             Some(_) => request.failed = Some("a module is being installed already".into()),
             None => request.failed = Some("this run installs no modules".into()),
@@ -2197,6 +2233,7 @@ fn advance(
         let prepare_ms = job.started.elapsed().as_secs_f64() * 1000.0;
         let reloaded = job.reload.take();
         let was_reload = reloaded.is_some();
+        let shown = job.hints.lock().expect("the job hints lock").take();
         let committed = result.and_then(|prepared| {
             // A replay's install must be the recorded one, before and
             // after.
@@ -2239,6 +2276,9 @@ fn advance(
                             sim::Announcement::new(&prepared.plan.level, None, &world.snapshot())
                                 .ok_or("the save was not made in a module")?;
                     }
+                    if let Some(hints) = shown {
+                        world.set_hints(hints);
+                    }
                     authority.world = WorldSlot::new(world);
                     info!(target: "saves", tick, "reloaded");
                     first
@@ -2251,6 +2291,9 @@ fn advance(
                         .plan
                         .commit(&mut authority.world)
                         .map_err(|error| error.to_string())?;
+                    if let Some(hints) = shown {
+                        authority.world.set_hints(hints);
+                    }
                     if let Some(report) = authority.world.reconciled() {
                         warn!(target: "save-migrate", "{report}");
                         for snap in &report.snaps {
@@ -2560,7 +2603,7 @@ fn advance(
                 &transition.module,
                 Some(&transition.tag),
             );
-            if authority.start(request, false, None, &mut loading) {
+            if authority.start(request, false, None, None, &mut loading) {
                 states.0.insert("loading".into(), true);
                 states.0.insert("world".into(), false);
                 held_up = true;
@@ -2842,7 +2885,7 @@ fn advance(
                 &transition.module,
                 Some(&transition.tag),
             );
-            if authority.start(request, false, None, &mut loading) {
+            if authority.start(request, false, None, None, &mut loading) {
                 authority.clock = Accumulator::new(rate, tick);
                 states.0.insert("loading".into(), true);
                 states.0.insert("world".into(), false);

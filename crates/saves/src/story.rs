@@ -68,6 +68,39 @@ pub struct Story {
     pub transit: BTreeMap<String, bool>,
     /// What is kept of each module visited, by lowercase name.
     pub visited: BTreeMap<String, StoryModule>,
+    /// Where the loading screens' hints stand.
+    pub hints: StoryHints,
+}
+
+/// Where the loading screens' hints stand: the next row of the gameplay
+/// hints, and of the story hints (one counter in KOTOR 1, one for each
+/// planet in KOTOR 2). A story from before they were kept reads as the
+/// first row of each.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StoryHints {
+    pub gameplay: u8,
+    pub story: Vec<u8>,
+}
+
+impl StoryHints {
+    fn of(hints: sim::script::Hints) -> StoryHints {
+        StoryHints {
+            gameplay: hints.gameplay,
+            story: hints.story.to_vec(),
+        }
+    }
+
+    pub(crate) fn state(&self) -> sim::script::Hints {
+        let mut hints = sim::script::Hints {
+            gameplay: self.gameplay,
+            ..sim::script::Hints::default()
+        };
+        for (row, kept) in hints.story.iter_mut().zip(&self.story) {
+            *row = *kept;
+        }
+        hints
+    }
 }
 
 /// Where the leader stands.
@@ -294,6 +327,7 @@ impl Story {
             unescapable: script.unescapable.iter().cloned().collect(),
             transit: script.transit.clone(),
             visited: visited(snapshot, script),
+            hints: StoryHints::of(script.hints),
             ..Story::default()
         }
     }
@@ -365,6 +399,7 @@ impl Story {
             ("unescapable", a.unescapable == b.unescapable),
             ("transit", a.transit == b.transit),
             ("visited", a.visited == b.visited),
+            ("hints", a.hints.state() == b.hints.state()),
         ];
         fields
             .into_iter()

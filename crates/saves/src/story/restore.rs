@@ -322,6 +322,7 @@ impl Restore<'_> {
         state.unescapable = story.unescapable.iter().cloned().collect();
         state.transit = story.transit.clone();
         state.party.party_ai = story.party_ai;
+        state.hints = story.hints.state();
     }
 
     /// The players' characters, on their seats' bodies: sheet, points,

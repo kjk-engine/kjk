@@ -115,6 +115,16 @@ droppable, identified and non-equippable flags of an item, writes the same
 items when the restored world is written again, and gives an item of an old
 story, which has no flags, its template's values. It is not an approved
 test, and it runs only through `kjk sim probes --only "save story"`.
+The probes `story_keeps_hints`, `story_without_hints_reads`,
+`new_game_has_no_hints_or_visits` and `hint_rows_follow_the_original` of the
+group "save story" (the loading screen hints) were proposed 2026-11-24 and
+await approval. They check that where the loading screens' hints stand is kept
+in a save and in its story and restored with them, that a story without hints
+starts each at its first row, that a new game starts every hint at its first
+row with no module visited, and that the hint rows go down their columns,
+start over at a blank cell and keep KOTOR 2's planets apart. Saves from
+before the hints were kept are read by `old_saves_load`. They are not
+approved tests, and they run only through `kjk sim probes --only "save story"`.
 `bink_decoder_parts` was approved 2026-11-23.
 `untextured_mesh_drawn` (issue 441) was proposed 2026-11-16 and awaits
 approval. `stance_sets_sim` was changed 2026-11-16 for issue 514, and the

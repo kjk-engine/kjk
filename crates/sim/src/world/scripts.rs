@@ -2105,6 +2105,16 @@ impl SimWorld {
         &self.world.resource::<Scripts>().state
     }
 
+    /// Where the loading screens' hints stand now.
+    pub fn hints(&self) -> crate::script::Hints {
+        self.script_state().hints
+    }
+
+    /// The loading screens' hints, as they stand after one was shown.
+    pub fn set_hints(&mut self, hints: crate::script::Hints) {
+        self.world.resource_mut::<Scripts>().state.hints = hints;
+    }
+
     /// The scripts' state from a save.
     pub fn set_script_state(&mut self, state: State) {
         let mut scripts = self.world.resource_mut::<Scripts>();
