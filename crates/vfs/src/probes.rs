@@ -606,13 +606,16 @@ fn workshop_module_rims() -> Result<String, String> {
 /// `dialog.tlk`, movies and each stream folder's files are the last
 /// item's that has them, the game folder's when none has; an item's `.mp3`
 /// is the sound of its name as a `.wav` is, to the stream folder and to a
-/// sound asked for by name (`Resolver::sound`, the music's lookup).
+/// sound asked for by name (`Resolver::sound`). A sound asked for by name
+/// is the archives' first, the override's here, and a music track is
+/// `streammusic`'s first (`Resolver::music`).
 fn workshop_talk_and_streams() -> Result<String, String> {
     let files = [
         ("dialog.tlk", b"game".to_vec()),
         ("streammusic/a.wav", b"game".to_vec()),
         ("streammusic/c.wav", b"game".to_vec()),
         ("streammusic/d.wav", b"game".to_vec()),
+        ("override/d.wav", b"override".to_vec()),
         ("movies/m.bik", b"game".to_vec()),
     ];
     let items = [
@@ -662,6 +665,9 @@ fn workshop_talk_and_streams() -> Result<String, String> {
             got.push(format!("{folder}/{name}={found}"));
         }
         got.push(format!("sound c={}", text(base.sound("c"))));
+        got.push(format!("sound d={}", text(base.sound("d"))));
+        got.push(format!("music c={}", text(base.music("c"))));
+        got.push(format!("music d={}", text(base.music("d"))));
         Ok(got)
     });
     remove(&written);
@@ -674,6 +680,9 @@ fn workshop_talk_and_streams() -> Result<String, String> {
         "streammusic/d=game",
         "movies/m=w2",
         "sound c=w2",
+        "sound d=override",
+        "music c=w2",
+        "music d=game",
     ];
     if got == expected {
         Ok(got.join(", "))
