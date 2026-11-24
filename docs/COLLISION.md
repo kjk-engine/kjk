@@ -507,12 +507,17 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
   else the lowest. The column is a high top when that face is more than
   2.5 m down (the audit's perch height, `collision::PERCH`) somewhere
   under the footprint and nowhere within it. A box on the floor, on a crate
-  or on a console is no high top. Each side of a high top's column gets a
-  `WALK_CLIP` wall from just under the top: up to the sky (or a walkable
-  floor overhead) beside a column that is no high top, up to the higher
-  top beside one more than a step higher, and none beside one about as
-  high. No wall comes lower than the perch height over the walkmesh, so
-  walking is untouched: the audit reaches the same spots on foot as
+  or on a console is no high top. Nor is a column with a walkable floor
+  within a half width of its sides, from 2.5 m under the top to 0.35 m
+  over it (a catwalk past a ledge), since a box on that floor reaches over
+  the column's side. Each side of a high top's column gets a `WALK_CLIP`
+  wall from just under the top: up to the sky, or to just under a walkable
+  floor found over a band a half width either side of the side, beside a
+  column that is no high top; up to the higher top beside one more than a
+  step higher; and none beside one about as high. Sides along a line make
+  one wall while their feet, and their tops, stay within 0.25 m of each
+  other, so a wall along a slope never drifts far below its sides. No wall
+  comes lower than 2.15 m over the walkmesh, so walking is untouched: the audit reaches the same spots on foot as
   without them in every module tried. In the docking bay the audit's
   escapes went from 29, 40 and 47 regions (Force jump ranks 1, 2 and 3) to
   none, and on Manaan (K1 manm26aa) 22 087 leaks out of the grid went to
