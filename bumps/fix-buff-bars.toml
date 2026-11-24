@@ -1,0 +1,10 @@
+# Health and Force bars during stat buffs. When an effect or a worn item
+# raises or lowers a character's most hit points or Force points, its
+# current points move by the same amount, as in both games.
+sim = "a change in the most hit points or Force points that effects and worn items add moves the current points by the same amount (`effects::follow_maxima`); the Force pool counts the effects' Wisdom, Charisma and Constitution; heals fill up to the most with effects counted"
+
+[formats]
+snapshot = "a character's effects keep the hit points and bar points they added to its most at the last step (`Effects::added`)."
+
+[migrations]
+snapshot = "an older snapshot reads nothing added: older builds never raised the current points, so the first step after the load raises them by what the effects and worn items add"

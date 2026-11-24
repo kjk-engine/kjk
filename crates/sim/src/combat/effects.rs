@@ -574,6 +574,10 @@ pub struct Effects {
     /// Fury's kills (`Modifies::Fury`): counted from 0 when one takes hold,
     /// none once the last ends.
     pub fury: Option<u8>,
+    /// The hit points and bar points that its effects and worn items added
+    /// to its most at the last step (`follow_maxima`). A character is made
+    /// with none, from its own sheet's most.
+    pub added: (i16, i16),
 }
 
 /// What `Effects::settle` found changed: the state that ended (when the one
@@ -866,6 +870,8 @@ impl Effects {
         out.u8(self.worn_traits);
         out.u64(self.regenerated_at);
         out.u8(self.fury.unwrap_or(u8::MAX));
+        out.u16(self.added.0 as u16);
+        out.u16(self.added.1 as u16);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Effects, DecodeError> {
@@ -886,6 +892,11 @@ impl Effects {
             worn_traits: input.u8()?,
             regenerated_at: input.u64()?,
             fury: Some(input.u8()?).filter(|kills| *kills != u8::MAX),
+            added: if input.since(crate::since::snapshot::FIX_BUFF_BARS) {
+                (input.u16()? as i16, input.u16()? as i16)
+            } else {
+                (0, 0)
+            },
         })
     }
 }
@@ -916,6 +927,28 @@ pub fn settle(fighter: &mut Fighter, now: u64) -> Settled {
         force.state = state;
     }
     settled
+}
+
+/// Moves `fighter`'s hit points and bar points by as much as its most moved
+/// since the last step, through what runs on it and what it wears
+/// (`added`: the points they add to its own sheet's most, as
+/// `sheet_now` finds them). Both games do this whenever an effect raises or
+/// lowers an ability. A character at full health who takes Master Valor's
+/// Constitution stays at full health, and loses those points again when it
+/// ends. A loss never takes it below 1 point here, where the games kill a
+/// character the loss takes to 0. A character made at its own sheet's most
+/// (`Fighter::of`) is raised to its most at its first step.
+pub fn follow_maxima(fighter: &mut Fighter, added: (i16, i16)) {
+    let (hp, fp) = fighter.effects.added;
+    if fighter.alive() {
+        let moved = |by: i16, was: i16| (i32::from(by) - i32::from(was)) * 100;
+        let hp_moved = moved(added.0, hp);
+        if hp_moved != 0 {
+            fighter.hp = (fighter.hp + hp_moved).max(fighter.hp.min(100));
+        }
+        fighter.fp = (fighter.fp + moved(added.1, fp)).max(0);
+    }
+    fighter.effects.added = added;
 }
 
 /// What `sheet`'s worn items do to `fighter` at `now` (step `tick`,
