@@ -411,9 +411,10 @@ impl PhotoMode {
     /// A run's request (`ui photo …`): `on`, `on X Y Z PITCH YAW [FOV]`
     /// (metres in game space, degrees), `off`, `speed
     /// stopped|tenth|quarter|normal`, `hide` (the own character hidden or
-    /// shown), `step` (one tick of a stopped replay), and `fly FORWARD RIGHT UP [TURN_RIGHT TURN_DOWN]` (the move
-    /// held, each from -1 to 1, and the turn in degrees a second; `fly 0 0
-    /// 0` lets go). False for anything else.
+    /// shown), `step` (one tick of a stopped replay), and `fly FORWARD
+    /// RIGHT UP [TURN_RIGHT TURN_DOWN]` (the move held, each from -1 to 1,
+    /// and the turn in degrees a second; `fly 0 0 0` lets go). False for
+    /// anything else.
     pub(crate) fn script(&mut self, words: &[&str]) -> bool {
         let numbers: Option<Vec<f32>> = words
             .iter()
@@ -492,11 +493,11 @@ pub fn off(photo: Option<Res<PhotoMode>>) -> bool {
     photo.is_none_or(|photo| !photo.is_on())
 }
 
-/// The corner line (`ui_view` draws it): its words, and how much of it
-/// shows, from 0 to 1.
+/// The corner lines (`ui_view` draws them, the first on top): their
+/// words, and how much of them shows, from 0 to 1.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Line {
-    pub(crate) words: Vec<u8>,
+    pub(crate) words: [Vec<u8>; 2],
     pub(crate) alpha: f32,
 }
 
@@ -523,20 +524,36 @@ pub(crate) struct Controls<'w, 's> {
 
 impl Controls<'_, '_> {
     fn held(&self, control: Control) -> bool {
-        let (keys, button) = bound(control);
-        self.keys
-            .as_ref()
-            .is_some_and(|held| held.any_pressed(keys.iter().copied()))
-            || button.is_some_and(|button| self.pads.iter().any(|(pad, _)| pad.pressed(button)))
+        self.reads(control, false)
     }
 
     fn pressed(&self, control: Control) -> bool {
+        self.reads(control, true)
+    }
+
+    /// Whether a key or a pad's button of `control` is held, or, `just`,
+    /// went down this frame.
+    fn reads(&self, control: Control, just: bool) -> bool {
         let (keys, button) = bound(control);
-        self.keys
-            .as_ref()
-            .is_some_and(|held| held.any_just_pressed(keys.iter().copied()))
-            || button
-                .is_some_and(|button| self.pads.iter().any(|(pad, _)| pad.just_pressed(button)))
+        let key = |down: &ButtonInput<KeyCode>| {
+            keys.iter().any(|key| {
+                if just {
+                    down.just_pressed(*key)
+                } else {
+                    down.pressed(*key)
+                }
+            })
+        };
+        let pad = |button: GamepadButton| {
+            (self.pads.iter()).any(|(pad, _)| {
+                if just {
+                    pad.just_pressed(button)
+                } else {
+                    pad.pressed(button)
+                }
+            })
+        };
+        self.keys.as_deref().is_some_and(key) || button.is_some_and(pad)
     }
 
     /// The frame's camera input: the movement keys as the player bound
@@ -560,7 +577,8 @@ impl Controls<'_, '_> {
             .cursors
             .iter()
             .any(|cursor| cursor.grab_mode != CursorGrabMode::None);
-        let feel = self.feel.as_deref().copied().unwrap_or_default();
+        let feel =
+            (self.feel.as_deref().copied()).unwrap_or_else(crate::settings::MouseFeel::default);
         let mouse = self
             .motion
             .as_ref()
@@ -656,14 +674,25 @@ impl Play<'_> {
     }
 }
 
-/// The corner line's words: "Photo mode", the world's speed (whether the
-/// break holds, in co-op), and the controls that leave and take a
-/// screenshot, as the device in use names them.
-fn line_words(speed: Speed, alone: Option<bool>, device: Device, map: &KeyMap) -> Vec<u8> {
-    let state = match alone {
+/// How a co-op world stands for the corner line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Coop {
+    /// A break holds.
+    Paused,
+    /// No break holds, and the party fights, so none can be called.
+    Fighting,
+    Running,
+}
+
+/// The corner lines' words: "Photo mode" and the world's speed (in co-op,
+/// whether the break holds, `coop`), then the controls that leave and take
+/// a screenshot, as the device in use names them.
+fn line_words(speed: Speed, coop: Option<Coop>, device: Device, map: &KeyMap) -> [Vec<u8>; 2] {
+    let state = match coop {
         None => speed.said(),
-        Some(true) => "Paused for everyone.",
-        Some(false) => "The game keeps running.",
+        Some(Coop::Paused) => "Paused for everyone.",
+        Some(Coop::Fighting) => "Enemies are nearby, so the game keeps running.",
+        Some(Coop::Running) => "The game keeps running.",
     };
     let (leave, shot) = match device {
         Device::Pad(kind) => (
@@ -675,8 +704,10 @@ fn line_words(speed: Speed, alone: Option<bool>, device: Device, map: &KeyMap) -
             String::from_utf8_lossy(&map.shown(Action::Screenshot)).into_owned(),
         ),
     };
-    format!("Photo mode. {state} Press {leave} to leave and {shot} to take a screenshot.")
-        .into_bytes()
+    [
+        format!("Photo mode. {state}").into_bytes(),
+        format!("Press {leave} to leave and {shot} to take a screenshot.").into_bytes(),
+    ]
 }
 
 /// Photo mode turned on and off, and its camera flown, each frame. In
@@ -812,11 +843,17 @@ pub(crate) fn photo_keys(
     if photo.shot == Shot::Asked {
         photo.shot = Shot::Due;
     }
-    let paused = snapshot.is_some_and(|snapshot| snapshot.paused_by.is_some());
+    let coop = snapshot.filter(|_| !alone).map(|snapshot| {
+        match (snapshot.paused_by, snapshot.in_combat) {
+            (Some(_), _) => Coop::Paused,
+            (None, true) => Coop::Fighting,
+            (None, false) => Coop::Running,
+        }
+    });
     let map = controls.map.as_deref().unwrap_or(KeyMap::defaults());
     let fade = ((on.idle - LINE_AFTER) / LINE_FADE).clamp(0.0, 1.0);
     ui.photo = Some(Line {
-        words: line_words(on.speed, (!alone).then_some(paused), keys.device, map),
+        words: line_words(on.speed, coop, keys.device, map),
         alpha: if photo.shot == Shot::None {
             1.0 - fade
         } else {

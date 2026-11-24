@@ -398,10 +398,11 @@ impl Pair {
         for seat in 0..2 {
             input.insert(Seat(seat), Command::default());
         }
-        for (seat, call) in calls {
-            if let Some(call) = call {
-                input.act(Seat(*seat), call.clone());
-            }
+        for (seat, call) in calls
+            .iter()
+            .filter_map(|(seat, call)| Some((seat, call.clone()?)))
+        {
+            input.act(Seat(*seat), call);
         }
         let tick = self.world.tick() + 1;
         sim::step(&mut self.world, tick, &input, 8, StepReason::Authority)

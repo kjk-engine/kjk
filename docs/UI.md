@@ -683,7 +683,15 @@ Running and checking:
   icon), `ui set KEY VALUE` (a setting changed as the options screens
   change it: `ui set display.size 800x600`), `ui camera orbit YAW PITCH`
   / `ui camera orbit off` / `ui camera zoom STEPS` (the camera's orbit held
-  and turned there, let go, a zoom; `MOVEMENT.md`), and `ui script upgrade|levelup|party|death|credits|end|box
+  and turned there, let go, a zoom; `MOVEMENT.md`), `ui photo on` / `ui
+  photo on X Y Z PITCH YAW [FOV]` / `ui photo off` (photo mode turned on at
+  the shot the player sees or at that place, metres in game space and
+  degrees, and turned off), `ui photo speed stopped|tenth|quarter|normal`,
+  `ui photo hide` (the player's own character hidden or shown), `ui photo
+  step` (one tick of a stopped replay) and `ui photo fly FORWARD RIGHT UP
+  [TURN_RIGHT TURN_DOWN]` (the photo camera's move held, each from -1 to 1,
+  and its turn in degrees a second; `ui photo fly 0 0 0` lets go;
+  `game::photo_mode`), and `ui script upgrade|levelup|party|death|credits|end|box
   <strref>|movie <name>|galaxy <planet> [<available> <selectable>]` (`party` lists no
   companions: `ui open party` in play shows the host's table; rows by commas,
   `ui script galaxy 3 1,3,4,5,6,7,9 3,4,5,6,7`) (a store opens

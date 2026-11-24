@@ -1998,8 +1998,9 @@ fn bark_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     Some(out)
 }
 
-/// Photo mode's corner line for a window of `window` pixels, in its lower
-/// left corner at the window's own pixels, faded as photo mode asks.
+/// Photo mode's corner lines for a window of `window` pixels, in its lower
+/// left corner at the window's own pixels, one over the other, faded as
+/// photo mode asks.
 fn photo_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let line = ui.photo.as_ref().filter(|line| line.alpha > 0.0)?;
     let (words, alpha) = (line.words.clone(), line.alpha);
@@ -2009,16 +2010,23 @@ fn photo_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         ..DrawList::default()
     };
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    painter.tooltip(&words, [PHOTO_MARGIN, window.1 - PHOTO_MARGIN], &mut out);
+    let mut bottom = window.1 - PHOTO_MARGIN;
+    for words in words.iter().rev() {
+        let first = out.quads.len();
+        painter.tooltip(words, [PHOTO_MARGIN, bottom], &mut out);
+        // The tip's box is its first quad: the next line stands over it.
+        bottom = out.quads.get(first).map_or(bottom, |tip| tip.rect[1]) - PHOTO_GAP;
+    }
     for quad in &mut out.quads {
         quad.color[3] *= alpha;
     }
     Some(out)
 }
 
-/// How far photo mode's corner line stands from the window's left and
-/// lower edges (pixels).
+/// How far photo mode's corner lines stand from the window's left and
+/// lower edges, and apart (pixels).
 const PHOTO_MARGIN: f32 = 24.0;
+const PHOTO_GAP: f32 = 4.0;
 
 /// The conversation screen for a window of `window` pixels, while this
 /// player is in a cinematic conversation (`ui::screens::dialog`).
