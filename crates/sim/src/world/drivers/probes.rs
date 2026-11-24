@@ -16,6 +16,7 @@ use crate::{Guests, Level, StepReason, WorldConfig};
 use std::sync::Arc;
 
 mod takes;
+pub use takes::droid_take;
 
 /// The companions' templates, in the party's joining order.
 const COMPANIONS: [&str; 2] = ["probe_comp_a", "probe_comp_b"];

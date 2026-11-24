@@ -83,6 +83,7 @@ const GROUPS: &[Group] = &[
     ("checkpoint saves", saves::checkpoint_probes),
     ("settings file", kjk_game::settings::file_probes),
     ("seat tokens", kjk_game::seat_tokens::probes),
+    ("leader key", kjk_game::leader_view::probes),
     ("flight", sim::flight::probes),
     ("crash", kjk_game::crash::probes),
     ("shader bounds", kjk_game::shader_checks::probes),

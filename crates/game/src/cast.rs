@@ -728,13 +728,21 @@ pub fn party_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
 
 /// The party as `seat`'s HUD and leader key list it. For the first seat
 /// this is `party_of`. A guest that plays a body sees the whole party, as
-/// the first seat lists it, with its own body first. Its portrait clicks
-/// and leader key can then take a companion no player controls
-/// (`Action::Play`). A guest without a body sees `party_of` too.
+/// the first seat lists it, with its own body first. A guest that flies a
+/// droid (`Snapshot::remote`) sees the whole party as the first seat lists
+/// it. Its portrait clicks and leader key can then take a companion no
+/// player controls (`Action::Play`). Any other guest without a body sees
+/// `party_of` too.
 pub fn bar_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
-    let body = snapshot.body(seat).filter(|_| seat != Seat(0));
-    let Some(body) = body else {
+    if seat == Seat(0) {
         return party_of(snapshot, seat);
+    }
+    let Some(body) = snapshot.body(seat) else {
+        return if snapshot.remote(seat).is_some() {
+            party_of(snapshot, Seat(0))
+        } else {
+            party_of(snapshot, seat)
+        };
     };
     let mut party = party_of(snapshot, Seat(0));
     party.retain(|member| member.id != body.id);

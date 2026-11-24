@@ -135,13 +135,26 @@ fn plays(
         let body = script_ncs::vm::ObjectId(id.0);
         state.talk.holding(body).is_some()
             || state.plays_pazaak(body)
+            || state.watching(body).is_some()
             || state.trades.contains_key(&id.0)
     };
+    // A party conversation holds every player, whether or not its
+    // participants list a guest's companion.
+    if state.talk.party().is_some() {
+        return Vec::new();
+    }
+    // The bodies the first seat leads through this step, by body (`Lead`)
+    // or by number (`SetLeader`): its switch comes before any take.
     let led: Vec<SimId> = inputs
         .actions()
         .iter()
-        .filter_map(|(seat, action)| match action {
-            Action::Lead(body) if *seat == super::LEADER_SEAT => Some(*body),
+        .filter(|(seat, _)| *seat == super::LEADER_SEAT)
+        .filter_map(|(_, action)| match action {
+            Action::Lead(body) => Some(*body),
+            Action::SetLeader(npc) => members
+                .iter()
+                .find(|member| member.npc == Some(*npc))
+                .map(|member| member.id),
             _ => None,
         })
         .collect();
@@ -381,4 +394,4 @@ pub(super) fn assign(world: &mut World) {
 )]
 pub(in crate::world) mod probes;
 #[cfg(feature = "probes")]
-pub use probes::{led_party, probes};
+pub use probes::{droid_take, led_party, probes};

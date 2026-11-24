@@ -80,8 +80,8 @@ fn lead(
         return;
     };
     let snapshot = presented.0.current();
-    let party = crate::cast::bar_of(snapshot, own.0);
     if facts.wanted() {
+        let party = crate::cast::bar_of(snapshot, own.0);
         facts.0.insert(
             "lead".into(),
             serde_json::json!({
@@ -108,6 +108,23 @@ fn lead(
         info!(target: "party", "solo: {}", !snapshot.solo);
         outgoing.0.push(Action::Solo(!snapshot.solo));
     }
+    // A guest's click while a screen or a conversation is up takes no one.
+    let clicked = clicked.filter(|_| first || !busy);
+    let (Some(action), Some(mut outgoing)) = (chosen(snapshot, own.0, clicked, key), outgoing)
+    else {
+        return;
+    };
+    info!(target: "party", "seat {}: {action:?}", own.0.0);
+    outgoing.0.push(action);
+}
+
+/// What `own`'s leader key (`key`) or a click on a portrait (`clicked`, by
+/// its body) sends, from the party its HUD lists (`cast::bar_of`). The
+/// first seat leads through the member (`Action::Lead`), and every other
+/// seat takes it (`Action::Play`). The key picks the first member after the
+/// HUD's own that the seat may lead through or take.
+fn chosen(snapshot: &sim::Snapshot, own: Seat, clicked: Option<u32>, key: bool) -> Option<Action> {
+    let first = own == Seat(0);
     let free = |member: &sim::EntityState| {
         if first {
             leads(member)
@@ -115,25 +132,47 @@ fn lead(
             takes(snapshot, member)
         }
     };
-    // A guest's click while a screen or a conversation is up takes no one.
-    let member = match clicked.filter(|_| first || !busy) {
+    let party = crate::cast::bar_of(snapshot, own);
+    let member = match clicked {
         Some(id) => party
             .iter()
             .find(|member| member.id.0 == id)
             .filter(|member| free(member)),
         None if key => party.iter().skip(1).find(|member| free(member)),
         None => None,
-    };
-    let (Some(member), Some(mut outgoing)) = (member, outgoing) else {
-        return;
-    };
-    if first {
-        info!(target: "party", "lead: {} leads", member.id.0);
-        outgoing.0.push(Action::Lead(member.id));
+    }?;
+    Some(if first {
+        Action::Lead(member.id)
     } else {
-        info!(target: "party", "play: seat {} takes {}", own.0.0, member.id.0);
-        outgoing.0.push(Action::Play(member.id));
-    }
+        Action::Play(member.id)
+    })
+}
+
+/// The leader view's probes: a guest flying a droid takes a free companion
+/// with its leader key, and with a click on its portrait
+/// (`sim::drivers::droid_take`).
+#[cfg(feature = "probes")]
+pub fn probes() -> sim::probe::Checks {
+    // A click on each of the HUD's two companion portraits in turn
+    // (`ui::screens::hud::portrait_at`), until one sends an action.
+    let clicked = |snapshot: &sim::Snapshot, seat: Seat| {
+        let party = crate::cast::bar_of(snapshot, seat);
+        party
+            .iter()
+            .skip(1)
+            .take(2)
+            .find_map(|member| chosen(snapshot, seat, Some(member.id.0), false))
+    };
+    vec![
+        (
+            "a droid's leader key takes a companion",
+            sim::drivers::droid_take(|snapshot, seat| chosen(snapshot, seat, None, true)),
+        ),
+        (
+            "a droid's portrait click takes a companion",
+            sim::drivers::droid_take(clicked),
+        ),
+    ]
 }
 
 /// Whether the first seat may lead through `member`: standing, and no

@@ -16,6 +16,12 @@ pub(super) fn takes() -> crate::probe::Checks {
         ("take_while_downed", take_downed()),
         ("take_from_a_droid", take_from_droid()),
         ("take_in_conversation_refused", take_in_conversation()),
+        (
+            "take_in_party_conversation_refused",
+            take_in_party_conversation(),
+        ),
+        ("take_watching_pazaak_refused", take_watching_pazaak()),
+        ("set_leader_before_a_take", set_leader_first()),
         ("take_kept_across_a_drop", take_kept()),
     ]
 }
@@ -176,21 +182,37 @@ fn settled(world: &mut SimWorld, seats: &[(u8, i8)]) -> Snapshot {
 /// plays it. Seat 3 takes that companion: it drives it, and its droid
 /// docks, while seat 4 flies on.
 fn take_from_droid() -> Result<String, String> {
+    from_droid(&|_, _, free| Some(Play(free)))
+}
+
+/// `take_from_a_droid`, with the action seat 3 sends chosen by `pick` from
+/// the snapshot seat 3 sees and its seat. The client's views check their
+/// leader key and portrait clicks with it (`leader_view`).
+pub fn droid_take(pick: impl Fn(&Snapshot, Seat) -> Option<Action>) -> Result<String, String> {
+    from_droid(&|snapshot, seat, _| pick(snapshot, seat))
+}
+
+/// `droid_take`, `pick` also told the companion that is free to take.
+fn from_droid(pick: &dyn Fn(&Snapshot, Seat, SimId) -> Option<Action>) -> Result<String, String> {
     let (mut world, _, [a, b]) = party_world(Guests::Companions, 5)?;
     let all = [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)];
     settled(&mut world, &all);
     let present = [(0, 0), (1, 0), (3, 0), (4, 0)];
     let flying = run(&mut world, &present);
     let droids = |snapshot: &Snapshot| [3, 4].map(|seat| snapshot.remote(Seat(seat)).is_some());
-    acting(&mut world, &[0, 1, 3, 4], &[(3, Play(b))]);
+    let sent = pick(&flying, Seat(3), b);
+    let actions: Vec<(u8, Action)> = sent.iter().map(|action| (3, action.clone())).collect();
+    acting(&mut world, &[0, 1, 3, 4], &actions);
     let after = run(&mut world, &present);
     check(
         bodies(&flying, &[1, 2, 3]) == [Some(a), None, None]
             && droids(&flying) == [true; 2]
+            && sent == Some(Play(b))
             && bodies(&after, &[1, 3]) == [Some(a), Some(b)]
             && droids(&after) == [false, true],
         format!(
-            "seats 1 to 3 played {:?}, droids of seats 3 and 4 {:?}; after seat 3 took {b:?}: seats 1 and 3 {:?}, droids {:?}",
+            "seats 1 to 3 played {:?}, droids of seats 3 and 4 {:?}; seat 3 sent {sent:?}; \
+             after that seats 1 and 3 played {:?}, droids {:?}",
             bodies(&flying, &[1, 2, 3]),
             droids(&flying),
             bodies(&after, &[1, 3]),
@@ -199,42 +221,128 @@ fn take_from_droid() -> Result<String, String> {
     )
 }
 
-/// Seat 1's companion holds a conversation with the second companion (the
-/// one the conversation's scripts run for). Seat 1's take of the second is
-/// refused while it lasts.
-fn take_in_conversation() -> Result<String, String> {
-    use crate::script::dialogue::Start;
-    use script_ncs::vm::ObjectId;
-    const DIALOG: &str = "probe_take_talk";
-    let (level, numbers) = ground()?;
+/// The world of `take_in_conversation_refused` and
+/// `take_in_party_conversation_refused`: two seats, the conversation
+/// `DIALOG` in its scripts, and a third creature standing out of the party
+/// beside the entry. The world, the companions, and the third creature.
+fn talk_world() -> Result<(SimWorld, [SimId; 2], SimId), String> {
+    let entry = crate::determinism::proving_ground()
+        .module()
+        .ok_or("the ground has no module")?
+        .entry
+        .position;
+    let [x, y, z] = entry;
+    let talker = ObjectData::creature(TALKER, TALKER, [x - 1.5, y, z], Sheet::dev_soldier());
+    let (level, numbers) = ground_with(vec![talker], None)?;
     let dialogues = [(
         DIALOG.to_string(),
         crate::script::dialogue_probes::talking(2, ""),
     )]
     .into();
     let scripts = library().with_dialogues(dialogues, std::collections::BTreeMap::new());
-    let ground = (level.with_scripts(scripts), numbers);
-    let (mut world, _, [a, b]) = party_on(ground, Guests::Companions, 2)?;
-    let seats = [(0, 0), (1, 0)];
-    settled(&mut world, &seats);
+    let (mut world, _, party) = party_on(
+        (level.with_scripts(scripts), numbers),
+        Guests::Companions,
+        2,
+    )?;
+    let start = settled(&mut world, &[(0, 0), (1, 0)]);
+    let third = start
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, Kind::Object(_, number) if number == numbers[1] + 1))
+        .map(|entity| entity.id)
+        .ok_or("the third creature is not in the world")?;
+    Ok((world, party, third))
+}
+
+/// The conversation of the conversation probes.
+const DIALOG: &str = "probe_take_talk";
+/// The template of the third creature (`talk_world`).
+const TALKER: &str = "probe_take_talker";
+
+/// `owner` starts the conversation `DIALOG` with `pc`, and it runs a step.
+/// `party` makes it a party conversation, which holds every player.
+/// Whether a conversation is then under way.
+fn talk(world: &mut SimWorld, owner: SimId, pc: SimId, party: bool) -> bool {
+    use crate::script::dialogue::Start;
+    use script_ncs::vm::ObjectId;
     let mut state = world.script_state().clone();
     state.talk.asked.push(Start {
-        owner: ObjectId(b.0),
-        pc: ObjectId(a.0),
-        asker: ObjectId(a.0),
+        owner: ObjectId(owner.0),
+        pc: ObjectId(pc.0),
+        asker: ObjectId(pc.0),
         dialog: DIALOG.into(),
         bark: false,
         cue: None,
     });
     world.set_script_state(state);
-    run(&mut world, &seats);
-    let talking = world.script_state().talk.holding(ObjectId(a.0)).is_some();
+    run(world, &[(0, 0), (1, 0)]);
+    let mut state = world.script_state().clone();
+    for conversation in &mut state.talk.conversations {
+        conversation.party |= party;
+    }
+    world.set_script_state(state);
+    !world.script_state().talk.conversations.is_empty()
+}
+
+/// Seat 1's companion holds a conversation with the second companion (the
+/// one the conversation's scripts run for). Seat 1's take of the second is
+/// refused while it lasts.
+fn take_in_conversation() -> Result<String, String> {
+    let (mut world, [a, b], _) = talk_world()?;
+    let talking = talk(&mut world, b, a, false);
     let after = bodies(&acting(&mut world, &[0, 1], &[(1, Play(b))]), &[1]);
     check(
         talking && after == [Some(a)] && driver(&world.snapshot(), b).is_none(),
         format!(
             "seat 1's {a:?} in a conversation: {talking}; after taking {b:?} seat 1 drives {after:?}"
         ),
+    )
+}
+
+/// Seat 0's own character talks with a creature out of the party, in a
+/// party conversation (one that holds every player). Neither companion
+/// takes part in it, and still seat 1's take of the second is refused.
+fn take_in_party_conversation() -> Result<String, String> {
+    let (mut world, [a, b], third) = talk_world()?;
+    let own = world.snapshot().own(Seat(0)).map(|entity| entity.id);
+    let own = own.ok_or("seat 0 has no own character")?;
+    let talking = talk(&mut world, third, own, true);
+    let party = world.script_state().talk.party().is_some();
+    let after = bodies(&acting(&mut world, &[0, 1], &[(1, Play(b))]), &[1]);
+    check(
+        talking && party && after == [Some(a)] && driver(&world.snapshot(), b).is_none(),
+        format!(
+            "a party conversation under way: {talking} (a party one {party}); \
+             after taking {b:?} seat 1 drives {after:?}"
+        ),
+    )
+}
+
+/// Seat 1's companion watches a pazaak match seat 0's own character plays.
+/// Seat 1's take of the second companion is refused, so the first does not
+/// stay a watcher of the match while no player plays it.
+fn take_watching_pazaak() -> Result<String, String> {
+    use crate::pazaak::{Card, Match, SIDE_DECK};
+    let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
+    let start = run(&mut world, &[(0, 0), (1, 0)]);
+    let own = start.own(Seat(0)).map(|entity| entity.id);
+    let own = own.ok_or("seat 0 has no own character")?;
+    let card = Card::parse("+1").ok_or("+1 is no card")?;
+    let mut table = Match::new(
+        [card; SIDE_DECK],
+        Vec::new(),
+        (0, 0),
+        false,
+        (String::new(), 0),
+    );
+    table.player = own.0;
+    table.watchers = vec![a.0];
+    scripts_of(&mut world).state.pazaak = vec![table];
+    let after = bodies(&acting(&mut world, &[0, 1], &[(1, Play(b))]), &[1]);
+    check(
+        after == [Some(a)] && driver(&world.snapshot(), b).is_none(),
+        format!("seat 1 watching pazaak with {a:?}, after taking {b:?}: seat 1 drives {after:?}"),
     )
 }
 
@@ -256,6 +364,23 @@ fn take_kept() -> Result<String, String> {
         taken == [Some(b)] && away.is_none() && back == [Some(b)],
         format!(
             "seat 1 took {taken:?}; away, {b:?} driven by {away:?}; back, seat 1 drives {back:?}"
+        ),
+    )
+}
+
+/// Seat 1 drives the first companion. In one step seat 0 makes the second
+/// lead by its number (`SetLeader`) as seat 1 takes it. Seat 0's switch
+/// comes first, as it does by the body (`two_takes_in_one_step`): the
+/// second leads, and seat 1 keeps the first.
+fn set_leader_first() -> Result<String, String> {
+    let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
+    run(&mut world, &[(0, 0), (1, 0)]);
+    let both = acting(&mut world, &[0, 1], &[(0, SetLeader(1)), (1, Play(b))]);
+    let (leading, seat1) = (both.leading, bodies(&both, &[1]));
+    check(
+        leading == Some(b) && seat1 == [Some(a)],
+        format!(
+            "seat 0 made {b:?} lead as seat 1 took it: leading {leading:?}, seat 1 drives {seat1:?}"
         ),
     )
 }
