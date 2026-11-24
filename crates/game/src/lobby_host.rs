@@ -395,8 +395,8 @@ pub fn open(
 }
 
 /// The lobby on `chosen` as it opens: the host in its slot, the saber
-/// rules and the collision as the host's settings have them, and the save's
-/// companions.
+/// rules, the collision and "Show chosen replies" as the host's settings
+/// have them, and the save's companions.
 pub fn lobby_of(chosen: &Chosen) -> Lobby {
     let settings = crate::settings::Settings::read();
     let saber_rules = settings
@@ -404,6 +404,7 @@ pub fn lobby_of(chosen: &Chosen) -> Lobby {
         .unwrap_or("ja")
         .to_string();
     let mut lobby = Lobby::new(host_name(), saber_rules, settings.collision());
+    lobby.show_replies = settings.on(ui::screens::options::SHOW_REPLIES);
     lobby.reset(
         chosen.summary.clone(),
         chosen.companions.clone(),
@@ -676,6 +677,7 @@ pub fn view(lobby: &Lobby, own_slot: usize) -> LobbyView {
         save,
         saber_rules: lobby.saber_rules.clone(),
         collision: collision_key(lobby.collision),
+        show_replies: lobby.show_replies,
         hero,
         companions,
         slots,
@@ -703,6 +705,13 @@ fn apply(host: &mut LobbyHost, intent: &LobbyIntent, intents: &mut Vec<Intent>) 
                     mode.clone(),
                 ));
             }
+        }
+        LobbyIntent::ShowReplies(on) => {
+            host.lobby.show_replies = *on;
+            intents.push(Intent::Setting(
+                ui::screens::options::SHOW_REPLIES.into(),
+                on.to_string(),
+            ));
         }
         LobbyIntent::Invite => {
             if let Some(net) = &host.net {

@@ -404,7 +404,16 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 118: a fighter keeps when its last stun baton swing began
 /// (`Fighter::swung_at`). Old saves: old saves read `swung_at = 0`: a baton
 /// swing under way when the game was saved deals no blow after loading.
-pub const VERSION: u32 = 118 + crate::pending::SNAPSHOT;
+/// 119: an action bar slot can hold a device, an item the party carries that
+/// its user uses on itself, such as the Sonic Emitter (`bar::Content::Device`),
+/// and the bar keeps the devices its fill has already put on it
+/// (`bar::Contents::devices`). Old saves: an older save's bar has seen no
+/// device, so the next step puts each device the party carries in the first
+/// empty slot of each member's bar.
+/// 120: a conversation keeps the reply shown before it runs
+/// (`Conversation::chosen`). Old saves: an older snapshot reads no reply shown:
+/// no conversation in it was showing one.
+pub const VERSION: u32 = 120 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -1921,21 +1930,26 @@ impl Snapshot {
     /// none while one seat alone plays a body (one player plays as before:
     /// the sim's `together`), watching, or in a party conversation it is not
     /// the listener of (only its listener leaves one); else whether it is
-    /// unlocked. The host's own character stands for its seat too while a
-    /// companion it leads acts for it (an accepted request's listener).
+    /// unlocked, or it joined a player's own (issue 636: a joined player
+    /// steps out of a locked one too). The host's own character stands for
+    /// its seat too while a companion it leads acts for it (an accepted
+    /// request's listener).
     pub fn may_leave(&self, seat: Seat, talk: &Conversation) -> Option<bool> {
         let own = (seat == crate::world::LEADER_SEAT)
             .then(|| self.own(seat))
             .flatten();
-        let stands = [self.body(seat), own].into_iter().flatten().any(|body| {
-            let body = ObjectId(body.id.0);
-            if talk.party {
-                talk.listener == body
-            } else {
-                talk.holds(body)
-            }
+        let bodies = || {
+            [self.body(seat), own]
+                .into_iter()
+                .flatten()
+                .map(|body| ObjectId(body.id.0))
+        };
+        let stands = bodies().any(|body| match talk.party {
+            true => talk.listener == body,
+            false => talk.holds(body),
         });
-        (self.together() && stands).then_some(!talk.locked)
+        let joined = !talk.party && bodies().any(|body| talk.joined.contains(&body));
+        (self.together() && stands).then_some(!talk.locked || joined)
     }
 
     /// More than one seat plays a body, as the sim's `View::together` has

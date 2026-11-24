@@ -961,6 +961,14 @@ impl SimWorld {
         self.world.resource::<DamageTaken>().0
     }
 
+    /// Whether a reply a player takes is shown to the other players in the
+    /// conversation before it runs (the host's lobby setting "Show chosen
+    /// replies"). A module change and a save keep the choice.
+    pub fn set_show_replies(&mut self, on: bool) {
+        let scripts = &mut self.world.resource_mut::<scripts::Scripts>();
+        scripts.state.talk.hide_replies = !on;
+    }
+
     /// Whether targeted blocks apply. They apply only under the Advanced
     /// rules when the session chose them, and never under Jedi Academy's.
     pub fn targeted(&self) -> bool {

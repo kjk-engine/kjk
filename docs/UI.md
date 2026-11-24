@@ -310,8 +310,8 @@ save on the Host screen, and when a guest joins. It is made from KOTOR 2's
 party selection layout (`partyselect_p`), whose pieces are moved and copied:
 the Players and Game panels and the description strip are copies of the
 panel behind the companion's name, the player portraits are copies of the
-companion portraits, and the saber rules and collision rows are copies of
-the Add button. The companions keep the layout's own portraits, set in one
+companion portraits, and the saber rules, collision and "Show chosen
+replies" rows are copies of the Add button. The companions keep the layout's own portraits, set in one
 row with the main character. The row holds up to twelve companions and the
 main character. Every piece is KOTOR 2's own art. A companion the story
 took away shows the layout's "no companion" art in place of the portrait,
@@ -346,7 +346,10 @@ party carries and wears that takes upgrades (weapons by kind, body armour:
 each kind it takes, two for its power crystals; the item's icon shows in
 each). The bench works on a copy, as TSL's: a slot chosen lists an empty
 row (taking out what is in it; not for a colour crystal, which stays
-until another takes its place), what is in it, then what the party
+until another takes its place), what is in it, the part it held when the
+bench opened if the visit took that part out (KOTOR 2's executable puts a
+part taken out back in the party's inventory at once, so the list offers
+it again), then what the party
 carries that fits it and no other slot of the visit takes (`LB_ITEMS`,
 from its top; one of an upgrade level above the item's greyed, refused
 with the game's message box 116713); a row chosen changes the copy and
@@ -776,7 +779,7 @@ Running and checking:
   value, and the last value wraps to the first. Left and Right on the
   keyboard and the pad step it back and on while it is the list's cursor
   row. The Feedback page itself is KOTOR 2's and is unchanged. The
-  Interface page's seven rows are all deliberate additions to KOTOR 2:
+  Interface page's eight rows are all deliberate additions to KOTOR 2:
   - Menu width (`display.menu_width`): Fill the screen, Up to 16:9 or 4:3.
   - Maintain image aspect ratio (`display.image_aspect`).
   - Text size (`display.small_fonts`): KOTOR 2's "Use Small Fonts", which
@@ -813,6 +816,11 @@ Running and checking:
     GPU and the CPU rest between frames. With V-Sync on as well, the lower
     of the two rates holds. The sim keeps its own clock, so the limit never
     changes what the sim does.
+  - Join nearby conversations (`game.join_talks`, on while unset). In
+    co-op, a player with it on joins a conversation the main character's
+    player starts when they stand within 10 meters, can see it, and are
+    free (`DIALOGUE.md`, "Joining nearby"). The player's game tells the
+    host as the option changes and each time it joins.
   - Two safety ceilings apply to a game with a window (issue 318). When
     V-Sync is off and the limit is Off, play is held to 240 frames per
     second. While a screen is open or the window is in the background, the

@@ -749,6 +749,11 @@ struct Authority {
     /// settings have them now (`duel`). A world a save makes in play is set
     /// to them, so a changed option counts from the next load.
     damage_taken: Option<sim::combat::damage::Taken>,
+    /// Whether a live session played here shows chosen replies (the host's
+    /// lobby setting), taken from the settings when its world was made. A
+    /// world a save makes in play is set to it again, so it stays the same
+    /// for the whole session.
+    show_replies: Option<bool>,
     slowed: Slowed,
 }
 
@@ -973,6 +978,16 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         if let Some(taken) = damage_taken {
             world.set_damage_taken(taken);
         }
+        // A live world shows chosen replies as the host's settings choose; a
+        // replay keeps its recording's. A headless live world has no
+        // settings and keeps what it has.
+        let show_replies = app
+            .get_resource::<crate::settings::Settings>()
+            .filter(|_| recording.is_none())
+            .map(|settings| settings.on(ui::screens::options::SHOW_REPLIES));
+        if let Some(on) = show_replies {
+            world.set_show_replies(on);
+        }
         let last = world.snapshot();
         let source = match recording {
             Some(recording) => Source::Replay {
@@ -1064,6 +1079,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             music_asked: None,
             rules,
             damage_taken,
+            show_replies,
             slowed: Slowed::default(),
         });
     }
@@ -2277,6 +2293,9 @@ fn advance(
                         .filter(|taken| live && *taken != world.damage_taken());
                     if let Some(taken) = taken {
                         world.set_damage_taken(taken);
+                    }
+                    if let Some(on) = authority.show_replies.filter(|_| live) {
+                        world.set_show_replies(on);
                     }
                     if let Some((rules, targeted)) = authority.rules {
                         world.set_saber_rules(rules);

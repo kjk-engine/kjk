@@ -2230,6 +2230,10 @@ pub struct View<'a> {
     /// body at a table), in seat order: the asking seat's body, and the
     /// body whose match it is (`u32::MAX`: stop watching).
     pub watches: &'a [(ObjectId, u32)],
+    /// The seats holding a container open (`world::containers`), one bit a
+    /// seat (`world::party::bit`): such a seat is busy, and joins no
+    /// conversation by standing near it.
+    pub looting: u64,
     /// The area's sound as scripts set it so far.
     pub area_sound: crate::snapshot::AreaSound,
     /// The screen's fade as scripts set it so far.

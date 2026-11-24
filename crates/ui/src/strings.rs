@@ -220,6 +220,12 @@ pub const CORNER_NOTICES: &str = "Notifications in the corner";
 pub const CORNER_NOTICES_HELP: &str = "ON: Notifications such as \"Game saved\", experience gained and a journal entry added slide in at the top right of the screen, under the menu buttons. A datapad you pick up gets a notification of its own there, with the key that reads it.\n\nOFF: Notifications show in the middle of the screen, as in the original game. The status summary of experience, credits and journal entries pauses the game until you press its OK button.";
 pub const TARGET_TOP: &str = "Target block at the top centre";
 pub const TARGET_TOP_HELP: &str = "ON: The target's name, health bar and actions stay at the top centre of the screen, and the chosen action is named under them.\n\nOFF: The target's name, health bar and actions float above the target, as in the original game.";
+pub const JOIN_TALKS: &str = "Join nearby conversations";
+pub const JOIN_TALKS_HELP: &str = "ON: In co-op, when the main character's player starts a conversation, you join it if you stand within 10 meters and can see it. You do not join while you fight, talk, trade, play pazaak, loot a container or have a menu open. You can press Leave to step out of it.\n\nOFF: You join a conversation only by walking up to someone in it.";
+pub const SHOW_REPLIES: &str = "Show chosen replies";
+pub const SHOW_REPLIES_ON: &str = "Show chosen replies: On";
+pub const SHOW_REPLIES_OFF: &str = "Show chosen replies: Off";
+pub const SHOW_REPLIES_HELP: &str = "On: When more than one player is in a conversation, the reply a player chooses is shown to everyone in it for a few seconds before the conversation goes on. Any player can skip it.\n\nOff: A reply runs as soon as it is chosen.";
 pub const FRAME_LIMIT: &str = "Frame rate limit";
 pub const FRAME_LIMIT_OFF: &str = "Off";
 pub const FRAME_LIMIT_HELP: &str = "Limits the frames per second the game draws. A lower limit keeps the graphics card cooler and quieter. With V-Sync off, Off still stops at 240.";
@@ -309,7 +315,8 @@ pub const LOBBY_CHANGE_SAVE: &str = "Change Save";
 pub const LOBBY_START: &str = "Start Game";
 pub const LOBBY_LOADING_HOST: &str = "The host is loading the game.";
 pub const LOBBY_CLOSED: &str = "The host closed the lobby.";
-pub const LOBBY_SETTINGS_GUEST: &str = "The host chooses the saber rules and the collision.";
+pub const LOBBY_SETTINGS_GUEST: &str =
+    "The host chooses the saber rules, the collision and whether chosen replies are shown.";
 pub const LOBBY_OTHER_GAME: &str =
     "Choose a save of the same game. To host the other game, leave the lobby and host again.";
 /// The word before a character's level in a lobby slot ("Soldier, level 4").

@@ -982,7 +982,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 40] = [
+const DEFAULTS: [(&str, &str); 42] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -1021,6 +1021,8 @@ const DEFAULTS: [(&str, &str); 40] = [
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
     (DUEL_SLOW_MOTION, "true"),
+    (ui::screens::options::JOIN_TALKS, "true"),
+    (ui::screens::options::SHOW_REPLIES, "true"),
     (HILT_SINGLE, ""),
     (HILT_DOUBLE, ""),
 ];
@@ -1261,6 +1263,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             ui::draw::CORNER_NOTICES,
             ui::draw::TARGET_TOP,
             ui::screens::options::FRAME_LIMIT,
+            ui::screens::options::JOIN_TALKS,
         ],
         // The window's mode and size alone: a start that did not get going
         // with them (`display::recover`), `kjk --reset-display`.

@@ -1,9 +1,0 @@
-# The Sonic Emitter, and any other item the party carries and uses on its
-# own user that no item key takes, can go on the action bar.
-
-[formats]
-snapshot = "an action bar slot can hold a device, an item the party carries that its user uses on itself, such as the Sonic Emitter (`bar::Content::Device`), and the bar keeps the devices its fill has already put on it (`bar::Contents::devices`)."
-replay = "a bar edit can put a device on the bar (`bar::Content::Device`)."
-
-[migrations]
-snapshot = "an older save's bar has seen no device, so the next step puts each device the party carries in the first empty slot of each member's bar"

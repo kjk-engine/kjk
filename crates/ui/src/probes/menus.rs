@@ -2267,10 +2267,11 @@ fn settings_of(intents: &[Intent]) -> Vec<(String, String)> {
 
 /// kjk's Interface page: the graphics page opens it from its framed button
 /// in the unused force speed box's place. It is a list on the Feedback
-/// page's layout under its own title. Its seven rows are the menu width,
+/// page's layout under its own title. Its eight rows are the menu width,
 /// the image aspect ratio, the text size, the text scale, the notifications
-/// in the corner, the target block at the top centre and the frame rate
-/// limit. A stepped row shows its name and its value and has no check box.
+/// in the corner, the target block at the top centre, the frame rate limit
+/// and "Join nearby conversations", which is ticked while unset. A stepped
+/// row shows its name and its value and has no check box.
 /// Activating each row sets its setting. Left and Right step the cursor's
 /// stepped row back and on, and wrap. The frame rate limit's row shows a
 /// rate the list does not have, written in the settings file by hand, as
@@ -2284,7 +2285,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, TextScale, image_aspect,
         kjk_option,
     };
-    use crate::screens::options::FRAME_LIMIT;
+    use crate::screens::options::{FRAME_LIMIT, JOIN_TALKS};
     let mut assets = Fake::new();
     assets.layouts.insert(
         "optgraphics",
@@ -2330,6 +2331,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         ("Notifications in the corner", false, false),
         ("Target block at the top centre", true, false),
         ("Frame rate limit: Off", false, true),
+        ("Join nearby conversations", true, false),
     ]
     .map(|(words, checked, unmarked)| (words.to_string(), checked, unmarked));
     // Each row activated once over the settings above, from the first row
@@ -2342,6 +2344,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         (CORNER_NOTICES, "true"),
         (TARGET_TOP, "false"),
         (FRAME_LIMIT, "30"),
+        (JOIN_TALKS, "false"),
     ]
     .map(|(key, value)| (key.to_string(), value.to_string()));
     let mut activated = Vec::new();
@@ -2425,7 +2428,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("the seven rows, their boxes ticked or left out: {shown:?}"),
+                &format!("the eight rows, their boxes ticked or left out: {shown:?}"),
                 shown == rows,
             )
         })
@@ -2482,7 +2485,7 @@ pub(super) fn interface_options() -> Vec<Check> {
             )
         })
         .map(|()| {
-            "title, seven rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
+            "title, eight rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
         })
     })]
 }

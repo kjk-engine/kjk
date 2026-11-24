@@ -1,6 +1,7 @@
 //! The co-op lobby (`vm::LobbyView`): the players who gathered, the save
-//! about to be played, the saber rules and the collision, and the
-//! companions each guest chooses before the host starts the game.
+//! about to be played, the saber rules, the collision and whether chosen
+//! replies are shown, and the companions each guest chooses before the host
+//! starts the game.
 //!
 //! KOTOR 2 has no lobby, so the screen is assembled from the party
 //! selection layout (`partyselect_p`), moved about in `shape`. Every piece
@@ -13,8 +14,9 @@
 //!   (`LBL_CHAR0`), and its frame a copy of a companion button
 //!   (`BTN_NPC0`), drawn in the highlight colour round the viewer's own
 //!   slot;
-//! - the saber rules and collision rows, Change Save and Invite Friends are
-//!   copies of the Add button (`BTN_ACCEPT`) and the Back button;
+//! - the saber rules, collision and chosen replies rows, Change Save and
+//!   Invite Friends are copies of the Add button (`BTN_ACCEPT`) and the Back
+//!   button;
 //! - the companions keep the layout's portraits and buttons (`BTN_NPCn`,
 //!   `LBL_CHARn`), set in one row: the main character first, then the
 //!   lobby's companions in their order, each with its name and who has it
@@ -26,8 +28,9 @@
 //! description strip says what choosing it does. The keyboard and the
 //! gamepad reach every control by the nearest one in each direction.
 //!
-//! The host chooses the saber rules, the collision, and which companions
-//! the game controls in the places no guest took, and starts the game. A
+//! The host chooses the saber rules, the collision, whether chosen replies
+//! are shown, and which companions the game controls in the places no guest
+//! took, and starts the game. A
 //! guest chooses a companion (one another player plays swaps the two) and
 //! marks Ready. Any player can choose the main character, which swaps
 //! characters with the player who has it. The host can swap with a guest
@@ -353,11 +356,12 @@ impl Lobby {
             return ControlState::default();
         };
         let words = match focus {
-            "BTN_SABER" | "BTN_COLLISION" if !lobby.host => {
+            "BTN_SABER" | "BTN_COLLISION" | "BTN_REPLIES" if !lobby.host => {
                 strings::LOBBY_SETTINGS_GUEST.to_string()
             }
             "BTN_SABER" => super::key_mapping::with_bindings(strings::SABER_RULES_HELP, vm),
             "BTN_COLLISION" => strings::COLLISION_HELP.to_string(),
+            "BTN_REPLIES" => strings::SHOW_REPLIES_HELP.to_string(),
             tag => match index(tag, "BTN_NPC").and_then(|at| entry(lobby, at)) {
                 Some(entry) => Lobby::told_of(lobby, entry),
                 None => return ControlState::default(),
@@ -524,14 +528,20 @@ impl Screen for Lobby {
             (
                 "LBL_NPC_NAME",
                 "LBL_GAMEINFO".into(),
-                [418, 160, 296, 110],
+                [418, 160, 296, 86],
                 small,
             ),
-            ("BTN_ACCEPT", "BTN_SABER".into(), [418, 276, 296, 24], None),
+            ("BTN_ACCEPT", "BTN_SABER".into(), [418, 250, 296, 24], None),
             (
                 "BTN_ACCEPT",
                 "BTN_COLLISION".into(),
-                [418, 304, 296, 24],
+                [418, 278, 296, 24],
+                None,
+            ),
+            (
+                "BTN_ACCEPT",
+                "BTN_REPLIES".into(),
+                [418, 306, 296, 24],
                 None,
             ),
             (
@@ -619,6 +629,14 @@ impl Screen for Lobby {
                 lobby,
                 named(super::options::COLLISIONS, &lobby.collision).to_string(),
             ),
+            "BTN_REPLIES" => Lobby::setting(
+                lobby,
+                match lobby.show_replies {
+                    true => strings::SHOW_REPLIES_ON,
+                    false => strings::SHOW_REPLIES_OFF,
+                }
+                .to_string(),
+            ),
             "LBL_ADDRESS" if lobby.host => text(strings::lobby_address(&lobby.address)),
             "LBL_DESC" => self.description(vm),
             "BTN_BACK" => text(strings::LOBBY_LEAVE),
@@ -652,6 +670,7 @@ impl Screen for Lobby {
                 .map(|rules| LobbyIntent::SaberRules(rules.into())),
             "BTN_COLLISION" if host => next(super::options::COLLISIONS, &lobby.collision)
                 .map(|mode| LobbyIntent::Collision(mode.into())),
+            "BTN_REPLIES" if host => Some(LobbyIntent::ShowReplies(!lobby.show_replies)),
             tag => (index(tag, "BTN_NPC").and_then(|at| entry(lobby, at)))
                 .and_then(|entry| Lobby::choose(lobby, entry)),
         };

@@ -4001,7 +4001,9 @@ fn corpse_remains() {
 /// script state alone. A module's own template replaces the shared one of
 /// its resref, so a machine with the import step's templates and one
 /// without build the same catalog (tar_m02ae's `ptar_sbpasscrd`, added and
-/// approved 2026-11-15).
+/// approved 2026-11-15). Nine medpacs of ten and three more, made there or
+/// moved there, are a stack of ten and a stack of two (`nearly_full`,
+/// issue 705, proposed 2026-11-24, awaiting approval).
 #[test]
 fn own_items() {
     probed("own items", &sim::own_item_probes::probes(), 4);
@@ -4809,9 +4811,13 @@ fn guests_drive_companions() {
 /// The check that a dialogue script nobody spoke to begins no conversation
 /// with `BeginConversation()`, and a click still does
 /// (`unspoken_begins_nothing`, TSL's Handmaiden sisters), awaits approval.
+/// The nineteen checks of shared conversations (`shared_*`: free players
+/// near the main character's player joining its conversations, and the
+/// reply a player takes shown to the others before it runs; issues 636 and
+/// 637) await approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 146);
+    probed("coop talk", &sim::coop_talk::probes(), 166);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,

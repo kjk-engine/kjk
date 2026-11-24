@@ -928,6 +928,12 @@ pub(super) fn scripts(
         .map(|(_, body, player)| (body, player))
         .collect();
     let embattled: Vec<ObjectId> = embattled.0.iter().map(|id| ObjectId(id.0)).collect();
+    // The seats holding a container open, for the conversations they may
+    // join (`View::looting`).
+    let looting = doors
+        .iter()
+        .filter(|object| object.facts.as_ref().is_some_and(|facts| facts.container))
+        .fold(0, |seats, object| seats | object.state.tenants);
     let members: Vec<u32> = list
         .iter()
         .filter(|thing| thing.character.is_some_and(|character| character.party))
@@ -1014,6 +1020,7 @@ pub(super) fn scripts(
         travels: &travels,
         pazaak: &pazaak,
         watches: &watches,
+        looting,
         area_sound: area.sound.clone(),
         fade: area.fade,
         world_fade_in: area.world_fade_in,
