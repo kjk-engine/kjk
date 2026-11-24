@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use kjk_game::bake_fingerprint;
 use sim::probe::{Checks, check};
 
-use super::{MODULES_K1, STORED_BACKDROP_LOG, Set, choose_sets, pack};
+use super::{MODULES_K1, STORED_BACKDROP_LOG, SUMS, Set, choose_sets, pack, sha256_of};
 
 /// The checks, for `lighting_pack_sets` in the approved tests.
 pub fn probes() -> Checks {
@@ -82,7 +82,8 @@ fn names_in(path: &Path) -> Result<Vec<String>, String> {
 /// The pack takes the files the game loads from each finished set `b`.
 /// It leaves out set `a`, a set with no fingerprint, and a set baked with
 /// the stored backdrop before `stored.txt`. A set whose `stored.txt` names
-/// its backdrop is packed.
+/// its backdrop is packed. `SHA256SUMS` lists both games' files, and a
+/// second pack writes the same files.
 fn the_pack_takes_finished_b_sets_alone() -> Result<String, String> {
     let root = scratch("sets");
     let result = takes_finished_b_sets(&root);
@@ -167,6 +168,37 @@ fn takes_finished_b_sets(root: &Path) -> Result<String, String> {
     check(
         !manifest.contains("m14aa") && !manifest.contains("tar_m02ab"),
         format!("the manifest lists an area left out: {manifest}"),
+    )?;
+    sums_list_both_games(&bakes, &out)
+}
+
+/// `SHA256SUMS` beside the downloads lists the zip and the manifest of
+/// both games after they are packed into one folder in two runs. A second
+/// pack of a game writes the same zip and the same `SHA256SUMS`.
+fn sums_list_both_games(bakes: &Path, out: &Path) -> Result<String, String> {
+    pack("tsl", bakes, out, "t", Some("c1"))?;
+    let read = || {
+        std::fs::read_to_string(out.join(SUMS)).map_err(|error| format!("{SUMS}: {error}"))
+    };
+    let sums = read()?;
+    let names = [
+        "kjk-lighting-k1-t.txt",
+        "kjk-lighting-k1-t.zip",
+        "kjk-lighting-tsl-t.txt",
+        "kjk-lighting-tsl-t.zip",
+    ];
+    let mut want = String::new();
+    for name in names {
+        want.push_str(&format!("{}  {name}\n", sha256_of(&out.join(name))?));
+    }
+    check(sums == want, format!("{SUMS} holds\n{sums}not\n{want}"))?;
+    let zip = sha256_of(&out.join(names[1]))?;
+    pack("k1", bakes, out, "t", Some("c1"))?;
+    let again = read()?;
+    let zip_again = sha256_of(&out.join(names[1]))?;
+    check(
+        again == sums && zip_again == zip,
+        format!("a second pack of k1 wrote a zip of SHA-256 {zip_again}, not {zip}, and {SUMS}\n{again}"),
     )
 }
 

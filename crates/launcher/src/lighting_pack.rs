@@ -33,6 +33,11 @@
 //! The zip holds `<area>/<file>`. PNGs are stored as they are, and the text
 //! files are deflated. The manifest gives each area's module and
 //! fingerprint, the zip's BLAKE3 and size, and the patch the bakes need.
+//!
+//! The pack also writes `SHA256SUMS` beside the zip and the manifest, with
+//! the SHA-256 of both, as the launcher reads it (`write_sums`). It keeps
+//! the lines of the other files there, so both games can be packed into one
+//! folder.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -304,7 +309,71 @@ fn pack(
         bytes as f64 / 1e6
     );
     outln!("wrote {}", manifest_path.display());
+    let sums = write_sums(out, &[&zip_path, &manifest_path])?;
+    outln!("wrote {}", sums.display());
     Ok(())
+}
+
+/// The file of SHA-256 checksums beside the downloads, which the launcher
+/// checks each file against before it hands the file to kjk.
+pub const SUMS: &str = "SHA256SUMS";
+
+/// The SHA-256 of the file at `path`, hexadecimal.
+pub fn sha256_of(path: &Path) -> Result<String, String> {
+    use sha2::Digest as _;
+    let failed = |error: std::io::Error| format!("{}: {error}", path.display());
+    let mut file = std::fs::File::open(path).map_err(failed)?;
+    let mut hasher = sha2::Sha256::new();
+    std::io::copy(&mut file, &mut hasher).map_err(failed)?;
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+/// Puts the SHA-256 of each of `files` into `SHA256SUMS` in `out`, in the
+/// format of `sha256sum`: the checksum, two spaces and the file's name, one
+/// file a line, sorted by name. The lines of the other files stay as they
+/// were, so the two games packed into one folder in two runs are both
+/// listed. A second run with the same files writes the same text. Returns
+/// the file's path.
+fn write_sums(out: &Path, files: &[&Path]) -> Result<PathBuf, String> {
+    let path = out.join(SUMS);
+    let mut lines = std::collections::BTreeMap::new();
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            for (number, line) in text.lines().enumerate() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let mut words = line.split_whitespace();
+                let (Some(hash), Some(name), None) = (words.next(), words.next(), words.next())
+                else {
+                    return Err(format!(
+                        "line {} of {} does not read: {line}",
+                        number + 1,
+                        path.display()
+                    ));
+                };
+                let name = name.trim_start_matches('*');
+                lines.insert(name.to_string(), hash.to_ascii_lowercase());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    }
+    for file in files {
+        let name = (file.file_name())
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("{} has no file name", file.display()))?;
+        lines.insert(name.to_string(), sha256_of(file)?);
+    }
+    let text: String = (lines.iter())
+        .map(|(name, hash)| format!("{hash}  {name}\n"))
+        .collect();
+    std::fs::write(&path, text).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(path)
 }
 
 /// Writes the files the game loads from each of `sets` into a zip at
