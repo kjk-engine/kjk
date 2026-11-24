@@ -802,21 +802,36 @@ pub(super) fn scripts(
     let leading_before = super::lent(&scripts.state.party)
         .map(|body| body.0)
         .or(leader_own);
+    let fighters: BTreeMap<u32, &crate::combat::Fighter> = things
+        .iter()
+        .filter_map(|(id, .., fighting, _, _, _)| Some((id.0.0, &fighting?.0)))
+        .collect();
+    // A companion another seat plays is that seat's, so the first seat
+    // cannot lead through it.
+    let guests = |body: Option<u32>| {
+        body.and_then(|body| fighters.get(&body))
+            .and_then(|fighter| fighter.mind.driver)
+            .is_some_and(|seat| seat != super::LEADER_SEAT)
+    };
     for (seat, action) in inputs.0.actions() {
         let table = &mut scripts.state.party;
         let leads = *seat == super::LEADER_SEAT;
         match *action {
             Action::SetLeader(u8::MAX) if leads => table.leader = None,
-            Action::SetLeader(npc) if leads && table.has(npc) => table.leader = Some(npc),
-            Action::Lead(body) if leads => table.lead(body.0, leader_own),
+            Action::SetLeader(npc)
+                if leads
+                    && table.has(npc)
+                    && !guests(table.available.get(&npc).and_then(|slot| slot.object)) =>
+            {
+                table.leader = Some(npc);
+            }
+            Action::Lead(body) if leads && !guests(Some(body.0)) => {
+                table.lead(body.0, leader_own);
+            }
             Action::Solo(on) if leads => table.solo = on,
             _ => {}
         }
     }
-    let fighters: BTreeMap<u32, &crate::combat::Fighter> = things
-        .iter()
-        .filter_map(|(id, .., fighting, _, _, _)| Some((id.0.0, &fighting?.0)))
-        .collect();
     if let Some(next) = passes_on(&scripts.state.party, leader_own, &fighters) {
         scripts.state.party.lead(next, leader_own);
     }

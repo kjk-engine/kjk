@@ -267,6 +267,7 @@ pub(super) fn containers(
             | Action::ShowParty
             | Action::SetLeader(_)
             | Action::Lead(_)
+            | Action::Play(_)
             | Action::Solo(_)
             | Action::Travel(_)
             | Action::Use { .. }

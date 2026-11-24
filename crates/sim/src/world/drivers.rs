@@ -31,7 +31,19 @@
 //!    takes it first when it is free (a network blip, guests dropping and
 //!    coming back in another order, a cutscene adding the companions again
 //!    in another order). Planning counts the seat meanwhile
-//!    (`Snapshot::players_driving`).
+//!    (`Snapshot::players_driving`);
+//! 4. a seat past the first can take a companion no player controls
+//!    (`Action::Play`, its portrait click or leader key; `plays` lists
+//!    when it is refused). Its choice is written to `Kept` before the
+//!    rules above, so in the same step the seat lets its body go (its
+//!    mind takes over) and takes the companion first. Two seats asking for
+//!    one companion in a step are weighed in seat order, and the first
+//!    seat's leader switch onto it (`Action::Lead`) comes before them all.
+//!    A seat is never moved off a downed body on its own: only its own
+//!    take moves it. A guest flying a droid takes a companion the same
+//!    way, and the companion takes it off the droid (`remote::launch`).
+//!    The first seat cannot lead through a companion a guest plays either
+//!    (`scripts`' leader change refuses it).
 //!
 //! `probes` checks it on the proving ground with two companions in the
 //! party (`kjk sim probes`), and that a save made alone, hosted for three
@@ -93,6 +105,75 @@ struct Member {
     standing: bool,
 }
 
+/// The companions the seats take this step (`Action::Play`): each seat
+/// with the place in `members` of the companion it gets. A seat gets the
+/// companion it asks for when all of these hold:
+/// - the seat is not the first, the session holds it, it sent a command
+///   this step, and it plays no character of its own;
+/// - the companion is in the party, not dead, a companion of the party
+///   table's, and no seat drives it;
+/// - the first seat does not lead through it this step (`Action::Lead`);
+/// - no lower seat took it this step, and the seat took no other this step
+///   (the seats are weighed in seat order, each seat's actions as it sent
+///   them);
+/// - neither the companion nor the body the seat leaves is in a
+///   conversation, a pazaak match or a store.
+///
+/// A companion kept for a seat that is away is free to take: its mind
+/// plays it meanwhile. A downed body may be left for a standing companion,
+/// and a downed companion may be taken.
+fn plays(
+    world: &World,
+    inputs: &crate::input::TickInput,
+    members: &[Member],
+    players: &[Seat],
+    held: u8,
+) -> Vec<(Seat, usize)> {
+    use crate::action::Action;
+    let state = &world.resource::<super::scripts::Scripts>().state;
+    let busy = |id: SimId| {
+        let body = script_ncs::vm::ObjectId(id.0);
+        state.talk.holding(body).is_some()
+            || state.plays_pazaak(body)
+            || state.trades.contains_key(&id.0)
+    };
+    let led: Vec<SimId> = inputs
+        .actions()
+        .iter()
+        .filter_map(|(seat, action)| match action {
+            Action::Lead(body) if *seat == super::LEADER_SEAT => Some(*body),
+            _ => None,
+        })
+        .collect();
+    let mut granted: Vec<(Seat, usize)> = Vec::new();
+    for (seat, action) in inputs.actions() {
+        let (seat, Action::Play(body)) = (*seat, action) else {
+            continue;
+        };
+        let Some(at) = members.iter().position(|member| member.id == *body) else {
+            continue;
+        };
+        let wanted = &members[at];
+        let asks = seat != super::LEADER_SEAT
+            && seat.0 < held
+            && inputs.get(seat).is_some()
+            && !players.contains(&seat);
+        let free = wanted.able
+            && wanted.npc.is_some()
+            && wanted.driver.is_none()
+            && !led.contains(body)
+            && !busy(wanted.id);
+        let first = granted
+            .iter()
+            .all(|&(taker, taken)| taker != seat && taken != at);
+        let leaving = members.iter().find(|member| member.driver == Some(seat));
+        if asks && free && first && leaving.is_none_or(|member| !busy(member.id)) {
+            granted.push((seat, at));
+        }
+    }
+    granted
+}
+
 /// The assign system (see the module documentation): it adds and removes
 /// `Avatar` itself, so it runs exclusively, before every other system. The
 /// first seat's switch (`switch::sync`) first: the creature it plays is no
@@ -145,6 +226,19 @@ pub(super) fn assign(world: &mut World) {
     // Kept while the window lasts, for a seat the session holds.
     let mut kept = std::mem::take(&mut world.resource_mut::<Kept>().0);
     kept.retain(|kept| kept.seat.0 < held && now < kept.at_ms + KEEP_MS);
+    // A seat taking a free companion: its choice is kept for it from now,
+    // and no longer for a seat that is away, so the pick below gives it.
+    let plays = plays(world, &inputs, &members, &players, held);
+    for &(seat, at) in &plays {
+        if let Some(npc) = members[at].npc {
+            kept.retain(|kept| kept.seat != seat && kept.npc != npc);
+            kept.push(crate::snapshot::Kept {
+                seat,
+                npc,
+                at_ms: now,
+            });
+        }
+    }
     // A driver stays while its creature can be driven and its seat, held
     // and playing no player of its own, spoke this step; one body a seat.
     let mut keeping: Vec<Seat> = Vec::new();
@@ -157,11 +251,13 @@ pub(super) fn assign(world: &mut World) {
         let Some(seat) = member.driver.filter(|seat| *seat != super::LEADER_SEAT) else {
             continue;
         };
+        let takes = plays.iter().any(|(taker, _)| *taker == seat);
         let keeps = member.able
             && seat.0 < held
             && !players.contains(&seat)
             && !keeping.contains(&seat)
-            && inputs.get(seat).is_some();
+            && inputs.get(seat).is_some()
+            && !takes;
         if keeps {
             keeping.push(seat);
         } else {
@@ -171,12 +267,13 @@ pub(super) fn assign(world: &mut World) {
             member.driver = None;
             freed.push((seat, member.entity));
             // Why the seat let it go, for its conversation (R12): one the
-            // host now leads it through goes on, the host's.
+            // host now leads it through goes on, the host's. A seat taking
+            // another companion is in none (`plays`).
             let why = if member.dead {
                 Some(Release::Died)
             } else if !member.follows {
                 Some(Release::Left)
-            } else if member.leads {
+            } else if member.leads || takes {
                 None
             } else {
                 Some(Release::Dropped)

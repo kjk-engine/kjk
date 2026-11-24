@@ -15,6 +15,8 @@ use crate::snapshot::{EntityState, Kind, SimId, Snapshot};
 use crate::{Guests, Level, StepReason, WorldConfig};
 use std::sync::Arc;
 
+mod takes;
+
 /// The companions' templates, in the party's joining order.
 const COMPANIONS: [&str; 2] = ["probe_comp_a", "probe_comp_b"];
 
@@ -86,6 +88,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("guest_comings_are_a_pcs", guest_comings()));
     checks.push(("guest_companion_pushes_in_scenes", guest_pushes()));
     checks.extend(kept_for_seats());
+    checks.extend(takes::takes());
     match scenario() {
         Ok(ran) => {
             checks.extend(assigned(&ran));

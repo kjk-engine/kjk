@@ -5,9 +5,15 @@
 //! the console's `ui portrait 2|3`) makes that one lead. The party as the
 //! HUD lists it (`cast::party_of`) starts at the one leading, so the next is
 //! its second. The action (`Action::Lead`) names the member by its body;
-//! only the first seat leads (the party table is the host's), so a guest's
-//! key and clicks do nothing. A member down or dead, or a companion a
-//! guest plays, is not picked (the key goes on to the next). The solo key
+//! only the first seat leads (the party table is the host's). A member
+//! down or dead, or a companion a guest plays, is not picked (the key goes
+//! on to the next). For every other seat the same key and clicks mean
+//! "play this character" (`Action::Play`): the seat takes a companion
+//! standing that no player plays and that does not lead, from the whole
+//! party its HUD lists (`cast::bar_of`). The host's machine uses it too
+//! when a guest plays the main character. A guest takes no one while a
+//! screen or a conversation is up, and the host refuses what this side
+//! cannot see (`sim::world::drivers`). The solo key
 //! (`PartyActive` in both games) turns solo mode on or off (`Action::Solo`: the
 //! companions stand where they are), the first seat's alone as the leader
 //! key is (the companions follow its leader). While solo mode is on, the
@@ -74,7 +80,7 @@ fn lead(
         return;
     };
     let snapshot = presented.0.current();
-    let party = crate::cast::party_of(snapshot, own.0);
+    let party = crate::cast::bar_of(snapshot, own.0);
     if facts.wanted() {
         facts.0.insert(
             "lead".into(),
@@ -85,9 +91,7 @@ fn lead(
             }),
         );
     }
-    if own.0 != Seat(0) {
-        return;
-    }
+    let first = own.0 == Seat(0);
     let busy = busy(taken);
     let pressed = |action| {
         !busy
@@ -97,13 +101,22 @@ fn lead(
     };
     let key = pressed(crate::settings::Action::Leader);
     let ends_solo = solo_clicked && !busy && snapshot.solo;
-    if (pressed(crate::settings::Action::Solo) || ends_solo)
+    if first
+        && (pressed(crate::settings::Action::Solo) || ends_solo)
         && let Some(outgoing) = outgoing.as_deref_mut()
     {
         info!(target: "party", "solo: {}", !snapshot.solo);
         outgoing.0.push(Action::Solo(!snapshot.solo));
     }
-    let member = match clicked {
+    let free = |member: &sim::EntityState| {
+        if first {
+            leads(member)
+        } else {
+            takes(snapshot, member)
+        }
+    };
+    // A guest's click while a screen or a conversation is up takes no one.
+    let member = match clicked.filter(|_| first || !busy) {
         Some(id) => party
             .iter()
             .find(|member| member.id.0 == id)
@@ -114,15 +127,32 @@ fn lead(
     let (Some(member), Some(mut outgoing)) = (member, outgoing) else {
         return;
     };
-    info!(target: "party", "lead: {} leads", member.id.0);
-    outgoing.0.push(Action::Lead(member.id));
+    if first {
+        info!(target: "party", "lead: {} leads", member.id.0);
+        outgoing.0.push(Action::Lead(member.id));
+    } else {
+        info!(target: "party", "play: seat {} takes {}", own.0.0, member.id.0);
+        outgoing.0.push(Action::Play(member.id));
+    }
 }
 
-/// Whether `member` may lead: standing, and no guest's to play (I30 P2).
-/// The character the first seat is switched to (`world::switch`) is driven
-/// by that seat itself, and takes the lead back.
-fn free(member: &sim::EntityState) -> bool {
+/// Whether the first seat may lead through `member`: standing, and no
+/// guest's to play (I30 P2). The character the first seat is switched to
+/// (`world::switch`) is driven by that seat itself, and takes the lead
+/// back.
+fn leads(member: &sim::EntityState) -> bool {
     member.fighter.is_none_or(|fighter| {
         fighter.alive() && fighter.mind.driver.is_none_or(|seat| seat == Seat(0))
     })
+}
+
+/// Whether another seat may take `member` (`Action::Play`): a companion
+/// standing, played by no seat and not leading the party. The host decides
+/// the rest (`sim::world::drivers`).
+fn takes(snapshot: &sim::Snapshot, member: &sim::EntityState) -> bool {
+    matches!(member.kind, sim::Kind::Object(..))
+        && snapshot.leading != Some(member.id)
+        && member
+            .fighter
+            .is_some_and(|fighter| fighter.alive() && fighter.mind.driver.is_none())
 }
