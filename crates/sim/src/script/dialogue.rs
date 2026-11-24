@@ -14,7 +14,7 @@
 //! for the conversation's owner. The end runs `EndConversation`, an end
 //! cut short `EndConverAbort`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use fmt_odyssey::dlg::{Call, Dlg, Link, Node, NodeFade};
@@ -34,6 +34,25 @@ mod lines;
 mod pass;
 mod start;
 pub(super) use pass::*;
+
+/// The longest a reply taken is shown before it runs (ms, issue 637).
+const SHOWN_REPLY_MOST_MS: u64 = rules::dialogue::coop::SHOWN_REPLY_MOST_MS;
+
+/// How long reply `node`, taken, is shown before it runs (ms): as long as a
+/// line with no voice lasts (`READ_TENTHS_MS_PER_CHAR` a character of the
+/// text it shows, at least `LEAST_LINE_MS`), and at most
+/// `SHOWN_REPLY_MOST_MS`.
+fn chosen_ms(library: &super::Library, node: &Node) -> u64 {
+    (read_chars(library, node) * READ_TENTHS_MS_PER_CHAR / 10)
+        .clamp(LEAST_LINE_MS, SHOWN_REPLY_MOST_MS)
+}
+
+/// Whether `dlg` runs on a computer's screen rather than as a conversation.
+/// One player uses a computer, so nobody is brought into it and a reply
+/// taken on it is never shown first.
+fn is_computer(dlg: &fmt_odyssey::dlg::Dlg) -> bool {
+    dlg.kind == fmt_odyssey::dlg::Kind::Computer
+}
 
 /// How long a line with no usable voice stays up for each character of its
 /// text, in tenths of a millisecond.
@@ -211,6 +230,24 @@ pub struct Conversation {
     /// line carrying the clip on films and waits from there
     /// (`script::camera_cue`).
     pub clip_from_ms: u64,
+    /// The reply a player took, shown to the other players before it runs
+    /// (`Step::choose`), if one is shown now.
+    pub chosen: Option<Chosen>,
+}
+
+/// A reply taken and shown before it runs (`Conversation::chosen`). While
+/// it is shown, nothing of it runs and no other reply is pointed at or
+/// taken. It runs once `until_ms` comes, when a player in the
+/// conversation skips it, or when the conversation is cut short.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Chosen {
+    /// The reply's place among those offered, from 0.
+    pub nth: u8,
+    /// The body whose player took it: its name is shown before the reply.
+    pub by: ObjectId,
+    /// When it was taken, and when it runs (sim ms).
+    pub from_ms: u64,
+    pub until_ms: u64,
 }
 
 /// A line over someone's head, outside any conversation.
@@ -405,6 +442,17 @@ pub struct Talk {
     /// Each seat's last answer byte (by seat number): a new count is a new
     /// answer or mark (`answer`).
     pub heard: BTreeMap<u32, u8>,
+    /// The seats whose players turned "Join nearby conversations" off
+    /// (`Action::JoinTalks`): they never join the first seat's own
+    /// conversations by standing near them.
+    pub quiet: BTreeSet<u8>,
+    /// The seats whose players have a screen open on their own machine (a
+    /// menu, the level-up screen, the workbench: `Action::Screen`). They
+    /// count as busy and join no conversation by standing near it.
+    pub screens: BTreeSet<u8>,
+    /// The host turned "Show chosen replies" off: a reply taken runs at
+    /// once, as it does for one player alone (`Step::choose`).
+    pub hide_replies: bool,
     /// The player of the conversation whose script runs now
     /// (`GetPCSpeaker`; not saved: within a step).
     pub(super) running: Option<ObjectId>,
@@ -467,6 +515,15 @@ pub enum Line {
         id: u32,
         dialog: String,
         reply: u32,
+    },
+    /// The body `by` took a reply, shown to every player in the
+    /// conversation before it runs (`Conversation::chosen`).
+    Shown {
+        ms: u64,
+        id: u32,
+        dialog: String,
+        reply: u32,
+        by: ObjectId,
     },
     /// A seat pointed at a reply (I30 P6): shown to everyone, never taken.
     Marked {
@@ -555,6 +612,7 @@ impl Default for Conversation {
             lock_turn: Vec::new(),
             lock_head: Vec::new(),
             clip_from_ms: 0,
+            chosen: None,
         }
     }
 }
@@ -905,10 +963,21 @@ impl Talk {
             out.u32(*seat);
             out.u8(*answer);
         }
+        // Not `screens`: a screen open is the player's machine's state as it
+        // is now, which each player's game sends again after a load.
+        out.u8(self.quiet.len() as u8);
+        for seat in &self.quiet {
+            out.u8(*seat);
+        }
+        out.u8(u8::from(self.hide_replies));
     }
 
     pub(super) fn decode(input: &mut Reader) -> Result<Talk, DecodeError> {
-        let told = Told::decode_since(input, crate::since::save::REEL_NOTES)?;
+        let told = Told::decode_since(
+            input,
+            crate::since::save::REEL_NOTES,
+            crate::since::save::FEAT_COOP_SHARED_TALK,
+        )?;
         let mut talk = Talk {
             conversations: told.conversations,
             barks: told.barks,
@@ -928,6 +997,18 @@ impl Talk {
         talk.next = input.u32()?;
         for _ in 0..input.u32()? {
             talk.heard.insert(input.u32()?, input.u8()?);
+        }
+        // Older saves: every seat joins and replies are shown. No save keeps
+        // a screen open (`screens`).
+        if input.since(crate::since::save::FEAT_COOP_SHARED_TALK) {
+            for _ in 0..input.u8()? {
+                let at = input.at();
+                let seat = input.u8()?;
+                if seat >= crate::MAX_SEATS || !talk.quiet.insert(seat) {
+                    return Err(input.invalid("seat", at));
+                }
+            }
+            talk.hide_replies = input.u8()? != 0;
         }
         Ok(talk)
     }
@@ -1397,9 +1478,15 @@ impl Step<'_> {
     }
 
     /// Ends conversation `id`: `EndConversation`, or `EndConverAbort` when
-    /// cut short. Ended normally, those in it may watch the match it dealt
-    /// (R37; R40: not cut short, by its listener's Leave among others).
+    /// cut short, the reply it shows run first (`run_chosen`). Ended
+    /// normally, those in it may watch the match it dealt (R37; R40: not
+    /// cut short, by its listener's Leave among others).
     pub(super) fn end(&mut self, id: u32, aborted: bool) {
+        // A reply shown before it runs was chosen already: cut short, it
+        // runs at once, and the cut goes on with what it left (issue 637).
+        if aborted {
+            self.run_chosen(id);
+        }
         let Some(at) = self.state.talk.index(id) else {
             return;
         };

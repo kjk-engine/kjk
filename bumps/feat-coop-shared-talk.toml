@@ -1,0 +1,14 @@
+# Shared conversations in co-op. When the first seat starts a conversation
+# of its own, the other players who are free and near join it. When more
+# than one player is in a conversation, the reply a player takes is shown
+# to all of them before it runs.
+sim = "free players near the first seat's own conversation join it; a reply taken with more than one player in the conversation is shown before it runs (`Conversation::chosen`); a joined player may leave a locked conversation of a player's own"
+
+[formats]
+snapshot = "a conversation keeps the reply shown before it runs (`Conversation::chosen`)."
+save = "a conversation keeps the reply shown before it runs (`Conversation::chosen`), and the scripts' state keeps the seats that do not join nearby conversations and whether chosen replies are shown (`Talk::quiet`, `Talk::hide_replies`). The seats with a screen open are not saved."
+replay = "the recording's start keeps the reply shown before it runs, as `KJKS` and `KJKV` do; a seat may say whether it joins nearby conversations and whether a screen is open (`Action::JoinTalks`, `Action::Screen`, new action codes)."
+
+[migrations]
+snapshot = "an older snapshot reads no reply shown: no conversation in it was showing one"
+save = "an older save reads no reply shown, every seat joining nearby conversations, and chosen replies shown"

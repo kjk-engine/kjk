@@ -600,10 +600,11 @@ pub(crate) fn advance(
         ),
         Option<ResMut<crate::save_view::Received>>,
     ),
-    (time, waited, frozen): (
+    (time, waited, frozen, mut talk_again): (
         Res<Time<Real>>,
         Option<ResMut<crate::sim_host::Waited>>,
         Option<ResMut<crate::sim_host::Frozen>>,
+        Option<ResMut<crate::dialogue_view::SendTalkOptions>>,
     ),
 ) {
     let joined = &mut *joined;
@@ -698,6 +699,9 @@ pub(crate) fn advance(
                 // in the same scene.
                 info!(target: "net", tick, "playing");
                 joined.generation = 1;
+                if let Some(again) = talk_again.as_deref_mut() {
+                    again.0 = true;
+                }
                 if joined.job.is_none() {
                     loading.committed = Some(Instant::now());
                 }
@@ -737,6 +741,9 @@ pub(crate) fn advance(
             }
             ClientEvent::Welcome(welcome) => {
                 info!(target: "net", seat = welcome.seat.0, "joined again");
+                if let Some(again) = talk_again.as_deref_mut() {
+                    again.0 = true;
+                }
                 if let Some(told) = told.as_deref_mut() {
                     told.0.push("Joined the host again.".into());
                 }

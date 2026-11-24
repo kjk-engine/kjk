@@ -105,6 +105,18 @@ pub fn transcript(
             at(*ms),
             node(dialog, false, *reply)
         )],
+        Line::Shown {
+            ms,
+            dialog,
+            reply,
+            by,
+            ..
+        } => vec![format!(
+            "{}   {} chose {:?}  (R{reply}), shown before it runs",
+            at(*ms),
+            who(*by),
+            node(dialog, false, *reply)
+        )],
         Line::Bark {
             ms, who: by, text, ..
         } => {

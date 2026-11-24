@@ -189,8 +189,74 @@ impl Step<'_> {
                 .changes
                 .push(crate::script::Change::Gather { around, who });
         }
+        // One player at a time uses a computer, so nobody joins its screen.
+        if private
+            && !is_computer(dlg)
+            && self.view.seat_of(listener) == Some(crate::world::LEADER_SEAT.0)
+        {
+            self.bring_near(id);
+        }
         self.out.lift_fade(self.view);
         self.show(id, entry);
+    }
+
+    /// The first seat began conversation `id` of its own (issue 636): every
+    /// other seat's body that is free (`free_to_join`), stands within
+    /// `GATHER_BEYOND_M` of its listener and sees it joins it at once, in
+    /// seat order, as a player who walked up would. Only while more than
+    /// one seat plays a body (`together`).
+    fn bring_near(&mut self, id: u32) {
+        let view = self.view;
+        let Some(at) = self.state.talk.index(id).filter(|_| view.together()) else {
+            return;
+        };
+        let listener = self.state.talk.conversations[at].listener;
+        let Some(centre) = view.thing(listener).map(|thing| thing.position) else {
+            return;
+        };
+        let near = |body: ObjectId| {
+            view.thing(body).is_some_and(|thing| {
+                let apart = crate::math::length(crate::math::sub(thing.position, centre));
+                apart <= crate::world::coop_talk::GATHER_BEYOND_M
+                    && (view.sees)(thing.position, centre)
+            })
+        };
+        let coming: Vec<ObjectId> = (view.seats.iter())
+            .filter(|(seat, body)| {
+                *seat != crate::world::LEADER_SEAT.0
+                    && *body != listener
+                    && self.free_to_join(*seat, *body)
+                    && near(*body)
+            })
+            .map(|(_, body)| *body)
+            .collect();
+        let (mains, lent) = (view.main_characters(&self.state.party), self.lent());
+        let c = &mut self.state.talk.conversations[at];
+        for body in coming {
+            c.take_in(body, party_pc(&mains, lent, body));
+        }
+    }
+
+    /// Whether seat `seat`, its body `body`, is free to join a conversation
+    /// by standing near it (issue 636). It is not when its player turned
+    /// "Join nearby conversations" off or has a screen open
+    /// (`Talk::quiet`, `Talk::screens`), or when its body is down, fights
+    /// (its own fight, or a hostile one near it), takes part in a
+    /// conversation, trades at a store, plays or watches a pazaak match, or
+    /// holds a container open (`View::looting`).
+    fn free_to_join(&self, seat: u8, body: ObjectId) -> bool {
+        let (view, state) = (self.view, &*self.state);
+        let character = view.thing(body).and_then(|thing| thing.character);
+        let busy = state.talk.quiet.contains(&seat)
+            || state.talk.screens.contains(&seat)
+            || character.is_none_or(|character| character.downed || character.in_combat)
+            || view.embattled.contains(&body)
+            || state.talk.with(body, self.host()).is_some()
+            || state.trades.contains_key(&body.0)
+            || state.plays_pazaak(body)
+            || state.watching(body).is_some()
+            || view.looting & crate::world::party::bit(crate::input::Seat(seat)) != 0;
+        !busy
     }
 
     /// A player's use of one in another player's own conversation (R3):

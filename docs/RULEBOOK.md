@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `9abbfd56af570d50`.
+Edition `c8329ea440b58df0`.
 
 ## Contents
 
@@ -11371,7 +11371,7 @@ leads to does one of these things.
 
 <a id="dialogue-coop-gather-beyond-m"></a>**Gathering the Party** = **10 m** · `dialogue.coop.gather_beyond_m`
 
-When a conversation begins, party members who are farther away than 10 meters are brought to it. When a Pazaak match begins, other players within 10 meters watch it.
+When a conversation begins, party members who are farther away than 10 meters are brought to it. When the main character's player starts a conversation of their own, every other player who is free, can see it and stands within 10 meters joins it. When a Pazaak match begins, other players within 10 meters watch it.
 
 <sub>Source: ours [verify against KOTOR's scene staging]. Code: `sim::world::coop_talk::gather`.</sub>
 
@@ -11380,6 +11380,12 @@ When a conversation begins, party members who are farther away than 10 meters ar
 A line spoken by another player's character waits up to 10 seconds for that player's own conversation to end. After that, the line plays without that player.
 
 <sub>Source: ours. Code: `sim::script::dialogue`.</sub>
+
+<a id="dialogue-coop-shown-reply-most-ms"></a>**Shown Reply** = **4 seconds** (`4000 ms`) · `dialogue.coop.shown_reply_most_ms`
+
+When more than one player is in a conversation, the reply a player takes is shown to every player in it before it runs. It stays on screen as long as a line with no voice would, and at most 4 seconds. Any player in the conversation can skip it once it has been on screen for the skip delay.
+
+<sub>Source: ours. Code: `sim::script::dialogue::answers`.</sub>
 
 <a id="dialogue-coop-story-depth"></a>**Story Replies** = **4** · `dialogue.coop.story_depth`
 

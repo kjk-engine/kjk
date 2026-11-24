@@ -63,6 +63,83 @@ impl Step<'_> {
         }
     }
 
+    /// The body `by` takes reply `nth` of conversation `id` (its pick, the
+    /// first answer this step). Where the reply is shown first
+    /// (`shows_chosen`), it only starts the shown reply (issue 637): it is
+    /// shown to every player in the conversation, a story reply locks the
+    /// conversation at once, and nothing of it runs until the shown reply
+    /// ends (`run_chosen`). Otherwise it runs at once (`pick`).
+    pub(super) fn choose(&mut self, id: u32, nth: usize, by: ObjectId) {
+        let (now, library) = (self.view.now_ms, self.library);
+        let Some(at) = self.state.talk.index(id) else {
+            return;
+        };
+        let c = &self.state.talk.conversations[at];
+        let found = (c.replies.get(nth).copied())
+            .zip(library.dialogue(&c.dialog))
+            .and_then(|(reply, dlg)| Some((reply, dlg, u8::try_from(nth).ok()?)));
+        let Some((reply, dlg, place)) = found.filter(|_| self.shows_chosen(at, nth)) else {
+            self.pick(id, nth);
+            return;
+        };
+        let node = &dlg.replies[reply as usize];
+        let c = &mut self.state.talk.conversations[at];
+        c.locked |= story(library, dlg, reply);
+        c.marks.clear();
+        c.chosen = Some(Chosen {
+            nth: place,
+            by,
+            from_ms: now,
+            until_ms: now + chosen_ms(library, node),
+        });
+        let line = Line::Shown {
+            ms: now,
+            id,
+            dialog: c.dialog.clone(),
+            reply,
+            by,
+        };
+        self.line(line);
+    }
+
+    /// Whether reply `nth` of the conversation at `at` is shown before it
+    /// runs (issue 637): the host shows chosen replies (`Talk::hide_replies`
+    /// off), more than one player is in the conversation (a party one holds
+    /// every seat, a player's own its listener and those joined), and the
+    /// reply has words (`says_nothing`). A player alone sees nothing new.
+    fn shows_chosen(&self, at: usize, nth: usize) -> bool {
+        let (view, talk) = (self.view, &self.state.talk);
+        let c = &talk.conversations[at];
+        let players = match c.party {
+            true => view.seats.len(),
+            false => std::iter::once(&c.listener)
+                .chain(&c.joined)
+                .filter(|body| view.seat_of(**body).is_some())
+                .count(),
+        };
+        let worded = (c.replies.get(nth))
+            .zip(
+                self.library
+                    .dialogue(&c.dialog)
+                    .filter(|dlg| !is_computer(dlg)),
+            )
+            .and_then(|(reply, dlg)| dlg.replies.get(*reply as usize))
+            .is_some_and(|node| !says_nothing(self.library, node));
+        !talk.hide_replies && view.together() && players > 1 && worded
+    }
+
+    /// The reply conversation `id` shows (`Conversation::chosen`) runs now,
+    /// as it would have when it was taken (`pick`): its time is over, a
+    /// player skipped it, or the conversation is cut short.
+    pub(super) fn run_chosen(&mut self, id: u32) {
+        let Some(at) = self.state.talk.index(id) else {
+            return;
+        };
+        if let Some(chosen) = self.state.talk.conversations[at].chosen.take() {
+            self.pick(id, usize::from(chosen.nth));
+        }
+    }
+
     /// The line has played: its replies chosen (`offer_replies`), take the
     /// silent reply, end, or wait. The replies offered start a line (S2):
     /// the player's, to the one who spoke (`listener_now`), the pair before
@@ -123,7 +200,8 @@ impl Step<'_> {
         let Some(&reply) = c.replies.get(usize::from(nth)) else {
             return;
         };
-        if c.auto || c.marks.insert(seat, nth) == Some(nth) {
+        // A reply shown before it runs takes no mark (issue 637).
+        if c.auto || c.chosen.is_some() || c.marks.insert(seat, nth) == Some(nth) {
             return;
         }
         let line = Line::Marked {
@@ -154,13 +232,15 @@ impl Step<'_> {
 
     /// Seat `seat`, its body `by`, leaves the conversation at `at` it
     /// answers (`answers`; `own` when `by` is its listener), R6. Unlocked,
-    /// its listener ends it cut short (`EndConverAbort`), and one joined to
-    /// a player's own steps out, its mark and its request going with it. A
-    /// locked one, or a party one left by anyone but its listener, is
-    /// refused: a party one holds every seat anyway.
+    /// its listener ends it cut short (`EndConverAbort`). One joined to a
+    /// player's own steps out, its mark and its request going with it,
+    /// locked or not (issue 636): only its listener's leaving could cut the
+    /// story short. A locked one left by its listener, or a party one left
+    /// by anyone but its listener, is refused: a party one holds every seat
+    /// anyway.
     pub(super) fn leave(&mut self, seat: u8, by: ObjectId, (at, own): (usize, bool)) {
         let c = &mut self.state.talk.conversations[at];
-        let refused = if c.locked {
+        let refused = if c.locked && (own || c.party) {
             Some("locked")
         } else if c.party && !own {
             Some("the host's")

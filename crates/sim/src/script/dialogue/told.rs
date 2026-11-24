@@ -42,14 +42,20 @@ impl Told {
 
     /// As a snapshot carries it.
     pub(crate) fn decode(input: &mut Reader) -> Result<Told, DecodeError> {
-        Told::decode_since(input, crate::since::snapshot::REEL_NOTES)
+        Told::decode_since(
+            input,
+            crate::since::snapshot::REEL_NOTES,
+            crate::since::snapshot::FEAT_COOP_SHARED_TALK,
+        )
     }
 
     /// As bytes carry it whose format gained `Conversation::clip_from_ms`
-    /// at `clip` (a snapshot's, or a save's scripts' state).
+    /// at `clip` and `Conversation::chosen` at `chosen` (a snapshot's, or a
+    /// save's scripts' state).
     pub(crate) fn decode_since(
         input: &mut Reader,
         clip: crate::wire::Since,
+        chosen: crate::wire::Since,
     ) -> Result<Told, DecodeError> {
         let mut told = Told::default();
         for _ in 0..input.u32()? {
@@ -105,6 +111,22 @@ impl Told {
             let (lock_turn, lock_head) = (bodies(input)?, bodies(input)?);
             // Older bytes: no clip playing.
             let clip_from_ms = if input.since(clip) { input.u64()? } else { 0 };
+            // Older bytes: no reply shown.
+            let chosen = if input.since(chosen) && input.u8()? != 0 {
+                let at = input.at();
+                let shown = Chosen {
+                    nth: input.u8()?,
+                    by: ObjectId(input.u32()?),
+                    from_ms: input.u64()?,
+                    until_ms: input.u64()?,
+                };
+                if usize::from(shown.nth) >= replies.len() {
+                    return Err(input.invalid("chosen reply", at));
+                }
+                Some(shown)
+            } else {
+                None
+            };
             told.conversations.push(Conversation {
                 id,
                 dialog,
@@ -140,6 +162,7 @@ impl Told {
                 lock_turn,
                 lock_head,
                 clip_from_ms,
+                chosen,
             });
         }
         for _ in 0..input.u32()? {
@@ -234,6 +257,16 @@ pub(super) fn encode_told(
             }
         }
         out.u64(c.clip_from_ms);
+        match c.chosen {
+            None => out.u8(0),
+            Some(shown) => {
+                out.u8(1);
+                out.u8(shown.nth);
+                out.u32(shown.by.0);
+                out.u64(shown.from_ms);
+                out.u64(shown.until_ms);
+            }
+        }
     }
     out.u32(barks.len() as u32);
     for bark in barks {

@@ -339,6 +339,12 @@ pub fn conversation() -> Conversation {
         lock_turn: vec![ObjectId(7)],
         lock_head: vec![ObjectId(2), ObjectId(4)],
         clip_from_ms: 1250,
+        chosen: Some(crate::script::dialogue::Chosen {
+            nth: 1,
+            by: ObjectId(4),
+            from_ms: 1400,
+            until_ms: 2900,
+        }),
     }
 }
 
@@ -390,6 +396,9 @@ fn state() -> Check {
             tokens: told.tokens,
             next: 4,
             heard: BTreeMap::from([(0, answer(0, Pick::Reply(0))), (2, answer(0, Pick::Skip))]),
+            quiet: [1].into(),
+            screens: [1, 2].into(),
+            hide_replies: true,
             ..Talk::default()
         },
         pending: vec![crate::script::Pending {
@@ -424,6 +433,8 @@ fn state() -> Check {
     let mut out = Writer::default();
     state.encode(&mut out);
     let read = State::decode(&mut Reader::new("state", &out.0));
+    // A save keeps no screen open: each player's game sends it again.
+    state.talk.screens.clear();
     check(
         "state",
         read.is_ok_and(|read| read == state),

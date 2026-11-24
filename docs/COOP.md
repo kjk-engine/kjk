@@ -144,8 +144,11 @@ instead of a welcome (`net::session::lobby`, messages 16 to 20).
 - One rule says which companions can be chosen
   (`sim::script::party_choice`), the same one the in-game party selection
   screen uses. A companion the story has taken away cannot be chosen.
-- The host chooses the saber rules and the collision, and fills the
-  companion places no guest took. The game controls those companions.
+- The host chooses the saber rules, the collision and "Show chosen
+  replies", and fills the companion places no guest took. The game
+  controls those companions. With "Show chosen replies" on (the default),
+  the reply a player takes is shown to every player in the conversation
+  before it runs (`DIALOGUE.md`, "The chosen reply").
 - Start writes the lobby's party into the save as the party changes the
   games' own scripts make (`Save::queue_party`), seeds each guest's seat
   with its companion (`Save::seat_companions`, through `Kept`), and plans

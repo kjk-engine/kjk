@@ -22,6 +22,7 @@ crates/sim/src/action.rs FORFEIT  # a player action's wire tag
 crates/sim/src/action.rs FORM  # a player action's wire tag
 crates/sim/src/action.rs GRENADE  # a player action's wire tag
 crates/sim/src/action.rs HOLSTER  # a player action's wire tag
+crates/sim/src/action.rs JOIN_TALKS  # a player action's wire tag
 crates/sim/src/action.rs LEAD  # a player action's wire tag
 crates/sim/src/action.rs LEAVE  # a player action's wire tag
 crates/sim/src/action.rs LEVEL_UP  # a player action's wire tag
@@ -39,6 +40,7 @@ crates/sim/src/action.rs RECOVER  # a player action's wire tag
 crates/sim/src/action.rs REQUEST  # a player action's wire tag
 crates/sim/src/action.rs RESUME  # a player action's wire tag
 crates/sim/src/action.rs REVIVE  # a player action's wire tag
+crates/sim/src/action.rs SCREEN  # a player action's wire tag
 crates/sim/src/action.rs SCREEN_CLOSED  # a player action's wire tag
 crates/sim/src/action.rs SCREEN_OPENED  # a player action's wire tag
 crates/sim/src/action.rs SELL  # a player action's wire tag

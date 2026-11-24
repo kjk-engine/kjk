@@ -63,6 +63,20 @@ pub(in crate::script) fn advance(step: &mut Step) {
         if answered.contains(&id) {
             continue;
         }
+        // A reply shown before it runs takes no other answer (issue 637).
+        // Any player in the conversation skips it once it has shown for
+        // `SKIP_AFTER_MS`, its lines skippable or not: it has no voice and
+        // shows only for the other players.
+        if let Some(chosen) = c.chosen {
+            if answer.pick == Pick::Skip
+                && answer.by != ObjectId::INVALID
+                && now >= chosen.from_ms + SKIP_AFTER_MS
+            {
+                answered.push(id);
+                step.run_chosen(id);
+            }
+            continue;
+        }
         let library = step.library;
         let skippable = now >= c.shown_ms + SKIP_AFTER_MS
             && library
@@ -89,7 +103,7 @@ pub(in crate::script) fn advance(step: &mut Step) {
                     if pc(answer.by) || !moves() {
                         answered.push(id);
                         step.state.talk.conversations[at].asker = answer.by;
-                        step.pick(id, usize::from(nth));
+                        step.choose(id, usize::from(nth), answer.by);
                         continue;
                     }
                     let stands = std::iter::once(&c.listener).chain(&c.joined);
@@ -107,6 +121,14 @@ pub(in crate::script) fn advance(step: &mut Step) {
             }
             _ => {}
         }
+    }
+    // A reply shown before it runs runs once its time is over (issue 637).
+    let shown: Vec<u32> = (step.state.talk.conversations.iter())
+        .filter(|c| c.chosen.is_some_and(|chosen| now >= chosen.until_ms))
+        .map(|c| c.id)
+        .collect();
+    for id in shown {
+        step.run_chosen(id);
     }
     let due: Vec<u32> = step
         .state

@@ -54,6 +54,7 @@ fn sample(own_slot: usize) -> ViewModel {
             }),
             saber_rules: "ja".into(),
             collision: "limited".into(),
+            show_replies: true,
             hero: Some(LobbyHeroView {
                 name: b"Dax".to_vec(),
                 portrait: Some("po_pmhc01".into()),
@@ -205,7 +206,8 @@ fn words_shown() -> Vec<Check> {
         .collect()
 }
 
-/// What each press asks for, in each view: a guest's settings rows are
+/// What each press asks for, in each view: the host's chosen replies row
+/// turns them off, a guest's settings rows are
 /// greyed and ask nothing, a companion the story took asks nothing, a
 /// guest's choice of another guest's companion is a choice, Start Game is
 /// the host's only, and a guest's Ready marks Ready.
@@ -213,7 +215,7 @@ fn presses() -> Check {
     let host = sample(0);
     let guest = sample(2);
     let greyed = |vm: &ViewModel, tag| state(&mut Lobby::default(), vm, None, tag).greyed;
-    let cases: [(&str, &ViewModel, &str, Vec<Intent>); 13] = [
+    let cases: [(&str, &ViewModel, &str, Vec<Intent>); 15] = [
         (
             "host saber",
             &host,
@@ -226,8 +228,15 @@ fn presses() -> Check {
             "BTN_COLLISION",
             lobby(LobbyIntent::Collision("restricted".into())),
         ),
+        (
+            "host replies",
+            &host,
+            "BTN_REPLIES",
+            lobby(LobbyIntent::ShowReplies(false)),
+        ),
         ("guest saber", &guest, "BTN_SABER", Vec::new()),
         ("guest collision", &guest, "BTN_COLLISION", Vec::new()),
+        ("guest replies", &guest, "BTN_REPLIES", Vec::new()),
         ("host taken away", &host, "BTN_NPC4", Vec::new()),
         ("guest taken away", &guest, "BTN_NPC4", Vec::new()),
         (
@@ -267,6 +276,7 @@ fn presses() -> Check {
     let greys = [
         greyed(&guest, "BTN_SABER"),
         greyed(&guest, "BTN_COLLISION"),
+        greyed(&guest, "BTN_REPLIES"),
         greyed(&host, "BTN_SABER"),
     ];
     // A companion the story took away shows the layout's "no companion"
@@ -277,7 +287,7 @@ fn presses() -> Check {
         !state(&mut Lobby::default(), &guest, None, "LBL_CHAR3").hidden,
         state(&mut Lobby::default(), &guest, None, "LBL_NA3").hidden,
     ];
-    let ok = wrong.is_empty() && greys == [true, true, false] && away == [true; 4];
+    let ok = wrong.is_empty() && greys == [true, true, true, false] && away == [true; 4];
     check(
         "lobby_presses",
         if ok {
@@ -345,7 +355,7 @@ fn descriptions() -> Check {
             "guest setting",
             &guest,
             "BTN_SABER",
-            "The host chooses the saber rules and the collision.",
+            "The host chooses the saber rules, the collision and whether chosen replies are shown.",
         ),
         (
             "host setting",
@@ -550,6 +560,7 @@ fn built() -> Check {
         "LBL_GAMEINFO",
         "BTN_SABER",
         "BTN_COLLISION",
+        "BTN_REPLIES",
         "LBL_DESC",
         "LBL_SLOT2",
         "LBL_CNAME11",

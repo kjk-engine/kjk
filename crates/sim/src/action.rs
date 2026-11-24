@@ -273,6 +273,16 @@ pub enum Action {
         whom: crate::snapshot::SimId,
         set: u8,
     },
+    /// The seat's player turned "Join nearby conversations" on or off. With
+    /// it on, the seat's body joins a conversation of the first seat's own
+    /// when it is free and near (`script::dialogue`). A player's game sends
+    /// it each time it connects, because options are not part of a save.
+    JoinTalks(bool),
+    /// The seat's player opened (true) or closed (false) a screen of its
+    /// own machine: a menu, the level-up screen or the workbench. While
+    /// one is open the seat counts as busy and joins no conversation by
+    /// standing near it.
+    Screen(bool),
 }
 
 /// What a player orders in a combat arena (`world::arena`).
@@ -509,6 +519,18 @@ const FEAT: u8 = 66;
 const GRENADE: u8 = 67;
 const MINE_KIT: u8 = 68;
 const PLAY: u8 = 69;
+const JOIN_TALKS: u8 = 72;
+const SCREEN: u8 = 73;
+
+/// A byte that is 0 (false) or 1 (true), as an action's flag.
+fn flag(input: &mut Reader) -> Result<bool, DecodeError> {
+    let at = input.at();
+    match input.u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(input.invalid("flag", at)),
+    }
+}
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -759,6 +781,14 @@ impl Action {
                 out.u8(*page);
             }
             Action::ReturnToShip => out.u8(RETURN_TO_SHIP),
+            Action::JoinTalks(on) => {
+                out.u8(JOIN_TALKS);
+                out.u8(u8::from(*on));
+            }
+            Action::Screen(open) => {
+                out.u8(SCREEN);
+                out.u8(u8::from(*open));
+            }
             Action::PickStance { whom, set } => {
                 out.u8(PICK_STANCE);
                 out.u32(whom.0);
@@ -962,6 +992,8 @@ impl Action {
             FORFEIT => Action::Forfeit,
             SUB_SCREEN => Action::SubScreen(input.u8()?),
             RETURN_TO_SHIP => Action::ReturnToShip,
+            JOIN_TALKS => Action::JoinTalks(flag(input)?),
+            SCREEN => Action::Screen(flag(input)?),
             PICK_STANCE => Action::PickStance {
                 whom: crate::snapshot::SimId(input.u32()?),
                 set: input.u8()?,
@@ -1039,7 +1071,9 @@ impl Action {
             | Action::ReturnToShip
             | Action::Forfeit
             | Action::Arena(_)
-            | Action::PickStance { .. } => None,
+            | Action::PickStance { .. }
+            | Action::JoinTalks(_)
+            | Action::Screen(_) => None,
         }
     }
 
