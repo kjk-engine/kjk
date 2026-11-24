@@ -18,9 +18,12 @@
 //!   each game's script calls the routine its own game declares.
 //! - `visualeffects.2da` with the rows the script names that KOTOR 1's table
 //!   lacks (Battle Meditation, Force Scream, Revitalize and the rest), and
-//!   `effecticon.2da` with the effect icons the script shows that KOTOR 1's
-//!   table has no row for (Force Barrier's, Battle Meditation's, Force
-//!   Body's), each at KOTOR 2's number.
+//!   `effecticon.2da` with every row of KOTOR 2's table past KOTOR 1's own
+//!   rows, each at KOTOR 2's number. The script picks many of its icons by
+//!   a sum or a variable, not a number written in the call: Force Body
+//!   shows row 76 plus its rank, and Force Scream keeps its row in a
+//!   variable. So every row the script could show is lent, not only the
+//!   numbers written into it.
 //! - KOTOR 2's models, textures, icons and sounds those rows name, where
 //!   KOTOR 1 has none of the name, in a layer under every other.
 //!
@@ -163,8 +166,8 @@ pub struct Lent {
     /// look them up).
     effects: Vec<Row>,
     /// The lent `effecticon.2da` rows by number (as the games look them
-    /// up): the icons the scripts show on a character that KOTOR 1's table
-    /// has no row for (Force Barrier's, Battle Meditation's, Force Body's).
+    /// up): KOTOR 2's rows past KOTOR 1's table, the icons the lent scripts
+    /// show on a character (Force Barrier's, Force Body's, Force Scream's).
     icons: BTreeMap<usize, Row>,
     /// The declarations of KOTOR 2's routines added after KOTOR 1's.
     routines: String,
@@ -382,7 +385,7 @@ fn catalog(resolver: &Resolver) -> Result<Catalog, String> {
 }
 
 /// The powers' half of a loan (`Powers::new`): the `spells.2da` rows, the
-/// visual effects and effect icons their scripts name, KOTOR 2's routines
+/// visual effects their scripts name, the effect icons, KOTOR 2's routines
 /// and the renamed impact scripts. Empty when the powers are refused.
 #[derive(Debug, Default)]
 struct Powers {
@@ -678,15 +681,10 @@ impl Powers {
             })
             .collect();
 
-        // The impact scripts, renamed and renumbered, the numbers they hold
-        // (the visual effects they name among them), and the effect icons
-        // they show (the number they give `SetEffectIcon`).
+        // The impact scripts, renamed and renumbered, and the numbers they
+        // hold (the visual effects they name among them).
         let mut scripts = BTreeMap::new();
         let mut constants = BTreeSet::new();
-        let mut icon_numbers = BTreeSet::new();
-        let set_icon = tsl_catalog
-            .routine_named("SetEffectIcon")
-            .map(|routine| routine.id);
         // A row whose script KOTOR 2's data lacks, or whose script does not
         // read, is left out alone: a KOTOR 2 mod that shipped its scripts as
         // sources, uncompiled, keeps the rest of the loan whole.
@@ -707,7 +705,6 @@ impl Powers {
                     left_out.push(number);
                     continue;
                 };
-                icon_numbers.extend(icons_shown(&ncs, set_icon));
                 for instruction in &mut ncs.code {
                     match &mut instruction.op {
                         Op::Action { routine, .. } => {
@@ -753,15 +750,15 @@ impl Powers {
             })
             .collect();
 
-        // The effect icons the scripts show past KOTOR 1's table.
+        // Every effect icon past KOTOR 1's table: the scripts work out many
+        // of the rows they show (Force Body's 76 plus its rank), so the rows
+        // written into them are not all the rows they show.
         let k1_icons = k1.two_da("effecticon").map_or(0, |table| table.cells.len());
         let icons: BTreeMap<usize, Row> = tsl
             .two_da("effecticon")
             .map(|table| {
-                icon_numbers
-                    .iter()
-                    .filter(|&&number| number >= k1_icons && number < table.cells.len())
-                    .map(|&number| (number, row_of(&table, number)))
+                (k1_icons..table.cells.len())
+                    .map(|number| (number, row_of(&table, number)))
                     .collect()
             })
             .unwrap_or_else(BTreeMap::new);
@@ -859,33 +856,6 @@ impl Lent {
         }
     }
 }
-
-/// The numbers `ncs` gives the routine `set_icon` (`SetEffectIcon`, by its
-/// number in the script's own catalog): the constant pushed last within the
-/// few instructions before each call, its icon argument.
-fn icons_shown(ncs: &Ncs, set_icon: Option<u16>) -> Vec<usize> {
-    let Some(set_icon) = set_icon else {
-        return Vec::new();
-    };
-    let calls = ncs.code.iter().enumerate().filter(|(_, instruction)| {
-        matches!(instruction.op, Op::Action { routine, .. } if routine == set_icon)
-    });
-    calls
-        .filter_map(|(at, _)| {
-            ncs.code[at.saturating_sub(ICON_LOOKBACK)..at]
-                .iter()
-                .rev()
-                .find_map(|instruction| match instruction.op {
-                    Op::Const(Const::Int(value)) => usize::try_from(value).ok(),
-                    _ => None,
-                })
-        })
-        .collect()
-}
-
-/// How many instructions before a `SetEffectIcon` call its icon argument
-/// is looked for: the compiler pushes the number, then copies the effect.
-const ICON_LOOKBACK: usize = 4;
 
 /// A resource whose bytes are held, named for the lent layer.
 fn held(name: &str, restype: ResType, bytes: Arc<[u8]>) -> Location {
