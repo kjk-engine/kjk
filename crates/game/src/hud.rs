@@ -1040,14 +1040,17 @@ fn show(
             material.params.tint = tint;
         }
     };
-    let health = fighter.hp as f32 / (f32::from(sheet.max_hp) * 100.0);
+    // The bars count the most as effects and worn items leave it, as the
+    // sim holds the points to it (Master Valor's Constitution raises both).
+    let most = sim::combat::effects::sheet_now(sheet, &fighter, snapshot.time_ms);
+    let health = fighter.hp as f32 / (f32::from(most.max_hp) * 100.0);
     set(
         hud.hp,
         Some(filled(HP, health)),
         Some(Vec4::new(1.0 - health, 0.25 + 0.65 * health, 0.2, 0.95)),
         true,
     );
-    let pool = f32::from(sheet.pool()) * 100.0;
+    let pool = f32::from(most.pool()) * 100.0;
     let gauges = gauges(snapshot.saber_rules, &sheet);
     let bar = if sheet.max_fp > 0 {
         Vec4::new(0.25, 0.45, 1.0, 0.95)
@@ -1208,7 +1211,7 @@ fn show(
             duel: duel.clone(),
             ..kotor_view(
                 ui,
-                &sheet,
+                &most,
                 &fighter,
                 bar,
                 (

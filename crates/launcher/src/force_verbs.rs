@@ -1168,6 +1168,17 @@ pub fn force(
             state.fp / 100
         ),
     );
+    // Valor's Constitution raises the most hit points and the hit points
+    // with it, as both games do: the caster cast at full health stays full.
+    report.check(
+        jedi.max_hp < now.max_hp && state.hp == i32::from(now.max_hp) * 100,
+        format!(
+            "Master Valor: most HP {} → {}, HP {} (full)",
+            jedi.max_hp,
+            now.max_hp,
+            state.hp / 100
+        ),
+    );
     report.replayed("valor and resistance", scene.replayed);
 
     outln!("  Plague (row 38) at {target_tag}");

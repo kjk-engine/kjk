@@ -862,6 +862,8 @@ fn members(
                 .map_or(0, |(row, library)| library.locked_slots(row)),
         };
         let who = crate::headgear::who(instances.as_ref(), entity);
+        // Its bars count the most as effects and worn items leave it.
+        let most = sim::combat::effects::sheet_now(sheet, &fighter, snapshot.time_ms);
         party.push(Member {
             id: entity.id.0,
             headgear_setting: who.as_deref().map(crate::headgear::setting),
@@ -883,8 +885,8 @@ fn members(
                 class,
                 level: sheet.level,
                 portrait,
-                hp: (fighter.hp / 100, i32::from(sheet.max_hp)),
-                fp: force_bar(snapshot.saber_rules, &sheet, fighter.fp),
+                hp: (fighter.hp / 100, i32::from(most.max_hp)),
+                fp: force_bar(snapshot.saber_rules, &most, fighter.fp),
                 dresses,
                 may_level,
                 busy: seat.and_then(|seat| crate::hud::busy(snapshot, seat)),
