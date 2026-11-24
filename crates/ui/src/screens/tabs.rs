@@ -5,7 +5,9 @@
 //! other two members' portraits beside it, each choosing its member for the
 //! pages (KOTOR 2 makes it the leader; here only the pages follow, as the
 //! sim moves one character a player); the level-up mark over each portrait
-//! whose member may take a level. The pages keep KOTOR 2's opaque frame.
+//! whose member may take a level. A pad's Y steps the pages to the next
+//! member, as a press on the next portrait does. The pages keep KOTOR 2's
+//! opaque frame.
 
 use crate::input::Key;
 use crate::intent::Intent;
@@ -177,6 +179,18 @@ pub fn key(key: Key, current: &str, out: &mut Vec<Intent>) -> bool {
         .position(|(_, _, screen)| *screen == tab_of(current))
         .unwrap_or(0);
     out.push(Intent::Swap(TABS[(at + step) % TABS.len()].2));
+    true
+}
+
+/// A pad's Y on a page that has no use of its own for it: the pages show
+/// the next party member, going round, as a press on the bar's next
+/// portrait does. True when it was taken.
+pub fn next_member(key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+    let count = vm.party.len();
+    if key != Key::Second || count < 2 {
+        return false;
+    }
+    out.push(Intent::View((vm.viewed.min(count - 1) + 1) % count));
     true
 }
 

@@ -8,7 +8,10 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   `ControlState` into a `DrawList` of quads; `raster` draws one on the CPU
   (probes, `kjk gui render`). `screen::Stack` holds open screens: focus by
   `MOVETO` then direction, the pointer, lists, edit boxes, the veil;
-  screens raise `Intent`s. `screens/` has every screen; `vm::ViewModel` is
+  screens raise `Intent`s. A layout drawn under a screen (the in-game
+  menu bar, `Screen::under`) has its controls renumbered past the
+  screen's, so that the screen's `MOVETO` links never lead to the bar's
+  tabs. `screens/` has every screen; `vm::ViewModel` is
   all they read. `assets::GuiAssets` resolves layouts, textures, fonts,
   2DAs and the talk table.
 - **`game::ui_view`** steps the stack each frame and draws its layers

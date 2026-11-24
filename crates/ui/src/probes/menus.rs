@@ -956,6 +956,61 @@ pub(super) fn in_game() -> Vec<Check> {
     })]
 }
 
+/// The pad on the in-game pages: the page's own links between its buttons
+/// lead to its buttons, even where the menu bar's layout gives one of its
+/// tabs the same number (KOTOR 2's Map tab and Load Game are both 14), and
+/// Y shows the next party member.
+pub(super) fn pad_on_pages() -> Vec<Check> {
+    let mut assets = Fake::new();
+    let mut bar = bar();
+    for control in &mut bar.controls {
+        // Every tab numbered as Gameplay is.
+        control.id = 2;
+    }
+    assets.layouts.insert("top", bar);
+    assets.layouts.insert("optionsingame", options_in_game());
+    let party = ViewModel {
+        party: vec![crate::vm::MemberView::default(); 3],
+        viewed: 2,
+        here: Some(crate::vm::SaveView::default()),
+        ..ViewModel::default()
+    };
+    let mut menu = opened("options_in_game", &mut assets, &party);
+    let mut walked = Vec::new();
+    for key in [Key::Up, Key::Down, Key::Down] {
+        menu.step(&mut assets, &party, &keys(&[key]));
+        walked.push(menu.focused().map(str::to_string));
+    }
+    let next = menu
+        .step(&mut assets, &party, &keys(&[Key::Second]))
+        .intents;
+    let alone = ViewModel::default();
+    let mut lone = opened("options_in_game", &mut assets, &alone);
+    let none = lone
+        .step(&mut assets, &alone, &keys(&[Key::Second]))
+        .intents;
+    let tags = |tags: [&str; 3]| tags.map(|tag| Some(tag.to_string())).to_vec();
+    vec![check("pad_on_pages", {
+        expect(
+            &format!("Up and Down follow the page's own links: {walked:?}"),
+            walked == tags(["BTN_SAVEGAME", "BTN_GAMEPLAY", "BTN_AUTOPAUSE"]),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("Y shows the next member, round to the first: {next:?}"),
+                next.contains(&Intent::View(0)),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Y does nothing alone: {none:?}"),
+                !none.iter().any(|intent| matches!(intent, Intent::View(_))),
+            )
+        })
+        .map(|()| "the page's links past the bar's numbers, Y for the next member".into())
+    })]
+}
+
 /// `confirm` as the game places it: a popup, with Cancel beside OK.
 fn confirm_box() -> Gui {
     let mut list = button("LB_MESSAGE", [6, 6, 278, 40], b"");
