@@ -31,6 +31,8 @@ pub enum Target {
     Lamp(usize),
     /// The area's sun (`KjkArea::sun`, else the game's: `Editor::game_sun`).
     Sun,
+    /// A Jedi Academy ambient effect (`KjkArea::effects`).
+    Effect(usize),
 }
 
 /// One change to the project.
@@ -92,6 +94,11 @@ pub enum Edit {
     /// A lamp placed by hand changed (its model, mesh, kind or reason;
     /// `Move` and `Turn` place and turn it).
     SetLamp(usize, crate::lamps::PlacedLamp),
+    /// A Jedi Academy ambient effect added (`effects`).
+    AddEffect(crate::effects::AmbientEffect),
+    /// An ambient effect changed (its file, pitch or pace; `Move` and
+    /// `Turn` place and turn it).
+    SetEffect(usize, crate::effects::AmbientEffect),
     /// A door or trigger of another module's area (`Project::others`) led
     /// elsewhere: the area of `module`, its GIT as the install has it
     /// (`base`, read when the project does not hold that area yet), the
@@ -330,6 +337,12 @@ impl Editor {
                 .lamps
                 .get(at)
                 .map(|lamp| (lamp.at, lamp.yaw)),
+            Target::Effect(at) => self
+                .project
+                .kjk
+                .effects
+                .get(at)
+                .map(|effect| (effect.at, effect.yaw)),
         }
     }
 
@@ -512,7 +525,8 @@ impl Editor {
             | Target::Room(at)
             | Target::Light(at)
             | Target::Fitted(at)
-            | Target::Lamp(at) => *at,
+            | Target::Lamp(at)
+            | Target::Effect(at) => *at,
             Target::Entry | Target::Sun => 0,
         };
         let mut all: Vec<Target> = (self.selection().into_iter())
@@ -809,6 +823,7 @@ impl Editor {
                     Target::Entry => map.as_mut().map(|map| map.entry = to).is_some(),
                     Target::Light(at) => kjk.lights.get_mut(at).map(|l| l.at = to).is_some(),
                     Target::Lamp(at) => kjk.lamps.get_mut(at).map(|l| l.at = to).is_some(),
+                    Target::Effect(at) => kjk.effects.get_mut(at).map(|e| e.at = to).is_some(),
                     Target::Fitted(_) | Target::Sun => false,
                 };
                 moved.then_some(Some(target)).ok_or_else(|| missing(target))
@@ -846,6 +861,9 @@ impl Editor {
                     Target::Prop(at) => kjk.props.get_mut(at).map(|p| p.yaw = degrees).is_some(),
                     Target::Box(at) => kjk.boxes.get_mut(at).map(|b| b.yaw = degrees).is_some(),
                     Target::Lamp(at) => kjk.lamps.get_mut(at).map(|l| l.yaw = degrees).is_some(),
+                    Target::Effect(at) => {
+                        kjk.effects.get_mut(at).map(|e| e.yaw = degrees).is_some()
+                    }
                     // The room's copy is turned (`map::room_copy`).
                     Target::Room(at) => map
                         .as_mut()
@@ -914,6 +932,12 @@ impl Editor {
                         kjk.lamps.push(copy);
                         Ok(Some(Target::Lamp(kjk.lamps.len() - 1)))
                     }
+                    Target::Effect(at) => {
+                        let mut copy = kjk.effects.get(at).ok_or_else(|| missing(target))?.clone();
+                        copy.name = kjk.free_name("effect");
+                        kjk.effects.push(copy);
+                        Ok(Some(Target::Effect(kjk.effects.len() - 1)))
+                    }
                 }
             }
             Edit::Delete(target) => {
@@ -939,6 +963,9 @@ impl Editor {
                         .is_some(),
                     Target::Lamp(at) => (at < kjk.lamps.len())
                         .then(|| kjk.lamps.remove(at))
+                        .is_some(),
+                    Target::Effect(at) => (at < kjk.effects.len())
+                        .then(|| kjk.effects.remove(at))
                         .is_some(),
                     Target::Fitted(_) | Target::Sun => false,
                 };
@@ -1171,6 +1198,9 @@ impl Editor {
                         set_property(&mut self.project.git, &label, value);
                     }
                     AreaChange::Are(label, value) => {
+                        if let fmt_odyssey::gff::GffValue::Int(number) = value {
+                            crate::settings::check_weather(&label, number)?;
+                        }
                         let are = match self.project.map.as_mut() {
                             Some(map) => &mut map.are,
                             None => match self.project.are {
@@ -1182,6 +1212,19 @@ impl Editor {
                             },
                         };
                         set_are(are, &label, value)?;
+                    }
+                    AreaChange::DryRoom(room, dry) => {
+                        let are = match self.project.map.as_mut() {
+                            Some(map) => &mut map.are,
+                            None => match self.project.are {
+                                Some(ref mut own) => own,
+                                None => self
+                                    .project
+                                    .are
+                                    .insert(base.ok_or("the area's ARE was not read")?),
+                            },
+                        };
+                        crate::settings::set_dry_room(are, &room, dry)?;
                     }
                     AreaChange::ModuleScript(label, script) => {
                         let map = self.project.map.as_mut().ok_or(
@@ -1346,6 +1389,24 @@ impl Editor {
                     .ok_or_else(|| missing(Target::Lamp(at)))?;
                 *slot = lamp;
                 Ok(Some(Target::Lamp(at)))
+            }
+            Edit::AddEffect(mut effect) => {
+                if effect.name.trim().is_empty()
+                    || kjk.effects.iter().any(|other| other.name == effect.name)
+                {
+                    effect.name = kjk.free_name("effect");
+                }
+                crate::effects::problem(&effect)?;
+                kjk.effects.push(effect);
+                Ok(Some(Target::Effect(kjk.effects.len() - 1)))
+            }
+            Edit::SetEffect(at, effect) => {
+                crate::effects::problem(&effect)?;
+                let slot = (kjk.effects)
+                    .get_mut(at)
+                    .ok_or_else(|| missing(Target::Effect(at)))?;
+                *slot = effect;
+                Ok(Some(Target::Effect(at)))
             }
             Edit::SetLight(at, light) => {
                 light_problem(&light)?;

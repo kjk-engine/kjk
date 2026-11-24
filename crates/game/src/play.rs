@@ -369,6 +369,7 @@ pub fn compose(
     let mut own_fx = Vec::new();
     let mut grass = None;
     let mut weather = viewer::SceneWeather::default();
+    let mut ambient_effects = Vec::new();
     let mut sound = None;
     let mut probes = Default::default();
     let mut name = body.label.clone();
@@ -387,6 +388,7 @@ pub fn compose(
         own_fx = module.own_fx;
         grass = module.grass;
         weather = module.weather;
+        ambient_effects = module.ambient_effects;
         doors = module.doors;
         instance_models = module.instance_models;
         lamps = module.lamps;
@@ -459,6 +461,7 @@ pub fn compose(
         arms,
         grass,
         weather,
+        ambient_effects,
         sound,
         sun: None,
     };
@@ -1201,6 +1204,7 @@ fn load_ja(
         .copied()
         .chain(crate::severing::EFFECTS)
         .chain(crate::landing_fx::EFFECTS)
+        .chain(crate::ambient_fx::names())
         .collect();
     let shaders: Vec<&str> = crate::blade_fx::SHADERS
         .iter()

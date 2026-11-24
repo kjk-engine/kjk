@@ -225,6 +225,7 @@ pub fn run(options: RunOptions) -> AppExit {
             crate::session_flow::SessionFlowPlugin::default,
             crate::session_flow::SessionFlowPlugin::launching,
         );
+        app.add_plugins(crate::ambient_fx::AmbientFxPlugin);
         app.add_plugins((
             crate::sim_host::SimHostPlugin::dormant(),
             crate::play_view::PlayViewPlugin,

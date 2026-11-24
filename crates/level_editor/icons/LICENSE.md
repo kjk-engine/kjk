@@ -7,6 +7,9 @@ the project gives it. Each icon is the last frame of its animation, drawn in
 white. The level editor tints each one in the colour of the kind of thing it
 marks.
 
+`flame.svg`, which marks a Jedi Academy ambient effect, was drawn for kjk in
+the same style, and is under kjk's own licence.
+
 ---
 
 Copyright 2020 Vjacheslav Trushkin

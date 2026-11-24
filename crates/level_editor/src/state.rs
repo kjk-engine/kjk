@@ -58,6 +58,9 @@ pub struct EditSetup {
     pub placeables: Vec<String>,
     pub creatures: Vec<String>,
     pub models: Vec<String>,
+    /// Jedi Academy's effect files (`effects/**/*.efx`), for its ambient
+    /// effects (`level_edit::effects`).
+    pub effects: Vec<String>,
     /// The install's compiled scripts and item templates, for the scripts
     /// and items an object's template names.
     pub scripts: Vec<String>,
@@ -759,6 +762,9 @@ impl EditorState {
             | Target::Room(_)
             | Target::Lamp(_)
             | Target::Light(_) => unlit,
+            // Its effect is laid out where it stands when the scene is
+            // drawn (`ambient_fx::preview`): the area is drawn again.
+            Target::Effect(_) => false,
             // The sun lights everything: the area is drawn again.
             Target::Fitted(_) | Target::Sun => false,
         }
@@ -1134,6 +1140,7 @@ pub(crate) fn kind_colour(kind: Kind) -> (&'static str, [u8; 4]) {
 pub(crate) const PROP_MARKER: (&str, [u8; 4]) = ("kjk-editor-prop", [120, 200, 255, 255]);
 /// A lamp placed by hand: warm yellow.
 pub(crate) const LAMP_MARKER: (&str, [u8; 4]) = ("kjk-editor-lamp", [255, 210, 90, 255]);
+pub(crate) const EFFECT_MARKER: (&str, [u8; 4]) = ("kjk-editor-effect", [255, 140, 70, 255]);
 pub(crate) const ENTRY_MARKER: (&str, [u8; 4]) = ("kjk-editor-entry", [255, 230, 60, 255]);
 const BOX_FILL: (&str, [u8; 4]) = ("kjk-editor-box", [60, 230, 255, 110]);
 const TRIGGER_FILL: (&str, [u8; 4]) = ("kjk-editor-trigger-fill", [80, 220, 255, 70]);
@@ -1269,8 +1276,13 @@ fn draw(state: &mut EditorState) -> Result<LoadedScene, String> {
         .as_ref()
         .map(kjk_game::viewer_ja::Files::base);
     let props = state.editor.project.kjk.props.clone();
-    let (prop_models, notes) =
+    let (prop_models, mut notes) =
         project_props::add(&mut scene, files.as_ref(), &mut state.prop_models, &props);
+    // Jedi Academy's ambient effects, played round a loop (`ambient_fx`).
+    if let Some(files) = files.as_ref() {
+        let effects = state.editor.project.kjk.effects.clone();
+        kjk_game::ambient_fx::preview(files, &effects, &mut scene, &mut notes);
+    }
     drop(files);
     for note in notes {
         state.say(note);
@@ -3152,6 +3164,61 @@ fn command_words(
             let mesh = if mesh == "-" { "" } else { mesh };
             add_lamp(state, level_edit::PlacedLamp::new(model, mesh, at))?;
         }
+        ["add", "effect", effect, rest @ ..] => {
+            let at = match rest {
+                [] => place_point(state, cameras),
+                rest => point(rest)?,
+            };
+            add_effect(state, effect, at)?;
+        }
+        ["select", "effect", n] => {
+            let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
+            if at >= state.editor.project.kjk.effects.len() {
+                return Err(format!("there is no effect {at}"));
+            }
+            state.editor.select(Some(Target::Effect(at)), false);
+        }
+        ["effect", field, rest @ ..] => {
+            let Target::Effect(at) = selected(state)? else {
+                return Err("select an effect first".into());
+            };
+            let mut effect = state.editor.project.kjk.effects[at].clone();
+            let value = |words: &[&str]| -> Result<f32, String> {
+                match words {
+                    [word] => word
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|value| value.is_finite())
+                        .ok_or(format!("{word:?} is not a number")),
+                    _ => Err("give one number".into()),
+                }
+            };
+            match (*field, rest) {
+                ("pitch", words) => effect.pitch = value(words)?,
+                ("every", words) => effect.every = value(words)?,
+                ("file", [file]) => {
+                    effect.effect = level_edit::effects::effect_path(file);
+                    known_effect(state, &effect.effect)?;
+                }
+                _ => {
+                    return Err(
+                        "effect pitch DEGREES, effect every SECONDS or effect file PATH".into(),
+                    );
+                }
+            }
+            state.apply(Edit::SetEffect(at, effect));
+        }
+        ["effects", "list", rest @ ..] => {
+            let filter = rest.join(" ").to_ascii_lowercase();
+            let found: Vec<String> = (state.setup.effects.iter())
+                .filter(|path| path.contains(filter.as_str()))
+                .cloned()
+                .collect();
+            state.say(format!("{} effects", found.len()));
+            for path in found {
+                state.say(path);
+            }
+        }
         ["select", "lamp", n] => {
             let at: usize = n.parse().map_err(|_| format!("{n:?} is not a number"))?;
             if at >= state.editor.project.kjk.lamps.len() {
@@ -4139,6 +4206,36 @@ pub(crate) fn light_shape(shape: &str, at: [f32; 3]) -> Option<level_edit::Place
 
 /// Adds `lamp`, refused when the install has no such model or the model
 /// has no such mesh.
+/// Whether Jedi Academy has the effect file `path`; it is refused when the
+/// game is not found or lacks it.
+fn known_effect(state: &EditorState, path: &str) -> Result<(), String> {
+    if state.setup.ja.is_none() {
+        return Err("Jedi Academy is not installed: its effects cannot be placed".into());
+    }
+    if !state.setup.effects.iter().any(|known| known == path) {
+        return Err(format!(
+            "Jedi Academy has no effect {path}: effects list names them"
+        ));
+    }
+    Ok(())
+}
+
+/// Adds Jedi Academy's ambient effect `effect` (a path, `env/fire` or
+/// `effects/env/fire.efx`) at `at`, pointing up.
+pub(crate) fn add_effect(
+    state: &mut EditorState,
+    effect: &str,
+    at: [f32; 3],
+) -> Result<(), String> {
+    let path = level_edit::effects::effect_path(effect);
+    known_effect(state, &path)?;
+    let name = state.editor.project.kjk.free_name("effect");
+    state.apply(Edit::AddEffect(level_edit::effects::AmbientEffect::new(
+        &name, &path, at,
+    )));
+    Ok(())
+}
+
 pub(crate) fn add_lamp(
     state: &mut EditorState,
     lamp: level_edit::PlacedLamp,
@@ -4942,6 +5039,34 @@ fn area_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
         ["module", "script", label, name] => {
             AreaChange::ModuleScript((*label).to_string(), script(name))
         }
+        ["weather", kind, chance] => {
+            let label = (level_edit::settings::WEATHER_CHANCES.iter())
+                .find(|(_, name)| name == kind)
+                .map(|(label, _)| *label)
+                .ok_or("edit area weather takes rain, snow or lightning")?;
+            let chance = chance
+                .parse::<i32>()
+                .map_err(|_| format!("{chance:?} is not a chance from 0 to 100"))?;
+            AreaChange::Are(label.into(), GffValue::Int(chance))
+        }
+        ["wind", power] => {
+            let power = power
+                .parse::<i32>()
+                .map_err(|_| format!("{power:?} is not a wind from 0 to 2"))?;
+            AreaChange::Are(level_edit::settings::WIND.into(), GffValue::Int(power))
+        }
+        ["indoors", on @ ("on" | "off")] => {
+            let flags = area_are(state)
+                .and_then(|are| are.root.uint("Flags"))
+                .unwrap_or(0);
+            let flags = if *on == "on" {
+                flags | level_edit::settings::INDOORS
+            } else {
+                flags & !level_edit::settings::INDOORS
+            };
+            AreaChange::Are("Flags".into(), GffValue::Dword(flags))
+        }
+        ["dry", room, on @ ("on" | "off")] => AreaChange::DryRoom((*room).to_string(), *on == "on"),
         ["sky", "none"] => AreaChange::JaSky(None),
         ["sky", name] => {
             let name = name.to_ascii_lowercase();
@@ -4954,7 +5079,7 @@ fn area_command(state: &mut EditorState, words: &[&str]) -> Result<(), String> {
         }
         _ => {
             return Err(
-                "edit area takes music, ambience, volume, fog, ambient, script, module script or sky"
+                "edit area takes music, ambience, volume, fog, ambient, weather, wind, indoors, dry, script, module script or sky"
                     .into(),
             );
         }
@@ -6093,6 +6218,19 @@ pub(crate) fn describe(state: &EditorState, target: Target) -> serde_json::Value
                 "on": lamp.map(|l| if l.on_placeable { "placeable" } else { "room" }),
                 "reason": lamp.map(|l| l.reason.clone()),
                 "drawn": drawn,
+            })
+        }
+        Target::Effect(at) => {
+            let effect = state.editor.project.kjk.effects.get(at);
+            serde_json::json!({
+                "kind": "effect",
+                "index": at,
+                "name": effect.map(|e| e.name.clone()),
+                "effect": effect.map(|e| e.effect.clone()),
+                "pitch": effect.map(|e| e.pitch),
+                "every": effect.map(|e| e.every),
+                "position": position,
+                "facing": facing,
             })
         }
         Target::Fitted(at) => {

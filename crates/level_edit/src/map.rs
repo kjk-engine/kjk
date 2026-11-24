@@ -308,8 +308,13 @@ impl NewMap {
     /// The ARE's rooms' list made the map's: one entry per room, named as
     /// its copy, each a copy of the list's first entry where it has one (the
     /// base's first room, until the map is written; then its own first).
+    /// A room that keeps the weather out (`DisableWeather`) still does.
     pub fn rooms_into_are(&mut self, module: &str) {
         let first = self.are.root.list("Rooms").first().cloned();
+        let dry: Vec<String> = (crate::settings::dry_rooms(&self.are).into_iter())
+            .filter(|(_, dry)| *dry)
+            .map(|(name, _)| name.to_ascii_lowercase())
+            .collect();
         let rooms = (0..self.rooms.len())
             .map(|index| {
                 let mut entry = first.clone().unwrap_or(GffStruct {
@@ -326,6 +331,14 @@ impl NewMap {
                 );
                 if entry.get("ForceRating").is_some() {
                     set(&mut entry, "ForceRating", GffValue::Int(0));
+                }
+                let kept_dry = dry.contains(&room_name(module, index).to_ascii_lowercase());
+                if kept_dry || entry.get("DisableWeather").is_some() {
+                    set(
+                        &mut entry,
+                        "DisableWeather",
+                        GffValue::Byte(u8::from(kept_dry)),
+                    );
                 }
                 entry
             })

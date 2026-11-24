@@ -6862,6 +6862,89 @@ fn prepass_readers_declared() {
     println!("{} prepass readers, each declared", readers.len());
 }
 
+/// An area's weather and Jedi Academy's ambient effects in the level
+/// editor (`level_edit::settings`, `level_edit::effects`, proposed
+/// 2026-11-24, awaiting approval), on an ARE and a `kjk-area.toml` the
+/// test makes. A chance of weather is from 0 to 100 and the wind from 0 to
+/// 2; a room is marked dry by its name, in any case, and an unknown room
+/// is refused. An effect's path is kept as `effects/<folder>/<name>.efx`
+/// however it is given, and played by `<folder>/<name>`; it points
+/// straight up at a pitch of 90, its `[[effect]]` table reads back the
+/// same, and a pitch past 90 or a pace under 0.05 seconds is refused. A
+/// new map's rooms list keeps a room's dryness when it is made again. No
+/// installs.
+#[test]
+fn level_edit_weather_and_effects() {
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue};
+    use level_edit::effects::{AmbientEffect, effect_path, played_name, problem};
+    use level_edit::settings::{check_weather, dry_rooms, set_dry_room};
+
+    assert!(check_weather("ChanceSnow", 100).is_ok());
+    assert!(check_weather("ChanceSnow", 101).is_err());
+    assert!(check_weather("WindPower", 2).is_ok());
+    assert!(check_weather("WindPower", 3).is_err());
+
+    let field = |label: &str, value: GffValue| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let mut are = Gff {
+        file_type: *b"ARE ",
+        root: GffStruct {
+            id: u32::MAX,
+            fields: vec![field(
+                "Rooms",
+                GffValue::List(
+                    ["kjk_hoth_01", "kjk_hoth_02"]
+                        .into_iter()
+                        .map(|name| GffStruct {
+                            id: 0,
+                            fields: vec![field(
+                                "RoomName",
+                                GffValue::String(name.as_bytes().to_vec()),
+                            )],
+                        })
+                        .collect(),
+                ),
+            )],
+        },
+    };
+    set_dry_room(&mut are, "KJK_HOTH_02", true).unwrap();
+    assert!(set_dry_room(&mut are, "kjk_hoth_09", true).is_err());
+    assert_eq!(
+        dry_rooms(&are),
+        vec![
+            ("kjk_hoth_01".to_string(), false),
+            ("kjk_hoth_02".to_string(), true)
+        ]
+    );
+
+    assert_eq!(effect_path(r"env\Fire"), "effects/env/fire.efx");
+    assert_eq!(effect_path("effects/env/fire.efx"), "effects/env/fire.efx");
+    assert_eq!(played_name("effects/env/fire.efx"), "env/fire");
+    let effect = AmbientEffect::new("effect-1", "env/fire", [1.5, -2.0, 0.25]);
+    let up = effect.forward();
+    assert!(up[0].abs() < 1e-6 && up[1].abs() < 1e-6 && (up[2] - 1.0).abs() < 1e-6);
+    let mut area = level_edit::KjkArea::default();
+    area.effects.push(effect.clone());
+    assert_eq!(level_edit::KjkArea::parse(&area.write()).unwrap(), area);
+    assert!(
+        problem(&AmbientEffect {
+            pitch: 95.0,
+            ..effect.clone()
+        })
+        .is_err()
+    );
+    assert!(
+        problem(&AmbientEffect {
+            every: 0.01,
+            ..effect.clone()
+        })
+        .is_err()
+    );
+    println!("weather set and rooms kept dry; an effect written and read back the same");
+}
+
 /// Kinds of light fitting and the bake's room levels changed in the level
 /// editor (`level_edit::kinds`, `level_edit::levels`, proposed 2026-11-20,
 /// awaiting approval), on rule files the test makes. A kind's `[[kind]]`

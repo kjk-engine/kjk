@@ -45,6 +45,9 @@ pub struct KjkArea {
     /// The lamps placed by hand (`lamps`), as `[[lamp]]` tables, kept as
     /// the lights are.
     pub lamps: Vec<crate::lamps::PlacedLamp>,
+    /// Jedi Academy's ambient effects placed in the area, as `[[effect]]`
+    /// tables (`effects`).
+    pub effects: Vec<crate::effects::AmbientEffect>,
     /// Whether an installed level's `lights` and `lamps` are the project's
     /// own: its whole list of both, used in place of the ones kjk's light
     /// data holds for the level. False while the project has not changed
@@ -421,6 +424,10 @@ impl KjkArea {
             area.lamps
                 .push(crate::lamps::PlacedLamp::read(table).map_err(bad)?);
         }
+        for table in tables("effect") {
+            area.effects
+                .push(crate::effects::AmbientEffect::read(table).map_err(bad)?);
+        }
         if let Some(table) = document.get("sun").and_then(toml_edit::Item::as_table) {
             area.sun = Some(SunLight {
                 at: triple(table.get("at"), "the sun's at")?,
@@ -490,6 +497,9 @@ impl KjkArea {
         for lamp in &self.lamps {
             out.push_str(&format!("\n[[lamp]]\n{}", lamp.table(&[])));
         }
+        for effect in &self.effects {
+            out.push_str(&format!("\n[[effect]]\n{}", effect.table()));
+        }
         if let Some(sun) = &self.sun {
             out.push_str(&format!(
                 "\n[sun]\nat = {}\ncolour = {}\nmultiplier = {:?}\nradius = {:?}\n",
@@ -521,6 +531,7 @@ impl KjkArea {
             .find(|name| {
                 !self.props.iter().any(|prop| &prop.name == name)
                     && !self.boxes.iter().any(|shape| &shape.name == name)
+                    && !self.effects.iter().any(|effect| &effect.name == name)
             })
             .expect("some number is free")
     }

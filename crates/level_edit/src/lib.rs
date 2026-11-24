@@ -21,6 +21,7 @@ pub mod blocks;
 pub mod clip;
 pub mod dialog;
 pub mod editor;
+pub mod effects;
 pub mod fields;
 pub mod git;
 pub mod item_props;

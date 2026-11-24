@@ -98,6 +98,10 @@ impl Clip {
                 Target::Prop(at) => clip.kjk.props.extend(project.kjk.props.get(at).cloned()),
                 Target::Box(at) => clip.kjk.boxes.extend(project.kjk.boxes.get(at).cloned()),
                 Target::Lamp(at) => clip.kjk.lamps.extend(project.kjk.lamps.get(at).cloned()),
+                Target::Effect(at) => clip
+                    .kjk
+                    .effects
+                    .extend(project.kjk.effects.get(at).cloned()),
                 Target::Light(at) => clip.kjk.lights.extend(project.kjk.lights.get(at).cloned()),
                 Target::Room(_) | Target::Entry | Target::Fitted(_) | Target::Sun => {}
             }
@@ -351,6 +355,20 @@ pub fn paste(
         }
         project.kjk.boxes.push(shape);
         added.push(Target::Box(project.kjk.boxes.len() - 1));
+    }
+    for effect in &clip.kjk.effects {
+        let mut effect = effect.clone();
+        effect.at = moved(effect.at);
+        if project
+            .kjk
+            .effects
+            .iter()
+            .any(|had| had.name == effect.name)
+        {
+            effect.name = project.kjk.free_name("effect");
+        }
+        project.kjk.effects.push(effect);
+        added.push(Target::Effect(project.kjk.effects.len() - 1));
     }
     for lamp in &clip.kjk.lamps {
         let mut lamp = lamp.clone();

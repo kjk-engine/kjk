@@ -499,6 +499,8 @@ impl Installer {
         scene.sound = sound;
         // A level editor project's Jedi Academy props (`--project`).
         crate::project_props::add_active(&mut scene, self.game, module);
+        // And its Jedi Academy ambient effects (`ambient_fx`).
+        scene.ambient_effects = level_edit::active::effects(self.game.key(), module).to_vec();
         Ok((scene, started.elapsed().as_secs_f64() * 1000.0))
     }
 

@@ -48,6 +48,7 @@ pub enum Tool {
 enum Tab {
     Lights,
     Lamps,
+    Effects,
     Rooms,
     Placeables,
     Creatures,
@@ -101,6 +102,8 @@ enum Asset {
     Object(Kind, String),
     /// A light placed by hand of a ready shape (`state::light_shape`).
     Light(&'static str),
+    /// A Jedi Academy ambient effect, by its file's path.
+    Effect(String),
 }
 
 /// The outliner's rows of the area's objects: each kind with the place and
@@ -712,6 +715,7 @@ fn gizmo_transform(state: &EditorState, target: Target) -> Option<GizmoTransform
     }
     let scale = match target {
         Target::Prop(at) => Vec3::splat(state.editor.project.kjk.props.get(at)?.scale),
+        Target::Effect(_) => Vec3::ONE,
         Target::Box(at) => Vec3::from_array(state.editor.project.kjk.boxes.get(at)?.size),
         Target::Object(..)
         | Target::Room(_)
@@ -821,6 +825,7 @@ fn gizmo_edits(
                 | Target::Sun
                 | Target::Light(_)
                 | Target::Lamp(_)
+                | Target::Effect(_)
                 | Target::Fitted(_) => Vec::new(),
             }
         }
@@ -851,6 +856,7 @@ fn modes(tool: Tool, target: Target) -> Option<EnumSet<GizmoMode>> {
         }
         (Tool::Rotate, _) => Some(EnumSet::only(GizmoMode::RotateZ)),
         (Tool::Scale, Target::Prop(_)) => Some(EnumSet::only(GizmoMode::ScaleUniform)),
+        (Tool::Scale, Target::Effect(_)) => None,
         (Tool::Scale, Target::Box(_)) => {
             Some(GizmoMode::ScaleX | GizmoMode::ScaleY | GizmoMode::ScaleZ)
         }
@@ -933,6 +939,11 @@ fn place(state: &mut EditorState, asset: &Asset, at: [f32; 3], snapping: bool) {
         Asset::Light(shape) => {
             if let Some(light) = state::light_shape(shape, at) {
                 state.apply(Edit::AddLight(light));
+            }
+        }
+        Asset::Effect(path) => {
+            if let Err(why) = state::add_effect(state, path, at) {
+                state.say(why);
             }
         }
         Asset::Template(AssetKind::Lamp, key) => {
@@ -1313,6 +1324,7 @@ fn select_everything(state: &mut EditorState) {
     all.extend((0..kjk.props.len()).map(Target::Prop));
     all.extend((0..kjk.boxes.len()).map(Target::Box));
     all.extend((0..kjk.lamps.len()).map(Target::Lamp));
+    all.extend((0..kjk.effects.len()).map(Target::Effect));
     let rooms = (state.editor.project.map.as_ref()).map_or(0, |map| map.rooms.len());
     all.extend((0..rooms).map(Target::Room));
     state.say(format!("{} selected", all.len()));
@@ -1598,6 +1610,13 @@ fn outliner(
                         "Collision boxes",
                         kjk.boxes.iter().map(|b| b.name.clone()).collect(),
                     ),
+                    (
+                        "Jedi Academy effects",
+                        kjk.effects
+                            .iter()
+                            .map(|e| format!("{}  ({})", e.name, e.played_name()))
+                            .collect(),
+                    ),
                 ] {
                     let rows: Vec<(usize, String)> = names
                         .into_iter()
@@ -1611,10 +1630,10 @@ fn outliner(
                         .default_open(true)
                         .show(ui, |ui| {
                             for (at, text) in rows {
-                                let target = if label.starts_with("Jedi") {
-                                    Target::Prop(at)
-                                } else {
-                                    Target::Box(at)
+                                let target = match label {
+                                    "Jedi Academy props" => Target::Prop(at),
+                                    "Jedi Academy effects" => Target::Effect(at),
+                                    _ => Target::Box(at),
                                 };
                                 let row = ui.selectable_label(selection.contains(&target), text);
                                 if row.clicked() {
@@ -2018,6 +2037,17 @@ fn details(
                                         lamp_rows(ui, &lamp, &mut |changed| {
                                             edits.push(Edit::SetLamp(at, changed))
                                         });
+                                    }
+                                }
+                                Target::Effect(at) => {
+                                    if let Some(effect) =
+                                        state.editor.project.kjk.effects.get(at).cloned()
+                                    {
+                                        let response = effect_rows(ui, &effect, &mut |changed| {
+                                            edits.push(Edit::SetEffect(at, changed))
+                                        });
+                                        dragging |= response.0;
+                                        released |= response.1;
                                     }
                                 }
                                 Target::Object(..) | Target::Room(_) | Target::Entry | Target::Sun => {}
@@ -2970,8 +3000,81 @@ fn sound_rows(state: &EditorState, table: &str) -> Vec<(u32, String)> {
         .collect()
 }
 
+/// The area's weather (`level_edit::settings`): its chances of rain, snow
+/// and lightning, its wind, whether it is indoors, and the rooms that keep
+/// the weather out.
+fn weather_settings(
+    ui: &mut egui::Ui,
+    are: &fmt_odyssey::gff::Gff,
+    asked: &mut Vec<level_edit::settings::AreaChange>,
+) {
+    use fmt_odyssey::gff::GffValue;
+    use level_edit::settings::{AreaChange, INDOORS, WEATHER_CHANCES, WIND, WIND_MOST};
+    let flags = are.root.uint("Flags").unwrap_or(0);
+    let number = |label: &str| are.root.int(label).unwrap_or(0) as i32;
+    egui::Grid::new("area weather").num_columns(2).show(ui, |ui| {
+        ui.label("Indoors");
+        let mut indoors = flags & INDOORS != 0;
+        if ui
+            .checkbox(&mut indoors, "no weather")
+            .on_hover_text("An area marked as indoors has no rain, snow or lightning.")
+            .changed()
+        {
+            let flags = if indoors {
+                flags | INDOORS
+            } else {
+                flags & !INDOORS
+            };
+            asked.push(AreaChange::Are("Flags".into(), GffValue::Dword(flags)));
+        }
+        ui.end_row();
+        if !indoors {
+            for (label, name) in WEATHER_CHANCES {
+                let mut chance = number(label).clamp(0, 100);
+                ui.label(format!("Chance of {name}"));
+                if ui
+                    .add(egui::Slider::new(&mut chance, 0..=100).suffix(" %"))
+                    .on_hover_text(
+                        "How often it falls: every 5 minutes of play the area rolls again. Rain wins over snow.",
+                    )
+                    .changed()
+                {
+                    asked.push(AreaChange::Are(label.into(), GffValue::Int(chance)));
+                }
+                ui.end_row();
+            }
+            let mut wind = number(WIND).clamp(0, WIND_MOST);
+            ui.label("Wind");
+            if ui
+                .add(egui::Slider::new(&mut wind, 0..=WIND_MOST))
+                .on_hover_text("0 is still. The wind blows the rain, the snow and the grass.")
+                .changed()
+            {
+                asked.push(AreaChange::Are(WIND.into(), GffValue::Int(wind)));
+            }
+            ui.end_row();
+        }
+    });
+    let rooms = level_edit::settings::dry_rooms(are);
+    if flags & INDOORS == 0 && !rooms.is_empty() {
+        egui::CollapsingHeader::new(format!(
+            "Rooms that keep the weather out ({})",
+            rooms.iter().filter(|(_, dry)| *dry).count()
+        ))
+        .id_salt("dry rooms")
+        .show(ui, |ui| {
+            for (name, dry) in rooms {
+                let mut kept = dry;
+                if ui.checkbox(&mut kept, &name).changed() {
+                    asked.push(AreaChange::DryRoom(name, kept));
+                }
+            }
+        });
+    }
+}
+
 /// This level's own settings: music and ambient sound, fog and ambient
-/// light, its scripts, and a new map's module scripts.
+/// light, its weather, its scripts, and a new map's module scripts.
 fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState) {
     use fmt_odyssey::gff::GffValue;
     use level_edit::settings::{AREA_SCRIPTS, AreaChange, MODULE_SCRIPTS, colour_of, colour_value};
@@ -3074,6 +3177,7 @@ fn area_settings(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiSt
                 ui.end_row();
             }
         });
+        weather_settings(ui, &are, &mut asked);
         ui.label(egui::RichText::new("The level's scripts").small());
         egui::Grid::new("area scripts")
             .num_columns(2)
@@ -5437,6 +5541,7 @@ fn assets(
                     (Tab::Encounters, "Encounters"),
                     (Tab::Lights, "Lights"),
                     (Tab::Lamps, "Lamps"),
+                    (Tab::Effects, "Jedi Academy effects"),
                 ]) {
                     if ui.selectable_value(&mut ui_state.tab, tab, label).changed() {
                         ui_state.thumbnails.forget_wanted();
@@ -5580,6 +5685,15 @@ fn assets(
                         Tab::Lamps => (state.lamp_library.found.iter())
                             .map(|lamp| {
                                 (Asset::Template(AssetKind::Lamp, lamp.key()), lamp.label())
+                            })
+                            .collect(),
+                        Tab::Effects => state
+                            .setup
+                            .effects
+                            .iter()
+                            .map(|path| {
+                                let shown = level_edit::effects::played_name(path);
+                                (Asset::Effect(path.clone()), shown)
                             })
                             .collect(),
                         Tab::Lights => LIGHT_SHAPES
@@ -5770,6 +5884,20 @@ fn tile(
                         .get_or_insert_with(|| crate::markers::Icons::new(ctx));
                     let shown = egui::Rect::from_center_size(rect.center(), rect.size() * 0.5);
                     icons.paint(ui.painter(), icon, shown, egui::Color32::from_rgb(r, g, b));
+                }
+                Asset::Effect(_) => {
+                    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                    let icons = ui_state
+                        .icons
+                        .get_or_insert_with(|| crate::markers::Icons::new(ctx));
+                    let shown = egui::Rect::from_center_size(rect.center(), rect.size() * 0.5);
+                    let [r, g, b, _] = state::EFFECT_MARKER.1;
+                    icons.paint(
+                        ui.painter(),
+                        crate::markers::Icon::Flame,
+                        shown,
+                        egui::Color32::from_rgb(r, g, b),
+                    );
                 }
                 Asset::Light(_) => {
                     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -6714,6 +6842,54 @@ fn light_rows(
 
 /// The details of a lamp placed by hand: its model and mesh, which kind of
 /// fitting its texture is read as, and the reason it is there.
+/// The details of a Jedi Academy ambient effect: its file, the way it
+/// points over the level, and how often it plays. Gives whether a value is
+/// being dragged, and whether a drag ended.
+fn effect_rows(
+    ui: &mut egui::Ui,
+    effect: &level_edit::effects::AmbientEffect,
+    changed: &mut dyn FnMut(level_edit::effects::AmbientEffect),
+) -> (bool, bool) {
+    use level_edit::effects::{EVERY_LEAST, EVERY_MOST};
+    let mut effect = effect.clone();
+    let (mut dragging, mut released) = (false, false);
+    ui.label("Effect");
+    ui.label(effect.played_name())
+        .on_hover_text("The effect file, from the player's own Jedi Academy");
+    ui.end_row();
+    let mut touched = false;
+    ui.label("Pitch").on_hover_text(
+        "Degrees the effect points over the level: 90 points straight up, 0 along its facing, -90 straight down",
+    );
+    let response = ui.add(
+        egui::DragValue::new(&mut effect.pitch)
+            .range(-90.0..=90.0)
+            .speed(1.0)
+            .suffix("°"),
+    );
+    touched |= response.changed();
+    dragging |= response.dragged();
+    released |= response.drag_stopped() || response.lost_focus();
+    ui.end_row();
+    ui.label("Plays every").on_hover_text(
+        "Seconds between two plays. Jedi Academy plays its ambient effects every 0.2 seconds unless its map says otherwise",
+    );
+    let response = ui.add(
+        egui::DragValue::new(&mut effect.every)
+            .range(EVERY_LEAST..=EVERY_MOST)
+            .speed(0.01)
+            .suffix(" s"),
+    );
+    touched |= response.changed();
+    dragging |= response.dragged();
+    released |= response.drag_stopped() || response.lost_focus();
+    ui.end_row();
+    if touched {
+        changed(effect);
+    }
+    (dragging, released)
+}
+
 fn lamp_rows(
     ui: &mut egui::Ui,
     lamp: &level_edit::PlacedLamp,

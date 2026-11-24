@@ -138,6 +138,7 @@ fn select_command(state: &EditorState, target: Target) -> Option<String> {
         Target::Light(n) => format!("edit select light {n}"),
         Target::Fitted(n) => format!("edit select fitted {n}"),
         Target::Lamp(n) => format!("edit select lamp {n}"),
+        Target::Effect(n) => format!("edit select effect {n}"),
     })
 }
 

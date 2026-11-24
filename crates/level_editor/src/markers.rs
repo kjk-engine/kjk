@@ -39,11 +39,12 @@ pub enum Icon {
     Quest,
     Alert,
     Light,
+    Flame,
     Dot,
 }
 
 /// Each icon's picture, as `icons/` holds it.
-const SOURCES: [(Icon, &str); 8] = [
+const SOURCES: [(Icon, &str); 9] = [
     (Icon::Square, include_str!("../icons/square-filled.svg")),
     (Icon::Sound, include_str!("../icons/volume-high.svg")),
     (
@@ -55,6 +56,7 @@ const SOURCES: [(Icon, &str); 8] = [
     (Icon::Quest, include_str!("../icons/account-alert.svg")),
     (Icon::Alert, include_str!("../icons/alert-circle.svg")),
     (Icon::Light, include_str!("../icons/sunny.svg")),
+    (Icon::Flame, include_str!("../icons/flame.svg")),
 ];
 
 /// The side the icons are drawn at once, pixels: large enough for the
@@ -267,6 +269,14 @@ pub fn layout(state: &EditorState, camera: &Camera, eye: &GlobalTransform) -> Ve
             Target::Lamp(at),
             Icon::Light,
             colour(state::LAMP_MARKER.1),
+            1.0,
+        ));
+    }
+    for at in 0..kjk.effects.len() {
+        wanted.push((
+            Target::Effect(at),
+            Icon::Flame,
+            colour(state::EFFECT_MARKER.1),
             1.0,
         ));
     }

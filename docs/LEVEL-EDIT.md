@@ -1349,6 +1349,7 @@ With nothing selected, **This level** sets the area's own settings:
   volumes: the object list's `AreaProperties`;
 - its fog (on, where it starts and where it is thick, its colour) and its
   ambient light: the area's `.are`;
+- its weather (below, "Weather"): the area's `.are` too;
 - its scripts (`OnEnter`, `OnExit`, `OnHeartbeat`, `OnUserDefined`): the
   `.are` too;
 - for a new map, the module's scripts (`Mod_OnModLoad`,
@@ -1360,6 +1361,63 @@ With nothing selected, **This level** sets the area's own settings:
 An installed area's `.are` is copied into the project at the first change
 (`Project::are`); a new map's is its own. `level_edit::settings` does the
 work.
+
+### Weather
+
+kjk plays TSL's weather: rain, snow and lightning. **This level** sets it
+for the area:
+
+- **Indoors.** An area marked as indoors has no weather at all. The mark
+  is the first bit of the area's `Flags`.
+- **Chance of rain**, **chance of snow** and **chance of lightning**, each
+  from 0 to 100%. Every 5 minutes of play the area rolls again for its
+  weather. Rain wins over snow when an area has a chance of both.
+  Lightning flashes light everything near the player for a moment, and
+  thunder follows.
+- **Wind**, from 0 (still) to 2. The wind blows the rain, the snow and the
+  area's grass along one way.
+- **Rooms that keep the weather out.** A room ticked here stays dry, and
+  the rain or snow stops while the player stands in it. A new map keeps
+  each room's tick when its rooms change.
+
+KOTOR 1 has no weather of its own: its files hold no rain, snow or
+lightning models, and no thunder. A KOTOR 1 level with a chance of weather
+takes these from the player's own KOTOR 2, which kjk always needs. Nothing
+of KOTOR 2's is copied into the project or into an exported mod.
+
+The weather shows in the editor's view as it does in play. A snowstorm
+heavier than TSL's snow is not made yet: TSL's snow falls at one pace.
+
+## Jedi Academy ambient effects
+
+**Jedi Academy effects**, a tab of the assets panel, lists every effect
+file of the player's own Jedi Academy (`effects/**/*.efx`): fire, smoke,
+steam, sparks, dust and the like. One is placed as anything else is, by
+dragging it into the view or by a double-click. Its marker is a flame, and
+the outliner lists the level's effects under **Jedi Academy effects**.
+
+A placed effect plays again and again where it stands, as Jedi Academy's
+`fx_runner` entity plays one. Its details set:
+
+- **Pitch**, the way it points over the level: 90 degrees points straight
+  up, 0 along its facing, and -90 straight down. Jedi Academy's ambient
+  effects are made to point up, so a new one starts at 90. The Rotate tool
+  turns its facing.
+- **Plays every**, the seconds between two plays, from 0.05 to 60. A new
+  one plays every 0.2 seconds, as Jedi Academy's `fx_runner` does when its
+  map sets no other pace.
+
+The editor's view plays the effects round a loop of 4 seconds, without
+their sounds. In play each effect is drawn and heard as Jedi Academy's own
+effects are, and an effect farther than 60 metres from the camera waits
+until the camera comes near. The project keeps each one in
+`kjk-area.toml` as an `[[effect]]` table: its `name`, its `effect` file,
+`at` (metres), `yaw`, `pitch` and `every`. The project names the effect
+file and never holds a copy of it, so a player without Jedi Academy sees
+none.
+
+An effect placed with its middle under the floor shows little: the floor
+hides it. **Drop to floor** sets it on the floor.
 
 ## Play from the camera
 
@@ -1771,6 +1829,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit outline X1 Y1 X2 Y2 X3 Y3 ...` | sets the selected trigger's or encounter's outline: three corners or more, in metres, at its height |
 | `edit area music day\|night\|battle ROW`, `edit area ambience day\|night ROW`, `edit area volume day\|night N` | the area's music and ambient sound (2DA rows) and the sound's volume (0 to 127) |
 | `edit area fog on\|off`, `edit area fog NEAR FAR`, `edit area fog colour R G B`, `edit area ambient R G B` | the area's fog and ambient light (colours from 0 to 1) |
+| `edit area weather rain\|snow\|lightning N`, `edit area wind N`, `edit area indoors on\|off`, `edit area dry ROOM on\|off` | the area's weather: a chance from 0 to 100, a wind from 0 to 2, whether it is indoors, and whether a room keeps the weather out |
 | `edit area script LABEL SCRIPT`, `edit area module script LABEL SCRIPT` | an area script (`OnEnter`), or a new map's module script (`Mod_OnModLoad`); `-` for none |
 | `edit tag TAG` | sets the selected object's tag |
 | `edit prop MODEL [X Y Z [SCALE]]` | places a Jedi Academy model (`models/map_objects/...md3`), solid |
@@ -1822,6 +1881,10 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit light copy` | copies the selected fitted light as a light placed by hand |
 | `edit add lamp MODEL [MESH] [X Y Z]` | places a lamp: the whole model, or (with `MESH`, a node's name) that one mesh of it. `-` in place of `MESH` names the whole model |
 | `edit select lamp N` | selects the Nth lamp, from 0 |
+| `edit add effect PATH [X Y Z]` | places a Jedi Academy ambient effect (`env/fire` or `effects/env/fire.efx`) at the place, or where the view looks |
+| `edit select effect N` | selects the Nth ambient effect, from 0 |
+| `edit effect pitch DEGREES`, `edit effect every SECONDS`, `edit effect file PATH` | changes the selected ambient effect |
+| `edit effects list [TEXT]` | lists Jedi Academy's effect files whose path holds the text |
 | `edit lamp kind room\|placeable`, `edit lamp pitch DEGREES`, `edit lamp roll DEGREES`, `edit lamp reason TEXT` | changes the selected lamp |
 | `edit lamps list` | looks through the install at once and lists every lamp the Lamps tab offers |
 | `edit ui tab lamps` | shows the Lamps tab |

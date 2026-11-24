@@ -312,6 +312,9 @@ pub struct LoadedScene {
     pub grass: Option<SceneGrass>,
     /// What the area's weather goes by (none outside a module).
     pub weather: SceneWeather,
+    /// The Jedi Academy ambient effects a level editor project places in
+    /// the area, which play plays again and again (`ambient_fx`).
+    pub ambient_effects: Vec<level_edit::effects::AmbientEffect>,
     /// A module's sound, read with it for the world's first frame
     /// (`ambience`); `None` where nothing plays it.
     pub sound: Option<crate::ambience::Preread>,
@@ -347,6 +350,38 @@ pub struct WeatherModel {
     pub fall: Fall,
     pub model: crate::fx_model::Model,
     pub textures: BTreeMap<String, TextureIr>,
+}
+
+/// KOTOR 2's install, which lends KOTOR 1 its weather: KOTOR 1 has no
+/// rain, snow or lightning models, nor thunder. kjk requires both games,
+/// and the models are read from the player's own KOTOR 2. A KOTOR 1 area
+/// a project gives a chance of rain, snow or lightning then has it.
+fn lent_weather() -> Option<Arc<crate::installs::Install>> {
+    crate::installs::open(&crate::discover(), Game::Kotor2)
+        .inspect_err(|why| warn!("KOTOR 2's weather is not lent to KOTOR 1: {why}"))
+        .ok()
+}
+
+/// What an area's lightning plays (`weather::lightning`): from the area's
+/// own game where it has the lightning's model, else from KOTOR 2's
+/// (`lent_weather`), with KOTOR 2's thunder.
+fn weather_lightning(
+    resolver: &Resolver,
+    game: Game,
+    weather: &AreaWeather,
+) -> Option<crate::weather::Lightning> {
+    if weather.lightning == 0 {
+        return None;
+    }
+    let own = parsed(resolver, crate::weather::LIGHTNING_MODEL)
+        .ok()
+        .flatten()
+        .is_some();
+    if game == Game::Kotor2 || own {
+        return crate::weather::lightning(resolver, game, weather);
+    }
+    let tsl = lent_weather()?;
+    crate::weather::lightning(tsl.base().ok()?, Game::Kotor2, weather)
 }
 
 /// The weather model of an area with `weather`: `fx_rain` while it has a
@@ -1773,9 +1808,14 @@ pub fn module_scene(
             area: area.weather,
             resref: area.resref.clone(),
             dry_rooms: area.rooms.iter().map(|room| room.disable_weather).collect(),
-            model: weather_model(resolver, &area.weather).map(Arc::new),
-            lightning: crate::weather::lightning(resolver, game, &area.weather).map(Arc::new),
+            model: weather_model(resolver, &area.weather)
+                .or_else(|| {
+                    lent_weather().and_then(|tsl| weather_model(tsl.base().ok()?, &area.weather))
+                })
+                .map(Arc::new),
+            lightning: weather_lightning(resolver, game, &area.weather).map(Arc::new),
         },
+        ambient_effects: Vec::new(),
     })
 }
 

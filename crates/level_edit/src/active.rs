@@ -183,6 +183,31 @@ pub fn props(game: &str, module: &str) -> &'static [Prop] {
         .map_or(&[], |kjk| kjk.props.as_slice())
 }
 
+/// The Jedi Academy ambient effects the active project places in `game`'s
+/// `module`.
+pub fn effects(game: &str, module: &str) -> &'static [crate::effects::AmbientEffect] {
+    added(game, module)
+        .and(of_game(game))
+        .and_then(|active| active.project.kjk_of(module))
+        .map_or(&[], |kjk| kjk.effects.as_slice())
+}
+
+/// The name the game plays each effect by (`AmbientEffect::played_name`)
+/// that any level of the active projects of `game` places, each once.
+pub fn effect_names(game: &str) -> Vec<String> {
+    let mut names: Vec<String> = of_game(game)
+        .into_iter()
+        .flat_map(|active| {
+            std::iter::once(&active.project.kjk)
+                .chain(active.project.parked.values().map(|level| &level.kjk))
+        })
+        .flat_map(|kjk| kjk.effects.iter().map(|effect| effect.played_name()))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
 /// Jedi Academy's archives, as found on this machine; `None` without the
 /// game.
 pub fn ja_stack(discovery: &Discovery) -> Option<vfs::ja::JaStack> {
@@ -218,6 +243,20 @@ pub fn models_under(stack: &vfs::ja::JaStack, folder: &str) -> Vec<String> {
         .filter(|name| name.starts_with(folder.as_str()) && name.ends_with(".md3"))
         .map(str::to_string)
         .collect()
+}
+
+/// Every file of Jedi Academy's `base/` archives under `folder` whose name
+/// ends with `ending`, sorted.
+pub fn files_under(stack: &vfs::ja::JaStack, folder: &str, ending: &str) -> Vec<String> {
+    let folder = fmt_ja::game_path(folder);
+    let mut found: Vec<String> = stack
+        .base()
+        .into_keys()
+        .filter(|name| name.starts_with(folder.as_str()) && name.ends_with(ending))
+        .map(str::to_string)
+        .collect();
+    found.sort();
+    found
 }
 
 /// What `project`'s solid props and boxes add to the collision, with notes

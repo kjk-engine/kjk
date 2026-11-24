@@ -531,6 +531,9 @@ fn setup(
     let models = ja.as_ref().map_or_else(Vec::new, |stack| {
         level_edit::active::models_under(stack, "models/map_objects/")
     });
+    let effects = ja.as_ref().map_or_else(Vec::new, |stack| {
+        level_edit::active::files_under(stack, "effects/", ".efx")
+    });
     Ok(state::EditSetup {
         project,
         game,
@@ -539,6 +542,7 @@ fn setup(
         placeables,
         creatures,
         models,
+        effects,
         scripts,
         catalog,
         notes,
