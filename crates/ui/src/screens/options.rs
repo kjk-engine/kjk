@@ -514,6 +514,14 @@ const DAMAGE_PERCENTS: [&str; 24] = [
     "400", "450", "500", "550", "600", "650", "700", "750", "800",
 ];
 
+/// The key of Dismemberment (`game::severing`): how often a blade's killing
+/// blow cuts a part off, in percent, and its default (one in three).
+pub const DISMEMBERMENT: &str = "game.dismemberment";
+pub const DISMEMBERMENT_DEFAULT: &str = "33";
+
+/// The dismemberment chances offered, the default among them.
+const DISMEMBERMENT_PERCENTS: [&str; 7] = ["0", "10", "20", "33", "50", "75", "100"];
+
 /// The collision modes (`session::Collision::name`), the original game's
 /// first.
 pub(crate) const COLLISIONS: &[(&str, &str)] = &[
@@ -994,14 +1002,15 @@ pub const SHOW_REPLIES: &str = "game.show_replies";
 /// The combat page's rows: the saber rules a session played here plays by,
 /// the three duel options, the hilts KOTOR's single- and double-bladed
 /// lightsabers are drawn with, whether characters use Movie Duels'
-/// stances, and the damage the party and the enemies take. Each one is off
-/// or at its first value while its setting is unset, and the damage rows
-/// at 100%. All nine are kjk's own. KOTOR 2 has no such options. The rows
+/// stances, the damage the party and the enemies take, and how often a
+/// killing blade cuts a part off. Each one is off or at its first value
+/// while its setting is unset, the damage rows at 100% and the cuts at one
+/// in three. All ten are kjk's own. KOTOR 2 has no such options. The rows
 /// with choices of Movie Duels' own are greyed or offer fewer values
 /// without it installed (`JA_OWN`). The combat rules' row is greyed while a
 /// session runs (`FIXED_IN_SESSION`). Targeted blocks are switched off, so
 /// the page has no row for them (`Settings::targeted_blocks`).
-const SABERS: [Line; 9] = [
+const SABERS: [Line; 10] = [
     stepped(
         strings::SABER_RULES,
         strings::SABER_RULES_HELP,
@@ -1051,6 +1060,12 @@ const SABERS: [Line; 9] = [
         strings::DAMAGE_ENEMIES_HELP,
         DAMAGE_ENEMIES,
         Values::Percents(&DAMAGE_PERCENTS, DAMAGE_NORMAL),
+    ),
+    stepped_with_arrows(
+        strings::DISMEMBERMENT,
+        strings::DISMEMBERMENT_HELP,
+        DISMEMBERMENT,
+        Values::Percents(&DISMEMBERMENT_PERCENTS, DISMEMBERMENT_DEFAULT),
     ),
 ];
 

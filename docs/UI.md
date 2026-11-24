@@ -874,7 +874,7 @@ Running and checking:
     Maul's, an Inquisitor's and Cal Kestis's for the double-bladed hilt
     (`docs/COMBAT.md`).
   - Damage taken by party (`game.damage_party`) and Damage taken by
-    enemies (`game.damage_enemies`): the last two rows, stepped from 10% to
+    enemies (`game.damage_enemies`): the two rows before the last, stepped from 10% to
     100% in steps of 10%, then to 800% in steps of 50%. Both are 100% by
     default. Each row has KOTOR 2's minus and plus arrows at its ends, as
     the Advanced Graphics page's stepped options have. A click on the minus
@@ -886,6 +886,11 @@ Running and checking:
     its snapshot, so a module change, a save and a replay keep them too. In
     co-op, the host's values apply. A headless run has no settings and
     plays at 100%.
+  - Dismemberment (`game.dismemberment`): the last row, how often a
+    blade's killing blow cuts a part off, stepped through 0%, 10%, 20%,
+    33% (the default, one in three), 50%, 75% and 100%, with the same
+    arrows. It changes what this machine draws and applies at once
+    (`game::severing`); the sim and the host's setting do not know it.
 
   The hilts are read when a run loads. A hilt the install lacks leaves
   KOTOR's, and the run's notes say why. The page's Default button puts all

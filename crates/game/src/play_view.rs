@@ -1419,11 +1419,14 @@ type Pace<'w> = (
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw(
     presented: Res<PresentedSnapshot>,
-    (seat, mut own, mut contacts, bolt_hits): (
+    (seat, mut own, mut contacts, (bolt_hits, duel_options)): (
         Res<OwnSeat>,
         Option<ResMut<OwnView>>,
         Option<ResMut<Contacts>>,
-        Option<Res<crate::bolt_hits::BoltHits>>,
+        (
+            Option<Res<crate::bolt_hits::BoltHits>>,
+            Option<Res<crate::settings::DuelOptions>>,
+        ),
     ),
     (mut rearms, mut retired, mut fire, mut made, mut wardrobe, mut fading): Handovers,
     swap: Res<SceneSwap>,
@@ -1750,6 +1753,8 @@ fn draw(
     view.cast.eye = view.first.shown();
     // The bolts that struck bodies lately: the bodies flinch from them.
     view.cast.bolt_hits = bolt_hits.map_or_else(Vec::new, |hits| hits.0.clone());
+    // How often a blade's killing blow cuts a part off (the options).
+    view.cast.ragdolls.cut_percent = duel_options.map(|options| options.cut_percent);
     let posed = view.cast.draw(
         (&view.history, &view.level),
         ms,

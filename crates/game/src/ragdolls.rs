@@ -219,6 +219,10 @@ pub struct Ragdolls {
     /// Parts cut off since the scene last took them (`severing`): whose,
     /// and the cut.
     pub severed: Vec<(SimId, severing::Sever)>,
+    /// How often a blade's killing blow cuts, in percent (the Dismemberment
+    /// option); `None` until the view sets it, which cuts as often as
+    /// `severing::DEFAULT_PERCENT`.
+    pub cut_percent: Option<u8>,
 }
 
 /// The first part of the piece that `part` is on, when a cut took the
@@ -694,7 +698,12 @@ impl Ragdolls {
         let Some(edge) = severing::edge(hit, sheet.as_ref()) else {
             return;
         };
-        let Some(limb) = severing::limb(template, hit, d.id) else {
+        let Some(limb) = severing::limb(
+            template,
+            hit,
+            d.id,
+            self.cut_percent.unwrap_or(severing::DEFAULT_PERCENT),
+        ) else {
             return;
         };
         let pass = hit
