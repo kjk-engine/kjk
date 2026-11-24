@@ -4863,8 +4863,10 @@ fn call_trigger(data: &mut crate::module::ModuleData) {
 /// then begins with the host listening, as it would have begun had the
 /// host walked in. Refused, the scene never played, and Bendak, whom one
 /// of its lines makes, never came.
+type BusyHost = (&'static str, fn(&mut Run) -> Result<(), String>);
+
 fn trigger_call_waits_for_host() -> Result<Vec<Case>, String> {
-    let busy: [(&'static str, fn(&mut Run) -> Result<(), String>); 2] = [
+    let busy: [BusyHost; 2] = [
         ("trigger_call_waits_for_host_talk", |run| {
             run.click(0, CAPTIVE_FROM, 0.0)
         }),
