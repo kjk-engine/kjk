@@ -4331,7 +4331,7 @@ fn duel_rules() {
 /// 2026-11-26, awaiting approval).
 #[test]
 fn pull_attacks() {
-    probed("pull attack", &sim::trace::pull_attack_probes::probes(), 8);
+    probed("pull attack", &sim::trace::pull_attack_probes::probes(), 9);
 }
 /// TSL's Force rules (`kjk sim probes --only "tsl force"`): the Forms, a
 /// power's cost by alignment and the room's Force rating, Force point

@@ -5,6 +5,7 @@
 //! - The medium style swings at an enemy within the swing's reach, however
 //!   close, and pays for it.
 //! - Neither the swing nor the stab is made at an enemy beyond its reach.
+//! - Both swipes of the pull swing deal damage, not only the second.
 //! - Without a pull, the same press makes an ordinary swing.
 //! - After the pull's hand has come down, the window is still open.
 //! - Once the window has closed, the press makes an ordinary swing.
@@ -190,6 +191,7 @@ pub fn probes() -> Checks {
         ("no pull swing at a far enemy", swing_too_far()),
         ("no pull stab at a far enemy", stab_too_far()),
         ("no pull attack without a pull", no_pull_no_attack()),
+        ("both swipes of the pull swing hit", both_swipes_hit()),
         (
             "the window is open with the hand down",
             stab_with_hand_down(),
@@ -199,4 +201,25 @@ pub fn probes() -> Checks {
             window_closed_no_attack(),
         ),
     ]
+}
+/// The pull swing deals damage through its first swipe as well as its
+/// second: from the very start of the move, and not in its last
+/// `PULL_SWING` milliseconds. Played by the stand-in animation table, whose
+/// every animation is a second long.
+fn both_swipes_hit() -> Result<String, String> {
+    use crate::combat::saber::power;
+    use crate::motion::{Anim, AnimTable};
+    let anims = AnimTable::stand_in();
+    let anim = Anim::BOTH_PULL_IMPALE_SWING;
+    let length = anims.get(anim).length_ms();
+    let [last, first] = rules::sabers::windows::pull::PULL_SWING;
+    let at = |elapsed: i32| power::animation(&anims, anim, length - elapsed, false);
+    let (start, early, late) = (at(first), at(first + 100), at(length - last + 100));
+    check(
+        first == 0 && start > 0 && early > 0 && late == 0,
+        format!(
+            "power at the start {start}, in the first swipe {early}, in the last {last} ms {late}; \
+             the window starts after {first} ms"
+        ),
+    )
 }

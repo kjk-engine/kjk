@@ -550,7 +550,7 @@ see = "sim::motion::saber"
 [specials.pull_window_ms]
 name = "Pull Attack Window"
 type = "u64"
-value = 1000
+value = 650
 unit = "ms"
 range = [0, 5000]
 summary = "A character can make a pull stab or a pull swing during {saber_moves.specials.pull_window_ms:s} after using Force Pull."

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d4a466ba6e970ab2`.
+Edition `0cdfeebe68b5c207`.
 
 ## Contents
 
@@ -508,7 +508,7 @@ roll. The character rises out of the roll with a stab. This attack uses up
 #### <a id="controls-specials-pull"></a>Pull Stab and Pull Swing
 
 Use Force Pull, then press [Attack] within
-1 second of the pull. The blade must be lit and ready,
+0.65 seconds of the pull. The blade must be lit and ready,
 and the character must be on the ground. In the fast style, the character
 stabs the enemy in front, if the enemy stands within
 13 meters. In the medium and strong styles, the
@@ -3669,13 +3669,15 @@ The pull stab deals damage until its last 1 second.
 
 <sub>Source: JA. Code: `sim::combat::saber::power::animation`.</sub>
 
-<a id="sabers-windows-pull-pull-swing"></a>**Pull Swing** = **0.5 seconds / 0.65 seconds** (`500 / 650 ms`) · `sabers.windows.pull.pull_swing`
+<a id="sabers-windows-pull-pull-swing"></a>**Pull Swing** = **0.5 seconds / 0 seconds** (`500 / 0 ms`) · `sabers.windows.pull.pull_swing`
 
-not in the last **0.5 seconds** · nor the first **0.65 seconds**
+not in the last **0.5 seconds** · nor the first **0 seconds**
 
-The pull swing deals damage after its first 0.65 seconds and until its last 0.5 seconds.
+The pull swing deals damage from its start until its last 0.5 seconds. Both of its swipes can hit.
 
-<sub>Source: JA. Code: `sim::combat::saber::power::animation`.</sub>
+In Jedi Academy only the second swipe of the pull swing deals damage, after the first part of the move. kjk lets the first swipe hit too.
+
+<sub>Source: ours, after JA, whose window starts after the first swipe. Code: `sim::combat::saber::power::animation`.</sub>
 
 ### <a id="sabers-breaks"></a>Super-Break Timing
 
@@ -4411,9 +4413,9 @@ Jedi Academy's single-player game also required the enemy to stand at least some
 
 <sub>Source: ours, after the range of JA's disabled pull attack. Code: `sim::motion::saber`.</sub>
 
-<a id="saber-moves-specials-pull-window-ms"></a>**Pull Attack Window** = **1 second** (`1000 ms`) · `saber_moves.specials.pull_window_ms`
+<a id="saber-moves-specials-pull-window-ms"></a>**Pull Attack Window** = **0.65 seconds** (`650 ms`) · `saber_moves.specials.pull_window_ms`
 
-A character can make a pull stab or a pull swing during 1 second after using Force Pull.
+A character can make a pull stab or a pull swing during 0.65 seconds after using Force Pull.
 
 In Jedi Academy the window lasts as long as the raised hand of the pull. kjk gives the attack a window of its own, so the hand's other rules stay as they were.
 

@@ -690,11 +690,12 @@ see = "sim::combat::saber::power::animation"
 
 [windows.pull.pull_swing]
 name = "Pull Swing"
-value = [500, 650]
+value = [500, 0]
 labels = ["not in the last", "nor the first"]
 unit = "ms"
-summary = "The pull swing deals damage after its first {sabers.windows.pull.pull_swing[1]:s} and until its last {sabers.windows.pull.pull_swing[0]:s}."
-source = "JA"
+summary = "The pull swing deals damage from its start until its last {sabers.windows.pull.pull_swing[0]:s}. Both of its swipes can hit."
+detail = "In Jedi Academy only the second swipe of the pull swing deals damage, after the first part of the move. kjk lets the first swipe hit too."
+source = "ours, after JA, whose window starts after the first swipe"
 see = "sim::combat::saber::power::animation"
 
 [breaks]
