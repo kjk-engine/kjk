@@ -236,7 +236,7 @@ pub fn walls(
     }
     // Sides one after another along a line, with heights within [`MERGE`]
     // of each other, make one wall, from the lowest foot to the lowest top.
-    sides.sort_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+    sides.sort_by_key(|a| (a.0, a.1, a.2));
     let mut runs: Vec<(u8, usize, usize, usize, [f32; 2])> = Vec::new();
     for (way, line, at, z) in sides {
         if let Some(run) = runs.last_mut()
