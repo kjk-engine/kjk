@@ -43,6 +43,12 @@ impl Step<'_> {
             [listener; 2]
         };
         if !start.bark && (busy(start.owner) || listeners.into_iter().any(busy)) {
+            // A trigger's call that a guest's body set off asks again next
+            // step, until both sides are free (`View::guest_call`).
+            if self.view.guest_call(start.cue) {
+                self.state.talk.asked.push(start);
+                return;
+            }
             self.line(Line::Refused {
                 ms: now,
                 dialog: start.dialog,

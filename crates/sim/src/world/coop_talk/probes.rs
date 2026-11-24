@@ -72,8 +72,10 @@ const CONSOLE: u32 = 11;
 const CUTTER: u32 = 12;
 const LEVER: u32 = 13;
 const CAPTIVE: u32 = 14;
-/// The one no hurt listener interrupts (`Interruptable` 0).
+/// The one no hurt listener interrupts (`Interruptable` 0), and where a
+/// user stands to use it.
 const CAPTIVE_AT: [f32; 2] = [2.0, 3.0];
+const CAPTIVE_FROM: [f32; 2] = [1.0, 3.0];
 const BUDDY2_AT: [f32; 2] = [-3.0, 3.5];
 const AIDE_AT: [f32; 2] = [-1.0, 4.5];
 /// The console, and where a user stands to use it.
@@ -214,6 +216,10 @@ pub fn probes() -> Vec<Case> {
     cases.extend(
         trigger_call_gathers_there()
             .unwrap_or_else(|why| vec![("trigger_call_gathers_there", Err(why))]),
+    );
+    cases.extend(
+        trigger_call_waits_for_host()
+            .unwrap_or_else(|why| vec![("trigger_call_waits_for_host", Err(why))]),
     );
     cases.push(("click_pattern_kept", click_pattern_kept()));
     cases.push(("unspoken_begins_nothing", unspoken_begins_nothing()));
@@ -4789,23 +4795,7 @@ fn use_while_paused() -> Result<Vec<Case>, String> {
 /// the trigger. Standing there again once it ends sets nothing off: the
 /// call was made once.
 fn trigger_call_gathers_there() -> Result<Vec<Case>, String> {
-    let mut run = Run::on_ground(SEATS, Some(Seat(1)), |data| {
-        let entry = data.entry.position;
-        let [x, y] = TALKER_AT;
-        let corner = |sx: f32, sy: f32| [sx * CALL_HALF_M, sy * CALL_HALF_M, 0.0];
-        data.placements.push(Placement::Own(ObjectData {
-            kind: ObjectKind::Trigger,
-            tag: "probe_call".into(),
-            geometry: vec![
-                corner(-1.0, -1.0),
-                corner(1.0, -1.0),
-                corner(1.0, 1.0),
-                corner(-1.0, 1.0),
-            ],
-            scripts: vec![("ScriptOnEnter".into(), "probe_call".into())],
-            ..ObjectData::unknown("", [entry[0] + x, entry[1] + y, entry[2]], 0.0)
-        }));
-    })?;
+    let mut run = Run::on_ground(SEATS, Some(Seat(1)), call_trigger)?;
     let (host, buddy, talker) = (run.body(0)?, run.body(1)?, object(&run.last, TALKER)?);
     let calls = |run: &Run| {
         run.world
@@ -4843,6 +4833,76 @@ fn trigger_call_gathers_there() -> Result<Vec<Case>, String> {
             ),
         ),
     ])
+}
+
+/// The square trigger round the one who talks that calls the host's
+/// character to it when a PC comes in (`probe_call`).
+fn call_trigger(data: &mut crate::module::ModuleData) {
+    let entry = data.entry.position;
+    let [x, y] = TALKER_AT;
+    let corner = |sx: f32, sy: f32| [sx * CALL_HALF_M, sy * CALL_HALF_M, 0.0];
+    data.placements.push(Placement::Own(ObjectData {
+        kind: ObjectKind::Trigger,
+        tag: "probe_call".into(),
+        geometry: vec![
+            corner(-1.0, -1.0),
+            corner(1.0, -1.0),
+            corner(1.0, 1.0),
+            corner(-1.0, 1.0),
+        ],
+        scripts: vec![("ScriptOnEnter".into(), "probe_call".into())],
+        ..ObjectData::unknown("", [entry[0] + x, entry[1] + y, entry[2]], 0.0)
+    }));
+}
+
+/// Taris's Upper City cantina (Bendak Starkiller): the trigger whose call
+/// begins the arena's opening scene (`probe_call`, as K1's
+/// `k_ptar_strdue_en`) is entered by the guest's companion while the host
+/// talks: in its own conversation (a use), and in a scene holding the
+/// world (a script's). The call waits for the host's conversation to end,
+/// then begins with the host listening, as it would have begun had the
+/// host walked in. Refused, the scene never played, and Bendak, whom one
+/// of its lines makes, never came.
+fn trigger_call_waits_for_host() -> Result<Vec<Case>, String> {
+    let busy: [(&'static str, fn(&mut Run) -> Result<(), String>); 2] = [
+        ("trigger_call_waits_for_host_talk", |run| {
+            run.click(0, CAPTIVE_FROM, 0.0)
+        }),
+        ("trigger_call_waits_for_scene", Run::cutscene),
+    ];
+    busy.into_iter()
+        .map(|(name, talks)| {
+            let mut run = Run::on_ground(SEATS, Some(Seat(1)), call_trigger)?;
+            let (host, buddy, talker) = (run.body(0)?, run.body(1)?, object(&run.last, TALKER)?);
+            talks(&mut run)?;
+            let first = run.talk().map(|c| c.id);
+            run.put(buddy, TALK_FROM);
+            run.idle(steps(1000));
+            let waited = run.last.talk.conversations.len();
+            run.answers(&[(0, Pick::Reply(GOODBYE))]);
+            run.idle(steps(100));
+            let call = run.talk().map(|c| {
+                (
+                    c.party,
+                    c.owner.0 == talker.0,
+                    c.listener.0 == host.0,
+                    Some(c.id) != first,
+                )
+            });
+            let refused = refusals(&run, "already talking");
+            run.goodbye();
+            let found = check(
+                first.is_some()
+                    && waited == 1
+                    && call == Some((true, true, true, true))
+                    && refused == 0,
+                format!(
+                    "the host's first {first:?}, conversations while it talked {waited}; then (party, the caller's, the host listening, another) {call:?}; refused {refused}"
+                ),
+            );
+            Ok((name, found))
+        })
+        .collect()
 }
 
 /// Anchorhead's Ganda (issue 126): a trigger that destroys itself on a PC's
