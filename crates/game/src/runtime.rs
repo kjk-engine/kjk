@@ -216,13 +216,18 @@ pub fn run(options: RunOptions) -> AppExit {
                 crate::grenade_view::GrenadeViewPlugin,
                 crate::aim_fx::AimFxPlugin,
                 crate::remote_view::RemoteViewPlugin,
-                // The game's logos open the menu (not a run's own session,
-                // nor one opening on a save or back from a game); a headless
-                // one is a check that wants the menu at once, and skips them
-                // unless asked (`KJK_MOVIES=1`, `played`).
+                // KOTOR's own opening logo movies (`leclogo`, `biologo`,
+                // `legal`) are skipped at startup; `SplashPlugin` plays kjk's
+                // own Möbius splash screen instead.
                 crate::movie_view::MovieViewPlugin {
-                    opening: menu && !crate::session_flow::skips_logos(),
+                    opening: false,
                     play: crate::movie_view::played(options.headless),
+                },
+                crate::splash::SplashPlugin {
+                    enabled: menu
+                        && !options.headless
+                        && !crate::session_flow::skips_logos()
+                        && !crate::splash::skipped(),
                 },
             ),
         ));
@@ -345,6 +350,7 @@ pub fn set_campaign(ui: &mut crate::ui_view::Ui, campaign: vfs::Game) {
         Ok((index, base)) => {
             info!(target: "ui", campaign = campaign.key(), "the screens read its data");
             assets.set_campaign(campaign, index, base);
+            ui.stack.palette = ui::sweep::palette(campaign);
             ui.vm.chargen = None;
             ui.vm.session.campaign = Some(campaign);
         }

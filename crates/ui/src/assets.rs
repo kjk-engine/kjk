@@ -126,11 +126,11 @@ pub struct GuiAssets {
     loaded: Vec<Option<Loaded>>,
     /// How many times a module's own art was released (`enter_module`).
     released: u32,
-    names: BTreeMap<(Source, String), Option<TextureId>>,
-    fonts: BTreeMap<(Source, String), Option<LoadedFont>>,
+    names: BTreeMap<(Source, &'static str, bool, String), Option<TextureId>>,
+    fonts: BTreeMap<(Source, &'static str, bool, String), Option<LoadedFont>>,
     /// Fonts at `text_scale` (`Textures::set_text_scale`), by the scale's
     /// bits; the unscaled ones are `fonts`.
-    scaled_fonts: BTreeMap<(Source, String, u32), Option<LoadedFont>>,
+    scaled_fonts: BTreeMap<(Source, &'static str, bool, String, u32), Option<LoadedFont>>,
     text_scale: f32,
 }
 
@@ -214,34 +214,33 @@ impl GuiAssets {
         self.template_names.clear();
         self.portraits.clear();
         self.tables = asset_odyssey::tables::Tables::default();
-        // The campaign's art and fonts are read anew from it.
-        let loaded = &mut self.loaded;
-        self.names.retain(|(source, _), id| {
-            let campaign = *source == Source::Campaign;
-            if campaign && let Some(slot) = id.and_then(|id| loaded.get_mut(id.0 as usize - 1)) {
-                *slot = None;
-            }
-            !campaign
-        });
-        self.fonts
-            .retain(|(source, _), _| *source != Source::Campaign);
-        self.scaled_fonts
-            .retain(|(source, ..), _| *source != Source::Campaign);
-        self.released += 1;
+        // Both campaign and skin art stay cached under `(side, game, recoloured)`
+        // so toggling K1 <-> K2 on the main menu does zero disk I/O or uploads.
+    }
+
+    /// The game key that owns textures read from `side`.
+    fn owner_key(&self, side: Source) -> &'static str {
+        match side {
+            Source::Skin => self.skin_game().key(),
+            Source::Campaign => self.game.key(),
+        }
     }
 
     /// A font at its own size, read once.
     fn own_font(&mut self, source: Source, name: &str) -> Option<LoadedFont> {
+        let side = self.side(source);
         let key = (
-            self.side(source),
+            side,
+            self.owner_key(side),
+            self.recoloured(side),
             font_alias(&name.to_ascii_lowercase()).to_string(),
         );
         if let Some(known) = self.fonts.get(&key) {
             return known.clone();
         }
-        let font = self.load(key.0, &key.1, true).and_then(|(id, txi)| {
+        let font = self.load(key.0, &key.3, true).and_then(|(id, txi)| {
             let (width, height) = self.size(id);
-            let font = Font::from_txi(&key.1, &txi, width, height).ok()?;
+            let font = Font::from_txi(&key.3, &txi, width, height).ok()?;
             Some((id, Arc::new(font)))
         });
         self.fonts.insert(key, font.clone());
@@ -337,7 +336,7 @@ impl GuiAssets {
     /// every module shares (`lbl_mapcircle`).
     fn release_module_art(&mut self) {
         let loaded = &mut self.loaded;
-        self.names.retain(|(_, name), id| {
+        self.names.retain(|(_, _, _, name), id| {
             let art = MODULE_ART.iter().any(|prefix| {
                 name.strip_prefix(prefix)
                     .is_some_and(|of| of.bytes().any(|byte| byte.is_ascii_digit()))
@@ -814,11 +813,17 @@ impl Textures for GuiAssets {
     }
 
     fn texture(&mut self, source: Source, name: &str) -> Option<TextureId> {
-        let key = (self.side(source), name.to_ascii_lowercase());
+        let side = self.side(source);
+        let key = (
+            side,
+            self.owner_key(side),
+            self.recoloured(side),
+            name.to_ascii_lowercase(),
+        );
         if let Some(known) = self.names.get(&key) {
             return *known;
         }
-        let id = self.load(key.0, &key.1, false).map(|(id, _)| id);
+        let id = self.load(key.0, &key.3, false).map(|(id, _)| id);
         self.names.insert(key, id);
         id
     }
@@ -839,8 +844,11 @@ impl Textures for GuiAssets {
         if self.text_scale == 1.0 {
             return self.own_font(source, name);
         }
+        let side = self.side(source);
         let key = (
-            self.side(source),
+            side,
+            self.owner_key(side),
+            self.recoloured(side),
             font_alias(&name.to_ascii_lowercase()).to_string(),
             self.text_scale.to_bits(),
         );

@@ -112,43 +112,101 @@ pub(super) fn all() -> Vec<Check> {
         .intents
         .is_empty()
         && stack.is_open();
-    vec![check("main_menu_buttons", {
-        expect("opens", opened)
+    let mut both_vm = ViewModel::default();
+    both_vm.campaigns = vec![vfs::Game::Kotor1, vfs::Game::Kotor2];
+    both_vm.session.campaign = Some(vfs::Game::Kotor1);
+    let mut switched = Stack::new(crate::screens::open);
+    switched.open("main_menu", &both_vm);
+    switched.step(&mut assets, &both_vm, &keys(&[]));
+    let mut both_labels = Vec::new();
+    for _ in 0..6 {
+        let tag = switched.focused().unwrap_or("none").to_string();
+        both_labels.push(
+            String::from_utf8_lossy(&switched.text_of(&tag, &both_vm).unwrap_or(Vec::new()))
+                .into_owned(),
+        );
+        switched.step(&mut assets, &both_vm, &keys(&[Key::Down]));
+    }
+    let to_k2 = press(&mut switched, &mut assets, &both_vm, "BTN_OPTIONS");
+    both_vm.session.campaign = Some(vfs::Game::Kotor2);
+    let k2_label = String::from_utf8_lossy(
+        &switched
+            .text_of("BTN_OPTIONS", &both_vm)
+            .unwrap_or(Vec::new()),
+    )
+    .into_owned();
+    let to_k1 = press(&mut switched, &mut assets, &both_vm, "BTN_OPTIONS");
+    let exit_sixth = press(&mut switched, &mut assets, &both_vm, "BTN_EXIT");
+    vec![
+        check("main_menu_buttons", {
+            expect("opens", opened)
+                .and_then(|()| {
+                    expect(
+                        &format!("Solo, Host, Join, Options, Exit in order: {path:?}"),
+                        path == [
+                            "BTN_NEWGAME",
+                            "BTN_LOADGAME",
+                            "BTN_MOVIES",
+                            "BTN_MUSIC",
+                            "BTN_OPTIONS",
+                        ],
+                    )
+                })
+                .and_then(|()| {
+                    expect(
+                        &format!("our labels: {labels:?}"),
+                        labels == ["Solo", "Host", "Join", "Options", "Exit"],
+                    )
+                })
+                .and_then(|()| expect("warp, the module list and KOTOR 2's exit hidden", hidden))
+                .and_then(|()| expect(&format!("Exit quits: {quit:?}"), quit == vec![Intent::Quit]))
+                .and_then(|()| {
+                    expect(
+                        &format!("Solo opens its new-or-load step: {solo:?}"),
+                        solo == Some("solo"),
+                    )
+                })
+                .and_then(|()| expect("Back keeps the main menu", stays))
+                .and_then(|()| {
+                    expect(
+                        &format!("the menu's model behind it: {backdrop:?}"),
+                        backdrop == Some(crate::vm::SceneView::MainMenu),
+                    )
+                })
+                .map(|()| "five buttons, ours, the model behind".into())
+        }),
+        check("main_menu_campaign_switch", {
+            expect(
+                &format!("six buttons with both games installed: {both_labels:?}"),
+                both_labels == ["Solo", "Host", "Join", "Options", "KOTOR 2", "Exit"],
+            )
             .and_then(|()| {
                 expect(
-                    &format!("Solo, Host, Join, Options, Exit in order: {path:?}"),
-                    path == [
-                        "BTN_NEWGAME",
-                        "BTN_LOADGAME",
-                        "BTN_MOVIES",
-                        "BTN_MUSIC",
-                        "BTN_OPTIONS",
-                    ],
+                    &format!("fifth button switches to KOTOR 2: {to_k2:?}"),
+                    to_k2 == vec![Intent::Campaign(vfs::Game::Kotor2)],
                 )
             })
             .and_then(|()| {
                 expect(
-                    &format!("our labels: {labels:?}"),
-                    labels == ["Solo", "Host", "Join", "Options", "Exit"],
+                    &format!("on KOTOR 2, fifth button offers KOTOR 1: {k2_label:?}"),
+                    k2_label == "KOTOR 1",
                 )
             })
-            .and_then(|()| expect("warp, the module list and KOTOR 2's exit hidden", hidden))
-            .and_then(|()| expect(&format!("Exit quits: {quit:?}"), quit == vec![Intent::Quit]))
             .and_then(|()| {
                 expect(
-                    &format!("Solo opens its new-or-load step: {solo:?}"),
-                    solo == Some("solo"),
+                    &format!("fifth button switches back to KOTOR 1: {to_k1:?}"),
+                    to_k1 == vec![Intent::Campaign(vfs::Game::Kotor1)],
                 )
             })
-            .and_then(|()| expect("Back keeps the main menu", stays))
             .and_then(|()| {
                 expect(
-                    &format!("the menu's model behind it: {backdrop:?}"),
-                    backdrop == Some(crate::vm::SceneView::MainMenu),
+                    &format!("sixth button quits: {exit_sixth:?}"),
+                    exit_sixth == vec![Intent::Quit],
                 )
             })
-            .map(|()| "five buttons, ours, the model behind".into())
-    })]
+            .map(|()| "six buttons, toggles K1 <-> TSL, Exit on sixth".into())
+        }),
+    ]
 }
 
 fn savename() -> Gui {
@@ -469,8 +527,8 @@ pub(super) fn campaign() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("its creation backed out of: K1's data again: {backed:?}"),
-                backed == vec![Intent::Campaign(vfs::Game::Kotor1)],
+                &format!("its creation backed out of: stays on campaign: {backed:?}"),
+                backed.is_empty(),
             )
         })
         .and_then(|()| {

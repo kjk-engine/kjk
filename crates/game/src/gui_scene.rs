@@ -66,6 +66,10 @@ use crate::viewer::{self, Placed};
 
 /// The first render layer the views take, one each.
 const FIRST_LAYER: usize = 16;
+/// Dedicated render layers for the preloaded K1 and K2 main menu scenes so
+/// both can stay spawned and toggle instantly without colliding.
+const MENU_LAYER_K1: usize = 14;
+const MENU_LAYER_K2: usize = 15;
 /// The character sheet's stage.
 const STAGE: &str = "charrec_light";
 /// The sheet's camera, as K1's executable has it: level at the stage's hook
@@ -198,10 +202,20 @@ struct Live {
     state: State,
 }
 
+/// A preloaded main menu 3D scene for one campaign (`Kotor1` or `Kotor2`).
+struct MenuScene {
+    layer: usize,
+    state: State,
+}
+
 /// The views, by their texture id.
 #[derive(Resource, Default)]
 pub struct GuiScenes {
     views: BTreeMap<u32, Live>,
+    /// Main menu 3D scenes by layer (`menu_layer(game)`), sharing the
+    /// `SceneView::MainMenu` render target; only the active campaign's camera
+    /// and root are enabled so switching campaigns is instant.
+    menu: BTreeMap<usize, MenuScene>,
 }
 
 impl GuiScenes {
@@ -217,6 +231,22 @@ impl GuiScenes {
             })
             .image
             .clone()
+    }
+
+    /// Whether `game`'s main menu 3D scene is already spawned (or failed to
+    /// load), so switching to it will not show a blank frame.
+    pub fn main_menu_ready(&self, game: Game) -> bool {
+        matches!(
+            self.menu.get(&menu_layer(game)).map(|scene| &scene.state),
+            Some(State::Shown { .. } | State::Failed)
+        )
+    }
+}
+
+fn menu_layer(game: Game) -> usize {
+    match game {
+        Game::Kotor2 => MENU_LAYER_K2,
+        _ => MENU_LAYER_K1,
     }
 }
 
@@ -334,8 +364,15 @@ fn reaching_all(lights: &mut [GpuLight], models: &[Placed]) {
 /// The main menu's model (`menu_figure`: Malak, the story's Sith Lord, the
 /// player's character on the empty stage), looping its `default` clip, with
 /// its own smoke and mist and lit by its own lights, read on the task pool.
-fn main_menu(resolver: Resolver, game: Game) -> Task<Result<Ready, String>> {
+fn main_menu(resolver: Option<Resolver>, game: Game) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
+        let resolver = match resolver {
+            Some(resolver) => resolver,
+            None => {
+                let install = crate::installs::open(&crate::discover(), game)?;
+                install.base()?.clone()
+            }
+        };
         let figure = crate::menu_figure::of(game);
         let name = &figure.model;
         info!(target: "ui", model = name, exile = figure.exile.is_some(), "the main menu's figure");
@@ -903,11 +940,14 @@ type InPlay<'w> = (
 );
 
 /// The views the screens draw: sized, read, spawned; the others put away.
+#[allow(clippy::too_many_arguments)]
 fn want(
     mut commands: Commands,
     mut scenes: ResMut<GuiScenes>,
     ui: Option<Res<Ui>>,
     window: Query<&Camera, With<UiComposite>>,
+    mut cameras: Query<&mut Camera, Without<UiComposite>>,
+    mut visibilities: Query<&mut Visibility>,
     mut assets: ModelAssets,
     (content, presented, body, own, swap): InPlay,
 ) {
@@ -925,21 +965,24 @@ fn want(
         return;
     };
     // A view put away: drawn again from its models when next wanted.
-    let put_away = |commands: &mut Commands, live: &mut Live| {
-        if let State::Shown { camera, root } = live.state {
+    let put_away = |commands: &mut Commands, state: &mut State| {
+        if let State::Shown { camera, root } = *state {
             commands.entity(camera).despawn();
             commands.entity(root).despawn();
         }
-        if !matches!(live.state, State::Failed) {
-            live.state = State::Idle;
+        if !matches!(state, State::Failed) {
+            *state = State::Idle;
         }
     };
+    let scenes = &mut *scenes;
+    let mut main_menu_live: Option<(Handle<Image>, bool)> = None;
     for (id, live) in &mut scenes.views {
         let Some(size) = wanted.get(id) else {
-            put_away(&mut commands, live);
+            put_away(&mut commands, &mut live.state);
             continue;
         };
         let aspect = size.x as f32 / size.y as f32;
+        let mut resized = false;
         if let Some(mut image) = assets.split().0.get_mut(&live.image)
             && (image.width(), image.height()) != (size.x, size.y)
         {
@@ -950,14 +993,19 @@ fn want(
             });
             // Its camera is made for the image's shape (a wide view's
             // follows the window's).
-            put_away(&mut commands, live);
+            put_away(&mut commands, &mut live.state);
+            resized = true;
         }
         let Some(view) = gui.scene_of(TextureId(*id)) else {
             continue;
         };
+        if matches!(view, SceneView::MainMenu) {
+            main_menu_live = Some((live.image.clone(), resized));
+            continue;
+        }
         if let State::Idle = live.state {
             live.state = match view {
-                SceneView::MainMenu => State::Loading(main_menu(gui.resolver().clone(), gui.game)),
+                SceneView::MainMenu => unreachable!(),
                 SceneView::Model(name) => State::Loading(model(
                     gui.resolver().clone(),
                     gui.game,
@@ -1025,7 +1073,14 @@ fn want(
             && let Some(read) = block_on(poll_once(task))
         {
             live.state = match read {
-                Ok(ready) => spawn(&mut commands, live, ready, &mut assets),
+                Ok(ready) => spawn(
+                    &mut commands,
+                    &live.image,
+                    live.layer,
+                    ready,
+                    &mut assets,
+                    true,
+                ),
                 Err(why) => {
                     warn!(target: "ui", ?view, %why, "a 3D view is not drawn");
                     State::Failed
@@ -1033,11 +1088,91 @@ fn want(
             };
         }
     }
+    match main_menu_live {
+        Some((image, resized)) => {
+            if resized {
+                for entry in scenes.menu.values_mut() {
+                    put_away(&mut commands, &mut entry.state);
+                }
+            }
+            // Keep the active campaign's menu scene and (when both games are
+            // installed) the other campaign's preloaded and spawned so
+            // switching is an instant camera/visibility toggle.
+            let games: Vec<Game> = if ui.vm.campaigns.is_empty() {
+                vec![gui.game]
+            } else {
+                let mut list = ui.vm.campaigns.clone();
+                if !list.contains(&gui.game) {
+                    list.push(gui.game);
+                }
+                list
+            };
+            for game in games {
+                let active = game == gui.game;
+                let layer = menu_layer(game);
+                let entry = scenes.menu.entry(layer).or_insert_with(|| MenuScene {
+                    layer,
+                    state: State::Idle,
+                });
+                if let State::Idle = entry.state {
+                    let resolver = active.then(|| gui.resolver().clone());
+                    entry.state = State::Loading(main_menu(resolver, game));
+                }
+                if let State::Loading(task) = &mut entry.state
+                    && let Some(read) = block_on(poll_once(task))
+                {
+                    entry.state = match read {
+                        Ok(ready) => spawn(
+                            &mut commands,
+                            &image,
+                            entry.layer,
+                            ready,
+                            &mut assets,
+                            active,
+                        ),
+                        Err(why) => {
+                            warn!(target: "ui", ?game, %why, "a main menu 3D view is not drawn");
+                            State::Failed
+                        }
+                    };
+                }
+                if let State::Shown { camera, root } = entry.state {
+                    if let Ok(mut cam) = cameras.get_mut(camera)
+                        && cam.is_active != active
+                    {
+                        cam.is_active = active;
+                    }
+                    let want_vis = if active {
+                        Visibility::Inherited
+                    } else {
+                        Visibility::Hidden
+                    };
+                    if let Ok(mut vis) = visibilities.get_mut(root)
+                        && *vis != want_vis
+                    {
+                        *vis = want_vis;
+                    }
+                }
+            }
+        }
+        None => {
+            for entry in scenes.menu.values_mut() {
+                put_away(&mut commands, &mut entry.state);
+            }
+        }
+    }
 }
 
-/// `ready`'s models under a root of their own on `live`'s layer, and a
-/// camera drawing them into its image.
-fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelAssets) -> State {
+/// `ready`'s models under a root of their own on `layer`, and a camera
+/// drawing them into `image`.
+fn spawn(
+    commands: &mut Commands,
+    image: &Handle<Image>,
+    layer: usize,
+    ready: Ready,
+    assets: &mut ModelAssets,
+    active: bool,
+) -> State {
     let Ready {
         models,
         textures,
@@ -1047,8 +1182,12 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
     let root = commands
         .spawn((
             Transform::IDENTITY,
-            Visibility::default(),
-            ViewRoot(live.layer),
+            if active {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            },
+            ViewRoot(layer),
         ))
         .id();
     let (images, mut stores) = assets.split();
@@ -1056,7 +1195,7 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
     // the sheet: reone's GUI scenes have no ambient light); the other views
     // flat.
     let ambient = stage.as_ref().map_or([1.0; 3], |stage| stage.ambient);
-    let aspect = images.get(&live.image).map_or(1.0, |image| {
+    let aspect = images.get(image).map_or(1.0, |image| {
         image.width() as f32 / image.height().max(1) as f32
     });
     let mut spawner = Spawner::new(&textures, AreaLight::ambient(ambient), images);
@@ -1125,16 +1264,17 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
             Camera3d::default(),
             Camera {
                 order: -5,
+                is_active: active,
                 clear_color: ClearColorConfig::Custom(clear),
                 sub_camera_view,
                 ..default()
             },
-            RenderTarget::Image(live.image.clone().into()),
+            RenderTarget::Image(image.clone().into()),
             projection,
             Tonemapping::None,
             DebandDither::Disabled,
             Transform::from_matrix(frame.eye),
-            RenderLayers::layer(live.layer),
+            RenderLayers::layer(layer),
             OverlayCamera,
         ))
         .id();

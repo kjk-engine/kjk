@@ -73,10 +73,16 @@ impl NewOrLoad {
     /// at loaded.
     fn start(&mut self, vm: &ViewModel, out: &mut Vec<Intent>) {
         let save = self.save(vm).map(|save| save.id.clone());
-        let new_game = |then: String, out: &mut Vec<Intent>| match vm.campaigns[..] {
-            [] => out.push(Intent::OpenFor("chargen", then)),
-            [only] => out.extend(campaign::begin(only, &then)),
-            _ => out.push(Intent::OpenFor("campaign", then)),
+        let new_game = |then: String, out: &mut Vec<Intent>| {
+            if let Some(active) = vm.session.campaign {
+                out.extend(campaign::begin(active, &then));
+                return;
+            }
+            match vm.campaigns[..] {
+                [] => out.push(Intent::OpenFor("chargen", then)),
+                [only] => out.extend(campaign::begin(only, &then)),
+                _ => out.push(Intent::OpenFor("campaign", then)),
+            }
         };
         if !self.host {
             match save {

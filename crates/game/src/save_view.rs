@@ -101,7 +101,7 @@ const LISTING: [&str; 4] = ["solo", "host", "save", "load"];
 
 /// The saves on disk, into the screens' list; one open starts over (its
 /// rows moved under it).
-fn refresh(ui: &mut Ui) {
+pub(crate) fn refresh(ui: &mut Ui) {
     let listing = folder().map_or_else(saves::Listing::default, |root| saves::list(&root));
     for why in &listing.unread {
         warn!(target: "saves", "{why}");
@@ -180,8 +180,25 @@ impl Plugin for SaveViewPlugin {
 }
 
 /// What a save made now would be: the area's name, its module; none where
-/// the world is another's, or not a module's.
-fn here(mut ui: ResMut<Ui>, world: Option<Res<WorldHere>>, swap: Option<Res<SceneSwap>>) {
+/// the world is another's, or not a module's. Also keeps `vm.new_game` in
+/// sync with the active campaign when `solo` or `host` is open, cached per
+/// game so switching campaigns on the main menu does no synchronous disk I/O.
+fn here(
+    mut ui: ResMut<Ui>,
+    world: Option<Res<WorldHere>>,
+    swap: Option<Res<SceneSwap>>,
+    mut cached: Local<[Option<SaveView>; 2]>,
+) {
+    let ui = &mut *ui;
+    if (ui.stack.has("solo") || ui.stack.has("host"))
+        && let Some(assets) = ui.assets.as_mut()
+    {
+        let slot = usize::from(assets.game == vfs::Game::Kotor2);
+        let entry = cached[slot].get_or_insert_with(|| new_game(assets));
+        if ui.vm.new_game.module != entry.module || ui.vm.new_game.area != entry.area {
+            ui.vm.new_game = entry.clone();
+        }
+    }
     let vm = &mut ui.vm;
     vm.load_in_play = world.as_ref().is_some_and(|world| world.alone);
     let module = swap.filter(|_| world.is_some());

@@ -156,11 +156,13 @@ fn looped(ambience: &mut Ambience, beds: &mut Beds, file: &str) {
     }
 }
 
-/// The menu's music while its screens are up and no movie is.
+/// The menu's music while its screens are up and neither a movie nor the
+/// startup splash is.
 fn menu(
     ui: Option<Res<crate::ui_view::Ui>>,
-    (showing, headless): (
+    (showing, splash, headless): (
         Option<Res<crate::movie_view::Showing>>,
+        Option<Res<crate::splash::SplashShowing>>,
         Res<crate::scene::Headless>,
     ),
     mut ambience: ResMut<Ambience>,
@@ -170,7 +172,7 @@ fn menu(
     let Some(ui) = ui.filter(|ui| ui.stack.is_open() && !headless.0) else {
         return;
     };
-    if showing.is_some_and(|showing| showing.0) {
+    if showing.is_some_and(|showing| showing.0) || splash.is_some_and(|splash| splash.0) {
         return;
     }
     let file = if ui.stack.screens().any(|screen| screen.0 == "chargen") {
