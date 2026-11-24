@@ -695,11 +695,28 @@ it.
 
 In a room cut from a Jedi Academy level, the probes read the room's
 lightmap at its full size. That lightmap is one atlas of the level, and
-most of Hoth's snow has a block of only 2 by 2 texels in it. Read smaller,
+much of Hoth's snow has a block of only a few texels in it. Read smaller,
 as a KOTOR room's lightmap is read, the blocks blurred together, and
 rocks on snow lit at 0.8 to 1.0 read about 0.1 and looked black. A prop
 can still be dark where the level itself is: the snow under a large rock
 may hold a corner that Jedi Academy lit in shadow.
+
+**Light on a Jedi Academy room's vertex-lit surfaces.** Jedi Academy
+lights much of its ground, Hoth's snow among it, by the corners of its
+triangles and not by a lightmap. kjk gives each such triangle a square
+block of the room's lightmap, about one texel for every 2 metres of its
+longest side, from 2 to 32 texels a side. The block holds the corners'
+light spread across it, so the room looks as it did. A bake then has a
+texel about every half metre on that ground, 4 to each stored texel.
+Before, every such triangle had 2 by 2 texels whatever its size, and a
+lamp's pool in a bake broke at the edge of each triangle of the snow.
+The live view did not show it, because it works the fitted lights out at
+every point of the screen. The room's lightmap stays within 2048 rows,
+so its bake stays within 8192, the most many graphics cards take. Once
+the blocks reach that, each further triangle gets 2 by 2 texels. Hoth's
+first room takes 903 rows, and its bake about a minute where it took 16
+seconds. The lightmap's name changes with its layout, so a bake made
+before this change no longer applies to the room. Bake the level again.
 
 ## Several levels in one project
 

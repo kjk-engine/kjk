@@ -11,10 +11,17 @@
 //!   row.
 //! - **A surface lit by its vertices** has no lightmap, or one kept as a
 //!   picture beside the level, which is not read yet. Each of its
-//!   triangles gets a block of two by two texels under the lightmaps: one
-//!   texel for each corner's colour, and a fourth that continues them
-//!   (the second plus the third less the first). The sampler's blend of
-//!   the four is then the blend of the three colours across the triangle.
+//!   triangles gets a square block of texels under the lightmaps, about
+//!   one texel to [`BLOCK_METRES`] along its longest side, from 2 to
+//!   [`BLOCK_MOST`] texels a side, while the atlas stays within
+//!   [`ATLAS_MOST`] rows. The corners sit at the middles of the
+//!   block's first texel, the last of its first row and the last of its
+//!   first column. Every texel holds the corners' colours continued to its
+//!   place, so the sampler's blend across the triangle is the blend of the
+//!   three colours. A bake of the level writes its light into the block
+//!   (`kjk detail-bake`), and a large triangle has as many texels for it
+//!   as its size asks. With 2 by 2 texels for every triangle, a lamp's pool
+//!   on Hoth's snow broke at each triangle's edge.
 //! - **A curved surface** is a grid of control points, every three by three
 //!   of them a patch (a quadratic Bézier surface). It is cut into flat
 //!   strips, as many as keep the strips within [`PATCH_TOLERANCE`] of the
@@ -57,8 +64,18 @@ pub const PATCH_TOLERANCE: f32 = 2.0;
 /// The most strips one patch is cut into along a side.
 const PATCH_STRIPS: usize = 8;
 
-/// The side of a vertex-lit triangle's block in the atlas, in texels.
-const BLOCK: usize = 2;
+/// The length of a vertex-lit triangle's longest side (metres) that one
+/// texel of its block covers (`Blocks`).
+pub const BLOCK_METRES: f32 = 2.0;
+/// The fewest and the most texels along a side of a vertex-lit triangle's
+/// block in the atlas.
+const BLOCK_LEAST: usize = 2;
+pub const BLOCK_MOST: usize = 32;
+/// The most rows the light atlas has. A bake writes the atlas 4 times
+/// larger (`kjk detail-bake`), and 8192 texels is the most many graphics
+/// cards take along a side. Once the blocks reach it, each further
+/// triangle gets the fewest texels.
+pub const ATLAS_MOST: usize = 2048;
 
 /// A level ready for the scene.
 pub struct Level {
@@ -226,34 +243,95 @@ impl Corner {
     }
 }
 
+/// A vertex-lit triangle's block in the light atlas: its first texel, its
+/// side in texels, and its corners' colours.
+struct Block {
+    left: usize,
+    top: usize,
+    side: usize,
+    colours: [[u8; 3]; 3],
+}
+
+impl Block {
+    /// The colour of texel (`x`, `y`) of the block: the corners' colours
+    /// continued to it, the first corner's at (0, 0), the second's at
+    /// (`side` - 1, 0) and the third's at (0, `side` - 1).
+    fn texel(&self, x: usize, y: usize) -> [u8; 3] {
+        let span = (self.side - 1) as f32;
+        let (u, v) = (x as f32 / span, y as f32 / span);
+        let [a, b, c] = self.colours.map(|colour| colour.map(f32::from));
+        std::array::from_fn(|channel| {
+            (a[channel] + (b[channel] - a[channel]) * u + (c[channel] - a[channel]) * v)
+                .round()
+                .clamp(0.0, 255.0) as u8
+        })
+    }
+}
+
 /// The blocks of the light atlas that hold the vertex-lit triangles'
-/// colours, under the lightmaps.
+/// colours, under the lightmaps, laid in rows as they come.
 struct Blocks {
     /// The atlas row the first block starts at.
     top: usize,
-    /// Blocks in a row of the atlas.
-    across: usize,
-    /// Each triangle's four texels, in the order it was met.
-    texels: Vec<[[u8; 3]; 4]>,
+    /// The atlas's width in texels.
+    width: usize,
+    /// Where the next block goes: its column, and the top of its row from
+    /// `top`. The row is as high as its highest block so far.
+    x: usize,
+    y: usize,
+    row: usize,
+    placed: Vec<Block>,
 }
 
 impl Blocks {
     /// A triangle lit by its corners' colours, added to `batch`.
     fn triangle(&mut self, batch: &mut Batch, corners: [Corner; 3]) {
-        let [a, b, c] = [corners[0].color, corners[1].color, corners[2].color];
-        let fourth = std::array::from_fn(|channel| {
-            (i32::from(b[channel]) + i32::from(c[channel]) - i32::from(a[channel])).clamp(0, 255)
-                as u8
+        let longest = (0..3)
+            .map(|k| {
+                let [p, q] = [&corners[k].position, &corners[(k + 1) % 3].position];
+                (0..3)
+                    .map(|axis| (p[axis] - q[axis]).powi(2))
+                    .sum::<f32>()
+                    .sqrt()
+            })
+            .fold(0.0f32, f32::max)
+            * collision::UNIT;
+        let mut side =
+            ((longest / BLOCK_METRES).ceil() as usize + 1).clamp(BLOCK_LEAST, BLOCK_MOST);
+        if self.top + self.y + self.row.max(side) > ATLAS_MOST
+            || (self.x + side > self.width && self.top + self.y + self.row + side > ATLAS_MOST)
+        {
+            side = BLOCK_LEAST;
+        }
+        if self.x + side > self.width {
+            self.y += self.row;
+            self.x = 0;
+            self.row = 0;
+        }
+        let (left, top) = (self.x, self.top + self.y);
+        self.x += side;
+        self.row = self.row.max(side);
+        self.placed.push(Block {
+            left,
+            top,
+            side,
+            colours: [corners[0].color, corners[1].color, corners[2].color],
         });
-        let block = self.texels.len();
-        self.texels.push([a, b, c, fourth]);
-        let left = (block % self.across * BLOCK) as f32 + 0.5;
-        let top = (self.top + block / self.across * BLOCK) as f32 + 0.5;
-        let texels = [[left, top], [left + 1.0, top], [left, top + 1.0]];
+        let (near, far) = (0.5, side as f32 - 0.5);
+        let texels = [
+            [left as f32 + near, top as f32 + near],
+            [left as f32 + far, top as f32 + near],
+            [left as f32 + near, top as f32 + far],
+        ];
         for (corner, texel) in corners.iter().zip(texels) {
             let index = batch.push(corner, texel);
             batch.indices.push(index);
         }
+    }
+
+    /// The atlas row below the last block.
+    fn bottom(&self) -> usize {
+        self.top + self.y + self.row
     }
 }
 
@@ -673,8 +751,11 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
     let width = PAGES_ACROSS * LIGHTMAP_SIDE;
     let mut blocks = Blocks {
         top: pages.div_ceil(PAGES_ACROSS) * LIGHTMAP_SIDE,
-        across: width / BLOCK,
-        texels: Vec::new(),
+        width,
+        x: 0,
+        y: 0,
+        row: 0,
+        placed: Vec::new(),
     };
     let mut batches: BTreeMap<Key, Batch> = BTreeMap::new();
     // The doors, and the door and part of each of the level's models that
@@ -837,9 +918,7 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
         tally.triangles += added;
     }
 
-    let (blocks_top, blocks_across) = (blocks.top, blocks.across);
-    let blocks = blocks.texels;
-    let height = (blocks_top + blocks.len().div_ceil(blocks_across) * BLOCK).max(1);
+    let height = blocks.bottom().max(1);
     let mut rgba = vec![255u8; width * height * 4];
     for (page, texels) in bsp.lightmaps.iter().enumerate() {
         let (left, top) = (
@@ -858,14 +937,12 @@ pub fn level(name: &str, bsp: &Bsp, md3: &dyn Fn(&str) -> Option<Md3>, paint: &P
             }
         }
     }
-    for (block, colours) in blocks.iter().enumerate() {
-        let (left, top) = (
-            block % blocks_across * BLOCK,
-            blocks_top + block / blocks_across * BLOCK,
-        );
-        for (corner, rgb) in colours.iter().enumerate() {
-            let at = ((top + corner / BLOCK) * width + left + corner % BLOCK) * 4;
-            rgba[at..at + 3].copy_from_slice(rgb);
+    for block in &blocks.placed {
+        for y in 0..block.side {
+            for x in 0..block.side {
+                let at = ((block.top + y) * width + block.left + x) * 4;
+                rgba[at..at + 3].copy_from_slice(&block.texel(x, y));
+            }
         }
     }
 
