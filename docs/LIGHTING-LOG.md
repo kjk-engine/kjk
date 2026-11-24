@@ -211,6 +211,12 @@ The review tools are not on this branch. These are the picture harness, its shot
 - The install checks the zip's size and BLAKE3 hash. It unpacks into a partial folder, compares each fingerprint and then renames the folder to `<store>/lighting/<game>`. `kjk store gc` never removes anything under `lighting`. A zip of the wrong size is refused before anything is written (commit bd0ebf6b).
 - A stored backdrop is now a note and no copied picture. The bake names the backdrop's lightmaps in `stored.txt`, and the game makes each one from the player's own lightmap. In `tar_m02ab` the new set differed from the old by 0.87 and 0.43 of 255, and two runs of the new set by 0.78 and 0.38. The canon `kas_m22ab` of round c1 still holds copies and is left out of a pack until it is baked again (commit 77552321).
 - `fill.txt` holds one ratio for each filled room, and each room's scale comes from its stored mean. So brightness is set from the stored light at one number per room, but no texel holds stored light. The bake's log gives room means only. The fingerprint's digests cannot be turned back into a picture.
+- A full run of the launcher's download, on 23 November 2026, found four gaps on kjk's side. They were fixed on 24 November 2026.
+  - `kjk lighting pack` now writes `SHA256SUMS` beside the zip and the manifest, in the format of `sha256sum`. The launcher refuses a download without it. A second game packed into the same folder adds its two lines and keeps the other game's.
+  - A failed or refused answer of `kjk lighting --json` now gives `kind` beside `why`. The launcher tells the player what to do from it, for example that kjk may not write into its folder. The values are listed in `crates/launcher/src/lighting_verbs.rs`.
+  - The check's answer gives `bake_format` and `reads_format`, so the launcher no longer reads the format from a sentence.
+  - kjk's messages about the download name the games "KOTOR" and "KOTOR II", as the launcher does. They said "KOTOR 1" and "KOTOR 2" before.
+- Both games were packed again from the shipped bakes (`target/canon-bakes/pack-src`, round `c1`, label `1`). The zips and the manifests came out byte for byte the same as the packs of 23 November 2026, and the new `SHA256SUMS` lists the four files with their right checksums. So a pack is reproducible.
 - No file in the repository may hold a personal folder path. The scripts take the root from their own place. The repository's commit check refuses such a path.
 
 ## Settings
