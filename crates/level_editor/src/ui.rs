@@ -196,6 +196,8 @@ pub struct UiState {
     row_filters: BTreeMap<String, String>,
     /// Whether the window of the project's items and quests is open.
     adventure_open: bool,
+    /// What adds each quest entry, as that window shows it under the entry.
+    quest_adders: crate::quest_links::Kept,
     /// What the fields of that window hold while they are typed in, by
     /// each field's name.
     texts: BTreeMap<String, String>,
@@ -305,6 +307,7 @@ impl Default for UiState {
             table_rows: BTreeMap::new(),
             row_filters: BTreeMap::new(),
             adventure_open: false,
+            quest_adders: crate::quest_links::Kept::default(),
             texts: BTreeMap::new(),
             new_property: BTreeMap::new(),
             number_drag: None,
@@ -4147,6 +4150,75 @@ fn picked_edit(
     }
 }
 
+/// The row of the conversation window's grid that sets the skill check of
+/// the link `at` (`level_edit::checks`): the skill, the score it asks for,
+/// and the items it costs, each picked, not written. A check is written as
+/// the link's condition, so a condition written by hand is replaced.
+fn skill_check_row(
+    ui: &mut egui::Ui,
+    state: &mut EditorState,
+    name: &str,
+    at: level_edit::dialog::LinkAt,
+) {
+    use level_edit::checks::{self, Check};
+    let now = state::link_check(state, name, at);
+    ui.label("Skill check");
+    let mut chosen = now.clone();
+    ui.horizontal(|ui| {
+        let shown = (chosen.as_ref())
+            .and_then(|check| checks::skill(&check.skill))
+            .map_or("None", |skill| skill.title);
+        egui::ComboBox::from_id_salt("talk check skill")
+            .selected_text(shown)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(chosen.is_none(), "None").clicked() {
+                    chosen = None;
+                }
+                for skill in checks::SKILLS {
+                    let on = chosen.as_ref().is_some_and(|check| check.skill == skill.key);
+                    if ui.selectable_label(on, skill.title).clicked() && !on {
+                        let (score, cost) = chosen.as_ref().map_or((5, 1), |check| (check.score, check.cost.max(1)));
+                        chosen = Some(Check {
+                            skill: skill.key.to_string(),
+                            score,
+                            cost: if skill.item.is_some() { cost } else { 0 },
+                        });
+                    }
+                }
+            })
+            .response
+            .on_hover_text(
+                "The line or reply is offered only when the character in the conversation \
+                 has this skill at the score below or higher. Computer Use, Repair and \
+                 Security may also cost items, which are spent when it is used.",
+            );
+        if let Some(check) = chosen.as_mut() {
+            ui.label("score");
+            ui.add(egui::DragValue::new(&mut check.score).range(0..=checks::MOST_SCORE))
+                .on_hover_text("The skill's total, as the character sheet shows it: ranks, ability, feats, items and effects.");
+            match checks::skill(&check.skill).and_then(|skill| skill.item) {
+                Some((_, _, many)) => {
+                    ui.label("cost");
+                    ui.add(egui::DragValue::new(&mut check.cost).range(0..=checks::MOST_COST).suffix(format!(" {many}")))
+                        .on_hover_text("The items the party must carry, spent when the line or reply is used. 0 costs nothing.");
+                }
+                None => check.cost = 0,
+            }
+        }
+    });
+    ui.end_row();
+    if let Some(check) = &chosen {
+        ui.label("");
+        ui.label(egui::RichText::new(check.described()).small());
+        ui.end_row();
+    }
+    if chosen != now
+        && let Err(why) = state::set_check(state, name, at, chosen)
+    {
+        state.say(why);
+    }
+}
+
 /// The conversation window: the tree of the conversation open, the
 /// selected line's text, speaker, scripts and links, and its tries.
 fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &mut UiState) {
@@ -4454,15 +4526,34 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                         }
                     }
                     ui.label("Runs");
+                    // A line that spends a skill check's cost runs a script
+                    // that spends it, then runs the line's own script: the
+                    // field shows and changes the line's own script.
+                    let paid = state::payment_of(state, &node.script.script);
                     ui.horizontal(|ui| {
-                        let mut typed = node.script.script.clone();
+                        let own_script = paid.as_ref().map_or_else(|| node.script.script.clone(), |(_, _, then)| then.clone());
+                        let mut typed = own_script.clone();
                         let field = crate::choose::field(ui, "talk script", &mut typed, ("no script", 120.0), || crate::choose::scripts(state));
-                        picked_edit(state, ui_state, &format!("{name} script {side:?} {index}"), &field, Some(Edit::Conversation(name.clone(), Talk::Script(side, index, typed.trim().to_string()))));
-                        if !node.script.script.is_empty() && ui.small_button("Write it").on_hover_text("Opens the script to be written: the project's own, else a copy of the game's, else a new one.").clicked() {
-                            command = Some(format!("script edit {}", node.script.script));
+                        if paid.is_some() {
+                            if (field.picked.is_some() || field.response.changed())
+                                && let Err(why) = state::set_payment_then(state, &node.script.script, typed.trim())
+                            {
+                                state.say(why);
+                            }
+                        } else {
+                            picked_edit(state, ui_state, &format!("{name} script {side:?} {index}"), &field, Some(Edit::Conversation(name.clone(), Talk::Script(side, index, typed.trim().to_string()))));
+                        }
+                        if !own_script.is_empty() && ui.small_button("Write it").on_hover_text("Opens the script to be written: the project's own, else a copy of the game's, else a new one.").clicked() {
+                            command = Some(format!("script edit {own_script}"));
                         }
                     });
                     ui.end_row();
+                    if let Some((skill, cost, _)) = &paid {
+                        let items = level_edit::checks::skill(skill).and_then(|skill| skill.item).map_or("items", |(_, one, many)| if *cost == 1 { one } else { many });
+                        ui.label("");
+                        ui.label(egui::RichText::new(format!("First it spends {cost} {items}, the cost of its skill check.")).small());
+                        ui.end_row();
+                    }
                     if let Some(at) = via {
                         let link = match at {
                             LinkAt::Start(n) => dlg.starts.get(n),
@@ -4483,6 +4574,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                                 }
                             });
                             ui.end_row();
+                            skill_check_row(ui, state, &name, at);
                         }
                     }
                     ui.label("Journal");
@@ -7468,6 +7560,10 @@ fn adventure_quests(
                             *command = Some(format!("quest {verb} {tag} {id} {typed}"));
                         }
                     });
+                    let adders = ui_state.quest_adders.of(state, &tag, *id);
+                    ui.indent(("quest adders", &tag, *id), |ui| {
+                        quest_adders(ui, ui_state, (&tag, *id), &adders, command);
+                    });
                 }
                 ui.label("A new entry: its number, its text, and whether it closes the quest.");
                 ui.horizontal(|ui| {
@@ -7502,6 +7598,73 @@ fn adventure_quests(
             ui_state.texts.remove("new quest name");
         }
     });
+}
+
+/// Under a quest's entry: what adds it, each with a button that opens it.
+/// A script opens in the script viewer, and a conversation's line in the
+/// conversation window. An entry that nothing adds offers a new script that
+/// adds it.
+fn quest_adders(
+    ui: &mut egui::Ui,
+    ui_state: &mut UiState,
+    (tag, id): (&str, u32),
+    adders: &[crate::quest_links::Adder],
+    command: &mut Option<String>,
+) {
+    use crate::quest_links::Adder;
+    let small = |text: String| egui::RichText::new(text).small();
+    if adders.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(small("Nothing in the project adds this entry yet.".into()));
+            if ui
+                .small_button("New script")
+                .on_hover_text(
+                    "Makes a script that adds this entry, and opens it. \
+                     The script does nothing until an event runs it, \
+                     such as a creature's OnDeath or the level's OnEnter.",
+                )
+                .clicked()
+            {
+                *command = Some(format!("quest script {tag} {id}"));
+                ui_state.view_tab = ViewTab::Source;
+            }
+        });
+        return;
+    }
+    for adder in adders {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(small(crate::quest_links::sentences(adder)));
+            match adder {
+                Adder::Script { name, .. } => {
+                    if ui
+                        .small_button("Open")
+                        .on_hover_text(format!("Opens the script {name} in the script viewer."))
+                        .clicked()
+                    {
+                        *command = Some(format!("script edit {name}"));
+                        ui_state.view_tab = ViewTab::Source;
+                    }
+                }
+                Adder::Line {
+                    conversation,
+                    side,
+                    index,
+                    ..
+                } => {
+                    if ui
+                        .small_button("Open")
+                        .on_hover_text(format!(
+                            "Opens the conversation {conversation} with this line selected."
+                        ))
+                        .clicked()
+                    {
+                        ui_state.dialog_open = Some(conversation.clone());
+                        ui_state.dialog_selected = Some((*side, *index, None));
+                    }
+                }
+            }
+        });
+    }
 }
 
 /// The window that offers the work an editor that did not close left

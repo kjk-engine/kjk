@@ -274,3 +274,115 @@ pub fn quest(jrl: &Gff, tag: &str) -> Option<Shown> {
 pub fn tags(jrl: &Gff) -> Vec<String> {
     (jrl.root.list("Categories").iter()).map(tag_of).collect()
 }
+
+/// The quest entries the script `source` adds: each call of
+/// `AddJournalQuestEntry` that writes out the quest's tag and the entry's
+/// number, as the tag in lowercase and the number. A call in a comment
+/// does not count, and neither does a call that takes its tag or its
+/// number from a variable.
+pub fn added_by_source(source: &str) -> Vec<(String, u32)> {
+    const CALL: &str = "AddJournalQuestEntry";
+    let code = without_comments(source);
+    let mut added = Vec::new();
+    let mut from = 0;
+    while let Some(found) = code[from..].find(CALL) {
+        let start = from + found;
+        from = start + CALL.len();
+        let before = code[..start].chars().next_back();
+        if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+            continue;
+        }
+        let rest = code[from..].trim_start();
+        let Some(rest) = rest.strip_prefix('(') else {
+            continue;
+        };
+        let Some(rest) = rest.trim_start().strip_prefix('"') else {
+            continue;
+        };
+        let Some(end) = rest.find('"') else {
+            continue;
+        };
+        let tag = rest[..end].to_ascii_lowercase();
+        let Some(rest) = rest[end + 1..].trim_start().strip_prefix(',') else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(entry) = digits.parse::<u32>() {
+            added.push((tag, entry));
+        }
+    }
+    added
+}
+
+/// `source` with its comments made blank, its strings kept.
+fn without_comments(source: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut code = String::with_capacity(source.len());
+    let mut at = 0;
+    let mut in_string = false;
+    while at < chars.len() {
+        let c = chars[at];
+        let next = chars.get(at + 1).copied();
+        if in_string {
+            code.push(c);
+            if c == '\\' && next.is_some() {
+                code.extend(next);
+                at += 2;
+                continue;
+            }
+            in_string = c != '"';
+            at += 1;
+        } else if c == '"' {
+            in_string = true;
+            code.push(c);
+            at += 1;
+        } else if c == '/' && next == Some('/') {
+            while at < chars.len() && chars[at] != '\n' {
+                at += 1;
+            }
+        } else if c == '/' && next == Some('*') {
+            at += 2;
+            while at < chars.len() && !(chars[at] == '*' && chars.get(at + 1) == Some(&'/')) {
+                at += 1;
+            }
+            at += 2;
+            code.push(' ');
+        } else {
+            code.push(c);
+            at += 1;
+        }
+    }
+    code
+}
+
+/// The text of a new script that adds the entry `entry` of the quest
+/// `tag`, named `name`. `text` is the entry's text, and `end` says whether
+/// the entry closes the quest. Comments say what the script does and that
+/// an event has to run it.
+pub fn entry_script(name: &str, tag: &str, entry: u32, text: &str, end: bool) -> String {
+    let closes = if end {
+        " This entry closes the quest."
+    } else {
+        ""
+    };
+    let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!(
+        "// {name}\n\
+         //\n\
+         // Adds entry {entry} of the quest {tag} to the player's journal.{closes}\n\
+         // The entry reads: \"{text}\"\n\
+         //\n\
+         // A script runs only when an event runs it. Give this script to an\n\
+         // event of an object, such as a creature's OnDeath, a placeable's\n\
+         // OnUsed or a trigger's OnEnter. Or give it to one of the level's\n\
+         // scripts, OnEnter or OnHeartbeat, in the level panel. A quest does\n\
+         // not go back to a lower entry, so running the script again does no\n\
+         // harm.\n\
+         \n\
+         void main()\n\
+         {{\n\
+         \x20   AddJournalQuestEntry(\"{tag}\", {entry});\n\
+         }}\n"
+    )
+}

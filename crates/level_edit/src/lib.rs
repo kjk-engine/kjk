@@ -18,6 +18,7 @@
 pub mod active;
 pub mod area;
 pub mod blocks;
+pub mod checks;
 pub mod clip;
 pub mod dialog;
 pub mod editor;

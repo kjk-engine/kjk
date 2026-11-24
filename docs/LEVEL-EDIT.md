@@ -1323,6 +1323,42 @@ added.
 A conversation's line, a logic block or a script then adds an entry by
 the quest's tag and the entry's number.
 
+**What adds an entry.** The window lists, under each of a quest's
+entries, what in the project adds that entry to the player's journal.
+
+- A script of the project adds an entry when it calls
+  `AddJournalQuestEntry` with the quest's tag and the entry's number
+  written out, such as `AddJournalQuestEntry("kje_vessk", 30)`. The
+  window names the script and what runs it: one of the level's events,
+  one of a new map's module events, an event of one of the level's
+  objects, or a line of one of the project's conversations. A script
+  that nothing runs never adds its entry, and the window says so. The
+  **Open** button opens the script in the script viewer.
+- Logic blocks are listed as the script they are written to, with the
+  object event that runs them.
+- A line or a reply of one of the project's conversations adds an entry
+  when it is spoken, if its quest is set to that entry. The **Open**
+  button opens the conversation with that line selected.
+
+The window reads a script as the editor holds it, so a script being
+written counts as it is typed. A script that takes the quest's tag or the
+entry's number from a variable is not found, and neither are the game's
+own scripts.
+
+An entry that nothing adds has a **New script** button. It makes a
+script of the project that adds the entry, and opens it in the script
+viewer. The script is named after the quest's tag and the entry's number,
+such as `kje_vessk_30`, with the tag cut short to fit KOTOR's 16
+characters. The script does nothing until an event runs it. Give it to
+an object's event in the details panel, such as a creature's OnDeath, a
+placeable's OnUsed or a trigger's OnEnter. Or give it to one of the
+level's scripts, OnEnter or OnHeartbeat, in the level panel. The next
+save writes and compiles it.
+
+`edit quest script TAG N` makes that script for the entry `N` of the
+quest `TAG`. `edit quest show TAG` lists what adds each entry among the
+messages.
+
 The journal is one file for the whole game. Two mods that each brought a
 copy of it would take each other's place. So an exported mod does not
 bring `global.jrl`. It brings only the project's own quests, in
@@ -1526,6 +1562,42 @@ A line clicked in the tree is changed on the right:
   at** links it to a line or reply shown elsewhere; **Up** and **Down**
   move it among its siblings (the order replies are offered in); **Remove
   this link**; and **Delete**, which takes it out with every link to it.
+
+**Skill checks.** A line or a reply can be offered only to a character
+with enough skill, without writing a script. Its **Skill check** row,
+under its condition, picks the check from lists:
+
+- the skill: Computer Use, Repair, Security, Persuade, Awareness,
+  Demolitions, Stealth or Treat Injury, or None for no check;
+- the score the skill must reach. This is the skill's total, as the
+  character sheet shows it: its ranks, the key ability's modifier, and
+  what feats, items and effects add. The character tested is the one in
+  the conversation;
+- for Computer Use, Repair and Security, the cost: how many items the
+  party must carry. Computer Use spends computer spikes, Repair spends
+  repair parts, and Security spends security spikes (the +5 kind). The
+  items are spent when the line or reply is used. A cost of 0 spends
+  nothing.
+
+A reply whose check fails is not offered, as in KOTOR. A line whose check
+fails is not said, and the next line whose condition holds is said
+instead. The row says what the check asks, for example "Needs a Computer
+Use of 6, and 2 computer spikes, which are spent."
+
+The editor writes the check as scripts of the project, as it writes
+logic blocks. The check itself is the link's condition, `kjc_N`. A check
+that costs items also gives the line or reply a script, `kjp_N`, that
+spends the items and then runs the script the line or reply ran before.
+The **Runs** field still shows and changes that script, and a note under
+it says what is spent first. Changing the check rewrites the same
+scripts. Setting the skill to None takes the check away, gives the link
+no condition, and gives the line or reply back its own script. A check
+replaces a condition written by hand. Editing a check's script by hand
+ends the check, and the editor then treats it as any other script.
+
+The cost belongs to the line or reply, not to the link. If two links
+lead to the same reply, the reply spends the items whichever way the
+conversation reaches it.
 
 **Writing lines one after another.** While a line's text is typed, two
 keys add the next line and move the typing to it. Ctrl+Enter adds a line
@@ -1860,6 +1932,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit push METRES` | moves the selection along the line from the camera through its middle: farther by METRES, nearer by a negative number |
 | `edit ui elsewhere on`, `edit ui elsewhere off` | whether the asset picker also lists the templates only other levels have |
 | `edit quest new TAG NAME`, `edit quest entry\|end TAG N TEXT`, `edit quest show TAG`, `edit quest drop TAG` | adds a quest to the project's journal; sets one of its entries, or one that closes it; lists it; takes it out |
+| `edit quest script TAG N` | makes a new script of the project that adds the entry `N` of the quest `TAG`, and opens it; `edit quest show TAG` also lists what adds each entry |
 | `edit conversation NAME screen talk\|computer\|rakatan` | shows the conversation as speech between characters, on a computer's screen, or on a Rakatan computer's |
 | `edit outline X1 Y1 X2 Y2 X3 Y3 ...` | sets the selected trigger's or encounter's outline: three corners or more, in metres, at its height |
 | `edit area music day\|night\|battle ROW`, `edit area ambience day\|night ROW`, `edit area volume day\|night N` | the area's music and ambient sound (2DA rows) and the sound's volume (0 to 127) |
@@ -1888,6 +1961,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit conversation NAME speaker line N TAG`, `listener line N TAG` | sets a line's speaker or listener; `-` for the owner or the player |
 | `edit conversation NAME script line\|reply N SCRIPT`, `quest line\|reply N TAG ENTRY` | sets the script a node runs (`-` for none), or the journal entry it adds |
 | `edit conversation NAME condition start I SCRIPT`, `condition line\|reply N I SCRIPT` | sets the condition of the starting list's link I, or of node N's link I; `-` for none |
+| `edit conversation NAME check start I SKILL SCORE [COST]`, `check line\|reply N I SKILL SCORE [COST]`, `check ... none` | sets a skill check on the link (`computer`, `repair`, `security`, `persuade`, `awareness`, `demolitions`, `stealth`, `treat`): offered only from that score, spending COST spikes or parts when used; `none` takes it away |
 | `edit conversation NAME link start TO`, `link line\|reply N TO` | links to a line or reply shown elsewhere |
 | `edit conversation NAME unlink ...`, `up ...`, `down ...` | takes a link away, or moves it, named as `condition` names it |
 | `edit conversation NAME delete line\|reply N`, `end SCRIPT`, `abort SCRIPT` | deletes a node; sets the scripts run as it ends or is cut short |

@@ -10180,6 +10180,130 @@ fn lamp_light_mesh() {
     assert!(light_mesh(room, "m01aa_01a").is_err());
 }
 
+/// The quest window lists the scripts that add each entry. A script adds
+/// an entry when its source calls `AddJournalQuestEntry` with the tag and
+/// the number written out. A call in a comment, or one that takes the tag
+/// or the number from a variable, does not count. The new script the
+/// window offers adds its entry and is found by the same reading.
+#[test]
+fn scripts_that_add_quest_entries() {
+    use level_edit::journal::{added_by_source, entry_script};
+    let source = r#"// kjk_hoth_beat
+// While the quest is open (AddJournalQuestEntry("kjk_hoth_clear", 15) is not called here)
+/* AddJournalQuestEntry("kjk_hoth_clear", 16); */
+void main()
+{
+    string sQuest = "kjk_hoth_clear";
+    AddJournalQuestEntry(sQuest, 30);
+    SendMessageToPC(GetFirstPC(), "// not a comment");
+    AddJournalQuestEntry( "KJK_Hoth_Clear" ,20);
+    MyAddJournalQuestEntry("kjk_hoth_clear", 40);
+    AddJournalQuestEntry("kje_vessk", 10, TRUE);
+}
+"#;
+    assert_eq!(
+        added_by_source(source),
+        vec![
+            ("kjk_hoth_clear".to_string(), 20),
+            ("kje_vessk".to_string(), 10)
+        ]
+    );
+    let made = entry_script(
+        "kjk_hoth_cle_20",
+        "kjk_hoth_clear",
+        20,
+        "No enemy\nis left.",
+        true,
+    );
+    assert!(made.contains("// The entry reads: \"No enemy is left.\""));
+    assert!(made.contains("This entry closes the quest."));
+    assert_eq!(
+        added_by_source(&made),
+        vec![("kjk_hoth_clear".to_string(), 20)]
+    );
+}
+
+/// A conversation's skill check, picked in the editor, is written as a
+/// condition and, when it costs items, as a script that spends them and
+/// then runs the line's own script. Each is read back from its header. A
+/// Computer Use check spends computer spikes (`K_COMPUTER_SPIKE`), a Repair
+/// check repair parts (`K_REPAIR_PART`), and a Security check security
+/// spikes (`g_i_secspike01`). A Persuade check costs nothing.
+#[test]
+fn skill_checks_of_conversations() {
+    use level_edit::checks::{
+        Check, condition, fresh_name, is_condition, payment, read_condition, read_payment, skill,
+    };
+    let check = Check {
+        skill: "computer".into(),
+        score: 6,
+        cost: 2,
+    };
+    let made = condition(&check);
+    assert!(is_condition(&made));
+    assert_eq!(read_condition(&made), Some(check.clone()));
+    assert!(made.contains("GetSkillRank(SKILL_COMPUTER_USE, oPC) < 6"));
+    assert!(made.contains("GetItemPossessedBy(GetFirstPC(), \"K_COMPUTER_SPIKE\")"));
+    assert!(made.contains("GetNumStackedItems(oItem) < 2"));
+    assert_eq!(
+        check.described(),
+        "Needs a Computer Use of 6, and 2 computer spikes, which are spent."
+    );
+
+    let paid = payment(&check, "kjk_hoth_turrets");
+    assert_eq!(
+        read_payment(&paid),
+        Some(("computer".into(), 2, "kjk_hoth_turrets".into()))
+    );
+    assert!(paid.contains("SetItemStackSize(oItem, nHave - 2);"));
+    assert!(paid.contains("ExecuteScript(\"kjk_hoth_turrets\", OBJECT_SELF);"));
+    let alone = payment(&check, "");
+    assert_eq!(
+        read_payment(&alone),
+        Some(("computer".into(), 2, String::new()))
+    );
+    assert!(!alone.contains("ExecuteScript"));
+    assert_eq!(read_condition(&paid), None);
+    assert_eq!(read_payment(&made), None);
+
+    let repair = Check {
+        skill: "repair".into(),
+        score: 10,
+        cost: 1,
+    };
+    assert!(condition(&repair).contains("\"K_REPAIR_PART\""));
+    assert_eq!(
+        repair.described(),
+        "Needs a Repair of 10, and 1 repair part, which is spent."
+    );
+    assert!(
+        condition(&Check {
+            skill: "security".into(),
+            score: 8,
+            cost: 3
+        })
+        .contains("\"g_i_secspike01\"")
+    );
+    let persuade = Check {
+        skill: "persuade".into(),
+        score: 12,
+        cost: 0,
+    };
+    let said = condition(&persuade);
+    assert!(said.contains("SKILL_PERSUADE"));
+    assert!(!said.contains("GetItemPossessedBy"));
+    assert_eq!(persuade.described(), "Needs a Persuade of 12.");
+    assert!(skill("persuade").is_some_and(|skill| skill.item.is_none()));
+
+    assert_eq!(fresh_name(false, |name| name == "kjc_1"), "kjc_2");
+    assert_eq!(fresh_name(true, |_| false), "kjp_1");
+    // A script written by hand is no check.
+    assert_eq!(
+        read_condition("int StartingConditional() { return TRUE; }"),
+        None
+    );
+}
+
 /// A sound object's template as the level editor plays it for its user
 /// (`asset_odyssey::sound::Emitter`): its flags, its pause and its sounds
 /// are read from the UTS, and its mixing group follows from whether it

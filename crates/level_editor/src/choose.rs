@@ -251,7 +251,7 @@ pub(crate) struct Names {
 }
 
 /// A text of the talk table, as the editor shows text (one byte a letter).
-fn talk_text(state: &EditorState, strref: u32) -> Option<String> {
+pub(crate) fn talk_text(state: &EditorState, strref: u32) -> Option<String> {
     let talk = state.setup.talk.as_ref()?;
     let bytes = talk.text(strref)?;
     let text: String = bytes.iter().map(|&b| char::from(b)).collect();

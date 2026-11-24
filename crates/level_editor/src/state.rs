@@ -3830,6 +3830,22 @@ fn command_words(
                 listed.push(format!("{id}{closes}: {text}"));
             }
             state.answer = Some(format!("quest {tag}: {name}; {}", listed.join("; ")));
+            for line in crate::quest_links::described(state, &tag) {
+                state.say(format!("  {line}"));
+            }
+        }
+        ["quest", "script", tag, n] => {
+            let id: u32 = n
+                .parse()
+                .map_err(|_| format!("{n:?} is not an entry's number"))?;
+            let (tag, _, entries) = level_edit::journal::quest(&journal(state), tag)
+                .ok_or(format!("the journal has no quest {tag}"))?;
+            let (_, text, end) = (entries.iter())
+                .find(|(had, _, _)| *had == id)
+                .ok_or(format!("the quest {tag} has no entry {id}"))?;
+            let name = quest_script_name(state, &tag, id)?;
+            let text = level_edit::journal::entry_script(&name, &tag, id, text, *end);
+            add_script(state, &name, text)?;
         }
         ["item", "add", item] => {
             let target = selected(state)?;
@@ -4723,6 +4739,54 @@ fn conversation_command(
             state.apply_many(edits);
             return Ok(());
         }
+        // A skill check on a link (`level_edit::checks`): `check LINK SKILL
+        // SCORE [COST]`, or `check LINK none`.
+        ["check", link @ ..] => {
+            let (at, used) = link_at(link)?;
+            let check = match &link[used..] {
+                ["none"] => None,
+                [skill, score, cost @ ..] if cost.len() <= 1 => {
+                    let score =
+                        (score.parse::<i32>()).map_err(|_| format!("{score:?} is not a score"))?;
+                    let cost = match cost.first() {
+                        Some(cost) => (cost.parse::<u32>())
+                            .map_err(|_| format!("{cost:?} is not a number of items"))?,
+                        None => 0,
+                    };
+                    Some(level_edit::checks::Check {
+                        skill: skill.to_ascii_lowercase(),
+                        score,
+                        cost,
+                    })
+                }
+                _ => return Err("a check is SKILL SCORE [COST], or none".into()),
+            };
+            let said = match &check {
+                Some(check) => format!("the link's skill check: {}", check.described()),
+                None => "the link has no skill check now".to_string(),
+            };
+            set_check(state, &name, at, check)?;
+            state.say(said);
+            return Ok(());
+        }
+        // The script of a line that spends a check's cost is the one it
+        // runs once the cost is spent.
+        ["script", side, n, script] => {
+            let (side, n) = node_at(side, n)?;
+            let gff = (state.editor.project.conversations.get(&name))
+                .ok_or(format!("the project has no conversation {name}"))?;
+            let dlg = level_edit::dialog::read(gff);
+            let nodes = match side {
+                level_edit::dialog::Side::Entry => &dlg.entries,
+                level_edit::dialog::Side::Reply => &dlg.replies,
+            };
+            let runs = nodes
+                .get(n)
+                .map_or_else(String::new, |node| node.script.script.clone());
+            if payment_of(state, &runs).is_some() {
+                return set_payment_then(state, &runs, &none(script));
+            }
+        }
         // A plain `add` answers the new node's number too.
         ["add"] | ["add", _, _] => {
             let under = match rest {
@@ -4931,6 +4995,223 @@ pub(crate) fn set_blocks(
     if script != name {
         state.change_template(target, Change::Script(event.to_string(), name));
     }
+    Ok(())
+}
+
+/// Holds `text` as the draft of the project's script `name`, which the
+/// next save writes and compiles.
+fn put_draft(state: &mut EditorState, name: &str, text: String) {
+    match state.drafts.get_mut(name) {
+        Some(draft) => draft.text = text,
+        None => {
+            let saved = script_text(state, name).unwrap_or_else(String::new);
+            state
+                .drafts
+                .insert(name.to_string(), crate::script_edit::Draft { text, saved });
+        }
+    }
+}
+
+/// The project's conversation `name`, read, and where its link `at` leads:
+/// the side and the number of the line or reply.
+fn conversation_link(
+    state: &EditorState,
+    name: &str,
+    at: level_edit::dialog::LinkAt,
+) -> Result<
+    (
+        fmt_odyssey::dlg::Dlg,
+        level_edit::dialog::Side,
+        usize,
+        String,
+    ),
+    String,
+> {
+    use level_edit::dialog::{LinkAt, Side};
+    let gff = (state.editor.project.conversations.get(name))
+        .ok_or(format!("the project has no conversation {name}"))?;
+    let dlg = level_edit::dialog::read(gff);
+    let (side, link) = match at {
+        LinkAt::Start(n) => (Side::Entry, dlg.starts.get(n)),
+        LinkAt::From(from, parent, n) => {
+            let nodes = if from == Side::Entry {
+                &dlg.entries
+            } else {
+                &dlg.replies
+            };
+            (
+                from.other(),
+                nodes.get(parent).and_then(|node| node.links.get(n)),
+            )
+        }
+    };
+    let link = link.ok_or(format!("the conversation {name} has no such link"))?;
+    let (index, condition) = (link.index as usize, link.active.script.to_ascii_lowercase());
+    Ok((dlg, side, index, condition))
+}
+
+/// The skill check on the link `at` of the project's conversation `name`,
+/// if its condition is one (`level_edit::checks`).
+pub(crate) fn link_check(
+    state: &EditorState,
+    name: &str,
+    at: level_edit::dialog::LinkAt,
+) -> Option<level_edit::checks::Check> {
+    let (_, _, _, condition) = conversation_link(state, name, at).ok()?;
+    if condition.is_empty() {
+        return None;
+    }
+    level_edit::checks::read_condition(&script_text(state, &condition)?)
+}
+
+/// What the script `script` holds when it spends a check's cost: the
+/// skill, the cost, and the script it runs after.
+pub(crate) fn payment_of(state: &EditorState, script: &str) -> Option<(String, u32, String)> {
+    if script.is_empty() {
+        return None;
+    }
+    level_edit::checks::read_payment(&script_text(state, &script.to_ascii_lowercase())?)
+}
+
+/// Sets the skill check of the link `at` of the project's conversation
+/// `name`, or takes it away (`None`). The check's condition is the link's
+/// condition. When the check costs items, the line or reply the link leads
+/// to runs a script that spends them, then runs the script it ran before.
+/// Taking the check away gives the link no condition, and gives the line
+/// or reply back the script it ran before.
+pub(crate) fn set_check(
+    state: &mut EditorState,
+    name: &str,
+    at: level_edit::dialog::LinkAt,
+    check: Option<level_edit::checks::Check>,
+) -> Result<(), String> {
+    use level_edit::checks;
+    use level_edit::dialog::{Edit as Talk, Side};
+    let name = name.to_ascii_lowercase();
+    if let Some(check) = &check {
+        if checks::skill(&check.skill).is_none() {
+            return Err(format!(
+                "{:?} is not a skill: a check asks for {}",
+                check.skill,
+                (checks::SKILLS.iter().map(|skill| skill.key))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if !(0..=checks::MOST_SCORE).contains(&check.score) || check.cost > checks::MOST_COST {
+            return Err(format!(
+                "a check asks for a score from 0 to {} and costs 0 to {} items",
+                checks::MOST_SCORE,
+                checks::MOST_COST
+            ));
+        }
+    }
+    let (dlg, side, index, condition) = conversation_link(state, &name, at)?;
+    let node = match side {
+        Side::Entry => dlg.entries.get(index),
+        Side::Reply => dlg.replies.get(index),
+    }
+    .ok_or(format!("the conversation {name} has no node {index}"))?;
+    let runs = node.script.script.to_ascii_lowercase();
+    let held = (!condition.is_empty())
+        .then(|| script_text(state, &condition))
+        .flatten()
+        .is_some_and(|text| checks::is_condition(&text));
+    let paid = payment_of(state, &runs);
+    // The script the line ran before a check's cost was added to it.
+    let then = paid
+        .as_ref()
+        .map_or_else(|| runs.clone(), |(_, _, then)| then.clone());
+    let series = own_series(&state.editor.project.name);
+    let fresh = |state: &EditorState, payment: bool| {
+        let prefix = if payment { "kjp_" } else { "kjc_" };
+        checks::fresh_name(payment, |candidate| {
+            outside_series(candidate, prefix, series)
+                || state.project_scripts.contains(candidate)
+                || state.drafts.contains_key(candidate)
+                || state
+                    .setup
+                    .scripts
+                    .binary_search(&candidate.to_string())
+                    .is_ok()
+        })
+    };
+    let mut edits = Vec::new();
+    match &check {
+        Some(check) => {
+            let script = if held {
+                condition.clone()
+            } else {
+                fresh(state, false)
+            };
+            put_draft(state, &script, checks::condition(check));
+            if script != condition {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Condition(at, script),
+                ));
+            }
+            let costs = checks::skill(&check.skill).is_some_and(|skill| skill.item.is_some())
+                && check.cost > 0;
+            if costs {
+                let script = if paid.is_some() {
+                    runs.clone()
+                } else {
+                    fresh(state, true)
+                };
+                put_draft(state, &script, checks::payment(check, &then));
+                if script != runs {
+                    edits.push(Edit::Conversation(
+                        name.clone(),
+                        Talk::Script(side, index, script),
+                    ));
+                }
+            } else if paid.is_some() {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Script(side, index, then.clone()),
+                ));
+            }
+        }
+        None => {
+            if held {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Condition(at, String::new()),
+                ));
+            }
+            if paid.is_some() {
+                edits.push(Edit::Conversation(
+                    name.clone(),
+                    Talk::Script(side, index, then.clone()),
+                ));
+            }
+        }
+    }
+    if !edits.is_empty() {
+        state.apply_many(edits);
+    }
+    Ok(())
+}
+
+/// Sets the script that a line or reply which spends a check's cost runs
+/// after it has spent it: the script `payment` spends the cost and then runs
+/// `then` (empty for none).
+pub(crate) fn set_payment_then(
+    state: &mut EditorState,
+    payment: &str,
+    then: &str,
+) -> Result<(), String> {
+    let payment = payment.to_ascii_lowercase();
+    let (skill, cost, _) =
+        payment_of(state, &payment).ok_or(format!("{payment} spends no check's cost"))?;
+    let check = level_edit::checks::Check {
+        skill,
+        score: 0,
+        cost,
+    };
+    let then = then.trim().to_ascii_lowercase();
+    put_draft(state, &payment, level_edit::checks::payment(&check, &then));
     Ok(())
 }
 
@@ -5667,22 +5948,58 @@ fn entrance_add(
 /// a conversation's `StartingConditional`.
 fn new_script(state: &mut EditorState, name: &str, conditional: bool) -> Result<(), String> {
     let name = name.to_ascii_lowercase();
-    if state.project_scripts.contains(&name) || state.drafts.contains_key(&name) {
+    let text = crate::script_edit::template(&name, conditional);
+    add_script(state, &name, text)
+}
+
+/// A new script of the project, `name`, with the text `text`, opened in
+/// the viewer. The next save writes and compiles it.
+fn add_script(state: &mut EditorState, name: &str, text: String) -> Result<(), String> {
+    if state.project_scripts.contains(name) || state.drafts.contains_key(name) {
         return Err(format!("the project has a script {name} already"));
     }
-    if let Some(problem) = crate::script_edit::name_problem(&name) {
+    if let Some(problem) = crate::script_edit::name_problem(name) {
         return Err(problem);
     }
     state.drafts.insert(
-        name.clone(),
+        name.to_string(),
         crate::script_edit::Draft {
-            text: crate::script_edit::template(&name, conditional),
+            text,
             saved: String::new(),
         },
     );
     state.say(format!("new script {name}"));
-    state.pending_ui.push(vec!["view".into(), name]);
+    state.pending_ui.push(vec!["view".into(), name.to_string()]);
     Ok(())
+}
+
+/// A free name for a new script that adds the entry `id` of the quest
+/// `tag`: the tag and the number (`kje_vessk_30`), with the tag cut short
+/// to fit 16 characters. When that name is taken, a letter goes before the
+/// number (`kje_vessk_b30`).
+fn quest_script_name(state: &EditorState, tag: &str, id: u32) -> Result<String, String> {
+    let taken = |name: &str| {
+        state.project_scripts.contains(name)
+            || state.drafts.contains_key(name)
+            || state.setup.scripts.binary_search(&name.to_string()).is_ok()
+    };
+    let tag: String = (tag.to_ascii_lowercase().chars())
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
+        .collect();
+    let tag = tag.trim_end_matches('_');
+    for letter in std::iter::once(None).chain(('b'..='z').map(Some)) {
+        let number = match letter {
+            Some(letter) => format!("_{letter}{id}"),
+            None => format!("_{id}"),
+        };
+        let room = 16usize.saturating_sub(number.len());
+        let head: String = tag.chars().take(room).collect();
+        let name = format!("{}{number}", head.trim_end_matches('_'));
+        if crate::script_edit::name_problem(&name).is_none() && !taken(&name) {
+            return Ok(name);
+        }
+    }
+    Err(format!("no free name for a script of the quest {tag}"))
 }
 
 /// Saves (which writes and compiles the scripts), then tries `name` for the
