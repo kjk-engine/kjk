@@ -6,9 +6,11 @@ use super::menus::{keys, root};
 use super::paint::{Fake, button};
 use super::vm_screens::{disabled, opened, words};
 use super::{Check, check, expect};
+use crate::input::{Key, UiInput};
 use crate::intent::{GameAction, Intent};
 use crate::screen::Screen;
 use crate::vm::{CompanionView, PartyChange, PartySelectionView, SceneView, ViewModel};
+use fmt_odyssey::gui::{Control, Kind, MoveTo};
 
 /// Three slots: Trask in the first, none in the second, Carth in the
 /// third, in his clothes. A script's screen (`open`) forces Trask in, and
@@ -121,7 +123,7 @@ pub(super) fn all() -> Vec<Check> {
     // A pad: the slot its focus is on, X (a double click) adds it.
     let mut pad = opened("party", &mut assets, &vm);
     presses(&mut pad, &mut assets, &vm, &["BTN_NPC2"]);
-    pad.step(&mut assets, &vm, &keys(&[crate::input::Key::Primary]));
+    pad.step(&mut assets, &vm, &keys(&[Key::Primary]));
     let pad_added = words(&pad, &vm, "LBL_COUNT");
 
     // Opened in play, Carth chosen, Add or Remove pressed, then Done.
@@ -255,9 +257,23 @@ const MOVED_PLACES: [[i32; 2]; 12] = {
 /// that already gives them places of their own, they keep those.
 fn both_of_a_pair(at: &[[i32; 2]; 12]) -> Result<String, String> {
     let mut assets = Fake::new();
-    let controls = (["BTN_NPC", "LBL_CHAR", "LBL_NA"].iter())
-        .flat_map(|prefix| (0..12).map(move |npc| (format!("{prefix}{npc}"), at[npc])))
-        .map(|(tag, [left, top])| button(&tag, [left, top, 80, 80], b""))
+    let controls = (["BTN_NPC", "LBL_CHAR", "LBL_NA"].iter().enumerate())
+        .flat_map(|(piece, prefix)| (0..12).map(move |npc| (piece, npc, prefix)))
+        .map(|(piece, npc, prefix)| {
+            let [left, top] = at[npc];
+            let inset = if piece == 0 { 0 } else { INSET };
+            let extent = [left + inset, top + inset, 80 - 2 * inset, 80 - 2 * inset];
+            Control {
+                id: (piece * 12 + npc) as i32,
+                moveto: (piece == 0).then(|| ring_link(npc)),
+                kind: if piece == 0 {
+                    Kind::Button
+                } else {
+                    Kind::Label
+                },
+                ..button(&format!("{prefix}{npc}"), extent, b"")
+            }
+        })
         .collect();
     assets
         .layouts
@@ -308,9 +324,51 @@ fn both_of_a_pair(at: &[[i32; 2]; 12]) -> Result<String, String> {
         &format!("Hanharr and the Disciple in {want:?}: {places:?}"),
         places.get(10..) == Some(&want[..]) && places[..10] == at[..10],
     )?;
+    let inset = (stack.extent_of("BTN_NPC10"), stack.extent_of("LBL_CHAR10"));
+    expect(
+        &format!("Hanharr's portrait inside his button: {inset:?}"),
+        inset.0.zip(inset.1).is_some_and(|(button, portrait)| {
+            portrait.left == button.left + INSET
+                && portrait.top == button.top + INSET
+                && portrait.width == 80 - 2 * INSET
+        }),
+    )?;
+    let [left, top] = at[3];
+    let hover = UiInput {
+        pointer: Some([left as f32 + 40.0, top as f32 + 40.0]),
+        moved: true,
+        ..keys(&[])
+    };
+    stack.step(&mut assets, &vm, &hover);
+    let from = stack.focused().map(str::to_string);
+    stack.step(&mut assets, &vm, &keys(&[Key::Right]));
+    let to = stack.focused().map(str::to_string);
+    let next = if at[10] == at[7] {
+        "BTN_NPC10"
+    } else {
+        "BTN_NPC4"
+    };
+    expect(
+        &format!("Right from BTN_NPC3 reaches {next}: {from:?} to {to:?}"),
+        from.as_deref() == Some("BTN_NPC3") && to.as_deref() == Some(next),
+    )?;
     Ok(format!(
-        "twelve places, Hanharr and the Disciple at {want:?}"
+        "twelve places, Hanharr and the Disciple at {want:?}, Right from BTN_NPC3 reaches {next}"
     ))
+}
+
+/// How far the probe layouts set a portrait inside its button, on each side.
+const INSET: i32 = 4;
+
+/// A focus link of KOTOR 2's ring. The Right key from the middle row's left
+/// place (3) goes across the ring to its right place (4).
+fn ring_link(npc: usize) -> MoveTo {
+    MoveTo {
+        up: -1,
+        down: -1,
+        left: -1,
+        right: if npc == 3 { 4 } else { -1 },
+    }
 }
 
 /// KOTOR 2's stand-in slots: with Hanharr (10) available and the Disciple

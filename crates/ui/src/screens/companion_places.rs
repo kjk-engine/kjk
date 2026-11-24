@@ -60,12 +60,15 @@ pub fn put(gui: &mut Gui, at: usize, to: Rect) {
     }
 }
 
+/// Whether `tag` is a place's button: `BTN_NPC` and a number.
+fn is_place(tag: &str) -> bool {
+    (tag.strip_prefix("BTN_NPC")).is_some_and(|n| n.parse::<u8>().is_ok())
+}
+
 /// The buttons of the layout's places, those of zero size left out.
 fn buttons(gui: &Gui) -> Vec<Rect> {
     (gui.controls.iter())
-        .filter(|control| {
-            (control.tag.strip_prefix("BTN_NPC")).is_some_and(|n| n.parse::<u8>().is_ok())
-        })
+        .filter(|control| is_place(&control.tag))
         .map(|control| control.extent)
         .filter(|rect| rect.width > 0 && rect.height > 0)
         .collect()
@@ -99,7 +102,10 @@ fn free_place(gui: &Gui) -> Option<Rect> {
     let left = buttons.iter().map(|rect| rect.left).min()?;
     let right = buttons.iter().map(|rect| rect.left + rect.width).max()?;
     rows.iter().find_map(|&top| {
-        let anchor = buttons.iter().find(|rect| rect.top == top)?.left;
+        let anchor = (buttons.iter())
+            .filter(|rect| rect.top == top)
+            .map(|rect| rect.left)
+            .min()?;
         let start = anchor - (anchor - left) / pitch * pitch;
         (0..)
             .map(|k| start + k * pitch)
@@ -114,6 +120,31 @@ fn free_place(gui: &Gui) -> Option<Rect> {
     })
 }
 
+/// Moves place `at` so that its button's corner is at `to`'s corner. Each
+/// piece moves by the same distance and keeps its size, so a portrait the
+/// layout sets inside the button stays inside it.
+fn shift(gui: &mut Gui, at: u8, from: Rect, to: Rect) {
+    let (right, down) = (to.left - from.left, to.top - from.top);
+    for prefix in PIECES {
+        let tag = format!("{prefix}{at}");
+        if let Some(control) = gui.controls.iter_mut().find(|control| control.tag == tag) {
+            control.extent.left += right;
+            control.extent.top += down;
+        }
+    }
+}
+
+/// Clears the focus links of every place's button. The keyboard and the
+/// gamepad then reach the nearest place in each direction, the moved ones
+/// too. The layout's links lead around the ring and past the moved places.
+fn unlink(gui: &mut Gui) {
+    for control in &mut gui.controls {
+        if is_place(&control.tag) {
+            control.moveto = None;
+        }
+    }
+}
+
 /// The party screen's places, for the stand-ins in `both`: those whose
 /// pair is available too. A stand-in whose button lies over its pair's
 /// button moves to a free place of the grid. Returns the stand-ins that
@@ -121,6 +152,7 @@ fn free_place(gui: &Gui) -> Option<Rect> {
 /// KOTOR 2's own screen.
 pub fn separate(gui: &mut Gui, both: &[u8]) -> Vec<u8> {
     let mut crowded = Vec::new();
+    let mut moved = false;
     for &(stand_in, pair) in STAND_INS
         .iter()
         .filter(|(stand_in, _)| both.contains(stand_in))
@@ -135,9 +167,15 @@ pub fn separate(gui: &mut Gui, both: &[u8]) -> Vec<u8> {
             continue;
         }
         match free_place(gui) {
-            Some(to) => put(gui, usize::from(stand_in), to),
+            Some(to) => {
+                shift(gui, stand_in, own, to);
+                moved = true;
+            }
             None => crowded.push(stand_in),
         }
+    }
+    if moved {
+        unlink(gui);
     }
     crowded
 }

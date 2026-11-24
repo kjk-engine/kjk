@@ -605,8 +605,7 @@ fn twelve_companions() -> Check {
             })
             .collect();
     }
-    let mut stack = opened("lobby", &mut assets, &vm);
-    stack.step(&mut assets, &vm, &super::menus::keys(&[]));
+    let stack = opened("lobby", &mut assets, &vm);
     let (lefts, last) = row_edges(&stack, 13);
     let shown = (0..13)
         .filter(|at| !stack.hidden(&format!("LBL_CHAR{at}"), &vm))

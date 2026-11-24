@@ -150,6 +150,19 @@ pub struct Lobby {
     shaped: usize,
 }
 
+impl Lobby {
+    /// The lobby, its row laid out for the places `vm`'s lobby needs, so the
+    /// layout is not shaped a second time on the first frame.
+    pub fn new(vm: &ViewModel) -> Lobby {
+        let places = places(Lobby::lobby(vm));
+        Lobby {
+            focus: None,
+            places,
+            shaped: places,
+        }
+    }
+}
+
 impl Default for Lobby {
     fn default() -> Lobby {
         Lobby {
