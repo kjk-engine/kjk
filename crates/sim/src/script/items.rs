@@ -216,7 +216,7 @@ impl State {
     /// A new item of `template` with `holder`, unless the template is not
     /// known. A carried stackable item joins a stack of the same template
     /// the holder has room on (the rest a new stack); the item made or
-    /// joined.
+    /// joined. `restore_item_unstacked` is the one that never joins.
     pub fn make_item(
         &mut self,
         catalog: &Catalog,
@@ -264,7 +264,7 @@ impl State {
     /// A new item of `template` as a save held it, never joining a stack,
     /// as the original games add a saved item; none if the template is not
     /// known. The caller sets the charges, upgrades and flags the save kept.
-    pub fn restore_item(
+    pub fn restore_item_unstacked(
         &mut self,
         catalog: &Catalog,
         template: &str,

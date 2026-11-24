@@ -270,6 +270,7 @@ pub fn story_probes() -> sim::probe::Checks {
             "story_restores_own_items",
             restores_own_items(&level, &save),
         ),
+        ("story_item_carries_every_field", item_carries_every_field()),
         (
             "story_restores_item_fields",
             restores_item_fields(&level, &save),
@@ -747,6 +748,52 @@ fn restores_items_elsewhere(level: &sim::Level, save: &sim::Save) -> Result<Stri
     check(
         found == (true, false) && none == (false, true),
         format!("(held, said lost) with the lookup {found:?}, without {none:?}"),
+    )
+}
+
+/// An item with every field set to something other than a default comes
+/// back from its story entry as it was, on an item made from its template,
+/// but for the holder and `infinite`, which the story leaves out on
+/// purpose. A field `Item` gains and the story misses shows here.
+fn item_carries_every_field() -> Result<String, String> {
+    use sim::inventory::Item;
+    let item = Item {
+        template: "fixture_all".into(),
+        holder: 7,
+        slot: Some(4),
+        stack: 3,
+        charges: 6,
+        droppable: false,
+        plot: true,
+        identified: false,
+        infinite: true,
+        non_equippable: true,
+        upgrades: 5,
+        fitted: vec!["fixture_part".into()],
+    };
+    let mut made = Item {
+        template: "fixture_all".into(),
+        holder: 9,
+        slot: None,
+        stack: 1,
+        charges: 0,
+        droppable: true,
+        plot: false,
+        identified: true,
+        infinite: false,
+        non_equippable: false,
+        upgrades: 0,
+        fitted: Vec::new(),
+    };
+    story::StoryItem::of(&item).apply(&mut made);
+    let expected = Item {
+        holder: 9,
+        infinite: false,
+        ..item
+    };
+    check(
+        made == expected,
+        format!("restored {made:?}, expected {expected:?}"),
     )
 }
 

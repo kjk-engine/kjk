@@ -117,6 +117,11 @@ droppable, identified and non-equippable flags of an item, writes the same
 items when the restored world is written again, and gives an item of an old
 story, which has no flags, its template's values. It is not an approved
 test, and it runs only through `kjk sim probes --only "save story"`.
+The probe `story_item_carries_every_field` of the group "save story" (issue
+701) was proposed 2026-11-24 and awaits approval. It checks that an item with
+every field set comes back from its story entry as it was, except for its
+holder and its `infinite` flag, which a story leaves out on purpose. It is not
+an approved test, and it runs only through `kjk sim probes --only "save story"`.
 The probes `story_keeps_hints`, `story_without_hints_reads`,
 `new_game_has_no_hints_or_visits` and `hint_rows_follow_the_original` of the
 group "save story" (the loading screen hints) were proposed 2026-11-24 and

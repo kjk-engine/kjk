@@ -186,6 +186,57 @@ pub struct StoryItem {
     pub non_equippable: Option<bool>,
 }
 
+impl StoryItem {
+    /// What a story keeps of `item`. Every field of `Item` is named, so an
+    /// `Item` that gains a field does not compile until it is either kept
+    /// here or left out on purpose: the holder, which the story's key
+    /// names, and `infinite`, which a store's template gives again.
+    pub fn of(item: &sim::inventory::Item) -> StoryItem {
+        let sim::inventory::Item {
+            template,
+            holder: _,
+            slot,
+            stack,
+            charges,
+            droppable,
+            plot,
+            identified,
+            infinite: _,
+            non_equippable,
+            upgrades,
+            fitted,
+        } = item;
+        StoryItem {
+            template: template.clone(),
+            slot: *slot,
+            stack: *stack,
+            charges: *charges,
+            upgrades: *upgrades,
+            fitted: fitted.clone(),
+            plot: Some(*plot),
+            droppable: Some(*droppable),
+            identified: Some(*identified),
+            non_equippable: Some(*non_equippable),
+        }
+    }
+
+    /// Puts what the story kept onto `item`, which a restore made from the
+    /// item's template. The template, the holder and `infinite` stay as
+    /// they are, and a flag an old story did not keep stays as the
+    /// template gave it.
+    pub fn apply(&self, item: &mut sim::inventory::Item) {
+        item.slot = self.slot;
+        item.stack = self.stack.max(1);
+        item.charges = self.charges;
+        item.upgrades = self.upgrades;
+        item.fitted = self.fitted.clone();
+        item.plot = self.plot.unwrap_or(item.plot);
+        item.droppable = self.droppable.unwrap_or(item.droppable);
+        item.identified = self.identified.unwrap_or(item.identified);
+        item.non_equippable = self.non_equippable.unwrap_or(item.non_equippable);
+    }
+}
+
 /// The galaxy map's planets (`planetary.2da` rows).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -604,18 +655,7 @@ fn held_items(
             let items: Vec<StoryItem> = script
                 .items
                 .held_by(holder)
-                .map(|(_, item)| StoryItem {
-                    template: item.template.clone(),
-                    slot: item.slot,
-                    stack: item.stack,
-                    charges: item.charges,
-                    upgrades: item.upgrades,
-                    fitted: item.fitted.clone(),
-                    plot: Some(item.plot),
-                    droppable: Some(item.droppable),
-                    identified: Some(item.identified),
-                    non_equippable: Some(item.non_equippable),
-                })
+                .map(|(_, item)| StoryItem::of(&item))
                 .collect();
             (!items.is_empty()).then_some((label, items))
         })
