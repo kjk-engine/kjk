@@ -2,8 +2,8 @@
 //! against the player's files, installed into the store and loaded by the
 //! game (`docs/LIGHTING-PLAN.md`, step 10).
 //!
-//! The bakes are made for KOTOR 1 with the K1 Community Patch and for
-//! KOTOR 2 with TSLRCM. The launcher downloads one zip for a game, with its
+//! The bakes are made for KOTOR with the K1 Community Patch and for
+//! KOTOR II with TSLRCM. The launcher downloads one zip for a game, with its
 //! manifest beside it. kjk downloads nothing. Its commands take the two
 //! files from the launcher's folder (`kjk lighting check` and `install`).
 //!
@@ -117,12 +117,115 @@ pub fn needs(game: Game) -> &'static str {
     }
 }
 
-/// A game's name as the player is told it.
-fn game_name(game: Game) -> &'static str {
+/// A game's name as the player is told it. These are the launcher's names
+/// for the games, since the player reads these messages in the launcher.
+pub fn game_name(game: Game) -> &'static str {
     match game {
-        Game::Kotor1 => "KOTOR 1",
-        Game::Kotor2 => "KOTOR 2",
+        Game::Kotor1 => "KOTOR",
+        Game::Kotor2 => "KOTOR II",
         Game::JediAcademy => "Jedi Academy",
+    }
+}
+
+/// What went wrong, for the launcher to act on. The JSON answers of
+/// `kjk lighting` give it as `kind`, beside the sentence `why`. The set is
+/// closed: a new value is a change the launcher must learn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    /// kjk found no folder for its store.
+    NoStore,
+    /// kjk may not write into its store's folder.
+    StoreNotWritable,
+    /// The disk of the store is full.
+    DiskFull,
+    /// Another program holds a file of the store open, as a running kjk
+    /// does.
+    InUse,
+    /// kjk did not find the game.
+    GameNotFound,
+    /// The game's files could not be read.
+    GameUnreadable,
+    /// The manifest (the list of areas) could not be read from its file.
+    ListUnreadable,
+    /// The manifest is not a manifest this kjk reads.
+    ListInvalid,
+    /// The manifest is for another game than the one asked for.
+    WrongGame,
+    /// The zip could not be opened.
+    ZipUnreadable,
+    /// The zip's size or BLAKE3 is not the one the manifest gives, as for a
+    /// damaged or incomplete download.
+    ZipMismatch,
+    /// The zip does not unpack, or holds files the manifest does not list.
+    ZipDamaged,
+    /// Too few areas of the player's files match the download.
+    FilesDiffer,
+    /// The download is of another bake format than this kjk reads.
+    BakeFormat,
+    /// Anything else. `why` says what.
+    Other,
+}
+
+impl Kind {
+    /// The kind of an error in writing into the store.
+    pub fn of_write(error: &std::io::Error) -> Kind {
+        // ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION on Windows;
+        // ERROR_HANDLE_DISK_FULL and ERROR_DISK_FULL there, ENOSPC elsewhere.
+        let code = error.raw_os_error();
+        let (in_use, full) = if cfg!(windows) {
+            (
+                matches!(code, Some(32 | 33)),
+                matches!(code, Some(39 | 112)),
+            )
+        } else {
+            (false, code == Some(28))
+        };
+        if full || error.kind() == std::io::ErrorKind::StorageFull {
+            Kind::DiskFull
+        } else if in_use {
+            Kind::InUse
+        } else if error.kind() == std::io::ErrorKind::PermissionDenied {
+            Kind::StoreNotWritable
+        } else {
+            Kind::Other
+        }
+    }
+}
+
+/// Why a command of the lighting download failed: its kind and a sentence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failure {
+    pub kind: Kind,
+    pub why: String,
+}
+
+impl Failure {
+    pub fn new(kind: Kind, why: impl Into<String>) -> Failure {
+        Failure {
+            kind,
+            why: why.into(),
+        }
+    }
+
+    /// A failure to write `path` into the store.
+    fn write(path: &Path, error: &std::io::Error) -> Failure {
+        Failure::new(
+            Kind::of_write(error),
+            format!("{}: {error}", path.display()),
+        )
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
+}
+
+impl From<Failure> for String {
+    fn from(failure: Failure) -> String {
+        failure.why
     }
 }
 
@@ -199,9 +302,23 @@ impl Manifest {
 
     /// The manifest in the file at `path`.
     pub fn read(path: &Path) -> Result<Manifest, String> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        Manifest::parse(&text).map_err(|why| format!("{}: {why}", path.display()))
+        Manifest::load(path).map_err(String::from)
+    }
+
+    /// The manifest in the file at `path`, or what went wrong: the file
+    /// does not read (`ListUnreadable`), or its text is not a manifest
+    /// (`ListInvalid`).
+    pub fn load(path: &Path) -> Result<Manifest, Failure> {
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            let kind = if error.kind() == std::io::ErrorKind::InvalidData {
+                Kind::ListInvalid
+            } else {
+                Kind::ListUnreadable
+            };
+            Failure::new(kind, format!("{}: {error}", path.display()))
+        })?;
+        Manifest::parse(&text)
+            .map_err(|why| Failure::new(Kind::ListInvalid, format!("{}: {why}", path.display())))
     }
 
     /// The manifest's text, which `parse` reads back.
@@ -287,6 +404,19 @@ impl Report {
             self.areas,
             (MATCH_SHARE * 100.0).round()
         ))
+    }
+
+    /// Why the download may not be installed, when it may not: the
+    /// manifest's bake format is not the one this kjk reads, or too few
+    /// areas match.
+    pub fn refusal_kind(&self, format: u32) -> Option<Kind> {
+        if self.allowed {
+            None
+        } else if format != bake_fingerprint::FORMAT {
+            Some(Kind::BakeFormat)
+        } else {
+            Some(Kind::FilesDiffer)
+        }
     }
 
     /// The report as plain sentences, one a line.
@@ -394,9 +524,17 @@ pub fn check(
     store: Option<&Store>,
     manifest: &Manifest,
     progress: &mut dyn FnMut(Progress),
-) -> Result<Report, String> {
+) -> Result<Report, Failure> {
     let game = manifest.game;
-    let install = crate::installs::open(&crate::discover(), game)?;
+    let discovery = crate::discover();
+    let install = crate::installs::open(&discovery, game).map_err(|why| {
+        let kind = if discovery.get(game).is_some() {
+            Kind::GameUnreadable
+        } else {
+            Kind::GameNotFound
+        };
+        Failure::new(kind, why)
+    })?;
     let files = files_key(game, &install.index);
     let key = store::Key::of(
         CHECKS,
@@ -571,24 +709,25 @@ pub fn install(
     manifest: &Manifest,
     zip: &Path,
     progress: &mut dyn FnMut(Progress),
-) -> Result<PathBuf, String> {
-    let (blake3, bytes) = digest_of(zip)?;
+) -> Result<PathBuf, Failure> {
+    let (blake3, bytes) = digest_of(zip).map_err(|why| Failure::new(Kind::ZipUnreadable, why))?;
     if bytes != manifest.archive.bytes || blake3 != manifest.archive.blake3 {
-        return Err(format!(
-            "{} is not the download the manifest names: it has {bytes} bytes, and the manifest gives {} bytes and another BLAKE3. The download may be incomplete.",
-            zip.display(),
-            manifest.archive.bytes
+        return Err(Failure::new(
+            Kind::ZipMismatch,
+            format!(
+                "{} is not the download the manifest names: it has {bytes} bytes, and the manifest gives {} bytes and another BLAKE3. The download may be incomplete.",
+                zip.display(),
+                manifest.archive.bytes
+            ),
         ));
     }
     let target = folder(store, manifest.game);
     let partial = target.with_extension("partial");
     let old = target.with_extension("old");
-    let failed =
-        |path: &Path, error: &dyn std::fmt::Display| format!("{}: {error}", path.display());
     if partial.exists() {
-        std::fs::remove_dir_all(&partial).map_err(|error| failed(&partial, &error))?;
+        std::fs::remove_dir_all(&partial).map_err(|error| Failure::write(&partial, &error))?;
     }
-    std::fs::create_dir_all(&partial).map_err(|error| failed(&partial, &error))?;
+    std::fs::create_dir_all(&partial).map_err(|error| Failure::write(&partial, &error))?;
     let unpacked = unpack(manifest, zip, &partial, progress);
     let checked = unpacked.and_then(|()| check_unpacked(manifest, &partial));
     if let Err(why) = checked {
@@ -596,20 +735,20 @@ pub fn install(
         return Err(why);
     }
     std::fs::write(partial.join(MANIFEST), manifest.text())
-        .map_err(|error| failed(&partial.join(MANIFEST), &error))?;
+        .map_err(|error| Failure::write(&partial.join(MANIFEST), &error))?;
     // The older install goes aside, the new one into its place, and the
     // older one is removed. A rename that fails puts the older one back.
     if old.exists() {
-        std::fs::remove_dir_all(&old).map_err(|error| failed(&old, &error))?;
+        std::fs::remove_dir_all(&old).map_err(|error| Failure::write(&old, &error))?;
     }
     if target.exists() {
-        std::fs::rename(&target, &old).map_err(|error| failed(&target, &error))?;
+        std::fs::rename(&target, &old).map_err(|error| Failure::write(&target, &error))?;
     }
     if let Err(error) = std::fs::rename(&partial, &target) {
         if old.exists() {
             let _ = std::fs::rename(&old, &target);
         }
-        return Err(failed(&target, &error));
+        return Err(Failure::write(&target, &error));
     }
     if old.exists() {
         let _ = std::fs::remove_dir_all(&old);
@@ -624,57 +763,69 @@ fn unpack(
     zip: &Path,
     into: &Path,
     progress: &mut dyn FnMut(Progress),
-) -> Result<(), String> {
-    let failed = |error: &dyn std::fmt::Display| format!("{}: {error}", zip.display());
-    let file = std::fs::File::open(zip).map_err(|error| failed(&error))?;
-    let mut archive = ::zip::ZipArchive::new(file).map_err(|error| failed(&error))?;
+) -> Result<(), Failure> {
+    let damaged = |error: &dyn std::fmt::Display| {
+        Failure::new(Kind::ZipDamaged, format!("{}: {error}", zip.display()))
+    };
+    let file = std::fs::File::open(zip).map_err(|error| {
+        Failure::new(Kind::ZipUnreadable, format!("{}: {error}", zip.display()))
+    })?;
+    let mut archive = ::zip::ZipArchive::new(file).map_err(|error| damaged(&error))?;
     let areas: std::collections::BTreeSet<&str> = (manifest.areas.iter())
         .map(|area| area.area.as_str())
         .collect();
     let mut seen = std::collections::BTreeSet::new();
+    let mut bytes = Vec::new();
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|error| failed(&error))?;
+        let mut entry = archive.by_index(index).map_err(|error| damaged(&error))?;
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().map_err(|error| failed(&error))?.to_string();
+        let name = entry.name().map_err(|error| damaged(&error))?.to_string();
         let parts: Vec<&str> = name.split('/').collect();
         let [area, file] = parts.as_slice() else {
-            return Err(failed(&format!("{name} is not a file in an area's folder")));
+            return Err(damaged(&format!(
+                "{name} is not a file in an area's folder"
+            )));
         };
         if !plain_name(area) || !plain_name(file) || !areas.contains(area) || !shipped(file) {
-            return Err(failed(&format!(
+            return Err(damaged(&format!(
                 "{name} is not a file of an area that the manifest lists"
             )));
         }
         let folder = into.join(area);
         if seen.insert((*area).to_string()) {
-            std::fs::create_dir_all(&folder).map_err(|error| failed(&error))?;
+            std::fs::create_dir_all(&folder).map_err(|error| Failure::write(&folder, &error))?;
             progress(Progress {
                 done: seen.len(),
                 total: areas.len(),
                 area,
             });
         }
+        // The entry is read whole first, so that a zip that does not read
+        // is told apart from a disk that does not take the file.
+        bytes.clear();
+        std::io::Read::read_to_end(&mut entry, &mut bytes)
+            .map_err(|error| damaged(&format!("{name}: {error}")))?;
         let path = folder.join(file);
-        let mut out =
-            std::fs::File::create(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-        std::io::copy(&mut entry, &mut out)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
+        std::fs::write(&path, &bytes).map_err(|error| Failure::write(&path, &error))?;
     }
     Ok(())
 }
 
 /// Whether every area of `manifest` was unpacked into `folder` with the
 /// manifest's fingerprint.
-fn check_unpacked(manifest: &Manifest, folder: &Path) -> Result<(), String> {
+fn check_unpacked(manifest: &Manifest, folder: &Path) -> Result<(), Failure> {
     for area in &manifest.areas {
         match bake_fingerprint::read(&folder.join(&area.area)) {
             Some(Ok(print)) if print == area.stamp(manifest.format) => {}
             _ => {
-                return Err(format!(
-                    "the download's folder of area {} does not hold the fingerprint its manifest gives",
-                    area.area
+                return Err(Failure::new(
+                    Kind::ZipDamaged,
+                    format!(
+                        "the download's folder of area {} does not hold the fingerprint its manifest gives",
+                        area.area
+                    ),
                 ));
             }
         }
@@ -710,7 +861,7 @@ pub fn status(store: &Store) -> Vec<(Game, Option<Installed>)> {
 
 /// Removes `game`'s installed download from `store`, with what an install
 /// left half done. Whether there was one.
-pub fn remove(store: &Store, game: Game) -> Result<bool, String> {
+pub fn remove(store: &Store, game: Game) -> Result<bool, Failure> {
     let target = folder(store, game);
     let mut removed = false;
     for path in [
@@ -719,8 +870,7 @@ pub fn remove(store: &Store, game: Game) -> Result<bool, String> {
         target.clone(),
     ] {
         if path.exists() {
-            std::fs::remove_dir_all(&path)
-                .map_err(|error| format!("{}: {error}", path.display()))?;
+            std::fs::remove_dir_all(&path).map_err(|error| Failure::write(&path, &error))?;
             removed |= path == target;
         }
     }

@@ -10,8 +10,8 @@ use store::Store;
 use vfs::Game;
 
 use super::{
-    Archive, Area, FallBack, MANIFEST, Manifest, Report, allowed, digest_of, files_key, folder,
-    folders_in, install, needs, remove,
+    Archive, Area, FallBack, Kind, MANIFEST, Manifest, Report, allowed, digest_of, files_key,
+    folder, folders_in, install, needs, remove,
 };
 use crate::bake_fingerprint;
 use crate::probe_kit::{Checks, check};
@@ -101,6 +101,24 @@ fn the_manifest_reads_back() -> Result<String, String> {
     check(
         wrong.is_empty(),
         format!("these texts read as manifests: {wrong:?}"),
+    )?;
+    // A file that is no manifest, and a file that is not there, each say
+    // what went wrong.
+    let root = scratch("manifest");
+    let other = root.join("other.txt");
+    std::fs::write(&other, "SHA256SUMS\n").map_err(|error| format!("other.txt: {error}"))?;
+    let kinds = [
+        Manifest::load(&other)
+            .map(|_| ())
+            .map_err(|failure| failure.kind),
+        Manifest::load(&root.join("missing.txt"))
+            .map(|_| ())
+            .map_err(|failure| failure.kind),
+    ];
+    let _ = std::fs::remove_dir_all(&root);
+    check(
+        kinds == [Err(Kind::ListInvalid), Err(Kind::ListUnreadable)],
+        format!("another file and a missing one read as {kinds:?}"),
     )
 }
 
@@ -147,12 +165,24 @@ fn the_install_needs_nine_areas_in_ten() -> Result<String, String> {
     )?;
     let refused = Report {
         allowed: false,
-        ..report
+        ..report.clone()
     };
     let refusal = refused
         .refusal()
         .ok_or("a report not allowed has no refusal")?;
-    check(refusal.contains("KOTOR 2 with TSLRCM"), refusal)
+    check(refusal.contains("KOTOR II with TSLRCM"), refusal)?;
+    // The kind of a refusal: the files differ, or the bake's format is
+    // not the one this kjk reads.
+    let format = bake_fingerprint::FORMAT;
+    let kinds = [
+        report.refusal_kind(format),
+        refused.refusal_kind(format),
+        refused.refusal_kind(format + 1),
+    ];
+    check(
+        kinds == [None, Some(Kind::FilesDiffer), Some(Kind::BakeFormat)],
+        format!("the kinds of the refusals are {kinds:?}"),
+    )
 }
 
 /// The check's key stays the same when nothing changes and when a voice
@@ -239,9 +269,12 @@ fn install_in(root: &Path) -> Result<String, String> {
         ],
     );
     // The wrong size or BLAKE3 is refused before anything is written.
+    let wrong = install(&store, &manifest, &path, &mut |_| {});
     check(
-        install(&store, &manifest, &path, &mut |_| {}).is_err(),
-        "a download of the wrong size and BLAKE3 installed".into(),
+        wrong
+            .as_ref()
+            .is_err_and(|failure| failure.kind == Kind::ZipMismatch),
+        format!("a download of the wrong size and BLAKE3 installed as {wrong:?}"),
     )?;
     check(
         !folder(&store, Game::Kotor2).exists(),
@@ -308,9 +341,19 @@ fn install_in(root: &Path) -> Result<String, String> {
         blake3,
         bytes,
     };
+    let evil = install(&store, &manifest, &bad, &mut |_| {});
     check(
-        install(&store, &manifest, &bad, &mut |_| {}).is_err(),
-        "a zip with ../evil.txt installed".into(),
+        evil.as_ref()
+            .is_err_and(|failure| failure.kind == Kind::ZipDamaged),
+        format!("a zip with ../evil.txt installed as {evil:?}"),
+    )?;
+    // The errors of a write into the store say what the player can do.
+    let full = std::io::Error::from_raw_os_error(if cfg!(windows) { 112 } else { 28 });
+    let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+    let kinds = [Kind::of_write(&full), Kind::of_write(&denied)];
+    check(
+        kinds == [Kind::DiskFull, Kind::StoreNotWritable],
+        format!("a full disk and a denied write are {kinds:?}"),
     )?;
     let count = folders_in(&store).len();
     check(

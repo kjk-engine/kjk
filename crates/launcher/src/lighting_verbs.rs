@@ -14,37 +14,91 @@
 //! for each area. The last line is the answer: `{"check": {...}}` for a
 //! check, and `{"games": [...], "check": {...}}` for an install. Without
 //! `--json` they print plain sentences.
+//!
+//! The check gives `bake_format`, the format of the download's bakes, and
+//! `reads_format`, the format this kjk reads. When they differ, every area
+//! keeps the game's own lighting and the install is refused.
+//!
+//! A game's line with the status `failed` or `refused`, and a refused
+//! check, give `kind` beside the sentence `why`, for the launcher to act
+//! on (`lighting_bakes::Kind`). The values are:
+//!
+//! - `no_store`: kjk found no folder for its store.
+//! - `store_not_writable`: kjk may not write into the store's folder.
+//! - `disk_full`: the store's disk is full.
+//! - `in_use`: another program, such as a running kjk, holds a file of the
+//!   store open.
+//! - `game_not_found`: kjk did not find the game.
+//! - `game_unreadable`: kjk found the game, and its files could not be read.
+//! - `list_unreadable`: the manifest's file could not be read.
+//! - `list_invalid`: the manifest is not one this kjk reads.
+//! - `wrong_game`: the manifest is for another game than `--game`, or the
+//!   game asked for has no download.
+//! - `zip_unreadable`: the zip could not be opened.
+//! - `zip_mismatch`: the zip's size or BLAKE3 is not the manifest's, as for
+//!   a damaged or incomplete download.
+//! - `zip_damaged`: the zip does not unpack, or holds files the manifest
+//!   does not list.
+//! - `files_differ`: too few areas of the player's files match (refused).
+//! - `bake_format`: the download is of another bake format (refused).
+//! - `other`: anything else.
+//!
+//! A failed line of the kinds `store_not_writable`, `disk_full` and
+//! `in_use` also gives `store`, the store's folder. An older kjk gives
+//! none of `kind`, `store`, `bake_format` and `reads_format`.
 
 use std::path::Path;
 use std::process::ExitCode;
 
-use kjk_game::lighting_bakes::{self, Manifest, Progress, Report};
+use kjk_game::bake_fingerprint;
+use kjk_game::lighting_bakes::{self, Failure, Kind, Manifest, Progress, Report};
 use serde_json::{Value, json};
 use store::Store;
 use vfs::Game;
 
 /// The store, or why there is none.
-fn opened() -> Result<Store, String> {
-    Store::open().ok_or_else(|| "kjk found no folder for its store. Set KJK_STORE.".to_string())
+fn opened() -> Result<Store, Failure> {
+    Store::open().ok_or_else(|| {
+        Failure::new(
+            Kind::NoStore,
+            "kjk found no folder for its store. Set KJK_STORE.",
+        )
+    })
 }
 
 /// A KOTOR game by its key.
-fn kotor(key: &str) -> Result<Game, String> {
+fn kotor(key: &str) -> Result<Game, Failure> {
     Game::from_key(key)
         .filter(|game| *game != Game::JediAcademy)
-        .ok_or_else(|| format!("{key} is not a game with a lighting download. Use k1 or tsl."))
+        .ok_or_else(|| {
+            Failure::new(
+                Kind::WrongGame,
+                format!("{key} is not a game with a lighting download. Use k1 or tsl."),
+            )
+        })
 }
 
 /// Prints a failure: one JSON line for `game` with `json`, else the reason.
-fn failed(json: bool, game: Option<Game>, why: &str) -> ExitCode {
+/// A failure to write into the store names the store's folder as `store`.
+fn failed(json: bool, game: Option<Game>, failure: &Failure) -> ExitCode {
     if json {
         let game = game.map_or(Value::Null, |game| json!(game.key()));
-        outln!(
-            "{}",
-            json!({"games": [{"game": game, "status": "failed", "why": why}]})
-        );
+        let mut line = json!({
+            "game": game,
+            "status": "failed",
+            "why": failure.why,
+            "kind": failure.kind,
+        });
+        if matches!(
+            failure.kind,
+            Kind::StoreNotWritable | Kind::DiskFull | Kind::InUse
+        ) && let Some(store) = Store::open()
+        {
+            line["store"] = json!(store.root());
+        }
+        outln!("{}", json!({"games": [line]}));
     } else {
-        eprintln!("{why}");
+        eprintln!("{}", failure.why);
     }
     ExitCode::FAILURE
 }
@@ -62,8 +116,8 @@ fn progress_line(step: &str, progress: &Progress) {
     );
 }
 
-/// The check's report as JSON.
-fn report_json(report: &Report) -> Value {
+/// The check's report of `manifest` as JSON.
+fn report_json(report: &Report, manifest: &Manifest) -> Value {
     json!({
         "game": report.game,
         "status": if report.allowed { "allowed" } else { "refused" },
@@ -75,6 +129,9 @@ fn report_json(report: &Report) -> Value {
         "fall_back": report.fall_back,
         "cached": report.cached,
         "why": report.refusal(),
+        "kind": report.refusal_kind(manifest.format),
+        "bake_format": manifest.format,
+        "reads_format": bake_fingerprint::FORMAT,
     })
 }
 
@@ -84,18 +141,21 @@ fn checked(
     path: &Path,
     game: Option<&str>,
     json: bool,
-) -> Result<(Manifest, Report), (Option<Game>, String)> {
-    let manifest = Manifest::read(path).map_err(|why| (None, why))?;
+) -> Result<(Manifest, Report), (Option<Game>, Failure)> {
+    let manifest = Manifest::load(path).map_err(|failure| (None, failure))?;
     if let Some(key) = game {
-        let asked = kotor(key).map_err(|why| (None, why))?;
+        let asked = kotor(key).map_err(|failure| (None, failure))?;
         if asked != manifest.game {
             return Err((
                 Some(asked),
-                format!(
-                    "{} is the lighting download for {}, not for {}.",
-                    path.display(),
-                    manifest.game.key(),
-                    asked.key()
+                Failure::new(
+                    Kind::WrongGame,
+                    format!(
+                        "{} is the lighting download for {}, not for {}.",
+                        path.display(),
+                        lighting_bakes::game_name(manifest.game),
+                        lighting_bakes::game_name(asked)
+                    ),
                 ),
             ));
         }
@@ -107,7 +167,7 @@ fn checked(
             progress_line("check", &progress);
         }
     })
-    .map_err(|why| (Some(manifest.game), why))?;
+    .map_err(|failure| (Some(manifest.game), failure))?;
     if !json {
         let how = if report.cached {
             "from an earlier check".to_string()
@@ -121,12 +181,12 @@ fn checked(
 
 /// `kjk lighting check <manifest> [--game] [--json]`.
 pub(crate) fn check(path: &Path, game: Option<&str>, json: bool) -> ExitCode {
-    let (_, report) = match checked(path, game, json) {
+    let (manifest, report) = match checked(path, game, json) {
         Ok(found) => found,
-        Err((game, why)) => return failed(json, game, &why),
+        Err((game, failure)) => return failed(json, game, &failure),
     };
     if json {
-        outln!("{}", json!({"check": report_json(&report)}));
+        outln!("{}", json!({"check": report_json(&report, &manifest)}));
     } else {
         for line in report.sentences() {
             outln!("{line}");
@@ -144,7 +204,7 @@ pub(crate) fn check(path: &Path, game: Option<&str>, json: bool) -> ExitCode {
 pub(crate) fn install(path: &Path, zip: &Path, json: bool) -> ExitCode {
     let (manifest, report) = match checked(path, None, json) {
         Ok(found) => found,
-        Err((game, why)) => return failed(json, game, &why),
+        Err((game, failure)) => return failed(json, game, &failure),
     };
     let game = manifest.game;
     if let Some(refusal) = report.refusal() {
@@ -153,8 +213,13 @@ pub(crate) fn install(path: &Path, zip: &Path, json: bool) -> ExitCode {
             outln!(
                 "{}",
                 json!({
-                    "games": [{"game": game.key(), "status": "refused", "why": refusal}],
-                    "check": report_json(&report),
+                    "games": [{
+                        "game": game.key(),
+                        "status": "refused",
+                        "why": refusal,
+                        "kind": report.refusal_kind(manifest.format),
+                    }],
+                    "check": report_json(&report, &manifest),
                 })
             );
         } else {
@@ -164,7 +229,7 @@ pub(crate) fn install(path: &Path, zip: &Path, json: bool) -> ExitCode {
     }
     let store = match opened() {
         Ok(store) => store,
-        Err(why) => return failed(json, Some(game), &why),
+        Err(failure) => return failed(json, Some(game), &failure),
     };
     let installed = lighting_bakes::install(&store, &manifest, zip, &mut |progress| {
         if json {
@@ -183,7 +248,7 @@ pub(crate) fn install(path: &Path, zip: &Path, json: bool) -> ExitCode {
                             "path": folder,
                             "areas": manifest.areas.len(),
                         }],
-                        "check": report_json(&report),
+                        "check": report_json(&report, &manifest),
                     })
                 );
             } else {
@@ -192,13 +257,13 @@ pub(crate) fn install(path: &Path, zip: &Path, json: bool) -> ExitCode {
                 }
                 outln!(
                     "The new lighting for {} is installed, with {} areas. Choose Lighting: Enhanced Lightmaps in the advanced graphics options to use it.",
-                    game.key(),
+                    lighting_bakes::game_name(game),
                     manifest.areas.len()
                 );
             }
             ExitCode::SUCCESS
         }
-        Err(why) => failed(json, Some(game), &why),
+        Err(failure) => failed(json, Some(game), &failure),
     }
 }
 
@@ -229,7 +294,7 @@ fn status_json(game: Game, installed: Option<&lighting_bakes::Installed>) -> Val
 pub(crate) fn status(json: bool) -> ExitCode {
     let store = match opened() {
         Ok(store) => store,
-        Err(why) => return failed(json, None, &why),
+        Err(failure) => return failed(json, None, &failure),
     };
     let found = lighting_bakes::status(&store);
     if json {
@@ -240,21 +305,20 @@ pub(crate) fn status(json: bool) -> ExitCode {
         return ExitCode::SUCCESS;
     }
     for (game, installed) in &found {
+        let name = lighting_bakes::game_name(*game);
         match installed
             .as_ref()
             .map(|installed| (&installed.manifest, &installed.folder))
         {
-            None => outln!("No lighting download is installed for {}.", game.key()),
+            None => outln!("No lighting download is installed for {name}."),
             Some((Ok(manifest), folder)) => outln!(
-                "The lighting download {} is installed for {}, with {} areas, in {}.",
+                "The lighting download {} is installed for {name}, with {} areas, in {}.",
                 manifest.archive.file,
-                game.key(),
                 manifest.areas.len(),
                 folder.display()
             ),
             Some((Err(why), folder)) => outln!(
-                "The lighting download for {} in {} does not read, so the game does not use it: {why}",
-                game.key(),
+                "The lighting download for {name} in {} does not read, so the game does not use it: {why}",
                 folder.display()
             ),
         }
@@ -266,12 +330,13 @@ pub(crate) fn status(json: bool) -> ExitCode {
 pub(crate) fn remove(key: &str, json: bool) -> ExitCode {
     let game = match kotor(key) {
         Ok(game) => game,
-        Err(why) => return failed(json, None, &why),
+        Err(failure) => return failed(json, None, &failure),
     };
     let store = match opened() {
         Ok(store) => store,
-        Err(why) => return failed(json, Some(game), &why),
+        Err(failure) => return failed(json, Some(game), &failure),
     };
+    let name = lighting_bakes::game_name(game);
     match lighting_bakes::remove(&store, game) {
         Ok(removed) => {
             if json {
@@ -281,12 +346,12 @@ pub(crate) fn remove(key: &str, json: bool) -> ExitCode {
                     json!({"games": [{"game": game.key(), "status": status}]})
                 );
             } else if removed {
-                outln!("The lighting download for {} is removed.", game.key());
+                outln!("The lighting download for {name} is removed.");
             } else {
-                outln!("No lighting download was installed for {}.", game.key());
+                outln!("No lighting download was installed for {name}.");
             }
             ExitCode::SUCCESS
         }
-        Err(why) => failed(json, Some(game), &why),
+        Err(failure) => failed(json, Some(game), &failure),
     }
 }
