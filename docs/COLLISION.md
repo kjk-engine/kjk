@@ -265,7 +265,17 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     753 ms (152har), where the slowest before took 553 ms (851nih).
   - What it does not cover:
     - placeables made during play (`MadeWalls` in `sim::walk`). They are
-      not in the built level and keep their walls;
+      not in the built level and keep their walls. A character meets a
+      made placeable as boxes along the edge of its walkmesh
+      (`world::made_bodies`). A character moving round across meets each
+      box as a box, as it meets the level's brushes, and only a living
+      character's body round across. Met round, each box was smaller than
+      the box the mover's own test for standing inside the placeable used,
+      so a player counted as inside before touching it and walked through
+      it. The swoop bikes and speeders that the dune sea's scripts make on
+      Tatooine (K1 tat_m18aa) were walked through this way (bug report of
+      2026-11-23). The synthetic collision probe `upright meets a cell as a
+      box` checks the rule;
     - an animated placeable's other looks. The shape is the model at
       rest, so a footlocker's open lid is not solid;
     - a broken droid (`plc_brokndrd`). It is all small, low parts, so a
