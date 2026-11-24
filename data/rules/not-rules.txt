@@ -571,6 +571,7 @@ crates/sim/src/script/mod.rs SEEN  # perception kind id
 crates/sim/src/script/mod.rs TRACE_LINES  # report buffer size
 crates/sim/src/script/mod.rs TRACE_TAIL  # report buffer size
 crates/sim/src/script/mod.rs VANISHED  # perception kind id
+crates/sim/src/script/xp.rs SWITCHED_OUT  # an experience holder id
 crates/sim/src/script/party.rs ACCEPTED  # the party selection screen's exit script var, accepted
 crates/sim/src/script/party.rs ARMOR  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs BASES  # the names of the modules that are the party's bases, a list
