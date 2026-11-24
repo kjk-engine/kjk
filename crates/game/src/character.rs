@@ -853,7 +853,7 @@ fn members(
                 .or(persona.map(|persona| persona.gender))
                 .unwrap_or(0),
             abilities: sheet.abilities,
-            player: seat.is_some(),
+            is_pc: seat.is_some(),
             tag: data.map_or_else(String::new, |data| data.tag.clone()),
             tsl,
             // As the sim weighs it (`script::items::wearer`): its body's row.

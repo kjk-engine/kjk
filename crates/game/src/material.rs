@@ -676,8 +676,9 @@ impl Surface {
 /// cards, `m02aa_10b`, lightmapped planes whose DXT5 hides a black field and
 /// the author's mark). Decal only when every texture is one; additive when any texture says so, with
 /// alpha or without, as KOTOR's executable reads a texture's TXI (xoreos
-/// only without). KOTOR meshes always carry a hint, so a hint above 1 or a
-/// decal makes a mesh transparent, but not a skinned one (`skinned`): a
+/// only without). KOTOR meshes always carry a hint. A hint above 1 makes a
+/// mesh transparent when its texture has alpha, and so does a decal. A
+/// skinned mesh (`skinned`) is not made transparent by its hint. A
 /// character's skin is one closed mesh that a draw without depth shows
 /// through itself (TSL's `pfhc06` carries 2 on its whole head, and its mouth
 /// and nose showed through its face), so it blends with the depth kept
@@ -716,13 +717,13 @@ pub fn surface(
     let bumpmap = loaded.iter().any(|facts| facts.bumpmap.is_some());
     if additive {
         Surface::Additive
-    } else if decal || mesh_alpha < 1.0 || (hint > 1 && !skinned) {
+    } else if decal || mesh_alpha < 1.0 || (hint > 1 && !skinned && alpha) {
         Surface::Blend
     } else if alpha && envmap {
         Surface::OpaqueEnvMasked
     } else if alpha && punch_through {
         Surface::Cutout
-    } else if hint > 1 || (alpha && !bumpmap) {
+    } else if (hint > 1 && skinned) || (alpha && !bumpmap) {
         Surface::OpaqueAlpha
     } else {
         Surface::Opaque
@@ -885,6 +886,14 @@ pub struct OdysseyMaterial {
     /// emitters: drawn after every other surface, in that order
     /// (`EMITTERS_LAST`).
     pub emitted: Option<u32>,
+    /// Where a blended opaque surface (`OpaqueAlpha`) sorts among the
+    /// others. A room's mesh has a rank from 0 to 1, which is the share of
+    /// its texture that is not opaque. Every other model's mesh has
+    /// `OBJECTS_RANK`.
+    /// KOTOR draws the textures with the least alpha last, so a patch of
+    /// sand cut out by its alpha lies over the ground it sits on, and not
+    /// the other way round (`depth_bias`).
+    pub rank: f32,
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
     pub listed_quads: bool,
@@ -1229,6 +1238,7 @@ impl OdysseyMaterial {
             surface,
             culled: false,
             emitted: None,
+            rank: 0.0,
             motion_only: false,
             listed_quads: false,
             looks: None,
@@ -1423,6 +1433,12 @@ impl OdysseyMaterial {
         self.culled = true;
     }
 
+    /// Its sort rank (`rank`).
+    pub fn ranked(mut self, rank: f32) -> OdysseyMaterial {
+        self.rank = rank;
+        self
+    }
+
     /// Its back faces culled (`culled`), or not.
     pub fn culled(mut self, culled: bool) -> OdysseyMaterial {
         self.culled = culled;
@@ -1474,6 +1490,147 @@ pub fn cutout_probes() -> sim::probe::Checks {
     )]
 }
 
+/// Checks `TextureIr::sort_key` (the rule is in `asset_odyssey::texture`)
+/// on built textures (`kjk sim probes --only "texture sort key"`; proposed
+/// 2026-11-23).
+#[cfg(feature = "probes")]
+pub fn sort_key_probes() -> sim::probe::Checks {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::texture::{Mip, PixelFormat, Texture};
+    use fmt_odyssey::txi::Txi;
+
+    let key = |format: PixelFormat, data: Vec<u8>, txi: &str, header: Option<f32>| {
+        let texture = Texture {
+            format,
+            layers: vec![vec![Mip {
+                width: 4,
+                height: 4,
+                data,
+            }]],
+            cube: false,
+            txi: Txi::parse(txi.as_bytes()),
+            bottom_up: true,
+            missing_mips: 0,
+            declared_size: None,
+            mips_stored: true,
+            header_key: header,
+        };
+        TextureIr::from_texture(&texture, None).map(|ir| ir.sort_key())
+    };
+    let half: Vec<u8> = (0..16)
+        .flat_map(|texel| [10, 20, 30, if texel < 8 { 255 } else { 0 }])
+        .collect();
+    let is = |name, got: Option<f32>, want: f32| {
+        (
+            name,
+            sim::probe::check(got == Some(want), format!("{got:?}, expected {want}")),
+        )
+    };
+    vec![
+        is(
+            "the header's float beats the TXI's alphamean and the pixels",
+            key(
+                PixelFormat::Rgba8,
+                half.clone(),
+                "alphamean 0.25",
+                Some(0.75),
+            ),
+            0.75,
+        ),
+        is(
+            "the TXI's alphamean is used when there is no header float",
+            key(PixelFormat::Rgba8, half.clone(), "alphamean 0.25", None),
+            0.25,
+        ),
+        is(
+            "an uncompressed texture with neither averages its alpha",
+            key(PixelFormat::Rgba8, half.clone(), "", None),
+            0.5,
+        ),
+        is(
+            "an uncompressed texture without alpha is 1",
+            key(PixelFormat::Rgb8, vec![9; 48], "", None),
+            1.0,
+        ),
+        is(
+            "a compressed texture with neither is 1, not its alpha mean",
+            key(PixelFormat::Dxt5, vec![0; 16], "", None),
+            1.0,
+        ),
+        is(
+            "a header float of -1 counts as none, so a compressed texture is 1",
+            key(PixelFormat::Dxt5, vec![0; 16], "", Some(-1.0)),
+            1.0,
+        ),
+        is(
+            "a header float of -1 counts as none, so an uncompressed texture averages its alpha",
+            key(PixelFormat::Rgba8, half.clone(), "", Some(-1.0)),
+            0.5,
+        ),
+        is(
+            "a header float of -1 does not fall back to the TXI's alphamean",
+            key(
+                PixelFormat::Rgba8,
+                half.clone(),
+                "alphamean 0.25",
+                Some(-1.0),
+            ),
+            0.5,
+        ),
+        is(
+            "a negative number other than -1 is used as it is",
+            key(PixelFormat::Rgba8, half, "", Some(-0.5)),
+            -0.5,
+        ),
+    ]
+}
+
+/// `kjk sim probes`' transparency hint group. KOTOR's executable never
+/// reads the hint to blend. It blends every mesh by its texture's alpha and
+/// writes depth, so a mesh whose texture has no alpha is solid. TSL's
+/// Dantooine slab (`brok04` of `605dank`, hint 4, a texture with no alpha)
+/// was drawn blended and without depth, and it hid the ivy (`brok05`) that
+/// grows on it.
+#[cfg(feature = "probes")]
+pub fn hint_probes() -> sim::probe::Checks {
+    vec![(
+        "a hint blends only a mesh whose texture has alpha",
+        hint_blends(),
+    )]
+}
+
+#[cfg(feature = "probes")]
+fn hint_blends() -> Result<String, String> {
+    let with_alpha = TextureFacts {
+        alpha: true,
+        ..TextureFacts::default()
+    };
+    let without = TextureFacts::default();
+    let cases = [
+        (4, false, &without, Surface::Opaque),
+        (4, false, &with_alpha, Surface::Blend),
+        (4, true, &without, Surface::OpaqueAlpha),
+        (4, true, &with_alpha, Surface::OpaqueAlpha),
+        (0, false, &without, Surface::Opaque),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|&(hint, skinned, facts, wanted)| {
+            let got = surface((hint, skinned), 1.0, (Some(facts), &[facts]));
+            (got != wanted).then(|| {
+                format!(
+                    "hint {hint}, skinned {skinned}, alpha {}: {got:?}, wanted {wanted:?}",
+                    facts.alpha
+                )
+            })
+        })
+        .collect();
+    sim::probe::check(
+        wrong.is_empty(),
+        format!("{} cases, wrong: {wrong:?}", cases.len()),
+    )
+}
+
 #[cfg(feature = "probes")]
 fn prepass_reads_as_main() -> Result<String, String> {
     // Every read of the base texture in a shader, as written.
@@ -1500,8 +1657,22 @@ fn prepass_reads_as_main() -> Result<String, String> {
 
 /// `depth_bias` of a blended opaque surface (one that writes depth: this
 /// material's `OpaqueAlpha`, the grass): farther than anything in view,
-/// keeping their order among themselves.
+/// keeping their order among themselves: by their texture's alpha
+/// (`OdysseyMaterial::rank`), then by distance.
 pub const OPAQUE_FIRST: f32 = -1.0e5;
+/// How far apart the ranks 0 and 1 of blended opaque surfaces sort
+/// (`OdysseyMaterial::rank`): more than any distance in view.
+pub const RANK_STEP: f32 = 1.0e4;
+/// The `OdysseyMaterial::rank` of a blended opaque surface of any model that
+/// is not a room, such as a creature, a placeable or a door. KOTOR draws every
+/// mesh of a room, and its grass, before any of them. They therefore rank
+/// after the room's ranks (0 to 1) and the grass. A creature's half
+/// see-through texels write depth, so one drawn before the room hid the wall
+/// behind it.
+pub const OBJECTS_RANK: f32 = 2.0;
+/// `depth_bias` of the grass. It sorts after every blended opaque surface of
+/// a room, whose ranks run from 0 to 1.
+pub const GRASS_AFTER_MESHES: f32 = OPAQUE_FIRST + RANK_STEP;
 
 /// `depth_bias` of an emitter's particles: nearer than anything in view,
 /// so they are drawn after the meshes, as KOTOR draws its emitters after
@@ -1669,7 +1840,7 @@ impl Material for OdysseyMaterial {
     /// has alpha, not Kreia's robe, which has none).
     fn depth_bias(&self) -> f32 {
         match self.surface {
-            Surface::OpaqueAlpha => OPAQUE_FIRST,
+            Surface::OpaqueAlpha => OPAQUE_FIRST + self.rank * RANK_STEP,
             _ => self
                 .emitted
                 .map_or(0.0, |rank| EMITTERS_LAST + rank as f32 * EMITTER_STEP),

@@ -245,7 +245,7 @@ impl Editor<'_> {
     /// `holder` as an item's use limits ask of it: its sheet's alignment,
     /// race, feats and scores, the classes its career gives, the game's
     /// rules.
-    fn wearer(&self, holder: u32, sheet: &sim::combat::sheet::Sheet, player: bool) -> Wearer {
+    fn wearer(&self, holder: u32, sheet: &sim::combat::sheet::Sheet, is_pc: bool) -> Wearer {
         let mut classes = [u8::MAX; 2];
         if let Some(career) = self.save.script.careers.get(&holder) {
             for (into, (class, _)) in classes.iter_mut().zip(career) {
@@ -266,7 +266,7 @@ impl Editor<'_> {
             feats: sheet.feats,
             gender: 0,
             abilities: sheet.abilities,
-            player,
+            is_pc,
             tag: String::new(),
             tsl: passive::Game::named(game) == passive::Game::Tsl,
             // The editor warns of limits rather than holding to them, and a

@@ -761,13 +761,14 @@ fn fight_light_rooms() {
 /// is in every room with a floor whose bounds hold it, so a camera in the
 /// wall between two rooms shows what both rooms see. A sky's bounds do not
 /// count. Outside every room it is in none, and every room shows. Needs
-/// `--features rig`; no installs. (proposed 2026-11-15, #464)
+/// `--features rig`; no installs. (proposed 2026-11-15, #464; a fifth check
+/// proposed 2026-11-23, #638)
 #[test]
 fn camera_rooms() {
     #[cfg(not(feature = "rig"))]
     println!("camera_rooms skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("camera rooms", &kjk::probes::camera_rooms(), 4);
+    probed("camera rooms", &kjk::probes::camera_rooms(), 5);
 }
 
 /// What the capsule shadows send the shader (`kjk::probes::capsule_shadows`),
@@ -3117,6 +3118,7 @@ fn opaque_alpha_channel_is_no_alpha() {
         missing_mips: 0,
         declared_size: None,
         mips_stored: true,
+        header_key: None,
     };
     let rgba = |last: u8| {
         let mut data = [200, 200, 200, 255].repeat(16);
@@ -3202,7 +3204,9 @@ fn lightmapped_cut_out_by_diffuse() {
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
 /// TSL's override subfolders one level down, co-op's check covering just
 /// the override files read. On installs written there; no
-/// installs needed (approved 2026-11-05).
+/// installs needed (approved 2026-11-05). A texture held as both a TPC and
+/// a TGA loads the copy the games load (`texture_formats`, proposed
+/// 2026-11-24, not yet approved).
 #[test]
 fn mod_precedence() {
     probed("precedence", &vfs::probes::probes(), 5);
@@ -4461,7 +4465,7 @@ fn real_mods() {
 /// Assemble. The sim alone (proposed 2026-11-17, awaiting approval).
 #[test]
 fn workbench() {
-    probed("workbench", &sim::workshop_probes::probes(), 16);
+    probed("workbench", &sim::workshop_probes::probes(), 18);
 }
 
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
@@ -4990,7 +4994,7 @@ fn item_properties() {
 /// awaiting approval); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 27);
+    probed("switch", &sim::switch::probes(), 28);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and

@@ -83,7 +83,9 @@ skips the check.
   --replay` makes the recording's installs, checked against it.
 - Console: `module <name> [<tag>]` (`travel` to go on while it loads); `wait world`,
   `wait loading(_screen)`. Where the game's screens are drawn, the loading screen is
-  theirs (KOTOR 2's `loadscreen_p`, `ui::screens::loading`).
+  theirs (the campaign's own `loadscreen`, KOTOR 2's `loadscreen_p`,
+  `ui::screens::loading`). KOTOR 1's shows a hint under "Loading": the next row of
+  `loadscreenhints.2da`, its story hint for a module already visited.
 
 ```bash
 kjk lifecycle plan k1 end_m01ab [--arrive TAG]   # host commit, client from the bytes

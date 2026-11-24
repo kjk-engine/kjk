@@ -48,6 +48,18 @@ struct ShaderLook {
     two_sided: bool,
     clamp: bool,
     anim: Option<AnimMap>,
+    /// The texture of the shader's second stage, when that stage has a
+    /// `map` or `clampmap` that names a file. The saber trail's core is
+    /// drawn with it (`second_stage`).
+    second: Option<String>,
+}
+
+/// Added to a shader's name to ask for the texture of its second stage.
+const SECOND_STAGE: &str = "#2";
+
+/// The name that asks for the texture of `shader`'s second stage.
+pub(crate) fn second_stage(shader: &str) -> String {
+    format!("{shader}{SECOND_STAGE}")
 }
 
 /// A stage's animated map (`animMap`, `clampAnimMap`, `oneShotAnimMap`):
@@ -220,24 +232,25 @@ fn shader_textures<'f>(files: &'f Files) -> &'f BTreeMap<String, ShaderLook> {
             let text = String::from_utf8(bytes).ok()?;
             text.lines()
                 .map(|line| {
-                    let (shader, texture, sides, clamp, anim) = match line
-                        .split('\t')
-                        .collect::<Vec<_>>()[..]
-                    {
-                        [shader, texture, sides, clamp] => (shader, texture, sides, clamp, None),
-                        [shader, texture, sides, clamp, fps, once, frames] => (
-                            shader,
-                            texture,
-                            sides,
-                            clamp,
-                            Some(AnimMap {
-                                fps: fps.parse().ok()?,
-                                once: once == "1",
-                                frames: frames.split('|').map(str::to_string).collect(),
-                            }),
-                        ),
-                        _ => return None,
-                    };
+                    let (shader, texture, sides, clamp, second, anim) =
+                        match line.split('\t').collect::<Vec<_>>()[..] {
+                            [shader, texture, sides, clamp, second] => {
+                                (shader, texture, sides, clamp, second, None)
+                            }
+                            [shader, texture, sides, clamp, second, fps, once, frames] => (
+                                shader,
+                                texture,
+                                sides,
+                                clamp,
+                                second,
+                                Some(AnimMap {
+                                    fps: fps.parse().ok()?,
+                                    once: once == "1",
+                                    frames: frames.split('|').map(str::to_string).collect(),
+                                }),
+                            ),
+                            _ => return None,
+                        };
                     Some((
                         shader.to_string(),
                         ShaderLook {
@@ -245,6 +258,7 @@ fn shader_textures<'f>(files: &'f Files) -> &'f BTreeMap<String, ShaderLook> {
                             two_sided: sides == "2",
                             clamp: clamp == "1",
                             anim,
+                            second: Some(second.to_string()).filter(|second| !second.is_empty()),
                         },
                     ))
                 })
@@ -266,7 +280,11 @@ fn shader_textures<'f>(files: &'f Files) -> &'f BTreeMap<String, ShaderLook> {
                     )
                 });
                 let clamp = u8::from(look.clamp);
-                format!("{shader}\t{}\t{sides}\t{clamp}{anim}\n", look.texture)
+                let second = look.second.as_deref().unwrap_or("");
+                format!(
+                    "{shader}\t{}\t{sides}\t{clamp}\t{second}{anim}\n",
+                    look.texture
+                )
             })
             .collect();
         let _ = store.put(kind, &key, text.as_bytes());
@@ -310,6 +328,16 @@ fn read_shader_textures(files: &Files, names: &[&str]) -> BTreeMap<String, Shade
                     _ => None,
                 }
             });
+            let second = shader.stages.get(1).and_then(|stage| {
+                stage.iter().find_map(|line| {
+                    let keyword = line.first()?.to_ascii_lowercase();
+                    if keyword != "map" && keyword != "clampmap" {
+                        return None;
+                    }
+                    let path = line.get(1).filter(|path| !path.starts_with('$'))?;
+                    Some(fmt_ja::game_path(path))
+                })
+            });
             let two_sided = shader.directives.iter().any(|line| {
                 line.first()
                     .is_some_and(|word| word.eq_ignore_ascii_case("cull"))
@@ -332,6 +360,7 @@ fn read_shader_textures(files: &Files, names: &[&str]) -> BTreeMap<String, Shade
                     two_sided,
                     clamp,
                     anim,
+                    second,
                 });
             }
         }
@@ -521,16 +550,33 @@ pub(crate) fn textures<'n>(
         if textures.contains_key(name) || missing.contains(name) {
             continue;
         }
-        let look = shaders.get(name);
-        let file = look.map_or(name.as_str(), |look| look.texture.as_str());
-        let decoded = match look.and_then(|look| look.anim.as_ref()) {
+        let second = name.strip_suffix(SECOND_STAGE);
+        let look = shaders.get(second.unwrap_or(name));
+        let file = match (second, look) {
+            (
+                Some(_),
+                Some(ShaderLook {
+                    second: Some(file), ..
+                }),
+            ) => file.as_str(),
+            (Some(_), _) => {
+                missing.push(name.clone());
+                continue;
+            }
+            (None, Some(look)) => look.texture.as_str(),
+            (None, None) => name.as_str(),
+        };
+        let decoded = match look
+            .filter(|_| second.is_none())
+            .and_then(|look| look.anim.as_ref())
+        {
             Some(anim) => frame_strip(files, anim),
             None => texture(files, file),
         };
         match decoded {
             Some(mut decoded) => {
                 decoded.facts.two_sided = look.is_some_and(|look| look.two_sided);
-                decoded.facts.clamp = look.is_some_and(|look| look.clamp);
+                decoded.facts.clamp = look.is_some_and(|look| look.clamp) || second.is_some();
                 textures.insert(name.clone(), decoded);
             }
             None => missing.push(name.clone()),
@@ -744,11 +790,14 @@ pub(crate) fn scene_textures<'m>(
                 .iter()
                 .filter_map(|mesh| mesh.texture.clone())
         })
-        .chain(
-            blades
-                .iter()
-                .flat_map(|b| [b.glow.clone(), b.core.clone(), b.trail_texture.clone()]),
-        )
+        .chain(blades.iter().flat_map(|b| {
+            [
+                b.glow.clone(),
+                b.core.clone(),
+                b.trail_texture.clone(),
+                second_stage(&b.trail_texture),
+            ]
+        }))
         .collect()
 }
 

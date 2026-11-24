@@ -26,6 +26,14 @@ pub(crate) struct Quads {
     pub colours: Option<Vec<[f32; 4]>>,
 }
 
+impl Quads {
+    pub const EMPTY: Quads = Quads {
+        positions: Vec::new(),
+        uvs: Vec::new(),
+        colours: None,
+    };
+}
+
 impl QuadList {
     pub fn new(mut material: OdysseyMaterial, coloured: bool, assets: SprayAssets) -> QuadList {
         let (meshes, buffers, materials) = assets;
