@@ -39,8 +39,7 @@ pub fn own(name: &str) -> bool {
     OWN.contains(&name)
 }
 
-/// The campaign's logo, in place of KOTOR 2's on the main menu and the
-/// loading screen.
+/// The campaign's logo, in place of KOTOR 2's on the main menu.
 pub const CAMPAIGN_LOGO: &str = "logo_sw_02";
 
 /// The skin's layout in place of the campaign's `name`: KOTOR 2 names its
