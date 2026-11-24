@@ -56,7 +56,7 @@ use crate::model_fx::WeatherSpray;
 #[cfg(feature = "probes")]
 use crate::probe_kit::{Checks, check, not_installed};
 use crate::scene::{
-    self, ModelAssets, PlayerAt, PlayerRoom, SceneContent, SceneRoot, Spawner, game_to_bevy,
+    self, ControlledAt, ControlledRoom, ModelAssets, SceneContent, SceneRoot, Spawner, game_to_bevy,
 };
 use crate::sim_host::PresentedSnapshot;
 use crate::sound::{Added, Cue, Cues};
@@ -431,7 +431,7 @@ fn thunder_name(resref: &str) -> String {
 /// player while its clip plays.
 fn storm(
     mut held: ResMut<Held>,
-    (mut now, at): (ResMut<WeatherNow>, Res<PlayerAt>),
+    (mut now, at): (ResMut<WeatherNow>, Res<ControlledAt>),
     (scene, presented): (Option<Res<SceneContent>>, Option<Res<PresentedSnapshot>>),
     (time, animation): (Res<Time>, Res<AnimationTime>),
     (mut flash, cues): (ResMut<Flash>, Option<ResMut<Cues>>),
@@ -518,7 +518,7 @@ fn light(
 fn now(
     scene: Option<Res<SceneContent>>,
     presented: Option<Res<PresentedSnapshot>>,
-    room: Res<PlayerRoom>,
+    room: Res<ControlledRoom>,
     (time, animation): (Res<Time>, Res<AnimationTime>),
     (mut now, mut held): (ResMut<WeatherNow>, ResMut<Held>),
 ) {
@@ -580,7 +580,7 @@ fn keep(
 /// the dump.
 fn hold(
     mut held: ResMut<Held>,
-    (now, at, room): (Res<WeatherNow>, Res<PlayerAt>, Res<PlayerRoom>),
+    (now, at, room): (Res<WeatherNow>, Res<ControlledAt>, Res<ControlledRoom>),
     cameras: Query<Entity, SceneCamera>,
     mut posing: ParamSet<(Query<&mut Transform>, Drawing)>,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
@@ -863,7 +863,7 @@ fn stepped(indoors: bool) -> Stepped {
         .init_resource::<Flash>()
         .init_resource::<Cues>()
         .init_resource::<Added>()
-        .insert_resource(PlayerAt(Some(Vec3::new(1.0, 2.0, 3.0))))
+        .insert_resource(ControlledAt(Some(Vec3::new(1.0, 2.0, 3.0))))
         .insert_resource(AnimationTime(Some(0.0)))
         .insert_resource(WeatherNow {
             weather: Weather {
@@ -1156,8 +1156,8 @@ fn held_probes() -> Checks {
     let mut app = crate::probe_kit::scene_app();
     app.init_resource::<WeatherNow>()
         .init_resource::<Held>()
-        .init_resource::<PlayerRoom>()
-        .init_resource::<PlayerAt>()
+        .init_resource::<ControlledRoom>()
+        .init_resource::<ControlledAt>()
         .insert_resource(SceneContent(Box::new(crate::viewer::LoadedScene {
             weather: crate::viewer::SceneWeather {
                 area: AreaWeather {
@@ -1177,7 +1177,7 @@ fn held_probes() -> Checks {
         .spawn((SceneRoot, Transform::IDENTITY, Visibility::default()));
     // The player in `room` at `seconds`: the copies out after a frame.
     let step = |app: &mut App, room: usize, seconds: f32| {
-        app.world_mut().resource_mut::<PlayerRoom>().0 = Some(room);
+        app.world_mut().resource_mut::<ControlledRoom>().0 = Some(room);
         app.world_mut().resource_mut::<AnimationTime>().0 = Some(seconds);
         app.update();
         let world = app.world_mut();

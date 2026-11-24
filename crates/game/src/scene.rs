@@ -126,8 +126,9 @@ impl Culling {
     /// a floor whose model's bounds, grown by `EYE_ROOM_MARGIN`, hold it,
     /// so a camera inside the wall between two rooms is in both. A room
     /// that is only seen (a sky) does not count, because its bounds can
-    /// hold the whole area. A room whose walkmesh did not read counts. Outside every room it is in none (`None`), and
-    /// then every room shows.
+    /// hold the whole area. A room whose walkmesh did not read counts.
+    /// Outside every room it is in none (`None`), and then every room
+    /// shows.
     fn eye_rooms(&self, rooms: &[RoomView], eye: Vec3) -> Option<Vec<usize>> {
         if let Some(room) = room_at(rooms, eye.x, eye.y) {
             return Some(vec![room]);
@@ -285,13 +286,13 @@ pub fn local_triangles(ir: &asset_odyssey::model::ModelIr) -> Vec<[Vec3; 3]> {
 /// The room the controlled character stands in (`room_at` under its
 /// feet), found each frame; `None` off every floor.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) struct PlayerRoom(pub Option<usize>);
+pub(crate) struct ControlledRoom(pub Option<usize>);
 
-/// Where the controlled character stands (game space, metres): its feet as the sim
-/// presents them, else (the viewers, no sim) on the floor under the
-/// camera (the eye height under it off every floor).
+/// Where the controlled character stands (game space, metres): its feet
+/// as the sim presents them, else (the viewers, no sim) on the floor
+/// under the camera (the eye height under it off every floor).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Debug)]
-pub(crate) struct PlayerAt(pub Option<Vec3>);
+pub(crate) struct ControlledAt(pub Option<Vec3>);
 
 /// What a scene spawned at its top level: despawned (with everything
 /// under it) when the next scene replaces it.
@@ -381,8 +382,8 @@ impl Plugin for ScenePlugin {
                 .before(apply_camera_request),
         )
         .init_resource::<Culling>()
-        .init_resource::<PlayerRoom>()
-        .init_resource::<PlayerAt>()
+        .init_resource::<ControlledRoom>()
+        .init_resource::<ControlledAt>()
         .init_resource::<SceneLights>()
         .init_resource::<CarriedLights>()
         .init_resource::<crate::blaster_view::ShotLights>()
@@ -397,7 +398,7 @@ impl Plugin for ScenePlugin {
                 apply_camera_request,
                 fly,
                 cull_rooms.in_set(RoomsCulled).before(console::ConsoleQueue),
-                find_player,
+                find_controlled,
                 pick_lights
                     .in_set(LightsPicked)
                     .before(console::ConsoleQueue),
@@ -2300,15 +2301,15 @@ fn floor_at(rooms: &[RoomView], x: f32, y: f32) -> Option<(usize, f32)> {
     best
 }
 
-/// Where the controlled character stands and the room it stands in: its body's feet in
-/// the presented snapshot (the own seat's, seat 0's without one), else the
-/// floor under the camera.
-fn find_player(
+/// Where the controlled character stands and the room it stands in: its
+/// body's feet in the presented snapshot (the own seat's, seat 0's
+/// without one), else the floor under the camera.
+fn find_controlled(
     scene: Option<Res<SceneContent>>,
     presented: Option<Res<crate::sim_host::PresentedSnapshot>>,
     seat: Option<Res<crate::sim_host::OwnSeat>>,
     cameras: Query<&Transform, crate::lifecycle_view::SceneCamera>,
-    (mut at, mut room): (ResMut<PlayerAt>, ResMut<PlayerRoom>),
+    (mut at, mut room): (ResMut<ControlledAt>, ResMut<ControlledRoom>),
 ) {
     let Some(scene) = scene else { return };
     let rooms = &scene.0.rooms;
@@ -2323,8 +2324,10 @@ fn find_player(
         Some(eye.with_z(floor))
     };
     let found = feet.or_else(under_eye);
-    if at.set_if_neq(PlayerAt(found)) || scene.is_changed() {
-        room.set_if_neq(PlayerRoom(found.and_then(|at| room_at(rooms, at.x, at.y))));
+    if at.set_if_neq(ControlledAt(found)) || scene.is_changed() {
+        room.set_if_neq(ControlledRoom(
+            found.and_then(|at| room_at(rooms, at.x, at.y)),
+        ));
     }
 }
 
@@ -2426,7 +2429,7 @@ fn cull_rooms(
     scene: Option<Res<SceneContent>>,
     cameras: Query<(Ref<Transform>, &bevy::camera::primitives::Frustum), With<FlyCamera>>,
     mut rooms: Query<(&RoomOf, &mut Visibility)>,
-    (mut culling, controlled): (ResMut<Culling>, Res<PlayerRoom>),
+    (mut culling, controlled): (ResMut<Culling>, Res<ControlledRoom>),
     mut occlusion: crate::room_queries::Occlusion,
     mut facts: ResMut<DumpFacts>,
     (casters, mut doors, mut exempt): (
@@ -2445,7 +2448,7 @@ fn cull_rooms(
         return;
     }
     let eye = game_to_bevy().inverse() * camera.translation;
-    // `find_player` runs after this system, so a new scene's first frame
+    // `find_controlled` runs after this system, so a new scene's first frame
     // still holds the room of the scene before.
     let controlled_moved = !scene.is_changed() && culling.see_controlled(controlled.0, all.len());
     let moved = camera.is_changed() || controlled_moved || culling.picked.len() != all.len();
