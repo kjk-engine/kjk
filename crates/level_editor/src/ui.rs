@@ -2202,11 +2202,19 @@ fn behaviour(
             let own = state.editor.project.conversations.contains_key(&now);
             let the_games =
                 !now.is_empty() && state.setup.resolver.find(&now, ResType::DLG).is_some();
-            if own && ui.small_button("Open").clicked() {
+            // The game's conversation opens to be read, which changes
+            // nothing, or is copied to be changed.
+            let open_hint = if own {
+                "Opens the project's conversation, to read and change it."
+            } else {
+                "Opens the game's conversation to be read. The project does not change."
+            };
+            if (own || the_games) && ui.small_button("Open").on_hover_text(open_hint).clicked() {
                 state
                     .pending_ui
                     .push(vec!["conversation".into(), now.clone()]);
-            } else if !own
+            }
+            if !own
                 && the_games
                 && ui
                     .small_button("Edit a copy")
@@ -3645,6 +3653,15 @@ fn conversations_menu(ui: &mut egui::Ui, state: &mut EditorState, ui_state: &mut
                     ui.close();
                 }
                 if ui
+                    .add_enabled(the_games, egui::Button::new("Open the game's"))
+                    .on_hover_text("Opens the game's conversation of this name to be read. The project does not change.")
+                    .clicked()
+                {
+                    state.pending_ui.push(vec!["conversation".into(), name.clone()]);
+                    ui_state.new_dialog.clear();
+                    ui.close();
+                }
+                if ui
                     .add_enabled(the_games, egui::Button::new("Copy the game's"))
                     .on_hover_text(
                         "Copies the game's conversation of this name into the project, where it is \
@@ -3939,16 +3956,27 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
     let Some(name) = ui_state.dialog_open.clone() else {
         return;
     };
-    let Some(gff) = state.editor.project.conversations.get(&name) else {
-        ui_state.dialog_open = None;
-        return;
-    };
+    // The project's own conversation is changed here. A conversation only
+    // the game has is shown as it is, to be read, and the project does not
+    // change until Edit a copy copies it.
+    let own = state.editor.project.conversations.contains_key(&name);
     // The conversation is read again only after a change of the project.
     let changes = state.editor.changes();
     let dlg = match &ui_state.dialog_read {
         Some((at, had, dlg)) if *at == changes && *had == name => dlg.clone(),
         _ => {
-            let dlg = std::sync::Arc::new(read(gff));
+            let read_now = match state.editor.project.conversations.get(&name) {
+                Some(gff) => Some(read(gff)),
+                None => (state.setup.resolver.read(&name, ResType::DLG))
+                    .and_then(|bytes| fmt_odyssey::gff::Gff::parse(&bytes).ok())
+                    .map(|gff| read(&gff)),
+            };
+            let Some(read_now) = read_now else {
+                state.say(format!("there is no conversation {name}"));
+                ui_state.dialog_open = None;
+                return;
+            };
+            let dlg = std::sync::Arc::new(read_now);
             ui_state.dialog_read = Some((changes, name.clone(), dlg.clone()));
             dlg
         }
@@ -3974,7 +4002,12 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
     let mut asked: Vec<Edit> = Vec::new();
     let mut command: Option<String> = None;
     let mut select: Option<(Side, usize, Option<LinkAt>)> = None;
-    egui::Window::new(format!("Conversation {name}"))
+    let title = if own {
+        format!("Conversation {name}")
+    } else {
+        format!("Conversation {name}, the game's")
+    };
+    egui::Window::new(title)
         .id(egui::Id::new("conversation window"))
         // It opens over the outliner's side, so the level's view stays
         // clear. It can be moved and resized from there.
@@ -3983,19 +4016,38 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
         .resizable(true)
         .open(&mut open)
         .show(ctx, |ui| {
+            if !own {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        "This is the game's conversation, shown to be read. The project does not \
+                         change while it is read.",
+                    );
+                    if ui
+                        .button("Edit a copy")
+                        .on_hover_text(
+                            "Copies the game's conversation into the project, where it is changed and \
+                             played in the place of the game's.",
+                        )
+                        .clicked()
+                    {
+                        command = Some(format!("conversation copy {name}"));
+                    }
+                });
+                ui.separator();
+            }
             // The conversation's own: its end scripts, and a try.
             ui.horizontal_wrapped(|ui| {
                 for (label, now, ending) in [("When it ends", &dlg.on_end, true), ("When it is cut short", &dlg.on_abort, false)] {
                     ui.label(label);
                     let key = format!("{name} {label}");
                     let mut typed = now.clone();
-                    let response = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(110.0).hint_text("no script"));
+                    let response = ui.add_enabled(own, egui::TextEdit::singleline(&mut typed).desired_width(110.0).hint_text("no script"));
                     let change = if ending { Talk::End(typed.trim().to_string()) } else { Talk::Abort(typed.trim().to_string()) };
                     typed_edit(state, ui_state, &key, &response, Some(Edit::Conversation(name.clone(), change)));
                 }
             });
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Add a starting line").on_hover_text("A line the conversation may open with. The first whose condition holds is said.").clicked() {
+                if ui.add_enabled(own, egui::Button::new("Add a starting line")).on_hover_text("A line the conversation may open with. The first whose condition holds is said.").clicked() {
                     select = Some((Side::Entry, dlg.entries.len(), Some(LinkAt::Start(dlg.starts.len()))));
                     asked.push(Edit::Conversation(name.clone(), Talk::Add { under: None }));
                     ui_state.dialog_focus = true;
@@ -4043,10 +4095,18 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                     });
             }
             ui.separator();
-            ui.columns(2, |columns| {
+            // The tree on the left, in a panel whose edge can be dragged,
+            // and the selected line on the right. Each scrolls on its own,
+            // so a long row of the tree never runs under the line's fields.
+            let wide = ui.available_width();
+            egui::Panel::left("conversation tree panel")
+                .resizable(true)
+                .default_size(wide * 0.55)
+                .size_range(160.0..=(wide - 240.0).max(160.0))
+                .show(ui, |ui| {
                 // The tree: an opening at a time, in the order the game
                 // tries them.
-                egui::ScrollArea::vertical().id_salt("conversation tree").auto_shrink(false).show(&mut columns[0], |ui| {
+                egui::ScrollArea::both().id_salt("conversation tree").auto_shrink(false).show(ui, |ui| {
                     if openings.is_empty() && lost.is_empty() {
                         ui.label("No lines yet. Add a starting line.");
                     }
@@ -4098,8 +4158,10 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                             });
                     }
                 });
+            });
+            egui::CentralPanel::default().show(ui, |ui| {
                 // The selected node.
-                let ui = &mut columns[1];
+                egui::ScrollArea::vertical().id_salt("conversation line").auto_shrink(false).show(ui, |ui| {
                 let Some((side, index, via)) = ui_state.dialog_selected else {
                     ui.label("Click a line in the tree to change it.");
                     return;
@@ -4121,7 +4183,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                 if from_talk_table(node) {
                     ui.label(egui::RichText::new(format!("The game's line {} of its talk table:", node.text.strref)).small());
                     ui.label(line_text(node));
-                    if ui.button("Write its own text").on_hover_text("The line keeps its text in the conversation from now on, starting from the game's.").clicked() {
+                    if ui.add_enabled(own, egui::Button::new("Write its own text")).on_hover_text("The line keeps its text in the conversation from now on, starting from the game's.").clicked() {
                         asked.push(Edit::Conversation(name.clone(), Talk::Text(side, index, line_text(node))));
                     }
                 } else {
@@ -4137,7 +4199,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                         }
                     }
                     let mut text = line_text(node);
-                    let response = ui.add(egui::TextEdit::multiline(&mut text).id(text_id).desired_rows(3).desired_width(f32::INFINITY).hint_text("What is said"));
+                    let response = ui.add(egui::TextEdit::multiline(&mut text).interactive(own).id(text_id).desired_rows(3).desired_width(f32::INFINITY).hint_text("What is said"));
                     if std::mem::take(&mut ui_state.dialog_focus) {
                         response.request_focus();
                     }
@@ -4176,6 +4238,11 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                         },
                         None => {}
                     }
+                }
+                // A conversation of the game is read, not changed: its
+                // fields below are shown but cannot be changed.
+                if !own {
+                    ui.disable();
                 }
                 egui::Grid::new("talk node").num_columns(2).show(ui, |ui| {
                     if side == Side::Entry {
@@ -4271,6 +4338,7 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
                         ui_state.dialog_selected = None;
                     }
                 });
+                });
             });
         });
     if !open {
@@ -4278,6 +4346,10 @@ fn conversation_window(ctx: &egui::Context, state: &mut EditorState, ui_state: &
     }
     if let Some(selected) = select {
         ui_state.dialog_selected = Some(selected);
+    }
+    // Nothing changes a conversation of the game: Edit a copy comes first.
+    if !own {
+        asked.clear();
     }
     for edit in asked {
         state.apply(edit);

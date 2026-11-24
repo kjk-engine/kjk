@@ -1292,12 +1292,20 @@ on the file itself, so every field the editor does not touch stays as it
 was.
 
 - **Conversations** in the toolbar lists the project's conversations and
-  opens one. **New** makes a conversation with no lines, and **Copy the
-  game's** copies the game's conversation of the name typed.
+  opens one. **New** makes a conversation with no lines. **Open the
+  game's** opens the game's conversation of the name typed, to be read,
+  and **Copy the game's** copies it into the project.
 - An object's **Conversation** in its behaviour (a creature, a placeable
-  or a door) names the conversation it speaks. **Open** opens the
-  project's, **Edit a copy** copies the game's, and **New** makes one for
-  the object and gives it to it.
+  or a door) names the conversation it speaks. **Open** opens it: the
+  project's to be changed, or the game's to be read. **Edit a copy**
+  copies the game's into the project, and **New** makes one for the
+  object and gives it to it.
+
+A conversation of the game opens to be read, and reading it does not
+change the project. Its window shows the tree and each line as it does
+for the project's own, but its fields cannot be changed. **Edit a copy**
+at the top of the window copies it into the project, and the window then
+changes the copy. **Try** works on the game's conversation too.
 
 The conversation window shows the conversation as a tree, one opening at
 a time. A conversation opens with the first of its starting lines whose
@@ -1314,6 +1322,11 @@ shown as Continue, as the games show it. Each row shows the line's
 condition and the script it runs. A script that names objects of the
 level is followed by their tags ("What an object's scripts name"). Lines
 no opening reaches are listed at the end.
+
+The tree takes the window's left side, and the line clicked in it the
+right side. The edge between them can be dragged. The tree scrolls
+sideways for a row longer than its side, so a long row never runs under
+the line's fields.
 
 A line clicked in the tree is changed on the right:
 
@@ -1697,7 +1710,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit conversation NAME unlink ...`, `up ...`, `down ...` | takes a link away, or moves it, named as `condition` names it |
 | `edit conversation NAME delete line\|reply N`, `end SCRIPT`, `abort SCRIPT` | deletes a node; sets the scripts run as it ends or is cut short |
 | `edit conversation try NAME TAG [PICK ...]` | saves, then plays the conversation for the player talking to the object tagged TAG, answering by the picks |
-| `edit ui conversation NAME`, `edit ui conversation`, `edit ui conversation select line\|reply N` | opens or closes the conversation window; selects a node in it |
+| `edit ui conversation NAME`, `edit ui conversation`, `edit ui conversation select line\|reply N` | opens or closes the conversation window, on the project's conversation or, to be read, on the game's; selects a node in it |
 | `edit blocks EVENT add KEY [VALUE ...]`, `edit blocks EVENT remove N`, `edit blocks EVENT clear` | the selected object's logic blocks on the event (`OnUsed`): a block of the kind (`open_door`, `give_item`, `once`; `level_edit::blocks::KINDS`) added with its values, block N removed, or none left |
 | `edit script try NAME`, `edit script try NAME TAG` | saves, compiles, then runs the script for the player or the object tagged TAG in the module, headless; its trace is under the viewer's Try tab |
 | `edit flag useable on`, `edit flag inventory off` | sets the selected placeable's `Useable` or `HasInventory` |
