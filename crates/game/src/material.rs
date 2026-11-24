@@ -1490,12 +1490,8 @@ pub fn cutout_probes() -> sim::probe::Checks {
     )]
 }
 
-/// The number a texture is sorted by (`TextureIr::sort_key`), as KOTOR's
-/// executable takes it. The float in a TPC's header comes first, and the
-/// TXI's `alphamean` is used only without a header float. Only a texture
-/// stored uncompressed, with neither, gets the mean alpha of its pixels. A
-/// compressed texture with neither gets 1. A header float of exactly -1
-/// counts as none (`kjk sim probes --only "texture sort key"`; proposed
+/// Checks `TextureIr::sort_key` (the rule is in `asset_odyssey::texture`)
+/// on built textures (`kjk sim probes --only "texture sort key"`; proposed
 /// 2026-11-23).
 #[cfg(feature = "probes")]
 pub fn sort_key_probes() -> sim::probe::Checks {
