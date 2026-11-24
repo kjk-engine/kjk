@@ -112,8 +112,10 @@ pub(super) fn all() -> Vec<Check> {
         .intents
         .is_empty()
         && stack.is_open();
-    let mut both_vm = ViewModel::default();
-    both_vm.campaigns = vec![vfs::Game::Kotor1, vfs::Game::Kotor2];
+    let mut both_vm = ViewModel {
+        campaigns: vec![vfs::Game::Kotor1, vfs::Game::Kotor2],
+        ..ViewModel::default()
+    };
     both_vm.session.campaign = Some(vfs::Game::Kotor1);
     let mut switched = Stack::new(crate::screens::open);
     switched.open("main_menu", &both_vm);

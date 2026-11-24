@@ -1377,7 +1377,11 @@ fn hold_menu(
         let wanted = hold
             .wanted
             .get_or_insert_with(|| PictureWait::begin(compiled));
-        match scenes.menus.get(&menu_layer(game)).map(|scene| &scene.state) {
+        match scenes
+            .menus
+            .get(&menu_layer(game))
+            .map(|scene| &scene.state)
+        {
             Some(State::Shown { .. }) => {
                 let drawn = hold
                     .drawn
