@@ -484,6 +484,29 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
       a ramp at the table's foot leads a walker up to 1.05 m, as before.
       He now walks on over the table (494 spots off the walkmesh on foot
       where there were 177, cells of 0.25 m).
+- Walls round high tops (`roofs.rs`): the edge walls keep a body inside
+  the walkmesh's outline, but the tops of tall things inside it (wall
+  tops overhanging the floor, door frames, a mast, the Ebon Hawk's hull)
+  were reached by Force jumps, and a player ran along the walls of
+  Tatooine's docking bay (K1 tat_m17ab, Discord report of 2026-11-23).
+  The area is looked down on in columns half a metre wide. In each, the
+  player's box is let down from 12.5 m over the highest walkmesh face
+  under it (higher than a rank 3 Force jump carries a body) to what it
+  rests on. Under each part of the box's footprint, the look goes down
+  through walkmesh faces that are not walkable to the first walkable one,
+  else the lowest. The column is a high top when that face is more than
+  2.5 m down (the audit's perch height, `collision::PERCH`) somewhere
+  under the footprint and nowhere within it. A box on the floor, on a crate
+  or on a console is no high top. Each side of a high top's column gets a
+  `WALK_CLIP` wall from just under the top: up to the sky (or a walkable
+  floor overhead) beside a column that is no high top, up to the higher
+  top beside one more than a step higher, and none beside one about as
+  high. No wall comes lower than the perch height over the walkmesh, so
+  walking is untouched: the audit reaches the same spots on foot as
+  without them in every module tried. In the docking bay the audit's
+  escapes went from 29, 40 and 47 regions (Force jump ranks 1, 2 and 3) to
+  none, and on Manaan (K1 manm26aa) 22 087 leaks out of the grid went to
+  none. `KJK_ROOF_WALLS=off` builds the verbs' levels without them.
 - Non-walkable walkmesh faces (`surfacemat.2da`'s walk 0: non-walk,
   obscuring, lava, deep water), and drawn triangles taking their material,
   are `SOLID | NONWALK`. KOTOR's walker, a point, never stands on one;
@@ -551,7 +574,8 @@ leaks into the void) to 21 (0, 125, 7 800); K1 from 72 (392, 2205,
 leak: chains of jumps over drawn furniture inside the walls up onto roofs
 and tall structures more than 2.5 m over the floor (TSL 901mal 29
 regions, 902mal 20, 301nar 12; K1 manm26aa 54, tar_m04aa 34); the leaks
-left come by force jumps (TSL 650dan, 302nar). It writes `facts.json`, `audit.png` and `escape-*.png` maps
+left come by force jumps (TSL 650dan, 302nar). Those counts are from
+before the walls round high tops, which close most of that climbing. It writes `facts.json`, `audit.png` and `escape-*.png` maps
 (edge walls light blue). Two checks of what walking keeps: the column
 centres on walkable walkmesh (the topmost face under the feet) reached on
 foot, and those reached only by jumping though the walkmesh joins them to
