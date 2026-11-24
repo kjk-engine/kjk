@@ -1769,6 +1769,11 @@ fn store(
         character,
         build: Some(env!("KJK_GIT_SHA").into()),
         version: Some(env!("KJK_VERSION").into()),
+        game: snapshot
+            .place
+            .as_ref()
+            .map(|place| place.game.clone())
+            .filter(|game| !game.is_empty()),
         formats: Some(saves::Formats {
             save: sim::SAVE_FORMAT,
             snapshot: sim::SNAPSHOT_FORMAT,

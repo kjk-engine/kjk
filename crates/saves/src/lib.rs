@@ -24,7 +24,7 @@ pub mod corpus;
 pub mod safety;
 pub mod story;
 
-pub use safety::{AUTOS, Formats, backup_on_new_version, write_auto};
+pub use safety::{AUTOS, Formats, TSL_AUTOS, auto_slot, autos, backup_on_new_version, write_auto};
 pub use story::{STORY_SCHEMA, Story};
 
 use std::collections::BTreeMap;
@@ -33,8 +33,36 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use ui::intent::CharacterDesc;
 
-/// The quick save's id.
+/// KOTOR 1's quick save id.
 pub const QUICK: &str = "quick";
+/// KOTOR 2's quick save id. Each game has its own quick save, so that a
+/// quick save in one game never replaces the other game's.
+pub const TSL_QUICK: &str = "tsl-quick";
+
+/// The quick save id of the game called `game` (`k1`, `tsl`). A game that
+/// is not KOTOR 2 uses KOTOR 1's id.
+pub fn quick(game: &str) -> &'static str {
+    if game == "tsl" { TSL_QUICK } else { QUICK }
+}
+
+/// A KOTOR 2 save `id` in `root` left in one of KOTOR 1's quick save or
+/// autosave slots (it was made before each game had its own) moved to the
+/// same slot of KOTOR 2's, so that KOTOR 1's next quick save or autosave
+/// does not replace it. Returns the save's new id. Nothing is moved for a
+/// save of another game, a save in no such slot, or when KOTOR 2's slot is
+/// taken already.
+pub fn move_to_own_slot(root: &Path, id: &str, game: &str) -> Option<&'static str> {
+    if game != "tsl" {
+        return None;
+    }
+    let own = if id == QUICK {
+        TSL_QUICK
+    } else {
+        TSL_AUTOS[AUTOS.iter().position(|slot| *slot == id)?]
+    };
+    let (from, to) = (root.join(id), root.join(own));
+    (!to.exists() && std::fs::rename(from, to).is_ok()).then_some(own)
+}
 
 /// Where the saves are, as `var` (the environment) gives it: `KJK_SAVES`,
 /// else `saves` in kjk's folder (`store::kjk_folder`).
@@ -97,10 +125,10 @@ struct MetaFile {
 /// The ids of copies received start with it (`r0001`).
 pub const RECEIVED: &str = "r";
 
-/// `quick`, `auto` (the autosaves' newest; `auto-2`, `auto-3` are as a
-/// checkpoint's), a number, `r` and a number (a copy received), or a game's
-/// key and a number (a playtest's checkpoint, `k1-03`): an id that names a
-/// folder in the saves' and nothing else.
+/// A quick save or autosave slot of either game (`quick`, `tsl-auto-2`), a
+/// number, `r` and a number (a copy received), or a game's key and a number
+/// (a playtest's checkpoint, `k1-03`): an id that names a folder in the
+/// saves' and nothing else.
 pub fn valid_id(id: &str) -> bool {
     let number = |digits: &str| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
     let checkpoint = id.split_once('-').is_some_and(|(game, digits)| {
@@ -111,7 +139,8 @@ pub fn valid_id(id: &str) -> bool {
             && number(digits)
     });
     id == QUICK
-        || id == AUTOS[0]
+        || id == TSL_QUICK
+        || auto_slot(id).is_some()
         || number(id)
         || id.strip_prefix(RECEIVED).is_some_and(number)
         || checkpoint

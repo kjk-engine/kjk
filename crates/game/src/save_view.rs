@@ -97,7 +97,7 @@ fn when(saved: u64) -> String {
 /// A save's name as the lists show it: the autosaves as such, a damaged
 /// one marked (it does not load: `saves::read` refuses it).
 fn shown_name(id: &str, name: String, damaged: bool) -> String {
-    let name = match saves::AUTOS.iter().position(|auto| *auto == id) {
+    let name = match saves::auto_slot(id) {
         Some(0) => format!("Autosave: {name}"),
         Some(_) => format!("Autosave (earlier): {name}"),
         None => name,
@@ -112,33 +112,87 @@ fn shown_name(id: &str, name: String, damaged: bool) -> String {
 /// The screens that list the saves.
 const LISTING: [&str; 4] = ["solo", "host", "save", "load"];
 
-/// The saves on disk, into the screens' list; one open starts over (its
-/// rows moved under it).
+/// The campaign the menu or the game is on now. With no screens' assets,
+/// KOTOR 1.
+fn campaign(ui: &Ui) -> vfs::Game {
+    ui.assets
+        .as_ref()
+        .map_or(vfs::Game::Kotor1, |assets| assets.game)
+}
+
+/// The quick save id of the campaign the game is on now. KOTOR 1 and
+/// KOTOR 2 each have their own quick save.
+pub(crate) fn quick_id(ui: &Ui) -> &'static str {
+    saves::quick(campaign(ui).key())
+}
+
+/// The game save `id` in `root` belongs to. A save made by this release
+/// names its game in its meta. An older save is placed by its story, else
+/// by which installed game has the module it was made in.
+fn game_of(root: &std::path::Path, id: &str, meta: &saves::Meta) -> vfs::Game {
+    meta.game
+        .as_deref()
+        .and_then(vfs::Game::from_key)
+        .unwrap_or_else(|| crate::menu_figure::game_of(meta, saves::read_story(root, id).as_ref()))
+}
+
+/// The saves on disk, read again into `Ui::all_saves`, and the list of the
+/// campaign's saves shown (`show`).
 pub(crate) fn refresh(ui: &mut Ui) {
-    let listing = folder().map_or_else(saves::Listing::default, |root| saves::list(&root));
+    let root = folder();
+    let listing = root
+        .as_deref()
+        .map_or_else(saves::Listing::default, saves::list);
     for why in &listing.unread {
         warn!(target: "saves", "{why}");
-    }
-    for screen in LISTING {
-        ui.stack.rewind(screen);
     }
     if let Some(assets) = ui.assets.as_mut() {
         ui.vm.new_game = new_game(assets);
     }
     let mut received = listing.received;
     let damaged = listing.damaged;
-    ui.vm.saves = listing
+    ui.all_saves = listing
         .saves
         .into_iter()
-        .map(|(id, meta)| SaveView {
-            name: shown_name(&id, meta.name, damaged.contains(&id)),
-            from: received.remove(&id).map(|copy| copy.from),
-            id,
-            area: meta.area,
-            module: meta.module,
-            when: when(meta.saved),
+        .map(|(id, meta)| {
+            let game = root
+                .as_deref()
+                .map_or(vfs::Game::Kotor1, |root| game_of(root, &id, &meta));
+            let view = SaveView {
+                name: shown_name(&id, meta.name, damaged.contains(&id)),
+                from: received.remove(&id).map(|copy| copy.from),
+                // An older KOTOR 2 save in one of KOTOR 1's slots moves to
+                // KOTOR 2's own.
+                id: root
+                    .as_deref()
+                    .and_then(|root| saves::move_to_own_slot(root, &id, game.key()))
+                    .map_or(id, String::from),
+                area: meta.area,
+                module: meta.module,
+                when: when(meta.saved),
+            };
+            (game, view)
         })
         .collect();
+    show(ui);
+}
+
+/// The screens' list made of the saves of the campaign the menu or the game
+/// is on now. A KOTOR 1 save is never listed while KOTOR 2 is on, and the
+/// other way round. A list screen that is open starts over (its rows moved
+/// under it).
+fn show(ui: &mut Ui) {
+    let game = campaign(ui);
+    for screen in LISTING {
+        ui.stack.rewind(screen);
+    }
+    ui.vm.saves = ui
+        .all_saves
+        .iter()
+        .filter(|(of, _)| *of == game)
+        .map(|(_, view)| view.clone())
+        .collect();
+    ui.saves_for = Some(game);
 }
 
 /// A new game's row: the campaign's start module
@@ -197,6 +251,8 @@ impl Plugin for SaveViewPlugin {
 /// the world is another's, or not a module's. Also keeps `vm.new_game` in
 /// sync with the active campaign when `solo` or `host` is open, cached per
 /// game so switching campaigns on the main menu does no synchronous disk I/O.
+/// When the campaign changes, the screens' list is made again of the new
+/// campaign's saves (`show`), from the saves already read.
 fn here(
     mut ui: ResMut<Ui>,
     world: Option<Res<WorldHere>>,
@@ -204,6 +260,9 @@ fn here(
     mut cached: Local<[Option<SaveView>; 2]>,
 ) {
     let ui = &mut *ui;
+    if ui.saves_for != Some(campaign(ui)) {
+        show(ui);
+    }
     if (ui.stack.has("solo") || ui.stack.has("host"))
         && let Some(assets) = ui.assets.as_mut()
     {
@@ -295,17 +354,18 @@ fn act(
         return;
     };
     if !ui.stack.is_open() {
+        let quick = quick_id(ui);
         if actions.pressed(Action::QuickSave)
-            && let Some(asked) = ask(Some(saves::QUICK.into()), QUICK_NAME.into(), false, ui)
+            && let Some(asked) = ask(Some(quick.into()), QUICK_NAME.into(), false, ui)
         {
             request.0 = Some(asked);
         }
         // Loaded as the screens' Load is: the session flow refuses it while
         // hosting, and says why.
         if actions.pressed(Action::QuickLoad) {
-            if ui.vm.saves.iter().any(|save| save.id == saves::QUICK) {
+            if ui.vm.saves.iter().any(|save| save.id == quick) {
                 rest.push(Intent::Session(SessionIntent::Solo {
-                    save: Some(saves::QUICK.into()),
+                    save: Some(quick.into()),
                     character: None,
                     campaign: None,
                 }));
@@ -355,7 +415,7 @@ fn told(
             if on_screen {
                 ui.stack.clear();
             }
-            let quick = id == saves::QUICK;
+            let quick = id == saves::QUICK || id == saves::TSL_QUICK;
             ui.vm
                 .feedback
                 .push(if quick { "Quick saved." } else { "Game saved." }.into());

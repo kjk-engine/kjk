@@ -5138,7 +5138,7 @@ fn save_edits() {
 
 /// The saves' safety net (`saves::safety_probes`): the meta's new fields
 /// and an older meta, a damaged save listed and refused, one without a hash
-/// trusted, autosaves rotating, the backup before a new release, a failed
+/// trusted, autosaves rotating (each game's in its own slots), the backup before a new release, a failed
 /// write leaving nothing, a refusal naming the build that made the save;
 /// and the release gate's corpus (`saves::corpus_probes`): a slot folder read
 /// back whole and a damaged one refused, the corpus's slots found by release,
@@ -5146,7 +5146,7 @@ fn save_edits() {
 /// (and failing without the entry or when its story restore lost something), the table printed, a slot written only under a plain name, a panicking save a FAIL row among the others; no install.
 #[test]
 fn save_safety() {
-    probed("save safety", &saves::safety_probes(), 11);
+    probed("save safety", &saves::safety_probes(), 13);
     probed("save corpus", &saves::corpus_probes(), 7);
 }
 
