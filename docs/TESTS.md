@@ -132,6 +132,15 @@ row with no module visited, and that the hint rows go down their columns,
 start over at a blank cell and keep KOTOR 2's planets apart. Saves from
 before the hints were kept are read by `old_saves_load`. They are not
 approved tests, and they run only through `kjk sim probes --only "save story"`.
+`photo_camera` (photo mode) was proposed 2026-11-24 and awaits approval. It
+checks the photo camera's speeds, its ease to a stop, its zoom, tilt and
+pitch limits, and that it stays within 40 metres of the player's character
+and within the box round the area's rooms. The probe group "photo mode" was
+proposed with it and also awaits approval. It checks that photo mode holds a
+world played alone and runs it at a quarter of its speed at 25%, that play's
+keys reach nothing while it is on, and that in co-op it calls a break as it
+begins and resumes only its own break as it ends. It is not an approved test,
+and it runs only through `kjk sim probes --only "photo mode"`.
 `bink_decoder_parts` was approved 2026-11-23.
 `untextured_mesh_drawn` (issue 441) was proposed 2026-11-16 and awaits
 approval. `stance_sets_sim` was changed 2026-11-16 for issue 514, and the

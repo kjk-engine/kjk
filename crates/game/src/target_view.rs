@@ -617,7 +617,13 @@ impl Plugin for TargetViewPlugin {
             .init_resource::<Autopilot>()
             .init_resource::<Acted>()
             .init_resource::<Pinned>()
-            .add_systems(PostUpdate, target.after(crate::play_view::Drawn))
+            // Photo mode takes the wheel that cycles the targets.
+            .add_systems(
+                PostUpdate,
+                target
+                    .run_if(crate::photo_mode::off)
+                    .after(crate::play_view::Drawn),
+            )
             .add_systems(
                 PostUpdate,
                 project

@@ -114,6 +114,16 @@ pub(crate) struct Culling {
 }
 
 impl Culling {
+    /// The box (game space) that holds every room of `rooms` but those
+    /// that are only seen (a sky, whose bounds can hold the whole area);
+    /// `None` without such a room.
+    pub(crate) fn area(&self, rooms: &[RoomView]) -> Option<(Vec3, Vec3)> {
+        (0..rooms.len())
+            .filter(|&index| !crate::fight_rooms::seen_only(&rooms[index]))
+            .filter_map(|index| self.bounds.get(index).copied().flatten())
+            .reduce(|(low, high), (lower, higher)| (low.min(lower), high.max(higher)))
+    }
+
     /// Whether room `room` shows now; every room before the first check.
     pub(crate) fn shows(&self, room: usize) -> bool {
         self.shown.get(room).copied().unwrap_or(true)
@@ -702,6 +712,19 @@ fn apply_camera_request(
     }
 }
 
+/// The way a free camera looking along `yaw` and `pitch` (degrees, the
+/// pitch above the level) flies forward, and the way to its right, which
+/// stays level (game space).
+pub(crate) fn fly_axes(yaw: f32, pitch: f32) -> (Vec3, Vec3) {
+    let (yaw, pitch) = (yaw.to_radians(), pitch.to_radians());
+    let forward = Vec3::new(
+        yaw.cos() * pitch.cos(),
+        yaw.sin() * pitch.cos(),
+        pitch.sin(),
+    );
+    (forward, Vec3::new(yaw.sin(), -yaw.cos(), 0.0))
+}
+
 /// WASD to move, Q/E down and up, Shift faster, right mouse button to look.
 fn fly(
     time: Res<Time>,
@@ -719,13 +742,7 @@ fn fly(
             let most = crate::sim_host::pitch_limit();
             fly.pitch = (fly.pitch - motion.delta.y * 0.15).clamp(-most, most);
         }
-        let (yaw, pitch) = (fly.yaw.to_radians(), fly.pitch.to_radians());
-        let forward = Vec3::new(
-            yaw.cos() * pitch.cos(),
-            yaw.sin() * pitch.cos(),
-            pitch.sin(),
-        );
-        let right = Vec3::new(yaw.sin(), -yaw.cos(), 0.0);
+        let (forward, right) = fly_axes(fly.yaw, fly.pitch);
         let mut step = Vec3::ZERO;
         for (key, direction) in [
             (KeyCode::KeyW, forward),

@@ -297,6 +297,7 @@ pub fn run(options: RunOptions) -> AppExit {
             (
                 crate::save_view::SaveViewPlugin,
                 crate::report::ReportPlugin,
+                crate::photo_mode::PhotoModePlugin,
             ),
         ));
         if black {

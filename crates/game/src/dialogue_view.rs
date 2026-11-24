@@ -184,7 +184,14 @@ impl Plugin for DialogueViewPlugin {
             .init_resource::<SendTalkOptions>()
             .add_systems(
                 Update,
-                (item_words, answer, requests_keys, talk_options, show)
+                // Photo mode takes the conversation's keys and pointer.
+                (
+                    item_words,
+                    answer.run_if(crate::photo_mode::off),
+                    requests_keys,
+                    talk_options,
+                    show,
+                )
                     .chain()
                     .run_if(in_play)
                     .before(crate::ui_view::Stepped),

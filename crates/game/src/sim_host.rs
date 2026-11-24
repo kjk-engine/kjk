@@ -1090,7 +1090,7 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
 /// and a joined player's (`net_join::advance`) alike: the keys' and the
 /// pads' actions, the mouse's buttons among them while it holds the cursor
 /// (none without a window; none held, an idle command that keeps the view,
-/// while a screen or a movie is up), and how far the mouse
+/// while a screen, a movie or photo mode is up), and how far the mouse
 /// and the pad's stick turn the view (not while a movie is up: on the
 /// host the world waits for it, `movie_view`). What a movie skip, a
 /// conversation, a screen or the cursor took reads as up until let go
@@ -1108,6 +1108,7 @@ pub(crate) struct PlayerInput<'w, 's> {
     orbit: Option<Res<'w, crate::camera_tune::Orbit>>,
     summary: Option<Res<'w, crate::progress::SummaryHold>>,
     wheel: Option<Res<'w, crate::wheel_view::Wheel>>,
+    photo: Option<Res<'w, crate::photo_mode::PhotoMode>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -1129,9 +1130,17 @@ impl PlayerInput<'_, '_> {
         self.summary.as_ref().is_some_and(|summary| summary.0)
     }
 
+    /// Photo mode, while it is on (`photo_mode`).
+    pub(crate) fn photo(&self) -> Option<&crate::photo_mode::PhotoMode> {
+        self.photo.as_deref().filter(|photo| photo.is_on())
+    }
+
     pub(crate) fn read(&self) -> Read {
         let headless = self.headless.0;
-        let held = self.movie_up() || self.screens.as_ref().is_some_and(|open| open.0);
+        // Photo mode gives the player's character no orders.
+        let held = self.movie_up()
+            || self.screens.as_ref().is_some_and(|open| open.0)
+            || self.photo().is_some();
         let feel = self
             .feel
             .as_deref()
@@ -1166,7 +1175,8 @@ impl PlayerInput<'_, '_> {
         // The power wheel open takes the mouse and the right stick for its
         // pointer (`wheel_view`).
         let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
-        let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
+        let turning =
+            !headless && !self.movie_up() && !orbiting && !wheeling && self.photo().is_none();
         // A headless run's commands turn the view (`ui look`) through the
         // stick's turn.
         let scripted = headless && pad != Vec2::ZERO;
@@ -1181,16 +1191,36 @@ impl PlayerInput<'_, '_> {
 /// In a window, the mouse turns the player: the cursor is held and hidden;
 /// a screen opening lets it go, the last one closing (or a click) takes it
 /// again; a conversation's screen frees it meanwhile (`dialogue_view`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn grab_cursor(
     headless: Res<Headless>,
     screens: Option<Res<crate::ui_view::UiOpen>>,
     buttons: Option<Res<ButtonInput<MouseButton>>>,
     replies: Option<Res<crate::dialogue_view::ReplyInput>>,
     mut swallowed: ResMut<crate::swallow::Swallowed>,
-    mut was_open: Local<Option<bool>>,
+    (mut was_open, mut was_photo): (Local<Option<bool>>, Local<bool>),
     mut windows: Query<&mut CursorOptions, With<PrimaryWindow>>,
+    photo: Option<Res<crate::photo_mode::PhotoMode>>,
 ) {
-    if headless.0 || replies.is_some_and(|input| input.active) {
+    if headless.0 {
+        return;
+    }
+    // Photo mode holds the cursor, so the mouse looks with no button held,
+    // in a conversation too; one left in a conversation frees it again.
+    let photo = photo.is_some_and(|photo| photo.is_on());
+    let talking = replies.is_some_and(|input| input.active);
+    if photo || std::mem::replace(&mut *was_photo, photo) && talking {
+        for mut cursor in &mut windows {
+            cursor.grab_mode = if photo {
+                CursorGrabMode::Locked
+            } else {
+                CursorGrabMode::None
+            };
+            cursor.visible = !photo;
+        }
+        return;
+    }
+    if talking {
         return;
     }
     let open = screens.is_some_and(|screens| screens.0);
@@ -2162,9 +2192,10 @@ fn advance(
         Res<CameraAim>,
         Option<Res<crate::lifecycle_view::Picture>>,
     ),
-    (bar_use, wheel): (
+    (bar_use, wheel, mut replay): (
         Option<Res<crate::bar_view::BarUse>>,
         Option<Res<crate::wheel_view::Wheel>>,
+        Option<ResMut<crate::photo_mode::Replay>>,
     ),
 ) {
     let authority = &mut *authority;
@@ -2497,7 +2528,17 @@ fn advance(
     let unseen = picture
         .as_deref()
         .is_some_and(|picture| picture.holds(loading.committed));
-    let waiting = movie_up || on_break || summary_up || menu_up || unseen;
+    // Played alone, the world waits too while photo mode holds it, as for
+    // a menu, and a replay steps the one tick its step control lets
+    // through (`photo_mode`).
+    let replaying = matches!(authority.source, Source::Replay { .. });
+    let photo = input.photo().filter(|_| !authority.solo.hosting());
+    let one_tick = replay.as_deref_mut().is_some_and(|replay| {
+        replay.playing = replaying;
+        std::mem::take(&mut replay.step) && replaying
+    });
+    let photo_up = photo.is_some_and(crate::photo_mode::PhotoMode::holds_world) && !one_tick;
+    let waiting = movie_up || on_break || summary_up || menu_up || unseen || photo_up;
     authority.solo.hold(waiting);
     frozen.0 = waiting;
     // The session answers its players (the own client joins and loads
@@ -2537,14 +2578,24 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
+            // The step control of a stopped replay lets one tick through.
+            None if one_tick => {
+                let tick = authority.last.tick + 1;
+                authority.clock = Accumulator::new(rate, tick);
+                vec![(tick, rate.msec(tick))]
+            }
             // A perfect block slows the clock for a moment (`Slowed`). The
             // power wheel slows it while it is open in a session of one
-            // seat (`wheel_view::time_scale`). The two scales never
-            // multiply. The clock runs at the slower of the two.
+            // seat (`wheel_view::time_scale`), and photo mode's speed does
+            // while it runs the world slowly (`photo_mode::Speed`). The
+            // scales never multiply. The clock runs at the slowest of them.
             None => {
                 let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
                 let wheel = crate::wheel_view::time_scale(open, authority.last.seats());
-                let scale = authority.slowed.scale(time.elapsed_secs_f64()).min(wheel);
+                let photo = photo.map_or(1.0, crate::photo_mode::PhotoMode::scale);
+                let scale = (authority.slowed.scale(time.elapsed_secs_f64()))
+                    .min(wheel)
+                    .min(photo);
                 authority.clock.advance(time.delta().mul_f32(scale))
             }
         }
@@ -2750,7 +2801,8 @@ fn advance(
         // with no keys too (headless: the console's `ui act`).
         let walking = autopilot
             .as_ref()
-            .is_some_and(|pilot| pilot.command.is_some());
+            .is_some_and(|pilot| pilot.command.is_some())
+            && input.photo().is_none();
         let own = match (&authority.source, &authority.driver, own) {
             (Source::Live { .. }, Driver::Player(_), own) if own.is_some() || walking => {
                 Some(crate::target_view::steer(

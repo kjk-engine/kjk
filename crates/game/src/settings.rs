@@ -109,6 +109,9 @@ pub enum Action {
     Ready,
     /// Turn between the own eyes and JA's camera (`play_view::CameraMode`).
     View,
+    /// Turn photo mode on or off (`photo_mode`). It has no default chord on
+    /// a controller.
+    PhotoMode,
     /// The camera a step closer or farther (`camera_tune::zoomed`); past
     /// the nearest, the own eyes.
     ZoomIn,
@@ -159,7 +162,7 @@ pub(crate) const UNBOUND: &str = "none";
 /// Each action: its settings name, its label, its default key or mouse
 /// button (none for an action that has no key until the player binds one),
 /// and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 61] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 62] = [
     (
         Action::Forward,
         "forward",
@@ -497,6 +500,13 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Option<Input>, bool); 61] = [
         "view",
         "First person",
         Some(Input::Key(KeyCode::F1)),
+        false,
+    ),
+    (
+        Action::PhotoMode,
+        "photo_mode",
+        "Photo mode",
+        Some(Input::Key(KeyCode::F2)),
         false,
     ),
     (

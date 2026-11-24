@@ -1660,7 +1660,10 @@ impl Plugin for PadPlugin {
             .add_message::<GamepadRumbleRequest>()
             .add_systems(
                 PreUpdate,
-                sample
+                // Photo mode keeps the actions for itself and leaves play
+                // none while it is on.
+                (sample, crate::photo_mode::take_keys)
+                    .chain()
                     .in_set(Sampled)
                     .after(Settled)
                     .after(crate::swallow::hold_up),

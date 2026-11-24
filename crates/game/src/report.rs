@@ -433,6 +433,7 @@ impl Plugin for ReportPlugin {
             (ask, make, shoot, tell)
                 .chain()
                 .after(crate::ui_view::Stepped)
+                .before(crate::photo_mode::PhotoKeys)
                 .run_if(resource_exists::<Ui>),
         );
     }
@@ -536,8 +537,15 @@ fn shoot(
     mut down: Local<bool>,
     shots: Res<Shots>,
     windows: Query<(), With<bevy::window::PrimaryWindow>>,
+    mut photo: Option<ResMut<crate::photo_mode::PhotoMode>>,
 ) {
     let typed = typed.read().map(|input| (input.key_code, input.state));
+    // Photo mode keeps the frame's actions while play has none.
+    let actions = photo
+        .as_deref()
+        .and_then(crate::photo_mode::PhotoMode::keys)
+        .copied()
+        .or(actions.as_deref().copied());
     let asked = shot_asked(
         actions.is_some_and(|actions| actions.pressed(Action::Screenshot)),
         map.and_then(|map| map.binding(Action::Screenshot)),
@@ -545,6 +553,10 @@ fn shoot(
         typed,
         &mut down,
     );
+    // Photo mode takes the picture a frame later, its corner line hidden.
+    let asked = photo
+        .as_deref_mut()
+        .map_or(asked, |photo| photo.shoots(asked));
     if !asked || windows.is_empty() {
         return;
     }
