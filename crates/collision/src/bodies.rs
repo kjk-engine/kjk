@@ -5,9 +5,10 @@
 //! first (the level's), a body the trace starts in marks it `start_solid`,
 //! and one it never leaves decides it. A body is an axis-aligned box,
 //! clipped by the brush clip every world shares (`docs/TRACE-SPEC.md`);
-//! a body moving round across (`Shape::Upright`) meets it round across as
-//! well (`brush::clip_round`), as KOTOR's creatures meet by their personal
-//! space.
+//! a body moving round across (`Shape::Upright`) meets a living actor's
+//! body (`Contents::BODY`) round across as well (`brush::clip_round`), as
+//! KOTOR's creatures meet by their personal space, and any other body as
+//! its box.
 //!
 //! The list is the caller's, rebuilt each step from the sim's actors in id
 //! order, so the result depends on nothing but the state.
@@ -77,7 +78,8 @@ impl<'a> Bodies<'a> {
 impl Bodies<'_> {
     /// The bodies `extents` meets swept from `start` to `end`, after the
     /// world's `trace`: as a box, a box square to the axes; `round`, an
-    /// upright cylinder as wide as the box across, met by one.
+    /// upright cylinder as wide as the box across, which meets a living
+    /// actor's body as another such cylinder and any other body as its box.
     fn bodies_after(
         &self,
         mut trace: Trace,
@@ -103,7 +105,14 @@ impl Bodies<'_> {
             if !crate::reaches(start, end, reach, &body.min, &body.max) {
                 continue;
             }
-            let clip = match round {
+            // Only a living actor is met round across. Any other body (the
+            // collision cells of a placeable a script made) is met as its
+            // box, as the level's brushes are. Met round, each cell was
+            // smaller than the box the mover's own overlap test uses, so a
+            // mover counted itself inside the placeable before it touched a
+            // cell and walked through it (the swoop bikes and speeders that
+            // Tatooine's dune sea scripts make).
+            let clip = match round && body.contents.intersects(Contents::BODY) {
                 true => brush::clip_round(
                     [
                         (body.min[0] + body.max[0]) * 0.5,
