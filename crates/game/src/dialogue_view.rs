@@ -650,12 +650,10 @@ pub(crate) struct SendTalkOptions(pub bool);
 /// counts this player as busy, so it joins no conversation by standing
 /// near it.
 fn talk_options(
-    (settings, open, presented, swap): (
-        Option<Res<crate::settings::Settings>>,
-        Option<Res<UiOpen>>,
-        Res<PresentedSnapshot>,
-        Option<Res<SceneSwap>>,
-    ),
+    settings: Option<Res<crate::settings::Settings>>,
+    open: Option<Res<UiOpen>>,
+    presented: Res<PresentedSnapshot>,
+    swap: Option<Res<SceneSwap>>,
     mut again: ResMut<SendTalkOptions>,
     outgoing: Option<ResMut<crate::loot::Outgoing>>,
     mut sent: Local<Option<(bool, bool, u32)>>,

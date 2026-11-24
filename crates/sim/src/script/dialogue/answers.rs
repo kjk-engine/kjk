@@ -118,7 +118,11 @@ impl Step<'_> {
                 .count(),
         };
         let worded = (c.replies.get(nth))
-            .zip(self.library.dialogue(&c.dialog).filter(|dlg| !is_computer(dlg)))
+            .zip(
+                self.library
+                    .dialogue(&c.dialog)
+                    .filter(|dlg| !is_computer(dlg)),
+            )
             .and_then(|(reply, dlg)| dlg.replies.get(*reply as usize))
             .is_some_and(|node| !says_nothing(self.library, node));
         !talk.hide_replies && view.together() && players > 1 && worded
