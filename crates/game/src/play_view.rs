@@ -611,6 +611,12 @@ impl Plugin for PlayViewPlugin {
             .add_systems(Update, stance_picks.run_if(resource_exists::<View>))
             .add_systems(
                 PostUpdate,
+                first_person::unseen_layers
+                    .after(Drawn)
+                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+            )
+            .add_systems(
+                PostUpdate,
                 cast_shadows
                     .in_set(ShadowsCast)
                     .after(bevy::transform::TransformSystems::Propagate),
@@ -1824,7 +1830,7 @@ fn draw(
     }
     let Some(at) = view.subject(ms, own.as_ref()) else {
         // No one to look through: the own head shown, its flashes whole.
-        view.first.show(&mut visibility);
+        view.first.show(&mut commands);
         eyes.0 = None;
         return;
     };
@@ -1926,7 +1932,7 @@ fn draw(
             }),
             dt: time.delta_secs(),
         };
-        let eye = view.first.eye(&looking, &drawn, &mut visibility)?;
+        let eye = view.first.eye(&looking, &drawn, &mut commands)?;
         let eye = stop_short(
             (&view.level, view.doors.as_deref()),
             eye_height,
@@ -1935,7 +1941,7 @@ fn draw(
         Some((eye.map(|x| x * UNIT), angles))
     });
     if first.is_none() {
-        view.first.show(&mut visibility);
+        view.first.show(&mut commands);
     }
     eyes.0 = view.me.filter(|_| first.is_some());
     // The own gun's kick turns the view with the line its shots leave
