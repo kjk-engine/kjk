@@ -424,6 +424,25 @@ impl Story {
                 again.roster.clear();
             }
         }
+        // An item flag kept as none (a story from before the flags were
+        // kept) is compared without it, as the template's value stands.
+        for (holder, kept) in &before.items {
+            let Some(again) = after.items.get_mut(holder) else {
+                continue;
+            };
+            for (kept, again) in kept.iter().zip(again.iter_mut()) {
+                for (kept, again) in [
+                    (kept.plot, &mut again.plot),
+                    (kept.droppable, &mut again.droppable),
+                    (kept.identified, &mut again.identified),
+                    (kept.non_equippable, &mut again.non_equippable),
+                ] {
+                    if kept.is_none() {
+                        *again = None;
+                    }
+                }
+            }
+        }
         (before.differing(&after), off)
     }
 
