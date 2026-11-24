@@ -43,26 +43,17 @@ const FLOOR_ABOVE: f32 = 0.5;
 /// share of a room's stored light the view keeps (all of it with the
 /// game's lighting, half with the live fitted lights, none with the lamps
 /// alone). `None` where no probe with light is near.
+///
+/// A prop with no floor that near, such as a rock on an outcrop with no
+/// walkable top, reads the light of the floor straight under it, however
+/// far down, and else that of the nearest floor round it (`floor_for`). It
+/// used to glow with `PROP_GLOW` there, brighter than the rocks on the snow
+/// beside it.
 fn room_glow(scene: &LoadedScene, at: [f32; 3]) -> Option<[f32; 3]> {
-    let mut under: Option<(usize, f32)> = None;
-    for (index, room) in scene.rooms.iter().enumerate() {
-        for [a, b, c] in &room.floor {
-            let Some(z) = crate::scene::height_at(*a, *b, *c, at[0], at[1]) else {
-                continue;
-            };
-            if z <= at[2] + FLOOR_ABOVE
-                && z >= at[2] - FLOOR_BELOW
-                && under.is_none_or(|(_, higher)| z > higher)
-            {
-                under = Some((index, z));
-            }
-        }
-    }
-    let height = under.map_or(at[2], |(_, floor)| floor);
-    let sample = bevy::math::Vec3::new(at[0], at[1], height + PROBE_RISE);
+    let (room, sample) = floor_for(scene, at)?;
     let light = scene
         .probes
-        .light_at(&scene.rooms, under.map(|(room, _)| room), sample)
+        .light_at(&scene.rooms, Some(room), sample)
         .ok()?;
     use crate::fitted_lights::Mode;
     let kept = match crate::fitted_lights::mode() {
@@ -75,6 +66,44 @@ fn room_glow(scene: &LoadedScene, at: [f32; 3]) -> Option<[f32; 3]> {
             .min(bevy::math::Vec3::ONE)
             .to_array(),
     )
+}
+
+/// Where a prop standing at `at` reads its light: the room and the place a
+/// metre over the floor (`PROBE_RISE`) that is, in this order, the highest
+/// floor from `FLOOR_BELOW` under the prop to `FLOOR_ABOVE` over it; the
+/// highest floor under it, however far down; or the floor whose middle is
+/// nearest it seen from above, read at that middle. `None` in an area with
+/// no floor.
+fn floor_for(scene: &LoadedScene, at: [f32; 3]) -> Option<(usize, bevy::math::Vec3)> {
+    // A floor's room and its height.
+    let mut near: Option<(usize, f32)> = None;
+    let mut under: Option<(usize, f32)> = None;
+    let mut nearest: Option<(usize, f32, [f32; 3])> = None;
+    for (index, room) in scene.rooms.iter().enumerate() {
+        for [a, b, c] in &room.floor {
+            if let Some(z) = crate::scene::height_at(*a, *b, *c, at[0], at[1])
+                && z <= at[2] + FLOOR_ABOVE
+            {
+                if z >= at[2] - FLOOR_BELOW && near.is_none_or(|(_, higher)| z > higher) {
+                    near = Some((index, z));
+                }
+                if under.is_none_or(|(_, higher)| z > higher) {
+                    under = Some((index, z));
+                }
+            }
+            let middle: [f32; 3] = std::array::from_fn(|axis| (a[axis] + b[axis] + c[axis]) / 3.0);
+            let away = (middle[0] - at[0]).powi(2) + (middle[1] - at[1]).powi(2);
+            if nearest.is_none_or(|(_, closer, _)| away < closer) {
+                nearest = Some((index, away, middle));
+            }
+        }
+    }
+    let rise = |x: f32, y: f32, z: f32| bevy::math::Vec3::new(x, y, z + PROBE_RISE);
+    match (near.or(under), nearest) {
+        (Some((room, z)), _) => Some((room, rise(at[0], at[1], z))),
+        (None, Some((room, _, [x, y, z]))) => Some((room, rise(x, y, z))),
+        (None, None) => None,
+    }
 }
 
 /// A prop's model read once: its meshes at scale 1 (metres) and the

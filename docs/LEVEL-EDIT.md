@@ -618,7 +618,10 @@ rooms have no lightmaps, keeps the old fixed glow of 0.45 of its
 texture's colour.
 
 The light is read a metre over the floor under the prop, where the
-probes stand, however high the prop is. A rock stacked on others used to
+probes stand, however high the prop is. A prop with no floor within 3
+metres under it, such as a rock on an outcrop whose top is not walkable,
+reads the light of the floor straight under it, however far down, and
+else that of the nearest floor round it. A rock stacked on others used to
 be read at its own height, found no probe that high, and glowed with the
 fixed 0.45, much brighter than the rocks round it.
 
