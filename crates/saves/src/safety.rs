@@ -63,7 +63,7 @@ pub fn write_auto(
         .game
         .as_deref()
         .or(story.map(|story| story.game.as_str()))
-        .unwrap_or_default();
+        .unwrap_or("k1");
     let slots = autos(game);
     std::fs::create_dir_all(root).map_err(crate::failed(root))?;
     for pair in (0..slots.len() - 1).rev() {
