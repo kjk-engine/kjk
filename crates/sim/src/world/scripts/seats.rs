@@ -81,6 +81,8 @@ pub(super) fn seat_actions(
             | Action::Pazaak(_)
             | Action::Request { .. }
             | Action::Watch { .. } => continue,
+            // A seat taking a companion is `world::drivers`'.
+            Action::Play(_) => continue,
             // The party's calls are `world::party`'s.
             Action::Break | Action::Resume | Action::Ready | Action::Force => continue,
             // A revive is `world::falls`'.

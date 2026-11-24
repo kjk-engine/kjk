@@ -888,6 +888,7 @@ fn members(
                 dresses,
                 may_level,
                 busy: seat.and_then(|seat| crate::hud::busy(snapshot, seat)),
+                played_by: seat.filter(|seat| *seat != own).map(|seat| seat.0),
                 effects: effect_icons(assets, &fighter, snapshot.time_ms),
                 debilitated: fighter.debilitated(snapshot.time_ms),
                 poisoned: fighter.pack.poison.is_some(),
@@ -1239,7 +1240,7 @@ fn show(
     let listed = if open {
         crate::cast::pages_of(snapshot, own.0)
     } else {
-        crate::cast::party_of(snapshot, own.0)
+        crate::cast::bar_of(snapshot, own.0)
     };
     let party = members(assets, snapshot, (own.0, listed), level, &made);
     ui.vm.party = party.iter().map(|member| member.view.clone()).collect();

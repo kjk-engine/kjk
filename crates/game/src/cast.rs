@@ -726,6 +726,30 @@ pub fn party_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
     party
 }
 
+/// The party as `seat`'s HUD and leader key list it. For the first seat
+/// this is `party_of`. A guest that plays a body sees the whole party, as
+/// the first seat lists it, with its own body first. A guest that flies a
+/// droid (`Snapshot::remote`) sees the whole party as the first seat lists
+/// it. Its portrait clicks and leader key can then take a companion no
+/// player controls (`Action::Play`). Any other guest without a body sees
+/// `party_of` too.
+pub fn bar_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
+    if seat == Seat(0) {
+        return party_of(snapshot, seat);
+    }
+    let Some(body) = snapshot.body(seat) else {
+        return if snapshot.remote(seat).is_some() {
+            party_of(snapshot, Seat(0))
+        } else {
+            party_of(snapshot, seat)
+        };
+    };
+    let mut party = party_of(snapshot, Seat(0));
+    party.retain(|member| member.id != body.id);
+    party.insert(0, body);
+    party
+}
+
 /// The characters the in-game pages show for `seat` (`party_of`). In one
 /// of the party's bases (`sim::script::party::BASES`), the first seat's
 /// pages also show the companions standing there out of the party

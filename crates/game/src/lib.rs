@@ -93,7 +93,7 @@ pub mod installs;
 mod ja_footsteps;
 mod landing_fx;
 pub mod launch_times;
-mod leader_view;
+pub mod leader_view;
 pub mod lifecycle;
 mod lifecycle_view;
 pub mod light_probes;

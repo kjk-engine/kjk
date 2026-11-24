@@ -4648,7 +4648,7 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 /// player's own character standing meanwhile is played by its mind.
 #[test]
 fn guests_drive_companions() {
-    probed("drivers", &sim::drivers::probes(), 41);
+    probed("drivers", &sim::drivers::probes(), 52);
 }
 
 /// Conversations in co-op (I31): `sim::coop_talk::probes`, every phase's

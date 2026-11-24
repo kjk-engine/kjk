@@ -1619,6 +1619,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<HudKept> {
         if !banner {
             ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
+            ui::screens::hud::players(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
             if !floating {
                 ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);

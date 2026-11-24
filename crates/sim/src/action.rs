@@ -3,7 +3,8 @@
 //! trades with; wearing what the party carries, on the seat's own
 //! character or, for the host, a companion nobody plays; taking a level (its
 //! picks); Security on a lock; closing the party selection screen; making
-//! a companion the party's leader; using an object (a door, a container, a
+//! a companion the party's leader; playing a companion no player controls;
+//! using an object (a door, a container, a
 //! placeable, a creature); reviving a downed party member; using an item
 //! (on itself, or a droid's on a foe); fitting an upgrade into an item and
 //! taking one out; calling or ending a break; readiness for, or forcing, a
@@ -101,6 +102,14 @@ pub enum Action {
     /// or the seat's own character, the player again. As `SetLeader`, the
     /// first seat's only.
     Lead(crate::snapshot::SimId),
+    /// Play party member `body`, a companion no player controls (the HUD's
+    /// portrait click, the leader key, for every seat but the first): the
+    /// seat's choice is kept for it (`drivers::Kept`), so it drives that
+    /// companion from this step, and the one it leaves goes back to its
+    /// mind. Refused for a companion another seat drives or the first seat
+    /// leads, and while the seat's body or the companion is in a
+    /// conversation, a pazaak match or a store (`drivers::assign`).
+    Play(crate::snapshot::SimId),
     /// Solo mode on or off (KOTOR's solo-mode button): the companions
     /// stand where they are rather than following the leader
     /// (`GetSoloMode`).
@@ -499,6 +508,7 @@ const BAR: u8 = 65;
 const FEAT: u8 = 66;
 const GRENADE: u8 = 67;
 const MINE_KIT: u8 = 68;
+const PLAY: u8 = 69;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -609,6 +619,10 @@ impl Action {
             }
             Action::Lead(body) => {
                 out.u8(LEAD);
+                out.u32(body.0);
+            }
+            Action::Play(body) => {
+                out.u8(PLAY);
                 out.u32(body.0);
             }
             Action::Solo(on) => {
@@ -843,6 +857,7 @@ impl Action {
             SCREEN_CLOSED => Action::ScreenClosed,
             SET_LEADER => Action::SetLeader(input.u8()?),
             LEAD => Action::Lead(crate::snapshot::SimId(input.u32()?)),
+            PLAY => Action::Play(crate::snapshot::SimId(input.u32()?)),
             TRAVEL => Action::Travel(input.u8()?),
             SOLO => Action::Solo(input.u8()? != 0),
             PUT => Action::Put {
@@ -987,6 +1002,7 @@ impl Action {
             | Action::ShowParty
             | Action::SetLeader(_)
             | Action::Lead(_)
+            | Action::Play(_)
             | Action::Solo(_)
             | Action::Travel(_)
             | Action::Use { .. }

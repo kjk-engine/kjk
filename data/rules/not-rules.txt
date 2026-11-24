@@ -791,3 +791,4 @@ crates/sim/src/world/minds/perch.rs FORCE_RUN  # how much farther back a Force j
 crates/sim/src/world/minds/perch.rs RUNNING  # the share of run speed that counts as a run-up, a tolerance of the jump's arc
 crates/sim/src/world/minds/perch.rs RUN_UP  # how far a creature backs off for a run, a tolerance of the jump's arc
 crates/sim/src/combat/spells.rs RAISES_THE_FALLEN  # Revitalize's spells.2da rows, a list of table rows
+crates/sim/src/action.rs PLAY  # a player action's wire tag
