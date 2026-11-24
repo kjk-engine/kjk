@@ -889,8 +889,9 @@ Running and checking:
   - Dismemberment (`game.dismemberment`): the last row, how often a
     blade's killing blow cuts a part off, stepped through 0%, 10%, 20%,
     33% (the default, one in three), 50%, 75% and 100%, with the same
-    arrows. It changes what this machine draws and applies at once
-    (`game::severing`); the sim and the host's setting do not know it.
+    arrows. It changes what is drawn and applies at once
+    (`game::severing`). The sim does not know it. In co-op the host's
+    value applies to every player (`docs/COOP.md`).
 
   The hilts are read when a run loads. A hilt the install lacks leaves
   KOTOR's, and the run's notes say why. The page's Default button puts all

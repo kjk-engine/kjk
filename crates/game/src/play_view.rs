@@ -1754,7 +1754,9 @@ fn draw(
     // The bolts that struck bodies lately: the bodies flinch from them.
     view.cast.bolt_hits = bolt_hits.map_or_else(Vec::new, |hits| hits.0.clone());
     // How often a blade's killing blow cuts a part off (the options).
-    view.cast.ragdolls.cut_percent = duel_options.map(|options| options.cut_percent);
+    // A joined player cuts as often as the host's view does.
+    view.cast.ragdolls.cut_percent =
+        session::host_dismemberment().or_else(|| duel_options.map(|options| options.cut_percent));
     let posed = view.cast.draw(
         (&view.history, &view.level),
         ms,

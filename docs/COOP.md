@@ -261,3 +261,13 @@ kjk remote census k1   # every scripted round's module read for a protection the
 kjk chain k1 --droids chaos   # after a plain `kjk chain k1`: each route alone from its checkpoint, two chaos droids; story changes listed in story-changes.txt
 cargo xtask duo --preset race   # the swoop race in co-op, a run per seat (MINIGAMES.md); --preset turret: the Ebon Hawk's guns
 ```
+
+## Dismemberment
+
+The share of killing blows that cut a part off (`game.dismemberment`,
+`docs/RAGDOLLS.md`) is the host's in a joined session, so every player sees
+the same bodies cut. The welcome carries it (`Welcome::dismemberment`, a
+host that named none leaves a guest its own option), and a change the host
+makes in play is sent to every guest at once (`Message::Dismemberment`,
+`Server::set_dismemberment`, protocol 11). A guest's own option comes back
+when it starts a session of its own (`session::set_host_dismemberment`).

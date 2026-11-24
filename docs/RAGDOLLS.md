@@ -183,7 +183,8 @@ deterministic and costs the sim nothing. Rapier, 120 steps a second.
 ## Dismemberment (`ragdoll::cut`, `game::severing`)
 - A blade's killing blow cuts a part off about one time in three (the
   Dismemberment option, `game.dismemberment`, 0 to 100 percent, 33 by
-  default; a view setting of each machine, the sim never knows), as JA's
+  default; a view setting: the sim never knows it, and in co-op a guest
+  cuts as often as the host says, `docs/COOP.md`), as JA's
   saber cuts (our numbers): a lightsaber's, or (the owner's addition) an
   edged melee weapon's, one that slashes or pierces (a sword, a vibroblade;
   never a staff or a baton). It cuts the head, the waist (the body in half), an arm, the

@@ -691,6 +691,13 @@ impl Solo {
         self.pump();
     }
 
+    /// Tells every player that this view cuts a part off `percent` of
+    /// killing blows (`game.dismemberment`), so theirs cut alike.
+    pub fn dismemberment(&mut self, percent: u8) {
+        lock(&self.hosted).server.set_dismemberment(percent);
+        self.pump();
+    }
+
     /// Shows a mine that went off on `seat`'s player's side.
     pub fn explosion(&mut self, seat: Seat, explosion: sim::notice::Explosion) {
         lock(&self.hosted).server.explosion(seat, explosion);

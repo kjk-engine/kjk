@@ -86,6 +86,33 @@ pub fn set_collision(mode: Collision) {
     COLLISION.store(mode.code(), Ordering::Relaxed);
 }
 
+/// What the host of a joined session says is the share of killing blows
+/// that cut a part off (`game.dismemberment`, 0 to 100), or `NO_HOST_CUTS`
+/// when this process hosts or plays alone, or the host did not say.
+static HOST_DISMEMBERMENT: AtomicU8 = AtomicU8::new(NO_HOST_CUTS);
+
+/// `HOST_DISMEMBERMENT`'s value for no host's word.
+const NO_HOST_CUTS: u8 = u8::MAX;
+
+/// The host's share of cutting blows, in percent, for a joined player: it
+/// takes the host's, so every player's view cuts alike. None when this
+/// process plays by its own options.
+pub fn host_dismemberment() -> Option<u8> {
+    match HOST_DISMEMBERMENT.load(Ordering::Relaxed) {
+        NO_HOST_CUTS => None,
+        percent => Some(percent.min(100)),
+    }
+}
+
+/// Sets the host's share of cutting blows for a joined player, or clears it
+/// (a session started here, or left).
+pub fn set_host_dismemberment(percent: Option<u8>) {
+    HOST_DISMEMBERMENT.store(
+        percent.map_or(NO_HOST_CUTS, |p| p.min(100)),
+        Ordering::Relaxed,
+    );
+}
+
 impl Request {
     pub fn new(game: &str, module: &str, arrival: Option<&str>, seats: u8) -> Request {
         Request {

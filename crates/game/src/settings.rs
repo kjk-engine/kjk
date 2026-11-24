@@ -1129,7 +1129,8 @@ pub struct DuelOptions {
     /// A perfect block slows the world for a moment (alone only).
     pub slow_motion: bool,
     /// How often a blade's killing blow cuts a part off, in percent
-    /// (`severing::limb`). This machine's view alone: the sim never knows.
+    /// (`severing::limb`). The view's alone: the sim never knows. A joined
+    /// player takes the host's (`session::host_dismemberment`).
     pub cut_percent: u8,
 }
 
@@ -1138,6 +1139,9 @@ pub struct DuelOptions {
 /// (`net_join`).
 pub fn fix_session_collision() {
     session::set_collision(Settings::read().collision());
+    // A session started here cuts as this machine's options say, not as a
+    // host once joined did.
+    session::set_host_dismemberment(None);
 }
 
 /// Each part of the mix and the setting of its slider.

@@ -93,6 +93,9 @@ const CHOOSE: u8 = 17;
 const READY: u8 = 18;
 const START: u8 = 19;
 const CLOSED: u8 = 20;
+const DISMEMBERMENT: u8 = 21;
+/// A welcome's dismemberment byte when the host named no share.
+const NO_DISMEMBERMENT: u8 = u8::MAX;
 
 /// Bytes of a save copy in one `SaveCopy` message. A connection sends a
 /// part only when nothing else of its reliable channel is in flight, so a
@@ -190,6 +193,10 @@ pub struct Welcome {
     /// The host's collision (`collision_odyssey::Collision::code`). A
     /// client builds its levels with it, so its walls are the host's.
     pub collision: u8,
+    /// The share of killing blows the host's view cuts a part off with, in
+    /// percent (`game.dismemberment`), when the host named one. A client
+    /// draws its cuts with it, so every player sees the same bodies cut.
+    pub dismemberment: Option<u8>,
 }
 
 /// The level a client builds to join: a stage by its id, or the current
@@ -305,6 +312,10 @@ pub enum Message<'a> {
     Start,
     /// The lobby ended, with the reason a player reads.
     Closed(String),
+    /// The host changed the share of killing blows its view cuts a part off
+    /// with, in percent (at most 100): the welcome's `dismemberment`, said
+    /// again to every player.
+    Dismemberment(u8),
 }
 
 impl Message<'_> {
@@ -322,6 +333,7 @@ impl Message<'_> {
                 put_u64(out, welcome.token);
                 out.push(u8::from(welcome.stances));
                 out.push(welcome.collision);
+                out.push(welcome.dismemberment.unwrap_or(NO_DISMEMBERMENT));
             }
             Message::Level(LevelRequest::Stage(id)) => {
                 out.extend_from_slice(&[LEVEL, 0]);
@@ -414,6 +426,7 @@ impl Message<'_> {
                 out.push(CLOSED);
                 put_text(out, reason);
             }
+            Message::Dismemberment(percent) => out.extend_from_slice(&[DISMEMBERMENT, *percent]),
         }
     }
 
@@ -443,6 +456,15 @@ impl Message<'_> {
                     _ => return Err(WireError::Invalid { what: "stances" }),
                 },
                 collision: input.u8("collision")?,
+                dismemberment: match input.u8("dismemberment")? {
+                    NO_DISMEMBERMENT => None,
+                    percent @ 0..=100 => Some(percent),
+                    _ => {
+                        return Err(WireError::Invalid {
+                            what: "dismemberment",
+                        });
+                    }
+                },
             }),
             LEVEL => match input.u8("level kind")? {
                 0 => Message::Level(LevelRequest::Stage(LevelId {
@@ -538,6 +560,14 @@ impl Message<'_> {
             READY => Message::Ready(input.u8("ready")? != 0),
             START => Message::Start,
             CLOSED => Message::Closed(input.text("reason")?),
+            DISMEMBERMENT => match input.u8("dismemberment")? {
+                percent @ 0..=100 => Message::Dismemberment(percent),
+                _ => {
+                    return Err(WireError::Invalid {
+                        what: "dismemberment",
+                    });
+                }
+            },
             got => {
                 return Err(WireError::Kind {
                     what: "message",
