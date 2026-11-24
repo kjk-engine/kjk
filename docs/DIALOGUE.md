@@ -466,10 +466,10 @@ restored when it ends.
   fighting as the talk begins, or turned hostile by a line, stands too
   (Taris's Sith base turrets and assault droid, `tar09_trap_dlg`). A bolt
   in flight still lands. A script's `CutsceneAttack` is no action and
-  plays; one not commandable keeps its queue and its fight. The player
-  is the character it controls. While a companion leads, a conversation
-  a script starts with `GetFirstPC()` is that companion's, and it holds
-  the hostiles the same way (Darth Bandon's on Manaan, `k_pman_survivex`).
+  plays; one not commandable keeps its queue and its fight. While a
+  companion leads, a conversation a script starts with the main character
+  (`GetFirstPC()`) still holds the hostiles, in the same way as when the
+  main character leads (Darth Bandon's on Manaan, `k_pman_survivex`).
 - **Walks**: a body walking a route moves on KOTOR's walker at its
   `creaturespeed.2da` rates (`MOVEMENT.md`, `NAV.md`).
 - **Spaces**: the party keeps its personal spaces, as KOTOR's creatures

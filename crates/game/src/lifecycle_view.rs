@@ -2,13 +2,14 @@
 //! presented snapshots and `sim_host::Loading`):
 //!
 //! - the loading screen while a module is planned: the game's own
-//!   (`ui::screens::loading`, KOTOR 2's layout: the module's loading image,
-//!   the area's name, the bar) where the screens are drawn, else laid out
-//!   as KOTOR's `loadscreen.gui` has it (640 × 480): the module's loading
+//!   (`ui::screens::loading`, the campaign's own layout, with the module's
+//!   loading image, a hint and the bar) where the screens are drawn. Where
+//!   they are not (a run with no game screens), it is laid out in the 640 ×
+//!   480 of KOTOR 1's `loadscreen.gui` for either game: the module's loading
 //!   image over black, the progress bar (`PB_PROGRESS`, 238, 279, 164 ×
-//!   22, filled with `bluefill` from the left); it holds a moment once the
-//!   module is in, and then until the new scene can be drawn whole
-//!   (`PictureWait`), then this one fades, so the new scene appears
+//!   22, filled with `bluefill` from the left) and no hint. It holds a
+//!   moment once the module is in, and then until the new scene can be
+//!   drawn whole (`PictureWait`), then this one fades, so the new scene appears
 //!   settled;
 //! - the doors, opening and closing as the sim has them: a door that
 //!   changes state plays its `opening1`/`opening2` (or `closing`) clip

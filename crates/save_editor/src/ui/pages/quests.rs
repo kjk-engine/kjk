@@ -7,7 +7,7 @@ use crate::ui::list::{self, Row, col, rest};
 use crate::ui::pages::{self, hint, number};
 use crate::ui::shell::AMBER;
 use crate::ui::{App, ready};
-use save_editor::model::catalog::{Kind, words};
+use save_editor::model::catalog::{Global, Kind, words};
 use save_editor::model::session::Change;
 
 /// The entry quest `tag` stands at in `save`, if any.
@@ -20,22 +20,12 @@ fn standing(save: &sim::Save, tag: &str) -> Option<i32> {
 }
 
 /// A flag's value in `save`, in words.
-fn value(save: &sim::Save, name: &str, kind: Kind) -> String {
-    let script = &save.script;
-    match kind {
-        Kind::Number => script
-            .numbers
-            .get(name)
-            .map_or("0".into(), ToString::to_string),
-        Kind::Boolean => script
-            .booleans
-            .get(name)
-            .copied()
-            .unwrap_or(false)
-            .to_string(),
-        Kind::Text => script
-            .strings
-            .get(name)
+fn value(save: &sim::Save, global: &Global) -> String {
+    match global.kind {
+        Kind::Number => global.number(save).to_string(),
+        Kind::Boolean => global.boolean(save).to_string(),
+        Kind::Text => global
+            .text(save)
             .map_or(String::new(), |text| format!("{text:?}")),
     }
 }
@@ -82,7 +72,7 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
                     cells: vec![
                         global.name.clone(),
                         kind_name(global.kind).into(),
-                        value(save, &global.name, global.kind),
+                        value(save, global),
                     ],
                     ..Row::default()
                 }
@@ -160,7 +150,7 @@ pub fn details(app: &mut App, ui: &mut egui::Ui) {
         hint(ui, kind_name(global.kind));
         match global.kind {
             Kind::Number => {
-                let now = i64::from(save.script.numbers.get(&name).copied().unwrap_or(0));
+                let now = i64::from(global.number(save));
                 if let Some(set) = number(
                     &mut app.pages,
                     ui,
@@ -172,7 +162,7 @@ pub fn details(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
             Kind::Boolean => {
-                let mut now = save.script.booleans.get(&name).copied().unwrap_or(false);
+                let mut now = global.boolean(save);
                 if ui.checkbox(&mut now, "true").changed() {
                     change = Some(Change::Boolean(name.clone(), now));
                 }

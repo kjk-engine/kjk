@@ -2095,6 +2095,14 @@ impl Snapshot {
         u8::try_from(avatars).unwrap_or(u8::MAX)
     }
 
+    /// Whether the party has been in `module`. That is true when it is in
+    /// the module now, and when it left the module and the stash keeps it.
+    pub fn visited(&self, module: &str) -> bool {
+        let named = |place: &Place| place.module.eq_ignore_ascii_case(module);
+        self.place.as_ref().is_some_and(named)
+            || self.stash.iter().any(|stashed| named(&stashed.place))
+    }
+
     /// The seats the session holds (`seats_held`): how many the server
     /// admits and an install makes room for.
     pub fn seats(&self) -> u8 {

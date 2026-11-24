@@ -26,9 +26,9 @@ impl Step<'_> {
         // body; the game's, or a cutscene's, holds every seat, its listener
         // the PC (R1, R2). One with someone else as its PC (two others
         // talking) is neither.
-        let (pcs, lent) = (self.view.pcs(&self.state.party), self.lent());
+        let (mains, lent) = (self.view.main_characters(&self.state.party), self.lent());
         let private = self.view.seat_of(start.asker).is_some() && !cutscene(dlg);
-        let party = !private && party_pc(&pcs, lent, start.pc);
+        let party = !private && party_pc(&mains, lent, start.pc);
         let listener = if private { start.asker } else { start.pc };
         self.state.talk.user = Some(listener);
         if !start.bark && private && self.join(&start) {
@@ -195,7 +195,11 @@ impl Step<'_> {
     pub(super) fn join(&mut self, start: &Start) -> bool {
         let view = self.view;
         let (pc, host) = (
-            party_pc(&view.pcs(&self.state.party), self.lent(), start.asker),
+            party_pc(
+                &view.main_characters(&self.state.party),
+                self.lent(),
+                start.asker,
+            ),
             self.host(),
         );
         let talk = &mut self.state.talk;

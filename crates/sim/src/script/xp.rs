@@ -216,7 +216,7 @@ pub(crate) fn reward_skill(
         return;
     }
     let level = view
-        .thing(view.first_pc(&state.party))
+        .thing(view.first_main_character(&state.party))
         .and_then(|pc| pc.character)
         .map(|character| character.level);
     let Some(level) = level else {

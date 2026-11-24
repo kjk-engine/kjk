@@ -428,11 +428,21 @@ impl GuiAssets {
     /// campaign names as KOTOR 2 does (`skin::moved`).
     pub fn screen_layout(&self, name: &str) -> Result<(Gui, Source), String> {
         if skin::own(name) {
-            let gui = GuiAssets::layout(self, name)
-                .or_else(|_| GuiAssets::layout(self, &skin::moved(name)))?;
+            let gui = GuiAssets::layout(self, &self.own_layout_name(name))?;
             return Ok((gui, Source::Campaign));
         }
         Ok((self.skin_layout(name)?, Source::Skin))
+    }
+
+    /// The name the campaign's own layout for `name` has: `name` where the
+    /// campaign has a layout of that name, else the name KOTOR 2 gives it
+    /// (`skin::moved`).
+    fn own_layout_name(&self, name: &str) -> String {
+        if self.resolver.find(name, ResType::GUI).is_some() {
+            name.to_string()
+        } else {
+            skin::moved(name)
+        }
     }
 
     fn skin_layout(&self, name: &str) -> Result<Gui, String> {
@@ -449,7 +459,7 @@ impl GuiAssets {
     /// lowest copy instead: the one the game ships.
     pub fn stock_screen_layout(&self, name: &str) -> Result<Gui, String> {
         let (resolver, file) = if skin::own(name) {
-            (&self.resolver, name.to_string())
+            (&self.resolver, self.own_layout_name(name))
         } else {
             let skin = self
                 .skin

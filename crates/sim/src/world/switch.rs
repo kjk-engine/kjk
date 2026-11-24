@@ -37,7 +37,7 @@
 //!
 //! Scripts see the switch at once, in the step that made it: `GetFirstPC`,
 //! `GetIsPC`, `GetPCSpeaker` and the party's index 0 answer the creature
-//! (`script::View::pcs`). A companion with no creature in the module is
+//! (`script::View::main_characters`). A companion with no creature in the module is
 //! made from its template beside the PC, as the party selection screen
 //! makes those it calls (`script::engine`).
 //!

@@ -71,6 +71,10 @@ pub struct Texture {
     /// its first level alone, and the levels below it are made when it is
     /// loaded (`asset_odyssey::texture::TextureIr::from_texture`).
     pub mips_stored: bool,
+    /// The float at bytes 4 to 8 of a TPC's header, which KOTOR's executable
+    /// sorts its textures by, whatever the TXI's `alphamean` says. A TGA has
+    /// none.
+    pub header_key: Option<f32>,
 }
 
 /// The TXI a texture is drawn by, picked as KOTOR 2's executable picks it
@@ -310,6 +314,7 @@ impl Texture {
             missing_mips,
             declared_size,
             mips_stored: true,
+            header_key: Some(f32::from_le_bytes(bytes[4..8].try_into().expect("4 bytes"))),
         })
     }
 
@@ -486,6 +491,7 @@ impl Texture {
             missing_mips: 0,
             declared_size: None,
             mips_stored: false,
+            header_key: None,
         })
     }
 }

@@ -228,7 +228,7 @@ kjk module k1 kas_m25aa --headless --cmds 'camera 83.4 20 12.3 90 -5 45; wait 2s
 ```
 - `dump` has a `grass` fact (`texture`, `missing_texture`, `shown`, the
   `patches` by room with their tufts) and a `weather` fact
-  (`fall`, `lightning`, `wind`, `running`, `indoors`, `player_room`,
+  (`fall`, `lightning`, `wind`, `running`, `indoors`, `controlled_room`,
   `emitters`, `particles`, `flashes`). A flash comes within 5 to 10 s of a
   check; film 20 s to see one (`record malachor 3 23 24`).
 - A flash and the Dxun rain are faint by their data; look at stills of the

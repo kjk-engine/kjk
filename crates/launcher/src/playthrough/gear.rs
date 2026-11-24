@@ -50,7 +50,7 @@ pub(super) fn feat_limits_met(
         feats: *feats,
         gender: 0,
         abilities: [10; 6],
-        player: true,
+        is_pc: true,
         tag: String::new(),
         tsl: false,
         locked: 0,
