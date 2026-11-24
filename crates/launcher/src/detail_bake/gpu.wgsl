@@ -40,7 +40,8 @@ struct Params {
     samples: u32,
     rays: u32,
     seed: u32,
-    short: f32,
+    // Not read. It keeps `lift` and `sun` where `gpu.rs` writes them.
+    unused: f32,
     lift: f32,
     // The way to the sun, for `MODE_SKY`. `w` is half the sun's width where
     // the area gives one, and 0 for `SUN_WIDTH`.
@@ -56,8 +57,7 @@ struct Params {
 @group(0) @binding(4) var<storage, read> cells: array<vec2<u32>>;
 @group(0) @binding(5) var<storage, read> cell_lights: array<u32>;
 @group(0) @binding(6) var<uniform> params: Params;
-// The fixed directions of the CPU bake's bounce rays and wall rays, around +Z.
-@group(0) @binding(7) var<storage, read> dirs: array<vec4<f32>>;
+// The fixed directions of the wall rays, around +Z. Binding 7 is not used.
 @group(0) @binding(8) var<storage, read> wall_dirs: array<vec4<f32>>;
 // Each lightmap: where its texels start in a field, its width, its height,
 // and 1 when it clamps.
@@ -86,14 +86,11 @@ struct Params {
 // never ends there. The card then stops the command buffer, and wgpu waits
 // for it for ever (`ray_structures.rs` in the game has the same note).
 
-// The instance masks: the triangles that cast shadows, and the lamps' glass,
-// which casts none on the lights.
+// The instance mask of the triangles that cast shadows. The lamps' glass has
+// a mask of its own and casts no shadow on the lights.
 const BLOCKERS: u32 = 1u;
-const EVERYTHING: u32 = 0xffu;
 
-const MODE_DIRECT_OLD: u32 = 0u;
 const MODE_DIRECT_SOFT: u32 = 1u;
-const MODE_BOUNCE_OLD: u32 = 2u;
 const MODE_BOUNCE_NEW: u32 = 3u;
 const MODE_SKY: u32 = 4u;
 
@@ -235,23 +232,6 @@ fn random(seed: ptr<function, u32>) -> f32 {
     return f32(*seed >> 8u) / 16777216.0;
 }
 
-// The share of the CPU bake's targets a ray from `at` reaches: the nearest
-// place, and on a strip its two ends and the middle of each half.
-fn hard(light: Light, at: vec3<f32>) -> f32 {
-    var seen = select(0u, 1u, reaches(at, nearest(light, at), params.short, EVERYTHING));
-    let half = light.colour.w;
-    if half <= 0.0 {
-        return f32(seen);
-    }
-    var places = array<f32, 4>(-1.0, -0.5, 0.5, 1.0);
-    for (var k = 0u; k < 4u; k++) {
-        if reaches(at, light.at.xyz + light.way.xyz * (places[k] * half), params.short, EVERYTHING) {
-            seen += 1u;
-        }
-    }
-    return f32(seen) / 5.0;
-}
-
 // Whether a texel is inside a wall: too many of its rays meet the back of a
 // surface within `WALL_NEAR`. A surface farther off is no wall the texel is
 // in. The rays from the sand of tat_m20aa met the backs of the tents' cloth
@@ -312,7 +292,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let normal = point.normal.xyz;
     var seed = hash(index * 9781u + params.seed * 6271u + 1u);
 
-    if params.mode == MODE_DIRECT_OLD || params.mode == MODE_DIRECT_SOFT {
+    if params.mode == MODE_DIRECT_SOFT {
         let cell = cells[bitcast<u32>(point.at.w)];
         let has_shading = point.normal.w > 0.5;
         var lit = vec3<f32>(0.0);
@@ -327,11 +307,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
                 continue;
             }
             open += given;
-            if params.mode == MODE_DIRECT_OLD {
-                lit += given * hard(light, at);
-            } else {
-                lit += given * max(soft(number, at), near_lamp(light, at));
-            }
+            lit += given * max(soft(number, at), near_lamp(light, at));
         }
         results[2u * index] = vec4<f32>(lit, select(0.0, 1.0, counts(at, normal)));
         results[2u * index + 1u] = vec4<f32>(open, 0.0);
@@ -411,7 +387,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     // A bounce: the light the surfaces the rays meet send back.
     let side = side_of(normal);
     let up = cross(normal, side);
-    let total = select(params.rays, arrayLength(&dirs), params.mode == MODE_BOUNCE_OLD);
+    let total = params.rays;
     // One random shift of the whole grid of directions for each texel, so
     // neighbouring texels do not share the same pattern.
     let shift = vec2<f32>(random(&seed), random(&seed));
@@ -420,16 +396,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     var b = vec3<f32>(0.0);
     var glow = vec3<f32>(0.0);
     for (var k = 0u; k < total; k++) {
-        var d: vec3<f32>;
-        if params.mode == MODE_BOUNCE_OLD {
-            d = dirs[k].xyz;
-        } else {
-            let u1 = fract((f32(k / across) + 0.5) / f32(across) + shift.x);
-            let u2 = fract((f32(k % across) + 0.5) / f32(across) + shift.y);
-            let r = sqrt(u1);
-            let phi = TAU * u2;
-            d = vec3<f32>(r * cos(phi), r * sin(phi), sqrt(1.0 - u1));
-        }
+        let u1 = fract((f32(k / across) + 0.5) / f32(across) + shift.x);
+        let u2 = fract((f32(k % across) + 0.5) / f32(across) + shift.y);
+        let r = sqrt(u1);
+        let phi = TAU * u2;
+        let d = vec3<f32>(r * cos(phi), r * sin(phi), sqrt(1.0 - u1));
         let direction = side * d.x + up * d.y + normal * d.z;
         var query: ray_query;
         rayQueryInitialize(&query, scene, RayDesc(RAY_FLAG_NONE, 0xffu, 0.0, REACH, at, direction));

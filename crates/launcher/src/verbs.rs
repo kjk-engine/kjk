@@ -104,10 +104,6 @@ pub(crate) enum Verb {
         /// The folder the files are written to
         #[arg(long, default_value_os_t = room_light_fit::default_out())]
         out: std::path::PathBuf,
-        /// Also bake the area's lightmaps from the fitted lights into this
-        /// folder, as kjk detail-bake writes them (step 10)
-        #[arg(long)]
-        bake: Option<std::path::PathBuf>,
         /// Also try this many places for lights the files do not list
         #[arg(long, default_value_t = 0)]
         free: usize,
@@ -124,56 +120,34 @@ pub(crate) enum Verb {
         #[arg(long)]
         found: bool,
     },
-    /// An area's lightmaps made four times larger, with the detail the
-    /// stored size cannot hold (docs/LIGHTING-PLAN.md, step 10). Writes
-    /// one PNG for each lightmap. The game draws them when
-    /// KJK_DETAIL_BAKE names the area's folder.
+    /// An area's lightmaps baked anew from the game's fitted lights, at
+    /// four times their stored size, on the graphics card. Writes one PNG
+    /// for each lightmap into two sets: a, the live look with shadows and
+    /// bounced light, and b, the lamps alone, which the lighting download
+    /// ships. The game shows b with KJK_FITTED_LIGHTS=baked
     DetailBake {
         /// The module, for example tar_m03ae
         module: String,
         /// k1 or tsl; both are searched when left out
         #[arg(long)]
         game: Option<String>,
-        /// Each texel casts this many rays squared
-        #[arg(long, default_value_t = 16)]
-        rays: usize,
-        /// How much of the detail the new lightmaps take, from 0 to 1
-        #[arg(long, default_value_t = 1.0)]
-        strength: f32,
-        /// How wide the average is that the detail is measured against,
-        /// in stored texels. A wider average keeps larger shadows.
-        #[arg(long, default_value_t = 1.0)]
-        width: f32,
-        /// Plain occlusion in the detail's place: a texel is darkened by
-        /// the share of its rays that meet a surface nearer than --near
-        #[arg(long)]
-        plain: bool,
-        /// The distance in metres beyond which a surface blocks nothing
-        #[arg(long, default_value_t = 2.5)]
-        near: f32,
-        /// Bake from the fitted lights in this file, which the game writes
-        /// when KJK_FITTED_DUMP names it. Two sets of lightmaps are made:
-        /// a, the live look with shadows and bounced light, and b, the
-        /// lamps alone. The game shows one with KJK_FITTED_LIGHTS=baked
-        #[arg(long)]
+        /// The fitted lights to bake from: a file the game writes when
+        /// KJK_FITTED_DUMP names it. Every bake needs it
+        #[arg(long, required_unless_present_any = ["fingerprint", "stamp"])]
         lights: Option<std::path::PathBuf>,
-        /// With --lights, bake on the graphics card with its ray queries:
-        /// soft shadows, three bounces and one level for each room
+        /// The bake always runs on the graphics card. The flag is still
+        /// taken, so older command lines keep working
         #[arg(long)]
         gpu: bool,
-        /// With --gpu, do what the CPU bake does instead, ray for ray, so
-        /// the two can be compared
-        #[arg(long)]
-        old: bool,
-        /// With --gpu, print what the texels near a place see of each
+        /// Print what the texels near a place see of each
         /// light: "x y z radius" in metres
         #[arg(long)]
         probe: Option<String>,
-        /// With --gpu, the levels the lamps-alone set b aims at: a file
+        /// The levels the lamps-alone set b aims at: a file
         /// with one line for each room, its name and its mean stored level
         #[arg(long)]
         levels: Option<std::path::PathBuf>,
-        /// With --gpu, the area's sun and sky for set b, nine numbers:
+        /// The area's sun and sky for set b, nine numbers:
         /// the way to the sun "x y z", the stored level a surface facing
         /// the sun shows of it "r g b", and the same under the whole sky.
         /// Six more numbers give a second sun: its way and its colour.
@@ -181,39 +155,39 @@ pub(crate) enum Verb {
         /// shadows
         #[arg(long, allow_hyphen_values = true)]
         sun: Option<String>,
-        /// With --gpu, print the ways to the sun that fit the stored
+        /// Print the ways to the sun that fit the stored
         /// lightmaps best
         #[arg(long)]
         sun_fit: bool,
-        /// With --gpu, a room's level is its level where the game lights
+        /// A room's level is its level where the game lights
         /// it today: each texel counts by its stored level
         #[arg(long)]
         weigh: bool,
-        /// With --gpu, no room takes the even light: a room its lamps and
+        /// No room takes the even light: a room its lamps and
         /// the sun cannot bring to its level stays darker
         #[arg(long)]
         no_even: bool,
-        /// With --gpu, a room its lamps cannot bring to its level takes its
+        /// A room its lamps cannot bring to its level takes its
         /// own stored light for the rest, and not an even light
         #[arg(long)]
         fill_stored: bool,
-        /// With --gpu, each texel of the lamps' set shows at least this
+        /// Each texel of the lamps' set shows at least this
         /// share of its stored linear light in the game (`floor.txt`)
         #[arg(long)]
         floor: Option<f32>,
-        /// With --gpu, every room with a lightmapped mesh is baked, not
+        /// Every room with a lightmapped mesh is baked, not
         /// only the rooms with a walkable face, as under a sun
         #[arg(long)]
         every_room: bool,
-        /// With --gpu, a room with no walkable face shows its stored light in
+        /// A room with no walkable face shows its stored light in
         /// the lamps' set, and not twice it
         #[arg(long)]
         stored_backdrop: bool,
-        /// With --gpu, the least a room's lamps are scaled by (0.5 when
+        /// The least a room's lamps are scaled by (0.5 when
         /// left out)
         #[arg(long)]
         least: Option<f32>,
-        /// With --gpu, the most a room's lamps are scaled by (6 when left
+        /// The most a room's lamps are scaled by (6 when left
         /// out)
         #[arg(long)]
         most: Option<f32>,
@@ -221,12 +195,12 @@ pub(crate) enum Verb {
         /// down into their room, by their node's name, with spaces between
         #[arg(long)]
         skylights: Option<String>,
-        /// With --gpu, the placeables block the rays where they rest, so they
+        /// The placeables block the rays where they rest, so they
         /// cast their shadows into the lightmaps. Skinned and dangling meshes
         /// do not
         #[arg(long)]
         placeables: bool,
-        /// With --gpu, each vertex of a placeable's mesh that is not skinned
+        /// Each vertex of a placeable's mesh that is not skinned
         /// and does not dangle is lit as a texel is, into placeables.txt of
         /// the lamps' set. It implies --placeables
         #[arg(long)]
@@ -630,7 +604,6 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             game,
             every_glow,
             out,
-            bake,
             free,
             free_keep,
             free_dark,
@@ -641,7 +614,6 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             game.as_deref(),
             every_glow,
             &out,
-            bake.as_deref(),
             if found && free == 0 {
                 (1000, 200, 1.0)
             } else {
@@ -651,14 +623,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
         Verb::DetailBake {
             module,
             game,
-            rays,
-            strength,
-            width,
-            plain,
-            near,
             lights,
-            gpu,
-            old,
+            gpu: _,
             probe,
             levels,
             sun,
@@ -719,9 +685,11 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     return ExitCode::from(2);
                 }
             };
-            let on_gpu = gpu.then_some(detail_bake::GpuOptions {
-                rays,
-                old,
+            let Some(lights) = lights else {
+                eprintln!("detail-bake: give the fitted lights with --lights");
+                return ExitCode::from(2);
+            };
+            let options = detail_bake::GpuOptions {
                 probe,
                 levels,
                 sun,
@@ -740,22 +708,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                     .collect(),
                 placeables: placeables || placeable_light,
                 placeable_light,
-            });
-            detail_bake::run(
-                &discover(),
-                &module,
-                game.as_deref(),
-                &detail_bake::Options {
-                    rays,
-                    strength,
-                    width,
-                    plain,
-                    near,
-                },
-                lights.as_deref(),
-                on_gpu.as_ref(),
-                &out,
-            )
+            };
+            detail_bake::run(&discover(), &module, game.as_deref(), &lights, &options, &out)
         }
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {

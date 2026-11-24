@@ -2,10 +2,8 @@
 //! --lights <file> --gpu`). It opens its own Vulkan or Metal device with wgpu's ray
 //! queries, builds one acceleration structure from the rooms' blocking
 //! triangles, and runs its passes as compute shaders (`gpu.wgsl`). The
-//! texels and the lights are found on the CPU as the CPU bake finds them.
-//!
-//! With `--old` it does what the CPU bake does, ray for ray, so the two can
-//! be compared. Without it, it makes the bake the owner judges:
+//! texels and the lights are found on the CPU. It makes the bake the owner
+//! judges:
 //!
 //! - **Soft shadows.** Each light casts `SAMPLES` rays a texel, spread over
 //!   its lamp. A strip's rays spread along its length. A light that shines
@@ -92,9 +90,7 @@ const B_MOST: f32 = 6.0;
 /// this share of the level.
 const B_FILL_SHARE: f32 = 0.4;
 
-const MODE_DIRECT_OLD: u32 = 0;
 const MODE_DIRECT_SOFT: u32 = 1;
-const MODE_BOUNCE_OLD: u32 = 2;
 const MODE_BOUNCE_NEW: u32 = 3;
 const MODE_SKY: u32 = 4;
 /// How many rays a texel casts toward the sun and over itself at the sky.
@@ -139,10 +135,6 @@ const FIT_OPEN: f32 = 0.3;
 
 /// What the bake on the graphics card was asked for.
 pub(crate) struct GpuOptions {
-    /// `rays × rays` bounce rays a texel, in the CPU bake's way (`old`).
-    pub rays: usize,
-    /// Do what the CPU bake does, ray for ray.
-    pub old: bool,
     /// Print what the texels near this place see of each light, and what
     /// blocks it, on the CPU (metres: x, y, z and a radius).
     pub probe: Option<(Vec3, f32)>,
@@ -424,9 +416,7 @@ impl Gpu {
 
 fn mode_name(mode: u32) -> &'static str {
     match mode {
-        MODE_DIRECT_OLD => "old direct light",
         MODE_DIRECT_SOFT => "soft direct light",
-        MODE_BOUNCE_OLD => "old bounce",
         MODE_BOUNCE_NEW => "bounce",
         MODE_SKY => "sun and sky",
         _ => "unknown",
@@ -532,7 +522,8 @@ impl Passes<'_> {
                 rays,
                 seed,
             ]);
-            params.extend(SHORT.to_le_bytes());
+            // The shader does not read this value (`Params::unused`).
+            params.extend(0.0f32.to_le_bytes());
             params.extend(LIFT.to_le_bytes());
             params.extend(four(toward, width).iter().flat_map(|value| value.to_le_bytes()));
             self.gpu.queue.write_buffer(&self.params, 0, &params);
@@ -682,7 +673,7 @@ pub(super) fn bake_lights(
     // The probes' places, six to a probe, one facing each of `PROBE_AXES`.
     // They follow the triangles' middles, and every pass that lights them
     // runs over them alone (`run_from`).
-    let probes = if options.old { Vec::new() } else { probe_places(reader, area) };
+    let probes = probe_places(reader, area);
     let probe_first = places.len();
     places.extend(probes.iter().flat_map(|(_, at)| {
         PROBE_AXES.map(|axis| Place {
@@ -695,7 +686,7 @@ pub(super) fn bake_lights(
     // The vertices' places, one for each vertex of each mesh the bake may
     // light (`vertex_places`). They follow the probes' places, and every pass
     // that lights the probes lights them too.
-    let vertices = if options.placeable_light && !options.old {
+    let vertices = if options.placeable_light {
         vertex_places(area, reader, &still)
     } else {
         Vertices::default()
@@ -790,9 +781,7 @@ pub(super) fn bake_lights(
         map_words.extend([field_size as u32, w as u32, h as u32, u32::from(map.clamp)]);
         field_size += w * h;
     }
-    let ray_values = |rays: &[Vec3]| -> Vec<[f32; 4]> { rays.iter().map(|d| four(*d, 0.0)).collect() };
-    let bounce_dirs = directions(options.rays.max(1));
-    let wall_dirs = directions(WALL_RAYS);
+    let wall_dirs: Vec<[f32; 4]> = directions(WALL_RAYS).iter().map(|d| four(*d, 0.0)).collect();
 
     // The acceleration structure: two bottom levels, each in its own
     // instance. The first holds the triangles that cast shadows, the second
@@ -904,8 +893,7 @@ pub(super) fn bake_lights(
         &[0u8; 48],
         wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     );
-    let dir_buffer = gpu.storage("detail_bake_dirs", &float_bytes(&ray_values(&bounce_dirs)));
-    let wall_buffer = gpu.storage("detail_bake_wall_dirs", &float_bytes(&ray_values(&wall_dirs)));
+    let wall_buffer = gpu.storage("detail_bake_wall_dirs", &float_bytes(&wall_dirs));
     let map_buffer = gpu.storage("detail_bake_maps", &word_bytes(&map_words));
     let field_a = gpu.storage("detail_bake_field_a", &float_bytes(&blank_field));
     let field_b = gpu.storage("detail_bake_field_b", &float_bytes(&blank_field));
@@ -945,7 +933,7 @@ pub(super) fn bake_lights(
         },
         count: None,
     });
-    layout_entries.extend((7..=12).map(|binding| storage(binding, true)));
+    layout_entries.extend((8..=12).map(|binding| storage(binding, true)));
     layout_entries.push(storage(13, false));
     layout_entries.extend((14..=15).map(|binding| storage(binding, true)));
     let layout = gpu
@@ -954,14 +942,13 @@ pub(super) fn bake_lights(
             label: Some("detail_bake"),
             entries: &layout_entries,
         });
-    let bound: [(u32, &wgpu::Buffer); 15] = [
+    let bound: [(u32, &wgpu::Buffer); 14] = [
         (1, &tris),
         (2, &place_buffer),
         (3, &light_buffer),
         (4, &cell_buffer),
         (5, &cell_light_buffer),
         (6, &params),
-        (7, &dir_buffer),
         (8, &wall_buffer),
         (9, &map_buffer),
         (10, &field_a),
@@ -1021,12 +1008,7 @@ pub(super) fn bake_lights(
     lap("acceleration structure and buffers".into(), &mut times);
 
     // The direct light, with shadows and without.
-    let mode = if options.old {
-        MODE_DIRECT_OLD
-    } else {
-        MODE_DIRECT_SOFT
-    };
-    passes.run(mode, places.len(), SAMPLES, 0, 1)?;
+    passes.run(MODE_DIRECT_SOFT, places.len(), SAMPLES, 0, 1)?;
     let first = gpu.read(&passes.results)?;
     let count = points.len();
     let counts: Vec<bool> = (0..count).map(|i| first[2 * i][3] > 0.5).collect();
@@ -1064,10 +1046,8 @@ pub(super) fn bake_lights(
             }
         }
     }
-    if !options.old {
-        smooth_shadows(&maps, &points, &counts, &mut shadowed, &open);
-        lap("smoothing the shadows".into(), &mut times);
-    }
+    smooth_shadows(&maps, &points, &counts, &mut shadowed, &open);
+    lap("smoothing the shadows".into(), &mut times);
     let direct_light: Vec<Vec3> = shadowed[..count].iter().map(|sum| direct(*sum)).collect();
     let probe_direct: Vec<Vec3> = (shadowed[probe_first..probe_first + probe_range.1].iter())
         .map(|sum| direct(*sum))
@@ -1259,20 +1239,7 @@ pub(super) fn bake_lights(
             .map(|j| [1, 2].map(|k| Vec3::from_slice(&read[3 * (probe_first + j) + k])))
             .collect())
     };
-    let (bounce_a, bounce_b) = if options.old {
-        // The CPU bake's bounces: one for `a`, and for `b` a second from the
-        // first with the glow.
-        let first = gather(&direct_light, &direct_light, MODE_BOUNCE_OLD, 2)?;
-        lap("first bounce".into(), &mut times);
-        let bounce_a: Vec<Vec3> = first.iter().map(|[a, _, _]| *a).collect();
-        let once: Vec<Vec3> = (0..count)
-            .map(|i| direct_light[i] + first[i][0] + first[i][2])
-            .collect();
-        let second = gather(&once, &once, MODE_BOUNCE_OLD, 3)?;
-        lap("second bounce".into(), &mut times);
-        let bounce_b: Vec<Vec3> = second.iter().map(|[_, b, glow]| *b + *glow).collect();
-        (bounce_a, bounce_b)
-    } else {
+    let (bounce_a, bounce_b) = {
         let mut bounce_a = vec![Vec3::ZERO; count];
         let mut bounce_b = vec![Vec3::ZERO; count];
         for pass in 0..BOUNCES {
@@ -1465,7 +1432,7 @@ pub(super) fn bake_lights(
         (&counted, &even_weights),
         (&base, &added),
         &live_target,
-        if options.old { None } else { Some((ROOM_LEAST, ROOM_MOST)) },
+        Some((ROOM_LEAST, ROOM_MOST)),
         &stored_level,
     );
     let shown_a: Vec<Vec3> = (0..count)
@@ -1476,7 +1443,6 @@ pub(super) fn bake_lights(
     // target level comes from its stored level, and with `--weigh` each
     // texel counts in that level by its stored brightness (`lit_weights`).
     let lamps_alone: Vec<Vec3> = (0..count).map(|i| direct_light[i] + bounce_b[i]).collect();
-    let nothing = vec![Vec3::ZERO; count];
     // `written_b` is what set `b` holds on disk, and `fills_b` is how much
     // of its stored light each room takes when the game loads it
     // (`GpuOptions::fill_stored`).
@@ -1486,33 +1452,7 @@ pub(super) fn bake_lights(
     // takes its fill from the stored light, the files hold its light without
     // that fill, and `probe_stored` names the stored texel the game reads the
     // fill from when it loads the file.
-    let (rooms_b, shown_b, written_b, fills_b, probe_light, probe_linear, probe_stored) = if options.old {
-        // The CPU bake's way: one scale for the area, so that its mean is
-        // `a`'s.
-        let mean_a = mean(&|i| shown_a[i]);
-        let (mut low, mut high) = (1e-3f32, 1e3f32);
-        for _ in 0..40 {
-            let middle = (low * high).sqrt();
-            if mean(&|i| stored_level(lamps_alone[i] * middle)) < mean_a {
-                low = middle;
-            } else {
-                high = middle;
-            }
-        }
-        let scale = (low * high).sqrt();
-        let lamps_scaled: Vec<Vec3> = lamps_alone.iter().map(|l| *l * scale).collect();
-        let rooms = room_levels(
-            &maps,
-            &points,
-            (&counted, &even_weights),
-            (&nothing, &lamps_scaled),
-            &|_| 0.0,
-            None,
-            &stored_level,
-        );
-        let shown: Vec<Vec3> = lamps_scaled.iter().map(|l| stored_level(*l)).collect();
-        (rooms, shown.clone(), shown, std::collections::BTreeMap::new(), Vec::new(), Vec::new(), Vec::new())
-    } else {
+    let (rooms_b, shown_b, written_b, fills_b, probe_light, probe_linear, probe_stored) = {
         // Each room's target is the live formula without its stored half:
         // the room's mean level of the lights alone, without shadows. One
         // factor for the whole area then raises those targets so that
@@ -1814,7 +1754,7 @@ pub(super) fn bake_lights(
     }
     // The floor (`GpuOptions::floor`): one share for every lightmap of set
     // `b`, which the game holds each texel to.
-    if let Some(floor) = options.floor.filter(|_| !options.old) {
+    if let Some(floor) = options.floor {
         let mut text = String::from(
             "# The least share of its stored linear light each texel of a lightmap shows when the game loads it:
              # the lightmap's name and the share.
@@ -1987,25 +1927,17 @@ pub(super) fn bake_lights(
         points.len(),
         counted.len()
     );
-    if options.old {
-        let _ = writeln!(
-            report,
-            "  the CPU bake's way: one shadow ray a light (five on a strip), {} rays a bounce, one bounce for a and two for b",
-            bounce_dirs.len()
-        );
-    } else {
-        let _ = writeln!(
-            report,
-            "  {SAMPLES} shadow rays a light over its lamp, shadows smoothed over {SMOOTH_RINGS} rings of texels, {BOUNCES} bounces of {BOUNCE_RAYS} rays"
-        );
-        let _ = writeln!(
-            report,
-            "  {} of {} lights cast their shadows from their lamp's glass, {} glass triangles cast no shadow on the lights",
-            lamps.on_glass,
-            lights.len(),
-            glass.len()
-        );
-    }
+    let _ = writeln!(
+        report,
+        "  {SAMPLES} shadow rays a light over its lamp, shadows smoothed over {SMOOTH_RINGS} rings of texels, {BOUNCES} bounces of {BOUNCE_RAYS} rays"
+    );
+    let _ = writeln!(
+        report,
+        "  {} of {} lights cast their shadows from their lamp's glass, {} glass triangles cast no shadow on the lights",
+        lamps.on_glass,
+        lights.len(),
+        glass.len()
+    );
     let _ = writeln!(
         report,
         "  mean stored level: live {:.4}, a {:.4}, b {:.4}",
@@ -3179,7 +3111,7 @@ struct Losses {
 }
 
 /// Measures `Losses` on every 64th texel, on the CPU, with one ray to each
-/// light's nearest place as the CPU bake casts it.
+/// light's nearest place.
 /// The box that the rays this bake casts on the CPU stay inside, with a
 /// metre to spare. `points` casts from each new texel's place on its
 /// triangle to its place on the triangle's plane. `losses` casts from a
@@ -3287,7 +3219,7 @@ fn to_segment(p: Vec3, a: Vec3, b: Vec3) -> f32 {
 /// The places are spread over the glass by area, each lifted toward the
 /// light. A light with no glass takes places on a strip along its length,
 /// on a disc across the way it shines, or in a ball, all `LAMP` across, and
-/// its rays stop `SHORT` short of them as the CPU bake's do.
+/// its rays stop `SHORT` short of them.
 fn lamps(
     lights: &[Fitted],
     surfaces: &[crate::light_probes::Surface],

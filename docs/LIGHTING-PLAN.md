@@ -3420,7 +3420,10 @@ the dumps are in the `taa-upscaler-base` worktree, under
 ### 10. A detail bake
 
 Tried on 2026-11-16, on `feat/detail-bake`. This step is a trial, as 6b
-and 9 were. It is uncommitted and not merged.
+and 9 were. It is uncommitted and not merged. The detail bake without
+lights and `kjk room-light-fit --bake` were later removed from the
+fitted lights' branch, on 24 November 2026. `kjk detail-bake` now bakes
+only from the fitted lights, on the graphics card.
 
 **The question.** Step 7 found that a room's stored light is close to
 light stored at the vertices. A stored texel covers 50 to 70 cm, and 82%
