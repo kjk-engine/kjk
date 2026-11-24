@@ -35,6 +35,7 @@ mod geometry;
 pub mod grapple_probes;
 mod movement;
 mod moves;
+pub mod pull_attack_probes;
 mod record;
 mod rules;
 mod scenario;

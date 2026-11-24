@@ -206,7 +206,7 @@ type = "u16"
 value = 25
 unit = "%"
 range = [0, 100]
-summary = "The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up {saber_moves.costs.forward_back} of the character's maximum Force points under Jedi Academy's rules, and of the character's maximum Stamina under the Advanced rules."
+summary = "The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab, the back-flip attack and the pull attacks each use up {saber_moves.costs.forward_back} of the character's maximum Force points under Jedi Academy's rules, and of the character's maximum Stamina under the Advanced rules."
 source = "JA (rulebook 2.12)"
 see = "sim::motion::saber"
 
@@ -529,6 +529,34 @@ summary = "The double attack finds an enemy up to {saber_moves.specials.mirror_b
 source = "JA"
 see = "sim::motion::saber"
 
+[specials.pull_stab_reach]
+name = "Pull Stab Range"
+value = 384.0
+unit = "units"
+range = [0.0, 1024.0]
+summary = "In the fast style, a character who attacks just after using Force Pull makes the pull stab when an enemy stands within {saber_moves.specials.pull_stab_reach:m} in front of the character."
+detail = "Jedi Academy's multiplayer game has this attack switched off. The range is the one its single-player game's older control scheme used."
+source = "JA: the pull attack's disabled code"
+see = "sim::motion::saber"
+[specials.pull_swing_reach]
+name = "Pull Swing Range"
+value = [192.0, 512.0]
+labels = ["at least", "at most"]
+unit = "units"
+range = [0.0, 1024.0]
+summary = "In the medium and strong styles, a character who attacks just after using Force Pull makes the pull swing when an enemy stands between {saber_moves.specials.pull_swing_reach[0]:m} and {saber_moves.specials.pull_swing_reach[1]:m} in front of the character."
+source = "JA: the pull attack's disabled code"
+see = "sim::motion::saber"
+[specials.pull_box]
+name = "Pull Attack Width"
+value = [24.0, 24.0, 24.0]
+labels = ["across", "along", "up"]
+unit = "units"
+range = [0.0, 64.0]
+summary = "The pull attack finds an enemy up to {saber_moves.specials.pull_box[0]:m} to either side of the line in front of the character, {saber_moves.specials.pull_box[1]:m} along it, and {saber_moves.specials.pull_box[2]:m} above or below it."
+detail = "Jedi Academy's code picked the enemy under the crosshair. kjk has no crosshair target in the blade's step, so it looks along the character's view with a box instead."
+source = "ours"
+see = "sim::motion::saber"
 [specials.cartwheel_rise]
 name = "Cartwheel Rise"
 value = 20.0

@@ -40,7 +40,7 @@
 //!   world's snapshot, the world made again from it; so too `duel WHO
 //!   key=value` (`points wear`), `put WHO X Y Z
 //!   YAW`, `toggle WHO absorb|protect LEVEL MS`, `stat WHO hp|fp|dead N`, `force
-//!   WHO key=value` (`hand throw_ready grip_ready drain_ready stunned
+//!   WHO key=value` (`hand pull_hand throw_ready grip_ready drain_ready stunned
 //!   immune whirlwind knockdown pain`, ms from now), `knockback WHO MS`, `pose WHO ANIM MS` (the
 //!   torso), `away WHO FLIGHT LEVEL` (its saber thrown), `shift WHO DX DY DZ`
 //!   (moved, all else kept), `leave WHO module|departing` (taken out of the
@@ -1546,6 +1546,9 @@ fn drive(
                         match key.as_str() {
                             "hand" => {
                                 force.hand = Some((crate::combat::force::Gesture::Push, until));
+                            }
+                            "pull_hand" => {
+                                force.hand = Some((crate::combat::force::Gesture::Pull, until));
                             }
                             "throw_ready" => force.push_pull_ready = until,
                             "grip_ready" => force.grip_ready = until,

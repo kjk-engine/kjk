@@ -577,7 +577,11 @@ impl Move<'_, '_> {
         // replaced a duel mode's since.
         let state = &mut arms.fighter.saber.duel;
         state.block_held = false;
-        if arms.fighter.force.hand_out(now) || self.hand_state(arms) {
+        let hand_out = arms.fighter.force.hand_out(now);
+        if hand_out && self.pull_attack(arms) {
+            return;
+        }
+        if hand_out || self.hand_state(arms) {
             // The keys still count while the hands are busy: a kick or an
             // aimed block wants a fresh press once they are free.
             // Under JA's rules the duel state is never touched.

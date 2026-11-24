@@ -121,6 +121,7 @@ const GROUPS: &[Group] = &[
     ("grapples", sim::trace::grapple_probes::probes),
     ("grapple contacts", kjk_game::grapple_view::probes),
     ("duelling", sim::trace::duelling_probes::probes),
+    ("pull attack", sim::trace::pull_attack_probes::probes),
     ("targeted", sim::trace::duelling_probes::targeted::probes),
     ("deflection", sim::trace::deflection_probes::probes),
     ("stance sets", sim::trace::stance_probes::probes),
