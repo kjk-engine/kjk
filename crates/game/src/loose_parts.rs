@@ -1336,8 +1336,9 @@ struct Totals {
 /// Steps the solver of every body the cast posed this frame that its tier
 /// moves (`tier`), and turns its loose bones by the body's weight. Bodies
 /// are solved in parallel on the compute pool from `cast::PARALLEL_FROM`
-/// of them. A body back on its clips is forgotten, and its next step
-/// starts from its target pose.
+/// of them. A body back on its clips is forgotten, and a body on its clips
+/// gets no solver until its tier moves it. Its first step then starts
+/// from its target pose.
 fn solve(
     mut debug_view: ResMut<DebugView>,
     mut solving: ResMut<Solving>,
@@ -1372,7 +1373,21 @@ fn solve(
         }
         kept
     });
+    let mut index: HashMap<Entity, (&Worn, Tier)> = HashMap::with_capacity(worn.len());
+    let mut animated = 0;
     for one in &worn {
+        let Ok(placed) = transforms.get(one.root) else {
+            continue;
+        };
+        let was = states
+            .get(&one.root)
+            .map_or(Tier::Animated, |state| state.tier);
+        let tier = tier(*level, (one.player, placed.translation), seen.as_ref(), was);
+        if tier == Tier::Animated && !states.contains_key(&one.root) {
+            animated += 1;
+            continue;
+        }
+        index.insert(one.root, (one, tier));
         let state = states
             .entry(one.root)
             .or_insert_with(|| State::new(&one.wearer, one.model));
@@ -1384,14 +1399,10 @@ fn solve(
             *state = State::new(&one.wearer, one.model);
         }
     }
-    let index: HashMap<Entity, &Worn> = worn.iter().map(|one| (one.root, one)).collect();
-    let mut animated = 0;
     let mut jobs: Vec<(&Worn, &mut State)> = states
         .iter_mut()
         .filter_map(|(root, state)| {
-            let one = *index.get(root)?;
-            let at = transforms.get(one.root).ok()?.translation;
-            let tier = tier(*level, (one.player, at), seen.as_ref(), state.tier);
+            let &(one, tier) = index.get(root)?;
             if state.enter(tier, one.ms) {
                 Some((one, state))
             } else {
