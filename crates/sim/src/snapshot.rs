@@ -413,7 +413,12 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 120: a conversation keeps the reply shown before it runs
 /// (`Conversation::chosen`). Old saves: an older snapshot reads no reply shown:
 /// no conversation in it was showing one.
-pub const VERSION: u32 = 120 + crate::pending::SNAPSHOT;
+/// 121: a character's effects keep the hit points and bar points they added to
+/// its most at the last step (`Effects::added`). Old saves: an older snapshot
+/// reads nothing added: older builds never raised the current points, so the
+/// first step after the load raises them by what the effects and worn items
+/// add.
+pub const VERSION: u32 = 121 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
