@@ -655,7 +655,7 @@ fn held_items(
             let items: Vec<StoryItem> = script
                 .items
                 .held_by(holder)
-                .map(|(_, item)| StoryItem::of(&item))
+                .map(|(_, item)| StoryItem::of(item))
                 .collect();
             (!items.is_empty()).then_some((label, items))
         })
