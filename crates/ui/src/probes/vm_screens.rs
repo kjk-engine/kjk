@@ -455,6 +455,71 @@ fn upgrade_tells(assets: &mut Fake) -> Check {
     )
 }
 
+/// A lightsaber's crystal slot holds a Krayt dragon pearl, and the party
+/// carries an Opila crystal.
+/// - Once the Opila crystal is chosen for the slot, the slot's list offers
+///   the pearl again, below the Opila crystal.
+/// - Choosing the pearl puts the saber back as it was, so Assemble is greyed.
+/// - The same holds after the pearl is taken out with the empty row.
+fn upgrade_back(assets: &mut Fake) -> Check {
+    let part = |name: &str, row| UpgradePart {
+        entry: named(name, "", None),
+        row: Some(row),
+        ..UpgradePart::default()
+    };
+    let vm = ViewModel {
+        upgrades: vec![UpgradeItem {
+            id: 7,
+            item: named("Lightsaber", "", None),
+            kind: UpgradeKind::Lightsaber,
+            slots: vec![UpgradeSlot {
+                fitted: Some((Some(3), part("Krayt Dragon Pearl", 3))),
+                choices: vec![UpgradeChoice {
+                    id: 41,
+                    part: part("Opila", 4),
+                    fits: true,
+                }],
+                ..UpgradeSlot::default()
+            }],
+            ..UpgradeItem::default()
+        }],
+        ..ViewModel::default()
+    };
+    let mut bench = opened("upgrade:7", assets, &vm);
+    let slot = "BTN_UPGRADE31_LS";
+    // From the slot's list, `row` chosen, then the list shown again.
+    let mut again = |row| {
+        pick(&mut bench, assets, &vm, (slot, row));
+        presses(&mut bench, assets, &vm, &[slot]);
+        let rows = listed(&bench, &vm, "LB_ITEMS");
+        presses(&mut bench, assets, &vm, &["BTN_BACK"]);
+        rows
+    };
+    let swapped = again(2);
+    let put_back = again(2);
+    let taken_out = again(0);
+    pick(&mut bench, assets, &vm, (slot, 1));
+    let unchanged = disabled(&bench, &vm, "BTN_ASSEMBLE");
+    check(
+        "upgrade_back",
+        expect(
+            &format!(
+                "swapped {swapped:?}; put back {put_back:?}; taken out {taken_out:?}; Assemble \
+                 greyed at the end {unchanged}"
+            ),
+            swapped == ["", "Opila", "Krayt Dragon Pearl"]
+                && put_back == ["", "Krayt Dragon Pearl", "Opila"]
+                && taken_out == ["", "Krayt Dragon Pearl", "Opila"]
+                && unchanged,
+        )
+        .map(|()| {
+            "a slot's list offers again the upgrade the slot held when the bench opened, and \
+             choosing it puts the item back as it was"
+                .into()
+        }),
+    )
+}
+
 /// An upgrade slot chosen and its list's row `row` (by the cursor, from
 /// the list's top): what was raised.
 fn pick(
@@ -789,6 +854,7 @@ pub(super) fn all() -> Vec<Check> {
     vec![
         benches(&mut assets),
         upgrade_tells(&mut assets),
+        upgrade_back(&mut assets),
         unbraced,
         check("script_screens", {
             expect(

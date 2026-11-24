@@ -236,11 +236,13 @@ const FITTING: &str = "LB_ITEMS";
 const INCOMPATIBLE: &str = "116713";
 
 /// What a row of a slot's list does: take the upgrade out, keep what is
-/// there, or put in the slot's choice of that index.
+/// there, put back the upgrade the slot held when the bench opened, or put
+/// in the slot's choice of that index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pick {
     Out,
     Keep,
+    Back,
     In(usize),
 }
 
@@ -395,9 +397,14 @@ impl Upgrade {
     }
 
     /// The chosen slot's rows: the empty one (but for a colour crystal,
-    /// which stays), what it holds, then the party's upgrades of its kind
-    /// another slot of the visit does not take; how each shows and what
-    /// choosing it does.
+    /// which stays), what it holds, the upgrade it held when the bench
+    /// opened if this visit took that one out, then the party's upgrades of
+    /// its kind another slot of the visit does not take; how each shows and
+    /// what choosing it does.
+    ///
+    /// KOTOR 2's executable takes an upgrade out of the item into the
+    /// party's inventory as soon as another is chosen for its slot, so the
+    /// slot's list offers it again until the visit ends.
     fn rows(&self, item: &UpgradeItem) -> Vec<(Entry, bool, Pick)> {
         let Some((at, slot)) = self.slot.and_then(|at| Some((at, item.slots.get(at)?))) else {
             return Vec::new();
@@ -407,6 +414,11 @@ impl Upgrade {
         let kept = self
             .holds(item, at)
             .map(|part| (part.entry.clone(), true, Pick::Keep));
+        let back = slot
+            .fitted
+            .as_ref()
+            .filter(|_| self.changes.contains_key(&at))
+            .map(|(_, part)| (part.entry.clone(), true, Pick::Back));
         let taken = |id: u32| self.changes.values().any(|change| *change == Some(id));
         let choices = slot
             .choices
@@ -414,7 +426,11 @@ impl Upgrade {
             .enumerate()
             .filter(|(_, choice)| !taken(choice.id))
             .map(|(index, choice)| (choice.part.entry.clone(), choice.fits, Pick::In(index)));
-        out.into_iter().chain(kept).chain(choices).collect()
+        out.into_iter()
+            .chain(kept)
+            .chain(back)
+            .chain(choices)
+            .collect()
     }
 
     /// The row `index` of the chosen slot's list chosen: the copy changed,
@@ -433,7 +449,7 @@ impl Upgrade {
             Pick::Out if fitted => {
                 self.changes.insert(at, None);
             }
-            Pick::Out => {
+            Pick::Out | Pick::Back => {
                 self.changes.remove(&at);
             }
             Pick::In(choice) => {
