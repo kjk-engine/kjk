@@ -518,10 +518,14 @@ pub struct UpgradeItem {
 }
 
 /// An item's description in parts, as KOTOR 2's upgrade bench writes it
-/// (the item's property description): the lines that say who may not use
-/// it, its stats, then its own text.
+/// (the item's property description): what a character needs to use it,
+/// the lines that say who may not use it, its stats, then its own text.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ItemText {
+    /// What a character needs to use it, under a heading each. A line that
+    /// comes with an `upgrade.2da` row counts only while that row's bit is
+    /// in `fitted`.
+    pub requirements: Vec<crate::assets::Requirements>,
     pub head: Vec<u8>,
     /// Its own stats. A stat that comes with an `upgrade.2da` row is in
     /// force only while that row's bit is in `fitted`.
@@ -557,16 +561,22 @@ impl ItemText {
     }
 
     /// The description with the rows `fitted` in force and `more` stat
-    /// lines after its own: the head, a line for each stat, an empty line
-    /// after the stats, then its text. The critical threat counts the
-    /// `added` edges of the upgrades fitted to it besides its own.
+    /// lines after its own: the requirements, the head, a line for each
+    /// stat, an empty line after the stats, then its text. The critical
+    /// threat counts the `added` edges of the upgrades fitted to it besides
+    /// its own.
     pub fn written<'a>(
         &'a self,
         fitted: u32,
         more: impl Iterator<Item = &'a [u8]>,
         added: &[crate::assets::Edge],
     ) -> Vec<u8> {
-        let mut out = self.head.clone();
+        let mut out: Vec<u8> = self
+            .requirements
+            .iter()
+            .flat_map(|requirements| requirements.written(fitted))
+            .collect();
+        out.extend_from_slice(&self.head);
         let mut stats = 0;
         let critical = self.critical.as_ref().map(|(critical, edges)| {
             let own = edges.iter().filter(|edge| {

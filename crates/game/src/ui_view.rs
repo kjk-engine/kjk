@@ -127,6 +127,12 @@ pub struct Ui {
     /// The rest of the interface is hidden meanwhile, and the player's own
     /// Hide interface choice is kept for after.
     pub(crate) photo: Option<crate::photo_mode::Line>,
+    /// Every save on disk with the game it belongs to, as last read
+    /// (`save_view::refresh`). `vm.saves` lists only the saves of the
+    /// campaign the menu or the game is on now.
+    pub(crate) all_saves: Vec<(vfs::Game, ui::vm::SaveView)>,
+    /// The campaign `vm.saves` was last filtered for.
+    pub(crate) saves_for: Option<vfs::Game>,
 }
 
 /// The floating target block and the words floating over creatures. Both
@@ -266,6 +272,8 @@ impl Ui {
             headless,
             hud_hidden: false,
             photo: None,
+            all_saves: Vec::new(),
+            saves_for: None,
         }
     }
 
@@ -850,7 +858,7 @@ fn requests(
             }),
             ["reload"] => intents.0.push(Intent::ReloadLatest),
             ["quicksave"] => intents.0.push(Intent::Save {
-                slot: Some(saves::QUICK.into()),
+                slot: Some(crate::save_view::quick_id(ui).into()),
                 name: crate::save_view::QUICK_NAME.into(),
             }),
             ["load", id] => intents

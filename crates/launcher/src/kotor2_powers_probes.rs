@@ -150,16 +150,15 @@ fn icons(data: &Data) -> Result<String, String> {
     check(missing.is_empty(), format!("rows without an icon: {missing:?}"))
 }
 
-/// The effect icons KOTOR 2's script shows on a character past KOTOR 1's
-/// `effecticon.2da` (Force Barrier's 64 to 66, Battle Meditation's 67 to 69
-/// and its enemies' 107 to 109, Force Body's 76, Master Energy Resistance's
-/// 104 and Breath Control's 111) are KOTOR 2's rows, at KOTOR 2's numbers,
-/// their icons served wherever KOTOR 2 has them (Battle Meditation's
-/// enemies' icon, `ip_resistenergy`, is in neither game). KOTOR 1's own rows are as before. The script's
-/// feedback lines (`feedbacktext.2da` rows 0 to 2: resisted, immune,
-/// saved) read the same in both games.
+/// Every row of KOTOR 2's `effecticon.2da` past KOTOR 1's own is lent, at
+/// KOTOR 2's number, its icon served wherever KOTOR 2 has it (Battle
+/// Meditation's enemies' icon, `ip_resistenergy`, is in neither game).
+/// KOTOR 2's script works out many of the rows it shows: Improved and
+/// Master Force Body show 77 and 78 (76 plus the rank), and Force Scream
+/// keeps its 79 to 81 in a variable. KOTOR 1's own rows are as before. The
+/// script's feedback lines (`feedbacktext.2da` rows 0 to 2: resisted,
+/// immune, saved) read the same in both games.
 fn effect_icons(data: &Data) -> Result<String, String> {
-    const SHOWN: [usize; 12] = [64, 65, 66, 67, 68, 69, 76, 104, 107, 108, 109, 111];
     let table = |resolver: &Resolver, name: &str| resolver.two_da(name).ok_or(format!("no {name}.2da"));
     let (lent, plain, tsl) = (
         table(&data.lent, "effecticon")?,
@@ -167,8 +166,7 @@ fn effect_icons(data: &Data) -> Result<String, String> {
         table(&data.tsl, "effecticon")?,
     );
     let kept = lent.cells[..plain.cells.len()] == plain.cells[..];
-    let wrong: Vec<usize> = SHOWN
-        .into_iter()
+    let wrong: Vec<usize> = (plain.cells.len()..tsl.cells.len())
         .filter(|&row| {
             let icon = lent.resref(row, "iconresref");
             let served = |resolver: &Resolver| {

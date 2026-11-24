@@ -149,6 +149,16 @@ pub fn screen(
         if name == "party" {
             vm.party_selection = Some(stand_in_party(&mut assets, game, false));
         }
+        if name == "pazaak_game" {
+            vm.pazaak = Some(stand_in_pazaak());
+        }
+        // The in-game menu of a game played alone, with a party of three,
+        // where the player may save and load.
+        if ui::screens::tabs::under_tabs(name) {
+            vm.here = Some(ui::vm::SaveView::default());
+            vm.load_in_play = true;
+            vm.party = vec![ui::vm::MemberView::default(); 3];
+        }
         // `level CLASS N` sets the member before the screen opens, so the
         // level-up screen opens on its next level.
         for step in steps {
@@ -200,6 +210,20 @@ pub fn screen(
                 }
                 Some(("party", "all")) => {
                     vm.party_selection = Some(stand_in_party(&mut assets, game, true));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("pazaak", change)) => {
+                    let table = vm.pazaak.as_mut().ok_or("pazaak: on pazaak_game only")?;
+                    match change.split_once(' ') {
+                        Some(("turn", whose)) => table.turn = whose.parse().ok(),
+                        Some(("played", nth)) => {
+                            let nth: usize = nth.parse().map_err(|_| "pazaak played N")?;
+                            if let Some(held) = table.sides[0].hand.get_mut(nth) {
+                                *held = None;
+                            }
+                        }
+                        _ => return Err(format!("{step}: `pazaak turn N` or `pazaak played N`")),
+                    }
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("lobby", "droid")) => {
@@ -265,10 +289,18 @@ pub fn screen(
                         ("Activate", Key::Activate),
                         ("Back", Key::Back),
                         ("Primary", Key::Primary),
+                        ("Second", Key::Second),
+                        ("Accept", Key::Accept),
+                        ("NextTab", Key::NextTab),
+                        ("PrevTab", Key::PrevTab),
+                        ("NextPage", Key::NextPage),
+                        ("PrevPage", Key::PrevPage),
                     ]
                     .into_iter()
                     .find(|(name, _)| *name == moved)
-                    .ok_or(format!("{moved}: Up, Down, Left, Right, Activate, Back or Primary"))?
+                    .ok_or(format!(
+                        "{moved}: Up, Down, Left, Right, Activate, Back, Primary, Second, Accept, NextTab, PrevTab, NextPage or PrevPage"
+                    ))?
                     .1;
                     let keyed = ui::input::UiInput {
                         keys: vec![key],
@@ -278,6 +310,9 @@ pub fn screen(
                     for intent in frame.intents {
                         outln!("{step}: {intent:?}");
                     }
+                    // Where the move left the focus, so that a check can
+                    // follow a pad's player across the screen.
+                    outln!("{step}: focus {}", stack.focused().unwrap_or("none"));
                 }
                 Some(("point", at)) => {
                     let parsed: Vec<f32> = at.split(' ').filter_map(|n| n.parse().ok()).collect();
@@ -306,7 +341,7 @@ pub fn screen(
                 }
                 _ => {
                     return Err(format!(
-                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME` or `pad KIND`"
+                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `level CLASS N`, `type TEXT`, `scroll N`, `point X Y`, `key MOVE`, `raw NAME`, `pad KIND` or `pazaak turn N`"
                     ));
                 }
             }
@@ -591,6 +626,37 @@ fn droid_lobby(assets: &mut GuiAssets, game: Game) -> ui::vm::LobbyView {
         save.party[1] = view.companions[0].name.clone();
     }
     view
+}
+
+/// The table `kjk gui screen <game> pazaak_game` opens on: the player's
+/// turn, four ± cards in the player's hand and one in the opponent's. The
+/// `pazaak turn N` and `pazaak played N` steps change whose turn it is and
+/// take a hand card away.
+fn stand_in_pazaak() -> ui::vm::PazaakView {
+    use ui::vm::{PazaakCard, PazaakSide, PazaakStage, PazaakView};
+    let card = PazaakCard {
+        face: "+1".into(),
+        art: "lbl_cardrarem".into(),
+        signed: Some(["+1", "-1", "+2", "-2"].map(String::from)),
+        minus_art: "lbl_cardraref".into(),
+        sized: false,
+    };
+    PazaakView {
+        stage: PazaakStage::Game,
+        most: 50,
+        sides: [
+            PazaakSide {
+                hand: std::array::from_fn(|_| Some(card.clone())),
+                ..PazaakSide::default()
+            },
+            PazaakSide {
+                hand: [Some(card.clone()), None, None, None],
+                ..PazaakSide::default()
+            },
+        ],
+        turn: Some(0),
+        ..PazaakView::default()
+    }
 }
 
 /// The member the character page shows: the first seat's character, whose

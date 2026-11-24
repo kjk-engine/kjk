@@ -4,8 +4,8 @@
 //! d-pad or left stick moves (repeating while held), A activates, B goes
 //! back (on a screen: in play it is the pad's crouch), Menu opens the menu
 //! in play and presses a screen's OK or Done (not with LB held: the quick
-//! save), X does a double click, Y the screen's second button (Default),
-//! the shoulders switch the menu bar's tabs, the triggers a page's own, the
+//! save), X does a double click, Y the screen's second button (Default) or,
+//! on the in-game pages, the next party member, the shoulders switch the menu bar's tabs, the triggers a page's own, the
 //! right stick scrolls.
 
 use bevy::input::ButtonState;

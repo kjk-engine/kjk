@@ -555,13 +555,17 @@ fn float_check(
     }
 }
 
-/// A creature's vitality, whole points over its most.
+/// A creature's vitality at `now`, whole points over its most as effects
+/// and worn items leave it.
 fn vitality(
     entity: &sim::EntityState,
     facts: Option<&sim::module::ObjectData>,
+    now: u64,
 ) -> Option<(i32, i32)> {
     let sheet = entity.sheet.or(facts.and_then(|facts| facts.sheet))?;
-    Some((entity.fighter?.whole_hp(), i32::from(sheet.max_hp)))
+    let fighter = entity.fighter?;
+    let most = sim::combat::effects::sheet_now(sheet, &fighter, now).max_hp;
+    Some((fighter.whole_hp(), i32::from(most)))
 }
 
 /// How far along the revive of `body` is, if one is under way.
@@ -857,7 +861,7 @@ fn target(
             return Some((
                 ObjectKind::Creature,
                 name_of(entity, &instances),
-                vitality(entity, instances.of_entity(entity)),
+                vitality(entity, instances.of_entity(entity), snapshot.time_ms),
                 sim::target::body_choices(entity),
                 false,
             ));
@@ -882,7 +886,7 @@ fn target(
         // placed with more than their most (`CurrentHP` 60, `HP` 20).
         let state = entity.object.unwrap_or(sim::ObjectState::default());
         let hp = match facts.kind {
-            ObjectKind::Creature => vitality(entity, Some(facts)),
+            ObjectKind::Creature => vitality(entity, Some(facts), snapshot.time_ms),
             _ => (state.damage > 0 && state.bashable(facts))
                 .then(|| state.hit_points(facts))
                 .flatten()

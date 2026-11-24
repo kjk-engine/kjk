@@ -140,7 +140,9 @@ impl<P: Page> Screen for Tab<P> {
     }
 
     fn key(&mut self, key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
-        tabs::key(key, P::NAME, out) || self.page.key(key, vm, out)
+        tabs::key(key, P::NAME, out)
+            || self.page.key(key, vm, out)
+            || tabs::next_member(key, vm, out)
     }
 
     fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {

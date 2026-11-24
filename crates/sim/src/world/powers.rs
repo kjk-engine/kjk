@@ -64,8 +64,12 @@ struct Person {
     ordered: bool,
     /// Its sheet as what runs on it changes it (`effects::sheet_now`).
     sheet: Sheet,
-    /// Its bar's size: its own sheet's (`Sheet::pool`), whatever runs on it.
+    /// Its bar's size (`Sheet::pool`), as what runs on it changes its
+    /// Wisdom, Charisma or Constitution.
     pool: u16,
+    /// The hit points and bar points that what runs on it and what it wears
+    /// add to its own sheet's most (`effects::follow_maxima`).
+    added: (i16, i16),
     faction: u8,
     /// Where it stood before the powers.
     ps: MotionState,
@@ -291,8 +295,13 @@ pub(super) fn force(
             // What runs on it changes its sheet (saves, defence, abilities).
             let base = sheet_of(*sheet, *object);
             let sheet = effects::sheet_now(base, &fighting.0, clock.time_ms);
+            let added = |now: u16, own: u16| (i32::from(now) - i32::from(own)) as i16;
             Person {
-                pool: base.pool(),
+                pool: sheet.pool(),
+                added: (
+                    added(sheet.max_hp, base.max_hp),
+                    added(sheet.pool(), base.pool()),
+                ),
                 id: id.0,
                 seat: seat.as_ref().map(|a| a.0),
                 party: super::in_party(*avatar, &fighting.0),
@@ -1966,12 +1975,14 @@ impl Cast<'_, '_> {
         }
         let sheet = self.person(at).sheet;
         let pool = self.person(at).pool;
+        let added = self.person(at).added;
         let origin = self.person(at).ps.origin;
         let fighter = &mut self.fighters[at];
         // Items run out: a shield or a stim ends (a use lands in the
         // firing step, `items::press`); Affliction and Plague sap.
         items::settle(fighter, now);
         fighter.effects.sap(now);
+        effects::follow_maxima(fighter, added);
         effects::worn(fighter, &sheet, pool, (now, self.tick));
         if self.authority {
             effects::regenerate(fighter, (sheet.max_hp, pool), (now, self.msec));
