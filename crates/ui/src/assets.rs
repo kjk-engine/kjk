@@ -204,7 +204,7 @@ pub struct GuiAssets {
     loaded: Vec<Option<Loaded>>,
     /// How many times a module's own art was released (`enter_module`).
     released: u32,
-    names: BTreeMap<(Source, String), Option<TextureId>>,
+    names: BTreeMap<(Source, &'static str, bool, String), Option<TextureId>>,
     fonts: BTreeMap<FontKey, Option<LoadedFont>>,
     /// Fonts at the sizing's text size when it is not 1, by the size's
     /// bits. The unscaled ones are `fonts`.
@@ -215,9 +215,10 @@ pub struct GuiAssets {
 
 type LoadedFont = (TextureId, Arc<Font>);
 
-/// A font as asked for: where it is read, its name as written (lower case,
+/// A font as asked for: where it is read, the game that side's art comes
+/// from, whether it is recoloured, its name as written (lower case,
 /// `font_alias`ed), and the letter put after it (`font_file`).
-type FontKey = (Source, String, Option<char>);
+type FontKey = (Source, &'static str, bool, String, Option<char>);
 
 /// The console's font, whose name KOTOR 2 reads as written whatever the
 /// window (`font_file`).
@@ -331,20 +332,17 @@ impl GuiAssets {
         self.searched.clear();
         self.portraits.clear();
         self.tables = asset_odyssey::tables::Tables::default();
-        // The campaign's art and fonts are read anew from it.
-        let loaded = &mut self.loaded;
-        self.names.retain(|(source, _), id| {
-            let campaign = *source == Source::Campaign;
-            if campaign && let Some(slot) = id.and_then(|id| loaded.get_mut(id.0 as usize - 1)) {
-                *slot = None;
-            }
-            !campaign
-        });
-        self.fonts
-            .retain(|(source, ..), _| *source != Source::Campaign);
-        self.scaled_fonts
-            .retain(|((source, ..), _), _| *source != Source::Campaign);
-        self.released += 1;
+        // Art and fonts stay cached by the game they come from and whether
+        // they are recoloured, so switching between KOTOR 1 and KOTOR 2 on
+        // the main menu reads nothing from disk and uploads nothing again.
+    }
+
+    /// The game key that owns textures read from `side`.
+    fn owner_key(&self, side: Source) -> &'static str {
+        match side {
+            Source::Skin => self.skin_game().key(),
+            Source::Campaign => self.game.key(),
+        }
     }
 
     /// The font `name` as asked for from `source` now.
@@ -361,8 +359,11 @@ impl GuiAssets {
     }
 
     fn font_key(&self, source: Source, name: &str) -> FontKey {
+        let side = self.font_side(source);
         (
-            self.font_side(source),
+            side,
+            self.owner_key(side),
+            self.recoloured(side),
             font_alias(&name.to_ascii_lowercase()).to_string(),
             self.sizing.suffix,
         )
@@ -378,8 +379,8 @@ impl GuiAssets {
         // A font the campaign lacks is read from the layout's own install.
         let own = self.side(source);
         let font = self
-            .read_font(key.0, &key.1, key.2)
-            .or_else(|| (own != key.0).then(|| self.read_font(own, &key.1, key.2))?);
+            .read_font(key.0, &key.3, key.4)
+            .or_else(|| (own != key.0).then(|| self.read_font(own, &key.3, key.4))?);
         self.fonts.insert(key, font.clone());
         font
     }
@@ -525,7 +526,7 @@ impl GuiAssets {
     /// every module shares (`lbl_mapcircle`).
     fn release_module_art(&mut self) {
         let loaded = &mut self.loaded;
-        self.names.retain(|(_, name), id| {
+        self.names.retain(|(_, _, _, name), id| {
             let art = MODULE_ART.iter().any(|prefix| {
                 name.strip_prefix(prefix)
                     .is_some_and(|of| of.bytes().any(|byte| byte.is_ascii_digit()))
@@ -1160,11 +1161,17 @@ impl Textures for GuiAssets {
     }
 
     fn texture(&mut self, source: Source, name: &str) -> Option<TextureId> {
-        let key = (self.side(source), name.to_ascii_lowercase());
+        let side = self.side(source);
+        let key = (
+            side,
+            self.owner_key(side),
+            self.recoloured(side),
+            name.to_ascii_lowercase(),
+        );
         if let Some(known) = self.names.get(&key) {
             return *known;
         }
-        let id = self.load(key.0, &key.1, false).map(|(id, _)| id);
+        let id = self.load(key.0, &key.3, false).map(|(id, _)| id);
         self.names.insert(key, id);
         id
     }

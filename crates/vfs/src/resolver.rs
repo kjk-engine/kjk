@@ -1051,6 +1051,19 @@ impl Resolver {
             })
     }
 
+    /// A music track by resref as the games stream one: from `streammusic`
+    /// first (the area's music, the battle music, its stingers, the
+    /// ambience and a conversation's track all play from there), else as
+    /// any sound. Only two names differ between the two places, both in
+    /// TSL. Its `mus_s_lightshort` and `mus_s_darkshort` in the archives
+    /// are the jingles of an alignment shift, and in `streammusic` they
+    /// are other pieces that conversations play (the prologue's
+    /// `treatinj.dlg`).
+    pub fn music(&self, resref: &str) -> Option<&Location> {
+        self.stream("streammusic", resref, ResType::WAV)
+            .or_else(|| self.sound(resref))
+    }
+
     /// A voiced line's WAV: K1's `streamwaves`, TSL's `streamvoice`.
     pub fn voice(&self, resref: &str) -> Option<&Location> {
         let wav = ResType::WAV;

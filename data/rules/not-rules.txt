@@ -573,6 +573,7 @@ crates/sim/src/script/mod.rs SEEN  # perception kind id
 crates/sim/src/script/mod.rs TRACE_LINES  # report buffer size
 crates/sim/src/script/mod.rs TRACE_TAIL  # report buffer size
 crates/sim/src/script/mod.rs VANISHED  # perception kind id
+crates/sim/src/script/xp.rs SWITCHED_OUT  # an experience holder id
 crates/sim/src/script/party.rs ACCEPTED  # the party selection screen's exit script var, accepted
 crates/sim/src/script/party.rs ARMOR  # a FORFEIT_* script constant's bit
 crates/sim/src/script/party.rs BASES  # the names of the modules that are the party's bases, a list
@@ -792,3 +793,4 @@ crates/sim/src/world/minds/perch.rs FORCE_RUN  # how much farther back a Force j
 crates/sim/src/world/minds/perch.rs RUNNING  # the share of run speed that counts as a run-up, a tolerance of the jump's arc
 crates/sim/src/world/minds/perch.rs RUN_UP  # how far a creature backs off for a run, a tolerance of the jump's arc
 crates/sim/src/combat/spells.rs RAISES_THE_FALLEN  # Revitalize's spells.2da rows, a list of table rows
+crates/sim/src/action.rs PLAY  # a player action's wire tag

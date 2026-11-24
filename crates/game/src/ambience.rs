@@ -171,11 +171,13 @@ fn looped(ambience: &mut Ambience, beds: &mut Beds, file: &str) {
     }
 }
 
-/// The menu's music while its screens are up and no movie is.
+/// The menu's music while its screens are up and neither a movie nor the
+/// startup splash is.
 fn menu(
     ui: Option<Res<crate::ui_view::Ui>>,
-    (showing, headless): (
+    (showing, splash, headless): (
         Option<Res<crate::movie_view::Showing>>,
+        Option<Res<crate::splash::SplashShowing>>,
         Res<crate::scene::Headless>,
     ),
     mut ambience: ResMut<Ambience>,
@@ -185,7 +187,7 @@ fn menu(
     let Some(ui) = ui.filter(|ui| ui.stack.is_open() && !headless.0) else {
         return;
     };
-    if showing.is_some_and(|showing| showing.0) {
+    if showing.is_some_and(|showing| showing.0) || splash.is_some_and(|splash| splash.0) {
         return;
     }
     let file = if ui.stack.screens().any(|screen| screen.0 == "chargen") {
@@ -322,7 +324,12 @@ fn got(resolver: &Resolver, name: String, keep: Keep) -> Got {
             }
             None => name.clone(),
         };
-        let bytes = crate::sound::kotor_file(resolver, &file).ok_or("not found")?;
+        // A bed is music or ambience, streamed as the games stream it.
+        let bytes = match keep {
+            Keep::Clip => crate::sound::kotor_file(resolver, &file),
+            Keep::Bed => crate::sound::kotor_music_file(resolver, &file),
+        };
+        let bytes = bytes.ok_or("not found")?;
         match keep {
             Keep::Clip => Clip::kotor(&bytes).map(|clip| Kept::Clip(Box::new(clip))),
             Keep::Bed => Stream::kotor(&bytes).map(Kept::Bed),

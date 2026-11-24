@@ -277,8 +277,13 @@ impl Engine<'_> {
             // Refused while a conversation holds the world, as both games'
             // executables refuse it (their dialog state set), its own
             // nodes' scripts too: a locked door's line as a scene walks
-            // someone into it is never said.
-            ActionStartConversation if self.state.talk.holds_world(&view.seat_bodies()) => {
+            // someone into it is never said. A trigger's call that a guest's
+            // body set off is queued, and waits for the scene to end
+            // (`View::guest_call`).
+            ActionStartConversation
+                if self.state.talk.holds_world(&view.seat_bodies())
+                    && !view.guest_call(self.event.cue) =>
+            {
                 Value::Int(0)
             }
             // Begun where the asker stands, however far: both games'

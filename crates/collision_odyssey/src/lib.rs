@@ -58,6 +58,7 @@ pub mod overrides;
     reason = "checks and traces set up their own cases on one machine"
 )]
 pub mod probes;
+pub mod roofs;
 
 pub use edges::EdgeWalls;
 pub use modules::{Doors, ModuleCollision, build_module, built_in_clip, set_doors};
@@ -220,6 +221,8 @@ pub struct BuildStats {
     pub edge_walls: usize,
     /// Walls round placeables' footprints ([`footprints`]).
     pub footprint_walls: usize,
+    /// Walls round the tops of tall structures over the floor ([`roofs`]).
+    pub roof_walls: usize,
     /// Placeables' drawn triangles in the level ([`placeable_shape`]).
     pub placeable_shape: Count,
     /// Of those, the triangles of low bases kept as floor.
@@ -392,6 +395,9 @@ pub struct BuildOptions {
     /// ([`placeable_shape`]), without walls round its footprint; else it
     /// is its walkmesh and the walls alone.
     pub placeable_shapes: bool,
+    /// Whether the tops of tall structures over the walkmesh get walls
+    /// round them ([`roofs`]), with the edge walls.
+    pub roof_walls: bool,
 }
 
 /// How freely characters may climb the world, the player's choice in the
@@ -453,6 +459,7 @@ impl Default for BuildOptions {
             }),
             furniture_tops: true,
             placeable_shapes: true,
+            roof_walls: true,
         }
     }
 }
@@ -857,9 +864,23 @@ pub fn build_area(
             rooms,
             indoors: &indoors,
         });
-        for wall in edges::walls(&walkable, &walk_level, furniture, surfaces, walls) {
+        let edge_walls = edges::walls(&walkable, &walk_level, furniture, surfaces, walls);
+        // The walls round high tops look at what a body rests on: the
+        // rooms, the doors and the placeables' shapes (the walls round
+        // placeables' footprints are left out by their contents).
+        let roof_walls = if options.roof_walls {
+            roofs::walls(&walkable, &walk_level, &builder.clone().build(), surfaces)
+        } else {
+            Vec::new()
+        };
+        let count = edge_walls.len();
+        for (index, wall) in edge_walls.into_iter().chain(roof_walls).enumerate() {
             if wall.add_to(&mut builder, tag) {
-                stats.edge_walls += 1;
+                if index < count {
+                    stats.edge_walls += 1;
+                } else {
+                    stats.roof_walls += 1;
+                }
                 triangles.extend(edges::middle(&wall).map(|corners| SourceTriangle {
                     corners,
                     origin: Origin::EdgeWall,

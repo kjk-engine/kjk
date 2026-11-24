@@ -311,10 +311,119 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
 
 /// Probes written but not yet approved by the owner. They join [`probes`]
 /// and the approved test `surface_probes` once approved. `kjk collision
-/// probes` runs them. The owner approved every waiting probe on 2026-11-16,
-/// so the list is empty.
+/// probes` runs them.
 pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
-    Vec::new()
+    vec![
+        ("roof_walls_high_tops", high_tops()),
+        ("roof_walls_catwalk", catwalk()),
+        ("roof_walls_slope_merge", slope_merge()),
+    ]
+}
+
+/// The walls round high tops (`crate::roofs`) over the walkable faces
+/// `walkable`, with the boxes `solids` standing on them (each walkable
+/// face is solid too), as a level of their own; and how many there are.
+fn roof_walls(walkable: &Floor, solids: &[Corners]) -> (collision::Level, usize) {
+    use collision::{LevelBuilder, Tag};
+    let mut floor = LevelBuilder::new();
+    let mut solid = LevelBuilder::new();
+    for (corners, material) in walkable {
+        let tag = Tag::level(Contents::SOLID, *material as u16);
+        floor.triangle(*corners, tag);
+        solid.triangle(*corners, tag);
+    }
+    for (low, high) in solids {
+        solid.aabb(*low, *high, Tag::level(Contents::SOLID, 0));
+    }
+    let (floor, solid) = (floor.build(), solid.build());
+    let walls = crate::roofs::walls(walkable, &floor, &solid, &test_surfaces());
+    let mut level = LevelBuilder::new();
+    for wall in &walls {
+        wall.add_to(&mut level, Tag::level(Contents::WALK_CLIP, 0));
+    }
+    (level.build(), walls.len())
+}
+
+/// How far a player's box gets of a run along X at y = 0 in `level`, from
+/// `from` to `to`, its soles `soles` up.
+fn run_along_x(level: &collision::Level, from: f32, to: f32, soles: f32) -> f32 {
+    let box_ = player();
+    let z = soles - box_.mins[2];
+    let hit = level.trace([from, 0.0, z], [to, 0.0, z], &box_, Contents::PLAYER_SOLID);
+    hit.fraction * (to - from).abs()
+}
+
+/// The walls round high tops (`crate::roofs`). A walkable floor 8 m square
+/// has a slab 4 m up over part of it (an overhang, x from 1 to 3) and a
+/// crate 1 m high on it (x from -3 to -2). A player's box running at the
+/// slab with its soles just over the slab's top is stopped by a wall
+/// before the slab. The same box running under the slab on the floor, and
+/// one running onto the crate's top, meet no wall.
+fn high_tops() -> Result<String, String> {
+    let slab = ([1.0, -1.0, 4.0], [3.0, 1.0, 4.3]);
+    let crate_ = ([-3.0, -1.0, 0.0], [-2.0, 1.0, 1.0]);
+    let (level, count) = roof_walls(&rect([-4.0, -4.0], [4.0, 4.0]), &[slab, crate_]);
+    let onto_slab = run_along_x(&level, 0.0, 2.0, 4.4);
+    let under_slab = run_along_x(&level, 0.0, 2.0, 0.05);
+    let onto_crate = run_along_x(&level, -1.0, -2.5, 1.05);
+    let detail = format!(
+        "{count} walls; onto the slab {onto_slab:.2} m of 2, under it {under_slab:.2} m of 2, onto the crate {onto_crate:.2} m of 1.5"
+    );
+    let ok = onto_slab < 1.0 && under_slab >= 2.0 - 1e-3 && onto_crate >= 1.5 - 1e-3;
+    if ok { Ok(detail) } else { Err(detail) }
+}
+
+/// A walkable catwalk beside a high top. A walkable floor 8 m square has a
+/// ledge on it whose top is 3.1 m up (x from -2 to 0), and a walkable
+/// catwalk (x from 0.2 to 3) ends 0.2 m past the grid line the ledge's
+/// columns end on. With the catwalk as high as the ledge (3.0 m), and with
+/// it 0.45 m over the ledge's top (between how far the look down and the
+/// look up for a floor overhead used to start), a box on the catwalk walks
+/// to the catwalk's edge without meeting a wall. A box at the ledge's top
+/// coming from the far side is still stopped by a wall.
+fn catwalk() -> Result<String, String> {
+    let ledge = ([-2.0, -1.0, 0.0], [0.0, 1.0, 3.1]);
+    let mut details = Vec::new();
+    let mut ok = true;
+    for height in [3.0, 3.55] {
+        let mut walkable = rect([-4.0, -4.0], [4.0, 4.0]);
+        walkable.extend(
+            rect([0.2, -1.0], [3.0, 1.0])
+                .into_iter()
+                .map(|(corners, material)| (corners.map(|[x, y, _]| [x, y, height]), material)),
+        );
+        let (level, count) = roof_walls(&walkable, &[ledge]);
+        let along = run_along_x(&level, 2.5, 0.2, height + 0.05);
+        let from_far = run_along_x(&level, -3.5, -1.0, 3.2);
+        ok &= along >= 2.3 - 1e-3 && from_far < 2.5 - 1e-3;
+        details.push(format!(
+            "catwalk {height} m: {count} walls, along it {along:.2} m of 2.3, onto the ledge from the far side {from_far:.2} m of 2.5"
+        ));
+    }
+    let detail = details.join("; ");
+    if ok { Ok(detail) } else { Err(detail) }
+}
+
+/// Sides along one grid line under a top sloping down 0.2 m a side
+/// (`crate::roofs::merge`), with tops sloping down as much, make several
+/// walls. In none of them are the feet, or the tops, of its sides more
+/// than 0.25 m apart, so no wall drifts down the slope below its sides.
+fn slope_merge() -> Result<String, String> {
+    let sides: Vec<(u8, usize, usize, [f32; 2])> = (0..12)
+        .map(|at| (0, 3, at, [5.0 - 0.2 * at as f32, 9.0 - 0.2 * at as f32]))
+        .collect();
+    let runs = crate::roofs::merge(sides);
+    let spread = runs
+        .iter()
+        .map(|(.., [feet, tops])| (feet[1] - feet[0]).max(tops[1] - tops[0]))
+        .fold(0.0f32, f32::max);
+    let covered: usize = runs.iter().map(|run| run.3 - run.2).sum();
+    let detail = format!(
+        "{} walls over {covered} sides, the widest spread of feet or tops {spread:.2} m",
+        runs.len()
+    );
+    let ok = runs.len() > 1 && covered == 12 && spread <= crate::roofs::MERGE + 1e-4;
+    if ok { Ok(detail) } else { Err(detail) }
 }
 
 /// Which rooms' drawn triangles are left out of the level

@@ -289,10 +289,16 @@ pub fn may_resume(by: Seat, seat: Seat) -> bool {
 /// Whether `seat`'s `action` is taken while a break holds, as KOTOR lets
 /// the player change the party leader and solo mode while the game is
 /// paused: the first seat's leader change (`Action::Lead`, the leader key
-/// and the portrait clicks) and solo mode (`Action::Solo`). The step that
+/// and the portrait clicks) and solo mode (`Action::Solo`). Another seat's
+/// portrait click and leader key take a free companion (`Action::Play`),
+/// and a break lets that through for the same reason. The step that
 /// carries one runs whole (`breaks`), and the break holds again after it.
 pub fn passes_break(seat: Seat, action: &Action) -> bool {
-    seat == super::LEADER_SEAT && matches!(action, Action::Lead(_) | Action::Solo(_))
+    match action {
+        Action::Lead(_) | Action::Solo(_) => seat == super::LEADER_SEAT,
+        Action::Play(_) => seat != super::LEADER_SEAT,
+        _ => false,
+    }
 }
 
 /// The step runs: no break holds, or the step carries an action that

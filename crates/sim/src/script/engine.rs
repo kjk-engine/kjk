@@ -6397,6 +6397,7 @@ impl Engine<'_> {
             self.state.party.leader = None;
             if was_switched {
                 self.party_to_base();
+                self.state.take_back_xp();
             }
             return true;
         }
@@ -6441,6 +6442,9 @@ impl Engine<'_> {
         };
         if self.state.party.switched != Some(npc) {
             self.leave_switched();
+        }
+        if self.state.party.switched.is_none() {
+            self.state.put_aside_xp();
         }
         let party = &mut self.state.party;
         if let Some(slot) = party.available.get_mut(&npc) {

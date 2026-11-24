@@ -311,9 +311,9 @@ party selection layout (`partyselect_p`), whose pieces are moved and copied:
 the Players and Game panels and the description strip are copies of the
 panel behind the companion's name, the player portraits are copies of the
 companion portraits, and the saber rules, collision and "Show chosen
-replies" rows are copies of the Add button. The companions keep the
-layout's own portraits, set in one row of at most thirteen places: twelve
-companions and the main character. Every piece is KOTOR 2's own art. A companion the story
+replies" rows are copies of the Add button. The companions keep the layout's own portraits, set in one
+row with the main character. The row holds up to twelve companions and the
+main character. Every piece is KOTOR 2's own art. A companion the story
 took away shows the layout's "no companion" art in place of the portrait,
 as KOTOR 2's party selection shows one who is not available. The player
 slots are the screen's main part, with larger portraits than the
