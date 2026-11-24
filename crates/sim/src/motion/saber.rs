@@ -22,11 +22,12 @@ use super::anim::{
 };
 use super::weapon::{Arms, Other, keep_out};
 use super::{Anim, Ground, Move, events, motion_flags};
+use crate::combat::force::Gesture;
 use crate::combat::pace;
 use crate::combat::saber::duel::{self, meter};
 use crate::combat::saber::moves::{self as table, Quad};
 use crate::combat::saber::{
-    Blade, Blocked, Change, Hold, Kit, Move as SaberMove, Style, Thrown, power, throw,
+    Blade, Blocked, Change, Hand, Hold, Kit, Move as SaberMove, Style, Thrown, power, throw,
 };
 use crate::input::{buttons, holds};
 use crate::math::{self, Vec3};
@@ -902,6 +903,68 @@ impl Move<'_, '_> {
             && self.cmd.right == 0
             && self.cmd.up <= 0
             && self.affords(arms, costs::KATA)
+    }
+    /// Starts the pull stab or the pull swing if the attack key is held
+    /// within the window of a Force Pull (`ForceState::pull_attack_until`).
+    /// The blade must be lit and ready (or in a return or a reflect) in one
+    /// of the single blade styles, the body on its feet on the ground, and
+    /// the Force to pay for it in the pool. The fast style stabs an enemy
+    /// within the stab's reach; the other styles swing at one between the
+    /// swing's two reaches. Starting it closes the window and lowers the
+    /// hand. Whether it started is returned.
+    ///
+    /// This is called before the hand is looked at, because the rest of the
+    /// blade's step does not run while a hand is out.
+    /// step does not run.
+    pub(super) fn pull_attack(&mut self, arms: &mut Arms) -> bool {
+        let now = self.time_ms;
+        let force = &arms.fighter.force;
+        // A hand raised for another power, or a channel, keeps the attack
+        // from starting; the hand of the pull itself does not.
+        let busy = force.channel.is_some()
+            || force
+                .hand
+                .is_some_and(|(gesture, until)| gesture != Gesture::Pull && until > now);
+        let raised = force.pull_attack_until > now && !busy;
+        if !raised {
+            return false;
+        }
+        let saber = &arms.fighter.saber;
+        let current = saber.current_move;
+        let Some(style) = saber.style else {
+            return false;
+        };
+        let single = matches!(style, Style::Fast | Style::Medium | Style::Strong);
+        let lit = arms.kit.blade(arms.fighter.hand).is_some() && saber.on;
+        if !(single
+            && lit
+            && (current == READY || current.ret() || current.reflect())
+            && saber.hand == Hand::None
+            && saber.change == Change::None
+            && arms.fighter.weapon_wait_ms <= 0
+            && self.on_ground()
+            && self.attack_held())
+        {
+            return false;
+        }
+        let half = specials::PULL_BOX;
+        let ahead = |reach: f32| self.someone(arms, Way::Front, reach, half).is_some();
+        let next = if style == Style::Fast {
+            ahead(specials::PULL_STAB_REACH).then_some(PULL_ATTACK_STAB)
+        } else {
+            ahead(specials::PULL_SWING_REACH).then_some(PULL_ATTACK_SWING)
+        };
+        let Some(next) = next else {
+            return false;
+        };
+        if !self.affords(arms, costs::FORWARD_BACK) {
+            return false;
+        }
+        self.begin_saber_move(arms, next);
+        Self::pay(arms, costs::FORWARD_BACK);
+        arms.fighter.force.hand = None;
+        arms.fighter.force.pull_attack_until = 0;
+        true
     }
 
     // --- Blocks -----------------------------------------------------------

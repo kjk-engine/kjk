@@ -624,6 +624,9 @@ pub struct ForceState {
     /// one counts as recent (sim ms).
     pub recent: u8,
     pub recent_until: u64,
+    /// Until when (sim ms) an attack key starts the pull stab or the pull
+    /// swing: set by a pull, ended by the attack it starts.
+    pub pull_attack_until: u64,
 }
 
 /// The saving throw that first allowed a hold: `Sheet::save`'s index (0
@@ -949,6 +952,7 @@ impl ForceState {
         out.u8(self.rolls);
         out.u8(self.recent);
         out.u64(self.recent_until);
+        out.u64(self.pull_attack_until);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<ForceState, DecodeError> {
@@ -1053,6 +1057,9 @@ impl ForceState {
             state.rolls = input.u8()?;
             state.recent = input.u8()?;
             state.recent_until = input.u64()?;
+        }
+        if input.since(crate::since::snapshot::PULL_ATTACKS) {
+            state.pull_attack_until = input.u64()?;
         }
         Ok(state)
     }

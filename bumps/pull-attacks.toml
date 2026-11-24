@@ -1,0 +1,6 @@
+# A character's Force state keeps the window in which an attack starts the
+# pull stab or the pull swing.
+[formats]
+snapshot = "a character's Force state keeps until when an attack starts the pull stab or the pull swing (`ForceState::pull_attack_until`)."
+[migrations]
+snapshot = "an older snapshot reads 0: no pull attack is open in it"
