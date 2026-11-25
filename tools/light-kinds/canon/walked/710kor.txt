@@ -1,0 +1,11 @@
+# 0.85 of the lit level of each room.
+710korb 0.1804
+710korc 0.1388
+710kord 0.1324
+710kore 0.1985
+710korf 0.2216
+710korg 0.2433
+710kori 0.2202
+710korj 0.2036
+710kork 0.1742
+710korl 0.1882

@@ -1453,6 +1453,9 @@ pub struct ViewModel {
     /// Shadows at Ultra is offered: the graphics card can trace rays
     /// (`display.shadows`).
     pub ultra_shadows: bool,
+    /// Lighting at Enhanced Lightmaps is offered: a lighting download is
+    /// installed for the game being played (`display.lighting`).
+    pub baked_lighting: bool,
     pub session: SessionView,
     /// The saved games found, the latest first.
     pub saves: Vec<SaveView>,

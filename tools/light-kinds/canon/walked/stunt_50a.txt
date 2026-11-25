@@ -1,0 +1,3 @@
+# 1.0 of the lit level of each room.
+m01aa_07a 0.4785
+m01aa_08c 0.6683

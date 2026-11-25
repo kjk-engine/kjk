@@ -1,0 +1,22 @@
+# 1.0 of the lit level of each room.
+262tela 0.1457
+262telb 0.1376
+262telc 0.1409
+262teld 0.1406
+262tele 0.1548
+262telf 0.1682
+262telg 0.3734
+262telh 0.4064
+262teli 0.2985
+262telj 0.2567
+262telk 0.5068
+262tell 0.3277
+262telm 0.2792
+262teln 0.3715
+262telo 0.4359
+262telp 0.2409
+262telq 0.4065
+262telr 0.4194
+262tels 0.2419
+262telt 0.2630
+262telu 0.4580

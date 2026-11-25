@@ -1,0 +1,657 @@
+# How bright the baked lightmaps of each module are
+# (`tools/light-kinds/bake.sh`, docs/LIGHTING-PLAN.md step 10).
+#
+# The bake makes lightmaps from the fitted lights alone and then scales each
+# room to a level. A module's entry says where that level comes from.
+#
+# - `share` and `ceiling`. A room aims at `share` times its level, and at
+#   most at `ceiling`. A module with no `ceiling` has none.
+# - `of` says which level of the room that is. `"original"` is the mean of
+#   the room's stored lightmaps: what the game shows today. `"lit"` is that
+#   level where the game lights the room: each texel counts by its own
+#   stored level, in the room's level and in the bake's. A bake that only
+#   reaches the plain mean looks darker than today, because it spreads its
+#   light into the corners the stored lightmaps leave black. `"live"` is
+#   the mean level the room shows under the live fitted lights
+#   (`KJK_FITTED_LIGHTS=on`). It is `"original"` when left out.
+# - `levels`. A file of this folder with one line for each room: its name
+#   and the level it aims at. It holds the levels the owner approved in a
+#   walk, so a later change to the live lights does not move them. `of`
+#   beside it says which level of the room the file holds.
+#
+# - `sun`. The area's sun and sky. The games' files hold neither, so an area
+#   under the open sky gets them here. `toward` is the way to the sun in
+#   game space. `colour` is the stored level a surface that faces the sun
+#   squarely shows of it, and `sky` is the stored level a surface that sees
+#   the whole sky shows of it. `detail-bake --gpu --sun-fit` prints the ways
+#   that fit the area's stored lightmaps best, with the stored colour in the
+#   sun and out of it. The sun and the sky are not scaled to a room's level.
+#   Only the room's lamps are. `toward2` and `colour2` give a second sun,
+#   for an area whose sky shows two. An opening in a roof shines down with the
+#   light that falls on it from the sun and the sky. In a room under a roof
+#   it shines 8 times as strongly, and in a courtyard 4 times (`ROOF_GAIN`
+#   and `OPENING_GAIN` in `crates/launcher/src/detail_bake/gpu.rs`).
+#   `skylights` names the meshes that send the
+#   sun's and the sky's light down into their room, by their node's name: a
+#   ceiling that the stored lightmaps treat as open. It sends the light
+#   evenly to every side. `--sun-fit` prints what is over each room's
+#   floor, with the floor's stored level, and a skylight shows there as a
+#   mesh over a floor as bright as one under the open sky.
+#
+# - `even = false`. No room of the module takes the even light. A room
+#   whose lamps cannot reach its level otherwise takes an even light on
+#   every texel for the rest. Without it such a room stays darker, and its
+#   light lies where its lamps and its openings put it.
+# - `fill = "stored"`. A room whose lamps cannot reach its level takes its
+#   own stored light for the rest, and not an even light.
+# - `most` and `least`. The most and the least a room's lamps are scaled by.
+#   They are 6 and 0.5 when left out.
+# - `scale`. The levels file's levels are times this number.
+# - `every_room = true`. Every room with a lightmapped mesh is baked, and
+#   not only the rooms with a walkable face.
+# - `backdrop = "stored"`. A room with no walkable face shows its stored
+#   light. Left out, the game shows it at twice its stored light.
+# - `dark_unlit = true`. A room with no lightmap shows little light, and
+#   only its bright texels keep their light.
+# - `floor`. Each texel of the bake shows at least this share of its stored
+#   linear light. A wall that no lamp reaches is then not black.
+#
+# A module that is not listed takes `[default]`: each room as bright as
+# today where the game lights it.
+
+[default]
+share = 1.0
+of = "lit"
+
+# Peragus. The owner called its rooms "too bright" and "too evenly
+# illuminated", and said a darker Peragus "would be cool, and fitting"
+# (18 November 2026). The share is of the live level, because that is what
+# the bakes he has seen were made from.
+[modules.101per]
+share = 0.6
+ceiling = 0.22
+of = "live"
+
+[modules.103per]
+share = 0.6
+ceiling = 0.22
+of = "live"
+
+# The Harbinger. The owner walked this bake and said "Looks good"
+# (18 November 2026).
+[modules.152har]
+levels = "levels/152har.txt"
+
+# The Endar Spire. The owner walked this bake and said "looks good!"
+# (18 November 2026).
+[modules.end_m01aa]
+levels = "levels/end_m01aa.txt"
+# The owner, walking KOTOR 1 on 21 November 2026: a bit too bright. The
+# lamps' light should be more local and the general light darker.
+scale = 0.65
+most = 2.5
+
+# The Dantooine enclave. The owner walked its first bake and said "without
+# the sun its all very dark" and "we should add the sun" (18 November 2026).
+# The way is the best fit of `--sun-fit` (0.746). The stored lightmaps under
+# the open sky are 0.93, 0.84, 0.54 in the sun and 0.34, 0.36, 0.24 out of
+# it, and the two colours are worked out from those.
+# He walked the bake with the sun and said: "the openings should shine light
+# down through them, and we shouldnt have so much artificial light generated
+# for the rooms. we want them naturally dark in the sides and then have the
+# skylight come down in the middle and scatter". So there is no even light,
+# and no ceiling is a skylight: the training room, the council chamber and
+# the bedrooms have real openings.
+# He walked that bake and said "approved!" (19 November 2026). Its levels are
+# held in the file: each room's level where the game lights it.
+[modules.danm13]
+levels = "levels/danm13.txt"
+of = "lit"
+even = false
+sun = { toward = [0.383, 0.663, 0.643], colour = [1.07, 0.96, 0.60], sky = [0.42, 0.44, 0.30] }
+
+# Anchorhead on Tatooine. Its sky shows two suns, and the area's own files
+# hold a hidden light that reaches 18,000 metres in the way of each
+# (`detail-bake` prints the ways). The stored lightmaps were made with one
+# sun between the two and above them: the best fit of `--sun-fit` is 0.837,
+# 0.224, 0.500. The owner saw a bake with that one sun and said: "general
+# lighting looks good! but it doesnt look like shadows are aligned with the
+# actual suns" (19 November 2026). So the bake has the sky's two suns.
+# The stored lightmaps under the open sky are 0.91, 0.84, 0.71 in the sun
+# and 0.24, 0.21, 0.17 out of it. Each sun gives level ground half of the
+# difference, and the sky's colour is worked out as the enclave's was. That
+# gives 1.00, 0.93, 0.79 and 1.16, 1.07, 0.91 for the suns and 0.30, 0.25,
+# 0.21 for the sky, and a town as bright as today. The colours below are 1.3
+# times those. The owner had said of a brighter bake "it was good when it
+# was bright". He walked the brighter one and said: "overall brightness is
+# good now!" (19 November 2026).
+# `width` is half of each sun's width in radians. With it the suns' shadows
+# are sharp: a texel's rays start from places spread over its own square.
+# Without it a sun is 0.04 wide and each ray starts at the texel's middle,
+# as in the enclave. The owner said of Anchorhead's shadows under that:
+# "why is the shadow from this wall so scattered at the edge?", "shadow
+# here looks blocky like a staircase" and "why is no shadow cast from that
+# tower?" (19 November 2026).
+# There is no even light, by the owner's words on the enclave.
+[modules.tat_m17aa]
+share = 1.0
+of = "lit"
+even = false
+sun = { toward = [0.826, 0.412, 0.385], colour = [1.30, 1.21, 1.03], toward2 = [0.959, -0.029, 0.282], colour2 = [1.51, 1.39, 1.18], sky = [0.39, 0.33, 0.27], width = 0.01 }
+
+# The Dune Sea on Tatooine (`tat_m18aa`) has no entry, because it has no
+# lightmap to bake. None of the 78 meshes of its five rooms names one, and
+# `detail-bake` stops with "no lightmap on a room". Anchorhead's entry was
+# tried on it unchanged on 19 November 2026.
+
+# The Sand People Enclave on Tatooine. Anchorhead's entry does not fit it.
+# The enclave's sky shows the two suns low in the south-east, about 53
+# degrees to the right of where Anchorhead's sky shows them, and its stored
+# lightmaps are darker. A bake with Anchorhead's entry unchanged was 1.7
+# times as bright as today (a mean of 80 against 47 over 14 views), and its
+# shadows fell away from the suns in the sky.
+# So the entry has the enclave's own numbers, made by Anchorhead's method.
+# The two ways are measured from pictures of the sky. The area's files hold
+# a hidden light that reaches 18,000 metres within 3 degrees of the lower
+# sun, and the best fit of `--sun-fit` is 0.612, -0.612, 0.500, between the
+# two suns and above them (fit 0.662).
+# The stored lightmaps under the open sky are 0.535, 0.491, 0.404 in the sun
+# and 0.194, 0.176, 0.155 out of it. Each sun gives level ground half of
+# the difference, and the colours are 1.3 times that, as in Anchorhead.
+[modules.tat_m20aa]
+share = 1.0
+of = "lit"
+even = false
+sun = { toward = [0.831, -0.418, 0.367], colour = [0.76, 0.70, 0.57], toward2 = [0.594, -0.749, 0.292], colour2 = [0.84, 0.78, 0.63], sky = [0.31, 0.28, 0.25], width = 0.025 }
+
+# The modules the owner gave notes on after the batch's second round
+# (20 November 2026), and the other dark modules of that round. He has seen
+# four views of each from its entry point, and has walked none of them.
+#
+# - `fill = "stored"`. A room whose lamps cannot reach its level takes its
+#   own stored light for the rest, scaled, and not an even light. It keeps
+#   the room's colour and the places its light came from. These rooms were
+#   lit by lamps the games never shipped. The owner said of a Korriban tomb:
+#   "it seems to be some light they have baked in there from the ceiling",
+#   "We should make that one stronger and work with that". A room whose
+#   lamps reach its level takes none of it, so lamps placed there later
+#   replace it. The baked files hold the lamps alone. `fill.txt` in the
+#   bake's folder holds one number for each lightmap of such a room, and
+#   the game adds the player's own stored lightmap times that number when
+#   it loads the baked one.
+# - `most` and `least`. The most and the least a room's lamps are scaled
+#   by. They are 6 and 0.5 when left out. The Ebon Hawk's hold counts a few
+#   bright texels that no lamp reaches, so its lamps went to 6 times their
+#   strength and lit every wall. The owner said it "should be more like an
+#   atmospheric dark environment where the lights from the monitors are
+#   carefully illuminating the area".
+#
+# The Korriban tombs are a little under today, of which he said "it's fine
+# if it's a bit darker". The Star Forge deck is at 0.7, after "it should
+# probably be 30, 20% darker". The Taris sewers are at 0.7, after "the
+# general brightness is too bright".
+
+[modules.ebo_m12aa]
+share = 0.3
+of = "lit"
+even = false
+least = 0.1
+most = 0.4
+
+[modules.stunt_07]
+share = 0.35
+of = "lit"
+even = false
+least = 0.1
+most = 0.7
+
+[modules.sta_m45ab]
+share = 0.6
+of = "lit"
+even = false
+least = 0.3
+most = 2.0
+
+[modules.tar_m05aa]
+share = 0.7
+of = "lit"
+even = false
+
+[modules.852nih]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.371nar]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.korr_m38ab]
+share = 0.9
+of = "lit"
+fill = "stored"
+
+[modules.korr_m37aa]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.211tel]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.korr_m39aa]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.korr_m38aa]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.kas_m22aa]
+share = 0.75
+of = "lit"
+fill = "stored"
+
+# The owner, 21 November 2026: the frames on the trees were far darker than
+# the trees they hang on. Round r1 gave every room the stored fill, and the
+# module went flat. The bake he walked had no even light and no fill, so it
+# has neither again. The trees show their stored light, which brings them
+# down to the frames.
+[modules.kas_m22ab]
+share = 1.0
+of = "lit"
+even = false
+# The owner on 21 November 2026: the buildings and trees beside the walkway
+# were far brighter than the walkway and the fittings on them.
+backdrop = "stored"
+
+[modules.711kor]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.710kor]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.702kor]
+share = 0.85
+of = "lit"
+fill = "stored"
+
+[modules.107per]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+# Malachor. The owner, 22 November 2026: far too bright, about 50% darker,
+# and lit more by the red lights on the floors, the walls and the doors.
+# Each level is half of round r1's, and the red kinds shed more
+# (`fittings.toml`). Without the stored fill the rooms with few lamps went
+# nearly black (a sixth of the bake he walked), so they keep it.
+[modules.902mal]
+share = 0.5
+of = "lit"
+fill = "stored"
+least = 0.2
+
+# The owner saw it without the fill on 22 November 2026 and said it looks
+# perfect.
+[modules.903mal]
+share = 0.425
+of = "lit"
+even = false
+least = 0.2
+
+[modules.904mal]
+share = 0.375
+of = "lit"
+fill = "stored"
+least = 0.2
+
+[modules.905mal]
+share = 0.375
+of = "lit"
+fill = "stored"
+least = 0.2
+
+[modules.906mal]
+share = 0.5
+of = "lit"
+fill = "stored"
+least = 0.2
+
+[modules.unk_m42aa]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.danm14ae]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.danm15]
+share = 0.55
+of = "lit"
+fill = "stored"
+most = 2.0
+least = 0.2
+
+[modules.002ebo]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.stunt_16]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.korr_m35aa]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.351nar]
+share = 0.7
+of = "lit"
+fill = "stored"
+most = 2.0
+least = 0.2
+
+[modules.301nar]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.305nar]
+share = 1.0
+of = "lit"
+fill = "stored"
+dark_unlit = true
+
+[modules.kas_m23ad]
+share = 0.55
+of = "lit"
+fill = "stored"
+most = 2.0
+least = 0.2
+
+[modules.232tel]
+share = 0.8
+of = "lit"
+fill = "stored"
+most = 2.0
+least = 0.2
+
+[modules.202tel]
+share = 0.55
+of = "lit"
+fill = "stored"
+most = 2.0
+least = 0.2
+
+[modules.tar_m04aa]
+share = 0.55
+of = "lit"
+fill = "stored"
+most = 2.0
+least = 0.2
+
+[modules.tar_m02ac]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+# The owner, 21 November 2026: the catwalks must match the buildings, as in
+# tar_m02ac, which is the reference for the upper city.
+[modules.tar_m02ab]
+share = 1.0
+of = "lit"
+fill = "stored"
+# The owner on 21 November 2026: the buildings and trees beside the walkway
+# were far brighter than the walkway and the fittings on them.
+backdrop = "stored"
+
+[modules.650dan]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.604dan]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.manm26mg]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+[modules.manm26ad]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+# KOTOR 1 rooms the owner called too bright and flat on 21 November 2026:
+# darker general light, and the lamps' light kept near the lamps. The lamps
+# are scaled up at most 2 times (1.5 in the cantinas), so they no longer
+# light every wall to reach the room's level, and scaled down to a fifth at
+# least (0.15 in the cantinas), as a room with bright lamps must go below
+# half to darken. The owner asked for darker
+# still after the first round (share 0.75, most 2.5).
+[modules.kas_m23ab]
+share = 0.55
+of = "lit"
+even = false
+most = 2.0
+least = 0.2
+
+[modules.kas_m23ac]
+share = 0.55
+of = "lit"
+even = false
+most = 2.0
+least = 0.2
+
+[modules.liv_m99aa]
+share = 0.55
+of = "lit"
+even = false
+most = 2.0
+least = 0.2
+
+# The cantinas should be dark and feel a bit unsafe.
+[modules.tar_m02ae]
+share = 0.4
+of = "lit"
+even = false
+most = 1.5
+least = 0.15
+
+[modules.tar_m03ae]
+share = 0.4
+of = "lit"
+even = false
+most = 1.5
+least = 0.15
+
+[modules.tar_m09ab]
+share = 0.55
+of = "lit"
+even = false
+most = 2.0
+least = 0.2
+
+[modules.tar_m10ac]
+share = 0.55
+of = "lit"
+even = false
+most = 2.0
+least = 0.2
+
+# Every Star Forge area about 15% darker. sta_m45aa has rooms already at
+# the least scale, so its least is lowered too.
+[modules.sta_m45aa]
+share = 0.85
+of = "lit"
+even = false
+least = 0.3
+
+[modules.sta_m45ac]
+share = 0.85
+of = "lit"
+even = false
+
+[modules.sta_m45ad]
+share = 0.85
+of = "lit"
+even = false
+
+# Manaan's sea floor by the Star Map. Its rooms have no walkable face, so
+# the bake left them out, and the pole lamps lit none of the sea floor. The
+# owner, 21 November 2026: "strange spots on the ground are too bright" and
+# the pole lamps "should emit directional spotlight".
+[modules.manm28ad]
+share = 1.0
+of = "lit"
+even = false
+every_room = true
+
+# The upper city apartments: a little darker, every light kept. The owner,
+# 21 November 2026.
+[modules.tar_m02ad]
+share = 0.85
+of = "lit"
+even = false
+
+# The owner, walking KOTOR 2 on 21 November 2026. The prison is flat; its light should come
+# from its lamps.
+[modules.203tel]
+share = 0.6
+of = "lit"
+fill = "stored"
+most = 2.0
+least = 0.2
+sun = { toward = [0.433, -0.25, 0.866], colour = [0.545, 0.556, 0.571], sky = [0.422, 0.42, 0.426], width = 0.01 }
+even = false
+
+# The owner, walking KOTOR 2 on 21 November 2026. A bit darker.
+[modules.222tel]
+share = 0.75
+of = "lit"
+fill = "stored"
+most = 2.0
+least = 0.2
+sun = { toward = [-0.354, 0.354, 0.866], colour = [0.459, 0.483, 0.5], sky = [0.235, 0.209, 0.208], width = 0.01 }
+even = false
+
+# The owner, walking KOTOR 2 on 21 November 2026. Jekk'Jekk Tarr darker than the game, lit by
+# its lamps. So there is no fill.
+[modules.304nar]
+share = 0.5
+of = "lit"
+even = false
+most = 1.5
+least = 0.15
+
+# The owner, walking KOTOR 2 on 21 November 2026. Goto's yacht is flat. Its light should come off
+# the glow panels, so there is no fill.
+[modules.352nar]
+share = 0.7
+of = "lit"
+even = false
+most = 2.0
+least = 0.2
+
+# The owner, walking KOTOR 2 on 21 November 2026. Walked with no fill, its rooms stopped far under
+# their level.
+[modules.410dxn]
+share = 1.0
+of = "lit"
+fill = "stored"
+
+# The owner, walking KOTOR 2 on 21 November 2026. The fires shed no light and the crates are too
+# bright. The bake he walked had no fill, and round r1's fill lit the module four times as bright, so it
+# has none again.
+[modules.411dxn]
+share = 1.0
+of = "lit"
+even = false
+
+# The owner, walking KOTOR 2 on 21 November 2026: the light should come from the ceiling lamps. So
+# there is no fill.
+[modules.506ond]
+share = 1.0
+of = "lit"
+even = false
+
+# The owner, walking KOTOR 2 on 21 November 2026: the lamps on the walls and the ceiling should shed
+# light, and the light is too bright. So there is no fill.
+[modules.610dan]
+share = 1.0
+of = "lit"
+even = false
+
+# The owner, walking KOTOR 2 on 21 November 2026, named only the red doors. The bake he walked had
+# no fill, so it has none again.
+[modules.853nih]
+share = 1.0
+of = "lit"
+even = false
+
+# The owner, walking KOTOR 2 on 21 November 2026. The grass and the mountains differ too much.
+[modules.401dxn]
+share = 1.0
+of = "lit"
+fill = "stored"
+sun = { toward = [-0.455, -0.455, 0.766], colour = [0.658, 0.658, 0.501], sky = [0.271, 0.271, 0.4], width = 0.01 }
+even = false
+
+# The batch's sun, written here so bake.sh keeps it. The owner, 21 November
+# 2026: the enclave should be darker, so its sun and sky are at 0.75.
+[modules.605dan]
+share = 1.0
+of = "lit"
+even = false
+sun = { toward = [-0.166, 0.621, 0.766], colour = [0.595, 0.633, 0.698], sky = [0.359, 0.386, 0.467], width = 0.01 }
+
+# The batch's sun, written here so bake.sh keeps it.
+[modules.510ond]
+share = 1.0
+of = "lit"
+even = false
+sun = { toward = [-0.433, 0.75, 0.5], colour = [1.06, 0.979, 0.546], sky = [0.583, 0.69, 0.82], width = 0.01 }
+
+# The batch's sun, written here so bake.sh keeps it.
+[modules.901mal]
+share = 1.0
+of = "lit"
+even = false
+sun = { toward = [0.129, -0.483, 0.866], colour = [0.286, 0.351, 0.326], sky = [0.12, 0.135, 0.124], width = 0.01 }
+
+# Davik's estate. The bake the owner walked had no even light and showed the
+# rooms with no walkable face at twice their stored light. The owner said on
+# 22 November 2026 that a darker Davik's estate is fine, so those rooms show
+# their stored light.
+[modules.tar_m08aa]
+share = 1.0
+of = "lit"
+even = false
+backdrop = "stored"
+
+# A hall on a space station. The wall of the view v180 lies far from every
+# lamp, and its room reaches its level by its bright lightmaps alone, so the
+# wall was black (a mean of 4 against 47 in the game). The owner flagged it.
+# Each texel shows at least a fifth of its stored linear light.
+[modules.stunt_18]
+share = 1.0
+of = "lit"
+floor = 0.2

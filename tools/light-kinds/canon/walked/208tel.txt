@@ -1,0 +1,11 @@
+# 1.0 of the lit level of each room.
+208telb 0.6917
+208tell 0.5918
+208telm 0.9004
+208telo 0.5619
+208telp 0.7417
+208telq 0.8012
+208telr 0.8588
+208tels 0.8607
+208telt 0.6880
+208telu 0.7693

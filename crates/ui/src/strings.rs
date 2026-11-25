@@ -175,6 +175,12 @@ pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";
 pub const LIGHTING_CLASSIC: &str = "Lighting: Classic";
 pub const LIGHTING_ENHANCED: &str = "Lighting: Enhanced";
 pub const LIGHTING_HELP: &str = "Classic uses the original game's lighting.\n\nEnhanced adds glow to lightsabers, blaster bolts and muzzle flashes.";
+pub const LIGHTING_BAKED: &str = "Lighting: Enhanced Lightmaps";
+/// The Lighting help where Enhanced Lightmaps is offered: a lighting
+/// download is installed for the game being played.
+pub const LIGHTING_BAKED_HELP: &str = "Classic uses the original game's lighting.\n\nEnhanced adds glow to lightsabers, blaster bolts and muzzle flashes.\n\nEnhanced Lightmaps adds kjk's new lightmaps, made from each room's own lamps, to Enhanced lighting. It needs the lighting download for this game.
+
+A change to or from Enhanced Lightmaps takes effect the next time kjk starts.";
 pub const EFFECTS_LOW: &str = "Effects Quality: Low";
 pub const EFFECTS_HIGH: &str = "Effects Quality: High";
 pub const EFFECTS_HELP: &str = "Low draws smoke and mist at half resolution, which raises the frame rate on slower graphics cards.";
