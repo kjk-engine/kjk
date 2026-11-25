@@ -238,6 +238,10 @@ pub struct ObjectData {
     /// otherwise. `GetTag` answers with it for a trigger only, whose tag
     /// the games keep as written; the rest load theirs lowercase.
     pub cased_tag: String,
+    /// A trigger's tag as its GIT entry writes it, lowercase, when the
+    /// template's tag that names it differs; empty otherwise. Scripts never
+    /// see it. The playthrough routes name transition triggers by it.
+    pub placed_tag: String,
     pub template: String,
     /// Game space, metres.
     pub position: [f32; 3],
@@ -676,6 +680,10 @@ impl ObjectData {
             out.string("cased");
             out.string(&self.cased_tag);
         }
+        if !self.placed_tag.is_empty() {
+            out.string("placed");
+            out.string(&self.placed_tag);
+        }
         // Only an object with a name, a personal space, a strike, items or
         // terms lists them, so a module without keeps its digest.
         if !self.name.is_empty() {
@@ -843,6 +851,7 @@ impl ObjectData {
             kind: ObjectKind::Creature,
             tag: String::new(),
             cased_tag: String::new(),
+            placed_tag: String::new(),
             template: template.to_string(),
             position,
             yaw,

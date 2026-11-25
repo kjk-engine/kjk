@@ -268,7 +268,7 @@ fn wears(
                     &|_| false,
                 ))
                 .and_then(|(resolver, worn)| {
-                    crate::persona::wear((resolver, None), &mut tables, worn)
+                    crate::persona::wear((resolver, (None, None)), &mut tables, worn)
                 });
             Ok(worn.unwrap_or_else(|| {
                 let (body, head) = stand_ins[usize::from(seat) % stand_ins.len()];

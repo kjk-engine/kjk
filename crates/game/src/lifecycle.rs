@@ -178,7 +178,7 @@ pub fn module_resolver_probes() -> sim::probe::Checks {
             None,
             crate::alignment_look::neutral(false),
         );
-        crate::persona::wear((&resolver, None), &mut tables, look)
+        crate::persona::wear((&resolver, (None, None)), &mut tables, look)
     });
     let left = resources.enter("tar_m02aa");
     let elsewhere = has(resources.get());

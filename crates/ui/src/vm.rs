@@ -983,7 +983,8 @@ pub struct LostView {
 
 /// A planet the galaxy map shows (a `planetary.2da` row the scripts made
 /// available): its button's tag (`guitag`), name, description and model,
-/// and whether the party may travel there.
+/// the picture its button shows (`icon`), and whether the party may travel
+/// there.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlanetView {
     pub row: u8,
@@ -991,6 +992,7 @@ pub struct PlanetView {
     pub name: Vec<u8>,
     pub description: Vec<u8>,
     pub model: Option<String>,
+    pub icon: Option<String>,
     pub selectable: bool,
 }
 
@@ -1001,6 +1003,10 @@ pub struct PlanetView {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GalaxyView {
     pub planets: Vec<PlanetView>,
+    /// Every `planetary.2da` row's button tag (`guitag`), available or not.
+    /// A mod's planet buttons may have any tag, and the map hides those of
+    /// the planets not available.
+    pub buttons: Vec<String>,
     pub current: Option<u8>,
     pub host: bool,
 }

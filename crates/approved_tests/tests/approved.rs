@@ -2193,7 +2193,11 @@ fn blank_cells_name_nothing() {
 /// executables do. A mod's GIT entry that also writes an empty `Tag`,
 /// `Conversation` or `OnEnter` changes none of them (issue 468: a mod's
 /// Undercity lost Mission's trigger tag, so she never came). A trigger's own
-/// `Tag` that is not empty still names it. No installs (approved 2026-11-16).
+/// `Tag` that is not empty does not name it either, as KOTOR 2's executable
+/// reads no `Tag` from a GIT entry made from a template (Echoes of the
+/// Republic's Sleheyron cutscene). It is kept beside, for the playthrough
+/// routes. No installs (approved 2026-11-16; changed 2026-11-25, awaiting
+/// approval).
 #[test]
 fn git_entry_keeps_template_fields() {
     use asset_odyssey::made::{blank_module, gff, node, resref};
@@ -2245,9 +2249,14 @@ fn git_entry_keeps_template_fields() {
         .iter()
         .map(|instance| {
             format!(
-                "{:?} {} {} {:?}",
+                "{:?} {}{} {} {:?}",
                 instance.kind,
                 String::from_utf8_lossy(&instance.tag),
+                if instance.placed_tag.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", String::from_utf8_lossy(&instance.placed_tag))
+                },
                 instance.conversation,
                 instance.scripts
             )
@@ -2259,7 +2268,7 @@ fn git_entry_keeps_template_fields() {
         [
             format!("Placeable plc_tag talk {enter}"),
             format!("Trigger trg_tag talk {enter}"),
-            format!("Trigger own_tag talk {enter}"),
+            format!("Trigger trg_tag (own_tag) talk {enter}"),
         ],
         "kind, tag, conversation and scripts of each placed object"
     );
