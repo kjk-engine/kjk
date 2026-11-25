@@ -1513,6 +1513,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         quads,
         wide: kept.out.wide.clone(),
         sized: kept.out.sized.clone(),
+        marks: Vec::new(),
     };
     if !banner {
         // The floating target block as last placed. `float_layers` places

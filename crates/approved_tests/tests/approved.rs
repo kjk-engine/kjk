@@ -3857,6 +3857,11 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// were added the same day. A disabled icon is drawn faded and grey on the
 /// HUD's bar and on the wheel. On the setup page, only a hidden power's icon
 /// is grey. Dimmed list rows on other screens are only faded, as before.
+/// The checks `tree_marks` and `tree_focus_links` were proposed on
+/// 2026-11-26, with the control trees of `kjk gui screen`. A painter asked
+/// for marks leaves one for each control, where it was drawn and with the
+/// words it set, and draws nothing differently. The focus moves along a
+/// `MOVETO` link, else to the nearest control that way.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();

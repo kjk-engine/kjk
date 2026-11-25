@@ -97,6 +97,39 @@ pub struct DrawList {
     /// The 3D views whose image keeps a size other than their quad's
     /// (`ControlState::scene_size`), and that size in layout pixels.
     pub sized: Vec<(TextureId, [f32; 2])>,
+    /// Each control painted, in paint order: what a control tree of the
+    /// screen is made from (`kjk gui screen`).
+    pub marks: Vec<Mark>,
+}
+
+/// A control as the painter drew it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mark {
+    pub tag: String,
+    pub id: i32,
+    pub kind: fmt_odyssey::gui::Kind,
+    /// Left, top, width, height in layout pixels.
+    pub rect: [f32; 4],
+    pub focused: bool,
+    pub disabled: bool,
+    /// The talk-table entry its words come from, when they come from one.
+    pub strref: Option<u32>,
+    /// Its words, one entry for each block set: a list has one for each
+    /// row's.
+    pub words: Vec<Words>,
+}
+
+/// Words as the painter set them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Words {
+    pub bytes: Vec<u8>,
+    /// The font's name, and the font at the size drawn.
+    pub font_name: String,
+    pub font: Arc<Font>,
+    pub texture: TextureId,
+    /// The box the words were set in, in layout pixels.
+    pub rect: [f32; 4],
+    pub color: [f32; 4],
 }
 
 impl DrawList {

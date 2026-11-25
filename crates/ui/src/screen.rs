@@ -446,6 +446,8 @@ pub struct Stack {
     down: bool,
     /// A screen as big as its frame was open after the last step.
     covered: bool,
+    /// Its frames' layers carry each control's mark (`Painter::marked`).
+    pub marked: bool,
 }
 
 const PULSE: f32 = 1.6;
@@ -942,6 +944,66 @@ fn kept_in_shape(read: Rect, anchor: Rect, by: (f32, f32)) -> Rect {
     }
 }
 
+/// Where `key` moves the focus from `from` among `targets`: along the
+/// control's `MOVETO` link, else to the nearest target that way.
+fn toward<'g>(from: &Control, targets: &[&'g Control], key: Key) -> Option<&'g Control> {
+    let linked = from.moveto.map(|links| match key {
+        Key::Up => links.up,
+        Key::Down => links.down,
+        Key::Left => links.left,
+        _ => links.right,
+    });
+    if let Some(id) = linked.filter(|id| *id >= 0)
+        && let Some(to) = targets.iter().find(|control| control.id == id)
+    {
+        return Some(to);
+    }
+    let direction = match key {
+        Key::Up => [0.0, -1.0],
+        Key::Down => [0.0, 1.0],
+        Key::Left => [-1.0, 0.0],
+        _ => [1.0, 0.0],
+    };
+    let [x, y] = centre(from);
+    targets
+        .iter()
+        .filter(|control| control.tag != from.tag)
+        .filter_map(|control| {
+            let [cx, cy] = centre(control);
+            let (dx, dy) = (cx - x, cy - y);
+            let along = dx * direction[0] + dy * direction[1];
+            let across = (dx * direction[1] - dy * direction[0]).abs();
+            (along > 0.0).then_some((along + 2.0 * across, *control))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, control)| control)
+}
+
+/// A control's tag, and the tags of the controls that up, down, left and
+/// right move the focus to from it.
+pub type FocusLink = (String, [Option<String>; 4]);
+
+/// Where up, down, left and right move the focus from each of `targets`,
+/// by tag, in that order. A list box takes up and down itself row by row
+/// before these apply.
+fn links_among(targets: &[&Control]) -> Vec<FocusLink> {
+    let keys = [Key::Up, Key::Down, Key::Left, Key::Right];
+    targets
+        .iter()
+        .map(|from| {
+            let to = keys.map(|key| toward(from, targets, key).map(|to| to.tag.clone()));
+            (from.tag.clone(), to)
+        })
+        .collect()
+}
+
+/// The focus links (`links_among`) of a layout at rest: every control
+/// the focus can rest on, none hidden or disabled.
+pub fn layout_links(gui: &Gui) -> Vec<FocusLink> {
+    let targets: Vec<&Control> = gui.walk().filter(|control| focusable(control)).collect();
+    links_among(&targets)
+}
+
 fn centre(control: &Control) -> [f32; 2] {
     let e = control.extent;
     [
@@ -971,6 +1033,7 @@ impl Stack {
             wheel: 0.0,
             down: false,
             covered: false,
+            marked: false,
         }
     }
 
@@ -1083,6 +1146,11 @@ impl Stack {
         self.entries.iter().map(|entry| entry.screen.id())
     }
 
+    /// Each open screen's layout, bottom first, as `Frame::layers` are.
+    pub fn layouts(&self) -> impl Iterator<Item = &str> {
+        self.entries.iter().map(|entry| entry.screen.layout())
+    }
+
     pub fn is_open(&self) -> bool {
         !self.entries.is_empty()
     }
@@ -1107,6 +1175,17 @@ impl Stack {
     pub fn edited(&mut self, tag: &str) -> Option<Vec<u8>> {
         let entry = self.entries.last_mut()?;
         entry.screen.edit(tag).map(|edit| edit.text.clone())
+    }
+
+    /// The focus links (`links_among`) of the top screen as it is now.
+    pub fn focus_links(&self, vm: &ViewModel) -> Vec<FocusLink> {
+        let Some(entry) = self.entries.last() else {
+            return Vec::new();
+        };
+        let Some(gui) = entry.shown() else {
+            return Vec::new();
+        };
+        links_among(&entry.focusables(gui, vm))
     }
 
     /// Activates `tag` on the top screen next frame.
@@ -1432,6 +1511,7 @@ impl Stack {
             painter.pulse = pulse;
             painter.pulsing = pulsing;
             painter.source = entry.source;
+            painter.marked = self.marked;
             entry.draw(vm, at + 1 == count, blink, &mut painter, &mut out);
             // A menu narrower or shorter than the window has black bars
             // beside it, and nothing of it shows on them. Nor does anything
@@ -2579,37 +2659,7 @@ impl Entry {
         let Some(from) = self.focus.as_deref().and_then(|tag| gui.find(tag)) else {
             return;
         };
-        let linked = from.moveto.map(|links| match key {
-            Key::Up => links.up,
-            Key::Down => links.down,
-            Key::Left => links.left,
-            _ => links.right,
-        });
-        if let Some(id) = linked.filter(|id| *id >= 0)
-            && let Some(to) = targets.iter().find(|control| control.id == id)
-        {
-            self.focus = Some(to.tag.clone());
-            return;
-        }
-        let direction = match key {
-            Key::Up => [0.0, -1.0],
-            Key::Down => [0.0, 1.0],
-            Key::Left => [-1.0, 0.0],
-            _ => [1.0, 0.0],
-        };
-        let [x, y] = centre(from);
-        let nearest = targets
-            .iter()
-            .filter(|control| control.tag != from.tag)
-            .filter_map(|control| {
-                let [cx, cy] = centre(control);
-                let (dx, dy) = (cx - x, cy - y);
-                let along = dx * direction[0] + dy * direction[1];
-                let across = (dx * direction[1] - dy * direction[0]).abs();
-                (along > 0.0).then_some((along + 2.0 * across, control))
-            })
-            .min_by(|a, b| a.0.total_cmp(&b.0));
-        if let Some((_, to)) = nearest {
+        if let Some(to) = toward(from, targets, key) {
             self.focus = Some(to.tag.clone());
         }
     }

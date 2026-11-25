@@ -36,7 +36,7 @@
 use fmt_odyssey::gui::align;
 use fmt_odyssey::gui::{Border, Control, Gui, Kind};
 
-use crate::draw::{DrawList, Quad, TextureId, Textures};
+use crate::draw::{DrawList, Mark, Quad, TextureId, Textures, Words};
 use crate::skin::{self, Source};
 
 /// The space between a KOTOR 2 row's icon square and its name.
@@ -380,6 +380,12 @@ pub struct Painter<'a> {
     /// 1 and multiplies these quads' alpha by the pulse of each frame.
     pub pulses: Vec<std::ops::Range<usize>>,
     pub refusals: Vec<String>,
+    /// Each control painted leaves a mark (`DrawList::marks`). Only the
+    /// headless renders want them.
+    pub marked: bool,
+    /// The mark of the control being painted, which the words it sets are
+    /// added to.
+    marking: Option<usize>,
 }
 
 /// A texture name that means "none".
@@ -442,6 +448,8 @@ impl<'a> Painter<'a> {
             pulsing: 1.0,
             pulses: Vec::new(),
             refusals: Vec::new(),
+            marked: false,
+            marking: None,
         }
     }
 
@@ -718,10 +726,21 @@ impl<'a> Painter<'a> {
         if bytes.is_empty() {
             return;
         }
+        let font_name = font;
         let Some((id, font)) = self.textures.font(self.source, font) else {
             self.refuse(format!("font {font}"));
             return;
         };
+        if let Some(mark) = self.marking.and_then(|at| out.marks.get_mut(at)) {
+            mark.words.push(Words {
+                bytes: bytes.to_vec(),
+                font_name: font_name.to_string(),
+                font: font.clone(),
+                texture: id,
+                rect,
+                color,
+            });
+        }
         let [l, t, w, h] = rect;
         let (tw, th) = self.textures.size(id);
         let (du, dv) = (0.5 / tw.max(1) as f32, 0.5 / th.max(1) as f32);
@@ -845,6 +864,24 @@ impl<'a> Painter<'a> {
         }
         let rect = rect_of(control);
         let from = out.quads.len();
+        let outer = self.marking;
+        if self.marked {
+            self.marking = Some(out.marks.len());
+            out.marks.push(Mark {
+                tag: control.tag.clone(),
+                id: control.id,
+                kind: control.kind,
+                rect,
+                focused: state.focused,
+                disabled: state.disabled || state.greyed,
+                strref: match (&state.text, state.strref, &control.text) {
+                    (Some(_), _, _) => None,
+                    (None, Some(strref), _) => Some(strref),
+                    (None, None, text) => text.as_ref().and_then(|text| text.strref),
+                },
+                words: Vec::new(),
+            });
+        }
         let border = if control.kind == Kind::CheckBox {
             match (state.selected, state.focused) {
                 (true, true) => textured(&control.hilight_selected).or(textured(&control.selected)),
@@ -937,6 +974,7 @@ impl<'a> Painter<'a> {
         if state.dimmed {
             dim(&mut out.quads[from..]);
         }
+        self.marking = outer;
     }
 
     /// Where a check box's mark goes in its row `rect`: at the row's left,
@@ -1356,8 +1394,10 @@ impl<'a> Painter<'a> {
         let (width, height) = gui.frame();
         out.size = (width as f32, height as f32);
         let start = out.quads.len();
+        let marked = out.marks.len();
         let root = Control {
             kind: Kind::Panel,
+            id: -1,
             tag: gui.tag.clone(),
             extent: fmt_odyssey::gui::Rect {
                 left: 0,
@@ -1379,6 +1419,14 @@ impl<'a> Painter<'a> {
             if let Some(clip) = &mut quad.clip {
                 clip[0] += x;
                 clip[1] += y;
+            }
+        }
+        for mark in &mut out.marks[marked..] {
+            mark.rect[0] += x;
+            mark.rect[1] += y;
+            for words in &mut mark.words {
+                words.rect[0] += x;
+                words.rect[1] += y;
             }
         }
     }

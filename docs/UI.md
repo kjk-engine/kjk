@@ -712,6 +712,39 @@ Running and checking:
 - `kjk gui probes` runs the checks the approved test `gui_layouts` asserts.
   `kjk gui render k1 <layout>` draws one layout; `kjk gui sweep` paints
   every layout of each install; `kjk gui sheet` makes a contact sheet.
+- **Control trees.** `kjk gui screen` writes a control tree next to its
+  PNG, a JSON file of the same name. `kjk gui sweep --out DIR` draws every
+  layout at rest at its own size into `DIR/<game>/`, a PNG and a control
+  tree each. A tree holds no pixels, so it can be committed where the
+  picture cannot. The same state gives the same PNG and the same tree,
+  byte for byte. Agents read the tree instead of guessing from the
+  picture, and the UI lint (docs/UI-GUIDELINES.md) checks it. Format 1:
+  - `shown`: the game, and the screen and its steps (or the layout, from
+    the sweep). `window`: the picture's size in pixels.
+  - `focus`: the top screen's focused control. `back`: what Back does
+    there, the screens open after it (top last) and the intents it
+    raised. It is null in the sweep.
+  - `layers`: each open screen, bottom first, with its `screen`, its
+    `layout`, its `scale` (window pixels to a layout pixel) and its
+    `controls`, in paint order. A hidden control is not listed.
+  - A control: `tag`, `id` (-1 for the layout's root), `kind`, `rect` (left,
+    top, width, height in window pixels), `focused`, `disabled`, `strref`
+    (the talk-table entry its words come from, if any), `focusable` and
+    `moves`. `moves` gives the control that up, down, left and right lead
+    to, as the stack moves the focus (`MOVETO`, else the nearest control
+    that way). Only the top screen's controls that can take focus have
+    them. A list box takes up and down itself row by row before its
+    `moves` apply.
+  - `words`: each block of words the control set (one for each row of a
+    list), with its `text`, `font`, `rect`, `color` (RGBA as drawn, the
+    focus's pulse in its alpha) and `background`. `background` is the
+    darkest and the lightest colour behind the words, read from the
+    picture drawn without any words. `body_height` is the font's body
+    height in window pixels: the rows from the top of its tallest letter
+    to the bottom of its lowest one (the digits and the letters A to Z,
+    both cases), drawn by the renderer on a line that starts on a whole
+    pixel, a pixel counting from half its alpha. This is the measure
+    docs/UI-GUIDELINES.md uses.
 - Settings live in the user's config folder (`KJK_SETTINGS` overrides it).
 - The options (`ui::screens::options`, a table per page): gameplay's
   inverted camera and its Camera page (ours, on TSL's unused second

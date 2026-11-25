@@ -167,6 +167,7 @@ pub fn screen(
             }
         }
         let mut stack = ui::screen::Stack::new(ui::screens::open);
+        stack.marked = true;
         if !stack.open(name, &vm) {
             return Err(format!("{name}: no such screen"));
         }
@@ -362,6 +363,29 @@ pub fn screen(
         let file = file.map_or_else(|| format!("{}.png", name.replace(':', "_")), str::to_string);
         let path = output(game, out)?.join(file);
         save(&path, &image, size.0, size.1)?;
+        let screens: Vec<&str> = stack.screens().map(|id| id.0).collect();
+        let layouts: Vec<String> = stack.layouts().map(str::to_string).collect();
+        let links = stack.focus_links(&vm);
+        let focus = stack.focused().map(str::to_string);
+        let back = back(&mut stack, &mut assets, &vm, &quiet);
+        let layers: Vec<crate::gui_tree::Layer<'_>> = (screens.iter().zip(&layouts))
+            .zip(&frame.layers)
+            .map(|((screen, layout), list)| crate::gui_tree::Layer {
+                screen,
+                layout,
+                list,
+            })
+            .collect();
+        let shown = serde_json::json!({ "game": game.key(), "screen": name, "steps": steps });
+        let tree = crate::gui_tree::tree(
+            &assets,
+            shown,
+            &layers,
+            size,
+            (&links, focus.as_deref()),
+            back,
+        );
+        write_tree(&path, &tree)?;
         Ok(path)
     })();
     match result {
@@ -374,6 +398,32 @@ pub fn screen(
             ExitCode::FAILURE
         }
     }
+}
+
+/// What Back does on the top screen of `stack`: the screens open after
+/// it, top last, and the intents it raised. It is taken last, as it
+/// changes the stack.
+fn back(
+    stack: &mut ui::screen::Stack,
+    assets: &mut GuiAssets,
+    vm: &ui::vm::ViewModel,
+    quiet: &ui::input::UiInput,
+) -> serde_json::Value {
+    let pressed = ui::input::UiInput {
+        keys: vec![ui::input::Key::Back],
+        ..quiet.clone()
+    };
+    let frame = stack.step(assets, vm, &pressed);
+    let intents: Vec<String> = frame.intents.iter().map(|intent| format!("{intent:?}")).collect();
+    let screens: Vec<&str> = stack.screens().map(|id| id.0).collect();
+    serde_json::json!({ "screens": screens, "intents": intents })
+}
+
+/// `tree` written as JSON next to the picture at `png`.
+fn write_tree(png: &Path, tree: &serde_json::Value) -> Result<(), String> {
+    let path = png.with_extension("json");
+    let text = serde_json::to_string_pretty(tree).map_err(|error| error.to_string())?;
+    std::fs::write(&path, text + "\n").map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// The save id the `lobby checkpoint PATH` step opens: the checkpoint at
@@ -773,7 +823,7 @@ fn stand_in_bench(assets: &mut GuiAssets, lab: bool) -> ui::vm::WorkbenchView {
 
 /// `top`, drawn over nothing (its colour already carries its alpha), laid
 /// over `image`, which ends opaque.
-fn over(image: &mut [u8], top: &[u8]) {
+pub(crate) fn over(image: &mut [u8], top: &[u8]) {
     for (pixel, drawn) in image
         .as_chunks_mut::<4>()
         .0
@@ -788,7 +838,7 @@ fn over(image: &mut [u8], top: &[u8]) {
     }
 }
 
-pub fn sweep(discovery: &Discovery, game: Option<&str>) -> ExitCode {
+pub fn sweep(discovery: &Discovery, game: Option<&str>, out: Option<PathBuf>) -> ExitCode {
     let games: Vec<Game> = match game {
         Some(key) => match Game::from_key(key) {
             Some(game) => vec![game],
@@ -825,6 +875,15 @@ pub fn sweep(discovery: &Discovery, game: Option<&str>) -> ExitCode {
                 outln!("  roots off 0,0: {:?}", sweep.offset_roots);
                 outln!("  unread fields: {:?}", sweep.unread);
                 ok &= sweep.passes(game);
+                if let Some(out) = &out {
+                    match drawn_at_rest(discovery, game, &out.join(game.key())) {
+                        Ok(count) => outln!("  {count} layouts drawn into {}", out.display()),
+                        Err(error) => {
+                            outln!("  not drawn: {error}");
+                            ok = false;
+                        }
+                    }
+                }
             }
             Err(error) => outln!("{}: skipped ({error})", game.key()),
         }
@@ -834,6 +893,44 @@ pub fn sweep(discovery: &Discovery, game: Option<&str>) -> ExitCode {
     } else {
         ExitCode::FAILURE
     }
+}
+
+/// Every layout of `game` drawn at rest at its own size into `folder`, a
+/// PNG and a control tree each; how many were drawn.
+fn drawn_at_rest(discovery: &Discovery, game: Game, folder: &Path) -> Result<usize, String> {
+    let mut assets = GuiAssets::open(discovery, game)?;
+    std::fs::create_dir_all(folder).map_err(|error| format!("{}: {error}", folder.display()))?;
+    let mut count = 0;
+    for name in assets.layouts() {
+        let Ok(gui) = assets.layout(&name) else {
+            continue;
+        };
+        let mut list = DrawList::default();
+        let mut painter = Painter::new(&mut assets, palette(game));
+        painter.marked = true;
+        painter.layout(&gui, &|_| ui::paint::ControlState::default(), &mut list);
+        let size = (list.size.0 as u32, list.size.1 as u32);
+        let path = folder.join(format!("{name}.png"));
+        save(&path, &draw(&assets, &list, size.0, size.1), size.0, size.1)?;
+        let links = ui::screen::layout_links(&gui);
+        let layer = crate::gui_tree::Layer {
+            screen: &name,
+            layout: &name,
+            list: &list,
+        };
+        let shown = serde_json::json!({ "game": game.key(), "layout": name });
+        let tree = crate::gui_tree::tree(
+            &assets,
+            shown,
+            &[layer],
+            size,
+            (&links, None),
+            serde_json::Value::Null,
+        );
+        write_tree(&path, &tree)?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 /// Every layout of `game` at `THUMB` each, in rows of `COLUMNS`, each

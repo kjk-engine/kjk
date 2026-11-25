@@ -26,6 +26,7 @@ mod stack;
 mod status_summary;
 mod text;
 mod transition;
+mod tree;
 mod vm_screens;
 mod wheel;
 
@@ -59,6 +60,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(draw::rasters());
     checks.extend(paint::all());
     checks.extend(paint::toggle_pictures());
+    checks.extend(tree::all());
     checks.extend(stack::all());
     checks.extend(stack::mod_layouts());
     checks.extend(stack::menu_widths());

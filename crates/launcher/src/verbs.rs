@@ -786,7 +786,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 size.unwrap_or((1280, 960)),
                 (out, file.as_deref()),
             ),
-            GuiVerb::Sweep { game } => gui_verbs::sweep(&discover(), game.as_deref()),
+            GuiVerb::Sweep { game, out } => gui_verbs::sweep(&discover(), game.as_deref(), out),
             GuiVerb::Sheet { game, out } => gui_verbs::sheet(&discover(), &game, out),
         },
         Verb::Sim { verb } => sim(verb, size.unwrap_or(scene::HEADLESS_SIZE)),
@@ -1330,6 +1330,10 @@ pub(crate) enum GuiVerb {
     Sweep {
         /// k1 or tsl; both by default
         game: Option<String>,
+        /// Also draw every layout at rest into this folder, one PNG and one
+        /// control tree (JSON) each, under a folder for each game
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
     },
     /// Every layout of an install on one contact sheet.
     Sheet {
