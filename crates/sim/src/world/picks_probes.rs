@@ -128,13 +128,13 @@ fn nothing_to_cycle() -> Result<String, String> {
 /// any weapon timer the proving ground's fighter runs.
 const SETTLE_STEPS: u32 = 150;
 
+/// A fighter's style and the two blades' feat choice.
+type StyleAndChoice = (Option<Style>, [Melee; 2]);
+
 /// The style and the two blades' feat choice after each feat attack chosen
 /// on the action bar (`Action::Feat`), through the world, the first before
 /// any choice.
-fn bar_choices(
-    sheet: Sheet,
-    lines: &[FeatLine],
-) -> Result<Vec<(Option<Style>, [Melee; 2])>, String> {
+fn bar_choices(sheet: Sheet, lines: &[FeatLine]) -> Result<Vec<StyleAndChoice>, String> {
     let library = crate::probe::library::<String>("void ActionWait(float fSeconds);", []);
     let level = crate::determinism::proving_ground().with_scripts(library);
     let config = WorldConfig {
