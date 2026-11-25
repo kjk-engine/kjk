@@ -3035,7 +3035,11 @@ pub fn scripted_clips(
                 .flatten(),
         );
     for (animation, name) in engine {
-        if let Some(found) = clip(cache, resolver, game, body, &name)? {
+        if let Some(mut found) = clip(cache, resolver, game, body, &name)? {
+            // A Force leap's clip keeps to the ground the sim moves it on.
+            if (crate::acting::LEAP..crate::acting::LEAP + 3).contains(&animation) {
+                found = Arc::new(crate::acting::grounded_leap(&found));
+            }
             acted.push((animation, found));
         }
     }

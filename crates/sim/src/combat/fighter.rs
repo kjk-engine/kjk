@@ -1101,8 +1101,10 @@ pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError>
     })
 }
 /// A Force leap under way (`motion::Move::force_leap`): the enemy it leaps
-/// at, when it began (sim ms), where it lands (units), the character's
-/// Force Jump rank, and whether it has left the ground yet.
+/// at, when it began (sim ms, set back as KOTOR's clip times it), where it
+/// lands (units), the character's Force Jump rank, and whether it has left
+/// the ground yet; once it has, when (sim ms) and from what height (units),
+/// and whether it was in the air already then.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Leap {
     pub target: SimId,
@@ -1110,6 +1112,9 @@ pub struct Leap {
     pub to: [f32; 3],
     pub rank: u8,
     pub flown: bool,
+    pub took_off: u64,
+    pub from_z: f32,
+    pub aloft: bool,
 }
 impl Leap {
     /// The blank a fighter with no leap writes in its place.
@@ -1119,6 +1124,9 @@ impl Leap {
         to: [0.0; 3],
         rank: 0,
         flown: false,
+        took_off: 0,
+        from_z: 0.0,
+        aloft: false,
     };
     /// How long it has run at `now` (sim ms).
     pub fn elapsed(&self, now: u64) -> u64 {
@@ -1131,7 +1139,9 @@ impl Leap {
             out.u32(axis.to_bits());
         }
         out.u8(self.rank);
-        out.u8(u8::from(self.flown));
+        out.u8(u8::from(self.flown) | u8::from(self.aloft) << 1);
+        out.u64(self.took_off);
+        out.u32(self.from_z.to_bits());
     }
     fn decode(input: &mut Reader) -> Result<Leap, DecodeError> {
         let target = SimId(input.u32()?);
@@ -1143,17 +1153,19 @@ impl Leap {
         ];
         let rank = input.u8()?;
         let at = input.at();
-        let flown = match input.u8()? {
-            0 => false,
-            1 => true,
-            _ => return Err(input.invalid("leap flown", at)),
-        };
+        let bits = input.u8()?;
+        if bits > 3 {
+            return Err(input.invalid("leap flags", at));
+        }
         Ok(Leap {
             target,
             began,
             to,
             rank,
-            flown,
+            flown: bits & 1 != 0,
+            aloft: bits & 2 != 0,
+            took_off: input.u64()?,
+            from_z: f32::from_bits(input.u32()?),
         })
     }
 }

@@ -543,6 +543,21 @@ pub fn leap_names() -> impl Iterator<Item = (u16, String)> {
         .into_iter()
         .map(|(animation, name)| (animation, name.to_string()))
 }
+/// A Force leap's clip as drawn: KOTOR's own, its root never raised above
+/// where it stands. The sim moves the body along the leap's low way
+/// (`sim::motion::Move::leap_step`), so the clip's own jump of nearly 2 m
+/// is left out; its crouches stay.
+pub fn grounded_leap(clip: &AnimationIr) -> AnimationIr {
+    let mut clip = clip.clone();
+    for track in &mut clip.tracks {
+        if track.node.eq_ignore_ascii_case("rootdummy") {
+            for (_, offset) in &mut track.positions {
+                offset[2] = offset[2].min(0.0);
+            }
+        }
+    }
+    clip
+}
 /// The Force leap's clip at `ms` (sim ms) while `fighter` leaps: the
 /// clip of its saber style, how far in (seconds) and how much over the
 /// pose, fading in and out over the clip's transition time.
@@ -565,7 +580,10 @@ pub fn leap_shown<'a>(
     if at >= length {
         return None;
     }
-    let weight = (at / fade).min(1.0) * ((length - at) / fade).clamp(0.0, 1.0);
+    // The leap starts partway into the clip (its crouch left out): it fades
+    // in from there.
+    let from = (leap.took_off.max(leap.began) - leap.began) as f32 / 1000.0;
+    let weight = ((at - from) / fade).clamp(0.0, 1.0) * ((length - at) / fade).clamp(0.0, 1.0);
     Some((clip, at, weight))
 }
 /// A baton swing as drawn over the JA pose: KOTOR's clip on the torso and

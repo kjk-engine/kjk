@@ -13,6 +13,7 @@
 //! - A second tap after landing from the first leaps too.
 //! - A movement key held makes no leap.
 //! - A leap started in the air does not rise above where it started.
+//! - A leap from the ground starts at once and hops no higher than its hop.
 //! - An enemy standing in the way does not turn the leap aside, and killing
 //!   some of a group leaves the leap working on the rest.
 //! - Of three enemies side by side, the leap goes for the one looked at.
@@ -178,6 +179,7 @@ pub fn probes() -> Checks {
             "the leap comes down a ledge beside the enemy",
             down_a_ledge(),
         ),
+        ("a leap from the ground hops low, with no crouch", low_hop()),
         ("no leap with a movement key held", moving_no_leap()),
         ("a leap from the air does not rise", from_the_air_no_rise()),
         ("no leap without Force Jump", no_feat()),
@@ -579,6 +581,68 @@ fn from_the_air_no_rise() -> Result<String, String> {
         from > STANDING_Z + 8.0 && highest <= from + 2.0 && last <= LANDED,
         format!(
             "leap from {from:.1} in the air: rose to {highest:.1}, {last:.0} units from the enemy at the end"
+        ),
+    )
+}
+/// A leap from the ground on level ground: it rises no higher than its hop
+/// over the floor, starts on the second tap with no crouch, and lands.
+fn low_hop() -> Result<String, String> {
+    let away = far();
+    let text = format!(
+        "scenario force leap low hop\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 2 b0=attack\ntick 1 b0=attack u0=127\ntick 93 b0=attack\n\
+         tick 1 b0=attack u0=127\ntick 220\n",
+        READY - 1,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let states: Vec<(bool, Vec3)> = ticks
+        .iter()
+        .filter_map(|tick| Some((tick.own(Seat(0))?.fighter?.leap.is_some(), player(tick)?)))
+        .collect();
+    let Some(start) = states.iter().position(|(leaping, _)| *leaping) else {
+        return check(false, "no leap".to_string());
+    };
+    let from = states[start - 1].1;
+    let highest = states[start..]
+        .iter()
+        .map(|(_, at)| at[2])
+        .fold(f32::MIN, f32::max);
+    // It moves at once, no crouch: by the step after it starts, as a
+    // step's velocity is set after its move.
+    let moved = math::flat_distance(states[(start + 1).min(states.len() - 1)].1, from);
+    // The blow met the enemy: an event on it by the player (a hit, or the
+    // enemy's block of it).
+    let me = ticks
+        .last()
+        .and_then(|tick| tick.own(Seat(0)))
+        .map(|entity| entity.id);
+    let struck = ticks
+        .last()
+        .and_then(|tick| {
+            tick.entities
+                .iter()
+                .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+        })
+        .and_then(|entity| entity.fighter)
+        .is_some_and(|fighter| fighter.newest().any(|event| event.by == me && me.is_some()));
+    let last = ticks
+        .last()
+        .and_then(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .unwrap_or(f32::MAX);
+    check(
+        struck
+            && from[2] < STANDING_Z + 1.0
+            && highest <= STANDING_Z + specials::LEAP_HOP + 4.0
+            && moved > 1.0
+            && last <= LANDED,
+        format!(
+            "from the ground at {:.1}: rose to {highest:.1}, moved {moved:.1} by its second step, \
+             {last:.0} units from the enemy at the end, struck it {struck}",
+            from[2]
         ),
     )
 }

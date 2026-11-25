@@ -1796,8 +1796,10 @@ impl Move<'_, '_> {
         // From the air it is already off the ground: it leaves at once, and
         // falls onto the enemy without rising again (`air_flight_ms`). Its
         // start is set back so the clip and the landing keep their times.
+        // From the ground it leaves at once too: KOTOR's crouch before the
+        // jump is left out.
         let began = if grounded {
-            now
+            now.saturating_sub(LEAP_TAKEOFF_MS)
         } else {
             let flight = self.air_flight_ms(to[2] - self.ps.origin[2]);
             now.saturating_sub(LEAP_LANDING_MS - flight)
@@ -1811,6 +1813,9 @@ impl Move<'_, '_> {
             to,
             rank,
             flown: false,
+            took_off: 0,
+            from_z: 0.0,
+            aloft: false,
         });
         fighter.leap_armed_until = 0;
         fighter.weapon_wait_ms = LEAP_END_MS as i32;
@@ -1848,7 +1853,7 @@ impl Move<'_, '_> {
     /// above the character than its Force Jump rises
     /// (`force::jump::HEIGHTS`), whose way is clear: first the one under the
     /// crosshair, as the targeting picks it (its middle within
-    /// `targeting::pick::CONE_DEGREES` of the crosshair's line,
+    /// `specials::LEAP_CONE` of the crosshair's line,
     /// `mind::crosshair`), then the one nearest to the view's line. It lands `specials::LEAP_STOP` short of the enemy's
     /// box, at the enemy's height. The way is clear when a box as wide as
     /// the character's own meets nothing of the level going up to a point
@@ -1864,7 +1869,7 @@ impl Move<'_, '_> {
         // The crosshair's line, and how near it a body's middle must be.
         let sight = crate::combat::mind::crosshair(self.ps);
         let (look, _, _) = math::angle_vectors(self.ps.view);
-        let (_, cone_cos) = collision::trig::sin_cos_deg(rules::targeting::pick::CONE_DEGREES);
+        let (_, cone_cos) = collision::trig::sin_cos_deg(specials::LEAP_CONE);
         let middle = rules::targeting::volumes::CREATURE_HEIGHT / 2.0 / collision::UNIT;
         let mut candidates: Vec<(bool, f32, u32, Vec3, f32, f32)> = arms
             .foes
@@ -1905,13 +1910,15 @@ impl Move<'_, '_> {
             })
     }
 
-    /// The Force leap's step after the move, if one is under way: it leaves
-    /// the ground at `LEAP_TAKEOFF_MS`, thrown so that it comes down where
-    /// it lands (`Leap::to`) at `LEAP_LANDING_MS`, and ends at
-    /// `LEAP_END_MS`, or at once if the character is knocked down. In flight
-    /// it passes through other characters (`Move::leaping`) and keeps its
-    /// line to where it lands. Once it lands it stands where it came down. Its blow
-    /// is the world's (`world::strikes::leap_blows`). Whether one was.
+    /// The Force leap's step after the move, if one is under way. It leaves
+    /// the ground at `LEAP_TAKEOFF_MS` (as it starts: `start_leap` sets its
+    /// start back), lands where it lands (`Leap::to`) at `LEAP_LANDING_MS`,
+    /// and ends at `LEAP_END_MS`, or at once if the character is knocked
+    /// down. In flight each step aims the body at the next point of its way
+    /// (`leap_height`), so it passes through other characters
+    /// (`Move::leaping`) and keeps its line whatever turned it aside. Once
+    /// it lands it stands where it came down. Its blow is the world's
+    /// (`world::strikes::leap_blows`). Whether a leap was under way.
     pub(super) fn leap_step(&mut self, arms: &mut Arms) -> bool {
         let now = self.time_ms;
         let Some(mut leap) = arms.fighter.leap else {
@@ -1923,45 +1930,66 @@ impl Move<'_, '_> {
             arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.min(0);
             return true;
         }
-        if !leap.flown && elapsed >= LEAP_TAKEOFF_MS {
+        let takeoff = !leap.flown && elapsed >= LEAP_TAKEOFF_MS;
+        if takeoff {
+            leap.flown = true;
+            leap.took_off = now;
+            leap.from_z = self.ps.origin[2];
+            leap.aloft = self.ps.ground.is_none();
+            self.set_jump_start(self.ps.origin[2]);
+            self.ps.events |= events::JUMP;
+            self.ps.ground = None;
+            arms.fighter.leap = Some(leap);
+        }
+        let flying = leap.flown && elapsed < LEAP_LANDING_MS;
+        if flying && (takeoff || self.ps.ground.is_none()) {
+            let step = self.ms.max(1) as u64;
+            let left = (LEAP_LANDING_MS - elapsed).max(step);
             let mut way = math::sub(leap.to, self.ps.origin);
             way[2] = 0.0;
             let distance = math::normalize(&mut way);
-            let left = LEAP_LANDING_MS
-                .saturating_sub(elapsed)
-                .max(self.ms.max(1) as u64);
-            let seconds = left as f32 / 1000.0;
-            let speed = distance / seconds;
-            // Up so that it comes down to the landing's height on time.
-            let drop = leap.to[2] - self.ps.origin[2];
+            let speed = distance / (left as f32 / 1000.0);
+            // Up or down to where its way is one step on; the step's fall
+            // (`slide`'s average over the step) taken back.
+            let seconds = step as f32 / 1000.0;
+            let rise = Self::leap_height(&leap, now + step) - self.ps.origin[2];
             self.ps.velocity = [
                 way[0] * speed,
                 way[1] * speed,
-                drop / seconds + self.ps.gravity * seconds / 2.0,
+                rise / seconds + self.ps.gravity * seconds / 2.0,
             ];
-            self.set_jump_start(self.ps.origin[2]);
-            self.ps.events |= events::JUMP;
-            leap.flown = true;
-            arms.fighter.leap = Some(leap);
-        } else if leap.flown && elapsed < LEAP_LANDING_MS && self.ps.ground.is_none() {
-            // In flight it keeps its line to where it lands: anything that
-            // turned it aside on the way (a wall it slid along) is undone.
-            let mut way = math::sub(leap.to, self.ps.origin);
-            way[2] = 0.0;
-            let distance = math::normalize(&mut way);
-            let left = (LEAP_LANDING_MS - elapsed).max(self.ms.max(1) as u64);
-            let speed = distance / (left as f32 / 1000.0);
-            self.ps.velocity[0] = way[0] * speed;
-            self.ps.velocity[1] = way[1] * speed;
         }
         // Landed, it stops where it came down rather than slide on: on the
         // ground and no longer rising, or past its landing time.
         let down = self.ps.ground.is_some() && self.ps.velocity[2] <= 0.0;
-        if leap.flown && (down || elapsed >= LEAP_LANDING_MS) && self.ps.ground.is_some() {
+        if leap.flown
+            && !takeoff
+            && (down || elapsed >= LEAP_LANDING_MS)
+            && self.ps.ground.is_some()
+        {
             self.ps.velocity[0] = 0.0;
             self.ps.velocity[1] = 0.0;
         }
         arms.fighter.weapon_wait_ms = (LEAP_END_MS - elapsed) as i32;
         true
+    }
+
+    /// The height (units) a Force leap's way passes at `at` (sim ms): from
+    /// where it left the ground straight to where it lands, raised by an arc
+    /// that peaks `specials::LEAP_HOP` over that line halfway along. A leap
+    /// from the air coming down never rises above where it left: its arc is
+    /// at most a quarter of its drop.
+    fn leap_height(leap: &crate::combat::Leap, at: u64) -> f32 {
+        let flight = (leap.began + LEAP_LANDING_MS)
+            .saturating_sub(leap.took_off)
+            .max(1);
+        let share = (at.saturating_sub(leap.took_off) as f32 / flight as f32).min(1.0);
+        let drop = leap.from_z - leap.to[2];
+        let hop = if leap.aloft && drop > 0.0 {
+            specials::LEAP_HOP.min(drop / 4.0)
+        } else {
+            specials::LEAP_HOP
+        };
+        leap.from_z - drop * share + 4.0 * hop * share * (1.0 - share)
     }
 }
