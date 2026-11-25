@@ -121,6 +121,27 @@ const EVEN_LIGHT: u32 = 16384;
 /// where it stands (`light_probes`) instead of the area's flat ambient.
 /// Screens that draw a model in their own light do not set it.
 const PROBED: u32 = 32768;
+/// A room's lamp that the files do not set to glow
+/// (`fitted_lights::switched_on`): its glow shows only on its texture's
+/// bright texels, its tubes, and its housing keeps its baked light.
+const LAMP_TEXELS: u32 = 65536;
+/// A room's surface with no lightmap, in an area whose bake asks for its
+/// unlit rooms to be dark (`AreaLight::dark_unlit`). Under the baked trial
+/// it takes `odyssey.wgsl`'s `BAKED_UNLIT_LIGHT` and the fitted lights, not
+/// half of full light.
+const DARK_UNLIT: u32 = 131072;
+/// A room's surface with a lightmap, opaque or not. Under the baked trial
+/// its lightmap is the bake, which a blended surface needs too: the cliffs
+/// of 401dxn blend (their alpha is under 1), and they showed their bake at
+/// a quarter of its light, black beside the baked ground.
+const ROOM_LIGHTMAP: u32 = 262144;
+/// A placeable's mesh whose vertex colours hold its baked light
+/// (`placeable_light`). Under the baked trial the light replaces the
+/// probes' light.
+const VERTEX_LIGHT: u32 = 524288;
+/// Such a mesh takes none of the game's own lamps
+/// (`placeable_light::alone`).
+const VERTEX_LIGHT_ALONE: u32 = 1048576;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -144,6 +165,11 @@ pub struct GpuLight {
     /// each room not linked with the light's own (`fight_rooms::linked`).
     /// Rooms past `VIS_ROOMS` are always reached.
     pub unseen: UVec4,
+    /// The way a light fitting's trial light shines (the light kinds'
+    /// trial, `KJK_FOUND_LIGHTS`). The xyz part is the way, and w is how
+    /// narrow the cone is: 0 for a light that shines all ways, 0.2 for the
+    /// half of space in front of a panel, 0.7 for a spotlight.
+    pub aim: Vec4,
 }
 
 /// How many rooms `GpuLight::unseen` can keep a light from.
@@ -414,6 +440,13 @@ pub struct AreaLight {
     /// Its models take the light probes' light in place of `ambient` under
     /// Enhanced lighting (`PROBED`). Rooms never do.
     pub probed: bool,
+    /// Its bake asks for its rooms' surfaces with no lightmap to be dark
+    /// (`DARK_UNLIT`, `unlit.txt` in the bake's folder).
+    pub dark_unlit: bool,
+    /// The area's fitted lights shine (`fitted_lights::wanted_in`), so a
+    /// room's lamp that the files do not set to glow may glow
+    /// (`fitted_lights::switched_on`).
+    pub fitted: bool,
 }
 
 impl AreaLight {
@@ -424,6 +457,8 @@ impl AreaLight {
             fog: None,
             shadowed: false,
             probed: false,
+            dark_unlit: false,
+            fitted: false,
         }
     }
 }
@@ -504,6 +539,16 @@ impl Plugin for OdysseyMaterialPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(&AREA_LIGHTS, ShaderBuffer::from(LightList::default()));
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(
+                &crate::fitted_lights::NO_GRID,
+                ShaderBuffer::new(
+                    &crate::fitted_lights::empty_grid(),
+                    bevy::asset::RenderAssetUsages::default(),
+                ),
+            );
         let _ = app
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
@@ -972,6 +1017,12 @@ pub struct OdysseyBound {
     probes: Handle<ShaderBuffer>,
     #[storage(19, read_only, visibility(vertex))]
     sway: Handle<ShaderBuffer>,
+    /// The fitted lights' grid (`fitted_lights::grid_handle`). Only the fragment
+    /// stage reads it. Metal gives a vertex stage 31 buffer slots, and one
+    /// more buffer seen by the vertex stage left the prepass's vertex
+    /// buffers no slot, so no pipeline built on a Mac.
+    #[storage(20, read_only, visibility(fragment))]
+    fitted: Handle<ShaderBuffer>,
 }
 
 /// The binding of the scene's acceleration structure (`odyssey.wgsl`'s
@@ -998,6 +1049,7 @@ impl OdysseyMaterial {
             shadow_tiles: self.shadow_tiles.clone(),
             probes: self.probes.clone(),
             sway: crate::dangly::SWAY,
+            fitted: crate::fitted_lights::grid_handle(),
         }
     }
 }
@@ -1139,6 +1191,27 @@ impl OdysseyMaterial {
         self
     }
 
+    /// A room's lamp that shines although the files do not set it to glow
+    /// (`LAMP_TEXELS`).
+    pub fn lamp_texels(mut self, lamp: bool) -> OdysseyMaterial {
+        if lamp {
+            self.params.flags |= LAMP_TEXELS;
+        }
+        self
+    }
+
+    /// A placeable's mesh whose vertex colours hold its baked light
+    /// (`VERTEX_LIGHT`).
+    pub fn vertex_light(mut self, baked: bool) -> OdysseyMaterial {
+        if baked {
+            self.params.flags |= VERTEX_LIGHT;
+            if crate::placeable_light::alone() {
+                self.params.flags |= VERTEX_LIGHT_ALONE;
+            }
+        }
+        self
+    }
+
     /// The diffuse texture has no alpha (a DXT1, an RGB image): it is taken
     /// as 1, so a DXT1 kept in blocks samples its transparent texel as the
     /// games drew it, opaque black.
@@ -1208,6 +1281,12 @@ impl OdysseyMaterial {
         }
         if area.probed && !lighting.is_room {
             flags |= PROBED;
+        }
+        if area.dark_unlit && lighting.is_room && lightmap.is_none() {
+            flags |= DARK_UNLIT;
+        }
+        if lighting.is_room && lightmap.is_some() {
+            flags |= ROOM_LIGHTMAP;
         }
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
         OdysseyMaterial {
@@ -1934,6 +2013,16 @@ impl Material for OdysseyMaterial {
             }
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.blend;
+            }
+            // The fitted lights and their trials, only in a run that may
+            // show them (`fitted_lights::in_shaders`). An emitter's
+            // particles never take them. Every particle is unlit (`new`,
+            // `punch_through`), and the trials change nothing on an unlit
+            // surface that is not a room's. Their code still made the
+            // particles cost more: under Enhanced Lightmaps the crowd
+            // brawl's 930 particles took 0.75 ms of GPU time against 0.15 ms.
+            if crate::fitted_lights::in_shaders() && !key.particles {
+                fragment.shader_defs.push("FITTED_LIGHTS".into());
             }
             // A surface of the opaque pass is in the prepass the occlusion
             // is worked out from, so it takes the occlusion. What is truly

@@ -20,12 +20,22 @@
 //!   one is there.
 //! - **Cap:** a kind keyed by data that keeps changing (a bake per rulebook
 //!   edition) is held to a size with `cap`, the least recently used going.
+//! - **Kept:** the folders of `KEPT` hold what the player installed (the
+//!   lighting download, `LIGHTING`). `gc` never removes anything in them.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
+
+/// The folder of the installed lighting downloads (`kjk lighting install`).
+pub const LIGHTING: &str = "lighting";
+
+/// The folders under the root that hold what the player installed rather
+/// than what kjk made. `gc` and `superseded` leave everything in them alone,
+/// however long it goes unused.
+pub const KEPT: &[&str] = &[LIGHTING];
 
 /// A file's key: the hex BLAKE3 of what made it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -223,7 +233,8 @@ impl Store {
 
     /// Removes every kind a newer format supersedes (`superseded`), then
     /// every file not used for `unused` (by its modified time), or only
-    /// counts them with `dry_run`; what it removed (or would).
+    /// counts them with `dry_run`; what it removed (or would). Nothing in
+    /// the `KEPT` folders is removed.
     pub fn gc(&self, unused: Duration, dry_run: bool) -> io::Result<Collected> {
         let mut collected = Collected {
             folders: self.superseded()?,
@@ -243,10 +254,11 @@ impl Store {
         let now = SystemTime::now();
         for (path, meta) in files(&self.root)? {
             let used = meta.modified().unwrap_or(now);
-            if collected
-                .folders
-                .iter()
-                .any(|folder| path.starts_with(folder))
+            if self.kept(&path)
+                || collected
+                    .folders
+                    .iter()
+                    .any(|folder| path.starts_with(folder))
                 || now.duration_since(used).unwrap_or(Duration::ZERO) < unused
             {
                 continue;
@@ -279,9 +291,16 @@ impl Store {
         Ok(removed)
     }
 
+    /// Whether `path` lies in one of the `KEPT` folders.
+    fn kept(&self, path: &Path) -> bool {
+        KEPT.iter()
+            .any(|kept| path.starts_with(self.root.join(kept)))
+    }
+
     /// The kind folders a newer format of theirs supersedes: `<name>-v<N>`
     /// beside a `<name>-v<M>` with M greater, and a plain `<name>` (kept
-    /// before kinds named their format) beside any `<name>-v<M>`. A store
+    /// before kinds named their format) beside any `<name>-v<M>`. The `KEPT`
+    /// folders are not looked into. A store
     /// a newer build wrote loses nothing to an older one's gc: only lower
     /// versions than the highest there go. Only kind folders count (their
     /// folders all key folders, `<xx>`), so a root shared with other
@@ -290,6 +309,9 @@ impl Store {
         let mut found = Vec::new();
         let mut folders = vec![self.root.clone()];
         while let Some(folder) = folders.pop() {
+            if self.kept(&folder) {
+                continue;
+            }
             let entries = match fs::read_dir(&folder) {
                 Ok(entries) => entries,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => continue,

@@ -9,7 +9,9 @@
 //! (`fight_light_rooms`); and what the capsule shadows send the shader
 //! (`capsule_shadows`); and a character's look by its alignment
 //! (`alignment_looks`); and the light probes' bake and lookups
-//! (`light_probes`), which no approved test runs yet.
+//! (`light_probes`), which no approved test runs yet. The last are the
+//! sets that `kjk lighting pack` takes into the lighting download
+//! (`lighting_pack_sets`).
 //! Built with the `probes` feature, as the checks are.
 
 pub use crate::alignment_look::probes::probes as alignment_looks;
@@ -21,6 +23,7 @@ pub use crate::kotor1_level_50_probes::probes as kotor1_level_50;
 pub use crate::kotor2_feats_probes::probes as kotor2_feats;
 pub use crate::kotor2_powers_probes::probes as kotor2_powers;
 pub use crate::light_probes::probes::probes as light_probes;
+pub use crate::lighting_pack::probes::probes as lighting_pack;
 pub use crate::model_fx::limit_probes as particle_limits;
 pub use crate::own_fx::probes as script_room_clips;
 pub use crate::pazaak_view::probes as pazaak_watch;

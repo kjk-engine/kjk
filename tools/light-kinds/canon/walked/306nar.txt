@@ -1,0 +1,4 @@
+# 1.0 of the lit level of each room.
+306nara 0.4289
+306narb 0.3497
+306nare 0.4546

@@ -539,14 +539,22 @@ fn start(
             // During play a save is loaded in place, as the reload after
             // the party fell is (`sim_host::ReloadRequest`): its module
             // planned behind the loading screen, the world made from the
-            // save at the commit; the program and its window go on. Alone
-            // only (a host's guests would be dropped: it loads from the
-            // main menu). The screens' Load, quick load and the console's
-            // `ui load` all come here.
+            // save at the commit; the program and its window go on. A host
+            // loads for everyone, as that reload does: the server keeps
+            // its guests and their seats. A host loads only its own saves,
+            // never a copy of another host's game. The screens' Load,
+            // quick load and the console's `ui load` all come here.
             Intent::Session(SessionIntent::Solo { save: Some(id), .. }) if playing.is_some() => {
+                let copy = || {
+                    ui.vm
+                        .saves
+                        .iter()
+                        .any(|save| save.id == id && save.from.is_some())
+                };
                 let refused = match here.as_deref() {
                     Some(here) if here.alone => None,
-                    Some(_) => Some("A hosted game loads from the main menu."),
+                    Some(_) if copy() => Some("A hosted game loads only the host's own saves."),
+                    Some(_) => None,
                     None => Some("Only the host loads a save."),
                 };
                 if let Some(why) = refused {

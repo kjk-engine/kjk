@@ -182,6 +182,7 @@ mod level;
 mod movement;
 #[cfg(feature = "probes")]
 pub mod push_probes;
+mod shut_in;
 mod state;
 #[cfg(feature = "probes")]
 pub mod step_down_probes;

@@ -1,0 +1,22 @@
+# 0.85 of the lit level of each room.
+711kora 0.2000
+711korb 0.2270
+711korc 0.1431
+711kord 0.1930
+711kore 0.1623
+711korf 0.2159
+711korg 0.1901
+711korh 0.2042
+711kori 0.1825
+711korj 0.1901
+711kork 0.1730
+711korl 0.1680
+711korm 0.2485
+711korn 0.1913
+711koro 0.2187
+711korp 0.1867
+711korq 0.1844
+711korr 0.1815
+711kors 0.1772
+711kort 0.2051
+711koru 0.2163

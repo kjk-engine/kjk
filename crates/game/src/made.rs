@@ -395,11 +395,17 @@ impl Made {
             format!("appearance {}", guise.appearance),
             |_, _| true,
             move |load, source, models| {
-                // A module's own headgear is read from that module.
-                let owner = (guise.headgear.as_deref())
-                    .and_then(sim::inventory::module_of)
-                    .zip(installer.as_deref())
-                    .and_then(|(module, installer)| installer.resolver(module).ok());
+                // A module's own armour and headgear are read from that
+                // module.
+                let owner = |item: Option<&str>| {
+                    item.and_then(sim::inventory::module_of)
+                        .zip(installer.as_deref())
+                        .and_then(|(module, installer)| installer.resolver(module).ok())
+                };
+                let owners = (
+                    owner(guise.armour.as_deref()),
+                    owner(guise.headgear.as_deref()),
+                );
                 let at = ([0.0; 3], 0.0);
                 let body = (
                     u32::from(guise.appearance),
@@ -407,7 +413,8 @@ impl Made {
                     guise.head,
                     guise.headgear.as_deref(),
                 );
-                load.place_appearance(source, body, owner.as_ref(), guise.aligned, at, models)
+                let owners = (owners.0.as_ref(), owners.1.as_ref());
+                load.place_appearance(source, body, owners, guise.aligned, at, models)
             },
         )
     }

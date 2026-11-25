@@ -1,0 +1,5 @@
+# 1.0 of the lit level of each room of module end_m01ab, and at most none.
+m01ab_09a 0.5996
+m01ab_10a 0.6594
+m01ab_11a 0.7156
+m01ab_12a 0.5302
