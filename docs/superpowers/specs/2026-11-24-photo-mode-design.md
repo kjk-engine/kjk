@@ -85,8 +85,8 @@ The camera moves with the player's own movement controls, so a player who moved 
 | Put the tilt and zoom back to normal | R | Y |
 | Hide or show the player's own character | H | X |
 | Change the world's speed | T | A |
-| Step a replay forward one tick | Period | Right bumper |
-| Take a screenshot | The Screenshot key (Print Screen unless rebound) | Start |
+| Step a replay forward one tick | Period | Start |
+| Take a screenshot | The left mouse button, or the Screenshot key (Print Screen unless rebound) | Right bumper |
 | Leave photo mode | The Photo mode key or Escape | B |
 
 The camera moves at 3 metres a second. With Shift it moves at 12 metres a second. With Ctrl it moves at 0.75 metres a second. The camera eases to a stop over 0.2 seconds when the player lets go, so a slow pan looks smooth in a video.

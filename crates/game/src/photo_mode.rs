@@ -275,8 +275,9 @@ pub enum Control {
 }
 
 /// Each control's keys and its pad button. The camera's moves, Jump, Crouch
-/// and the Screenshot key are the player's own bindings, and the mouse
-/// wheel zooms.
+/// and the Screenshot key are the player's own bindings. The mouse wheel
+/// zooms, and the left mouse button takes a screenshot while the camera
+/// holds the cursor.
 pub const CONTROLS: [(Control, &[KeyCode], Option<GamepadButton>); 14] = [
     (
         Control::TiltLeft,
@@ -300,7 +301,7 @@ pub const CONTROLS: [(Control, &[KeyCode], Option<GamepadButton>); 14] = [
     (
         Control::Step,
         &[KeyCode::Period],
-        Some(GamepadButton::RightTrigger),
+        Some(GamepadButton::Start),
     ),
     (
         Control::Fast,
@@ -319,7 +320,7 @@ pub const CONTROLS: [(Control, &[KeyCode], Option<GamepadButton>); 14] = [
         &[KeyCode::Escape],
         Some(GamepadButton::East),
     ),
-    (Control::Screenshot, &[], Some(GamepadButton::Start)),
+    (Control::Screenshot, &[], Some(GamepadButton::RightTrigger)),
 ];
 
 /// The keys and the pad button of `control`.
@@ -566,6 +567,7 @@ pub(crate) struct Replay {
 #[derive(SystemParam)]
 pub(crate) struct Controls<'w, 's> {
     keys: Option<Res<'w, ButtonInput<KeyCode>>>,
+    buttons: Option<Res<'w, ButtonInput<MouseButton>>>,
     map: Option<Res<'w, KeyMap>>,
     wheel: MessageReader<'w, 's, MouseWheel>,
     motion: Option<Res<'w, AccumulatedMouseMotion>>,
@@ -607,6 +609,14 @@ impl Controls<'_, '_> {
             })
         };
         self.keys.as_deref().is_some_and(key) || button.is_some_and(pad)
+    }
+
+    /// Whether the left mouse button went down this frame while the camera
+    /// holds the cursor, so the click that gives the window focus back
+    /// takes no picture.
+    fn clicked(&self) -> bool {
+        crate::sim_host::grabbed(self.cursors.iter())
+            && (self.buttons.as_deref()).is_some_and(|down| down.just_pressed(MouseButton::Left))
     }
 
     /// The frame's camera input: the movement keys as the player bound
@@ -722,7 +732,7 @@ enum Coop {
 /// The corner lines' words: "Photo mode" and the world's speed (in co-op,
 /// whether the break holds, `coop`), then the controls that leave and take
 /// a screenshot, as the device in use names them.
-fn line_words(speed: Speed, coop: Option<Coop>, device: Device, map: &KeyMap) -> [Vec<u8>; 2] {
+fn line_words(speed: Speed, coop: Option<Coop>, device: Device) -> [Vec<u8>; 2] {
     let state = match coop {
         None => speed.said(),
         Some(Coop::Paused) => "Paused for everyone.",
@@ -732,12 +742,9 @@ fn line_words(speed: Speed, coop: Option<Coop>, device: Device, map: &KeyMap) ->
     let (leave, shot) = match device {
         Device::Pad(kind) => (
             kind.name(GamepadButton::East).to_string(),
-            kind.name(GamepadButton::Start).to_string(),
+            kind.name(GamepadButton::RightTrigger).to_string(),
         ),
-        Device::Keys => (
-            "Escape".to_string(),
-            String::from_utf8_lossy(&map.shown(Action::Screenshot)).into_owned(),
-        ),
+        Device::Keys => ("Escape".to_string(), "the left mouse button".to_string()),
     };
     [
         format!("Photo mode. {state}").into_bytes(),
@@ -886,7 +893,7 @@ pub(crate) fn photo_keys(
     if pressed(Control::HideOwn) {
         on.hide_own = !on.hide_own;
     }
-    if pressed(Control::Screenshot) {
+    if pressed(Control::Screenshot) || controls.clicked() {
         photo.shot = Shot::Asked;
     }
     touched |= CONTROLS.iter().any(|(control, ..)| pressed(*control));
@@ -902,10 +909,9 @@ pub(crate) fn photo_keys(
         (None, true) => Coop::Fighting,
         (None, false) => Coop::Running,
     });
-    let map = controls.map.as_deref().unwrap_or(KeyMap::defaults());
     let fade = ((on.idle - LINE_AFTER) / LINE_FADE).clamp(0.0, 1.0);
     ui.photo = Some(Line {
-        words: line_words(on.speed, state, keys.device, map),
+        words: line_words(on.speed, state, keys.device),
         alpha: if photo.shot == Shot::None {
             1.0 - fade
         } else {
