@@ -1,0 +1,8 @@
+# 1.0 of the lit level of each room.
+209teld 0.6577
+209tell 0.8300
+209teln 0.7783
+209telo 0.5779
+209telv 0.7195
+209telw 0.5319
+209telx 0.4607

@@ -1,0 +1,9 @@
+# 1.0 of the lit level of each room.
+601dana 0.7112
+601danb 0.6811
+601danc 0.6606
+601danf 0.5853
+601dang 0.6355
+601danh 0.7329
+601dani 0.7186
+601danj 0.6084

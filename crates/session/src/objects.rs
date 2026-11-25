@@ -178,6 +178,7 @@ fn object(instance: &Instance, talk: Option<&Tlk>, tsl: bool) -> ObjectData {
         kind,
         tag: lower(&instance.tag),
         cased_tag: crate::sheets::cased(&instance.tag),
+        placed_tag: lower(&instance.placed_tag),
         template: instance.template.clone(),
         position: instance.position,
         yaw: yaw(instance.direction),

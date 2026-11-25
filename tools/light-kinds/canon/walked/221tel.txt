@@ -1,0 +1,6 @@
+# 1.0 of the lit level of each room.
+221tela 0.3089
+221telb 0.3337
+221telc 0.5583
+221teld 0.3523
+221tele 0.4056

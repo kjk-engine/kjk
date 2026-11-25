@@ -1,0 +1,12 @@
+# 1.0 of the lit level of each room.
+403dxna 0.9197
+403dxnb 0.8882
+403dxnc 0.8783
+403dxnd 0.8988
+403dxne 0.9440
+403dxnf 0.8980
+403dxng 0.3568
+403dxnh 0.3263
+403dxni 0.4429
+403dxnl 0.1730
+403dxnm 0.4488

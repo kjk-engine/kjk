@@ -1,0 +1,1438 @@
+# The lights of the games' own light fittings (docs/LIGHTING-PLAN.md).
+#
+# A kind of fitting is a texture that glows: every mesh of a room or of a
+# placeable that carries it. `kjk light-kinds` surveys the kinds of both
+# games. The owner approved, as pictures, what each common kind does
+# (16 and 17 November 2026). This file holds what he approved:
+#
+# - `[rules]`: the general rules. They give most kinds their light from the
+#   kind's own facts, and they hold for a texture this file does not name.
+# - `[[fitting]]`: a kind that differs from the general rules, with why.
+# - `[[placed]]`: a light placed by hand in one area, with why.
+#
+# `tools/light-kinds/propose.py` applies the rules to the survey.
+# `tools/light-kinds/kinds.py` writes each game's kinds, one entry each,
+# into `data/lights/<game>.toml` from this file and the survey.
+
+[rules]
+# A texture that glows less than this is a wall, a floor, a door or trim
+# that the survey took for a fitting. It is not a lamp and lights nothing.
+low_glow = 0.1
+# The strength of a lamp's light, and of a faint light.
+strong = 1.1
+faint = 0.4
+# A lamp's light reaches as far as the files' own lamp at it does, or
+# `reach_least` metres more than the square root of its area (m2). The
+# reach is never less than `reach_least` or more than `reach_most` metres.
+reach_least = 2.5
+reach_most = 5.0
+# How far a faint light reaches (metres).
+faint_reach = 2.0
+# A faint kind whose name holds one of `screen_names` is a screen or a
+# display. It is this strong and reaches this far (metres). It was as any
+# faint light until the owner walked the Endar Spire on 17 November 2026
+# and said: "these orange rectangular displays should emit more light" and
+# "there is too little light emitted from the screens, light panels etc.
+# we should get some atmospheric light from the sources here".
+screen = 0.5
+screen_reach = 3.0
+screen_names = ["scre", "mon", "comp", "holo", "map", "pnl", "panl", "term"]
+# A kind is flat when more than this share of its surfaces is flat. A flat
+# fitting shines the way it faces, in a cone this narrow (`cone`), and
+# never onto the panel it sits on.
+flat_share = 0.5
+cone = 0.2
+# A kind faces down when more than this share of its surfaces does. It is
+# a spotlight straight down, in a cone this narrow.
+down_share = 0.5
+down_cone = 0.7
+# A kind is faint when its usual surface is larger than `faint_area` (m2),
+# or when its name holds one of `faint_names` (a screen, a sign, a crystal,
+# a fire, a kolto tank), or when the files give it no lamp and the stored
+# lightmap near it is dark. "No lamp" is fewer than `with_lamp_share` of
+# its surfaces with a lamp of the files. "Dark" is a lightmap near it
+# under `near_bake`.
+faint_area = 40.0
+with_lamp_share = 0.1
+near_bake = 0.9
+faint_names = ["scre", "mon", "sign", "comp", "holo", "map", "btl", "pnl", "panl", "term", "crystal", "fire", "lvl", "kol", "bike"]
+# A kind whose usual piece is at least this long from its middle (metres)
+# is a strip that lights along its length.
+strip_half = 2.0
+
+# The kinds that differ from the general rules.
+
+[[fitting]]
+game = "k1"
+texture = "lts_lowin01"
+on = "room"
+form = "panel"
+reach = 8.0
+strength = 1.1
+says = "Lights the way it faces, about 8 m."
+reason = "A large window that lights its hall."
+
+[[fitting]]
+game = "k1"
+texture = "lza_lit01"
+on = "room"
+strength = 1.7
+reason = "The owner's third check: a flat lamp that should glow more the way it faces."
+
+[[fitting]]
+game = "k1"
+texture = "lma_light06"
+on = "room"
+form = "glows"
+lamp = false
+says = "Removed. It lights nothing."
+reason = "The owner's second check: it stays too bright whatever it is given."
+
+[[fitting]]
+game = "k1"
+texture = "plc_btlclrs"
+on = "placeable"
+reach = 3.0
+strength = 0.6
+gather = true
+says = "One soft light over the whole of it, about 3 m."
+reason = "A placeable made of many tiny glowing pieces gets one soft light for all of it."
+
+[[fitting]]
+game = "k1"
+texture = "leh_light01"
+on = "room"
+reach = 3.0
+strength = 0.7
+says = "Some light close by, about 3 m."
+reason = "The owner asked a little more light of this faint kind."
+
+[[fitting]]
+game = "k1"
+texture = "lsi_lite02"
+on = "room"
+reach = 2.0
+line = true
+says = "A thin panel as wide as the lamp, lit about 2 m the way it faces."
+reason = "A small rectangle shines as a thin panel of its own width, not as a spot."
+
+[[fitting]]
+game = "k1"
+texture = "lts_loscre01"
+on = "room"
+form = "faint"
+reach = 4.0
+strength = 1.6
+cone = 0.0
+says = "Some light all round it, about 4 m."
+reason = "A display lights the wall around it too, so it has no cone."
+
+[[fitting]]
+game = "k1"
+texture = "lsi_trim02"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "The owner said of this texture that it is floor or track, not a light."
+
+[[fitting]]
+game = "k1"
+texture = "lza_flr11"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "The owner said of this texture that it is floor or track, not a light."
+
+[[fitting]]
+game = "k1"
+texture = "lts_lobwal07"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "The owner said of this texture that it is floor or track, not a light."
+
+[[fitting]]
+game = "k1"
+texture = "lma_lite01"
+on = "room"
+form = "faint"
+colour = [0.732, 0.854, 1.0]
+reach = 2.0
+strength = 0.4
+cone = 0.2
+says = "A little light close by, about 2 m."
+reason = "It glows less than the general threshold. It is a small display, or it was never seen in a picture, so it stays a faint light."
+
+[[fitting]]
+game = "k1"
+texture = "lts_light01"
+on = "room"
+form = "faint"
+colour = [0.533, 1.0, 0.933]
+reach = 2.0
+strength = 0.4
+says = "A little light close by, about 2 m."
+reason = "It glows less than the general threshold. It is a small display, or it was never seen in a picture, so it stays a faint light."
+
+[[fitting]]
+game = "k1"
+texture = "plc_bed1"
+on = "placeable"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "The owner said of this texture that it is floor or track, not a light."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_leaf02"
+on = "room"
+form = "down"
+lamp = false
+says = "The leaves give no light. Daylight comes down from the ceiling windows above them, about 7 m."
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_hl1"
+on = "room"
+form = "panel"
+reach = 8.0
+strength = 2.0
+says = "A large lamp that lights its hall the way it faces, about 8 m."
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_sstn2"
+on = "room"
+form = "glows"
+lamp = false
+says = "A far backdrop of the station's buildings. It glows as today and lights nothing."
+reason = "The owner's rule: a floor, a wall, a door, trim or a track with a glowing texture is not a lamp."
+
+[[fitting]]
+game = "tsl"
+texture = "har_lt02"
+on = "room"
+form = "panel"
+colour = [1.0, 0.12, 0.08]
+reach = 3.0
+strength = 0.8
+cone = 0.2
+always = true
+says = "Each red wall lamp gives a red glow on the wall and floor around it, about 3 m."
+reason = "The survey missed this kind: its texture is red, so it is dim by brightness, and most of its meshes are not set to glow. The owner, walking the Harbinger, 17 November 2026: \"these red lights arent really glowing\""
+
+[[fitting]]
+game = "tsl"
+texture = "har_pn02"
+on = "room"
+form = "faint"
+colour = [1.0, 0.65, 0.15]
+reach = 2.0
+strength = 0.4
+says = "Each orange screen gives a faint orange light, about 2 m."
+reason = "The rules took its colour from a blue-white lamp of the files, and the game left out the screens that have no lightmap. The owner, walking the Harbinger, 17 November 2026: \"these small orange monitors [...] are not emitting any light it seems like\""
+
+[[fitting]]
+game = "tsl"
+texture = "har_pn03"
+on = "room"
+form = "faint"
+colour = [1.0, 0.65, 0.15]
+reach = 2.0
+strength = 0.4
+says = "The orange screen gives a faint orange light, about 2 m."
+reason = "It is a screen like har_pn02, and the rules took its colour from a blue-white lamp of the files."
+
+[[fitting]]
+game = "tsl"
+texture = "har_lt01"
+on = "room"
+form = "panel"
+colour = [1.0, 0.75, 0.5]
+reach = 4.0
+strength = 0.5
+cone = 0.2
+line = true
+grow = true
+says = "Each orange panel lights what is in front of it along its whole length, about 4 m. A large panel of several tubes shines stronger than a single tube."
+reason = "The owner, walking the Harbinger, 17 November 2026: \"im not seeing the light actually come off the glowing panels like i expect, i expect them to clearly be the illuminaryies\""
+
+[[fitting]]
+game = "tsl"
+texture = "leh_scre02"
+on = "room"
+gather = true
+says = "One soft light over each group of small screens, about 2 m."
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "leh_light01"
+on = "room"
+reach = 3.0
+says = "Lights the way it faces, about 3 m."
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_marker1"
+on = "placeable"
+strength = 1.4
+line = true
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "nar_lt03"
+on = "room"
+form = "panel"
+cone = 0.2
+says = "Lights the way it faces, about 5 m."
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "ond_lt01"
+on = "room"
+form = "panel"
+reach = 1.6
+strength = 2.5
+cone = 0.2
+line = true
+off = 0.3
+lamps = "bright"
+says = "Each tube lights the wall and floor in front of it along its length, about 1.5 m."
+reason = "The owner, 16 November 2026: \"it doesnt seem to light up it, also room still looks very bright\""
+
+[[fitting]]
+game = "tsl"
+texture = "plc_bed1"
+on = "placeable"
+form = "faint"
+reach = 1.5
+strength = 0.4
+says = "Only the small screen at its head sheds a little light, about 1.5 m the way it faces."
+reason = "The owner, 16 November 2026: \"hm we can give the light part specifically a light, but not the whole bed\""
+
+[[fitting]]
+game = "tsl"
+texture = "nar_lt01"
+on = "room"
+form = "panel"
+reach = 4.0
+strength = 0.9
+cone = 0.2
+lamps = "bright"
+says = "Each tile of the ceiling panel lights down out of itself, about 4 m."
+reason = "The owner, 16 November 2026: \"probably each lamp tile should be its own light? unless u object?\""
+
+[[fitting]]
+game = "tsl"
+texture = "plc_koltank"
+on = "placeable"
+reach = 2.5
+strength = 0.6
+gather = true
+says = "One soft light over each tank's panel, about 2.5 m."
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+form = "panel"
+colour = [1.0, 0.3, 0.25]
+reach = 2.2
+strength = 3.0
+cone = 0.2
+lamps = "bright"
+longest = 2.0
+says = "Each red tube lights a red pool on the wall and floor around it, about 2 m. The large ceiling panels give the hall a weak red fill."
+reason = "The owner, 16 November 2026: \"i dont really see a difference it just looks baked still\""
+
+[[fitting]]
+game = "tsl"
+texture = "leh_light02"
+on = "room"
+strength = 1.4
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "per_lt01"
+on = "room"
+reach = 7.0
+reason = "Peragus hangs these lamps 4.5 m over the floor. With the rules' reach of 5 m the floor under them took almost none of their light (18 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "per_lt02"
+on = "room"
+strength = 0.8
+reason = "The owner, 16 November 2026: \"a bit too strong maybe, can lower light a bit\""
+
+[[fitting]]
+game = "tsl"
+texture = "nar_lt04"
+on = "room"
+form = "panel"
+reach = 8.0
+strength = 1.1
+cone = 0.2
+says = "A large lamp that lights its hall the way it faces, about 8 m."
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "leh_light04"
+on = "room"
+strength = 0.3
+reason = "The owner, 16 November 2026: \"good, but a bit too strong\""
+
+[[fitting]]
+game = "tsl"
+texture = "ond_lt03"
+on = "room"
+reach = 1.2
+strength = 0.9
+cone = 0.0
+line = true
+off = 0.15
+says = "Each thin panel lights a small pool around itself, about 1 m."
+reason = "The owner, 16 November 2026: \"good, but kinda melts into the rest of the environment, needs a tad darker environment i think for these lights to pop\""
+
+[[fitting]]
+game = "tsl"
+texture = "leh_light03"
+on = "room"
+strength = 1.4
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_light03"
+on = "room"
+strength = 0.6
+lamps = "bright"
+says = "Each tube lamp lights all ways, about 4 m."
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "dxn_lt03"
+on = "room"
+cone = 0.2
+lamps = "bright"
+says = "Each square gives a little light the way it faces, about 2 m."
+reason = "The owner, 16 November 2026: \"the pillar the lights are on is still very dark not sure why, i wouldve thought it would be illuminated a bit by the lights?\""
+
+[[fitting]]
+game = "tsl"
+texture = "nar_lt02"
+on = "room"
+strength = 1.5
+reason = "The owner's check of the KOTOR 2 pictures, 16 November 2026."
+
+[[fitting]]
+game = "tsl"
+texture = "dxn_lt03"
+on = "placeable"
+strength = 1.5
+reason = "The owner, 16 November 2026: \"the pillar the lights are on is still very dark not sure why, i wouldve thought it would be illuminated a bit by the lights?\""
+
+[[fitting]]
+game = "tsl"
+texture = "nar_cr8s"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. These are crates, and they light nothing."
+reason = "The owner's rule: a floor, a wall, a door, trim or a track with a glowing texture is not a lamp."
+
+[[fitting]]
+game = "tsl"
+texture = "nar_jtrm"
+on = "room"
+form = "strip"
+reach = 3.5
+strength = 0.8
+cone = 0.0
+says = "A thin neon trim that glows softly all along its length, about 3 m."
+reason = "The owner, 16 November 2026: \"can probably increase this light a smidge\""
+
+[[fitting]]
+game = "tsl"
+texture = "tel_st01"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It is the paint on the track's walls and floor, and it lights nothing."
+reason = "The owner's rule: a floor, a wall, a door, trim or a track with a glowing texture is not a lamp."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_st02"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "The owner said of this texture that it is floor or track, not a light."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_scren2"
+on = "room"
+form = "faint"
+colour = [1.0, 1.0, 1.0]
+reach = 2.0
+strength = 0.4
+cone = 0.2
+says = "A little light close by, about 2 m."
+reason = "It glows less than the general threshold. It is a small display, or it was never seen in a picture, so it stays a faint light."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_gr04"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "The owner said of this texture that it is floor or track, not a light."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_bed1"
+on = "room"
+reach = 1.5
+says = "Only the small screen at its head sheds a little light, about 1.5 m the way it faces."
+reason = "The owner, 16 November 2026: \"hm we can give the light part specifically a light, but not the whole bed\""
+
+# Lights placed by hand in one area.
+
+[[placed]]
+game = "tsl"
+texture = "dan_leaf02"
+on = "room"
+area = "602dan"
+at = [-27.5, -3.2, 12.8]
+colour = [1.0, 0.96, 0.88]
+radius = 7.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+reason = "The leaves give no light. Daylight comes down from the ceiling windows above them."
+
+[[placed]]
+game = "tsl"
+texture = "dan_leaf02"
+on = "room"
+area = "602dan"
+at = [-27.5, 1.8, 12.8]
+colour = [1.0, 0.96, 0.88]
+radius = 7.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+reason = "The leaves give no light. Daylight comes down from the ceiling windows above them."
+
+[[placed]]
+game = "tsl"
+texture = "dan_leaf02"
+on = "room"
+area = "602dan"
+at = [-27.5, 6.8, 12.8]
+colour = [1.0, 0.96, 0.88]
+radius = 7.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+reason = "The leaves give no light. Daylight comes down from the ceiling windows above them."
+
+[[placed]]
+game = "tsl"
+texture = "dan_leaf02"
+on = "room"
+area = "602dan"
+at = [-27.5, 11.8, 12.8]
+colour = [1.0, 0.96, 0.88]
+radius = 7.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+reason = "The leaves give no light. Daylight comes down from the ceiling windows above them."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-33.657, -9.177, 4.675]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.13966255, -0.99019915]
+cone = 0.2
+way = [-0.1158496, 0.9835319, -0.13872218]
+half = 2.06
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-25.268, -9.177, 4.675]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.13966255, -0.99019915]
+cone = 0.2
+way = [-0.11584942, 0.98353195, -0.13872218]
+half = 2.06
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-33.657, -13.477, 6.019]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.48978147, -0.87184525]
+cone = 0.2
+way = [-0.16076265, 0.8605052, -0.48341098]
+half = 1.552
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-25.268, -13.477, 6.019]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.48978144, -0.87184525]
+cone = 0.2
+way = [-0.1607624, 0.86050534, -0.48341092]
+half = 1.552
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-76.683, -9.177, 4.675]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.13966256, -0.9901992]
+cone = 0.2
+way = [-0.11585709, 0.9835312, -0.13872208]
+half = 2.06
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-54.094, -9.177, 4.675]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.13966256, -0.99019915]
+cone = 0.2
+way = [-0.11585067, 0.9835318, -0.13872217]
+half = 2.06
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-68.294, -9.177, 4.675]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.13966256, -0.99019915]
+cone = 0.2
+way = [-0.11584996, 0.98353183, -0.13872218]
+half = 2.06
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-45.705, -9.177, 4.675]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.13966256, -0.9901992]
+cone = 0.2
+way = [-0.11584816, 0.9835321, -0.1387222]
+half = 2.06
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-76.683, -13.477, 6.019]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.48978138, -0.8718453]
+cone = 0.2
+way = [-0.16077416, 0.8605037, -0.4834099]
+half = 1.552
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-54.094, -13.477, 6.019]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.48978135, -0.8718453]
+cone = 0.2
+way = [-0.16076423, 0.86050504, -0.4834107]
+half = 1.552
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-68.294, -13.477, 6.019]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.48978135, -0.8718453]
+cone = 0.2
+way = [-0.16076316, 0.8605053, -0.48341078]
+half = 1.552
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-45.705, -13.477, 6.019]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, -0.48978135, -0.8718453]
+cone = 0.2
+way = [-0.16076039, 0.8605056, -0.48341095]
+half = 1.552
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-43.687, -46.428, 6.489]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+way = [0.09675238, 0.99530846, -2.2731237e-09]
+half = 5.903
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-60.15, -28.7, 3.698]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+way = [0.96026003, 0.2791067, -1.04242e-09]
+half = 6.589
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-76.257, -28.696, 3.698]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+way = [0.5286073, 0.84886646, 0.0]
+half = 7.018
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-24.933, -28.709, 3.698]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [3.4670285e-07, -5.4635334e-06, -1.0]
+cone = 0.2
+way = [0.22221757, 0.97499716, 6.9590925e-08]
+half = 6.059
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-73.615, -44.247, 4.984]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+way = [0.6104428, -0.79206026, -6.198034e-09]
+half = 7.424
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-64.658, -46.555, 3.698]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+way = [-0.022010142, 0.99975777, 2.7723141e-14]
+half = 5.433
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-22.224, -46.555, 3.698]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [0.0, 0.0, -1.0]
+cone = 0.2
+way = [-0.018464927, 0.99982953, 0.0]
+half = 5.431
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+[[placed]]
+game = "tsl"
+texture = "tel_lt03"
+on = "room"
+area = "221tel"
+at = [-43.687, -28.695, 3.698]
+colour = [0.8, 0.24, 0.2]
+radius = 5.0
+aim = [1.1431387e-07, -1.9299832e-06, -1.0]
+cone = 0.2
+way = [0.12970269, 0.991553, 3.1202882e-07]
+half = 5.697
+reason = "The large ceiling panels of this texture give the hall a weak red fill. The general rules would light them as lamps."
+
+# Kinds the survey found by their colour on 17 November 2026: a red or an
+# orange texture is dim by brightness. By the general rules such a kind is
+# faint, and each fitting has the colour of its own bright texels. The
+# entries below differ from that. The owner has not seen any of them yet.
+
+[[fitting]]
+game = "k1"
+texture = "lsi_lite04"
+on = "room"
+form = "panel"
+reach = 3.0
+strength = 0.8
+cone = 0.2
+tint = true
+says = "Each red lamp gives a red glow on the wall and floor around it, about 3 m."
+reason = "A proposal the owner has not seen. It is a red lamp of the same sort as the Harbinger's red wall lamps (har_lt02), of which he said: \"these red lights arent really glowing\""
+
+[[fitting]]
+game = "k1"
+texture = "lsi_lite10"
+on = "room"
+form = "panel"
+reach = 3.0
+strength = 0.8
+cone = 0.2
+tint = true
+says = "Each red lamp gives a red glow on the wall and floor around it, about 3 m."
+reason = "A proposal the owner has not seen. It is a red lamp of the same sort as the Harbinger's red wall lamps (har_lt02), of which he said: \"these red lights arent really glowing\""
+
+[[fitting]]
+game = "k1"
+texture = "lts_heater"
+on = "room"
+form = "panel"
+reach = 3.0
+strength = 0.8
+cone = 0.2
+tint = true
+says = "Each red lamp gives a red glow on the wall and floor around it, about 3 m."
+reason = "A proposal the owner has not seen. It is a red lamp of the same sort as the Harbinger's red wall lamps (har_lt02), of which he said: \"these red lights arent really glowing\""
+
+[[fitting]]
+game = "tsl"
+texture = "nih_lt01"
+on = "room"
+form = "panel"
+reach = 3.0
+strength = 0.8
+cone = 0.2
+tint = true
+says = "Each red lamp gives a red glow on the wall and floor around it, about 3 m."
+reason = "A proposal the owner has not seen. It is a red lamp of the same sort as the Harbinger's red wall lamps (har_lt02), of which he said: \"these red lights arent really glowing\""
+
+[[fitting]]
+game = "k1"
+texture = "plc_beer"
+on = "placeable"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture shows a glass on a table, not a lamp."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_beer"
+on = "placeable"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture shows a glass on a table, not a lamp."
+
+[[fitting]]
+game = "k1"
+texture = "x_shortswrd_001"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture shows a sword on a wall, not a lamp."
+
+[[fitting]]
+game = "k1"
+texture = "x_vbrdblswd_001"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture shows a sword on a wall, not a lamp."
+
+[[fitting]]
+game = "tsl"
+texture = "w_vbrdblswd_001"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture shows a sword on a wall, not a lamp."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_blst2"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture shows a blast mark hundreds of square metres large, not a lamp."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_netr2"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture shows rock, not a lamp."
+
+[[fitting]]
+game = "k1"
+texture = "lhr_trim03"
+on = "room"
+form = "faint"
+reach = 2.0
+strength = 0.4
+says = "The glowing trim around a door gives a little light close by, about 2 m."
+reason = "It is the trim around the Endar Spire's door openings, and by the rules it lit all ways at full strength. The owner, walking the Endar Spire, 17 November 2026: \"this door opening is way too bright\" and \"too bright around the door\""
+
+[[fitting]]
+game = "k1"
+texture = "plc_comppnl"
+on = "placeable"
+form = "faint"
+colour = [0.36, 0.62, 1.0]
+reach = 2.5
+strength = 0.6
+cone = 0.6
+dark = true
+lift = 0.785
+says = "A terminal's blue displays give a little blue light close by, about 2.5 m, out of the screen and up at 45 degrees."
+reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\". The owner saw the terminals with one light for each screen at strength 0.24 and asked for at least a little more light, about half of what they had before (22 November 2026). At 0.6 a terminal gives back about half of the blue it used to leave on the floor before the merge."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_comppnl"
+on = "placeable"
+form = "faint"
+colour = [0.36, 0.62, 1.0]
+reach = 2.5
+strength = 0.6
+cone = 0.6
+dark = true
+lift = 0.785
+says = "A terminal's blue displays give a little blue light close by, about 2.5 m, out of the screen and up at 45 degrees."
+reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\". The owner saw the terminals with one light for each screen at strength 0.24 and asked for at least a little more light, about half of what they had before (22 November 2026). At 0.6 a terminal gives back about half of the blue it used to leave on the floor before the merge."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_comppnl_b"
+on = "placeable"
+form = "faint"
+colour = [0.36, 0.62, 1.0]
+reach = 2.5
+strength = 0.6
+cone = 0.6
+dark = true
+lift = 0.785
+says = "A terminal's blue displays give a little blue light close by, about 2.5 m, out of the screen and up at 45 degrees."
+reason = "The survey does not list it: little of its texture is bright. The colour is the one the files give the terminal's own lamp. The owner, walking the Endar Spire, 17 November 2026: \"this terminal is not emitting any light. they should emit bleu light from their displays\". The owner saw the terminals with one light for each screen at strength 0.24 and asked for at least a little more light, about half of what they had before (22 November 2026). At 0.6 a terminal gives back about half of the blue it used to leave on the floor before the merge."
+
+# The Dantooine enclave (danm13), baked on 18 November 2026. The owner has
+# seen neither entry.
+
+[[fitting]]
+game = "k1"
+texture = "lda_lite01"
+on = "room"
+form = "panel"
+colour = [1.0, 0.93, 0.76]
+reach = 2.5
+strength = 1.1
+cone = 0.2
+says = "Each wall lamp gives a warm white pool on the wall around it, about 2.5 m."
+reason = "The rules took its colour from the lamp's blue-white glass (0.749, 0.996, 1.0), and the enclave's walls turned cold blue-green. The stored lightmaps of its halls are a warm white (0.95, 1.0, 0.87 in room m13aa_13a). The owner walked the enclave on 18 November 2026 and said: \"the lights are not warm enough\". So the colour is warmer than the stored one. He has not seen this colour."
+
+[[fitting]]
+game = "k1"
+texture = "lda_trim03"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture is the trim of the enclave's ceiling grilles and wall arches. The files make a grille glow at a fifth in place of baked light. As an unnamed glowing texture it took 186 lights in danm13, and they lit the grilles' dark bars away."
+
+[[fitting]]
+game = "k1"
+texture = "lta_dor03"
+on = "placeable"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A proposal the owner has not seen. The texture is the wooden gate of the Sand People's huts. The files make it glow in place of baked light. Its orange wood passed as a force field, so it took 136 lights in tat_m20aa, and each hut had an orange pool at its gate."
+
+[[fitting]]
+game = "k1"
+texture = "lsi_tech01"
+on = "room"
+form = "panel"
+colour = [0.541, 0.702, 1.0]
+reach = 4.0
+strength = 1.1
+cone = 0.2
+dark = true
+says = "A blue display panel. It sheds light although little of its texture is bright."
+reason = "The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan and of the Sith base on Taris: the small blue terminals and the blue displays give off no light. The meshes have no lightmap and a dim texture, so the rules skipped them."
+
+[[fitting]]
+game = "k1"
+texture = "lts_lolit03"
+on = "room"
+form = "panel"
+colour = [0.591, 1.0, 1.0]
+reach = 2.8
+strength = 1.1
+cone = 0.2
+dark = true
+says = "A hanging ceiling panel. It sheds light although little of its texture is bright."
+reason = "The owner, walking KOTOR 1 on 21 November 2026, of the big swoop room in the Black Vulkar base (tar_m10ac): the ceiling's light panels give off no light. The meshes have no lightmap and a dim texture, so the rules skipped them."
+
+[[fitting]]
+game = "k1"
+texture = "plc_burnjunk"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 7.0
+strength = 0.15
+gather = true
+always = true
+dark = true
+says = "A burning pile or a fire pit gives one faint warm light about 7 m wide, just above it, that fades out slowly."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\". The owner saw the fire of lower Taris (tar_m03aa) with a reach of 3.5 m at strength 0.2. Its pool dropped to nothing within one floor tile and showed as a hard square. A longer reach at a lower strength gives the same light beside the fire and spreads past the tile (22 November 2026)."
+
+[[fitting]]
+game = "k1"
+texture = "plc_firepit2"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 7.0
+strength = 0.15
+gather = true
+always = true
+dark = true
+says = "A burning pile or a fire pit gives one faint warm light about 7 m wide, just above it, that fades out slowly."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\". The owner saw the fire of lower Taris (tar_m03aa) with a reach of 3.5 m at strength 0.2. Its pool dropped to nothing within one floor tile and showed as a hard square. A longer reach at a lower strength gives the same light beside the fire and spreads past the tile (22 November 2026)."
+
+[[fitting]]
+game = "k1"
+texture = "plc_frcdist01"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+says = "A force cage's field gives a little light of its own colour, about 4 m."
+reason = "As an unnamed texture its sides were too wide to count as a small lamp, so plc_frcdist01 gave none and plc_frcdist02 gave very little. The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan: the force cages still give off almost no light, and they should give off at least some."
+
+[[fitting]]
+game = "k1"
+texture = "plc_frcdist02"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+says = "A force cage's field gives a little light of its own colour, about 4 m."
+reason = "As an unnamed texture its sides were too wide to count as a small lamp, so plc_frcdist01 gave none and plc_frcdist02 gave very little. The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan: the force cages still give off almost no light, and they should give off at least some."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_burnjunk"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 7.0
+strength = 0.15
+gather = true
+always = true
+dark = true
+says = "A burning pile or a fire pit gives one faint warm light about 7 m wide, just above it, that fades out slowly."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\". The owner saw the fire of lower Taris (tar_m03aa) with a reach of 3.5 m at strength 0.2. Its pool dropped to nothing within one floor tile and showed as a hard square. A longer reach at a lower strength gives the same light beside the fire and spreads past the tile (22 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_firepit2"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.55, 0.2]
+reach = 7.0
+strength = 0.15
+gather = true
+always = true
+dark = true
+says = "A burning pile or a fire pit gives one faint warm light about 7 m wide, just above it, that fades out slowly."
+reason = "The flames are an emitter, which the rules do not see, and the mesh is not set to glow. The owner, walking KOTOR 1 on 21 November 2026, of the Korriban cave and of lower Taris: \"flaming pile doesnt emit light but it should\". The owner saw the fire of lower Taris (tar_m03aa) with a reach of 3.5 m at strength 0.2. Its pool dropped to nothing within one floor tile and showed as a hard square. A longer reach at a lower strength gives the same light beside the fire and spreads past the tile (22 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_frcdist01"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+says = "A force cage's field gives a little light of its own colour, about 4 m."
+reason = "As an unnamed texture its sides were too wide to count as a small lamp, so plc_frcdist01 gave none and plc_frcdist02 gave very little. The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan: the force cages still give off almost no light, and they should give off at least some."
+
+[[fitting]]
+game = "tsl"
+texture = "plc_frcdist02"
+on = "placeable"
+form = "faint"
+colour = [0.6, 0.8, 1.0]
+reach = 4.0
+strength = 0.5
+tint = true
+dark = true
+says = "A force cage's field gives a little light of its own colour, about 4 m."
+reason = "As an unnamed texture its sides were too wide to count as a small lamp, so plc_frcdist01 gave none and plc_frcdist02 gave very little. The owner, walking KOTOR 1 on 21 November 2026, of the Leviathan: the force cages still give off almost no light, and they should give off at least some."
+
+[[fitting]]
+game = "k1"
+texture = "plc_map01"
+on = "placeable"
+form = "faint"
+colour = [1.0, 1.0, 1.0]
+reach = 2.4
+strength = 0.5
+tint = true
+says = "The holographic map gives a little light of its own colour, about 2.4 m."
+reason = "The owner, walking KOTOR 1 on 21 November 2026, of the Endar Spire's command module: the holographic map is a little too bright, so its reach is a fifth shorter than the survey's 3 m."
+
+[[fitting]]
+game = "k1"
+texture = "plc_starmap15"
+on = "placeable"
+form = "faint"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 0.4
+says = "A Star Map gives a little white light close by, about 3 m."
+reason = "With `tint` it took the red of its texture once a tinted kind took its texels' colour (21 November 2026), and the Star Map on Manaan shed red. The owner liked the Star Maps' white light, and called Manaan's a tad too bright."
+
+[[fitting]]
+game = "k1"
+texture = "lta_dor02"
+on = "placeable"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "A door of Anchorhead. The files make it glow in place of baked light, and its green passed as a force field, so it shed a green pool. The owner, walking KOTOR 1 on 21 November 2026: \"this weird green light doesnt make sense, u can remove it\""
+
+[[fitting]]
+game = "k1"
+texture = "lma_light01"
+on = "room"
+form = "panel"
+colour = [0.993, 1.0, 1.0]
+reach = 4.0
+strength = 1.1
+cone = 0.7
+always = true
+lift = -0.6
+says = "A Manaan pole lamp shines as a spotlight out of its panel and down at the ground, about 4 m, and every one is lit."
+reason = "With a cone of 0.2 it lit a wide front and much behind it. Three of manm28ad's were off, because their meshes do not glow and their stored lightmap is dark. The owner, walking KOTOR 1 on 21 November 2026: \"these lamps are not really glowing from their panels or emitting light, they should emit directional spotlight\""
+
+[[fitting]]
+game = "k1"
+texture = "plc_desk1"
+on = "placeable"
+form = "faint"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 0.4
+cone = 0.2
+lamps = "bright"
+tint = true
+always = true
+dark = true
+says = "A desk's panels each give a faint light of their own colour, about 3 m, on its outside too."
+reason = "The outer panels are on a mesh that is not set to glow, so the rules skipped them. The owner, walking KOTOR 1 on 21 November 2026, of the swoop manager's desk on Taris: the panels on the outer surface should give off a little light; the inner displays' light is already good."
+
+[[fitting]]
+game = "k1"
+texture = "lts_gwall01"
+on = "room"
+form = "panel"
+colour = [0.76, 1.0, 0.52]
+reach = 5.0
+strength = 1.1
+cone = 0.2
+says = "Taris's green wall panels shed a pale green light."
+reason = "The survey took the colour of their strong yellow-green glass, 0.525, 1.0, 0.05. This colour is halfway from it to white. The owner, walking KOTOR 1 on 21 November 2026, of the upper city apartments: the light is a little too green."
+
+[[fitting]]
+game = "tsl"
+texture = "nar_jtrm"
+on = "room"
+form = "strip"
+colour = [0.705, 0.84, 1.0]
+reach = 3.5
+strength = 0.8
+always = true
+says = "Nar Shaddaa's round light strips shine where the files do not set them to glow too."
+reason = "The tunnels of 305nar have the strips at glow 0, so they shed nothing there. The owner, 21 November 2026: \"all these bring circles look like light strips and should be used to light this place up and then darken the rest of it\""
+
+[[fitting]]
+game = "tsl"
+texture = "nar_jtrm2"
+on = "room"
+form = "strip"
+colour = [0.705, 0.84, 1.0]
+reach = 3.5
+strength = 0.8
+always = true
+says = "The second kind of Nar Shaddaa's round light strips, as nar_jtrm."
+reason = "It had no kind and its pieces have glow 0. The owner asked that the strips light the tunnels (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "nar_d_lit01"
+on = "room"
+form = "panel"
+colour = [0.882, 0.992, 1.0]
+reach = 5.0
+strength = 1.1
+cone = 0.7
+says = "Goto's yacht's glow panels light the rooms below them."
+reason = "It was faint at 0.4 and 2 m. The owner, 21 November 2026: the yacht's light should come off the glow panels all over."
+
+[[fitting]]
+game = "tsl"
+texture = "nar_d_wl_o"
+on = "room"
+form = "down"
+colour = [1.0, 0.678, 0.216]
+reach = 5.0
+strength = 1.1
+cone = 0.7
+always = true
+says = "The yacht's wall lamps shine where the files do not set them to glow too."
+reason = "Their meshes have glow 0 and shed only a dim light. The owner asked for the yacht's light to come off its lamps (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_hl3"
+on = "room"
+form = "panel"
+colour = [1.0, 1.0, 1.0]
+reach = 5.0
+strength = 1.1
+cone = 0.2
+tint = true
+says = "The Citadel Station's lamps outside the cantina shed light of their own colour."
+reason = "As an unnamed texture they were faint. The owner, 21 November 2026: use the lights outside the cantina; there are cool lights there."
+
+[[fitting]]
+game = "tsl"
+texture = "ond_lt02"
+on = "room"
+form = "down"
+colour = [1.0, 0.921, 0.783]
+reach = 9.0
+strength = 1.1
+cone = 0.7
+says = "Onderon's ceiling lamps hang about 7 m over the floor and reach it."
+reason = "At 5 m their light hardly reached the floor. The owner, 21 November 2026, of 506ond: light should be sourced from the ceiling lamps instead."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_cgrn"
+on = "room"
+form = "point"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 1.1
+tint = true
+says = "Dantooine's green crystals shed light of their own colour, as the purple ones do."
+reason = "They were faint and white. The owner, 21 November 2026: not sure the green crystals are emitting light as they should."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_cblu"
+on = "room"
+form = "point"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 1.1
+tint = true
+says = "Dantooine's blue crystals shed light of their own colour, as the purple ones do."
+reason = "As the green crystals (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_cylw"
+on = "room"
+form = "point"
+colour = [1.0, 1.0, 1.0]
+reach = 3.0
+strength = 1.1
+tint = true
+says = "Dantooine's yellow crystals shed light of their own colour, as the purple ones do."
+reason = "As the green crystals (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "dan_hlt1"
+on = "room"
+form = "panel"
+colour = [1.0, 1.0, 1.0]
+reach = 5.0
+strength = 1.1
+cone = 0.2
+tint = true
+always = true
+says = "The wall and ceiling lamps of the Dantooine enclave's ruins shed light."
+reason = "They had no kind and fell to the weak rule for unnamed textures. The owner, 21 November 2026, of 610dan: lights on walls and ceiling should be emitting light."
+
+[[fitting]]
+game = "tsl"
+texture = "mal_gtbeams"
+on = "room"
+form = "strip"
+colour = [1.0, 0.9, 0.3]
+reach = 4.0
+strength = 1.0
+line = true
+tint = true
+dark = true
+says = "Malachor's glowing cracks in the floor shed a yellow light along them."
+reason = "They had no kind and shed nothing. The owner, 21 November 2026: if we can get more of the light stemming from these light cracks in the floor that would be cool. The owner, 22 November 2026, of Malachor (902mal to 906mal): far too bright, about half as bright, and lit more by the red lights on the floors, the walls and the doors."
+
+[[fitting]]
+game = "tsl"
+texture = "mal_floor3"
+on = "room"
+form = "faint"
+colour = [1.0, 0.2, 0.1]
+reach = 4.0
+strength = 1.0
+tint = true
+dark = true
+says = "Malachor's red floor discs give a little red light close by."
+reason = "It was no lamp, a proposal the owner had not seen. The owner, 21 November 2026, of 903mal: emit some red light from the lights. The owner, 22 November 2026, of Malachor (902mal to 906mal): far too bright, about half as bright, and lit more by the red lights on the floors, the walls and the doors."
+
+[[fitting]]
+game = "tsl"
+texture = "fx_ritual01"
+on = "room"
+form = "faint"
+colour = [1.0, 0.6, 0.35]
+reach = 8.0
+strength = 0.8
+says = "The ritual fire on Dxun lights the floor round it."
+reason = "Its lights hang 4 m up with a reach of 3 m, so they lit nothing. The owner, 21 November 2026, of 411dxn: fires not emitting light."
+
+[[fitting]]
+game = "tsl"
+texture = "tel_flwr"
+on = "room"
+form = "glows"
+lamp = false
+says = "Not a light. It lights nothing."
+reason = "The plants of the Telos prison's long hall glow green in the files in place of baked light, and as an unnamed texture they shed 176 lights (21 November 2026)."
+
+[[fitting]]
+game = "tsl"
+texture = "mal_dor02"
+on = "placeable"
+form = "faint"
+colour = [1.0, 0.2, 0.1]
+reach = 4.0
+strength = 1.0
+tint = true
+dark = true
+door = true
+says = "The red ring of Malachor's doors gives a red light around the door."
+reason = "A door shed light only as a force field, at the faint strength of an unnamed texture. The owner, 22 November 2026, of Malachor (902mal to 906mal): far too bright, about half as bright, and lit more by the red lights on the floors, the walls and the doors."

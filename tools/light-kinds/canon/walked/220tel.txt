@@ -1,0 +1,3 @@
+# 1.0 of the lit level of each room.
+220telb 0.3174
+220telf 0.2867

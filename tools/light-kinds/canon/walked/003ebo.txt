@@ -1,0 +1,16 @@
+# 1.0 of the lit level of each room.
+003ebob 0.2166
+003eboc 0.3547
+003ebod 0.1939
+003eboe 0.1678
+003ebof 0.2887
+003ebog 0.5533
+003eboh 0.1545
+003eboi 0.1296
+003eboj 0.1774
+003ebok 0.2266
+003ebol 0.1032
+003ebom 0.1721
+003ebon 0.1502
+003eboo 0.1613
+003ebop 0.1884

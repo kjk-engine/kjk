@@ -62,6 +62,11 @@ const TWICE: &str = "twice";
 const GONE_BOX: &str = "gone_box";
 /// The container left standing.
 const KEPT_BOX: &str = "kept_box";
+/// The creature destroyed on the mark another jumps onto, and the jumper.
+const GONE_MARK: &str = "gone_mark";
+const JUMPER: &str = "jumper";
+/// How far (metres) from the mark the jumper may land and still be on it.
+const ON_MARK_M: f32 = 0.05;
 
 /// The routines the probe's scripts call.
 const CATALOG: &str = r#"
@@ -75,6 +80,8 @@ int GetIsObjectValid(object oObject);
 void SetGlobalNumber(string sIdentifier, int nValue);
 // 4
 void ActionAttack(object oAttackee, int bPassive = FALSE);
+// 5
+void JumpToObject(object oToJumpTo, int nWalkStraightLineToPoint=1);
 "#;
 
 /// The global the looking script sets.
@@ -292,7 +299,38 @@ pub fn probes() -> Checks {
                 ),
             ),
         ),
+        ("jump_onto_destroyed", jump_onto_destroyed()),
     ]
+}
+
+/// A creature that a script destroys at once and jumps another onto, in
+/// the same step, leaves its mark free: the jumper stands on the mark, not
+/// beside it (issue 703, the Sith prosecutor at Sunry's trial).
+fn jump_onto_destroyed() -> Result<String, String> {
+    let mark = by_entry(3.0, 0.0);
+    let creature = |tag: &str, at| ObjectData::creature(tag, tag, at, Sheet::commoner());
+    let (mut world, _, first) = world_with(vec![
+        creature(GONE_MARK, mark),
+        creature(JUMPER, by_entry(3.0, 4.0)),
+    ])?;
+    let jumper = ids(&mut world, first + 1, 1)?[0];
+    run(&mut world, "probe_take_place", jumper);
+    let mut last = world.snapshot();
+    for tick in 1..=DESTROY_STEP {
+        last = step(&mut world, tick, &TickInput::default());
+    }
+    let stood = last
+        .entities
+        .iter()
+        .find(|entity| entity.id == SimId(jumper))
+        .ok_or("the jumper is gone")?
+        .position;
+    let off = ((stood[0] - mark[0]).powi(2) + (stood[1] - mark[1]).powi(2)).sqrt();
+    let gone = drawn_as(&last, first).is_none_or(|(in_world, _)| !in_world);
+    check(
+        gone && off <= ON_MARK_M,
+        format!("{off:.2} m from the mark, the destroyed one out of the world: {gone}"),
+    )
 }
 
 /// One destroyed thing drawn in a step: how opaque, and whether it is in
@@ -394,6 +432,23 @@ fn attack(tag: &str) -> fmt_odyssey::ncs::Ncs {
     asm.build()
 }
 
+/// `DestroyObject(GetObjectByTag(GONE_MARK))`, then a jump of the caller to
+/// it, in one script, as Sunry's trial takes the Republic prosecutor away
+/// and jumps the Sith one onto the same mark (`k_pman_26a_aread`).
+fn take_place() -> fmt_odyssey::ncs::Ncs {
+    let mut asm = Asm::default();
+    for op in by_tag(GONE_MARK) {
+        asm.op(op);
+    }
+    push_destroy(&mut asm, &by_tag(GONE_MARK), None);
+    asm.op(Op::Action {
+        routine: 5,
+        args: 1,
+    })
+    .op(Op::Retn);
+    asm.build()
+}
+
 /// The probe's scripts: each destroy, the look for the delayed one
 /// (`SetGlobalNumber(SEEN, GetIsObjectValid(GetObjectByTag(DELAYED)))`),
 /// and the fight's attacks.
@@ -427,6 +482,7 @@ fn scripts() -> crate::script::Library {
             ("probe_look", look.build()),
             ("probe_attack_dummy", attack(DUMMY)),
             ("probe_attack_beast", attack(BEAST)),
+            ("probe_take_place", take_place()),
         ],
     )
 }

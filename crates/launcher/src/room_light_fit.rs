@@ -122,6 +122,7 @@ pub fn run(
     game: Option<&str>,
     every_glow: bool,
     out: &Path,
+    free: (usize, usize, f32),
 ) -> ExitCode {
     let games = match game {
         None => vec![Game::Kotor1, Game::Kotor2],
@@ -148,7 +149,7 @@ pub fn run(
         if !module_names(&index).contains(&module) {
             continue;
         }
-        return match fit_module(game, &index, &module, every_glow, out) {
+        return match fit_module(game, &index, &module, every_glow, out, free) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("room-light-fit: {error}");
@@ -171,6 +172,7 @@ fn fit_module(
     module: &str,
     every_glow: bool,
     out: &Path,
+    free: (usize, usize, f32),
 ) -> Result<(), String> {
     let base = Resolver::base(game, index, TextureQuality::High).map_err(|e| e.to_string())?;
     let resolver = base
@@ -182,7 +184,14 @@ fn fit_module(
     std::fs::create_dir_all(out).map_err(|error| format!("{}: {error}", out.display()))?;
     for area in &built.areas {
         let started = std::time::Instant::now();
-        let fit = fit_area(&mut reader, &resolver, area, (game, module, every_glow), out)?;
+        let fit = fit_area(
+            &mut reader,
+            &resolver,
+            area,
+            (game, module, every_glow),
+            out,
+            free,
+        )?;
         outln!(
             "{}: {} samples, {} candidates; best falloff {}, R² {:.3}, held out {:.3}, control {:.3} ({:.0} s)",
             area.resref,
@@ -204,22 +213,22 @@ fn fit_module(
 
 /// A texture's colours as stored (0 to 1), at its first level no wider or
 /// taller than `side`.
-struct Rgb {
-    width: usize,
-    height: usize,
-    texels: Vec<[f32; 3]>,
+pub(crate) struct Rgb {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) texels: Vec<[f32; 3]>,
 }
 
 impl Rgb {
     /// The texel at `uv`, nearest, repeating.
-    fn at(&self, uv: [f32; 2]) -> [f32; 3] {
+    pub(crate) fn at(&self, uv: [f32; 2]) -> [f32; 3] {
         let x = ((uv[0] * self.width as f32).floor() as i64).rem_euclid(self.width as i64);
         let y = ((uv[1] * self.height as f32).floor() as i64).rem_euclid(self.height as i64);
         self.texels[y as usize * self.width + x as usize]
     }
 }
 
-fn read_rgb(resolver: &Resolver, name: &str, side: usize) -> Option<Rgb> {
+pub(crate) fn read_rgb(resolver: &Resolver, name: &str, side: usize) -> Option<Rgb> {
     let texture = TextureIr::from_texture(&resolver.texture(name)?, None)?;
     let size = |level: usize| {
         (
@@ -252,7 +261,7 @@ fn read_rgb(resolver: &Resolver, name: &str, side: usize) -> Option<Rgb> {
 }
 
 /// sRGB as stored to linear light, and back.
-fn linear(v: f32) -> f32 {
+pub(crate) fn linear(v: f32) -> f32 {
     if v <= 0.040_45 {
         v / 12.92
     } else {
@@ -260,7 +269,7 @@ fn linear(v: f32) -> f32 {
     }
 }
 
-fn encoded(v: f32) -> f32 {
+pub(crate) fn encoded(v: f32) -> f32 {
     let v = v.max(0.0);
     if v <= 0.003_130_8 {
         v * 12.92
@@ -561,7 +570,7 @@ fn threads() -> usize {
 
 /// Runs `work` on blocks of `count` items across the machine's threads and
 /// returns each item's result in order.
-fn parallel<T: Send>(count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
+pub(crate) fn parallel<T: Send>(count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
     const BLOCK: usize = 256;
     let taken = AtomicUsize::new(0);
     let done: Mutex<Vec<(usize, Vec<T>)>> = Mutex::new(Vec::new());
@@ -637,6 +646,18 @@ fn normal_eq(
     fill: &(dyn Fn(usize, &mut Row) + Sync),
     shared: bool,
 ) -> Normal {
+    normal_eq_weighted(samples, n, take, fill, shared, None)
+}
+
+/// `normal_eq` with each sample's squared error times its `weight`.
+fn normal_eq_weighted(
+    samples: &[Sample],
+    n: usize,
+    take: &dyn Fn(usize) -> bool,
+    fill: &(dyn Fn(usize, &mut Row) + Sync),
+    shared: bool,
+    weight: Option<&[f64]>,
+) -> Normal {
     let channels = if shared { 1 } else { 3 };
     let mut gram: [Vec<f64>; 3] = std::array::from_fn(|c| {
         if c < channels {
@@ -655,16 +676,17 @@ fn normal_eq(
         row.clear();
         row.push((0, [1.0; 3]));
         fill(s, &mut row);
+        let w = weight.map_or(1.0, |weight| weight[s]);
         for c in 0..3 {
             let y = f64::from(sample.target[c]);
-            yy[c] += y * y;
+            yy[c] += w * y * y;
             for &(j, v) in &row {
-                rhs[c][j as usize] += f64::from(v[c]) * y;
+                rhs[c][j as usize] += w * f64::from(v[c]) * y;
             }
         }
         for (c, gram) in gram.iter_mut().enumerate().take(channels) {
             for &(i, vi) in &row {
-                let vi = f64::from(vi[c]);
+                let vi = w * f64::from(vi[c]);
                 let line = &mut gram[i as usize * n..(i as usize + 1) * n];
                 for &(j, vj) in &row {
                     line[j as usize] += vi * f64::from(vj[c]);
@@ -963,6 +985,7 @@ fn fit_area(
     area: &AreaIr,
     (game, module, every_glow): (Game, &str, bool),
     out: &Path,
+    (free, free_keep, free_dark): (usize, usize, f32),
 ) -> Result<AreaFit, String> {
     let placement = room_lights::place(reader, area);
     let Placement {
@@ -1119,6 +1142,16 @@ fn fit_area(
     }
     if samples.is_empty() {
         return Err(format!("{}: no lightmap texel on a room", area.resref));
+    }
+    // The search for free lights tries thousands of places against every
+    // sample, so a large area's samples are thinned for it.
+    if free > 0 && samples.len() > SEARCH_SAMPLES {
+        let step = samples.len().div_ceil(SEARCH_SAMPLES);
+        let mut index = 0usize;
+        samples.retain(|_| {
+            index += 1;
+            (index - 1).is_multiple_of(step)
+        });
     }
     let (least, most) = samples.iter().fold(
         (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
@@ -1638,6 +1671,100 @@ fn fit_area(
         });
     }
 
+    // Free lights: lights the files do not list, found from the lightmaps.
+    // Where the files' lamps explain the lightmaps no better than the same
+    // lamps at random places, the light is not lamps' light (a sun's or a
+    // sky's, outdoors), and no lights are searched for. The game keeps the
+    // area's own lamps and sun.
+    let lamp_lit = falloffs[best].held_out_r2 > falloffs[best].control_r2 + LAMP_LIT_MARGIN;
+    if free > 0 && !lamp_lit {
+        outln!(
+            "no lights searched for: the files' lamps explain the lightmaps no better              ({:.3}) than lamps at random places ({:.3})",
+            falloffs[best].held_out_r2,
+            falloffs[best].control_r2
+        );
+    }
+    if free > 0 && lamp_lit {
+        let found = free_lights(
+            &samples,
+            &candidates,
+            &level,
+            (&main, best_k),
+            (free, free_keep, free_dark),
+        );
+        outln!("{}", found.report);
+        let stem = area.resref.to_ascii_lowercase();
+        std::fs::write(out.join(format!("{stem}-free.txt")), &found.report)
+            .map_err(|e| e.to_string())?;
+        lightmap_sheet(
+            &maps,
+            &samples,
+            &found.predicted,
+            &out.join(format!("{stem}-free-lightmaps.png")),
+        )?;
+        // The lights that give the most light, for the game to cast
+        // shadows from (`KJK_FOUND_LIGHTS`). A light's colour is its
+        // strength at half its radius under the game's own falloff.
+        let mut order: Vec<usize> = (0..found.candidates.len())
+            .filter(|&j| {
+                let c = &found.candidates[j];
+                !c.ambient && !c.sun() && c.radius > 0.0 && found.given[j] > 0.0
+            })
+            .collect();
+        order.sort_by(|a, b| found.given[*b].total_cmp(&found.given[*a]));
+        let raw: Vec<FoundLight> = order
+            .iter()
+            .map(|&j| {
+                let c = &found.candidates[j];
+                let strength = |k: usize| found.strengths[k][j + 1] * 2.5 / f64::from(c.radius);
+                FoundLight {
+                    name: c.name.clone(),
+                    kind: c.kind.clone(),
+                    at: c.centre(),
+                    radius: c.radius,
+                    colour: [strength(0), strength(1), strength(2)],
+                }
+            })
+            .collect();
+        let write = |name: String, lights: &[FoundLight]| -> Result<(), String> {
+            let listed: Vec<serde_json::Value> = lights
+                .iter()
+                .map(|light| {
+                    serde_json::json!({
+                        "name": light.name,
+                        "kind": light.kind,
+                        "at": light.at.to_array(),
+                        "radius": light.radius,
+                        "colour": light.colour,
+                    })
+                })
+                .collect();
+            std::fs::write(
+                out.join(name),
+                serde_json::to_string_pretty(&listed).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())
+        };
+        write(
+            format!("{stem}-found-lights.json"),
+            &raw[..raw.len().min(FOUND_LISTED)],
+        )?;
+        // The lights the game is given beside the files' lamps: the free
+        // lights, one for each cell of the area.
+        let files = candidates.len();
+        let free_raw: Vec<&FoundLight> = (order.iter().zip(&raw))
+            .filter(|(j, _)| **j >= files)
+            .map(|(_, light)| light)
+            .collect();
+        let (merged, scale, rule) = merged_lights(&samples, &level, &candidates, &free_raw);
+        outln!(
+            "{} free lights merged into {} for the game, their strength times {scale:.2}: {rule}",
+            free_raw.len(),
+            merged.len()
+        );
+        write(format!("{stem}-game-lights.json"), &merged)?;
+    }
+
     // The pictures.
     let stem = if every_glow {
         format!("{}-every-glow", area.resref.to_ascii_lowercase())
@@ -1690,6 +1817,432 @@ fn fit_area(
     std::fs::write(out.join(format!("{stem}.json")), json).map_err(|e| e.to_string())?;
     std::fs::write(out.join(format!("{stem}.txt")), report(&fit)).map_err(|e| e.to_string())?;
     Ok(fit)
+}
+
+/// The light added to a sample's own before it divides its error (linear).
+const DARK_FLOOR: f32 = 0.02;
+
+/// The mean difference of a colour channel between the lightmaps and
+/// `predicted`, as stored (of 255).
+fn stored_difference(samples: &[Sample], predicted: &[[f32; 3]]) -> f64 {
+    let mut sum = 0.0f64;
+    for (sample, predicted) in samples.iter().zip(predicted) {
+        for (target, predicted) in sample.target.iter().zip(predicted) {
+            sum += f64::from((encoded(*target) - encoded(predicted.clamp(0.0, 1.0))).abs());
+        }
+    }
+    sum * 255.0 / (samples.len().max(1) * 3) as f64
+}
+
+/// A texel at least this bright (0 to 1, as stored) is part of a lamp
+/// painted into the lightmap, and the radii its panel is tried with.
+const PAINTED_BRIGHT: f32 = 0.6;
+const PAINTED_RADII: [f32; 2] = [1.5, 4.0];
+
+/// The most samples the search for free lights reads.
+const SEARCH_SAMPLES: usize = 60_000;
+/// How far the fit's R² on held-out faces must be over its controls' for
+/// an area to count as lit by lamps.
+const LAMP_LIT_MARGIN: f64 = 0.02;
+
+/// A found light as the game takes it (`KJK_FOUND_LIGHTS`).
+struct FoundLight {
+    name: String,
+    kind: String,
+    at: Vec3,
+    radius: f32,
+    /// Its colour times its strength, under the game's falloff.
+    colour: [f64; 3],
+}
+
+/// The side of the cell whose found lights become one light (metres).
+const MERGE_CELL: f32 = 5.0;
+/// The height of that cell (metres): a ceiling's lights and the lamps
+/// under them are one light, and another storey's are not.
+const MERGE_STOREY: f32 = 10.0;
+/// The radius of a merged light (metres).
+const MERGE_RADIUS: f32 = 8.0;
+
+/// The share of a lamp's light the game gives at `distance`
+/// (`odyssey.wgsl`): it falls with the distance and fades out over the last
+/// tenth of the radius.
+fn game_falloff(distance: f32, radius: f32) -> f32 {
+    if distance >= radius {
+        return 0.0;
+    }
+    let t = ((distance - 0.9 * radius) / (0.1 * radius)).clamp(0.0, 1.0);
+    let reach = 1.0 - t * t * (3.0 - 2.0 * t);
+    radius * radius / ((radius + distance) * (radius + distance)) * reach
+}
+
+/// How far over a floor the light on a person is measured (metres).
+const CHEST: f32 = 1.2;
+
+/// The light `lights` (place, radius, strength) give a person's chest
+/// over each floor sample under the game's falloff, with no shadows and
+/// from every side, summed.
+fn game_light(samples: &[Sample], lights: &[(Vec3, f32, f32)]) -> f64 {
+    let mut sum = 0.0f64;
+    for sample in samples.iter().filter(|sample| sample.normal.z > 0.7) {
+        let chest = sample.at + Vec3::Z * CHEST;
+        for &(at, radius, strength) in lights {
+            let distance = at.distance(chest);
+            sum += f64::from(strength * game_falloff(distance, radius));
+        }
+    }
+    sum
+}
+
+/// How far over the floor a merged light is at the least (metres), and
+/// how far under a ceiling at the most.
+const LIGHT_OVER_FLOOR: f32 = 2.5;
+const LIGHT_UNDER_CEILING: f32 = 0.3;
+
+/// The free lights as the game is given them, beside the files' lamps,
+/// which stay as they are: the free lights hold the light the lamps do not
+/// explain. The game casts a thing's shadow from a few lights and shares a
+/// surface's light among all that reach it, so many weak lights give faint
+/// shadows. The lights of each cell of `MERGE_CELL` become one light where
+/// their light is centred. A merged light is never lower over the floor
+/// than `LIGHT_OVER_FLOOR` where the ceiling lets it: the search puts
+/// lights near any surface, and a light at knee height casts long faint
+/// shadows where a room's lamps cast them under the feet.
+///
+/// The merged lights are then all scaled by one number, returned beside
+/// them with the rule that gave it: the number that makes them give a
+/// person's chest as much light in all as the files' lamps give it
+/// (`game_light`). The free lights then add to people what the lamps
+/// already give them, where the lightmaps have light and the lamps do not
+/// reach. With no lamp in the files, the sum is matched to what the
+/// floors' lightmaps store.
+fn merged_lights(
+    samples: &[Sample],
+    level: &Level,
+    files: &[Candidate],
+    raw: &[&FoundLight],
+) -> (Vec<FoundLight>, f64, &'static str) {
+    let mut cells: BTreeMap<[i32; 3], (Vec3, f32, [f64; 3])> = BTreeMap::new();
+    for light in raw {
+        let weight = luma(light.colour.map(|c| c as f32)).max(0.0) * light.radius;
+        if weight <= 0.0 {
+            continue;
+        }
+        let key = (light.at / Vec3::new(MERGE_CELL, MERGE_CELL, MERGE_STOREY))
+            .floor()
+            .as_ivec3()
+            .to_array();
+        let cell = cells.entry(key).or_insert((Vec3::ZERO, 0.0, [0.0; 3]));
+        cell.0 += light.at * weight;
+        cell.1 += weight;
+        for k in 0..3 {
+            cell.2[k] += light.colour[k].max(0.0) * f64::from(light.radius / MERGE_RADIUS);
+        }
+    }
+    let mut merged: Vec<FoundLight> = cells
+        .into_values()
+        .map(|(at, weight, colour)| {
+            let mut at = at / weight;
+            if let Some((_, down)) = level.first_hit(at, -Vec3::Z, 20.0) {
+                let floor = at.z - down;
+                let ceiling = level
+                    .first_hit(at, Vec3::Z, 20.0)
+                    .map_or(f32::MAX, |(_, up)| at.z + up);
+                let lifted = (floor + LIGHT_OVER_FLOOR).min(ceiling - LIGHT_UNDER_CEILING);
+                at.z = at.z.max(lifted);
+            }
+            FoundLight {
+                name: "merged".into(),
+                kind: "merged".into(),
+                at,
+                radius: MERGE_RADIUS,
+                colour,
+            }
+        })
+        .collect();
+    let given = game_light(
+        samples,
+        &merged
+            .iter()
+            .map(|light| (light.at, light.radius, luma(light.colour.map(|c| c as f32))))
+            .collect::<Vec<_>>(),
+    );
+    let lamps: Vec<(Vec3, f32, f32)> = files
+        .iter()
+        .filter(|c| c.group == Group::Lamp && !c.ambient && c.radius > 0.0)
+        .map(|c| (c.centre(), c.radius, luma(c.colour)))
+        .collect();
+    let listed = game_light(samples, &lamps);
+    let (wanted, rule) = if listed > 0.0 {
+        (listed, "people get as much light from them as from the files' lamps")
+    } else {
+        let stored: f64 = (samples.iter())
+            .filter(|sample| sample.normal.z > 0.7)
+            .map(|sample| f64::from(luma(sample.target)))
+            .sum();
+        (stored, "no lamp in the files, so people get the light the floors' lightmaps store")
+    };
+    let scale = if given > 0.0 { wanted / given } else { 1.0 };
+    for light in &mut merged {
+        for c in &mut light.colour {
+            *c *= scale;
+        }
+    }
+    (merged, scale, rule)
+}
+
+/// How many of the found lights are listed for the game.
+const FOUND_LISTED: usize = 96;
+
+/// The radii a free light is tried with (metres).
+const FREE_RADII: [f32; 2] = [4.0, 8.0];
+
+/// What `free_lights` found.
+struct FreeLights {
+    /// The files' candidates, and then the free lights kept.
+    candidates: Vec<Candidate>,
+    /// Their strengths, with the flat term first.
+    strengths: Strengths,
+    /// Each sample's light under them.
+    predicted: Vec<[f32; 3]>,
+    /// The light each of `candidates` gives, summed over the samples.
+    given: Vec<f64>,
+    report: String,
+}
+
+/// Lights the files do not list, found from the lightmaps. `count` places
+/// are tried, each 0.4 to 3 m off a random sample's surface and never
+/// through a wall. Each place is tried with each of `FREE_RADII`, once
+/// with a ray for what blocks it and once without. One solve gives every
+/// one a strength beside the files' candidates. The `keep` free lights that
+/// give the most light stay, and a second solve gives the strengths that
+/// are returned. The falloff is the fit's best.
+fn free_lights(
+    samples: &[Sample],
+    candidates: &[Candidate],
+    level: &Level,
+    (main, k): (&Design, usize),
+    (count, keep, dark): (usize, usize, f32),
+) -> FreeLights {
+    let n = candidates.len() + 1;
+    // A dark texel's error counts for more: each sample's squared error is
+    // divided by its light (plus `DARK_FLOOR`) to the power `dark`.
+    let weights: Vec<f64> = {
+        let raw: Vec<f64> = samples
+            .iter()
+            .map(|s| f64::from((luma(s.target) + DARK_FLOOR).powf(-dark)))
+            .collect();
+        let mean = raw.iter().sum::<f64>() / raw.len().max(1) as f64;
+        raw.iter().map(|w| w / mean).collect()
+    };
+    let weights = Some(&weights[..]);
+    let mut free: Vec<Candidate> = Vec::new();
+    for f in 0..count as u64 {
+        let pick = (hash(&[77, f, 1]) % samples.len() as u64) as usize;
+        let sample = &samples[pick];
+        let lift = 0.4 + 2.6 * unit(&[77, f, 2]);
+        let lift = level
+            .first_hit(sample.at, sample.normal, lift)
+            .map_or(lift, |(_, t)| t * 0.5);
+        let at = sample.at + sample.normal * lift;
+        for radius in FREE_RADII {
+            for shadow in [true, false] {
+                free.push(Candidate {
+                    kind: "free light".to_string(),
+                    name: format!("free {f}"),
+                    room: None,
+                    shape: Shape::Point(at),
+                    radius,
+                    ambient: false,
+                    group: Group::Lamp,
+                    shadow_room_lamp: false,
+                    shadow,
+                    rays: shadow,
+                    colour: [1.0; 3],
+                });
+            }
+        }
+    }
+    // Lamps painted into the lightmaps: the bright texels of one 0.75 m
+    // cell that face one way, as a panel on their surface. The strip of
+    // light at the foot of the cantina's bar is one, and no file lists it.
+    let mut painted: BTreeMap<([i32; 3], usize), Vec<usize>> = BTreeMap::new();
+    for (s, sample) in samples.iter().enumerate() {
+        if luma(sample.target.map(encoded)) < PAINTED_BRIGHT {
+            continue;
+        }
+        let n = sample.normal.to_array();
+        let axis = (0..3)
+            .max_by(|a, b| n[*a].abs().total_cmp(&n[*b].abs()))
+            .unwrap_or(2);
+        let facing = axis * 2 + usize::from(n[axis] < 0.0);
+        let cell = (sample.at / 0.75).floor().to_array().map(|v| v as i32);
+        painted.entry((cell, facing)).or_default().push(s);
+    }
+    let mut painted_count = 0usize;
+    for members in painted.values().filter(|members| members.len() >= 2) {
+        let count = members.len() as f32;
+        let centre = members.iter().map(|&s| samples[s].at).sum::<Vec3>() / count;
+        let normal = (members.iter().map(|&s| samples[s].normal).sum::<Vec3>() / count)
+            .normalize_or_zero();
+        if normal == Vec3::ZERO {
+            continue;
+        }
+        let (side, across) = normal.any_orthonormal_pair();
+        let half = [side, across].map(|way| {
+            way * members
+                .iter()
+                .map(|&s| (samples[s].at - centre).dot(way).abs())
+                .fold(0.1f32, f32::max)
+        });
+        painted_count += 1;
+        for radius in PAINTED_RADII {
+            free.push(Candidate {
+                kind: "painted lamp".to_string(),
+                name: format!("painted {painted_count}"),
+                room: None,
+                shape: Shape::Rect {
+                    centre,
+                    half,
+                    normal,
+                },
+                radius,
+                ambient: false,
+                group: Group::Panel,
+                shadow_room_lamp: false,
+                shadow: true,
+                rays: true,
+                colour: [1.0; 3],
+            });
+        }
+    }
+    let emitters: Vec<_> = free.iter().map(Candidate::emitters).collect();
+    let ends = k >= 3;
+    let rows: Vec<Row> = parallel(samples.len(), |s| {
+        let sample = &samples[s];
+        let mut row = Row::new();
+        for (f, candidate) in free.iter().enumerate() {
+            let away = (candidate.centre() - sample.at).length();
+            if away > if ends { candidate.radius } else { REACH } {
+                continue;
+            }
+            if let Some(light) = candidate.light_on(&emitters[f], sample, level)
+                && light[k] > 0.0
+            {
+                row.push(((n + f) as u32, [light[k]; 3]));
+            }
+        }
+        row
+    });
+    let wide = n + free.len();
+    let fill = with_bounce(main, k, &rows);
+    let every = |_: usize| true;
+    let train = |s: usize| !samples[s].held_out;
+    let test = |s: usize| samples[s].held_out;
+    let base: Vec<usize> = (0..n).collect();
+    let all: Vec<usize> = (0..wide).collect();
+
+    let normal = normal_eq_weighted(samples, wide, &every, &fill, true, weights);
+    let x = solve(&normal, &all);
+    let scored = score(samples, &x, &every, &fill);
+    let held = normal_eq_weighted(samples, wide, &train, &fill, true, weights);
+    let held_all = score(samples, &solve(&held, &all), &test, &fill).score.r2;
+
+    // The free lights by the light they give, most first.
+    let mut order: Vec<usize> = (n..wide).filter(|&j| scored.contribution[j] > 0.0).collect();
+    order.sort_by(|a, b| scored.contribution[*b].total_cmp(&scored.contribution[*a]));
+
+    let mut report = String::new();
+    let _ = writeln!(report, "## Free lights");
+    let _ = writeln!(report);
+    let _ = writeln!(
+        report,
+        "{painted_count} lamps painted into the lightmaps are tried as panels. {count} places, each tried with a radius of {} m, with a shadow and without. A sample's squared error is divided by its light to the power {dark}. {} of the {} got a strength.",
+        FREE_RADII.map(|r| format!("{r}")).join(" and "),
+        order.len(),
+        free.len()
+    );
+    let _ = writeln!(report);
+    let _ = writeln!(
+        report,
+        "| Free lights kept | R² | R² on held-out faces | Placed lights' share | Flat term's share | Error left | Mean difference as stored (of 255) |"
+    );
+    let _ = writeln!(report, "|---|---|---|---|---|---|---|");
+    let line = |report: &mut String, label: String, scored: &Scored, held: f64| {
+        let score = scored.score;
+        let _ = writeln!(
+            report,
+            "| {label} | {:.3} | {:.3} | {:.0}% | {:.0}% | {:.2} | {:.1} |",
+            score.r2,
+            held,
+            score.placed_share * 100.0,
+            score.flat_share * 100.0,
+            score.error_left,
+            stored_difference(samples, &scored.predicted)
+        );
+    };
+    let cols_of = |kept: usize| -> Vec<usize> {
+        base.iter()
+            .copied()
+            .chain(order.iter().copied().take(kept))
+            .collect()
+    };
+    let mut steps: Vec<usize> = vec![0, 10, 20, 40, 80, 160, 320, keep];
+    steps.retain(|&kept| kept <= order.len());
+    steps.sort_unstable();
+    steps.dedup();
+    for kept in steps {
+        let cols = cols_of(kept);
+        let fitted = score(samples, &solve(&normal, &cols), &every, &fill);
+        let held_r2 = score(samples, &solve(&held, &cols), &test, &fill).score.r2;
+        line(&mut report, format!("{kept}"), &fitted, held_r2);
+    }
+    line(&mut report, format!("all {}", order.len()), &scored, held_all);
+
+    // The kept lights, their columns moved up beside the files' candidates.
+    let kept: Vec<usize> = order.iter().copied().take(keep).collect();
+    let fitted = solve(&normal, &cols_of(keep));
+    let final_score = score(samples, &fitted, &every, &fill);
+    let mut out_candidates = candidates.to_vec();
+    let mut strengths: Strengths = std::array::from_fn(|c| fitted[c][..n].to_vec());
+    let mut given: Vec<f64> = final_score.contribution[1..n].to_vec();
+    let _ = writeln!(report);
+    let _ = writeln!(report, "## The {} free lights kept", kept.len());
+    let _ = writeln!(report);
+    let _ = writeln!(
+        report,
+        "| Place | Radius | Shadow | Colour (linear) | Share of the light |"
+    );
+    let _ = writeln!(report, "|---|---|---|---|---|");
+    let total: f64 = final_score.contribution.iter().sum::<f64>().max(1e-30);
+    for &j in &kept {
+        let candidate = &free[j - n];
+        let at = candidate.centre();
+        let _ = writeln!(
+            report,
+            "| {:.2} {:.2} {:.2} | {} | {} | {:.3} {:.3} {:.3} | {:.1}% |",
+            at.x,
+            at.y,
+            at.z,
+            candidate.radius,
+            if candidate.shadow { "yes" } else { "no" },
+            fitted[0][j],
+            fitted[1][j],
+            fitted[2][j],
+            final_score.contribution[j] / total * 100.0
+        );
+        out_candidates.push(candidate.clone());
+        given.push(final_score.contribution[j]);
+        for c in 0..3 {
+            strengths[c].push(fitted[c][j]);
+        }
+    }
+    FreeLights {
+        candidates: out_candidates,
+        strengths,
+        predicted: final_score.predicted,
+        given,
+        report,
+    }
 }
 
 /// R² of each sample predicted by the mean of the other samples within

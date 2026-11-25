@@ -1,0 +1,10 @@
+# 1.0 of the lit level of each room.
+m41ad_03a 0.5271
+m41ad_03b 0.6004
+m41ad_03c 0.5366
+m41ad_03d 0.5744
+m41ad_03e 0.5930
+m41ad_03f 0.6407
+m41ad_03g 0.4760
+m41ad_03h 0.5962
+m41ad_03i 0.3875

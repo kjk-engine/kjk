@@ -1,0 +1,4 @@
+# 1.0 of the lit level of each room.
+701korb 0.5333
+701korc 0.4530
+701kore 0.5895

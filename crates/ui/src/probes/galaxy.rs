@@ -14,12 +14,19 @@ use crate::vm::{GalaxyView, PlanetView, SceneView, ViewModel};
 
 const TARIS: u8 = 1;
 const DANTOOINE: u8 = 3;
+const SLEHEYRON: u8 = 5;
+/// A mod's planet buttons (Echoes of the Republic's): tags with no
+/// `LBL_Planet_` start, one of a planet available, one not.
+const MOD_SHOWN: &str = "gui_slehe_1";
+const MOD_HIDDEN: &str = "lbl_imana";
 
 fn layouts(assets: &mut Fake) {
     let mut controls: Vec<Control> = [
         "LBL_Planet_Taris",
         "LBL_Planet_Dantooine",
         "LBL_Planet_Korriban",
+        MOD_SHOWN,
+        MOD_HIDDEN,
         "BTN_ACCEPT",
         "BTN_BACK",
     ]
@@ -51,6 +58,7 @@ fn planet(row: u8, tag: &str, name: &str, selectable: bool) -> PlanetView {
         name: name.as_bytes().to_vec(),
         description: format!("{name}'s words").into_bytes(),
         model: Some(format!("planet_{row:02}")),
+        icon: Some(format!("gal_{}_2", name.to_ascii_lowercase())),
         selectable,
     }
 }
@@ -61,7 +69,17 @@ fn galaxy_vm(host: bool) -> ViewModel {
             planets: vec![
                 planet(TARIS, "LBL_Planet_Taris", "Taris", false),
                 planet(DANTOOINE, "LBL_Planet_Dantooine", "Dantooine", true),
+                planet(SLEHEYRON, "GUI_slehe_1", "Sleheyron", true),
             ],
+            buttons: [
+                "LBL_Planet_Taris",
+                "LBL_Planet_Dantooine",
+                "LBL_Planet_Korriban",
+                "GUI_slehe_1",
+                "lbl_imana",
+            ]
+            .map(String::from)
+            .to_vec(),
             current: Some(DANTOOINE),
             host,
         }),
@@ -82,7 +100,8 @@ fn travels(intents: &[Intent]) -> Vec<u8> {
 /// The host's map: Korriban (not available) hidden, Taris greyed and not
 /// chosen when pressed, Dantooine (the current planet) chosen with its name,
 /// words and model; Accept travels there and closes. A guest's has no
-/// Accept.
+/// Accept. Each button shows its row's icon, and a mod's button tag that
+/// `planetary.2da` names is hidden or shown as the planet is.
 fn galaxy_map() -> Check {
     let mut assets = Fake::new();
     layouts(&mut assets);
@@ -96,6 +115,12 @@ fn galaxy_map() -> Check {
         map.focused().map(str::to_string),
         map.state_of("3D_PlanetDisplay", &vm)
             .and_then(|state| state.scene),
+    );
+    let modded = (
+        map.hidden(MOD_HIDDEN, &vm),
+        map.state_of(MOD_SHOWN, &vm).and_then(|state| state.fill),
+        map.state_of("LBL_Planet_Dantooine", &vm)
+            .and_then(|state| state.fill),
     );
     presses(&mut map, &mut assets, &vm, &["LBL_Planet_Taris"]);
     let chosen = (
@@ -124,6 +149,17 @@ fn galaxy_map() -> Check {
                     Some(SceneView::Model("galaxy".into())),
                 ),
         )
+        .and_then(|()| {
+            expect(
+                &format!("the mod's Manaan hidden, each button's icon shown: {modded:?}"),
+                modded
+                    == (
+                        true,
+                        Some("gal_sleheyron_2".into()),
+                        Some("gal_dantooine_2".into()),
+                    ),
+            )
+        })
         .and_then(|()| {
             expect(
                 &format!("Dantooine's name, words and model: {chosen:?}"),

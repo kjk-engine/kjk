@@ -983,7 +983,8 @@ pub struct LostView {
 
 /// A planet the galaxy map shows (a `planetary.2da` row the scripts made
 /// available): its button's tag (`guitag`), name, description and model,
-/// and whether the party may travel there.
+/// the picture its button shows (`icon`), and whether the party may travel
+/// there.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlanetView {
     pub row: u8,
@@ -991,6 +992,7 @@ pub struct PlanetView {
     pub name: Vec<u8>,
     pub description: Vec<u8>,
     pub model: Option<String>,
+    pub icon: Option<String>,
     pub selectable: bool,
 }
 
@@ -1001,6 +1003,10 @@ pub struct PlanetView {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GalaxyView {
     pub planets: Vec<PlanetView>,
+    /// Every `planetary.2da` row's button tag (`guitag`), available or not.
+    /// A mod's planet buttons may have any tag, and the map hides those of
+    /// the planets not available.
+    pub buttons: Vec<String>,
     pub current: Option<u8>,
     pub host: bool,
 }
@@ -1453,6 +1459,9 @@ pub struct ViewModel {
     /// Shadows at Ultra is offered: the graphics card can trace rays
     /// (`display.shadows`).
     pub ultra_shadows: bool,
+    /// Lighting at Enhanced Lightmaps is offered: a lighting download is
+    /// installed for the game being played (`display.lighting`).
+    pub baked_lighting: bool,
     pub session: SessionView,
     /// The saved games found, the latest first.
     pub saves: Vec<SaveView>,
@@ -1464,8 +1473,8 @@ pub struct ViewModel {
     /// In play, what a save made now would be (its name the area's, no id
     /// or time yet); none where this player cannot save (a guest).
     pub here: Option<SaveView>,
-    /// A save may be loaded during play (alone: a host loads from the
-    /// main menu).
+    /// A save may be loaded during play: alone, or as the host, for
+    /// everyone (a guest cannot).
     pub load_in_play: bool,
     pub chargen: Option<ChargenView>,
     /// The journal's quests, the latest updated first.

@@ -151,18 +151,22 @@ fn classes(world: &SimWorld) -> Option<&sim::levels::Classes> {
 
 /// The body `appearance` wearing `armour` is drawn with (`appearance.2da`,
 /// as a creature's: the armour's body variation and texture), and the
-/// model of `headgear` (an item, a module's own read from `owner`:
-/// `viewer::worn_model`) on its head, dressed for `aligned`
-/// (`creature::align`).
+/// model of `headgear` (an item) on its head, dressed for `aligned`
+/// (`creature::align`). A module's own armour or headgear is read from
+/// its owner in `owners` (`viewer::Owners`, `viewer::worn_model`).
 pub fn wear(
-    (resolver, owner): (&Resolver, Option<&Resolver>),
+    (resolver, (armour_owner, owner)): (&Resolver, crate::viewer::Owners<'_>),
     tables: &mut asset_odyssey::tables::Tables,
     (appearance, armour, headgear, aligned): crate::headgear::SeatLook,
 ) -> Option<crate::play::Wear> {
     use asset_odyssey::creature;
     let source = crate::viewer::ResolverSource(resolver);
+    let dressed = crate::viewer::OwnItems {
+        scene: &source,
+        owner: armour_owner.map(crate::viewer::ResolverSource),
+    };
     let mut look =
-        creature::resolve_appearance(&source, u32::from(appearance), armour, tables).ok()?;
+        creature::resolve_appearance(&dressed, u32::from(appearance), armour, tables).ok()?;
     creature::align(&source, &mut look, aligned, tables);
     let strides = creature::strides(&source, u32::from(appearance), tables);
     Some(crate::play::Wear {

@@ -1,0 +1,12 @@
+# 1.0 of the lit level of each room.
+604dana 0.1887
+604danb 0.1139
+604danc 0.2010
+604dand 0.0822
+604dane 0.1866
+604danf 0.0601
+604dang 0.0734
+604danh 0.0734
+604dani 0.1027
+604danj 0.1861
+604dank 0.3004

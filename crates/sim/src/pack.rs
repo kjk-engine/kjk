@@ -380,6 +380,7 @@ fn decode_creature(input: &mut Reader) -> Result<ObjectData, DecodeError> {
         kind: ObjectKind::Creature,
         tag,
         cased_tag,
+        placed_tag: String::new(),
         template,
         position: [0.0; 3],
         yaw: 0.0,

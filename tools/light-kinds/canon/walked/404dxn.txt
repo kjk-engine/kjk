@@ -1,0 +1,2 @@
+# 1.0 of the lit level of each room.
+400dxn 0.3290
