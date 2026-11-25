@@ -1632,12 +1632,9 @@ impl Move<'_, '_> {
                 state.pace = duel::Pace::Own;
             }
         }
-        // An ordinary swing opens the window for a Force leap, the same swing
-        // repeated while [Attack] is held too; a special attack closes it.
+        // A special attack closes the window of a Force leap's first tap.
         if next.special() || next.kata() {
             arms.fighter.leap_armed_until = 0;
-        } else if next.start() || next.attack() {
-            arms.fighter.leap_armed_until = self.time_ms + specials::LEAP_WINDOW_MS;
         }
         let saber = &mut arms.fighter.saber;
         saber.current_move = next;
@@ -1734,11 +1731,13 @@ impl Move<'_, '_> {
         held.then_some(true)
     }
 
-    /// Starts a Force leap if one may start now: the player's own body,
-    /// with Force Jump and a lit lightsaber, pressing [Jump] afresh within
-    /// `specials::LEAP_WINDOW_MS` of starting an ordinary swing
-    /// (`Fighter::leap_armed_until`) or while that swing still plays, on its feet on the ground, and an
-    /// enemy in front (`leap_target`). The swing gives way to the leap.
+    /// Starts a Force leap if one may start now: the player's own body, with
+    /// Force Jump and a lit lightsaber, attacking ([Attack] held, or an
+    /// ordinary swing playing), on its feet on the ground, with an enemy in
+    /// front (`leap_target`), tapping [Jump] twice within
+    /// `specials::LEAP_WINDOW_MS`. The first tap makes no jump: it opens the
+    /// window (`Fighter::leap_armed_until`). The second starts the leap, and
+    /// the swing gives way to it.
     fn start_leap(&mut self, arms: &mut Arms) -> bool {
         let now = self.time_ms;
         let fighter = &*arms.fighter;
@@ -1762,13 +1761,12 @@ impl Move<'_, '_> {
             && !current.kata()
             && !is_special_move(self.ps.legs.anim)
             && !is_special_move(self.ps.torso.anim);
-        // Within the window, or while the ordinary swing still plays.
         let swinging = current.start() || current.attack() || current.transition();
-        let armed = fighter.leap_armed_until > now || swinging;
+        let attacking = self.attack_held() || swinging;
         if !(arms.keyed
             && arms.player
             && fresh
-            && armed
+            && attacking
             && lightsaber
             && rank > 0
             && free
@@ -1780,6 +1778,12 @@ impl Move<'_, '_> {
         let Some((target, to)) = self.leap_target(arms, usize::from(rank) - 1) else {
             return false;
         };
+        // The first tap: no jump, and the window opens for the second.
+        if arms.fighter.leap_armed_until <= now {
+            arms.fighter.leap_armed_until = now + specials::LEAP_WINDOW_MS;
+            self.ps.flags |= motion_flags::JUMP_PRESSED;
+            return false;
+        }
         let pair = arms.kit.forced_style(fighter.hand) == Some(Style::Dual);
         let stance = Self::blade_stance(saber, pair);
         let fighter = &mut *arms.fighter;
@@ -1807,39 +1811,56 @@ impl Move<'_, '_> {
     /// The enemy a Force leap of Force Jump rank `rank` (0 to 2) leaps at,
     /// and where it lands (units): of the enemies (`Arms::foes`) more than
     /// `specials::LEAP_LEAST` and no more than the rank's
-    /// `specials::LEAP_MOST` away, centre to centre, within
-    /// `specials::LEAP_ARC` degrees of the flat view, the one nearest to the
-    /// view's line whose way is clear: a box as wide as the character's own
-    /// meets nothing of the level on the way to it (other characters do not
-    /// stop it). It lands `specials::LEAP_STOP` short of the enemy's box.
+    /// `specials::LEAP_MOST` away across the ground, centre to centre,
+    /// within `specials::LEAP_ARC` degrees of the flat view, and no higher
+    /// above the character than its Force Jump rises
+    /// (`force::jump::HEIGHTS`), the one nearest to the view's line whose
+    /// way is clear. It lands `specials::LEAP_STOP` short of the enemy's
+    /// box, at the enemy's height. The way is clear when a box as wide as
+    /// the character's own meets nothing of the level going up to a point
+    /// `specials::LEAP_CLEAR` over the higher of the two halfway along, and
+    /// from there down to where it lands; other characters do not stop it.
     fn leap_target(&self, arms: &Arms, rank: usize) -> Option<(crate::snapshot::SimId, Vec3)> {
         let most = specials::LEAP_MOST[rank];
+        let highest = rules::force::jump::HEIGHTS[rank + 1];
         let (_, least_cos) = collision::trig::sin_cos_deg(specials::LEAP_ARC);
         let o = self.ps.origin;
         let (ahead, _, _) = self.flat_view();
         let level = Contents(Contents::PLAYER_SOLID.0 & !Contents::BODY.0);
-        let mut candidates: Vec<(f32, u32, Vec3, f32)> = arms
+        let mut candidates: Vec<(f32, u32, Vec3, f32, f32)> = arms
             .foes
             .iter()
             .filter_map(|&(entity, at)| {
                 let mut way = math::sub(at, o);
+                let rise = way[2];
                 way[2] = 0.0;
                 let apart = math::normalize(&mut way);
                 let facing = math::dot(way, ahead);
-                (apart > specials::LEAP_LEAST && apart <= most && facing >= least_cos)
-                    .then_some((facing, entity, way, apart))
+                (apart > specials::LEAP_LEAST
+                    && apart <= most
+                    && facing >= least_cos
+                    && rise <= highest)
+                    .then_some((facing, entity, way, apart, at[2]))
             })
             .collect();
         candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-        candidates.into_iter().find_map(|(_, entity, way, apart)| {
-            let back = (apart - 2.0 * super::HALF_WIDTH - specials::LEAP_STOP).max(0.0);
-            let to = math::mad(o, back, way);
-            let hit = self.trace_masked(o, to, self.mins, self.maxs, level);
-            (hit.fraction >= 1.0 && !hit.all_solid).then(|| {
-                let id = crate::snapshot::SimId(entity & !crate::world::BODY);
-                (id, to)
+        candidates
+            .into_iter()
+            .find_map(|(_, entity, way, apart, z)| {
+                let back = (apart - 2.0 * super::HALF_WIDTH - specials::LEAP_STOP).max(0.0);
+                let mut to = math::mad(o, back, way);
+                to[2] = z;
+                let mut over = math::mad(o, back / 2.0, way);
+                over[2] = o[2].max(z) + specials::LEAP_CLEAR;
+                let clear = |from: Vec3, until: Vec3| {
+                    let hit = self.trace_masked(from, until, self.mins, self.maxs, level);
+                    hit.fraction >= 1.0 && !hit.all_solid
+                };
+                (clear(o, over) && clear(over, to)).then(|| {
+                    let id = crate::snapshot::SimId(entity & !crate::world::BODY);
+                    (id, to)
+                })
             })
-        })
     }
 
     /// The Force leap's step after the move, if one is under way: it leaves
@@ -1868,18 +1889,22 @@ impl Move<'_, '_> {
                 .max(self.ms.max(1) as u64);
             let seconds = left as f32 / 1000.0;
             let speed = distance / seconds;
+            // Up so that it comes down to the landing's height on time.
+            let drop = leap.to[2] - self.ps.origin[2];
             self.ps.velocity = [
                 way[0] * speed,
                 way[1] * speed,
-                self.ps.gravity * seconds / 2.0,
+                drop / seconds + self.ps.gravity * seconds / 2.0,
             ];
             self.set_jump_start(self.ps.origin[2]);
             self.ps.events |= events::JUMP;
             leap.flown = true;
             arms.fighter.leap = Some(leap);
         }
-        // Landed, it stops where it came down rather than slide on.
-        if leap.flown && elapsed >= LEAP_LANDING_MS && self.ps.ground.is_some() {
+        // Landed, it stops where it came down rather than slide on: on the
+        // ground and no longer rising, or past its landing time.
+        let down = self.ps.ground.is_some() && self.ps.velocity[2] <= 0.0;
+        if leap.flown && (down || elapsed >= LEAP_LANDING_MS) && self.ps.ground.is_some() {
             self.ps.velocity[0] = 0.0;
             self.ps.velocity[1] = 0.0;
         }

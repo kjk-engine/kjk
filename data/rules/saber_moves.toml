@@ -532,11 +532,11 @@ see = "sim::motion::saber"
 [specials.leap_window_ms]
 name = "Force Leap Window"
 type = "u64"
-value = 500
+value = 1000
 unit = "ms"
 range = [0, 2000]
-summary = "A character with Force Jump makes a Force leap by pressing [Jump] within {saber_moves.specials.leap_window_ms:s} after starting an ordinary swing with a lightsaber, or while that swing still plays."
-detail = "KOTOR makes the leap whenever the Jedi attacks a distant enemy. kjk asks for the jump key as well, so the leap is never made by accident."
+summary = "A character with Force Jump makes a Force leap by holding [Attack], or swinging a lightsaber, and tapping [Jump] twice within {saber_moves.specials.leap_window_ms:s}. The first tap makes no jump while an enemy stands within the leap's reach."
+detail = "KOTOR makes the leap whenever the Jedi attacks a distant enemy. kjk asks for two taps of the jump key during an attack, so the leap is never made by accident and does not take the place of the other jumping attacks."
 source = "ours, after KOTOR's Force Jump feats"
 see = "sim::motion::saber"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY", "kind:lightsaber"]
@@ -590,6 +590,15 @@ summary = "A Force leap leaves the ground {saber_moves.specials.leap_times[0]:s}
 detail = "The times follow KOTOR's Force Jump animation. The character covers the whole distance between takeoff and landing, however far the enemy is."
 source = "KOTOR's Force Jump animation"
 see = "sim::motion::saber"
+[specials.leap_clear]
+name = "Force Leap Clearance"
+value = 48.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "A Force leap needs a clear way to the enemy: the character's body must pass up to {saber_moves.specials.leap_clear:m} over the higher of the two, halfway along, and down to where it lands, without meeting walls or ground. The enemy may stand no higher above the character than the character's Force Jump rises."
+source = "ours"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
 [specials.leap_stop]
 name = "Force Leap Landing"
 value = 40.0

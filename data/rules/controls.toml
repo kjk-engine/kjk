@@ -203,11 +203,14 @@ second bar.
 [specials.leap]
 title = "Force Leap"
 summary = """
-Start an ordinary swing with a lightsaber, then press [Jump] within
-{saber_moves.specials.leap_window_ms:s}, or while the swing still plays. The character needs Force Jump. If an
+Hold [Attack] with a lightsaber, or swing it, and tap [Jump] twice within
+{saber_moves.specials.leap_window_ms:s}. The character needs Force Jump. If an
 enemy stands in front of the character, more than
 {saber_moves.specials.leap_least:m} away and within the leap's range, with
 nothing in the way, the character leaps across the distance and strikes once.
+The leap comes down at the enemy's height, so the character can leap down
+from a hill or up a few steps. The first tap makes no jump while such an enemy
+stands in front.
 The range is {saber_moves.specials.leap_most[0]:m} with Force Jump,
 {saber_moves.specials.leap_most[1]:m} with Advanced Force Jump and
 {saber_moves.specials.leap_most[2]:m} with Force Jump Mastery. The blow gets
