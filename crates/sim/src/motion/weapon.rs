@@ -91,10 +91,10 @@ pub struct Arms<'a> {
     /// is set for every body, but only a keyed body uses it, because
     /// `duel_block` and `track_turn` act only when `keyed` is set.
     pub targeted: bool,
-    /// The bodies (entity numbers, sorted) of the characters hostile to a
-    /// keyed body, which a Force leap may leap at (`Move::force_leap`);
-    /// empty for every other body.
-    pub foes: &'a [u32],
+    /// The characters hostile to a keyed body, which a Force leap may leap
+    /// at (`Move::force_leap`): each body's entity number and where it
+    /// stands (units), sorted by entity; empty for every other body.
+    pub foes: &'a [(u32, math::Vec3)],
 }
 
 /// Another character, as a saber move's check meets it: its body's entity

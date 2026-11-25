@@ -542,13 +542,22 @@ see = "sim::motion::saber"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY", "kind:lightsaber"]
 [specials.leap_least]
 name = "Force Leap Least Distance"
-value = 394.0
+value = 197.0
 unit = "units"
 range = [0.0, 2048.0]
 summary = "A Force leap needs the enemy to stand more than {saber_moves.specials.leap_least:m} away."
-source = "KOTOR's Force Jump feats"
+detail = "KOTOR's Force Jump needs the enemy more than 10 meters away. kjk halves that, so the leap also works at a medium distance."
+source = "ours, after KOTOR's Force Jump feats"
 see = "sim::motion::saber"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_arc]
+name = "Force Leap Aim"
+value = 15.0
+unit = "°"
+range = [0.0, 90.0]
+summary = "A Force leap goes for an enemy within {saber_moves.specials.leap_arc} degrees to either side of where the character faces. If several enemies qualify, it goes for the one closest to that direction."
+source = "ours"
+see = "sim::motion::saber"
 [specials.leap_most]
 name = "Force Leap Range"
 value = [900.0, 1200.0, 1500.0]

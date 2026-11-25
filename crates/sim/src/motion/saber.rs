@@ -1802,47 +1802,48 @@ impl Move<'_, '_> {
     }
 
     /// The enemy a Force leap of Force Jump rank `rank` (0 to 2) leaps at,
-    /// and where it lands (units): the first body a box as wide as the
-    /// character's own meets along the flat view, else along the way to
-    /// the character's target, if it is an enemy (`Arms::foes`) more than
+    /// and where it lands (units): of the enemies (`Arms::foes`) more than
     /// `specials::LEAP_LEAST` and no more than the rank's
-    /// `specials::LEAP_MOST` away, centre to centre. Nothing else stands in
-    /// the way: the box meets the enemy first. It lands
-    /// `specials::LEAP_STOP` short of the enemy's box.
+    /// `specials::LEAP_MOST` away, centre to centre, within
+    /// `specials::LEAP_ARC` degrees of the flat view, the one nearest to the
+    /// view's line whose way is clear: a box as wide as the character's own
+    /// meets nothing of the level on the way to it (other characters do not
+    /// stop it). It lands `specials::LEAP_STOP` short of the enemy's box.
     fn leap_target(&self, arms: &Arms, rank: usize) -> Option<(crate::snapshot::SimId, Vec3)> {
         let most = specials::LEAP_MOST[rank];
+        let (_, least_cos) = collision::trig::sin_cos_deg(specials::LEAP_ARC);
         let o = self.ps.origin;
         let (ahead, _, _) = self.flat_view();
-        let toward_target = arms.enemy.and_then(|eye| {
-            let mut way = math::sub(eye, o);
-            way[2] = 0.0;
-            (math::normalize(&mut way) > 0.0).then_some(way)
-        });
-        [Some(ahead), toward_target]
-            .into_iter()
-            .flatten()
-            .find_map(|way| {
-                let hit = self.trace(o, math::mad(o, most, way), self.mins, self.maxs);
-                let Ground::Entity(entity) = hit.ground else {
-                    return None;
-                };
-                if hit.fraction >= 1.0 || arms.foes.binary_search(&entity).is_err() {
-                    return None;
-                }
-                let touching = math::length(math::sub(hit.end, o));
-                let apart = touching + 2.0 * super::HALF_WIDTH;
-                (apart > specials::LEAP_LEAST && apart <= most).then(|| {
-                    let back = (touching - specials::LEAP_STOP).max(0.0);
-                    let id = crate::snapshot::SimId(entity & !crate::world::BODY);
-                    (id, math::mad(o, back, way))
-                })
+        let level = Contents(Contents::PLAYER_SOLID.0 & !Contents::BODY.0);
+        let mut candidates: Vec<(f32, u32, Vec3, f32)> = arms
+            .foes
+            .iter()
+            .filter_map(|&(entity, at)| {
+                let mut way = math::sub(at, o);
+                way[2] = 0.0;
+                let apart = math::normalize(&mut way);
+                let facing = math::dot(way, ahead);
+                (apart > specials::LEAP_LEAST && apart <= most && facing >= least_cos)
+                    .then_some((facing, entity, way, apart))
             })
+            .collect();
+        candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+        candidates.into_iter().find_map(|(_, entity, way, apart)| {
+            let back = (apart - 2.0 * super::HALF_WIDTH - specials::LEAP_STOP).max(0.0);
+            let to = math::mad(o, back, way);
+            let hit = self.trace_masked(o, to, self.mins, self.maxs, level);
+            (hit.fraction >= 1.0 && !hit.all_solid).then(|| {
+                let id = crate::snapshot::SimId(entity & !crate::world::BODY);
+                (id, to)
+            })
+        })
     }
 
     /// The Force leap's step after the move, if one is under way: it leaves
     /// the ground at `LEAP_TAKEOFF_MS`, thrown so that it comes down where
     /// it lands (`Leap::to`) at `LEAP_LANDING_MS`, and ends at
-    /// `LEAP_END_MS`, or at once if the character is knocked down. Its blow
+    /// `LEAP_END_MS`, or at once if the character is knocked down. Once it
+    /// lands it stands where it came down. Its blow
     /// is the world's (`world::strikes::leap_blows`). Whether one was.
     pub(super) fn leap_step(&mut self, arms: &mut Arms) -> bool {
         let now = self.time_ms;
@@ -1873,6 +1874,11 @@ impl Move<'_, '_> {
             self.ps.events |= events::JUMP;
             leap.flown = true;
             arms.fighter.leap = Some(leap);
+        }
+        // Landed, it stops where it came down rather than slide on.
+        if leap.flown && elapsed >= LEAP_LANDING_MS && self.ps.ground.is_some() {
+            self.ps.velocity[0] = 0.0;
+            self.ps.velocity[1] = 0.0;
         }
         arms.fighter.weapon_wait_ms = (LEAP_END_MS - elapsed) as i32;
         true

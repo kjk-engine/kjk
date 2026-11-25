@@ -2,10 +2,13 @@
 //! player with Force Jump who starts an ordinary swing and presses [Jump]
 //! within the window leaps at the enemy in front and strikes once.
 //! - With Force Jump, the swing and the press, the player leaps and lands
-//!   beside the enemy, who stood beyond the least distance.
+//!   beside the enemy, who stood beyond the least distance, and stays there.
+//! - An enemy a little to one side, within the aim's arc, is leapt at too;
+//!   one well to the side is not.
 //! - Without Force Jump, the same keys make no leap.
 //! - Without the swing, the press makes no leap.
 //! - With the enemy nearer than the least distance, no leap is made.
+//! - After one leap, the same keys from as far away leap again.
 //!
 //! Each is played from a trace scenario (`trace::duels`) under Jedi
 //! Academy's rules, against a hostile creature put in front of the player.
@@ -27,16 +30,23 @@ const READY: usize = 211;
 const LANDED: f32 = 140.0;
 /// What a fight with the creature `away` units in front did: whether the
 /// player leapt, and the nearest it came to the creature afterwards.
-fn fight(jump: u8, away: f32, swing: bool) -> Result<(bool, f32), String> {
+fn fight(jump: u8, away: f32, swing: bool) -> Result<(bool, f32, f32), String> {
+    fight_at(jump, away, 0.0, swing)
+}
+/// `fight`, the creature `side` degrees to the left of straight ahead. What
+/// it did: whether the player leapt, the nearest it came to the creature,
+/// and how far apart they stood at the end.
+fn fight_at(jump: u8, away: f32, side: f32, swing: bool) -> Result<(bool, f32, f32), String> {
     let swing = if swing { "b0=attack " } else { "" };
-    let x = away;
+    let (sin, cos) = collision::trig::sin_cos_deg(side);
+    let (x, y) = (away * cos, LANE + away * sin);
     let text = format!(
         "scenario force leap\nrules ja\nseed 7\n\
          fighter 0 medium x=0 y={LANE} jump={jump} defence=2 tiers=2 fp=100 hp=400\n\
          creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
          begin\ntick 1 b0=attack\ntick {}\n\
-         put c0 {x} {LANE} {STANDING_Z} 180\n\
-         tick 1 {swing}c0=0\ntick 5 c0=0\ntick 1 u0=127 c0=0\ntick 220 c0=0\n",
+         put c0 {x} {y} {STANDING_Z} 180\n\
+         tick 1 {swing}\ntick 5\ntick 1 u0=127\ntick 220\n",
         READY - 1,
     );
     let ticks: Vec<Snapshot> = play(&text)?;
@@ -49,7 +59,11 @@ fn fight(jump: u8, away: f32, swing: bool) -> Result<(bool, f32), String> {
         .iter()
         .filter_map(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
         .fold(f32::MAX, f32::min);
-    Ok((leapt, nearest))
+    let last = after
+        .last()
+        .and_then(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .unwrap_or(f32::MAX);
+    Ok((leapt, nearest, last))
 }
 fn player(tick: &Snapshot) -> Option<Vec3> {
     tick.own(Seat(0))?.player.map(|ps| ps.origin)
@@ -67,15 +81,36 @@ fn far() -> f32 {
 }
 fn leaps() -> Result<String, String> {
     let away = far();
-    let (leapt, nearest) = fight(1, away, true)?;
+    let (leapt, nearest, last) = fight(1, away, true)?;
+    check(
+        leapt && nearest <= LANDED && last <= LANDED,
+        format!(
+            "enemy {away} units off: leapt {leapt}, came within {nearest:.0} units, \
+             {last:.0} units apart at the end"
+        ),
+    )
+}
+fn in_the_arc() -> Result<String, String> {
+    let (away, side) = (far(), specials::LEAP_ARC * 0.6);
+    let (leapt, nearest, _) = fight_at(1, away, side, true)?;
     check(
         leapt && nearest <= LANDED,
-        format!("enemy {away} units off: leapt {leapt}, came within {nearest:.0} units"),
+        format!(
+            "enemy {away} units off, {side} degrees aside: leapt {leapt}, came within {nearest:.0}"
+        ),
+    )
+}
+fn out_of_the_arc() -> Result<String, String> {
+    let (away, side) = (far(), specials::LEAP_ARC * 2.0);
+    let (leapt, _, _) = fight_at(1, away, side, true)?;
+    check(
+        !leapt,
+        format!("enemy {away} units off, {side} degrees aside: leapt {leapt}"),
     )
 }
 fn no_feat() -> Result<String, String> {
     let away = far();
-    let (leapt, _) = fight(0, away, true)?;
+    let (leapt, _, _) = fight(0, away, true)?;
     check(
         !leapt,
         format!("without Force Jump, enemy {away} units off: leapt {leapt}"),
@@ -83,7 +118,7 @@ fn no_feat() -> Result<String, String> {
 }
 fn no_swing() -> Result<String, String> {
     let away = far();
-    let (leapt, _) = fight(1, away, false)?;
+    let (leapt, _, _) = fight(1, away, false)?;
     check(
         !leapt,
         format!("[Jump] without a swing, enemy {away} units off: leapt {leapt}"),
@@ -91,14 +126,47 @@ fn no_swing() -> Result<String, String> {
 }
 fn too_near() -> Result<String, String> {
     let away = specials::LEAP_LEAST - 100.0;
-    let (leapt, _) = fight(1, away, true)?;
+    let (leapt, _, _) = fight(1, away, true)?;
     check(!leapt, format!("enemy {away} units off: leapt {leapt}"))
 }
 pub fn probes() -> Checks {
     vec![
         ("the player leaps at a distant enemy", leaps()),
+        ("the leap goes for an enemy a little aside", in_the_arc()),
+        ("no leap at an enemy well aside", out_of_the_arc()),
+        ("the player leaps again after the first leap", leaps_again()),
         ("no leap without Force Jump", no_feat()),
         ("no leap without a swing", no_swing()),
         ("no leap at a near enemy", too_near()),
     ]
+}
+/// A second leap after the first: the player leaps, both are put back
+/// apart as they started, and the same keys leap again.
+fn leaps_again() -> Result<String, String> {
+    let away = far();
+    let text = format!(
+        "scenario force leap twice\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 1 b0=attack\ntick 5\ntick 1 u0=127\ntick 220\n\
+         put 0 0 {LANE} {STANDING_Z} 0\nput c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 60\ntick 1 b0=attack\ntick 5\ntick 1 u0=127\ntick 220\n",
+        READY - 1,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leaping: Vec<bool> = ticks
+        .iter()
+        .map(|tick| {
+            tick.own(Seat(0))
+                .and_then(|entity| entity.fighter)
+                .is_some_and(|fighter| fighter.leap.is_some())
+        })
+        .collect();
+    let starts = leaping.windows(2).filter(|w| !w[0] && w[1]).count();
+    check(
+        starts >= 2,
+        format!("enemy {away} units off twice: {starts} leaps started"),
+    )
 }
