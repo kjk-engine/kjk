@@ -52,6 +52,7 @@ area you touch.
 | [`EQUIVALENCE.md`](EQUIVALENCE.md) | equivalence traces of a sim package through its public API, floats as bits: `kjk trace`, `kjk trace-diff`, the scenario files and test worlds, coverage of a trace run | proving a rewrite of a package behaves bit for bit as the old one |
 | [`TESTS.md`](TESTS.md) | the approved tests (`crates/approved_tests`): what each checks, running them, re-pinning the sim hash and jolt ceilings | before changing what they measure, or when one fails |
 | [`UI.md`](UI.md) | the game's screens: layouts, fonts, the paint and the stack, view-models, the HUD, actions and notices over the network; `kjk gui`, the `ui` console verbs | touching a screen, the menu, the HUD or what the UI sends |
+| [`UI-GUIDELINES.md`](UI-GUIDELINES.md) | the principles that keep a screen feeling like KOTOR, the six sizes and three distances screens are checked at, and the numbered rules the lint and the reviews use | before changing how a screen looks or works |
 | [`VFS.md`](VFS.md) | finding installs, archive formats, KOTOR and JA precedence, `ls`/`extract`/`check`, the fingerprint | a resource resolves to the wrong file, a game is not found |
 
 Living maps outside `docs/`:

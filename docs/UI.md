@@ -1,6 +1,7 @@
 # The game's screens (`ui`, `game::ui_view`)
 
 KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
+[`UI-GUIDELINES.md`](UI-GUIDELINES.md) holds the principles and the numbered rules every screen is held to.
 - **`fmt_odyssey::gui`** reads a layout; **`asset_odyssey::font`** a TXI
   bitmap font. Child extents are relative to the root; the frame is
   640 × 480 unless the root reaches past it (`mainmenu16x12`, `mipc28x6`).
