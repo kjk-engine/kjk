@@ -14,7 +14,8 @@
 //! - each seat's player carries over (its id and seat; the first seat's
 //!   switch as the party table has it, `SimWorld::settle_switch`), standing at the
 //!   arrival: the door or waypoint the transition names, else the module's
-//!   entry, dropped to the floor there, the next seats on free spots
+//!   entry, moved onto the walkmesh when its height is off every floor
+//!   there, dropped to the floor there, the next seats on free spots
 //!   around it (an arrival over no floor: around the walkmesh's nearest
 //!   face, else at the arrival itself, so an install never fails for want
 //!   of room); each looks the arrival's way;
@@ -516,7 +517,7 @@ pub(crate) fn assemble(
 
     // The players, where they arrive.
     let states = level.states(objects(&entities));
-    let spot = arrival_spot(&module, arrival, &instances, &entities);
+    let spot = onto_walkmesh(level, arrival_spot(&module, arrival, &instances, &entities));
     let mut avatars: Vec<&EntityState> = before
         .entities
         .iter()
@@ -542,31 +543,14 @@ pub(crate) fn assemble(
             (!fits).then(|| [x / UNIT, y / UNIT, floor / UNIT - motion::SOLE_Z])
         })
         .flatten();
-    let origins = level
-        .with(states.as_deref(), |world| match own {
-            Some(own) => spots(world, &spot, count - 1, &[(own, APART)], None, RINGS).map(|rest| {
-                let mut all = vec![own];
-                all.extend(rest);
-                all
-            }),
-            None => spots(world, &spot, count, &[], None, RINGS),
-        })
-        .or_else(|| {
-            // An arrival whose height is off its floor (Manaan's West
-            // Central gives one 50 m below): KOTOR stands it on the
-            // walkmesh under it, whatever height the waypoint says.
-            let [x, y, z] = spot.position;
-            let floor = level
-                .nav()?
-                .height([x, y, z], ARRIVAL_SEARCH_M, ARRIVAL_SEARCH_M)?;
-            let lifted = Spot {
-                position: [x, y, floor],
-                ..spot
-            };
-            level.with(states.as_deref(), |world| {
-                spots(world, &lifted, count, &[], None, RINGS)
-            })
-        });
+    let origins = level.with(states.as_deref(), |world| match own {
+        Some(own) => spots(world, &spot, count - 1, &[(own, APART)], None, RINGS).map(|rest| {
+            let mut all = vec![own];
+            all.extend(rest);
+            all
+        }),
+        None => spots(world, &spot, count, &[], None, RINGS),
+    });
     // An arrival nowhere over its walkmesh (a cutscene module's entry off
     // its rooms in other data than ours) stands the party round the
     // walkmesh's closest face, crowded onto the face itself where no room
@@ -934,6 +918,31 @@ fn arrival_spot(
             })
         })
         .unwrap_or(spot)
+}
+
+/// `spot` moved onto the walkmesh when its height is off every floor of
+/// its column. KOTOR stands an arrival on the walkmesh under or over its
+/// waypoint, whatever height the waypoint says. Manaan's West Central gives
+/// one 50 m under its floor. Mission to Sleheyron gives its landing pad's
+/// arrival 2.5 m under the pad, where no walkmesh is, and the drop from
+/// there stood the player on the ground drawn under the pad. A spot within
+/// `OWN_FLOOR_M` of a floor is kept, so the drop onto the floor drawn there
+/// finds it (`spots`).
+fn onto_walkmesh(level: &Level, spot: Spot) -> Spot {
+    let Some(nav) = level.nav() else {
+        return spot;
+    };
+    let at = spot.position;
+    if nav.height(at, OWN_FLOOR_M, OWN_FLOOR_M).is_some() {
+        return spot;
+    }
+    match nav.height(at, ARRIVAL_SEARCH_M, ARRIVAL_SEARCH_M) {
+        Some(floor) => Spot {
+            position: [at[0], at[1], floor],
+            ..spot
+        },
+        None => spot,
+    }
 }
 
 /// Placements `numbers` of `instances` as a module's first install makes
