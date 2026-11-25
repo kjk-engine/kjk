@@ -39,6 +39,7 @@ pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_play
 #[cfg(feature = "probes")]
 pub(crate) use saber::move_speed;
 pub(crate) use saber::play_speed;
+pub use saber::{LEAP_BLOW_MS, LEAP_END_MS, LEAP_LANDING_MS, LEAP_TAKEOFF_MS};
 pub use weapon::{Arms, Other, gun_ready, gun_shot, shrugs_off_pain};
 
 pub use collision::UNIT;

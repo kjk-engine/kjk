@@ -84,6 +84,6 @@ pub fn check(d20: i32, bonus: i32, dc: i32) -> bool {
 }
 
 pub use damage::{Blow, FriendlyFire, Relation, Resolved, Source};
-pub use fighter::{Event, Fighter, Life, Location, Look, Outcome, Sheath};
+pub use fighter::{Event, Fighter, Leap, Life, Location, Look, Outcome, Sheath};
 pub use missiles::Missile;
 pub use sheet::{Delivery, Sheet, Weapon};

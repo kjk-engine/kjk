@@ -930,6 +930,18 @@ pub(super) fn move_actors(
             .target
             .and_then(|target| eyes.binary_search_by_key(&target, |(id, _)| *id).ok())
             .map(|at| eyes[at].1);
+        // The characters hostile to a seat's body, which its Force leap may
+        // leap at (`motion::Move::force_leap`).
+        let foes: Vec<u32> = match (seat.is_some(), side(id.0)) {
+            (true, Some(mine)) => sides
+                .iter()
+                .filter(|(_, theirs)| {
+                    crate::module::relation(standing, mine, *theirs) == Relation::Hostile
+                })
+                .map(|(who, _)| who.0 | BODY)
+                .collect(),
+            _ => Vec::new(),
+        };
         let move_before = fighting.0.saber.current_move;
         let mut arms = motion::Arms {
             fighter: &mut fighting.0,
@@ -943,6 +955,7 @@ pub(super) fn move_actors(
             drew,
             rules,
             targeted,
+            foes: &foes,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.

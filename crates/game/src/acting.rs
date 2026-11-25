@@ -532,6 +532,42 @@ pub fn baton_names() -> impl Iterator<Item = (u16, String)> {
         .map(|(animation, name)| (animation, name.to_string()))
 }
 
+/// KOTOR's Force Jump clips, the leap of a Force leap
+/// (`sim::motion::Move::force_leap`), drawn on the whole of a retargeted
+/// body: `f2a4` with one lightsaber at `LEAP`, `f3a4` with a double-bladed
+/// one at the next and `f4a4` with two at the one after.
+pub const LEAP: u16 = 4810;
+/// The Force leap's clips (`LEAP`).
+pub fn leap_names() -> impl Iterator<Item = (u16, String)> {
+    [(LEAP, "f2a4"), (LEAP + 1, "f3a4"), (LEAP + 2, "f4a4")]
+        .into_iter()
+        .map(|(animation, name)| (animation, name.to_string()))
+}
+/// The Force leap's clip at `ms` (sim ms) while `fighter` leaps: the
+/// clip of its saber style, how far in (seconds) and how much over the
+/// pose, fading in and out over the clip's transition time.
+pub fn leap_shown<'a>(
+    fighter: Option<&sim::combat::Fighter>,
+    bound: &'a Bound,
+    ms: f64,
+) -> Option<(&'a Animator, f32, f32)> {
+    use sim::combat::saber::Style;
+    let fighter = fighter.filter(|f| f.alive())?;
+    let leap = fighter.leap?;
+    let wanted = match fighter.saber.style {
+        Some(Style::Staff) => LEAP + 1,
+        Some(Style::Dual) => LEAP + 2,
+        _ => LEAP,
+    };
+    let clip = bound.iter().find(|(a, _)| *a == wanted).map(|(_, c)| c)?;
+    let at = ((ms - leap.began as f64) / 1000.0).max(0.0) as f32;
+    let (length, fade) = (clip.length(), clip.transition().max(f32::EPSILON));
+    if at >= length {
+        return None;
+    }
+    let weight = (at / fade).min(1.0) * ((length - at) / fade).clamp(0.0, 1.0);
+    Some((clip, at, weight))
+}
 /// A baton swing as drawn over the JA pose: KOTOR's clip on the torso and
 /// the swinging right arm only. KOTOR's swing also throws the head and the
 /// free left arm about, which the next swing, beginning before the last

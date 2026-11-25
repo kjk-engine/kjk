@@ -1,0 +1,5 @@
+# A fighter keeps the Force leap's window and the leap under way.
+[formats]
+snapshot = "a fighter keeps until when [Jump] makes a Force leap and the leap under way (`Fighter::leap_armed_until`, `Fighter::leap`)."
+[migrations]
+snapshot = "an older snapshot reads no leap armed and none under way"

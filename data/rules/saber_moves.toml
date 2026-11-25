@@ -529,6 +529,74 @@ summary = "The double attack finds an enemy up to {saber_moves.specials.mirror_b
 source = "JA"
 see = "sim::motion::saber"
 
+[specials.leap_window_ms]
+name = "Force Leap Window"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 2000]
+summary = "A character with Force Jump makes a Force leap by pressing [Jump] within {saber_moves.specials.leap_window_ms:s} after starting an ordinary swing with a lightsaber."
+detail = "KOTOR makes the leap whenever the Jedi attacks a distant enemy. kjk asks for the jump key as well, so the leap is never made by accident."
+source = "ours, after KOTOR's Force Jump feats"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY", "kind:lightsaber"]
+[specials.leap_least]
+name = "Force Leap Least Distance"
+value = 394.0
+unit = "units"
+range = [0.0, 2048.0]
+summary = "A Force leap needs the enemy to stand more than {saber_moves.specials.leap_least:m} away."
+source = "KOTOR's Force Jump feats"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_most]
+name = "Force Leap Range"
+value = [900.0, 1200.0, 1500.0]
+labels = ["Force Jump", "Advanced", "Mastery"]
+unit = "units"
+range = [0.0, 4096.0]
+summary = "A Force leap reaches an enemy up to {saber_moves.specials.leap_most[0]:m} away with Force Jump, {saber_moves.specials.leap_most[1]:m} with Advanced Force Jump and {saber_moves.specials.leap_most[2]:m} with Force Jump Mastery."
+detail = "KOTOR sets no limit. kjk sets one for each rank, so a leap cannot cross a whole area."
+source = "ours"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_bonus]
+name = "Force Leap Bonus"
+type = "i8"
+value = [0, 2, 4]
+labels = ["Force Jump", "Advanced", "Mastery"]
+range = [0, 20]
+summary = "The blow at the end of a Force leap gets +{saber_moves.specials.leap_bonus[1]:bare} to hit and to damage with Advanced Force Jump, and +{saber_moves.specials.leap_bonus[2]:bare} with Force Jump Mastery."
+source = "KOTOR's Force Jump feats"
+see = "sim::world::strikes"
+applies = ["feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_times]
+name = "Force Leap Timing"
+type = "u64"
+value = [333, 833, 867, 1500]
+labels = ["takeoff", "landing", "blow", "end"]
+unit = "ms"
+range = [0, 5000]
+summary = "A Force leap leaves the ground {saber_moves.specials.leap_times[0]:s} after it starts and lands {saber_moves.specials.leap_times[1]:s} after it starts. Its blow lands at {saber_moves.specials.leap_times[2]:s}, and the character can act again at {saber_moves.specials.leap_times[3]:s}."
+detail = "The times follow KOTOR's Force Jump animation. The character covers the whole distance between takeoff and landing, however far the enemy is."
+source = "KOTOR's Force Jump animation"
+see = "sim::motion::saber"
+[specials.leap_stop]
+name = "Force Leap Landing"
+value = 40.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A Force leap lands {saber_moves.specials.leap_stop:m} short of the enemy."
+source = "ours"
+see = "sim::motion::saber"
+[specials.leap_reach]
+name = "Force Leap Blow Reach"
+value = 96.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "The blow at the end of a Force leap lands if the enemy is still within {saber_moves.specials.leap_reach:m} of the character."
+source = "ours"
+see = "sim::world::strikes"
 [specials.cartwheel_rise]
 name = "Cartwheel Rise"
 value = 20.0

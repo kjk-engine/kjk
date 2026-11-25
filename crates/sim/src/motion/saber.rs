@@ -1632,6 +1632,13 @@ impl Move<'_, '_> {
                 state.pace = duel::Pace::Own;
             }
         }
+        // An ordinary swing opens the window for a Force leap; a special
+        // attack closes it.
+        if next.special() || next.kata() {
+            arms.fighter.leap_armed_until = 0;
+        } else if (next.start() || next.attack()) && next != current {
+            arms.fighter.leap_armed_until = self.time_ms + specials::LEAP_WINDOW_MS;
+        }
         let saber = &mut arms.fighter.saber;
         saber.current_move = next;
         saber.blocking = row.block;
@@ -1697,4 +1704,177 @@ fn forward_gait(anim: Anim) -> bool {
             | BOTH_WALK_DUAL
             | BOTH_WALK_STAFF
     )
+}
+
+// --- The Force leap -------------------------------------------------------
+
+/// The Force leap's times from its start (ms): it leaves the ground, lands,
+/// strikes and ends (`specials::LEAP_TIMES`, KOTOR's Force Jump clip).
+pub const LEAP_TAKEOFF_MS: u64 = specials::LEAP_TIMES[0];
+pub const LEAP_LANDING_MS: u64 = specials::LEAP_TIMES[1];
+pub const LEAP_BLOW_MS: u64 = specials::LEAP_TIMES[2];
+pub const LEAP_END_MS: u64 = specials::LEAP_TIMES[3];
+
+impl Move<'_, '_> {
+    /// The Force leap's say over the keys before the move, if it has one:
+    /// a leap under way holds the body still (it flies by the velocity
+    /// `leap_step` gives it) and its view, and takes every key. A fresh
+    /// press of [Jump] starts one (`start_leap`), and is taken by it, so
+    /// the body makes no jump of its own. Whether the view is held, when
+    /// the leap has the keys.
+    pub(super) fn leap_keys(&mut self) -> Option<bool> {
+        let arms = self.arms.take()?;
+        let held = arms.fighter.leap.is_some() || self.start_leap(arms);
+        if held {
+            self.still();
+            self.cmd.buttons &= !(buttons::ATTACK | buttons::ALT_ATTACK);
+            self.cmd.holds = 0;
+        }
+        self.arms = Some(arms);
+        held.then_some(true)
+    }
+
+    /// Starts a Force leap if one may start now: the player's own body,
+    /// with Force Jump and a lit lightsaber, pressing [Jump] afresh within
+    /// `specials::LEAP_WINDOW_MS` of starting an ordinary swing
+    /// (`Fighter::leap_armed_until`), on its feet on the ground, and an
+    /// enemy in front (`leap_target`). The swing gives way to the leap.
+    fn start_leap(&mut self, arms: &mut Arms) -> bool {
+        let now = self.time_ms;
+        let fighter = &*arms.fighter;
+        let saber = &fighter.saber;
+        let current = saber.current_move;
+        let fresh = self.cmd.up >= rules::movement::keys::JUMP_AXIS
+            && self.ps.flags & motion_flags::JUMP_PRESSED == 0;
+        let lightsaber = arms
+            .kit
+            .blade(fighter.hand)
+            .is_some_and(|blade| blade.saber)
+            && saber.on;
+        let rank = arms.kit.force_jump.min(3);
+        let free = !saber.floored()
+            && saber.lock_until < now
+            && saber.change == Change::None
+            && fighter.grapple.is_none()
+            && fighter.force.gripped_by.is_none()
+            && !fighter.force.hand_out(now)
+            && !current.special()
+            && !current.kata()
+            && !is_special_move(self.ps.legs.anim)
+            && !is_special_move(self.ps.torso.anim);
+        if !(arms.keyed
+            && arms.player
+            && fresh
+            && fighter.leap_armed_until > now
+            && lightsaber
+            && rank > 0
+            && free
+            && self.ps.ground.is_some()
+            && !self.ps.ducked())
+        {
+            return false;
+        }
+        let Some((target, to)) = self.leap_target(arms, usize::from(rank) - 1) else {
+            return false;
+        };
+        let pair = arms.kit.forced_style(fighter.hand) == Some(Style::Dual);
+        let stance = Self::blade_stance(saber, pair);
+        let fighter = &mut *arms.fighter;
+        fighter.leap = Some(crate::combat::Leap {
+            target,
+            began: now,
+            to,
+            rank,
+            flown: false,
+        });
+        fighter.leap_armed_until = 0;
+        fighter.weapon_wait_ms = LEAP_END_MS as i32;
+        let saber = &mut fighter.saber;
+        saber.current_move = READY;
+        saber.blocking = READY.data().block;
+        saber.blocked = Blocked::None;
+        saber.chain = 0;
+        self.animator
+            .play(self.ps, Parts::WHOLE, stance, play_flags::OVER_ANY);
+        // Held down, the key makes no jump once the leap is over.
+        self.ps.flags |= motion_flags::JUMP_PRESSED;
+        true
+    }
+
+    /// The enemy a Force leap of Force Jump rank `rank` (0 to 2) leaps at,
+    /// and where it lands (units): the first body a box as wide as the
+    /// character's own meets along the flat view, else along the way to
+    /// the character's target, if it is an enemy (`Arms::foes`) more than
+    /// `specials::LEAP_LEAST` and no more than the rank's
+    /// `specials::LEAP_MOST` away, centre to centre. Nothing else stands in
+    /// the way: the box meets the enemy first. It lands
+    /// `specials::LEAP_STOP` short of the enemy's box.
+    fn leap_target(&self, arms: &Arms, rank: usize) -> Option<(crate::snapshot::SimId, Vec3)> {
+        let most = specials::LEAP_MOST[rank];
+        let o = self.ps.origin;
+        let (ahead, _, _) = self.flat_view();
+        let toward_target = arms.enemy.and_then(|eye| {
+            let mut way = math::sub(eye, o);
+            way[2] = 0.0;
+            (math::normalize(&mut way) > 0.0).then_some(way)
+        });
+        [Some(ahead), toward_target]
+            .into_iter()
+            .flatten()
+            .find_map(|way| {
+                let hit = self.trace(o, math::mad(o, most, way), self.mins, self.maxs);
+                let Ground::Entity(entity) = hit.ground else {
+                    return None;
+                };
+                if hit.fraction >= 1.0 || arms.foes.binary_search(&entity).is_err() {
+                    return None;
+                }
+                let touching = math::length(math::sub(hit.end, o));
+                let apart = touching + 2.0 * super::HALF_WIDTH;
+                (apart > specials::LEAP_LEAST && apart <= most).then(|| {
+                    let back = (touching - specials::LEAP_STOP).max(0.0);
+                    let id = crate::snapshot::SimId(entity & !crate::world::BODY);
+                    (id, math::mad(o, back, way))
+                })
+            })
+    }
+
+    /// The Force leap's step after the move, if one is under way: it leaves
+    /// the ground at `LEAP_TAKEOFF_MS`, thrown so that it comes down where
+    /// it lands (`Leap::to`) at `LEAP_LANDING_MS`, and ends at
+    /// `LEAP_END_MS`, or at once if the character is knocked down. Its blow
+    /// is the world's (`world::strikes::leap_blows`). Whether one was.
+    pub(super) fn leap_step(&mut self, arms: &mut Arms) -> bool {
+        let now = self.time_ms;
+        let Some(mut leap) = arms.fighter.leap else {
+            return false;
+        };
+        let elapsed = leap.elapsed(now);
+        if elapsed >= LEAP_END_MS || arms.fighter.saber.floored() {
+            arms.fighter.leap = None;
+            arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.min(0);
+            return true;
+        }
+        if !leap.flown && elapsed >= LEAP_TAKEOFF_MS {
+            let mut way = math::sub(leap.to, self.ps.origin);
+            way[2] = 0.0;
+            let distance = math::normalize(&mut way);
+            let left = LEAP_LANDING_MS
+                .saturating_sub(elapsed)
+                .max(self.ms.max(1) as u64);
+            let seconds = left as f32 / 1000.0;
+            let speed = distance / seconds;
+            self.ps.velocity = [
+                way[0] * speed,
+                way[1] * speed,
+                self.ps.gravity * seconds / 2.0,
+            ];
+            self.set_jump_start(self.ps.origin[2]);
+            self.ps.events |= events::JUMP;
+            leap.flown = true;
+            arms.fighter.leap = Some(leap);
+        }
+        arms.fighter.weapon_wait_ms = (LEAP_END_MS - elapsed) as i32;
+        true
+    }
 }

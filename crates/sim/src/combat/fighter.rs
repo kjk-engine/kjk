@@ -436,6 +436,12 @@ pub struct Fighter {
     /// swing's own time lands a baton blow (`world::strikes`), not the
     /// weapon timer a grenade's throw or a weapon change raises.
     pub swung_at: u64,
+    /// Until when (sim ms) a press of [Jump] makes a Force leap: set as an
+    /// ordinary lightsaber swing starts, ended by a special attack
+    /// (`motion::Move::force_leap`).
+    pub leap_armed_until: u64,
+    /// The Force leap under way (`Leap`).
+    pub leap: Option<Leap>,
     /// The last to hurt it, and when (sim ms).
     pub last_attacker: Option<(SimId, u64)>,
     /// The grab it is in, holding or held, while a grapple finisher plays
@@ -629,6 +635,8 @@ impl Fighter {
             fists: Fists::default(),
             grab_pick: 0,
             swung_at: 0,
+            leap_armed_until: 0,
+            leap: None,
             last_attacker: None,
             grapple: None,
             blasted_ms: 0,
@@ -880,6 +888,8 @@ impl Fighter {
         out.u8(self.fists.code());
         out.u8(self.grab_pick);
         out.u64(self.swung_at);
+        out.u64(self.leap_armed_until);
+        write_fixed(out, self.leap.as_ref(), &Leap::BLANK, Leap::encode);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -983,6 +993,16 @@ impl Fighter {
         } else {
             0
         };
+        // Older snapshots: no Force leap armed or under way.
+        let (leap_armed_until, leap) = if input.since(crate::since::snapshot::FORCE_LEAP) {
+            let armed = input.u64()?;
+            (
+                armed,
+                read_fixed(input, &Leap::BLANK, Leap::decode, "leap flag")?,
+            )
+        } else {
+            (0, None)
+        };
         Ok(Fighter {
             hp,
             fp,
@@ -995,6 +1015,8 @@ impl Fighter {
             fists,
             grab_pick,
             swung_at,
+            leap_armed_until,
+            leap,
             last_attacker,
             grapple,
             blasted_ms,
@@ -1077,4 +1099,61 @@ pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError>
             false => 0,
         },
     })
+}
+/// A Force leap under way (`motion::Move::force_leap`): the enemy it leaps
+/// at, when it began (sim ms), where it lands (units), the character's
+/// Force Jump rank, and whether it has left the ground yet.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Leap {
+    pub target: SimId,
+    pub began: u64,
+    pub to: [f32; 3],
+    pub rank: u8,
+    pub flown: bool,
+}
+impl Leap {
+    /// The blank a fighter with no leap writes in its place.
+    pub(crate) const BLANK: Leap = Leap {
+        target: SimId(0),
+        began: 0,
+        to: [0.0; 3],
+        rank: 0,
+        flown: false,
+    };
+    /// How long it has run at `now` (sim ms).
+    pub fn elapsed(&self, now: u64) -> u64 {
+        now.saturating_sub(self.began)
+    }
+    fn encode(&self, out: &mut Writer) {
+        out.u32(self.target.0);
+        out.u64(self.began);
+        for axis in self.to {
+            out.u32(axis.to_bits());
+        }
+        out.u8(self.rank);
+        out.u8(u8::from(self.flown));
+    }
+    fn decode(input: &mut Reader) -> Result<Leap, DecodeError> {
+        let target = SimId(input.u32()?);
+        let began = input.u64()?;
+        let to = [
+            f32::from_bits(input.u32()?),
+            f32::from_bits(input.u32()?),
+            f32::from_bits(input.u32()?),
+        ];
+        let rank = input.u8()?;
+        let at = input.at();
+        let flown = match input.u8()? {
+            0 => false,
+            1 => true,
+            _ => return Err(input.invalid("leap flown", at)),
+        };
+        Ok(Leap {
+            target,
+            began,
+            to,
+            rank,
+            flown,
+        })
+    }
 }

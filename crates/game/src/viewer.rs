@@ -3026,6 +3026,13 @@ pub fn scripted_clips(
                 .then(crate::acting::baton_names)
                 .into_iter()
                 .flatten(),
+        )
+        // and leaps with its own Force Jump clips.
+        .chain(
+            (!attacks)
+                .then(crate::acting::leap_names)
+                .into_iter()
+                .flatten(),
         );
     for (animation, name) in engine {
         if let Some(found) = clip(cache, resolver, game, body, &name)? {

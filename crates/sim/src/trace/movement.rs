@@ -360,6 +360,7 @@ impl Rig {
                     drew: false,
                     rules: Default::default(),
                     targeted: false,
+                    foes: &[],
                 };
                 match stepped {
                     None => motion::move_body(

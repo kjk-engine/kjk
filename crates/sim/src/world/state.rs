@@ -470,7 +470,7 @@ impl SimWorld {
                     fire,
                     sabers::sabers,
                     // A grab reaches after the punches (`grapples`).
-                    (strikes::strikes, grapples::grapples).chain(),
+                    (strikes::strikes, strikes::leap_blows, grapples::grapples).chain(),
                     fly,
                     // The fall reads the fight the hurts left.
                     (

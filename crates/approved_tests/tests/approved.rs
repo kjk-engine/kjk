@@ -4485,6 +4485,15 @@ fn duel_rules() {
     probed("duel rules", &sim::trace::duel_probes::probes(), 71);
 }
 
+/// The Force leap (`kjk sim probes --only "force leap"`): a player with Force
+/// Jump who starts an ordinary lightsaber swing and presses [Jump] within the
+/// window leaps at a distant enemy in front and lands beside it. Without the
+/// feat, without the swing, or with the enemy too near, no leap is made. The
+/// sim alone (proposed 2026-11-26, awaiting approval).
+#[test]
+fn force_leap() {
+    probed("force leap", &sim::trace::force_leap_probes::probes(), 4);
+}
 /// TSL's Force rules (`kjk sim probes --only "tsl force"`): the Forms, a
 /// power's cost by alignment and the room's Force rating, Force point
 /// regeneration, and the powers each class is granted. The sim alone
