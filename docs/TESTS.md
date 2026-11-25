@@ -137,6 +137,11 @@ start over at a blank cell and keep KOTOR 2's planets apart. Saves from
 before the hints were kept are read by `old_saves_load`. They are not
 approved tests, and they run only through `kjk sim probes --only "save story"`.
 `bink_decoder_parts` was approved 2026-11-23.
+The crash probe `long_pause_clamped` was proposed 2026-11-25 and awaits
+approval. It checks that a pause of eight hours, as when a computer sleeps
+with the game running, moves the game by one frame at most, and that the
+next frame steps as many ticks as it would on a fresh clock. It is not an approved test, and it
+runs only through `kjk sim probes --only crash`.
 `untextured_mesh_drawn` (issue 441) was proposed 2026-11-16 and awaits
 approval. `stance_sets_sim` was changed 2026-11-16 for issue 514, and the
 change awaits approval. `sound_device_layouts` (issue 402) was proposed

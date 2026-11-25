@@ -31,6 +31,7 @@ pub fn probes() -> Checks {
     checks.extend(unexpected(&root.join("runs")));
     checks.push(("prune_keeps_crashes", prune(&root.join("prune"))));
     checks.push(("software_adapter_refused", software_adapter()));
+    checks.push(("long_pause_clamped", long_pause()));
     checks.push(("native_crash_told", native_crash(&root.join("native"))));
     let _ = std::fs::remove_dir_all(&root);
     checks
@@ -260,4 +261,31 @@ fn software_adapter() -> Result<String, String> {
         .map(|case| format!("{case:?}"))
         .collect();
     check(wrong.is_empty(), format!("wrong for {wrong:?}"))
+}
+
+/// A pause of eight hours, as when a computer sleeps with the game running,
+/// moves the game by one frame at most. Bevy's game clock counts at most
+/// its `max_delta` of a frame's wall time, and the sim's clock makes up at
+/// most `MAX_CATCH_UP` ticks of it. The next ordinary frame then steps as
+/// many ticks as it would on a fresh clock, so no backlog of steps is left.
+fn long_pause() -> Result<String, String> {
+    let max_delta = bevy::time::Time::<bevy::time::Virtual>::default().max_delta();
+    let frame = std::time::Duration::from_millis(16);
+    let fresh = sim::Accumulator::new(sim::TickRate::default(), 0)
+        .advance(frame)
+        .len();
+    let mut clock = sim::Accumulator::new(sim::TickRate::default(), 0);
+    let slept = clock
+        .advance(std::time::Duration::from_secs(8 * 60 * 60))
+        .len();
+    let next = clock.advance(frame).len();
+    check(
+        max_delta <= std::time::Duration::from_secs(1)
+            && slept as u32 <= sim::MAX_CATCH_UP
+            && next == fresh,
+        format!(
+            "max_delta {max_delta:?}, {slept} ticks after the pause, {next} the frame after \
+             ({fresh} on a fresh clock)"
+        ),
+    )
 }
