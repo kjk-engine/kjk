@@ -298,6 +298,9 @@ probes go from 4 to 5);
 approval (issue 705: items added to a stack with room for only some of
 them fill it, and the rest are a stack of their own, as both games'
 executables merge an item);
+`carried_camera_clip_holds` changed 2026-11-25, awaiting approval (a
+line that starts the camera clip still playing carries it on, as TSL's
+executable goes on with a clip its camera model already plays);
 `cargo xtask publish-check` refuses tests anywhere else. All 164
 are in `tests/approved.rs`. They call library code and open no window.
 A test may also read the repository's own source files to check a rule

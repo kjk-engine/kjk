@@ -122,12 +122,28 @@ impl Step<'_> {
         let voice = library.entry_voice(dlg, node, variant);
         let voiced = alien || !node.sound.is_empty() || !node.vo.is_empty();
         // A line that begins its camera model's clip films it from now; one
-        // carrying it on, from where the clip began (`camera_cue`).
+        // carrying it on, from where the clip began (`camera_cue`). A line
+        // that begins the clip the camera is still playing carries it on
+        // too: the camera model goes on with the clip it plays, so lines
+        // that each start the same clip make one flight (TSLRCM's
+        // `enc_ruin`, whose Kreia lines each start `cut001w`).
         let cue = crate::script::camera_cue(node.camera_animation);
         let clip_from = {
-            let from = self.state.talk.conversations[at].clip_from_ms;
+            let c = &self.state.talk.conversations[at];
+            let from = c.clip_from_ms;
+            let playing = from != 0
+                && dlg
+                    .entries
+                    .get(c.entry as usize)
+                    .and_then(|shown| {
+                        let (name, _) = crate::script::camera_cue(shown.camera_animation)?;
+                        let ms = library.camera_clip(&dlg.camera_model, shown.camera_animation)?;
+                        (now < from + u64::from(ms)).then_some(name)
+                    })
+                    .is_some_and(|name| cue.as_ref().is_some_and(|(cued, _)| *cued == name));
             match cue {
                 Some((_, true)) if from != 0 => from,
+                Some(_) if playing => from,
                 Some(_) => now,
                 None => from,
             }

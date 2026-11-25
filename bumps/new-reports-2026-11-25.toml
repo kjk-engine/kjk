@@ -1,0 +1,4 @@
+# A conversation line that starts the camera clip already playing carries
+# it on instead of starting it again, and AddJournalQuestEntry takes a
+# negative entry as its positive, as TSL's executable does.
+sim = "a line starting the camera clip still playing carries it on; AddJournalQuestEntry takes a negative entry as its positive"
