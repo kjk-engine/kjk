@@ -80,7 +80,7 @@ The camera moves with the player's own movement controls, so a player who moved 
 | Look around | Move the mouse (no button needs to be held) | Right stick |
 | Move 4 times as fast | Hold Shift | Click the left stick |
 | Move at a quarter of the speed | Hold Ctrl | Hold the left bumper |
-| Tilt the camera to the left and right | Z and C | D-pad left and right |
+| Tilt the camera to the left and right | Q and E | D-pad left and right |
 | Zoom in and out | Mouse wheel | D-pad up and down |
 | Put the tilt and zoom back to normal | R | Y |
 | Hide or show the player's own character | H | X |
