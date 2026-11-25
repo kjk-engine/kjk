@@ -1,3 +1,0 @@
-# Sunry's trial. A body a script destroys at once no longer takes the place
-# of another that the same step jumps onto its mark (issue 703).
-sim = "a jump does not keep clear of a body a script destroyed at once in the same step (`apply`, Change::Jump); the Sith prosecutor at Sunry's trial stands on his mark, and Ignus walks back to his seat"

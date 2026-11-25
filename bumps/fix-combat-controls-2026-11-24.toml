@@ -1,4 +1,0 @@
-# A grapple finisher holds its pair: no knockdown, kick, Force push or
-# script's push moves them, and their queued script actions wait until the
-# finisher lets them go.
-sim = "a grapple finisher holds its pair until it lets them go"
