@@ -1759,7 +1759,7 @@ impl Move<'_, '_> {
     }
 
     /// Starts a Force leap if one may start now: the player's own body, with
-    /// Force Jump and a lit lightsaber, attacking ([Attack] held, or an
+    /// Force Jump and a lit lightsaber in hand (not thrown), attacking ([Attack] held, or an
     /// ordinary swing playing) with no movement key held, tapping [Jump] twice within
     /// `specials::LEAP_WINDOW_MS`, with an enemy in front (`leap_target`) at
     /// the second tap. The first tap, on the ground, jumps as it always does
@@ -1778,7 +1778,8 @@ impl Move<'_, '_> {
             .kit
             .blade(fighter.hand)
             .is_some_and(|blade| blade.saber)
-            && saber.on;
+            && saber.on
+            && saber.thrown.is_none();
         let rank = arms.kit.force_jump.min(3);
         let free = !saber.floored()
             && saber.lock_until < now
@@ -1934,18 +1935,38 @@ impl Move<'_, '_> {
                     let hit = self.trace_masked(from, until, self.mins, maxs, level);
                     hit.fraction >= 1.0 && !hit.all_solid
                 };
-                (clear(o, over) && clear(over, to)).then(|| {
+                (clear(o, over) && clear(over, to) && self.leap_lands(to)).then(|| {
                     let id = crate::snapshot::SimId(entity & !crate::world::BODY);
                     (id, to)
                 })
             })
     }
 
+    /// Whether a Force leap can come down at `to` (units). The body must
+    /// stand there on walkable ground, within a step's height below `to`,
+    /// and nothing may fill the spot. Characters, placeables and the remains
+    /// of the dead count here, though they do not stop the leap in flight.
+    /// So a leap never ends over a drop or inside another body.
+    fn leap_lands(&self, to: Vec3) -> bool {
+        let lifted = [to[0], to[1], to[2] + 1.0];
+        let room = self.trace_masked(lifted, lifted, self.mins, self.maxs, Contents::PLAYER_SOLID);
+        if room.all_solid || room.fraction < 1.0 {
+            return false;
+        }
+        let below = [to[0], to[1], to[2] - super::STEP_HEIGHT];
+        let floor = self.trace_masked(lifted, below, self.mins, self.maxs, Contents::PLAYER_SOLID);
+        floor.fraction < 1.0
+            && floor.normal[2] >= super::WALKABLE_NORMAL_Z
+            && !floor.contents.intersects(Contents::NONWALK)
+    }
+
     /// The Force leap's step after the move, if one is under way. It leaves
     /// the ground at `LEAP_TAKEOFF_MS` (as it starts: `start_leap` sets its
     /// start back), lands where it lands (`Leap::to`) at `LEAP_LANDING_MS`,
-    /// and ends at `LEAP_END_MS`, or at once if the character is knocked
-    /// down. In flight each step aims the body at the next point of its way
+    /// and ends at `LEAP_END_MS`. It ends at once if the character is
+    /// knocked down, knocked back, gripped, held in a grab, or stunned, so
+    /// those powers and blows move or hold the body as they always do. In
+    /// flight each step aims the body at the next point of its way
     /// (`leap_height`), so it passes through other characters
     /// (`Move::leaping`) and keeps its line whatever turned it aside. Once
     /// it lands it stands where it came down. Its blow is the world's
@@ -1956,7 +1977,13 @@ impl Move<'_, '_> {
             return false;
         };
         let elapsed = leap.elapsed(now);
-        if elapsed >= LEAP_END_MS || arms.fighter.saber.floored() {
+        let fighter = &*arms.fighter;
+        let interrupted = fighter.saber.floored()
+            || fighter.force.gripped_by.is_some()
+            || fighter.grapple.is_some()
+            || fighter.force.stunned(now)
+            || self.ps.flags & motion_flags::KNOCKBACK_HOLD != 0;
+        if elapsed >= LEAP_END_MS || interrupted {
             arms.fighter.leap = None;
             arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.min(0);
             return true;
