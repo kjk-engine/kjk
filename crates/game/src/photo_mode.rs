@@ -12,7 +12,8 @@
 //! normal speed instead; a replay also offers 10% and one tick at a time.
 //! In co-op photo mode calls the game's own break as it begins, when none
 //! holds, and resumes it as it ends, when it called it and the break still
-//! holds by this seat. The simulation never knows of photo mode. While it
+//! holds by this seat. A photo mode left before its break showed resumes
+//! the break once it shows (`owed_resume`). The simulation never knows of photo mode. While it
 //! is on, play's keys reach nothing (`take_keys`) and the player's
 //! character gets the empty command (`sim_host::PlayerInput`).
 
@@ -54,6 +55,9 @@ const AREA_MARGIN: f32 = 2.0;
 /// touched (seconds), over `LINE_FADE`.
 const LINE_AFTER: f32 = 3.0;
 const LINE_FADE: f32 = 0.5;
+/// How long a resume owed for a break photo mode called waits for the break
+/// to show before it is forgotten (seconds, `owed_resume`).
+const OWED_WAIT: f32 = 2.0;
 
 /// How fast the world runs in photo mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -348,6 +352,8 @@ struct Photo {
     hide_own: bool,
     /// Photo mode called this seat's break as it began (co-op).
     called_break: bool,
+    /// A snapshot has shown the break photo mode called, held by this seat.
+    seen_break: bool,
     /// Seconds since the player last touched a photo mode control.
     idle: f32,
     /// The scene photo mode began in (`SceneSwap::generation`).
@@ -378,6 +384,9 @@ pub struct PhotoMode {
     /// What a run's commands hold (`ui photo fly`): the move, and the turn
     /// in degrees a second.
     flying: Input,
+    /// The seconds a resume owed for a break photo mode called has waited
+    /// for the break to show (`break_on_leave`), while one is owed.
+    owed: Option<f32>,
 }
 
 impl PhotoMode {
@@ -481,9 +490,35 @@ pub(crate) fn break_on_enter(snapshot: &Snapshot) -> Option<SimAction> {
 }
 
 /// The call photo mode makes as it ends in co-op: a resume of the break it
-/// `called`, while that break still holds by `seat`.
-pub(crate) fn break_on_leave(called: bool, snapshot: &Snapshot, seat: Seat) -> Option<SimAction> {
-    (called && snapshot.paused_by == Some(seat)).then_some(SimAction::Resume)
+/// `called`, while that break still holds by `seat`. The second value is
+/// whether a resume is owed instead (`owed_resume`). It is owed when no
+/// snapshot has shown the break yet (`seen` is false) and no break holds,
+/// because the break may still be on its way to the simulation.
+pub(crate) fn break_on_leave(
+    called: bool,
+    seen: bool,
+    snapshot: &Snapshot,
+    seat: Seat,
+) -> (Option<SimAction>, bool) {
+    let resume = called && snapshot.paused_by == Some(seat);
+    let owed = called && !seen && snapshot.paused_by.is_none();
+    (resume.then_some(SimAction::Resume), owed)
+}
+
+/// What becomes of a resume owed (`break_on_leave`) that has waited
+/// `waited` seconds. It is sent once the break holds by `seat`. It is
+/// forgotten once another seat's break holds, or once no break has shown
+/// for `OWED_WAIT` seconds. The second value is whether it is still owed.
+pub(crate) fn owed_resume(
+    waited: f32,
+    snapshot: &Snapshot,
+    seat: Seat,
+) -> (Option<SimAction>, bool) {
+    match snapshot.paused_by {
+        Some(by) if by == seat => (Some(SimAction::Resume), false),
+        Some(_) => (None, false),
+        None => (None, waited < OWED_WAIT),
+    }
 }
 
 /// Play's actions taken away while photo mode is on, and kept for photo
@@ -736,6 +771,8 @@ pub(crate) fn photo_keys(
     let seat = play.own.as_ref().map_or(Seat(0), |own| own.0);
     let generation = play.generation();
     let alone = play.alone();
+    let dt = controls.time.delta_secs();
+    let coop = snapshot.filter(|_| !alone);
     match photo.on {
         None => {
             let asked_on = asks.iter().find_map(|ask| match ask {
@@ -749,8 +786,11 @@ pub(crate) fn photo_keys(
                 None => framed.filter(|_| toggled),
             };
             if let (Some(at), false) = (at, play.blocked()) {
-                let call = snapshot.filter(|_| !alone).and_then(break_on_enter);
-                let called_break = call.is_some();
+                // A resume still owed means the break photo mode called is
+                // on its way: this photo mode takes it over and calls none.
+                let owed = photo.owed.take().is_some();
+                let call = coop.filter(|_| !owed).and_then(break_on_enter);
+                let called_break = owed || call.is_some();
                 asked.0.extend(call);
                 photo.on = Some(Photo {
                     camera: Camera::of(at),
@@ -758,9 +798,16 @@ pub(crate) fn photo_keys(
                     speed: Speed::Stopped,
                     hide_own: false,
                     called_break,
+                    seen_break: false,
                     idle: 0.0,
                     generation,
                 });
+            } else if let Some(waited) = photo.owed.take()
+                && let Some(snapshot) = coop
+            {
+                let (call, owed) = owed_resume(waited, snapshot, seat);
+                asked.0.extend(call);
+                photo.owed = owed.then_some(waited + dt);
             }
         }
         Some(on) => {
@@ -770,10 +817,11 @@ pub(crate) fn photo_keys(
                 || play.blocked()
                 || on.generation != generation;
             if leaving {
-                if let Some(snapshot) = snapshot.filter(|_| !alone) {
-                    asked
-                        .0
-                        .extend(break_on_leave(on.called_break, snapshot, seat));
+                if let Some(snapshot) = coop {
+                    let (call, owed) =
+                        break_on_leave(on.called_break, on.seen_break, snapshot, seat);
+                    asked.0.extend(call);
+                    photo.owed = owed.then_some(0.0);
                 }
                 photo.on = None;
                 photo.shot = Shot::None;
@@ -791,6 +839,7 @@ pub(crate) fn photo_keys(
                 "speed": photo.on.map(|on| format!("{:?}", on.speed)),
                 "hide_own": photo.hides_own(),
                 "called_break": photo.on.is_some_and(|on| on.called_break),
+                "owed_resume": photo.owed.is_some(),
                 "soles": limits.soles.to_array(),
                 "area": limits.area.map(|(low, high)| [low.to_array(), high.to_array()]),
             }),
@@ -802,7 +851,8 @@ pub(crate) fn photo_keys(
         }
         return;
     };
-    let dt = controls.time.delta_secs();
+    on.seen_break |=
+        on.called_break && coop.is_some_and(|snapshot| snapshot.paused_by == Some(seat));
     let mut input = controls.input(&keys);
     let flown = photo.flying;
     input.forward += flown.forward;
@@ -843,17 +893,15 @@ pub(crate) fn photo_keys(
     if photo.shot == Shot::Asked {
         photo.shot = Shot::Due;
     }
-    let coop = snapshot.filter(|_| !alone).map(|snapshot| {
-        match (snapshot.paused_by, snapshot.in_combat) {
-            (Some(_), _) => Coop::Paused,
-            (None, true) => Coop::Fighting,
-            (None, false) => Coop::Running,
-        }
+    let state = coop.map(|snapshot| match (snapshot.paused_by, snapshot.in_combat) {
+        (Some(_), _) => Coop::Paused,
+        (None, true) => Coop::Fighting,
+        (None, false) => Coop::Running,
     });
     let map = controls.map.as_deref().unwrap_or(KeyMap::defaults());
     let fade = ((on.idle - LINE_AFTER) / LINE_FADE).clamp(0.0, 1.0);
     ui.photo = Some(Line {
-        words: line_words(on.speed, coop, keys.device, map),
+        words: line_words(on.speed, state, keys.device, map),
         alpha: if photo.shot == Shot::None {
             1.0 - fade
         } else {

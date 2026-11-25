@@ -328,6 +328,7 @@ fn entered(shot: TalkShot) -> PhotoMode {
             speed: Speed::Stopped,
             hide_own: false,
             called_break: false,
+            seen_break: false,
             idle: 0.0,
             generation: 0,
         }),
@@ -474,37 +475,74 @@ fn coop() -> Result<String, String> {
     let call = break_on_enter(&start);
     let called = call.is_some();
     let paused = pair.step(&[(1, call)]);
-    let resume = break_on_leave(called, &paused, Seat(1));
+    let (resume, owed) = break_on_leave(called, true, &paused, Seat(1));
     let resumed = pair.step(&[(1, resume.clone())]);
-    let own = (paused.paused_by, resumed.paused_by);
+    let own = (paused.paused_by, resumed.paused_by, owed);
     // Seat 0's break first: seat 1's photo mode leaves it alone.
     let held = pair.step(&[(0, Some(SimAction::Break))]);
     let call = break_on_enter(&held);
-    let after = pair.step(&[(1, break_on_leave(call.is_some(), &held, Seat(1)))]);
-    let others = (call.clone(), after.paused_by);
+    let left = break_on_leave(call.is_some(), false, &held, Seat(1));
+    let after = pair.step(&[(1, left.0.clone())]);
+    let others = (call.clone(), left, after.paused_by);
     let ended = pair.step(&[(0, Some(SimAction::Resume))]);
-    // Seat 1's photo break, ended by the host: leaving calls nothing.
+    // Seat 1's photo break, seen, then ended by the host: leaving calls
+    // nothing and owes nothing.
     let call = break_on_enter(&ended);
     let photo_break = pair.step(&[(1, call)]);
     let host_ended = pair.step(&[(0, Some(SimAction::Resume))]);
-    let host = break_on_leave(true, &host_ended, Seat(1));
-    // In combat no break holds, and leaving resumes nothing.
+    let host = break_on_leave(true, true, &host_ended, Seat(1));
+    // In combat no break holds, and leaving resumes nothing at once. The
+    // resume owed is forgotten after `OWED_WAIT` seconds with no break.
     let mut fighting = host_ended.clone();
     fighting.in_combat = true;
     let combat = (
         break_on_enter(&fighting),
-        break_on_leave(true, &fighting, Seat(1)),
+        break_on_leave(true, false, &fighting, Seat(1)),
+        owed_resume(OWED_WAIT, &fighting, Seat(1)),
     );
     check(
-        own == (Some(Seat(1)), None)
+        own == (Some(Seat(1)), None, false)
             && resume == Some(SimAction::Resume)
-            && others == (None, Some(Seat(0)))
+            && others == (None, (None, false), Some(Seat(0)))
             && photo_break.paused_by == Some(Seat(1))
-            && host.is_none()
-            && combat == (Some(SimAction::Break), None),
+            && host == (None, false)
+            && combat == (Some(SimAction::Break), (None, true), (None, false)),
         format!(
             "own break {own:?}, seat 0's break {others:?}, host ended {:?} then {host:?}, combat {combat:?}",
             photo_break.paused_by
+        ),
+    )
+}
+
+/// In co-op, a player who leaves photo mode before the snapshot shows the
+/// break it called is owed a resume. The resume is sent once the break
+/// shows, and the world runs again. A resume owed while another seat's
+/// break holds is forgotten, and that break stays.
+fn quick_break() -> Result<String, String> {
+    let mut pair = Pair::new()?;
+    let start = pair.step(&[]);
+    // Seat 1 enters and leaves photo mode within the same snapshot.
+    let call = break_on_enter(&start);
+    let left = break_on_leave(call.is_some(), false, &start, Seat(1));
+    let paused = pair.step(&[(1, call)]);
+    let waiting = owed_resume(0.0, &start, Seat(1));
+    let sent = owed_resume(0.1, &paused, Seat(1));
+    let resumed = pair.step(&[(1, sent.0.clone())]);
+    // Seat 0's break holds while seat 1's resume is owed.
+    let held = pair.step(&[(0, Some(SimAction::Break))]);
+    let other = owed_resume(0.1, &held, Seat(1));
+    let after = pair.step(&[(1, other.0.clone())]);
+    check(
+        left == (None, true)
+            && waiting == (None, true)
+            && paused.paused_by == Some(Seat(1))
+            && sent == (Some(SimAction::Resume), false)
+            && resumed.paused_by.is_none()
+            && other == (None, false)
+            && after.paused_by == Some(Seat(0)),
+        format!(
+            "left {left:?}, waiting {waiting:?}, paused by {:?}, sent {sent:?}, then paused by {:?}, owed under seat 0's break {other:?}, then paused by {:?}",
+            paused.paused_by, resumed.paused_by, after.paused_by
         ),
     )
 }
@@ -515,6 +553,7 @@ pub fn probes() -> Checks {
         ("photo mode alone", alone()),
         ("photo mode input", input()),
         ("photo mode coop", coop()),
+        ("photo mode quick break", quick_break()),
         ("photo mode cursor", cursor()),
     ]
 }
