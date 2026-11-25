@@ -136,6 +136,7 @@ pub fn install_hook(folder: PathBuf, facts: String) {
     if !first {
         return;
     }
+    native::install();
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let hooked = HOOKED.try_lock().ok().and_then(|hooked| hooked.clone());
@@ -534,6 +535,7 @@ pub(crate) fn kept(mut folders: Vec<PathBuf>, keep: usize, now: SystemTime) -> V
     crashed
 }
 
+pub mod native;
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]

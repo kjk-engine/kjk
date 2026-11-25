@@ -1,0 +1,11 @@
+# 1.0 of the lit level of each room.
+301nara 0.4066
+301narb 0.4457
+301narc 0.6814
+301nard 0.5777
+301nare 0.6698
+301narf 0.5338
+301narg 0.5106
+301narj 0.4087
+301nark 0.3943
+301narm 0.2219

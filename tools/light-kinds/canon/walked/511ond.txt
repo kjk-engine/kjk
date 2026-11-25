@@ -1,0 +1,4 @@
+# 1.0 of the lit level of each room.
+511onda 0.7485
+511ondb 0.7384
+511onde 0.3547

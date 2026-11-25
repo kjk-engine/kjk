@@ -1,0 +1,17 @@
+# 0.6 of the live level of each room of module 103per, and at most 0.22.
+103pera 0.1065
+103perb 0.2200
+103perc 0.2200
+103perd 0.1296
+103pere 0.2200
+103perf 0.2200
+103perg 0.1475
+103perh 0.2200
+103peri 0.2200
+103perj 0.2200
+103perk 0.2200
+103perl 0.2200
+103perm 0.2200
+103pern 0.1879
+103pero 0.0986
+103perp 0.1000

@@ -816,6 +816,121 @@ fn capsule_shadows() {
     probed("capsule shadows", &kjk::probes::capsule_shadows(), 9);
 }
 
+/// A lighting bake's fingerprint (`kjk_game::bake_fingerprint::probes`),
+/// on fingerprints made here. A fingerprint written as the text of its
+/// file reads back the same. The same fingerprint lets the game take the
+/// whole bake. Other placeables let it take the lightmaps alone. Other
+/// rooms, or another format, refuse the bake. Needs `--features rig`; no
+/// installs (approved 2026-11-23).
+#[test]
+fn lighting_fingerprints() {
+    #[cfg(not(feature = "rig"))]
+    println!("lighting_fingerprints skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting fingerprints",
+        &kjk_game::bake_fingerprint::probes::probes(),
+        2,
+    );
+}
+
+/// The stored fill's files and numbers (`kjk_game::stored_fill::probes`).
+/// A word `@<map>:<texel>` and a lightmap's line read back, and the texel
+/// 513 of a map 512 texels wide is the middle of the second texel of the
+/// second row. The lightmaps `stored.txt` names read back in lower case.
+/// The backdrop made from a stored lightmap is each colour at half, with
+/// an alpha of 255. A room with no fill and no floor keeps its level.
+/// Needs `--features rig`; no installs (approved 2026-11-23).
+#[test]
+fn stored_light_fill() {
+    #[cfg(not(feature = "rig"))]
+    println!("stored_light_fill skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "stored light fill",
+        &kjk_game::stored_fill::probes::probes(),
+        3,
+    );
+}
+
+/// The placeables' baked light (`kjk_game::placeable_light::probes`), on
+/// meshes and files made here. A triangle 2 m on its short sides is split
+/// until no edge is longer than 0.5 m, and it still covers 2 square
+/// metres. A small triangle is kept as it is. The game reads a vertex's
+/// light with the fill of the stored texel its word names, and `@`
+/// repeats the last texel. A line whose model is not the placeable's, and
+/// a line with fewer vertices than it says, are not kept. A file of the
+/// old format, or of another area, is not read. Needs `--features rig`; no
+/// installs (approved 2026-11-23).
+#[test]
+fn placeable_light_sets() {
+    #[cfg(not(feature = "rig"))]
+    println!("placeable_light_sets skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "placeable light sets",
+        &kjk_game::placeable_light::probes::probes(),
+        4,
+    );
+}
+
+/// The lighting download (`kjk_game::lighting_bakes::probes`), on
+/// manifests, game folders and zips made here. A KOTOR 1 and a KOTOR 2
+/// manifest read back, and malformed ones do not. A download installs when
+/// at least 9 areas in 10 match the player's files. The check's key
+/// changes with a mod's texture and not with a voice line. An install
+/// refuses a zip of the wrong size or BLAKE3, unpacks into the store,
+/// replaces the last install whole, is left alone by the store's gc, and
+/// refuses a zip with a file outside the areas' folders. Needs `--features
+/// rig`; no installs (approved 2026-11-23).
+#[test]
+fn lighting_downloads() {
+    #[cfg(not(feature = "rig"))]
+    println!("lighting_downloads skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting downloads",
+        &kjk_game::lighting_bakes::probes::probes(),
+        4,
+    );
+}
+
+/// How the viewer takes a lighting bake (`kjk_game::viewer::bake_probes`).
+/// Of an area's sets, one the game may take whole wins over one whose
+/// placeables differ, and of two alike the later wins. The stored fill
+/// adds to the lamps' light in linear light. A texel darker than its floor
+/// is raised to the floor, and a brighter one keeps its own light. Needs
+/// `--features rig`; no installs (approved 2026-11-23).
+#[test]
+fn lighting_bake_in_the_viewer() {
+    #[cfg(not(feature = "rig"))]
+    println!(
+        "lighting_bake_in_the_viewer skipped: run with --features rig (builds the game's library)"
+    );
+    #[cfg(feature = "rig")]
+    probed(
+        "lighting bake in the viewer",
+        &kjk_game::viewer::bake_probes::probes(),
+        3,
+    );
+}
+
+/// The sets `kjk lighting pack` takes into the lighting download
+/// (`kjk::probes::lighting_pack`), on folders of bakes made here. The pack
+/// takes the files the game loads from each finished set `b`. It leaves
+/// out set `a`, a set with no fingerprint, and a set baked with the stored
+/// backdrop before `stored.txt`. For an area that several modules share,
+/// it ships the set of the module that gives their settings. Two modules
+/// the list does not tie together, or a set of an old format, stop the
+/// pack. Needs `--features rig`; no installs (approved 2026-11-23).
+#[test]
+fn lighting_pack_sets() {
+    #[cfg(not(feature = "rig"))]
+    println!("lighting_pack_sets skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("lighting pack sets", &kjk::probes::lighting_pack(), 3);
+}
+
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
 /// six copies stand on a hexagon of 4.5 m round the camera's ground point,
 /// one ahead, one behind and four at the sides 5 m higher, turning with the
@@ -3377,6 +3492,44 @@ fn store_cap() {
     assert_eq!(removed.files, 1);
     assert_eq!(kept(), [true, false, false], "the most recent stays");
     assert!(other.exists(), "another kind untouched");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The store's gc (`store::Store::gc`) leaves the installed lighting
+/// download alone. The download's folder holds folders named like kinds
+/// and like formats, and files of every age, and gc keeps them all. It
+/// still removes an old format of a kind that a newer one replaced. No
+/// installs (approved 2026-11-23).
+#[test]
+fn store_keeps_lighting() {
+    let root = std::env::temp_dir().join(format!("kjk-store-gc-lighting-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let store = store::Store::at(&root);
+    let key = store::Key::of("test", &[b"bytes"]);
+    // An old format of a kind, superseded by a newer one.
+    store.put("bake-v1", &key, b"old").unwrap();
+    store.put("bake-v2", &key, b"new").unwrap();
+    // The lighting download, with folders that look like kinds and
+    // like formats, and a file of every age.
+    let lighting = root.join(store::LIGHTING);
+    let installed = lighting.join("tsl").join("411dxn");
+    std::fs::create_dir_all(&installed).unwrap();
+    std::fs::write(installed.join("fingerprint.txt"), "area 411dxn").unwrap();
+    let keyed = lighting.join("ab-v1").join("cd");
+    std::fs::create_dir_all(&keyed).unwrap();
+    std::fs::write(keyed.join("x"), "kept").unwrap();
+    std::fs::create_dir_all(lighting.join("ab-v2").join("ef")).unwrap();
+    let collected = store.gc(std::time::Duration::ZERO, false).unwrap();
+    assert!(installed.join("fingerprint.txt").is_file());
+    assert!(keyed.join("x").is_file());
+    assert!(!store.path("bake-v1", &key).exists());
+    assert!(
+        collected
+            .folders
+            .iter()
+            .all(|folder| !folder.starts_with(&lighting))
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 

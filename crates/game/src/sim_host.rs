@@ -1160,6 +1160,14 @@ impl PlayerInput<'_, '_> {
     }
 
     pub(crate) fn read(&self) -> Read {
+        // In walk mode the keys and the mouse move the camera, never the
+        // player.
+        if crate::walk::on() {
+            return Read {
+                actions: None,
+                turn: None,
+            };
+        }
         let headless = self.headless.0;
         // Photo mode gives the player's character no orders.
         let held = self.movie_up()
@@ -2306,7 +2314,12 @@ fn advance(
         let reloaded = job.reload.take();
         let was_reload = reloaded.is_some();
         let shown = job.hints.lock().expect("the job hints lock").take();
-        let committed = result.and_then(|prepared| {
+        let committed = result.and_then(|mut prepared| {
+            // Walk mode takes each module's scripts and fights away, as it
+            // does for the first one (`walk::stage`).
+            if crate::walk::on() {
+                prepared.plan.level = crate::walk::level(prepared.plan.level.clone());
+            }
             // A replay's install must be the recorded one, before and
             // after.
             if let Some(expect) = &job.expect {

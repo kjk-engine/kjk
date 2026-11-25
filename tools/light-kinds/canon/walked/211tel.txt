@@ -1,0 +1,4 @@
+# 1.0 of the lit level of each room.
+211tela 0.7478
+211telb 0.7021
+211telc 0.7321

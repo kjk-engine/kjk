@@ -1,0 +1,6 @@
+# 1.0 of the lit level of each room.
+m44ab_26a 0.2344
+m44ab_27a 0.1670
+m44ab_28a 0.2567
+m44ab_29a 0.2524
+m44ab_30a 0.1698

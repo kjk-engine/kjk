@@ -1734,8 +1734,16 @@ impl Settings {
     }
 
     /// The original game's lighting, or kjk's own with glow (the options'
-    /// Lighting).
+    /// Lighting). A run that started with Enhanced Lightmaps and a download
+    /// installed (`lighting_bakes::chosen`) keeps Enhanced Lightmaps until
+    /// kjk starts again, whatever the options say now. Its areas hold the
+    /// baked lightmaps, which Classic or plain Enhanced would show at the
+    /// wrong light. A run that started without them shows a change to
+    /// Enhanced Lightmaps as plain Enhanced until the next start.
     pub fn lighting(&self) -> crate::rolloff::LightingMode {
+        if crate::lighting_bakes::chosen() {
+            return crate::rolloff::LightingMode::Baked;
+        }
         let value = self.values.get("display.lighting");
         crate::rolloff::LightingMode::named(value.map_or("classic", String::as_str))
     }

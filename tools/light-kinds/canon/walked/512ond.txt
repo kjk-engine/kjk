@@ -1,0 +1,6 @@
+# 1.0 of the lit level of each room.
+512ondc 0.6445
+512ondd 0.6607
+512onde 0.3158
+512ondf 0.5271
+512ondi 0.3547

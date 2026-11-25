@@ -1,0 +1,9 @@
+# 1.0 of the lit level of each room.
+504onda 0.8507
+504ondb 0.7702
+504ondc 0.8162
+504ondd 0.8417
+504onde 0.6264
+504ondf 0.6319
+504ondi 0.0039
+504ondj 0.2891

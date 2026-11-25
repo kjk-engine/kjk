@@ -1,0 +1,16 @@
+# 0.3 of the lit level of each room of module ebo_m12aa, and at most none.
+m12aa_01b 0.0552
+m12aa_01c 0.1061
+m12aa_01d 0.0738
+m12aa_01e 0.0514
+m12aa_01f 0.0860
+m12aa_01g 0.1575
+m12aa_01h 0.0530
+m12aa_01i 0.0401
+m12aa_01j 0.0513
+m12aa_01k 0.0652
+m12aa_01l 0.0385
+m12aa_01m 0.0500
+m12aa_01n 0.0451
+m12aa_01o 0.0485
+m12aa_01p 0.2039

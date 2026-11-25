@@ -1,0 +1,7 @@
+# 1.0 of the lit level of each room.
+410dxn01 0.4809
+410dxn02 0.6116
+410dxn03 0.5225
+410dxn04 0.4645
+410dxn05 0.5387
+410dxn06 0.5069
