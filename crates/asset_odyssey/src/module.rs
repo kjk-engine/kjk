@@ -235,7 +235,8 @@ pub struct Instance {
     pub linked_to: Option<(String, Vec<u8>)>,
     /// `TransitionDestin`: the destination's name (a strref).
     pub destination: Option<u32>,
-    /// A door's or placeable's `Locked` and `AnimationState` (instance,
+    /// A door's or placeable's `Locked`, and its state: a door's
+    /// `OpenState`, a placeable's `AnimationState` (`state_field`; instance,
     /// else template).
     pub locked: bool,
     pub animation_state: u32,
@@ -762,6 +763,19 @@ fn template(kind: Kind, item: &GffStruct) -> String {
     item.resref(label).unwrap_or_else(String::new)
 }
 
+/// The field that holds a door's or placeable's state at load (0 closed).
+/// Both executables read a door's from `OpenState` and a placeable's from
+/// `AnimationState`. A door template also carries an `AnimationState`, which
+/// the games' own templates set to the same value, but a mod's may not:
+/// TSLRCM's force field in the HK factory (`door_ffmain2`) starts open by
+/// its `OpenState` alone.
+fn state_field(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Door => "OpenState",
+        _ => "AnimationState",
+    }
+}
+
 #[allow(
     clippy::disallowed_methods,
     reason = "`facing` is for drawing; the sim turns by `direction`"
@@ -818,7 +832,7 @@ fn instance(kind: Kind, item: &GffStruct) -> Instance {
         linked_to,
         destination: strref(item.get("TransitionDestin")),
         locked: item.uint("Locked").is_some_and(|value| value != 0),
-        animation_state: item.uint("AnimationState").unwrap_or(0),
+        animation_state: item.uint(state_field(kind)).unwrap_or(0),
         lock: Lock::default(),
         conversation: item.resref("Conversation").unwrap_or_else(String::new),
         scripts: scripts(item),
@@ -1032,8 +1046,8 @@ impl ModuleIr {
                     if item.get("Locked").is_none() {
                         instance.locked = root.uint("Locked").is_some_and(|value| value != 0);
                     }
-                    if item.get("AnimationState").is_none() {
-                        instance.animation_state = root.uint("AnimationState").unwrap_or(0);
+                    if item.get(state_field(kind)).is_none() {
+                        instance.animation_state = root.uint(state_field(kind)).unwrap_or(0);
                     }
                     if item.get("Conversation").is_none() {
                         instance.conversation =
