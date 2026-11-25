@@ -7942,12 +7942,6 @@ fn level_edit_new_map() {
     );
 }
 
-/// A new map's room turned by any angle (`docs/LEVEL-EDIT.md`, "New maps"):
-/// its walkmesh turned round its old place and moved, a point found on the
-/// same face before and after, the AABB tree's boxes round their faces
-/// again; its model turned in a copy (`fmt_odyssey::mdl::turned`), on a
-/// model the test makes; a packed orientation that reads back; and the
-/// room's yaw kept by the map's file. No installs.
 /// A `--cmds` script's `edit` command keeps a part in double quotes as one
 /// word, spaces and all, and a `;` inside quotes does not end the
 /// command. A reply "Who are you?" used to come out as three replies.
@@ -7984,6 +7978,12 @@ fn console_edit_quoted_words() {
     );
 }
 
+/// A new map's room turned by any angle (`docs/LEVEL-EDIT.md`, "New maps"):
+/// its walkmesh turned round its old place and moved, a point found on the
+/// same face before and after, the AABB tree's boxes round their faces
+/// again; its model turned in a copy (`fmt_odyssey::mdl::turned`), on a
+/// model the test makes; a packed orientation that reads back; and the
+/// room's yaw kept by the map's file. No installs.
 #[test]
 fn level_edit_turned_rooms() {
     use fmt_odyssey::bwm::{AabbEntry, WalkFace, Walkmesh};
