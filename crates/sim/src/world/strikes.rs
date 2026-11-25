@@ -620,19 +620,21 @@ pub use probes::{
 /// still within `specials::LEAP_REACH` of the leaper, as a whole roll
 /// through the pipeline every weapon hit takes (`combat::damage`), so the
 /// enemy's blade may turn it. Advanced Force Jump and Force Jump Mastery
-/// add `specials::LEAP_BONUS` to its attack and damage. On the authority
+/// add `specials::LEAP_BONUS` to its attack and damage. As it leaves the
+/// ground and as it lands, the leaper shows KOTOR's Force Jump effect
+/// (`specials::LEAP_VISUAL`). On the authority
 /// and in replays, and in prediction for the players' own, as `strikes`.
 #[allow(clippy::type_complexity)]
 pub(super) fn leap_blows(
     clock: Res<Clock>,
     mut hits: ResMut<Hits>,
-    actors: Query<(
+    mut actors: Query<(
         &Id,
         Option<&Avatar>,
         Option<&Object>,
         Option<&PlayerSheet>,
         &Player,
-        &Fighting,
+        &mut Fighting,
     )>,
 ) {
     use rules::saber_moves::specials;
@@ -651,17 +653,33 @@ pub(super) fn leap_blows(
         })
         .collect();
     bodies.sort_by_key(|(id, ..)| *id);
-    let mut rows: Vec<_> = actors.iter().collect();
+    let mut rows: Vec<_> = actors.iter_mut().collect();
     rows.sort_by_key(|(id, ..)| id.0);
-    for (id, avatar, object, sheet, player, fighting) in rows {
+    for (id, avatar, object, sheet, player, mut fighting) in rows {
         if clock.reason == StepReason::Predict && avatar.is_none() {
             continue;
         }
-        let fighter = &fighting.0;
-        let Some(leap) = fighter.leap.filter(|_| fighter.alive()) else {
+        let Some(leap) = fighting.0.leap.filter(|_| fighting.0.alive()) else {
             continue;
         };
         let since = leap.elapsed(now);
+        // KOTOR's Force Jump effect as it leaves the ground and as it lands.
+        let crossed = |mark: u64| since >= mark && since < mark + msec;
+        if crossed(motion::LEAP_TAKEOFF_MS) || crossed(motion::LEAP_LANDING_MS) {
+            let visual = crate::combat::fighter::Visual {
+                row: specials::LEAP_VISUAL,
+                ms: 0,
+                beam: false,
+                part: 0,
+            };
+            fighting.0.record(crate::combat::fighter::Event::visual(
+                visual,
+                Some(id.0),
+                None,
+                clock.tick,
+            ));
+        }
+        let fighter = &fighting.0;
         if !(since >= motion::LEAP_BLOW_MS && since < motion::LEAP_BLOW_MS + msec) {
             continue;
         }

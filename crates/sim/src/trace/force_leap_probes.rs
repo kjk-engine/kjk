@@ -11,6 +11,8 @@
 //! - After one leap, the same keys from as far away leap again.
 //! - One tap of [Jump] makes no leap, and the jump it always made.
 //! - A second tap after landing from the first leaps too.
+//! - A movement key held makes no leap.
+//! - A leap started in the air does not rise above where it started.
 //! - An enemy standing in the way does not turn the leap aside, and killing
 //!   some of a group leaves the leap working on the rest.
 //! - Of three enemies side by side, the leap goes for the one looked at.
@@ -176,6 +178,8 @@ pub fn probes() -> Checks {
             "the leap comes down a ledge beside the enemy",
             down_a_ledge(),
         ),
+        ("no leap with a movement key held", moving_no_leap()),
+        ("a leap from the air does not rise", from_the_air_no_rise()),
         ("no leap without Force Jump", no_feat()),
         ("no leap without a swing", no_swing()),
         ("no leap at a near enemy", too_near()),
@@ -511,6 +515,70 @@ fn over_one_in_the_way() -> Result<String, String> {
             "one in the way at {}: leap {:?} at {aimed:?}, {last:.0} units from it at the end",
             far * 0.5,
             leap.map(|leap| leap.target)
+        ),
+    )
+}
+/// [Forward] held with the keys: no leap, as every other jumping attack
+/// needs a movement key and keeps it.
+fn moving_no_leap() -> Result<String, String> {
+    let away = far();
+    let text = format!(
+        "scenario force leap moving\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         {}tick 220\n",
+        READY - 1,
+        taps("b0=attack f0=127 ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    check(
+        leap.is_none(),
+        format!("[Forward] held, enemy {away} units off: leap {leap:?}"),
+    )
+}
+/// The second tap in the air from the first tap's jump: the leap starts
+/// there and does not rise above where it started.
+fn from_the_air_no_rise() -> Result<String, String> {
+    let away = far();
+    // The second tap well into the first tap's jump.
+    let text = format!(
+        "scenario force leap from the air\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 2 b0=attack\ntick 1 b0=attack u0=127\ntick 30 b0=attack\n\
+         tick 1 b0=attack u0=127\ntick 220\n",
+        READY - 1,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let states: Vec<(bool, f32)> = ticks
+        .iter()
+        .filter_map(|tick| {
+            let leaping = tick.own(Seat(0))?.fighter?.leap.is_some();
+            Some((leaping, player(tick)?[2]))
+        })
+        .collect();
+    let start = states.iter().position(|(leaping, _)| *leaping);
+    let Some(start) = start else {
+        return check(false, "no leap from the air".to_string());
+    };
+    let from = states[start.saturating_sub(1)].1;
+    let highest = states[start..]
+        .iter()
+        .map(|(_, z)| *z)
+        .fold(f32::MIN, f32::max);
+    let last = ticks
+        .last()
+        .and_then(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .unwrap_or(f32::MAX);
+    check(
+        from > STANDING_Z + 8.0 && highest <= from + 2.0 && last <= LANDED,
+        format!(
+            "leap from {from:.1} in the air: rose to {highest:.1}, {last:.0} units from the enemy at the end"
         ),
     )
 }

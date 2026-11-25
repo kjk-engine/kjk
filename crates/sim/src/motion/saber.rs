@@ -1733,7 +1733,7 @@ impl Move<'_, '_> {
 
     /// Starts a Force leap if one may start now: the player's own body, with
     /// Force Jump and a lit lightsaber, attacking ([Attack] held, or an
-    /// ordinary swing playing), tapping [Jump] twice within
+    /// ordinary swing playing) with no movement key held, tapping [Jump] twice within
     /// `specials::LEAP_WINDOW_MS`, with an enemy in front (`leap_target`) at
     /// the second tap. The first tap, on the ground, jumps as it always does
     /// and opens the window (`Fighter::leap_armed_until`). The second, in the
@@ -1765,7 +1765,17 @@ impl Move<'_, '_> {
             && !is_special_move(self.ps.torso.anim);
         let swinging = current.start() || current.attack() || current.transition();
         let attacking = self.attack_held() || swinging;
-        if !(arms.keyed && arms.player && fresh && attacking && lightsaber && rank > 0 && free) {
+        // No movement key: every other jumping attack needs one.
+        let unmoved = self.cmd.forward == 0 && self.cmd.right == 0;
+        if !(arms.keyed
+            && arms.player
+            && fresh
+            && attacking
+            && unmoved
+            && lightsaber
+            && rank > 0
+            && free)
+        {
             return false;
         }
         let grounded = self.ps.ground.is_some() && !self.ps.ducked();
@@ -1783,11 +1793,14 @@ impl Move<'_, '_> {
         let Some((target, to)) = self.leap_target(arms, usize::from(rank) - 1) else {
             return false;
         };
-        // From the air it is already off the ground: it leaves at once.
+        // From the air it is already off the ground: it leaves at once, and
+        // falls onto the enemy without rising again (`air_flight_ms`). Its
+        // start is set back so the clip and the landing keep their times.
         let began = if grounded {
             now
         } else {
-            now.saturating_sub(LEAP_TAKEOFF_MS)
+            let flight = self.air_flight_ms(to[2] - self.ps.origin[2]);
+            now.saturating_sub(LEAP_LANDING_MS - flight)
         };
         let pair = arms.kit.forced_style(fighter.hand) == Some(Style::Dual);
         let stance = Self::blade_stance(saber, pair);
@@ -1813,14 +1826,30 @@ impl Move<'_, '_> {
         true
     }
 
+    /// How long (ms) a Force leap started in the air takes to come down
+    /// `rise` (units, negative below) without rising again: the time a fall
+    /// from rest takes, at least `specials::LEAP_AIR_MS` and at most the
+    /// leap's whole flight. An enemy no lower than the character takes the
+    /// whole flight, and the leap rises to it as from the ground.
+    fn air_flight_ms(&self, rise: f32) -> u64 {
+        let whole = LEAP_LANDING_MS - LEAP_TAKEOFF_MS;
+        if rise >= 0.0 {
+            return whole;
+        }
+        let falling = (2.0 * -rise / self.ps.gravity.max(1.0)).sqrt() * 1000.0;
+        (falling as u64).clamp(specials::LEAP_AIR_MS.min(whole), whole)
+    }
+
     /// The enemy a Force leap of Force Jump rank `rank` (0 to 2) leaps at,
     /// and where it lands (units): of the enemies (`Arms::foes`) more than
     /// `specials::LEAP_LEAST` and no more than the rank's
     /// `specials::LEAP_MOST` away across the ground, centre to centre,
     /// within `specials::LEAP_ARC` degrees of the flat view, and no higher
     /// above the character than its Force Jump rises
-    /// (`force::jump::HEIGHTS`), the one nearest to the view's line whose
-    /// way is clear. It lands `specials::LEAP_STOP` short of the enemy's
+    /// (`force::jump::HEIGHTS`), whose way is clear: first the one under the
+    /// crosshair, as the targeting picks it (its middle within
+    /// `targeting::pick::CONE_DEGREES` of the crosshair's line,
+    /// `mind::crosshair`), then the one nearest to the view's line. It lands `specials::LEAP_STOP` short of the enemy's
     /// box, at the enemy's height. The way is clear when a box as wide as
     /// the character's own meets nothing of the level going up to a point
     /// `specials::LEAP_CLEAR` over the higher of the two halfway along, and
@@ -1832,7 +1861,12 @@ impl Move<'_, '_> {
         let o = self.ps.origin;
         let (ahead, _, _) = self.flat_view();
         let level = Contents(Contents::PLAYER_SOLID.0 & !Contents::BODY.0);
-        let mut candidates: Vec<(f32, u32, Vec3, f32, f32)> = arms
+        // The crosshair's line, and how near it a body's middle must be.
+        let sight = crate::combat::mind::crosshair(self.ps);
+        let (look, _, _) = math::angle_vectors(self.ps.view);
+        let (_, cone_cos) = collision::trig::sin_cos_deg(rules::targeting::pick::CONE_DEGREES);
+        let middle = rules::targeting::volumes::CREATURE_HEIGHT / 2.0 / collision::UNIT;
+        let mut candidates: Vec<(bool, f32, u32, Vec3, f32, f32)> = arms
             .foes
             .iter()
             .filter_map(|&(entity, at)| {
@@ -1841,17 +1875,20 @@ impl Move<'_, '_> {
                 way[2] = 0.0;
                 let apart = math::normalize(&mut way);
                 let facing = math::dot(way, ahead);
+                let mut to_middle = math::sub([at[0], at[1], at[2] + middle], sight);
+                math::normalize(&mut to_middle);
+                let under = math::dot(to_middle, look) >= cone_cos;
                 (apart > specials::LEAP_LEAST
                     && apart <= most
                     && facing >= least_cos
                     && rise <= highest)
-                    .then_some((facing, entity, way, apart, at[2]))
+                    .then_some((under, facing, entity, way, apart, at[2]))
             })
             .collect();
-        candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+        candidates.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.total_cmp(&a.1)).then(a.2.cmp(&b.2)));
         candidates
             .into_iter()
-            .find_map(|(_, entity, way, apart, z)| {
+            .find_map(|(_, _, entity, way, apart, z)| {
                 let back = (apart - 2.0 * super::HALF_WIDTH - specials::LEAP_STOP).max(0.0);
                 let mut to = math::mad(o, back, way);
                 to[2] = z;

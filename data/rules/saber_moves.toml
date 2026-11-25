@@ -535,8 +535,8 @@ type = "u64"
 value = 1000
 unit = "ms"
 range = [0, 2000]
-summary = "A character with Force Jump makes a Force leap by holding [Attack], or swinging a lightsaber, and tapping [Jump] twice within {saber_moves.specials.leap_window_ms:s}. The first tap jumps as usual, and the second starts the leap, in the air from that jump or back on the ground."
-detail = "KOTOR makes the leap whenever the Jedi attacks a distant enemy. kjk asks for two taps of the jump key during an attack, so the leap is never made by accident and does not take the place of the other jumping attacks."
+summary = "A character with Force Jump makes a Force leap by holding [Attack], or swinging a lightsaber, with no movement key held, and tapping [Jump] twice within {saber_moves.specials.leap_window_ms:s}. The first tap jumps as usual, and the second starts the leap, in the air from that jump or back on the ground."
+detail = "KOTOR makes the leap whenever the Jedi attacks a distant enemy. kjk asks for two taps of the jump key during an attack with no movement key held. Every other jumping attack needs a movement key, so the leap takes nothing away from them."
 source = "ours, after KOTOR's Force Jump feats"
 see = "sim::motion::saber"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY", "kind:lightsaber"]
@@ -555,7 +555,7 @@ name = "Force Leap Aim"
 value = 25.0
 unit = "°"
 range = [0.0, 90.0]
-summary = "A Force leap goes for an enemy within {saber_moves.specials.leap_arc} degrees to either side of where the character faces. If several enemies qualify, it goes for the one closest to that direction."
+summary = "A Force leap goes for the enemy under the crosshair, as the targeting picks it. Without one, it goes for an enemy within {saber_moves.specials.leap_arc} degrees to either side of where the character faces, the one closest to that direction."
 source = "ours"
 see = "sim::motion::saber"
 [specials.leap_most]
@@ -599,6 +599,23 @@ summary = "A Force leap needs a clear way to the enemy: the character's body mus
 source = "ours"
 see = "sim::motion::saber"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_air_ms]
+name = "Force Leap From the Air"
+type = "u64"
+value = 250
+unit = "ms"
+range = [0, 500]
+summary = "A Force leap started in the air does not rise again. It falls onto the enemy, taking at least {saber_moves.specials.leap_air_ms:s} to get there."
+source = "ours"
+see = "sim::motion::saber"
+[specials.leap_visual]
+name = "Force Leap Effect"
+type = "u16"
+value = 1002
+range = [0, 65535]
+summary = "A Force leap shows KOTOR's Force Jump effect, row {saber_moves.specials.leap_visual:bare} of visualeffects.2da, as it leaves the ground and as it lands."
+source = "KOTOR's visualeffects.2da (VFX_IMP_FORCE_JUMP_ADVANCED)"
+see = "sim::world::strikes"
 [specials.leap_stop]
 name = "Force Leap Landing"
 value = 40.0
