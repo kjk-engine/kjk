@@ -1733,11 +1733,13 @@ impl Move<'_, '_> {
 
     /// Starts a Force leap if one may start now: the player's own body, with
     /// Force Jump and a lit lightsaber, attacking ([Attack] held, or an
-    /// ordinary swing playing), on its feet on the ground, with an enemy in
-    /// front (`leap_target`), tapping [Jump] twice within
-    /// `specials::LEAP_WINDOW_MS`. The first tap makes no jump: it opens the
-    /// window (`Fighter::leap_armed_until`). The second starts the leap, and
-    /// the swing gives way to it.
+    /// ordinary swing playing), tapping [Jump] twice within
+    /// `specials::LEAP_WINDOW_MS`, with an enemy in front (`leap_target`) at
+    /// the second tap. The first tap, on the ground, jumps as it always does
+    /// and opens the window (`Fighter::leap_armed_until`). The second, in the
+    /// air from that jump or back on the ground, starts the leap, and the
+    /// swing gives way to it. From the air the leap skips its crouch and
+    /// leaves at once. A tap that starts no leap does what it always did.
     fn start_leap(&mut self, arms: &mut Arms) -> bool {
         let now = self.time_ms;
         let fighter = &*arms.fighter;
@@ -1763,33 +1765,36 @@ impl Move<'_, '_> {
             && !is_special_move(self.ps.torso.anim);
         let swinging = current.start() || current.attack() || current.transition();
         let attacking = self.attack_held() || swinging;
-        if !(arms.keyed
-            && arms.player
-            && fresh
-            && attacking
-            && lightsaber
-            && rank > 0
-            && free
-            && self.ps.ground.is_some()
-            && !self.ps.ducked())
-        {
+        if !(arms.keyed && arms.player && fresh && attacking && lightsaber && rank > 0 && free) {
+            return false;
+        }
+        let grounded = self.ps.ground.is_some() && !self.ps.ducked();
+        // The first tap: it jumps as ever, and the window opens for the
+        // second.
+        if fighter.leap_armed_until <= now {
+            if grounded {
+                arms.fighter.leap_armed_until = now + specials::LEAP_WINDOW_MS;
+            }
+            return false;
+        }
+        if !grounded && self.ps.ground.is_some() {
             return false;
         }
         let Some((target, to)) = self.leap_target(arms, usize::from(rank) - 1) else {
             return false;
         };
-        // The first tap: no jump, and the window opens for the second.
-        if arms.fighter.leap_armed_until <= now {
-            arms.fighter.leap_armed_until = now + specials::LEAP_WINDOW_MS;
-            self.ps.flags |= motion_flags::JUMP_PRESSED;
-            return false;
-        }
+        // From the air it is already off the ground: it leaves at once.
+        let began = if grounded {
+            now
+        } else {
+            now.saturating_sub(LEAP_TAKEOFF_MS)
+        };
         let pair = arms.kit.forced_style(fighter.hand) == Some(Style::Dual);
         let stance = Self::blade_stance(saber, pair);
         let fighter = &mut *arms.fighter;
         fighter.leap = Some(crate::combat::Leap {
             target,
-            began: now,
+            began,
             to,
             rank,
             flown: false,

@@ -9,7 +9,8 @@
 //! - Without the swing, the press makes no leap.
 //! - With the enemy nearer than the least distance, no leap is made.
 //! - After one leap, the same keys from as far away leap again.
-//! - One tap of [Jump] makes neither a leap nor a jump.
+//! - One tap of [Jump] makes no leap, and the jump it always made.
+//! - A second tap after landing from the first leaps too.
 //! - Of three enemies side by side, the leap goes for the one looked at.
 //! - From a ledge, the leap comes down beside the enemy below, at its
 //!   height, not on top of it.
@@ -155,7 +156,8 @@ pub fn probes() -> Checks {
             "the player leaps out of a melee with [Attack] held",
             out_of_a_held_melee(),
         ),
-        ("one tap makes neither a leap nor a jump", one_tap()),
+        ("one tap makes no leap and still jumps", one_tap()),
+        ("a second tap after landing leaps", second_tap_landed()),
         (
             "the leap goes for the middle of three side by side",
             side_by_side(),
@@ -300,7 +302,7 @@ fn leap_of(ticks: &[Snapshot]) -> Option<crate::combat::Leap> {
         .find_map(|fighter| fighter.leap)
 }
 /// One tap of [Jump] with [Attack] held, an enemy in reach: no leap, and
-/// no jump either (the tap waits for the second).
+/// the jump it always made.
 fn one_tap() -> Result<String, String> {
     let away = far();
     let text = format!(
@@ -323,7 +325,7 @@ fn one_tap() -> Result<String, String> {
         .map(|at| at[2])
         .fold(f32::MIN, f32::max);
     check(
-        leap.is_none() && highest < STANDING_Z + 8.0,
+        leap.is_none() && highest > STANDING_Z + 8.0,
         format!("one tap, enemy {away} units off: leap {leap:?}, rose to {highest:.1}"),
     )
 }
@@ -401,6 +403,33 @@ fn down_a_ledge() -> Result<String, String> {
             "from {started:.1} on the block down to the floor: leap {}, {apart:.0} units apart, \
              {height:.1} above",
             leap.is_some()
+        ),
+    )
+}
+/// [Attack] held, [Jump] tapped once, the jump landed, then tapped again
+/// inside the window: the second tap leaps from the ground.
+fn second_tap_landed() -> Result<String, String> {
+    let away = far();
+    // Long enough to land from a normal jump, short of the window.
+    let wait = (specials::LEAP_WINDOW_MS as usize * 3 / 4) / 8;
+    let text = format!(
+        "scenario force leap second tap landed\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 2 b0=attack\ntick 1 b0=attack u0=127\ntick {wait} b0=attack\n\
+         tick 1 b0=attack u0=127\ntick 220\n",
+        READY - 1,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    let before = ticks.get(ticks.len().saturating_sub(222)).and_then(player);
+    check(
+        leap.is_some() && before.is_some_and(|at| at[2] < STANDING_Z + 1.0),
+        format!(
+            "second tap {wait} ticks after the first, standing at {:?}: leap {leap:?}",
+            before.map(|at| at[2])
         ),
     )
 }

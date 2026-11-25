@@ -209,8 +209,8 @@ enemy stands in front of the character, more than
 {saber_moves.specials.leap_least:m} away and within the leap's range, with
 nothing in the way, the character leaps across the distance and strikes once.
 The leap comes down at the enemy's height, so the character can leap down
-from a hill or up a few steps. The first tap makes no jump while such an enemy
-stands in front.
+from a hill or up a few steps. The first tap jumps as usual. The second starts
+the leap, in the air from that jump or back on the ground.
 The range is {saber_moves.specials.leap_most[0]:m} with Force Jump,
 {saber_moves.specials.leap_most[1]:m} with Advanced Force Jump and
 {saber_moves.specials.leap_most[2]:m} with Force Jump Mastery. The blow gets
