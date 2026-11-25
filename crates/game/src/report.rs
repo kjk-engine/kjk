@@ -564,7 +564,7 @@ fn shoot(
         Option<ResMut<crate::sound::Added>>,
         Option<ResMut<crate::sound::Now>>,
     ),
-    mut shutter: Local<Option<audio::Clip>>,
+    mut shutter: Local<Option<Option<audio::Clip>>>,
 ) {
     let typed = typed.read().map(|input| (input.key_code, input.state));
     // Photo mode keeps the frame's actions while play has none.
@@ -593,8 +593,8 @@ fn shoot(
         .as_deref()
         .is_some_and(crate::photo_mode::PhotoMode::is_on)
         && let (Some(added), Some(now)) = (added.as_deref_mut(), now.as_deref_mut())
+        && let Some(clip) = shutter.get_or_insert_with(crate::photo_mode::shutter)
     {
-        let clip = shutter.get_or_insert_with(crate::photo_mode::shutter);
         added
             .0
             .push((crate::photo_mode::SHUTTER.into(), clip.clone()));
