@@ -16,6 +16,10 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("pad rows", pad_rows()),
         ("block shares the right button", block_shares()),
         ("shared button", shared_button()),
+        (
+            "next feat key cycles a single blade's style",
+            next_feat_style(),
+        ),
         ("bar defaults", bar_defaults()),
         ("unbound menu and interface keys", unbound_defaults()),
         ("photo mode key", photo_mode_key()),
@@ -218,6 +222,7 @@ fn aim_command() -> Result<String, String> {
             rules: DuelAdvanced,
             blade: matches!(hand, Hand::Lightsaber | Hand::Blade),
             blaster: matches!(hand, Hand::Blaster),
+            single_blade: false,
         };
         let sent = player_command(&actions, look, uses, || in_hand);
         let has = |bits: u8, bit: u8| bits & bit != 0;
@@ -1208,6 +1213,7 @@ fn shared_button() -> Result<String, String> {
         rules,
         blade,
         blaster: !blade,
+        single_blade: false,
     };
     // A lightsaber, lit or put away, and a vibroblade are each a blade
     // (`InHand::of`), whether the player moves their own character or the
@@ -1239,5 +1245,43 @@ fn shared_button() -> Result<String, String> {
     check(
         wrong.is_empty(),
         format!("{} rows, wrong {wrong:?}", rows.len()),
+    )
+}
+
+/// The next-feat key held sends the saber style button with a single blade
+/// in hand (`InHand::single_blade`), as the saber style key does. With two
+/// blades, a double-bladed weapon or a blaster it sends no style button.
+/// The saber style key sends it with anything in hand.
+fn next_feat_style() -> Result<String, String> {
+    use crate::sim_host::{InHand, Look, player_command};
+    let style_sent = |held: Action, single_blade: bool| {
+        let mut actions = crate::pad::Actions::default();
+        actions.set_held(held, true);
+        let look = Look {
+            pitch: 0.0,
+            yaw: 0.0,
+        };
+        let uses = (&Default::default(), &Default::default());
+        let in_hand = InHand {
+            rules: sim::combat::saber::SaberRules::Ja,
+            blade: single_blade,
+            blaster: false,
+            single_blade,
+        };
+        let sent = player_command(&actions, look, uses, || in_hand);
+        sent.buttons & sim::buttons::SABER_STYLE != 0
+    };
+    let seen = [
+        style_sent(Action::NextFeat, true),
+        style_sent(Action::NextFeat, false),
+        style_sent(Action::SaberStyle, true),
+        style_sent(Action::SaberStyle, false),
+    ];
+    check(
+        seen == [true, false, true, true],
+        format!(
+            "style button sent by the next-feat key with one blade, with anything else, \
+             by the saber style key with one blade, with anything else: {seen:?}"
+        ),
     )
 }

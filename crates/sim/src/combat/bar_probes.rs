@@ -384,6 +384,24 @@ fn soldier() -> Sheet {
     sheet
 }
 
+/// A soldier with Flurry, Critical Strike and Power Attack, no powers, a
+/// vibroblade alone in the right hand, grenades and medpacs. A single blade
+/// takes no feat attack in the first fill, though its feat attacks switch
+/// its saber style when the player puts them on the bar.
+fn swordsman() -> Sheet {
+    let mut sheet = Sheet::dev_soldier();
+    sheet.weapons = [sheet.weapons[1], None];
+    sheet.feats = [
+        feats::FLURRY[0],
+        feats::CRITICAL_STRIKE[0],
+        feats::POWER_ATTACK[0],
+    ]
+    .into_iter()
+    .fold(sheet.feats, |known, row| known.with(row));
+    sheet.items = carrying(&[GRENADE, MEDPAC]);
+    sheet
+}
+
 /// A droid with no powers, no feat attacks and no items.
 fn droid() -> Sheet {
     Sheet {
@@ -407,7 +425,7 @@ fn slots(first: [Option<Content>; FILLED]) -> [Option<Content>; SLOTS] {
     slots
 }
 
-type Characters = [(&'static str, fn() -> Sheet, [Option<Content>; FILLED]); 3];
+type Characters = [(&'static str, fn() -> Sheet, [Option<Content>; FILLED]); 4];
 
 /// Each character and its first fill.
 const CHARACTERS: Characters = [
@@ -428,6 +446,16 @@ const CHARACTERS: Characters = [
             Some(Content::Feat(FeatLine::PowerBlast)),
             Some(Content::Item(Shelf::Grenade)),
             Some(Content::Item(Shelf::Medpac)),
+            None,
+        ],
+    ),
+    (
+        "swordsman",
+        swordsman,
+        [
+            Some(Content::Item(Shelf::Grenade)),
+            Some(Content::Item(Shelf::Medpac)),
+            None,
             None,
         ],
     ),
