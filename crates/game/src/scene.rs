@@ -1846,7 +1846,8 @@ impl<'t> Spawner<'t> {
             &self.area,
         )
         .opaque_texture(!facts.alpha)
-        .culled(!facts.decal);
+        .culled(!facts.decal)
+        .glowing(shipped_glow(surface));
         let material = stores.materials.add(made);
         if let Some((frames, fps)) = self.frames.get(*name) {
             self.flipbooks
@@ -3597,6 +3598,21 @@ pub(crate) fn shipped_lighting(
         is_room: false,
         room_flat: false,
         fogged: false,
+    }
+}
+
+/// How many times as bright one mesh of a blade a mod ships is drawn under
+/// Enhanced lighting (`BLADE_CORE_GLOW`). A mesh the blade's texture covers
+/// whole, such as the Schematic Lightsaber Mod's 3D core, is drawn like
+/// kjk's own blade core. It passes white, and bloom spreads a glow of the
+/// blade's colour around it. Without this, the mod's blade had only the faint
+/// halo of its planes, and looked dim next to the other blades. The added
+/// planes are drawn as they are, like the glow sprites of kjk's own blades.
+pub(crate) fn shipped_glow(surface: Surface) -> f32 {
+    if matches!(surface, Surface::Additive | Surface::AddOne) {
+        1.0
+    } else {
+        BLADE_CORE_GLOW
     }
 }
 
