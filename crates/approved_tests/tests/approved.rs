@@ -364,7 +364,10 @@ fn photo_camera() {
 /// built only the upper blade for them. A made-up hilt with eight blade
 /// nodes of one name builds two blades, one up and one down. With K1
 /// installed, `w_dblsbr_001` with its blade nodes renamed in memory builds
-/// the same two blades as with its own names. Needs `--features rig`
+/// the same two blades as with its own names. A blade core that a mod
+/// ships with its hilt, with no self-illumination and a decal texture,
+/// glows at full light (the Schematic Lightsaber Mod's cores; proposed
+/// 2026-11-25, awaiting approval). Needs `--features rig`
 /// (proposed 2026-11-21, awaiting approval).
 #[test]
 fn double_blades_sharing_a_name() {
@@ -373,7 +376,7 @@ fn double_blades_sharing_a_name() {
         "double_blades_sharing_a_name skipped: run with --features rig (builds the game's library)"
     );
     #[cfg(feature = "rig")]
-    probed("saber blades", &kjk_game::weapons::blade_probes(), 2);
+    probed("saber blades", &kjk_game::weapons::blade_probes(), 3);
 }
 
 /// A walker at a dung heap (`sim::motion::prop_step_probes::heap_probes`).
