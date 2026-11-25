@@ -4556,8 +4556,11 @@ fn cut_clip_outlasts_voice() -> Found {
 /// line before began on (TSL's `kreia_kr`: 1200, then three 1000s under
 /// Kreia's words as the camera pans round Korriban): it films from where
 /// the clip began, and waiting on it (flag 1) it lasts what is left of the
-/// clip, 3 s from the first line's start; a second 1200 begins the clip
-/// afresh, 3 s from its own.
+/// clip, 3 s from the first line's start. A second 1200 while the clip
+/// still plays carries it on too, as the camera model goes on with a clip
+/// it already plays (TSLRCM's `enc_ruin`: Kreia's lines each start
+/// `cut001w`, one flight); a 1201 begins its own clip afresh, 3 s from its
+/// own start.
 fn carried_camera_clip_holds() -> Found {
     let second = |animation: u16| {
         let mut talk = in_turn(&["", ""]);
@@ -4565,11 +4568,12 @@ fn carried_camera_clip_holds() -> Found {
         talk.entries[0].camera_animation = 1200;
         talk.entries[1].camera_animation = animation;
         talk.entries[1].wait_flags = 1;
+        let clip = |name: &str| (("probe_cam".to_string(), name.to_string()), 3000);
         let mut ground = Ground::staged(
             1,
             Stage {
                 talk,
-                camera_clips: [(("probe_cam".to_string(), "cut001w".to_string()), 3000)].into(),
+                camera_clips: [clip("cut001w"), clip("cut002w")].into(),
                 ..Stage::default()
             },
         )?;
@@ -4585,12 +4589,17 @@ fn carried_camera_clip_holds() -> Found {
             c.until_ms - first,
         ])
     };
-    let (carried, afresh) = (second(1000)?, second(1200)?);
+    let (carried, again, afresh) = (second(1000)?, second(1200)?, second(1201)?);
     let shown = carried[0];
     check(
-        shown > 0 && carried == [shown, 0, 3000] && afresh == [shown, shown, shown + 3000],
+        shown > 0
+            && shown < 3000
+            && carried == [shown, 0, 3000]
+            && again == carried
+            && afresh == [shown, shown, shown + 3000],
         format!(
-            "second line [shown, clip from, until] after the first: carried {carried:?}, afresh {afresh:?}"
+            "second line [shown, clip from, until] after the first: carried {carried:?}, \
+             the same clip again {again:?}, another clip {afresh:?}"
         ),
     )
 }

@@ -137,6 +137,11 @@ start over at a blank cell and keep KOTOR 2's planets apart. Saves from
 before the hints were kept are read by `old_saves_load`. They are not
 approved tests, and they run only through `kjk sim probes --only "save story"`.
 `bink_decoder_parts` was approved 2026-11-23.
+The crash probe `long_pause_clamped` was proposed 2026-11-25 and awaits
+approval. It checks that a pause of eight hours, as when a computer sleeps
+with the game running, moves the game by one frame at most, and that the
+next frame steps as many ticks as it would on a fresh clock. It is not an approved test, and it
+runs only through `kjk sim probes --only crash`.
 `untextured_mesh_drawn` (issue 441) was proposed 2026-11-16 and awaits
 approval. `stance_sets_sim` was changed 2026-11-16 for issue 514, and the
 change awaits approval. `sound_device_layouts` (issue 402) was proposed
@@ -316,6 +321,9 @@ executables merge an item);
 awaiting approval (a third fighter kicks a victim held in a grapple
 finisher eight times; the kicks hurt it, it never lies down while held,
 and it is held exactly as long as without the kicks);
+`carried_camera_clip_holds` changed 2026-11-25, awaiting approval (a
+line that starts the camera clip still playing carries it on, as TSL's
+executable goes on with a clip its camera model already plays);
 `cargo xtask publish-check` refuses tests anywhere else. All 190
 are in `tests/approved.rs`. They call library code and open no window.
 A test may also read the repository's own source files to check a rule
