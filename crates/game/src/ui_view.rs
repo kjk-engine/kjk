@@ -123,6 +123,10 @@ pub struct Ui {
     /// The player hid the HUD with the Hide interface key (`play_keys`).
     /// Any open screen shows it again.
     pub(crate) hud_hidden: bool,
+    /// Photo mode's corner lines while photo mode is on (`photo_mode`).
+    /// The rest of the interface is hidden meanwhile, and the player's own
+    /// Hide interface choice is kept for after.
+    pub(crate) photo: Option<crate::photo_mode::Line>,
     /// Every save on disk with the game it belongs to, as last read
     /// (`save_view::refresh`). `vm.saves` lists only the saves of the
     /// campaign the menu or the game is on now.
@@ -267,6 +271,7 @@ impl Ui {
             summary_closed: false,
             headless,
             hud_hidden: false,
+            photo: None,
             all_saves: Vec::new(),
             saves_for: None,
         }
@@ -704,7 +709,9 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 /// as a script's would be, `progress`); and as the screens and keys do,
 /// `save [name]`, `quicksave`, `load <id>` (`save_view`). The power wheel
 /// takes `powerwheel hold`, `powerwheel point X Y`, `powerwheel step N` and
-/// `powerwheel up` (`wheel_view`).
+/// `powerwheel up` (`wheel_view`). Photo mode takes `photo on`, `photo off`,
+/// `photo speed …`, `photo hide`, `photo step` and `photo fly …`
+/// (`photo_mode`).
 #[allow(clippy::type_complexity)]
 fn requests(
     mut ui: ResMut<Ui>,
@@ -728,9 +735,10 @@ fn requests(
         Option<ResMut<crate::camera_tune::Orbit>>,
         Option<ResMut<crate::progress::Told>>,
     ),
-    (mut world_pad, mut power_wheel): (
+    (mut world_pad, mut power_wheel, mut photo): (
         ResMut<crate::pad::ScriptedPad>,
         ResMut<crate::wheel_view::Wheel>,
+        Option<ResMut<crate::photo_mode::PhotoMode>>,
     ),
 ) {
     use sim::script::dialogue::Pick;
@@ -770,6 +778,11 @@ fn requests(
             ["camera", what @ ..] => {
                 if !orbit.as_deref_mut().is_some_and(|orbit| orbit.script(what)) {
                     warn!(target: "console", "ui camera: {what:?} is no orbit or zoom request");
+                }
+            }
+            ["photo", what @ ..] => {
+                if !photo.as_deref_mut().is_some_and(|photo| photo.script(what)) {
+                    warn!(target: "console", "ui photo: {what:?} is no photo mode request");
                 }
             }
             ["script", what @ ..] => match crate::script_screens::parse(what) {
@@ -1072,7 +1085,12 @@ fn step(
     }
     // The summary's OK held in a window holds the world too (`sim_host`).
     hold.0 = waiting && !headless.is_some_and(|headless| headless.0);
-    if presented.is_some() {
+    // Photo mode takes play's keys, and Escape and a pad's Menu leave it
+    // or take a screenshot instead of opening the menu.
+    let photo = ui.photo.is_some();
+    if photo {
+        input.keys.retain(|key| *key != ui::input::Key::Back);
+    } else if presented.is_some() {
         play_keys(
             ui,
             &mut input,
@@ -1156,7 +1174,7 @@ fn step(
     // creatures, the area transition panel and the arena's panels. The
     // power wheel still shows while its key is held, so the player sees
     // what they choose.
-    let hidden = ui.hud_hidden;
+    let hidden = ui.hud_hidden || photo;
     if let Some(hud) = hud.filter(|_| !talking && !minigame && !faded) {
         if !hidden {
             layers.insert(0, hud);
@@ -1200,7 +1218,7 @@ fn step(
     }
     // A conversation's screen under the screens, the HUD and barks given
     // way to it; the host's request card over both.
-    let in_play = presented.is_some();
+    let in_play = presented.is_some() && !photo;
     let dialog = in_play
         .then(|| dialog_layer(ui, (size.x, size.y)))
         .flatten();
@@ -1209,8 +1227,7 @@ fn step(
         layers.insert(under, layer);
     }
     // The status summary over the HUD, under the screens.
-    if let Some(summaries) = presented
-        .is_some()
+    if let Some(summaries) = in_play
         .then(|| summary_layer(ui, (size.x, size.y)))
         .flatten()
         .filter(|_| !talking && !minigame && !faded)
@@ -1228,7 +1245,7 @@ fn step(
         layers.insert(under, bark);
     }
     // A terminal's camera feed: its look over the view, under the screens.
-    if presented.is_some() && ui.vm.camera_feed {
+    if in_play && ui.vm.camera_feed {
         layers.insert(
             under,
             ui::screens::feed::draw((size.x, size.y), ui.stack.clock()),
@@ -1236,13 +1253,14 @@ fn step(
     }
     // A break's or ready check's banner over everything: the screens, a
     // conversation, a watching player's view.
-    if let Some(banner) = presented
-        .is_some()
+    if let Some(banner) = in_play
         .then(|| hud_layer(ui, (size.x, size.y), true))
         .flatten()
     {
         layers.push(banner);
     }
+    // Photo mode's corner lines over the world, alone.
+    layers.extend(photo_layer(ui, (size.x, size.y)));
     ui.layers = layers;
     // In a window the summary waiting for its OK frees the pointer and
     // holds the player as a screen does.
@@ -1987,6 +2005,36 @@ fn bark_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     );
     Some(out)
 }
+
+/// Photo mode's corner lines for a window of `window` pixels, in its lower
+/// left corner at the window's own pixels, one over the other, faded as
+/// photo mode asks.
+fn photo_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    let line = ui.photo.as_ref().filter(|line| line.alpha > 0.0)?;
+    let (words, alpha) = (line.words.clone(), line.alpha);
+    let Ui { assets, stack, .. } = ui;
+    let mut out = DrawList {
+        size: window,
+        ..DrawList::default()
+    };
+    let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
+    let mut bottom = window.1 - PHOTO_MARGIN;
+    for words in words.iter().rev() {
+        let first = out.quads.len();
+        painter.tooltip(words, [PHOTO_MARGIN, bottom], &mut out);
+        // The tip's box is its first quad: the next line stands over it.
+        bottom = out.quads.get(first).map_or(bottom, |tip| tip.rect[1]) - PHOTO_GAP;
+    }
+    for quad in &mut out.quads {
+        quad.color[3] *= alpha;
+    }
+    Some(out)
+}
+
+/// How far photo mode's corner lines stand from the window's left and
+/// lower edges, and apart (pixels).
+const PHOTO_MARGIN: f32 = 24.0;
+const PHOTO_GAP: f32 = 4.0;
 
 /// The conversation screen for a window of `window` pixels, while this
 /// player is in a cinematic conversation (`ui::screens::dialog`).

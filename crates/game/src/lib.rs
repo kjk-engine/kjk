@@ -128,6 +128,7 @@ mod party_calls;
 pub mod pazaak_view;
 mod perf;
 pub mod persona;
+pub mod photo_mode;
 pub mod pick_view;
 pub mod placeable_light;
 pub mod play;
