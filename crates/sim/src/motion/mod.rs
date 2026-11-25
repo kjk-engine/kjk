@@ -403,6 +403,9 @@ struct Move<'a, 'b> {
     velocity_before: Vec3,
     room: SearchedOnce,
     freed: SearchedOnce,
+    /// A Force leap flies (`saber::Move::leap_step`): its traces pass through
+    /// other characters, so none it passes over turns it from its enemy.
+    leaping: bool,
 }
 
 /// The world does not change within a step, and a body wedged in the level
@@ -566,6 +569,10 @@ impl<'a, 'b> Move<'a, 'b> {
             sent_torso: ps.torso.anim,
         };
         let maxs = [HALF_WIDTH, HALF_WIDTH, ps.maxs_z];
+        let leaping = arms
+            .as_deref()
+            .and_then(|arms| arms.fighter.leap)
+            .is_some_and(|leap| leap.flown);
         Move {
             cmd: *command,
             raw: *command,
@@ -590,6 +597,7 @@ impl<'a, 'b> Move<'a, 'b> {
             velocity_before: ps.velocity,
             room: SearchedOnce::default(),
             freed: SearchedOnce::default(),
+            leaping,
             ps,
         }
     }
@@ -858,7 +866,12 @@ impl Move<'_, '_> {
     }
 
     fn trace(&self, start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3) -> Hit {
-        self.trace_masked(start, end, mins, maxs, Contents::PLAYER_SOLID)
+        let mask = if self.leaping {
+            Contents(Contents::PLAYER_SOLID.0 & !Contents::BODY.0)
+        } else {
+            Contents::PLAYER_SOLID
+        };
+        self.trace_masked(start, end, mins, maxs, mask)
     }
 
     // --- The box's height -------------------------------------------------

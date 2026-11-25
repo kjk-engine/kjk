@@ -1871,8 +1871,9 @@ impl Move<'_, '_> {
     /// The Force leap's step after the move, if one is under way: it leaves
     /// the ground at `LEAP_TAKEOFF_MS`, thrown so that it comes down where
     /// it lands (`Leap::to`) at `LEAP_LANDING_MS`, and ends at
-    /// `LEAP_END_MS`, or at once if the character is knocked down. Once it
-    /// lands it stands where it came down. Its blow
+    /// `LEAP_END_MS`, or at once if the character is knocked down. In flight
+    /// it passes through other characters (`Move::leaping`) and keeps its
+    /// line to where it lands. Once it lands it stands where it came down. Its blow
     /// is the world's (`world::strikes::leap_blows`). Whether one was.
     pub(super) fn leap_step(&mut self, arms: &mut Arms) -> bool {
         let now = self.time_ms;
@@ -1905,6 +1906,16 @@ impl Move<'_, '_> {
             self.ps.events |= events::JUMP;
             leap.flown = true;
             arms.fighter.leap = Some(leap);
+        } else if leap.flown && elapsed < LEAP_LANDING_MS && self.ps.ground.is_none() {
+            // In flight it keeps its line to where it lands: anything that
+            // turned it aside on the way (a wall it slid along) is undone.
+            let mut way = math::sub(leap.to, self.ps.origin);
+            way[2] = 0.0;
+            let distance = math::normalize(&mut way);
+            let left = (LEAP_LANDING_MS - elapsed).max(self.ms.max(1) as u64);
+            let speed = distance / (left as f32 / 1000.0);
+            self.ps.velocity[0] = way[0] * speed;
+            self.ps.velocity[1] = way[1] * speed;
         }
         // Landed, it stops where it came down rather than slide on: on the
         // ground and no longer rising, or past its landing time.

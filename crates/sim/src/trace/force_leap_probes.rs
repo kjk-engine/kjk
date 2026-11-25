@@ -11,6 +11,8 @@
 //! - After one leap, the same keys from as far away leap again.
 //! - One tap of [Jump] makes no leap, and the jump it always made.
 //! - A second tap after landing from the first leaps too.
+//! - An enemy standing in the way does not turn the leap aside, and killing
+//!   some of a group leaves the leap working on the rest.
 //! - Of three enemies side by side, the leap goes for the one looked at.
 //! - From a ledge, the leap comes down beside the enemy below, at its
 //!   height, not on top of it.
@@ -151,6 +153,14 @@ pub fn probes() -> Checks {
         ("no leap at an enemy well aside", out_of_the_arc()),
         ("the player leaps again after the first leap", leaps_again()),
         ("the player leaps among several enemies", among_several()),
+        (
+            "the player leaps at the one left after kills",
+            after_kills(),
+        ),
+        (
+            "the leap passes over an enemy in the way",
+            over_one_in_the_way(),
+        ),
         ("the player leaps out of a melee", out_of_a_melee()),
         (
             "the player leaps out of a melee with [Attack] held",
@@ -430,6 +440,77 @@ fn second_tap_landed() -> Result<String, String> {
         format!(
             "second tap {wait} ticks after the first, standing at {:?}: leap {leap:?}",
             before.map(|at| at[2])
+        ),
+    )
+}
+/// Three enemies; the two nearer ones killed (one in the way, one beside
+/// it) before the keys: the leap goes for the one left.
+fn after_kills() -> Result<String, String> {
+    let far = far();
+    let text = format!(
+        "scenario force leap after kills\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {} {LANE} {STANDING_Z} 180\n\
+         put c1 {} {} {STANDING_Z} 180\n\
+         put c2 {far} {LANE} {STANDING_Z} 180\n\
+         tick 10\nstat c0 dead 1\nstat c1 dead 1\ntick 120\n\
+         {}tick 220\n",
+        LANE + 200.0,
+        LANE - 200.0,
+        READY - 1,
+        far * 0.5,
+        far * 0.4,
+        LANE + 60.0,
+        taps("b0=attack ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    check(
+        leap.is_some(),
+        format!("two enemies killed, one left {far} units off: leap {leap:?}"),
+    )
+}
+/// An enemy halfway along the line to the one leapt at, a little aside of
+/// it: the leap passes over it and comes down beside the one it aimed at.
+fn over_one_in_the_way() -> Result<String, String> {
+    let far = far();
+    let text = format!(
+        "scenario force leap over one in the way\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {far} {LANE} {STANDING_Z} 180\n\
+         put c1 {} {} {STANDING_Z} 180\n\
+         {}tick 220\n",
+        LANE + 300.0,
+        READY - 1,
+        far * 0.5,
+        LANE + 10.0,
+        taps("b0=attack ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    let aimed = ticks.first().and_then(|tick| {
+        tick.entities
+            .iter()
+            .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+            .map(|entity| entity.id)
+    });
+    let last = ticks
+        .last()
+        .and_then(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .unwrap_or(f32::MAX);
+    check(
+        leap.is_some_and(|leap| Some(leap.target) == aimed) && last <= LANDED,
+        format!(
+            "one in the way at {}: leap {:?} at {aimed:?}, {last:.0} units from it at the end",
+            far * 0.5,
+            leap.map(|leap| leap.target)
         ),
     )
 }
