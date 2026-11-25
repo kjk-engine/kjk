@@ -76,7 +76,11 @@ proposed and approved 2026-11-16, as was the old-bytes writer in
 `creatures_without_a_template`, `weapon_holdings`'s `disguised without
 hands` check, `stealth_spot`'s `player_sees_foe` check and
 `scene_mode`'s `held_walk_opens_door` check (in place of
-`party_queue_cannot_open`) proposed 2026-11-16, awaiting approval. The
+`party_queue_cannot_open`) proposed 2026-11-16, awaiting approval.
+`git_entry_keeps_template_fields` was changed on 2026-11-25 and awaits
+approval. A trigger made from its template now takes its template's tag
+even when its GIT entry writes another, as KOTOR 2's executable does. The
+entry's own tag is kept beside it for the playthrough routes. The
 minds probe `leash_holds_on_its_edge` (issue 488) was also proposed
 2026-11-16 and awaits approval. It is not an approved test, and it runs
 only through `kjk sim probes`. `placeable_looks`'s `transition_holds_queue`
