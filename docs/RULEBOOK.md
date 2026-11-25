@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `81ac6a8c3e58131c`.
+Edition `cabb3b32628c7ec4`.
 
 ## Contents
 
@@ -412,9 +412,9 @@ styles. The fast style requires Flurry. The medium style requires Critical
 Strike, or only proficiency with the weapon. The strong style requires Power
 Attack.
 
-The action bar's Flurry, Critical Strike and Power Attack buttons also switch
-the style of a single blade. Flurry switches to the fast style, Critical
-Strike to the medium style and Power Attack to the strong style.
+Flurry, Critical Strike and Power Attack on the action bar or the power wheel
+also switch the style of a single blade. Flurry switches to the fast style,
+Critical Strike to the medium style and Power Attack to the strong style.
 
 With a double-bladed lightsaber, [Saber style] turns the second blade off and
 on. With one blade lit, it fights like a single lightsaber. It then has no
@@ -424,7 +424,8 @@ always fights in the dual style.
 A style change made during a swing takes effect when the swing ends. 
 [Next feat attack] chooses which melee feat a character with two weapons or a
 double-bladed lightsaber uses. Each press moves on to the next feat the
-character knows, and then to no feat.
+character knows, and then to no feat. With a single blade, [Next feat attack]
+changes the style in the same way as [Saber style].
 
 ### <a id="controls-specials"></a>Special Attacks
 

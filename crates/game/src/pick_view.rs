@@ -338,7 +338,10 @@ impl Picking {
                 }
             }
         }
+        // A tap: held for this frame too, so that a single blade's style
+        // cycles (`sim_host::player_command`).
         if std::mem::take(&mut self.feat_by_script) {
+            actions.set_held(Key::NextFeat, true);
             actions.set_pressed(Key::NextFeat);
         }
         self.was_by_script = self.held_by_script;

@@ -4430,7 +4430,9 @@ fn pistols_in_one_hand() {
 /// double-bladed weapon carry each melee line known in turn, then none, and
 /// a blow carries the chosen feat (Flurry makes two blades, a staff or
 /// fists attack faster, and multiplies no blow's damage); a single
-/// blade has no choice; a script's talent chooses too; the choices come
+/// blade keeps no feat choice, and Flurry, Critical Strike or Power Attack
+/// chosen on the action bar switches it to the fast, medium or strong
+/// style; a script's talent chooses too; the choices come
 /// back from their bytes. The sim alone. [approved on 2026-11-16's approval]
 #[test]
 fn feat_picks() {
@@ -4445,15 +4447,17 @@ fn feat_picks() {
 /// older than the ten slots reads its six slots, and slots 7 to 10 are
 /// empty. The HUD shows the first six slots, and the slots after them up to
 /// the last one that holds something. The bar's first fill
-/// puts attack powers, feat attacks that fit the weapon in hand, grenades
-/// and medpacs in the first four slots. A power learned later takes an
+/// puts attack powers, the feat attacks the weapon in hand chooses among,
+/// grenades and medpacs in the first four slots. A single blade chooses
+/// among none, so its first fill puts no feat attack on the bar. A power learned later takes an
 /// empty slot or the slot of its lower tier. The host fills the bar, and a
 /// client leaves it to the host. The power wheel lists offensive powers
 /// first. It leaves out what the player hid, lower tiers, and what is on
 /// the bar, except an item kind of which the character carries two or more
 /// different items. Mines are listed only with a rank in Demolitions. Choosing a feat
-/// attack sets it for the weapon in hand. For blades and empty hands,
-/// choosing it again turns it off. A gun always uses a line the character
+/// attack sets it for the weapon in hand. For two blades, a double-bladed
+/// weapon and empty hands, choosing it again turns it off. A single blade
+/// keeps no feat choice. A gun always uses a line the character
 /// knows, so choosing the line a gun uses already changes nothing. The bar
 /// edit and feat attack actions come back whole from their
 /// bytes. A seat edits only the bars of the party members it may control,
