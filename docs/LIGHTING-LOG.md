@@ -217,6 +217,11 @@ The review tools are not on this branch. These are the picture harness, its shot
   - The check's answer gives `bake_format` and `reads_format`, so the launcher no longer reads the format from a sentence.
   - kjk's messages about the download name the games "KOTOR" and "KOTOR II", as the launcher does. They said "KOTOR 1" and "KOTOR 2" before.
 - Both games were packed again from the shipped bakes (`target/canon-bakes/pack-src`, round `c1`, label `1`). The zips and the manifests came out byte for byte the same as the packs of 23 November 2026, and the new `SHA256SUMS` lists the four files with their right checksums. So a pack is reproducible.
+- An unpatched KOTOR 2 may install the download. The owner decided this on 25 November 2026. Of its 75 areas, 36 match in full, 35 have placeables that differ and 4 are refused, so 71 match (95%). Of the refused four, `298tel` and `299tel` exist only with TSLRCM, and `222tel` and `650dan` have other rooms and show the game's own lightmaps. An unpatched KOTOR 1 matches 59 of 100 areas and stays refused.
+  - In 26 of the 35 areas the objects are the same and stand in the same places. They count as different because TSLRCM adds creatures, which moves every placeable's number, or because it ships a `plc_metalbox` model with other normals. In 5 areas one object differs, and in 4 areas (`003ebo`, `905mal`, `303nar`, `504ond`) two or three do.
+  - Eight of the 35 were looked at from 1 to 4 camera spots each, beside the patched game. None showed a hard fault. `003ebo` has two soft dark shapes on a wall where TSLRCM puts a workbench. In `411dxn` and `103per` the objects take the probes and are a little lighter than the dark baked room. Two areas that match in full looked the same as in the patched game.
+  - Not looked at: the other 27 of the 35 areas, and play on foot. Why `101per` and `209tel` count as different is not known.
+  - If the install should refuse an unpatched game later, the manifest can name areas that must match. This tells a missing patch from other mods on top.
 - No file in the repository may hold a personal folder path. The scripts take the root from their own place. The repository's commit check refuses such a path.
 
 ## Settings
