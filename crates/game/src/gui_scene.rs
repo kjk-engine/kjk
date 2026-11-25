@@ -754,7 +754,7 @@ fn placed_body(
                 None,
                 None,
             ),
-            None,
+            (None, None),
             crate::viewer::aligned_of(game, good_evil),
             at,
             models,

@@ -1160,6 +1160,49 @@ impl Source for ResolverSource<'_> {
 }
 
 /// Every room of the module's entry area at its layout position.
+/// The archives of the modules that hold a creature's armour and its
+/// headgear, when each is a module's own (`fmt_odyssey::module_of`).
+pub type Owners<'a> = (Option<&'a Resolver>, Option<&'a Resolver>);
+
+/// The scene's source, with one module's own item templates behind it. A
+/// party member may wear a module's own armour far from that module (Echoes
+/// of the Republic's robe from Sleheyron's palace). Its template is then
+/// read from that module, as the original keeps the whole item with the
+/// character. Without it the body was drawn bare.
+pub(crate) struct OwnItems<'a> {
+    pub(crate) scene: &'a ResolverSource<'a>,
+    pub(crate) owner: Option<ResolverSource<'a>>,
+}
+
+impl OwnItems<'_> {
+    fn owner_for(&self, restype: ResType) -> Option<&ResolverSource<'_>> {
+        self.owner.as_ref().filter(|_| restype == ResType::UTI)
+    }
+}
+
+impl Source for OwnItems<'_> {
+    fn read(&self, resref: &str, restype: ResType) -> Option<Vec<u8>> {
+        self.scene
+            .read(resref, restype)
+            .or_else(|| self.owner_for(restype)?.read(resref, restype))
+    }
+
+    fn exists(&self, resref: &str, restype: ResType) -> bool {
+        self.scene.exists(resref, restype)
+            || self
+                .owner_for(restype)
+                .is_some_and(|owner| owner.exists(resref, restype))
+    }
+
+    fn lent_script(&self, resref: &str) -> bool {
+        self.scene.lent_script(resref)
+    }
+
+    fn talk(&self) -> Option<std::sync::Arc<fmt_odyssey::tlk::Tlk>> {
+        self.scene.talk()
+    }
+}
+
 pub fn load_module(discovery: &Discovery, game: &str, module: &str) -> Result<LoadedScene, String> {
     let game = game_of(game)?;
     let resolver = resolver(discovery, game, Some(module))?;
@@ -1641,20 +1684,26 @@ impl CreatureLoad {
     /// UTI) or nothing on its body, put on or taken off as `dressing` says,
     /// and `headgear` (a UTI) or nothing on its head, with the head of
     /// `heads.2da` row `head` where one is given (else the row's own),
-    /// dressed for `aligned`, as `place` places one of a template.
+    /// dressed for `aligned`, as `place` places one of a template. `owners`
+    /// are the archives of the modules that hold the armour and the
+    /// headgear when they are a module's own (`worn_model`).
     pub fn place_appearance(
         &mut self,
         (resolver, game): (&Resolver, Game),
         (appearance, (armour, dressing), head, headgear): Outfit<'_>,
-        owner: Option<&Resolver>,
+        (armour_owner, owner): Owners<'_>,
         aligned: creature::Aligned,
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
     ) -> Result<Option<CreatureView>, String> {
         let name = format!("appearance {appearance}");
         let source = ResolverSource(resolver);
+        let dressed = OwnItems {
+            scene: &source,
+            owner: armour_owner.map(ResolverSource),
+        };
         let mut look = creature::resolve_dressed(
-            &source,
+            &dressed,
             appearance,
             armour.map(str::to_string),
             dressing,
