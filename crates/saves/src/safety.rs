@@ -19,8 +19,26 @@ pub struct Formats {
     pub story: u32,
 }
 
-/// The autosaves' slots, the newest first.
+/// KOTOR 1's autosave slots, the newest first.
 pub const AUTOS: [&str; 3] = ["auto", "auto-2", "auto-3"];
+/// KOTOR 2's autosave slots, the newest first. Each game has its own
+/// slots, so that an autosave in one game never moves or removes the
+/// other game's autosaves.
+pub const TSL_AUTOS: [&str; 3] = ["tsl-auto", "tsl-auto-2", "tsl-auto-3"];
+
+/// The autosave slots of the game called `game` (`k1`, `tsl`). A game
+/// that is not KOTOR 2 uses KOTOR 1's slots.
+pub fn autos(game: &str) -> [&'static str; 3] {
+    if game == "tsl" { TSL_AUTOS } else { AUTOS }
+}
+
+/// Whether `id` is one of either game's autosave slots, and which one
+/// (0 is the newest).
+pub fn auto_slot(id: &str) -> Option<usize> {
+    [AUTOS, TSL_AUTOS]
+        .iter()
+        .find_map(|slots| slots.iter().position(|slot| *slot == id))
+}
 
 /// The folder beside the saves' that the backups go in (the one the
 /// save-compat skill keeps its own in).
@@ -32,17 +50,24 @@ pub(crate) const KEPT_BACKUPS: usize = 5;
 /// The release and commit that last wrote the saves' folder.
 pub(crate) const STAMP: &str = ".build";
 
-/// `world` written as the newest autosave, the earlier two moved down a
-/// slot (the oldest gone), with its `story` if it has one; its id.
+/// `world` written as the newest autosave of its game (`meta.game`, else
+/// the story's), the earlier two moved down a slot (the oldest gone), with
+/// its `story` if it has one; its id.
 pub fn write_auto(
     root: &Path,
     world: &[u8],
     meta: &Meta,
     story: Option<&crate::Story>,
 ) -> Result<String, String> {
+    let game = meta
+        .game
+        .as_deref()
+        .or(story.map(|story| story.game.as_str()))
+        .unwrap_or("k1");
+    let slots = autos(game);
     std::fs::create_dir_all(root).map_err(crate::failed(root))?;
-    for pair in (0..AUTOS.len() - 1).rev() {
-        let (from, to) = (root.join(AUTOS[pair]), root.join(AUTOS[pair + 1]));
+    for pair in (0..slots.len() - 1).rev() {
+        let (from, to) = (root.join(slots[pair]), root.join(slots[pair + 1]));
         if !from.exists() {
             continue;
         }
@@ -51,7 +76,7 @@ pub fn write_auto(
         }
         std::fs::rename(&from, &to).map_err(crate::failed(&from))?;
     }
-    crate::write_encoded(root, Some(AUTOS[0]), world, meta, story)
+    crate::write_encoded(root, Some(slots[0]), world, meta, story)
 }
 
 /// Before `version` (`build`) first touches the saves in `root`: when the

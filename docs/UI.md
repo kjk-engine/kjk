@@ -8,7 +8,10 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   `ControlState` into a `DrawList` of quads; `raster` draws one on the CPU
   (probes, `kjk gui render`). `screen::Stack` holds open screens: focus by
   `MOVETO` then direction, the pointer, lists, edit boxes, the veil;
-  screens raise `Intent`s. `screens/` has every screen; `vm::ViewModel` is
+  screens raise `Intent`s. A layout drawn under a screen (the in-game
+  menu bar, `Screen::under`) has its controls renumbered past the
+  screen's, so that the screen's `MOVETO` links never lead to the bar's
+  tabs. `screens/` has every screen; `vm::ViewModel` is
   all they read. `assets::GuiAssets` resolves layouts, textures, fonts,
   2DAs and the talk table.
 - **`game::ui_view`** steps the stack each frame and draws its layers
@@ -961,14 +964,36 @@ seat's, `headgear.hidden.<tag>` for a companion's, `game::headgear`), kept
 in their settings file, so another player in co-op still sees it.
 
 An item's description, wherever a screen shows one (equip, inventory,
-store, workbench, upgrade bench: `game::character::described`), is its
-UTI's `DescIdentified`; in TSL, once Bao-Dur has been met (his influence
-set: `Screens::bao_dur_met`, KJKS 65), one of the base items he cannot
-equip (the Jedi robes, the armoured flight suit, the Zeison Sha armour,
-and a sonic grenade, QUIRKS.md Q-0266) begins with "Cannot Equip:" and
-"Bao-Dur" then a blank line, as TSL's executable writes it
-(`sim::cannot_equip`). The executable's other lines there (what the item
-asks of its wearer, its properties) are not written here.
+store, workbench, upgrade bench: `game::character::described`), begins
+with what a character needs to use the item (`ItemLook::requirements`),
+as both games' executables write it. Each kind of requirement has a
+heading from the talk table, then a line for each requirement, then a
+blank line.
+
+- "Feats Required" (both games) names the feats the base item requires
+  (`baseitems.2da` `reqfeat0` to `reqfeat4`), then the feats of the item's
+  feat limitation properties (`itempropdef.2da` row 57). An armour names
+  only the highest armour proficiency its base item requires, so heavy
+  armour shows "Armor Proficiency -  Heavy" and not Light or Medium. A
+  feat name's colon becomes " - ", and the space after the colon stays,
+  as in both games.
+- KOTOR 2 writes "Attributes Required" before the feats, a line such as
+  "Minimum Constitution: 12" for each attribute limitation (row 69, the
+  minimum read from `iprp_attribcost.2da`). Its implants need these, not
+  feats.
+- KOTOR 2 writes "Gender Required", "Race Required" and "Useable By"
+  after the feats, for the gender, subrace and companion limitations
+  (rows 60, 61 and 62). A companion limitation of row 0 names the player.
+
+Grenades, lightsaber crystals and KOTOR 2's rockets (`itemtype` 6, 46
+and 49) list no requirements. The limitation properties listed as
+requirements are not listed again among the stats. In TSL, once Bao-Dur
+has been met (his influence set: `Screens::bao_dur_met`, KJKS 65), one of
+the base items he cannot equip (the Jedi robes, the armoured flight suit,
+the Zeison Sha armour, and a sonic grenade, QUIRKS.md Q-0266) then has
+"Cannot Equip:" and "Bao-Dur" then a blank line, as TSL's executable
+writes it (`sim::cannot_equip`). The stats follow, then the UTI's
+`DescIdentified`.
 
 
 The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot

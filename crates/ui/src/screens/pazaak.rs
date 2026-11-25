@@ -14,7 +14,10 @@
 //!   quits. K1's grid is +, −, ± by value; TSL's fourth row its specials.
 //! - The table: a hand card played (a click, or 1 to 4), its sign flipped
 //!   first (Flip, F1 to F4) and TSL's ±1/2 changed; End Turn (E), Stand
-//!   (S), TSL's Forfeit. Back does nothing (K1 has no way out).
+//!   (S), TSL's Forfeit. Back does nothing (K1 has no way out). The
+//!   focus moves only among the player's own cards and buttons, and only
+//!   on the player's turn. When the turn comes back, the focus returns to
+//!   the card or button the player last used.
 
 use fmt_odyssey::gui::Control;
 
@@ -328,6 +331,11 @@ impl Screen for Setup {
 pub struct Game {
     /// Each hand slot's sign and size as chosen (`minus`, `two`).
     signs: [(bool, bool); 4],
+    /// The player could act on the last frame.
+    acted: bool,
+    /// The player's own control that last had the focus on the player's
+    /// turn: a hand card, its Flip or Change, End Turn or Stand.
+    last: Option<String>,
 }
 
 /// The sides' tags: the player's, then the opponent's.
@@ -532,5 +540,37 @@ impl Screen for Game {
 
     fn first_focus(&self) -> Option<&str> {
         Some("BTN_XTEXT")
+    }
+
+    /// The opponent's hand cards never take the focus: they only show how
+    /// many cards the opponent holds. On the opponent's turn and between
+    /// sets, no control takes it, so that a press meant for the next turn
+    /// neither flips a card nor forfeits the match. A player watching
+    /// another's table may always reach its Leave button.
+    fn takes_focus(&self, tag: &str, vm: &ViewModel) -> bool {
+        if slot(tag, "BTN_NPCSIDE").is_some() {
+            return false;
+        }
+        Game::may_act(vm) || view(vm).is_some_and(|table| table.watching.is_some())
+    }
+
+    fn focused(&mut self, tag: &str, vm: &ViewModel) {
+        let own = ["BTN_PLRSIDE", "BTN_FLIP", "BTN_CHANGE"]
+            .iter()
+            .any(|prefix| slot(tag, prefix).is_some())
+            || matches!(tag, "BTN_XTEXT" | "BTN_YTEXT");
+        if own && Game::may_act(vm) {
+            self.last = Some(tag.to_string());
+        }
+    }
+
+    /// When the player's turn comes, the focus goes back to the control the
+    /// player last used. If that card has been played, the stack puts the
+    /// focus on End Turn (`first_focus`).
+    fn focus_to(&mut self, vm: &ViewModel) -> Option<String> {
+        let acts = Game::may_act(vm);
+        let starts = acts && !self.acted;
+        self.acted = acts;
+        starts.then(|| self.last.clone().unwrap_or_else(|| "BTN_XTEXT".into()))
     }
 }

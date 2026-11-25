@@ -37,8 +37,10 @@
 //!   at and with the object that played it (the module's and the area's
 //!   everywhere alike), as soon as its file is read.
 //!
-//! Before a game, the menu's music: K1's main menu `mus_theme_cult`, its
-//! character creation `mus_theme_rep` (as reone and xoreos), looped. Under
+//! Before a game, the menu's music of the game the menu is on, looped. K1's
+//! main menu plays `mus_theme_cult` and its character creation
+//! `mus_theme_rep` (as reone and xoreos). K2's main menu plays `mus_sion`
+//! and its character creation the `classsel` row of `loadscreens.2da`. Under
 //! the credits (`ui::screens::credits`), their `credits` alone, looped.
 //!
 //! Nothing plays while a movie does (`movie_view::Showing`). The area's
@@ -150,9 +152,19 @@ impl Plugin for AmbiencePlugin {
     }
 }
 
-/// K1's menu music: the main menu's, and character creation's.
-const MENU_MUSIC: &str = "mus_theme_cult";
-const CHARGEN_MUSIC: &str = "mus_theme_rep";
+/// The music of each game's main menu and of its character creation.
+/// KOTOR 2 plays `mus_sion` in its main menu. Its character creation plays
+/// the music of the `classsel` row of `loadscreens.2da` (`mus_main` in
+/// the game's own table).
+fn menu_music(game: Game, chargen: bool) -> &'static str {
+    match (game, chargen) {
+        (Game::Kotor2, false) => "mus_sion",
+        (Game::Kotor2, true) => "*load/classsel",
+        (_, false) => "mus_theme_cult",
+        (_, true) => "mus_theme_rep",
+    }
+}
+
 /// The credits' music.
 const CREDITS_MUSIC: &str = "credits";
 
@@ -190,13 +202,17 @@ fn menu(
     if showing.is_some_and(|showing| showing.0) || splash.is_some_and(|splash| splash.0) {
         return;
     }
-    let file = if ui.stack.screens().any(|screen| screen.0 == "chargen") {
-        CHARGEN_MUSIC
-    } else {
-        MENU_MUSIC
-    };
-    ambience.worker.get_or_insert_with(Worker::start);
-    looped(&mut ambience, &mut beds, file);
+    let ambience = &mut *ambience;
+    let game = ui.vm.session.campaign.unwrap_or(Game::Kotor1);
+    let chargen = ui.stack.screens().any(|screen| screen.0 == "chargen");
+    let worker = ambience.worker.get_or_insert_with(Worker::start);
+    // The menu's files come from the campaign's install, told to the
+    // thread before any file of it is asked for.
+    if ambience.menu_game != Some(game) {
+        let _ = worker.ask.send(Ask::Menu(game));
+        ambience.menu_game = Some(game);
+    }
+    looped(ambience, &mut beds, menu_music(game, chargen));
 }
 
 /// The footsteps KOTOR clips' own events asked for (`snd_Footstep`,
@@ -232,6 +248,8 @@ enum Ask {
     /// The module whose files later asks read, its area's sound already
     /// read by the scene.
     Module { game: String, module: String },
+    /// The menu's game, whose install later asks read from.
+    Menu(Game),
     /// More files, by resref, kept alike.
     Files(Keep, Vec<String>),
     /// Placeable templates' appearances (those play made).
@@ -314,15 +332,37 @@ fn line_sound(resolver: &Resolver, line: &str) -> Option<String> {
     asset_odyssey::creature::sound_set_line(&source, row, slot.parse().ok()?, tables)
 }
 
+/// What the views ask for the music of a row of `loadscreens.2da`:
+/// `*load/<row label>` (`load_music`).
+const LOAD_MUSIC: &str = "*load/";
+
+/// The music (`MusicResRef`) of the row of `loadscreens.2da` labelled
+/// `row`. A row that is missing or has no music falls back to the
+/// `default` row, as KOTOR 2 does.
+fn load_music(resolver: &Resolver, row: &str) -> Option<String> {
+    let table = resolver.two_da("loadscreens")?;
+    let music = |label: &str| {
+        let at = table
+            .row_labels
+            .iter()
+            .position(|named| named.trim_ascii().eq_ignore_ascii_case(label.as_bytes()))?;
+        table.resref(at, "musicresref")
+    };
+    music(row).or_else(|| music("default"))
+}
+
 fn got(resolver: &Resolver, name: String, keep: Keep) -> Got {
     let read = (|| {
-        let file = match name.strip_prefix(LINE_FILE) {
-            Some(line) => {
-                let sound = line_sound(resolver, line).ok_or("no such line")?;
-                info!(target: "sound", line, %sound, "sound-set line");
-                sound
-            }
-            None => name.clone(),
+        let file = if let Some(line) = name.strip_prefix(LINE_FILE) {
+            let sound = line_sound(resolver, line).ok_or("no such line")?;
+            info!(target: "sound", line, %sound, "sound-set line");
+            sound
+        } else if let Some(row) = name.strip_prefix(LOAD_MUSIC) {
+            let music = load_music(resolver, row).ok_or("no music in loadscreens.2da")?;
+            info!(target: "sound", row, %music, "loadscreens.2da music");
+            music
+        } else {
+            name.clone()
         };
         // A bed is music or ambience, streamed as the games stream it.
         let bytes = match keep {
@@ -406,8 +446,15 @@ impl Worker {
                                 ),
                             }
                         }
+                        Ask::Menu(game) => {
+                            module = None;
+                            if install.as_ref().is_none_or(|had| had.game != game) {
+                                install = opened(game);
+                            }
+                        }
                         Ask::Files(keep, names) => {
-                            // The module's, else the install's (the menu's: K1).
+                            // The module's, else the install's (the menu's
+                            // game, K1 until one is told).
                             if module.is_none() && install.is_none() {
                                 install = opened(Game::Kotor1);
                             }
@@ -525,6 +572,51 @@ impl TalkMusic {
     }
 }
 
+/// The probes of the menu's music (`kjk sim probes`, group "menu music"):
+/// each game's menu plays its own music. With a KOTOR 2 install, its
+/// character creation's row of `loadscreens.2da` is read, and both of
+/// KOTOR 2's tracks are found in its music.
+#[cfg(feature = "probes")]
+pub fn menu_music_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let picks = [
+        (Game::Kotor1, false, "mus_theme_cult"),
+        (Game::Kotor1, true, "mus_theme_rep"),
+        (Game::Kotor2, false, "mus_sion"),
+        (Game::Kotor2, true, "*load/classsel"),
+    ];
+    let picked: Vec<_> = picks
+        .iter()
+        .map(|&(game, chargen, want)| (game, chargen, menu_music(game, chargen), want))
+        .collect();
+    let mut checks = vec![(
+        "each game's menu plays its own music",
+        check(
+            picked.iter().all(|(_, _, got, want)| got == want),
+            format!("{picked:?}"),
+        ),
+    )];
+    let install = crate::installs::open(&crate::discover(), Game::Kotor2).ok();
+    let base = install.as_ref().and_then(|install| install.base().ok());
+    checks.push((
+        "KOTOR 2's tracks are in its install",
+        match base {
+            None => Ok("no KOTOR 2 install".to_string()),
+            Some(base) => {
+                let chargen = load_music(base, "classsel");
+                let found = [Some("mus_sion"), chargen.as_deref()].map(|file| {
+                    file.is_some_and(|file| crate::sound::kotor_music_file(base, file).is_some())
+                });
+                check(
+                    chargen.as_deref() == Some("mus_main") && found == [true, true],
+                    format!("character creation {chargen:?}, found {found:?}"),
+                )
+            }
+        },
+    ));
+    checks
+}
+
 /// The probes of a conversation's music (`kjk sim probes`, group
 /// "conversation music").
 #[cfg(feature = "probes")]
@@ -619,6 +711,9 @@ pub(crate) struct Ambience {
     /// Music rows asked for that `ambientmusic.2da` lacks, each warned of
     /// once an area.
     unlisted: BTreeSet<u16>,
+    /// The game whose install the thread reads the menu's files from, as
+    /// last told (`Ask::Menu`). A module's swap forgets it.
+    menu_game: Option<Game>,
     /// The music's turn (its track by bed name), and the scripts' music
     /// state as last seen (`sound::*`), so a script's start is seen once.
     song: Option<Song>,
@@ -831,6 +926,7 @@ fn play(
         ambience.asked.clear();
         ambience.failed.clear();
         ambience.unlisted.clear();
+        ambience.menu_game = None;
         // The scene's own read when it is this area's (a swap without a
         // new scene keeps the last one), else one asked of the thread;
         // either way the thread is told the module, as the files asked

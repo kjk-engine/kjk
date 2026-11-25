@@ -91,6 +91,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(lobby::all());
     checks.extend(pazaak::all());
     checks.extend(menus::in_game());
+    checks.extend(menus::pad_on_pages());
     checks.extend(menus::review());
     checks.extend(menus::options());
     checks.extend(menus::key_rebinding());

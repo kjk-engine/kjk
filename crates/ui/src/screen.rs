@@ -218,6 +218,13 @@ pub trait Screen: Send + Sync {
     fn focus_to(&mut self, _vm: &ViewModel) -> Option<String> {
         None
     }
+    /// Whether the control `tag`, which is shown and enabled, may take the
+    /// focus (from the keys, the pad or the pointer) and be pressed. False
+    /// for a control that only shows something (the opponent's cards at the
+    /// pazaak table), or one the player must not press by accident now.
+    fn takes_focus(&self, _tag: &str, _vm: &ViewModel) -> bool {
+        true
+    }
     /// A rolling list's last row has gone (`ListView::roll`); heard each
     /// frame from then on.
     fn rolled(&mut self, _list: &str, _out: &mut Vec<Intent>) {}
@@ -495,8 +502,43 @@ fn beneath(gui: &mut Gui, under: Gui) {
         alpha: under.alpha,
         ..Control::default()
     };
+    // Both layouts number their controls from 0, and a control's `MOVETO`
+    // links name others by that number. KOTOR 2's menu bar numbers its Map
+    // tab 14, and its options page numbers Load Game 14 too. Unless the
+    // numbers differ, the page's Up from Gameplay leads to the Map tab.
+    // `under`'s numbers move past `gui`'s, links and all.
+    let past = gui.walk().map(|control| control.id).max().unwrap_or(-1) + 1;
+    fn renumber(control: &mut Control, past: i32) {
+        let moved = |id: &mut i32| {
+            if *id >= 0 {
+                *id += past;
+            }
+        };
+        moved(&mut control.id);
+        if let Some(links) = control.moveto.as_mut() {
+            for link in [
+                &mut links.up,
+                &mut links.down,
+                &mut links.left,
+                &mut links.right,
+            ] {
+                moved(link);
+            }
+        }
+        for inner in control
+            .children
+            .iter_mut()
+            .chain(control.proto.as_deref_mut())
+            .chain(control.scrollbar.as_deref_mut())
+        {
+            renumber(inner, past);
+        }
+    }
     let mut controls = vec![root];
     controls.extend(under.controls);
+    for control in &mut controls[1..] {
+        renumber(control, past);
+    }
     for control in &mut controls {
         shift(control, dx, dy);
     }
@@ -1557,7 +1599,10 @@ impl Entry {
             .filter(|control| focusable(control))
             .filter(|control| {
                 let state = self.state(control, vm);
-                !state.hidden && !state.disabled && !read(control, &state)
+                !state.hidden
+                    && !state.disabled
+                    && !read(control, &state)
+                    && self.screen.takes_focus(&control.tag, vm)
             })
             .collect()
     }
