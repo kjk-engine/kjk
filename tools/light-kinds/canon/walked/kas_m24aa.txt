@@ -1,0 +1,13 @@
+# 1.0 of the lit level of each room.
+m24aa_02a 0.2447
+m24aa_03a 0.3181
+m24aa_04a 0.2997
+m24aa_05a 0.3665
+m24aa_07a 0.4345
+m24aa_08a 0.2650
+m24aa_09a 0.2217
+m24aa_10a 0.2080
+m24aa_11a 0.2738
+m24aa_12a 0.2408
+m24aa_13a 0.2654
+m24aa_14a 0.2764

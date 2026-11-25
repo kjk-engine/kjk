@@ -307,6 +307,20 @@ impl Look {
                 ))
             })
     }
+
+    /// A blow's `damage` clip at its end, once the placeable has taken a
+    /// blow: what its emitters are keyed by before the clip it plays now. A
+    /// blow's `damage` turns a footlocker's sparks up and back down by its
+    /// end. A blow that breaks the footlocker open cuts the clip short, and
+    /// its sparks stayed at the rate they had then, falling for good.
+    fn after_damage(
+        &self,
+        clips: &BTreeMap<String, Arc<AnimationIr>>,
+    ) -> Option<(Arc<AnimationIr>, f32)> {
+        self.hit?;
+        let clip = clips.get("damage")?;
+        Some((clip.clone(), clip.length))
+    }
 }
 
 /// Binds each model's clips and spawns its emitters' sprays once its
@@ -648,8 +662,16 @@ fn draw(
             .ok()
             .filter(|_| !body)
             .map(GlobalTransform::affine);
+        let after_damage = match (&own.plays, &mover.look) {
+            (Plays::Look { clips, .. }, Some(look)) => look.after_damage(clips),
+            _ => None,
+        }
+        .map(|(clip, end)| (clip.name.to_ascii_lowercase(), end));
         for (spray, &space) in mover.sprays.iter_mut().zip(&mover.spaces) {
             let mut detonated = body_detonated;
+            if let Some((name, end)) = &after_damage {
+                spray.key(&own.fx, name, *end);
+            }
             for ((clip, at, elapsed), name) in mover.moments.iter().zip(&mover.names) {
                 spray.key(&own.fx, name, *at);
                 detonated |= !body && model_fx::detonates_over(clip, (*at, *elapsed), dt);

@@ -1,0 +1,14 @@
+# 1.0 of the lit level of each room.
+950cora 0.4995
+950corc 0.3437
+950corg 0.2186
+950corh 0.3546
+950cori 0.2537
+950corj 0.2833
+950cork 0.5534
+950corl 0.2840
+950corm 0.1479
+950corp 0.1157
+950corq 0.1032
+950corr 0.1866
+950cors 0.2075

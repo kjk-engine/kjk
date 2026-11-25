@@ -201,7 +201,9 @@ Any player can play the main character
   companions nobody plays.
 - The host's machine runs the world from whatever seat its player has. It
   saves, autosaves, loads and reloads after the party falls, and its lost
-  box offers Load. Its own controls are read from its own seat
+  box offers Load. Its in-game Load loads one of its own saves in place
+  for every player, as the reload after a fall does. A guest's Load is
+  greyed. Its own controls are read from its own seat
   (`sim_host::Authority::seat`, the `OwnSeat` the screens read).
 - The seats last the whole session: a module change and the reload after
   the party fell keep them. A save keeps no seats. Loaded alone or hosted

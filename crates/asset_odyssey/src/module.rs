@@ -220,6 +220,12 @@ pub struct Instance {
     pub kind: Kind,
     pub template: String,
     pub tag: Vec<u8>,
+    /// A trigger's tag as its GIT entry writes it, when that is not empty
+    /// and differs from its template's. The games name the trigger by its
+    /// template's tag and never read this one. kjk's playthrough routes
+    /// name the transition triggers by it (KOTOR 2's `To_601` and
+    /// `TO_906MALa`, whose templates are all `AreaTransition`).
+    pub placed_tag: Vec<u8>,
     pub position: [f32; 3],
     /// Facing as an angle about Z, in radians: `Bearing`, or the angle of
     /// (`XOrientation`, `YOrientation`) by the platform's `atan2`, whose
@@ -715,9 +721,10 @@ const PLACED_FIELDS: [&str; 21] = [
 /// mod's GIT that writes more fields into such an entry (an empty `Tag`, an
 /// empty `Conversation`) changes nothing in the original game, and here
 /// neither. An entry whose template is missing is read whole, because no
-/// template is there to make it from. One divergence is kept: a trigger's
-/// own `Tag` that is not empty still names it, as the routes name the
-/// transition triggers by those tags.
+/// template is there to make it from. A trigger's own `Tag` is not read
+/// either, so scripts find it by its template's (Echoes of the
+/// Republic's Sleheyron cutscene looks for `sleycut2`, the tag of the
+/// template of the trigger its GIT entry calls `sleycut1`).
 fn as_placed(
     kind: Kind,
     item: &GffStruct,
@@ -727,13 +734,9 @@ fn as_placed(
         return std::borrow::Cow::Borrowed(item);
     }
     let kept = |field: &&fmt_odyssey::gff::GffField| {
-        let read = PLACED_FIELDS
+        PLACED_FIELDS
             .iter()
-            .any(|label| field.label == label.as_bytes());
-        let own_tag = kind == Kind::Trigger
-            && field.label == b"Tag"
-            && !matches!(&field.value, GffValue::String(tag) if tag.is_empty());
-        read || own_tag
+            .any(|label| field.label == label.as_bytes())
     };
     std::borrow::Cow::Owned(GffStruct {
         id: item.id,
@@ -812,6 +815,7 @@ fn instance(kind: Kind, item: &GffStruct) -> Instance {
         kind,
         template: template(kind, item),
         tag: item.bytes("Tag").unwrap_or(&[]).to_vec(),
+        placed_tag: Vec::new(),
         position,
         facing,
         direction,
@@ -1012,6 +1016,7 @@ impl ModuleIr {
                     missing.push(Missing::Template(kind, template(kind, item)));
                     continue;
                 }
+                let own_tag = item.bytes("Tag").unwrap_or(&[]).to_vec();
                 let item = &*as_placed(kind, item, template_found);
                 let mut instance = instance(kind, item);
                 instance.template_found = template_found;
@@ -1028,6 +1033,12 @@ impl ModuleIr {
                     let root = &blueprint.root;
                     if item.get("Tag").is_none() {
                         instance.tag = root.bytes("Tag").unwrap_or(&[]).to_vec();
+                    }
+                    if kind == Kind::Trigger
+                        && !own_tag.is_empty()
+                        && !own_tag.eq_ignore_ascii_case(&instance.tag)
+                    {
+                        instance.placed_tag = own_tag;
                     }
                     if item.get("Locked").is_none() {
                         instance.locked = root.uint("Locked").is_some_and(|value| value != 0);

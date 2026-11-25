@@ -1,0 +1,2 @@
+# 1.0 of the lit level of each room.
+m03af_01a 0.3604

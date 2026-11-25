@@ -113,9 +113,10 @@ impl Wardrobe {
             return look.clone();
         }
         let resolver = self.setup.resources.get()?;
-        let owner = (worn.2.as_deref()).and_then(|item| self.setup.resources.owner(item));
+        let owner = |item: Option<&str>| item.and_then(|item| self.setup.resources.owner(item));
+        let (armour_owner, owner) = (owner(worn.1.as_deref()), owner(worn.2.as_deref()));
         let look = crate::persona::wear(
-            (&resolver, owner.as_deref()),
+            (&resolver, (armour_owner.as_deref(), owner.as_deref())),
             &mut self.tables,
             worn.clone(),
         );

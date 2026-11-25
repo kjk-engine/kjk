@@ -611,6 +611,12 @@ impl Plugin for PlayViewPlugin {
             .add_systems(Update, stance_picks.run_if(resource_exists::<View>))
             .add_systems(
                 PostUpdate,
+                first_person::unseen_layers
+                    .after(Drawn)
+                    .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
+            )
+            .add_systems(
+                PostUpdate,
                 cast_shadows
                     .in_set(ShadowsCast)
                     .after(bevy::transform::TransformSystems::Propagate),
@@ -1149,6 +1155,11 @@ impl View {
         self.history.clear();
         self.followed = None;
         self.started = false;
+        // In walk mode the camera starts behind the player again in a new
+        // module (`walk::step`), where it stood in the last one otherwise.
+        if crate::walk::on() {
+            self.fixed = false;
+        }
         // The shoulder stays where it was: a new module does not slide it in.
         self.camera = ThirdPerson {
             side: self.camera.side,
@@ -1427,7 +1438,7 @@ fn draw(
     ),
     (mut rearms, mut retired, mut fire, mut made, mut wardrobe, mut fading): Handovers,
     swap: Res<SceneSwap>,
-    request: Res<CameraRequest>,
+    mut request: ResMut<CameraRequest>,
     scene: Res<SceneContent>,
     (time, (screen, clash), kotor): Pace,
     mut view: ResMut<View>,
@@ -1824,7 +1835,7 @@ fn draw(
     }
     let Some(at) = view.subject(ms, own.as_ref()) else {
         // No one to look through: the own head shown, its flashes whole.
-        view.first.show(&mut visibility);
+        view.first.show(&mut commands);
         eyes.0 = None;
         return;
     };
@@ -1926,7 +1937,7 @@ fn draw(
             }),
             dt: time.delta_secs(),
         };
-        let eye = view.first.eye(&looking, &drawn, &mut visibility)?;
+        let eye = view.first.eye(&looking, &drawn, &mut commands)?;
         let eye = stop_short(
             (&view.level, view.doors.as_deref()),
             eye_height,
@@ -1935,7 +1946,7 @@ fn draw(
         Some((eye.map(|x| x * UNIT), angles))
     });
     if first.is_none() {
-        view.first.show(&mut visibility);
+        view.first.show(&mut commands);
     }
     eyes.0 = view.me.filter(|_| first.is_some());
     // The own gun's kick turns the view with the line its shots leave
@@ -1988,6 +1999,22 @@ fn draw(
         &mut cameras,
     )
     .filter(|_| !watching);
+    // Walk mode starts where play's own camera first stands, behind the
+    // player. From then on the fly camera has it, as a `camera` command
+    // would.
+    if crate::walk::on() && !view.fixed && view.camera.started {
+        let placed = cameras
+            .iter()
+            .next()
+            .and_then(|(entity, _)| transforms.get(entity).ok());
+        if let Some(transform) = placed {
+            // A `camera` command already waiting puts the camera instead.
+            if request.0.is_none() {
+                request.0 = Some(crate::walk::pose(transform));
+            }
+            view.fixed = true;
+        }
+    }
     // The own commands' crosshair line: the camera's ray off the player's
     // third-person line, while a camera of the player's looks along its
     // view (its eyes', JA's); none for a conversation's or a fixed one.

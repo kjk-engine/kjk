@@ -1,0 +1,22 @@
+# 1.0 of the lit level of each room.
+411dxna 0.3307
+411dxnb 0.3519
+411dxnc 0.6770
+411dxnd 0.3997
+411dxne 0.3769
+411dxnf 0.5928
+411dxng 0.5987
+411dxnh 0.3587
+411dxni 0.6159
+411dxnj 0.3121
+411dxnk 0.3017
+411dxnl 0.3642
+411dxnm 0.4185
+411dxnn 0.2778
+411dxno 0.2752
+411dxnp 0.6828
+411dxnq 0.6830
+411dxnr 0.6155
+411dxns 0.7127
+411dxnt 0.2664
+411dxnu 0.2580

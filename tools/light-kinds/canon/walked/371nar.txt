@@ -1,0 +1,11 @@
+# 1.0 of the lit level of each room.
+371nara 0.7130
+371narb 0.5206
+371narc 0.7060
+371nard 0.7044
+371nare 0.6742
+371narf 0.6958
+371narg 0.4641
+371narh 0.1974
+371nari 0.1894
+371narj 0.5047
