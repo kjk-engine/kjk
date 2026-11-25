@@ -1,8 +1,8 @@
 //! The in-game options (`optionsingame`, the menu bar's last tab), where
 //! Escape opens the menu: saving and loading (`save_load`), the settings'
 //! screens, quitting to the main menu, and a break (P10) in KOTOR's
-//! autopause button's place. A guest cannot save; only a game played alone
-//! loads during play.
+//! autopause button's place. A guest cannot save or load. A
+//! host loads for every player.
 //!
 //! Quit asks first, KOTOR's box (`CSWGuiInGameOptions::OnQuit`: its 42348,
 //! OK and Cancel), and OK ends the game for the main menu (`ReallyQuit`).
