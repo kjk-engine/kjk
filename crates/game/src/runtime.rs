@@ -72,7 +72,6 @@ pub fn run(options: RunOptions) -> AppExit {
     eprintln!("run folder: {}", folder.display());
     crate::crash::install_hook(folder.clone(), crate::crash::facts());
     let player = crate::crash::PlayerRun::of(options.headless, &options.script);
-    crate::crash::dialog_on_lost_device(player);
     let mut backup = None;
     if player.0 {
         crate::crash::mark(&folder, crate::crash::PLAYER);
