@@ -1632,6 +1632,10 @@ impl Move<'_, '_> {
                 state.pace = duel::Pace::Own;
             }
         }
+        // A special attack closes the window of a Force leap's first tap.
+        if next.special() || next.kata() {
+            arms.fighter.leap_armed_until = 0;
+        }
         let saber = &mut arms.fighter.saber;
         saber.current_move = next;
         saber.blocking = row.block;
@@ -1697,4 +1701,357 @@ fn forward_gait(anim: Anim) -> bool {
             | BOTH_WALK_DUAL
             | BOTH_WALK_STAFF
     )
+}
+
+// --- The Force leap -------------------------------------------------------
+
+/// The top (units, over the origin) of the part of the body that meets the
+/// level during a Force leap, standing on the straight line from where it
+/// starts to where it lands: its soles and `specials::LEAP_BODY` above them.
+pub(crate) const LEAP_TOP: f32 = super::SOLE_Z + specials::LEAP_BODY;
+
+/// That top with the body `above` (units) over the straight line: lowered
+/// by as much, so the part that meets the level stays under the same
+/// height, but never below a step's height over the soles.
+pub(crate) fn leap_top_above(above: f32) -> f32 {
+    (LEAP_TOP - above.max(0.0)).max(super::SOLE_Z + super::STEP_HEIGHT)
+}
+
+/// That top for `leap` at `now` (sim ms) with the body's origin at height
+/// `z` (units): `LEAP_TOP` until it leaves the ground, then lowered by how
+/// far the body stands over its way's straight line (`Move::leap_height`).
+pub(crate) fn leap_top(leap: &crate::combat::Leap, now: u64, z: f32) -> f32 {
+    if !leap.flown {
+        return LEAP_TOP;
+    }
+    let flight = (leap.began + LEAP_LANDING_MS)
+        .saturating_sub(leap.took_off)
+        .max(1);
+    let share = (now.saturating_sub(leap.took_off) as f32 / flight as f32).min(1.0);
+    let line = leap.from_z - (leap.from_z - leap.to[2]) * share;
+    leap_top_above(z - line)
+}
+
+/// The Force leap's times from its start (ms): it leaves the ground, lands,
+/// strikes and ends (`specials::LEAP_TIMES`, KOTOR's Force Jump clip).
+pub const LEAP_TAKEOFF_MS: u64 = specials::LEAP_TIMES[0];
+pub const LEAP_LANDING_MS: u64 = specials::LEAP_TIMES[1];
+pub const LEAP_BLOW_MS: u64 = specials::LEAP_TIMES[2];
+pub const LEAP_END_MS: u64 = specials::LEAP_TIMES[3];
+
+impl Move<'_, '_> {
+    /// The Force leap's say over the keys before the move, if it has one:
+    /// a leap under way holds the body still (it flies by the velocity
+    /// `leap_step` gives it) and its view, and takes every key. A fresh
+    /// press of [Jump] starts one (`start_leap`), and is taken by it, so
+    /// the body makes no jump of its own. Whether the view is held, when
+    /// the leap has the keys.
+    pub(super) fn leap_keys(&mut self) -> Option<bool> {
+        let arms = self.arms.take()?;
+        let held = arms.fighter.leap.is_some() || self.start_leap(arms);
+        if held {
+            self.still();
+            self.cmd.buttons &= !(buttons::ATTACK | buttons::ALT_ATTACK);
+            self.cmd.holds = 0;
+        }
+        self.arms = Some(arms);
+        held.then_some(true)
+    }
+
+    /// Starts a Force leap if one may start now: the player's own body, with
+    /// Force Jump and a lit lightsaber in hand (not thrown), attacking ([Attack] held, or an
+    /// ordinary swing playing) with no movement key held, tapping [Jump] twice within
+    /// `specials::LEAP_WINDOW_MS`, with an enemy in front (`leap_target`) at
+    /// the second tap. The first tap, on the ground, jumps as it always does
+    /// and opens the window (`Fighter::leap_armed_until`). The second, in the
+    /// air from that jump or back on the ground, starts the leap, and the
+    /// swing gives way to it. From the air the leap skips its crouch and
+    /// leaves at once. A tap that starts no leap does what it always did.
+    fn start_leap(&mut self, arms: &mut Arms) -> bool {
+        let now = self.time_ms;
+        let fighter = &*arms.fighter;
+        let saber = &fighter.saber;
+        let current = saber.current_move;
+        let fresh = self.cmd.up >= rules::movement::keys::JUMP_AXIS
+            && self.ps.flags & motion_flags::JUMP_PRESSED == 0;
+        let lightsaber = arms
+            .kit
+            .blade(fighter.hand)
+            .is_some_and(|blade| blade.saber)
+            && saber.on
+            && saber.thrown.is_none();
+        let rank = arms.kit.force_jump.min(3);
+        let free = !saber.floored()
+            && saber.lock_until < now
+            && saber.change == Change::None
+            && fighter.grapple.is_none()
+            && fighter.force.gripped_by.is_none()
+            && !fighter.force.hand_out(now)
+            && !current.special()
+            && !current.kata()
+            && !is_special_move(self.ps.legs.anim)
+            && !is_special_move(self.ps.torso.anim);
+        let swinging = current.start() || current.attack() || current.transition();
+        let attacking = self.attack_held() || swinging;
+        // No movement key: every other jumping attack needs one.
+        let unmoved = self.cmd.forward == 0 && self.cmd.right == 0;
+        if !(arms.keyed
+            && arms.player
+            && fresh
+            && attacking
+            && unmoved
+            && lightsaber
+            && rank > 0
+            && free)
+        {
+            return false;
+        }
+        let grounded = self.ps.ground.is_some() && !self.ps.ducked();
+        // The first tap: it jumps as ever, and the window opens for the
+        // second.
+        if fighter.leap_armed_until <= now {
+            if grounded {
+                arms.fighter.leap_armed_until = now + specials::LEAP_WINDOW_MS;
+            }
+            return false;
+        }
+        if !grounded && self.ps.ground.is_some() {
+            return false;
+        }
+        let Some((target, to)) = self.leap_target(arms, usize::from(rank) - 1) else {
+            return false;
+        };
+        // From the air it is already off the ground: it leaves at once, and
+        // falls onto the enemy without rising again (`air_flight_ms`). Its
+        // start is set back so the clip and the landing keep their times.
+        // From the ground it leaves at once too: KOTOR's crouch before the
+        // jump is left out.
+        let began = if grounded {
+            now.saturating_sub(LEAP_TAKEOFF_MS)
+        } else {
+            let flight = self.air_flight_ms(to[2] - self.ps.origin[2]);
+            now.saturating_sub(LEAP_LANDING_MS - flight)
+        };
+        let pair = arms.kit.forced_style(fighter.hand) == Some(Style::Dual);
+        let stance = Self::blade_stance(saber, pair);
+        let fighter = &mut *arms.fighter;
+        fighter.leap = Some(crate::combat::Leap {
+            target,
+            began,
+            to,
+            rank,
+            flown: false,
+            took_off: 0,
+            from_z: 0.0,
+            aloft: false,
+        });
+        fighter.leap_armed_until = 0;
+        fighter.weapon_wait_ms = LEAP_END_MS as i32;
+        let saber = &mut fighter.saber;
+        saber.current_move = READY;
+        saber.blocking = READY.data().block;
+        saber.blocked = Blocked::None;
+        saber.chain = 0;
+        self.animator
+            .play(self.ps, Parts::WHOLE, stance, play_flags::OVER_ANY);
+        // Held down, the key makes no jump once the leap is over.
+        self.ps.flags |= motion_flags::JUMP_PRESSED;
+        true
+    }
+
+    /// How long (ms) a Force leap started in the air takes to come down
+    /// `rise` (units, negative below) without rising again: the time a fall
+    /// from rest takes, at least `specials::LEAP_AIR_MS` and at most the
+    /// leap's whole flight. An enemy no lower than the character takes the
+    /// whole flight, and the leap rises to it as from the ground.
+    fn air_flight_ms(&self, rise: f32) -> u64 {
+        let whole = LEAP_LANDING_MS - LEAP_TAKEOFF_MS;
+        if rise >= 0.0 {
+            return whole;
+        }
+        let falling = (2.0 * -rise / self.ps.gravity.max(1.0)).sqrt() * 1000.0;
+        (falling as u64).clamp(specials::LEAP_AIR_MS.min(whole), whole)
+    }
+
+    /// The enemy a Force leap of Force Jump rank `rank` (0 to 2) leaps at,
+    /// and where it lands (units): of the enemies (`Arms::foes`) more than
+    /// `specials::LEAP_LEAST` and no more than the rank's
+    /// `specials::LEAP_MOST` away across the ground, centre to centre,
+    /// within `specials::LEAP_ARC` degrees of the flat view, and no higher
+    /// above the character than its Force Jump rises
+    /// (`force::jump::HEIGHTS`), whose way is clear: first the one under the
+    /// crosshair, as the targeting picks it (its middle within
+    /// `specials::LEAP_CONE` of the crosshair's line,
+    /// `mind::crosshair`), then the one nearest to the view's line. It lands `specials::LEAP_STOP` short of the enemy's
+    /// box, at the enemy's height. The way is clear when the lowest part of
+    /// the body (`leap_top_above` its hop) meets nothing of the level going up to a point
+    /// `specials::LEAP_HOP` over the higher of the two halfway along, and from
+    /// there down to where it lands: ceilings and overhangs do not count. Only the level counts
+    /// (`Contents::LEVEL_ONLY`): characters, the remains of the dead and
+    /// other placeables do not stop it.
+    fn leap_target(&self, arms: &Arms, rank: usize) -> Option<(crate::snapshot::SimId, Vec3)> {
+        let most = specials::LEAP_MOST[rank];
+        let highest = rules::force::jump::HEIGHTS[rank + 1];
+        let (_, least_cos) = collision::trig::sin_cos_deg(specials::LEAP_ARC);
+        let o = self.ps.origin;
+        let (ahead, _, _) = self.flat_view();
+        let level = Contents::LEVEL_ONLY;
+        // The crosshair's line, and how near it a body's middle must be.
+        let sight = crate::combat::mind::crosshair(self.ps);
+        let (look, _, _) = math::angle_vectors(self.ps.view);
+        let (_, cone_cos) = collision::trig::sin_cos_deg(specials::LEAP_CONE);
+        let middle = rules::targeting::volumes::CREATURE_HEIGHT / 2.0 / collision::UNIT;
+        let mut candidates: Vec<(bool, f32, u32, Vec3, f32, f32)> = arms
+            .foes
+            .iter()
+            .filter_map(|&(entity, at)| {
+                let mut way = math::sub(at, o);
+                let rise = way[2];
+                way[2] = 0.0;
+                let apart = math::normalize(&mut way);
+                let facing = math::dot(way, ahead);
+                let mut to_middle = math::sub([at[0], at[1], at[2] + middle], sight);
+                math::normalize(&mut to_middle);
+                let under = math::dot(to_middle, look) >= cone_cos;
+                (apart > specials::LEAP_LEAST
+                    && apart <= most
+                    && facing >= least_cos
+                    && rise <= highest)
+                    .then_some((under, facing, entity, way, apart, at[2]))
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.total_cmp(&a.1)).then(a.2.cmp(&b.2)));
+        candidates
+            .into_iter()
+            .find_map(|(_, _, entity, way, apart, z)| {
+                let back = (apart - 2.0 * super::HALF_WIDTH - specials::LEAP_STOP).max(0.0);
+                let mut to = math::mad(o, back, way);
+                to[2] = z;
+                let mut over = math::mad(o, back / 2.0, way);
+                over[2] = o[2].max(z) + specials::LEAP_HOP;
+                let top = leap_top_above(specials::LEAP_HOP);
+                let maxs = [self.maxs[0], self.maxs[1], self.maxs[2].min(top)];
+                let clear = |from: Vec3, until: Vec3| {
+                    let hit = self.trace_shaped(from, until, (self.mins, maxs), true, level);
+                    hit.fraction >= 1.0 && !hit.all_solid
+                };
+                (clear(o, over) && clear(over, to) && self.leap_lands(to)).then(|| {
+                    let id = crate::snapshot::SimId(entity & !crate::world::BODY);
+                    (id, to)
+                })
+            })
+    }
+
+    /// Whether a Force leap can come down at `to` (units). The body must
+    /// stand there on walkable ground, within a step's height below `to`,
+    /// and nothing may fill the spot. Characters, placeables and the remains
+    /// of the dead count here, though they do not stop the leap in flight.
+    /// So a leap never ends over a drop or inside another body.
+    fn leap_lands(&self, to: Vec3) -> bool {
+        let lifted = [to[0], to[1], to[2] + 1.0];
+        let room = self.trace_masked(lifted, lifted, self.mins, self.maxs, Contents::PLAYER_SOLID);
+        if room.all_solid || room.fraction < 1.0 {
+            return false;
+        }
+        let below = [to[0], to[1], to[2] - super::STEP_HEIGHT];
+        let floor = self.trace_masked(lifted, below, self.mins, self.maxs, Contents::PLAYER_SOLID);
+        floor.fraction < 1.0
+            && floor.normal[2] >= super::WALKABLE_NORMAL_Z
+            && !floor.contents.intersects(Contents::NONWALK)
+    }
+
+    /// The Force leap's step after the move, if one is under way. It leaves
+    /// the ground at `LEAP_TAKEOFF_MS` (as it starts: `start_leap` sets its
+    /// start back), lands where it lands (`Leap::to`) at `LEAP_LANDING_MS`,
+    /// and ends at `LEAP_END_MS`. It ends at once if the character is
+    /// knocked down, knocked back, gripped, held in a grab, or stunned, so
+    /// those powers and blows move or hold the body as they always do. In
+    /// flight each step aims the body at the next point of its way
+    /// (`leap_height`), so it passes through other characters
+    /// (`Move::leaping`) and keeps its line whatever turned it aside. Once
+    /// it lands it stands where it came down. Its blow is the world's
+    /// (`world::strikes::leap_blows`). Whether a leap was under way.
+    pub(super) fn leap_step(&mut self, arms: &mut Arms) -> bool {
+        let now = self.time_ms;
+        let Some(mut leap) = arms.fighter.leap else {
+            return false;
+        };
+        let elapsed = leap.elapsed(now);
+        let fighter = &*arms.fighter;
+        let interrupted = fighter.saber.floored()
+            || fighter.force.gripped_by.is_some()
+            || fighter.grapple.is_some()
+            || fighter.force.stunned(now)
+            || self.ps.flags & motion_flags::KNOCKBACK_HOLD != 0;
+        if elapsed >= LEAP_END_MS || interrupted {
+            arms.fighter.leap = None;
+            arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.min(0);
+            return true;
+        }
+        let takeoff = !leap.flown && elapsed >= LEAP_TAKEOFF_MS;
+        if takeoff {
+            leap.flown = true;
+            leap.took_off = now;
+            leap.from_z = self.ps.origin[2];
+            leap.aloft = self.ps.ground.is_none();
+            self.set_jump_start(self.ps.origin[2]);
+            self.ps.events |= events::JUMP;
+            self.ps.ground = None;
+            arms.fighter.leap = Some(leap);
+        }
+        // In flight it is steered every step, also when its feet graze a
+        // bump or a step on the way: a graze does not stop it short.
+        let flying = leap.flown && elapsed < LEAP_LANDING_MS;
+        if flying {
+            let step = self.ms.max(1) as u64;
+            let left = (LEAP_LANDING_MS - elapsed).max(step);
+            let mut way = math::sub(leap.to, self.ps.origin);
+            way[2] = 0.0;
+            let distance = math::normalize(&mut way);
+            let speed = distance / (left as f32 / 1000.0);
+            // Up or down to where its way is one step on; the step's fall
+            // (`slide`'s average over the step) taken back.
+            let seconds = step as f32 / 1000.0;
+            let rise = Self::leap_height(&leap, now + step) - self.ps.origin[2];
+            self.ps.velocity = [
+                way[0] * speed,
+                way[1] * speed,
+                rise / seconds + self.ps.gravity * seconds / 2.0,
+            ];
+        }
+        // Landed, it stops where it came down rather than slide on. It has
+        // landed once its landing time is past, on the ground or not, so a
+        // body still a little above the floor then drops straight down and
+        // does not fly on past the enemy. Before that time it has landed
+        // only on the ground beside its landing spot (`specials::LEAP_STOP`).
+        let mut short = math::sub(leap.to, self.ps.origin);
+        short[2] = 0.0;
+        let beside = math::length(short) <= specials::LEAP_STOP;
+        let down = self.ps.ground.is_some() && self.ps.velocity[2] <= 0.0 && beside;
+        if leap.flown && !takeoff && (down || elapsed >= LEAP_LANDING_MS) {
+            self.ps.velocity[0] = 0.0;
+            self.ps.velocity[1] = 0.0;
+        }
+        arms.fighter.weapon_wait_ms = (LEAP_END_MS - elapsed) as i32;
+        true
+    }
+
+    /// The height (units) a Force leap's way passes at `at` (sim ms): from
+    /// where it left the ground straight to where it lands, raised by an arc
+    /// that peaks `specials::LEAP_HOP` over that line halfway along. A leap
+    /// from the air coming down never rises above where it left: its arc is
+    /// at most a quarter of its drop.
+    fn leap_height(leap: &crate::combat::Leap, at: u64) -> f32 {
+        let flight = (leap.began + LEAP_LANDING_MS)
+            .saturating_sub(leap.took_off)
+            .max(1);
+        let share = (at.saturating_sub(leap.took_off) as f32 / flight as f32).min(1.0);
+        let drop = leap.from_z - leap.to[2];
+        let hop = if leap.aloft && drop > 0.0 {
+            specials::LEAP_HOP.min(drop / 4.0)
+        } else {
+            specials::LEAP_HOP
+        };
+        leap.from_z - drop * share + 4.0 * hop * share * (1.0 - share)
+    }
 }

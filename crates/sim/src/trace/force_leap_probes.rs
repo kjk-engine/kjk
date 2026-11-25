@@ -1,0 +1,726 @@
+//! The probes of the Force leap (`kjk sim probes --only "force leap"`): a
+//! player with Force Jump who holds [Attack] and taps [Jump] twice within
+//! the window leaps at the enemy in front and strikes once.
+//! - With Force Jump, [Attack] held and the two taps, the player leaps and lands
+//!   beside the enemy, who stood beyond the least distance, and stays there.
+//! - An enemy a little to one side, within the aim's arc, is leapt at too;
+//!   one well to the side is not.
+//! - Without Force Jump, the same keys make no leap.
+//! - Without the swing, the press makes no leap.
+//! - With the enemy nearer than the least distance, no leap is made.
+//! - After one leap, the same keys from as far away leap again.
+//! - One tap of [Jump] makes no leap, and the jump it always made.
+//! - A second tap after landing from the first leaps too.
+//! - A movement key held makes no leap.
+//! - A leap started in the air does not rise above where it started.
+//! - A leap from the ground starts at once and hops no higher than its hop.
+//! - Only the level stops a leap: not the remains of the dead, which an
+//!   ordinary move meets.
+//! - Ceilings and overhangs do not stop a leap; walls do.
+//! - An enemy standing in the way does not turn the leap aside, and killing
+//!   some of a group leaves the leap working on the rest.
+//! - Of three enemies side by side, the leap goes for the one looked at.
+//! - From a ledge, the leap comes down beside the enemy below, at its
+//!   height, not on top of it.
+//!
+//! Each is played from a trace scenario (`trace::duels`) under Jedi
+//! Academy's rules, against a hostile creature put in front of the player.
+use super::duels::play;
+use crate::Seat;
+use crate::math::{self, Vec3};
+use crate::module::ObjectKind;
+use crate::probe::{Checks, check};
+use crate::snapshot::{Kind, Snapshot};
+use rules::saber_moves::specials;
+/// How far along the arena's y axis (units) the fight stands, clear of its
+/// steps and its block.
+const LANE: f32 = 250.0;
+/// A body's origin height over the arena's floor (units).
+const STANDING_Z: f32 = 24.125;
+/// The ticks before the swing: the settling and the blade's readying.
+const READY: usize = 211;
+/// How near (units, centre to centre) the leap must bring the player.
+const LANDED: f32 = 140.0;
+/// The keys of a Force leap: `attack` (the attack key's word, or nothing)
+/// held throughout, and [Jump] tapped `count` times, a few ticks apart.
+fn taps(attack: &str, count: usize) -> String {
+    let mut keys = format!("tick 2 {attack}\n");
+    for _ in 0..count {
+        keys.push_str(&format!("tick 1 {attack}u0=127\ntick 4 {attack}\n"));
+    }
+    keys
+}
+/// What a fight with the creature `away` units in front did: whether the
+/// player leapt, and the nearest it came to the creature afterwards.
+fn fight(jump: u8, away: f32, swing: bool) -> Result<(bool, f32, f32), String> {
+    fight_at(jump, away, 0.0, swing)
+}
+/// `fight`, the creature `side` degrees to the left of straight ahead. What
+/// it did: whether the player leapt, the nearest it came to the creature,
+/// and how far apart they stood at the end.
+fn fight_at(jump: u8, away: f32, side: f32, swing: bool) -> Result<(bool, f32, f32), String> {
+    let swing = if swing { "b0=attack " } else { "" };
+    let (sin, cos) = collision::trig::sin_cos_deg(side);
+    let (x, y) = (away * cos, LANE + away * sin);
+    let text = format!(
+        "scenario force leap\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump={jump} defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {x} {y} {STANDING_Z} 180\n\
+         {}tick 220\n",
+        READY - 1,
+        taps(swing, 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let after = &ticks[ticks.len().saturating_sub(230)..];
+    let leapt = after
+        .iter()
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.fighter))
+        .any(|fighter| fighter.leap.is_some());
+    let nearest = after
+        .iter()
+        .filter_map(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .fold(f32::MAX, f32::min);
+    let last = after
+        .last()
+        .and_then(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .unwrap_or(f32::MAX);
+    Ok((leapt, nearest, last))
+}
+fn player(tick: &Snapshot) -> Option<Vec3> {
+    tick.own(Seat(0))?.player.map(|ps| ps.origin)
+}
+fn creature(tick: &Snapshot) -> Option<Vec3> {
+    tick.entities
+        .iter()
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+        .and_then(|entity| entity.player)
+        .map(|ps| ps.origin)
+}
+/// Far enough for a leap of each rank, near enough for the first.
+fn far() -> f32 {
+    (specials::LEAP_LEAST + specials::LEAP_MOST[0]) / 2.0
+}
+fn leaps() -> Result<String, String> {
+    let away = far();
+    let (leapt, nearest, last) = fight(1, away, true)?;
+    check(
+        leapt && nearest <= LANDED && last <= LANDED,
+        format!(
+            "enemy {away} units off: leapt {leapt}, came within {nearest:.0} units, \
+             {last:.0} units apart at the end"
+        ),
+    )
+}
+fn in_the_arc() -> Result<String, String> {
+    let (away, side) = (far(), specials::LEAP_ARC * 0.6);
+    let (leapt, nearest, _) = fight_at(1, away, side, true)?;
+    check(
+        leapt && nearest <= LANDED,
+        format!(
+            "enemy {away} units off, {side} degrees aside: leapt {leapt}, came within {nearest:.0}"
+        ),
+    )
+}
+fn out_of_the_arc() -> Result<String, String> {
+    let (away, side) = (far(), specials::LEAP_ARC * 2.0);
+    let (leapt, _, _) = fight_at(1, away, side, true)?;
+    check(
+        !leapt,
+        format!("enemy {away} units off, {side} degrees aside: leapt {leapt}"),
+    )
+}
+fn no_feat() -> Result<String, String> {
+    let away = far();
+    let (leapt, _, _) = fight(0, away, true)?;
+    check(
+        !leapt,
+        format!("without Force Jump, enemy {away} units off: leapt {leapt}"),
+    )
+}
+fn no_swing() -> Result<String, String> {
+    let away = far();
+    let (leapt, _, _) = fight(1, away, false)?;
+    check(
+        !leapt,
+        format!("[Jump] without a swing, enemy {away} units off: leapt {leapt}"),
+    )
+}
+fn too_near() -> Result<String, String> {
+    let away = specials::LEAP_LEAST - 100.0;
+    let (leapt, _, _) = fight(1, away, true)?;
+    check(!leapt, format!("enemy {away} units off: leapt {leapt}"))
+}
+pub fn probes() -> Checks {
+    vec![
+        ("the player leaps at a distant enemy", leaps()),
+        ("the leap goes for an enemy a little aside", in_the_arc()),
+        ("no leap at an enemy well aside", out_of_the_arc()),
+        ("the player leaps again after the first leap", leaps_again()),
+        ("the player leaps among several enemies", among_several()),
+        (
+            "the player leaps at the one left after kills",
+            after_kills(),
+        ),
+        (
+            "the leap passes over an enemy in the way",
+            over_one_in_the_way(),
+        ),
+        ("the player leaps out of a melee", out_of_a_melee()),
+        (
+            "the player leaps out of a melee with [Attack] held",
+            out_of_a_held_melee(),
+        ),
+        ("one tap makes no leap and still jumps", one_tap()),
+        ("a second tap after landing leaps", second_tap_landed()),
+        (
+            "the leap goes for the middle of three side by side",
+            side_by_side(),
+        ),
+        (
+            "the leap comes down a ledge beside the enemy",
+            down_a_ledge(),
+        ),
+        ("a leap from the ground hops low, with no crouch", low_hop()),
+        ("a leap passes the remains of the dead", passes_made_boxes()),
+        (
+            "a leap passes under overhangs, not through walls",
+            under_overhangs(),
+        ),
+        ("no leap with a movement key held", moving_no_leap()),
+        ("a leap from the air does not rise", from_the_air_no_rise()),
+        ("no leap without Force Jump", no_feat()),
+        ("no leap without a swing", no_swing()),
+        ("no leap at a near enemy", too_near()),
+    ]
+}
+/// A second leap after the first: the player leaps, both are put back
+/// apart as they started, and the same keys leap again.
+fn leaps_again() -> Result<String, String> {
+    let away = far();
+    let keys = taps("b0=attack ", 2);
+    let text = format!(
+        "scenario force leap twice\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         {keys}tick 220\n\
+         put 0 0 {LANE} {STANDING_Z} 0\nput c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 60\n{keys}tick 220\n",
+        READY - 1,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leaping: Vec<bool> = ticks
+        .iter()
+        .map(|tick| {
+            tick.own(Seat(0))
+                .and_then(|entity| entity.fighter)
+                .is_some_and(|fighter| fighter.leap.is_some())
+        })
+        .collect();
+    let starts = leaping.windows(2).filter(|w| !w[0] && w[1]).count();
+    check(
+        starts >= 2,
+        format!("enemy {away} units off twice: {starts} leaps started"),
+    )
+}
+/// Three enemies: one straight ahead far off, one nearer a little aside in
+/// the way, one well to the side. The leap goes for one of them.
+fn among_several() -> Result<String, String> {
+    let far = far();
+    let text = format!(
+        "scenario force leap among several\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {far} {LANE} {STANDING_Z} 180\n\
+         put c1 {} {} {STANDING_Z} 180\n\
+         put c2 {} {} {STANDING_Z} 180\n\
+         {}tick 220\n",
+        LANE + 200.0,
+        LANE - 200.0,
+        READY - 1,
+        far * 0.6,
+        LANE + 20.0,
+        far * 0.5,
+        LANE - 300.0,
+        taps("b0=attack ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leapt = ticks
+        .iter()
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.fighter))
+        .find_map(|fighter| fighter.leap);
+    check(
+        leapt.is_some(),
+        format!(
+            "three enemies, the nearest {} units off: leap {leapt:?}",
+            far * 0.5
+        ),
+    )
+}
+/// An enemy in melee range, fighting the player and meeting its swing, and
+/// another farther off a little aside: the swing and the press leap at the
+/// one farther off.
+fn out_of_a_melee() -> Result<String, String> {
+    melee(&format!("tick 120\n{}tick 220\n", taps("b0=attack ", 2)))
+}
+/// `out_of_a_melee`, [Attack] held all along, so the same swing repeats.
+fn out_of_a_held_melee() -> Result<String, String> {
+    melee(&format!(
+        "tick 120 b0=attack\n{}tick 220\n",
+        taps("b0=attack ", 2)
+    ))
+}
+fn melee(keys: &str) -> Result<String, String> {
+    let far = far();
+    let (sin, cos) = collision::trig::sin_cos_deg(specials::LEAP_ARC * 0.6);
+    let text = format!(
+        "scenario force leap out of a melee\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=4000\n\
+         creature medium x=60 y={LANE} yaw=180 defence=3 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c1 {} {} {STANDING_Z} 180\n{keys}",
+        LANE + 300.0,
+        READY - 1,
+        far * cos,
+        LANE + far * sin,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leapt = ticks
+        .iter()
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.fighter))
+        .find_map(|fighter| fighter.leap);
+    let moves: Vec<String> = ticks
+        .iter()
+        .rev()
+        .skip(220)
+        .take(125)
+        .step_by(8)
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.fighter))
+        .map(|fighter| {
+            format!(
+                "{} armed {}",
+                fighter.saber.current_move.name(),
+                fighter.leap_armed_until
+            )
+        })
+        .collect();
+    check(
+        leapt.is_some(),
+        format!(
+            "an enemy in melee, another {far} units off: leap {leapt:?}; before the press {moves:?}"
+        ),
+    )
+}
+/// Whether seat 0 began a leap in `ticks`, and the leap.
+fn leap_of(ticks: &[Snapshot]) -> Option<crate::combat::Leap> {
+    ticks
+        .iter()
+        .filter_map(|tick| tick.own(Seat(0)).and_then(|entity| entity.fighter))
+        .find_map(|fighter| fighter.leap)
+}
+/// One tap of [Jump] with [Attack] held, an enemy in reach: no leap, and
+/// the jump it always made.
+fn one_tap() -> Result<String, String> {
+    let away = far();
+    let text = format!(
+        "scenario force leap one tap\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         {}tick 160\n",
+        READY - 1,
+        taps("b0=attack ", 1),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    let highest = ticks
+        .iter()
+        .rev()
+        .take(170)
+        .filter_map(player)
+        .map(|at| at[2])
+        .fold(f32::MIN, f32::max);
+    check(
+        leap.is_none() && highest > STANDING_Z + 8.0,
+        format!("one tap, enemy {away} units off: leap {leap:?}, rose to {highest:.1}"),
+    )
+}
+/// Three enemies side by side, the player looking at the middle one: the
+/// leap goes for that one.
+fn side_by_side() -> Result<String, String> {
+    let away = far();
+    let text = format!(
+        "scenario force leap side by side\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {} {STANDING_Z} 180\n\
+         put c1 {away} {LANE} {STANDING_Z} 180\n\
+         put c2 {away} {} {STANDING_Z} 180\n\
+         {}tick 220\n",
+        LANE - 60.0,
+        LANE + 60.0,
+        READY - 1,
+        LANE - 40.0,
+        LANE + 40.0,
+        taps("b0=attack ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    let middle = ticks.first().and_then(|tick| {
+        tick.entities
+            .iter()
+            .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 1))
+            .map(|entity| entity.id)
+    });
+    check(
+        leap.is_some_and(|leap| Some(leap.target) == middle),
+        format!("three side by side {away} units off: leap {leap:?}, the middle one {middle:?}"),
+    )
+}
+/// The player on the arena's metre-high block, the enemy on the floor below
+/// in front: the leap comes down beside the enemy, at its height, not on
+/// top of it.
+fn down_a_ledge() -> Result<String, String> {
+    // The block's top (units) and the floor's, under a body's origin.
+    let (block, floor) = (1.0 / collision::UNIT + STANDING_Z, STANDING_Z);
+    let (from, to) = (-370.0, 100.0);
+    let text = format!(
+        "scenario force leap down a ledge\nrules ja\nseed 7\n\
+         fighter 0 medium x={from} y=0 z={block} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {to} 0 {floor} 180\n\
+         {}tick 220\n",
+        READY - 1,
+        taps("b0=attack ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    // Where it stood as the keys began: on the block.
+    let started = ticks
+        .get(READY + 1)
+        .and_then(player)
+        .map_or(f32::MIN, |at| at[2]);
+    let last = ticks.last();
+    let at = last.and_then(player);
+    let them = last.and_then(creature);
+    let (apart, height) = at.zip(them).map_or((f32::MAX, f32::MAX), |(at, them)| {
+        (math::flat_distance(at, them), at[2] - them[2])
+    });
+    check(
+        started > block - 4.0
+            && leap.is_some()
+            && (2.0 * crate::motion::HALF_WIDTH - 4.0..=LANDED).contains(&apart)
+            && height.abs() <= 4.0,
+        format!(
+            "from {started:.1} on the block down to the floor: leap {}, {apart:.0} units apart, \
+             {height:.1} above",
+            leap.is_some()
+        ),
+    )
+}
+/// [Attack] held, [Jump] tapped once, the jump landed, then tapped again
+/// inside the window: the second tap leaps from the ground.
+fn second_tap_landed() -> Result<String, String> {
+    let away = far();
+    // Long enough to land from a normal jump, short of the window.
+    let wait = (specials::LEAP_WINDOW_MS as usize * 3 / 4) / 8;
+    let text = format!(
+        "scenario force leap second tap landed\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 2 b0=attack\ntick 1 b0=attack u0=127\ntick {wait} b0=attack\n\
+         tick 1 b0=attack u0=127\ntick 220\n",
+        READY - 1,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    let before = ticks.get(ticks.len().saturating_sub(222)).and_then(player);
+    check(
+        leap.is_some() && before.is_some_and(|at| at[2] < STANDING_Z + 1.0),
+        format!(
+            "second tap {wait} ticks after the first, standing at {:?}: leap {leap:?}",
+            before.map(|at| at[2])
+        ),
+    )
+}
+/// Three enemies; the two nearer ones killed (one in the way, one beside
+/// it) before the keys: the leap goes for the one left.
+fn after_kills() -> Result<String, String> {
+    let far = far();
+    let text = format!(
+        "scenario force leap after kills\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {} {LANE} {STANDING_Z} 180\n\
+         put c1 {} {} {STANDING_Z} 180\n\
+         put c2 {far} {LANE} {STANDING_Z} 180\n\
+         tick 10\nstat c0 dead 1\nstat c1 dead 1\ntick 120\n\
+         {}tick 220\n",
+        LANE + 200.0,
+        LANE - 200.0,
+        READY - 1,
+        far * 0.5,
+        far * 0.4,
+        LANE + 60.0,
+        taps("b0=attack ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    check(
+        leap.is_some(),
+        format!("two enemies killed, one left {far} units off: leap {leap:?}"),
+    )
+}
+/// An enemy halfway along the line to the one leapt at, a little aside of
+/// it: the leap passes over it and comes down beside the one it aimed at.
+fn over_one_in_the_way() -> Result<String, String> {
+    let far = far();
+    let text = format!(
+        "scenario force leap over one in the way\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         creature medium x=1400 y={} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {far} {LANE} {STANDING_Z} 180\n\
+         put c1 {} {} {STANDING_Z} 180\n\
+         {}tick 220\n",
+        LANE + 300.0,
+        READY - 1,
+        far * 0.5,
+        LANE + 10.0,
+        taps("b0=attack ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    let aimed = ticks.first().and_then(|tick| {
+        tick.entities
+            .iter()
+            .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+            .map(|entity| entity.id)
+    });
+    let last = ticks
+        .last()
+        .and_then(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .unwrap_or(f32::MAX);
+    check(
+        leap.is_some_and(|leap| Some(leap.target) == aimed) && last <= LANDED,
+        format!(
+            "one in the way at {}: leap {:?} at {aimed:?}, {last:.0} units from it at the end",
+            far * 0.5,
+            leap.map(|leap| leap.target)
+        ),
+    )
+}
+/// [Forward] held with the keys: no leap, as every other jumping attack
+/// needs a movement key and keeps it.
+fn moving_no_leap() -> Result<String, String> {
+    let away = far();
+    let text = format!(
+        "scenario force leap moving\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         {}tick 220\n",
+        READY - 1,
+        taps("b0=attack f0=127 ", 2),
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let leap = leap_of(&ticks);
+    check(
+        leap.is_none(),
+        format!("[Forward] held, enemy {away} units off: leap {leap:?}"),
+    )
+}
+/// The second tap in the air from the first tap's jump: the leap starts
+/// there and does not rise above where it started.
+fn from_the_air_no_rise() -> Result<String, String> {
+    let away = far();
+    // The second tap well into the first tap's jump.
+    let text = format!(
+        "scenario force leap from the air\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 2 b0=attack\ntick 1 b0=attack u0=127\ntick 30 b0=attack\n\
+         tick 1 b0=attack u0=127\ntick 220\n",
+        READY - 1,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let states: Vec<(bool, f32)> = ticks
+        .iter()
+        .filter_map(|tick| {
+            let leaping = tick.own(Seat(0))?.fighter?.leap.is_some();
+            Some((leaping, player(tick)?[2]))
+        })
+        .collect();
+    let start = states.iter().position(|(leaping, _)| *leaping);
+    let Some(start) = start else {
+        return check(false, "no leap from the air".to_string());
+    };
+    let from = states[start.saturating_sub(1)].1;
+    let highest = states[start..]
+        .iter()
+        .map(|(_, z)| *z)
+        .fold(f32::MIN, f32::max);
+    let last = ticks
+        .last()
+        .and_then(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .unwrap_or(f32::MAX);
+    check(
+        from > STANDING_Z + 8.0 && highest <= from + 2.0 && last <= LANDED,
+        format!(
+            "leap from {from:.1} in the air: rose to {highest:.1}, {last:.0} units from the enemy at the end"
+        ),
+    )
+}
+/// A leap from the ground on level ground: it rises no higher than its hop
+/// over the floor, starts on the second tap with no crouch, and lands.
+fn low_hop() -> Result<String, String> {
+    let away = far();
+    let text = format!(
+        "scenario force leap low hop\nrules ja\nseed 7\n\
+         fighter 0 medium x=0 y={LANE} jump=1 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=1400 y={LANE} yaw=180 defence=2 tiers=2 hp=4000\n\
+         begin\ntick 1 b0=attack\ntick {}\n\
+         put c0 {away} {LANE} {STANDING_Z} 180\n\
+         tick 2 b0=attack\ntick 1 b0=attack u0=127\ntick 93 b0=attack\n\
+         tick 1 b0=attack u0=127\ntick 220\n",
+        READY - 1,
+    );
+    let ticks: Vec<Snapshot> = play(&text)?;
+    let states: Vec<(bool, Vec3)> = ticks
+        .iter()
+        .filter_map(|tick| Some((tick.own(Seat(0))?.fighter?.leap.is_some(), player(tick)?)))
+        .collect();
+    let Some(start) = states.iter().position(|(leaping, _)| *leaping) else {
+        return check(false, "no leap".to_string());
+    };
+    let from = states[start - 1].1;
+    let highest = states[start..]
+        .iter()
+        .map(|(_, at)| at[2])
+        .fold(f32::MIN, f32::max);
+    // It moves at once, no crouch: by the step after it starts, as a
+    // step's velocity is set after its move.
+    let moved = math::flat_distance(states[(start + 1).min(states.len() - 1)].1, from);
+    // The blow met the enemy: an event on it by the player (a hit, or the
+    // enemy's block of it).
+    let me = ticks
+        .last()
+        .and_then(|tick| tick.own(Seat(0)))
+        .map(|entity| entity.id);
+    let struck = ticks
+        .last()
+        .and_then(|tick| {
+            tick.entities
+                .iter()
+                .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+        })
+        .and_then(|entity| entity.fighter)
+        .is_some_and(|fighter| fighter.newest().any(|event| event.by == me && me.is_some()));
+    let last = ticks
+        .last()
+        .and_then(|tick| Some(math::flat_distance(player(tick)?, creature(tick)?)))
+        .unwrap_or(f32::MAX);
+    check(
+        struck
+            && from[2] < STANDING_Z + 1.0
+            && highest <= STANDING_Z + specials::LEAP_HOP + 4.0
+            && moved > 1.0
+            && last <= LANDED,
+        format!(
+            "from the ground at {:.1}: rose to {highest:.1}, moved {moved:.1} by its second step, \
+             {last:.0} units from the enemy at the end, struck it {struck}",
+            from[2]
+        ),
+    )
+}
+/// A placeable box made in play (as the remains of the dead are) across the
+/// arena's floor, a body's height tall: an ordinary move's sweep stops at
+/// it, a Force leap's (`Contents::LEVEL_ONLY`) passes it and meets the
+/// arena's wall beyond.
+fn passes_made_boxes() -> Result<String, String> {
+    use collision::{Bodies, Body, CollisionWorld, Contents, Extents, Shape};
+    let level = crate::Level::arena();
+    let world = level.collision().as_ref();
+    let remains = [Body {
+        entity: 7 | crate::world::BODY,
+        min: [2.0, -1.0, 0.0],
+        max: [2.5, 1.0, 1.8],
+        contents: Contents::SOLID,
+    }];
+    let bodies = Bodies::new(world, &remains);
+    let half = crate::motion::HALF_WIDTH * collision::UNIT;
+    let shape = Shape::Upright(Extents {
+        mins: [-half, -half, 0.1],
+        maxs: [half, half, 1.6],
+    });
+    let (from, to) = ([0.0, 0.0, 0.0], [3.5, 0.0, 0.0]);
+    let walking = bodies.sweep(from, to, &shape, Contents::PLAYER_SOLID);
+    let leaping = bodies.sweep(from, to, &shape, Contents::LEVEL_ONLY);
+    check(
+        walking.fraction < 1.0 && leaping.fraction >= 1.0,
+        format!(
+            "across a made box: a move stops at {:.2}, a leap reaches {:.2} of the way",
+            walking.fraction, leaping.fraction
+        ),
+    )
+}
+/// A floor with an overhang 1.2 m up across the way and, farther on, a wall:
+/// a standing body's sweep stops under the overhang. The part of the body a
+/// Force leap meets the level with passes under it, at the top of its hop
+/// (`motion::leap_top_above`) as on the ground, and stops at the wall.
+fn under_overhangs() -> Result<String, String> {
+    use collision::{BoxWorld, CollisionWorld, Contents, Extents, Shape, Solid};
+    let world = BoxWorld::floor(20.0, 0.0, 1.0)
+        .with(Solid::level([1.0, -2.0, 1.2], [1.5, 2.0, 1.6]))
+        .with(Solid::level([3.0, -2.0, 0.0], [3.5, 2.0, 3.0]));
+    let unit = collision::UNIT;
+    let half = crate::motion::HALF_WIDTH * unit;
+    let body = |top: f32| {
+        Shape::Upright(Extents {
+            mins: [-half, -half, crate::motion::SOLE_Z * unit],
+            maxs: [half, half, top * unit],
+        })
+    };
+    let feet = -crate::motion::SOLE_Z * unit + 0.01;
+    let hop = rules::saber_moves::specials::LEAP_HOP;
+    let peak = feet + hop * unit;
+    let along = |z: f32, x: f32| ([0.0, 0.0, z], [x, 0.0, z]);
+    let standing = body(crate::motion::STAND_HEIGHT);
+    let low = body(crate::motion::LEAP_TOP);
+    let high = body(crate::motion::leap_top_above(hop));
+    let sweep = |(from, to): ([f32; 3], [f32; 3]), shape: &Shape| {
+        world.sweep(from, to, shape, Contents::LEVEL_ONLY).fraction
+    };
+    let stand = sweep(along(feet, 2.5), &standing);
+    let under = sweep(along(feet, 2.5), &low);
+    let atop = sweep(along(peak, 2.5), &high);
+    let wall = sweep(along(feet, 4.5), &low);
+    check(
+        stand < 1.0 && under >= 1.0 && atop >= 1.0 && wall < 1.0,
+        format!(
+            "under a 1.2 m overhang: standing stops at {stand:.2}, leaping reaches {under:.2}, \
+             at the top of its hop {atop:.2}; at the wall the leap stops at {wall:.2}"
+        ),
+    )
+}

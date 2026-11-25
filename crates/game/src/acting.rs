@@ -532,6 +532,60 @@ pub fn baton_names() -> impl Iterator<Item = (u16, String)> {
         .map(|(animation, name)| (animation, name.to_string()))
 }
 
+/// KOTOR's Force Jump clips, the leap of a Force leap
+/// (`sim::motion::Move::force_leap`), drawn on the whole of a retargeted
+/// body: `f2a4` with one lightsaber at `LEAP`, `f3a4` with a double-bladed
+/// one at the next and `f4a4` with two at the one after.
+pub const LEAP: u16 = 4810;
+/// The Force leap's clips (`LEAP`).
+pub fn leap_names() -> impl Iterator<Item = (u16, String)> {
+    [(LEAP, "f2a4"), (LEAP + 1, "f3a4"), (LEAP + 2, "f4a4")]
+        .into_iter()
+        .map(|(animation, name)| (animation, name.to_string()))
+}
+/// A Force leap's clip as drawn: KOTOR's own, its root never raised above
+/// where it stands. The sim moves the body along the leap's low way
+/// (`sim::motion::Move::leap_step`), so the clip's own jump of nearly 2 m
+/// is left out; its crouches stay.
+pub fn grounded_leap(clip: &AnimationIr) -> AnimationIr {
+    let mut clip = clip.clone();
+    for track in &mut clip.tracks {
+        if track.node.eq_ignore_ascii_case("rootdummy") {
+            for (_, offset) in &mut track.positions {
+                offset[2] = offset[2].min(0.0);
+            }
+        }
+    }
+    clip
+}
+/// The Force leap's clip at `ms` (sim ms) while `fighter` leaps: the
+/// clip of its saber style, how far in (seconds) and how much over the
+/// pose, fading in and out over the clip's transition time.
+pub fn leap_shown<'a>(
+    fighter: Option<&sim::combat::Fighter>,
+    bound: &'a Bound,
+    ms: f64,
+) -> Option<(&'a Animator, f32, f32)> {
+    use sim::combat::saber::Style;
+    let fighter = fighter.filter(|f| f.alive())?;
+    let leap = fighter.leap?;
+    let wanted = match fighter.saber.style {
+        Some(Style::Staff) => LEAP + 1,
+        Some(Style::Dual) => LEAP + 2,
+        _ => LEAP,
+    };
+    let clip = bound.iter().find(|(a, _)| *a == wanted).map(|(_, c)| c)?;
+    let at = ((ms - leap.began as f64) / 1000.0).max(0.0) as f32;
+    let (length, fade) = (clip.length(), clip.transition().max(f32::EPSILON));
+    if at >= length {
+        return None;
+    }
+    // The leap starts partway into the clip (its crouch left out): it fades
+    // in from there.
+    let from = (leap.took_off.max(leap.began) - leap.began) as f32 / 1000.0;
+    let weight = ((at - from) / fade).clamp(0.0, 1.0) * ((length - at) / fade).clamp(0.0, 1.0);
+    Some((clip, at, weight))
+}
 /// A baton swing as drawn over the JA pose: KOTOR's clip on the torso and
 /// the swinging right arm only. KOTOR's swing also throws the head and the
 /// free left arm about, which the next swing, beginning before the last

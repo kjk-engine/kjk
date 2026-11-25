@@ -614,3 +614,112 @@ pub use probes::{
     baton_probes, blade_taken_probes, bystander_probes, fist_probes, hold_probes, probes,
     sheath_probes,
 };
+/// The blow at the end of a Force leap (`motion::Move::force_leap`), the
+/// step its leap passes `motion::LEAP_BLOW_MS`: one attack of the
+/// lightsaber in hand on the enemy it leapt at, if that one is alive and
+/// still within `specials::LEAP_REACH` of the leaper, as a whole roll
+/// through the pipeline every weapon hit takes (`combat::damage`), so the
+/// enemy's blade may turn it. Advanced Force Jump and Force Jump Mastery
+/// add `specials::LEAP_BONUS` to its attack and damage. As it leaves the
+/// ground and as it lands, the leaper shows KOTOR's Force Jump effect
+/// (`specials::LEAP_VISUAL`). On the authority
+/// and in replays, and in prediction for the players' own, as `strikes`.
+#[allow(clippy::type_complexity)]
+pub(super) fn leap_blows(
+    clock: Res<Clock>,
+    mut hits: ResMut<Hits>,
+    mut actors: Query<(
+        &Id,
+        Option<&Avatar>,
+        Option<&Object>,
+        Option<&PlayerSheet>,
+        &Player,
+        &mut Fighting,
+    )>,
+) {
+    use rules::saber_moves::specials;
+    let now = clock.time_ms;
+    let msec = u64::from(clock.msec);
+    let mut bodies: Vec<(SimId, Vec3, Vec3, bool)> = actors
+        .iter()
+        .map(|(id, _, object, _, player, fighting)| {
+            let bulk = super::object_bulk(object);
+            (
+                id.0,
+                player.0.origin,
+                mind::chest_of(&player.0, bulk),
+                fighting.0.alive(),
+            )
+        })
+        .collect();
+    bodies.sort_by_key(|(id, ..)| *id);
+    let mut rows: Vec<_> = actors.iter_mut().collect();
+    rows.sort_by_key(|(id, ..)| id.0);
+    for (id, avatar, object, sheet, player, mut fighting) in rows {
+        if clock.reason == StepReason::Predict && avatar.is_none() {
+            continue;
+        }
+        let Some(leap) = fighting.0.leap.filter(|_| fighting.0.alive()) else {
+            continue;
+        };
+        let since = leap.elapsed(now);
+        // KOTOR's Force Jump effect as it leaves the ground and as it lands.
+        // The takeoff is timed from when it left (`Leap::took_off`). A leap
+        // started in the air has its start set back past
+        // `motion::LEAP_TAKEOFF_MS`, so that mark is never crossed.
+        let crossed = |mark: u64| since >= mark && since < mark + msec;
+        let took_off = leap.flown && now >= leap.took_off && now < leap.took_off + msec;
+        if took_off || crossed(motion::LEAP_LANDING_MS) {
+            let visual = crate::combat::fighter::Visual {
+                row: specials::LEAP_VISUAL,
+                ms: 0,
+                beam: false,
+                part: 0,
+            };
+            fighting.0.record(crate::combat::fighter::Event::visual(
+                visual,
+                Some(id.0),
+                None,
+                clock.tick,
+            ));
+        }
+        let fighter = &fighting.0;
+        if !(since >= motion::LEAP_BLOW_MS && since < motion::LEAP_BLOW_MS + msec) {
+            continue;
+        }
+        let Some(&(_, origin, chest, alive)) = bodies
+            .binary_search_by_key(&leap.target, |(id, ..)| *id)
+            .ok()
+            .map(|at| &bodies[at])
+        else {
+            continue;
+        };
+        let ps = &player.0;
+        let mut direction = math::sub(origin, ps.origin);
+        let rise = direction[2];
+        direction[2] = 0.0;
+        let apart = math::normalize(&mut direction);
+        if !alive || apart > specials::LEAP_REACH || rise.abs() > specials::LEAP_REACH {
+            continue;
+        }
+        let sheet = sheet_of(sheet, object);
+        let mut weapon = held(&sheet, fighter);
+        let bonus = specials::LEAP_BONUS[usize::from(leap.rank.clamp(1, 3)) - 1];
+        weapon.attack_bonus = weapon.attack_bonus.saturating_add(bonus);
+        weapon.damage_bonus = weapon.damage_bonus.saturating_add(bonus);
+        hits.0.push(Hit {
+            attacker: id.0,
+            target: leap.target,
+            source: Source::Weapon {
+                weapon,
+                cadence_ms: damage::WHOLE_CADENCE_MS,
+                share: 1000,
+                area: false,
+                second: None,
+                sure: false,
+            },
+            point: Some(math::mad(chest, -motion::HALF_WIDTH, direction)),
+            direction: Some(direction),
+        });
+    }
+}

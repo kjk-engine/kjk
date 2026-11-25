@@ -3026,9 +3026,20 @@ pub fn scripted_clips(
                 .then(crate::acting::baton_names)
                 .into_iter()
                 .flatten(),
+        )
+        // and leaps with its own Force Jump clips.
+        .chain(
+            (!attacks)
+                .then(crate::acting::leap_names)
+                .into_iter()
+                .flatten(),
         );
     for (animation, name) in engine {
-        if let Some(found) = clip(cache, resolver, game, body, &name)? {
+        if let Some(mut found) = clip(cache, resolver, game, body, &name)? {
+            // A Force leap's clip keeps to the ground the sim moves it on.
+            if (crate::acting::LEAP..crate::acting::LEAP + 3).contains(&animation) {
+                found = Arc::new(crate::acting::grounded_leap(&found));
+            }
             acted.push((animation, found));
         }
     }

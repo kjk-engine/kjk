@@ -91,6 +91,10 @@ pub struct Arms<'a> {
     /// is set for every body, but only a keyed body uses it, because
     /// `duel_block` and `track_turn` act only when `keyed` is set.
     pub targeted: bool,
+    /// The characters hostile to a keyed body, which a Force leap may leap
+    /// at (`Move::force_leap`): each body's entity number and where it
+    /// stands (units), sorted by entity; empty for every other body.
+    pub foes: &'a [(u32, math::Vec3)],
 }
 
 /// Another character, as a saber move's check meets it: its body's entity
@@ -181,7 +185,7 @@ impl Move<'_, '_> {
         is_knockdown(self.ps.legs.anim) && self.ps.legs.timer != 0
     }
 
-    fn still(&mut self) {
+    pub(super) fn still(&mut self) {
         self.cmd.forward = 0;
         self.cmd.right = 0;
         self.cmd.up = 0;
@@ -190,6 +194,9 @@ impl Move<'_, '_> {
     /// The weapon's say over the keys before the move: whether the view is
     /// held where it is.
     pub(super) fn weapon_keys(&mut self) -> bool {
+        if let Some(hold_view) = self.leap_keys() {
+            return hold_view;
+        }
         let Some(arms) = self.arms.as_deref() else {
             return false;
         };
@@ -555,6 +562,9 @@ impl Move<'_, '_> {
 
     fn armed_step(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
+        if self.leap_step(arms) {
+            return;
+        }
         // A left hand emptied some other way than a change of hands (its
         // weapon taken off in the equip screen, a script's unequip) gives
         // the fight back to the right hand. Left out, the right hand's gun

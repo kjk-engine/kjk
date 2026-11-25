@@ -529,6 +529,126 @@ summary = "The double attack finds an enemy up to {saber_moves.specials.mirror_b
 source = "JA"
 see = "sim::motion::saber"
 
+[specials.leap_window_ms]
+name = "Force Leap Window"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 2000]
+summary = "A character with Force Jump makes a Force leap by holding [Attack], or swinging a lightsaber, with no movement key held, and tapping [Jump] twice within {saber_moves.specials.leap_window_ms:s}. The first tap jumps as usual, and the second starts the leap, in the air from that jump or back on the ground."
+detail = "KOTOR makes the leap whenever the Jedi attacks a distant enemy. kjk asks for two taps of the jump key during an attack with no movement key held. Every other jumping attack needs a movement key, so the leap takes nothing away from them."
+source = "ours, after KOTOR's Force Jump feats"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY", "kind:lightsaber"]
+[specials.leap_least]
+name = "Force Leap Least Distance"
+value = 197.0
+unit = "units"
+range = [0.0, 2048.0]
+summary = "A Force leap needs the enemy to stand more than {saber_moves.specials.leap_least:m} away."
+detail = "KOTOR's Force Jump needs the enemy more than 10 meters away. kjk halves that, so the leap also works at a medium distance."
+source = "ours, after KOTOR's Force Jump feats"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_arc]
+name = "Force Leap Aim"
+value = 25.0
+unit = "°"
+range = [0.0, 90.0]
+summary = "Without an enemy near the crosshair, a Force leap goes for an enemy within {saber_moves.specials.leap_arc} degrees to either side of where the character faces, the one closest to that direction. Every enemy a leap goes for must be within these degrees."
+source = "ours"
+see = "sim::motion::saber"
+[specials.leap_most]
+name = "Force Leap Range"
+value = [900.0, 1200.0, 1500.0]
+labels = ["Force Jump", "Advanced", "Mastery"]
+unit = "units"
+range = [0.0, 4096.0]
+summary = "A Force leap reaches an enemy up to {saber_moves.specials.leap_most[0]:m} away with Force Jump, {saber_moves.specials.leap_most[1]:m} with Advanced Force Jump and {saber_moves.specials.leap_most[2]:m} with Force Jump Mastery."
+detail = "KOTOR sets no limit. kjk sets one for each rank, so a leap cannot cross a whole area."
+source = "ours"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_bonus]
+name = "Force Leap Bonus"
+type = "i8"
+value = [0, 2, 4]
+labels = ["Force Jump", "Advanced", "Mastery"]
+range = [0, 20]
+summary = "The blow at the end of a Force leap gets +{saber_moves.specials.leap_bonus[1]:bare} to hit and to damage with Advanced Force Jump, and +{saber_moves.specials.leap_bonus[2]:bare} with Force Jump Mastery."
+source = "KOTOR's Force Jump feats"
+see = "sim::world::strikes"
+applies = ["feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_times]
+name = "Force Leap Timing"
+type = "u64"
+value = [333, 833, 867, 1500]
+labels = ["takeoff", "landing", "blow", "end"]
+unit = "ms"
+range = [0, 5000]
+summary = "A Force leap leaves the ground as soon as it starts, {saber_moves.specials.leap_times[0]:s} into KOTOR's Force Jump animation, and lands {saber_moves.specials.leap_times[1]:s} into it. Its blow lands at {saber_moves.specials.leap_times[2]:s}, and the character can act again at {saber_moves.specials.leap_times[3]:s}."
+detail = "The times follow KOTOR's Force Jump animation, whose crouch before the jump kjk leaves out. The character crosses the whole distance between takeoff and landing in a low arc, however far the enemy is."
+source = "KOTOR's Force Jump animation"
+see = "sim::motion::saber"
+[specials.leap_body]
+name = "Force Leap Body"
+value = 40.0
+unit = "units"
+range = [8.0, 128.0]
+summary = "During a Force leap, only the part of the character's body up to {saber_moves.specials.leap_body:m} above the straight line from where the leap starts to where it lands meets the level, and never less than a step's height of it. Walls stop a leap, and so do the invisible walls that keep players in a level, but ceilings, overhangs and anything else above that do not. Characters, the remains of the dead and other placeables never stop it."
+detail = "A leap needs a clear way to the enemy at that height: from the character up its hop halfway along, then down to where it lands. The enemy may stand no higher above the character than the character's Force Jump rises."
+source = "ours"
+see = "sim::motion::saber"
+applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
+[specials.leap_air_ms]
+name = "Force Leap From the Air"
+type = "u64"
+value = 250
+unit = "ms"
+range = [0, 500]
+summary = "A Force leap started in the air comes down onto the enemy, taking at least {saber_moves.specials.leap_air_ms:s} to get there."
+source = "ours"
+see = "sim::motion::saber"
+[specials.leap_visual]
+name = "Force Leap Effect"
+type = "u16"
+value = 1002
+range = [0, 65535]
+summary = "A Force leap shows KOTOR's Force Jump effect, row {saber_moves.specials.leap_visual:bare} of visualeffects.2da, as it leaves the ground and as it lands."
+source = "KOTOR's visualeffects.2da (VFX_IMP_FORCE_JUMP_ADVANCED)"
+see = "sim::world::strikes"
+[specials.leap_hop]
+name = "Force Leap Hop"
+value = 24.0
+unit = "units"
+range = [0.0, 128.0]
+summary = "A Force leap rises {saber_moves.specials.leap_hop:m} above the straight line to where it lands, at its highest halfway along. A leap started in the air never rises above where it started."
+source = "ours"
+see = "sim::motion::saber"
+[specials.leap_cone]
+name = "Force Leap Crosshair Aim"
+value = 10.0
+unit = "°"
+range = [0.0, 45.0]
+summary = "A Force leap goes first for an enemy whose middle lies within {saber_moves.specials.leap_cone} degrees of the crosshair's line, in any direction."
+source = "ours, after the targeting's own aim"
+see = "sim::motion::saber"
+[specials.leap_stop]
+name = "Force Leap Landing"
+value = 40.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A Force leap lands {saber_moves.specials.leap_stop:m} short of the enemy."
+source = "ours"
+see = "sim::motion::saber"
+[specials.leap_reach]
+name = "Force Leap Blow Reach"
+value = 96.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "The blow at the end of a Force leap lands if the enemy is still within {saber_moves.specials.leap_reach:m} of the character."
+source = "ours"
+see = "sim::world::strikes"
 [specials.cartwheel_rise]
 name = "Cartwheel Rise"
 value = 20.0

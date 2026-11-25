@@ -31,6 +31,7 @@ mod diff;
 pub mod duel_probes;
 pub mod duelling_probes;
 mod duels;
+pub mod force_leap_probes;
 mod geometry;
 pub mod grapple_probes;
 mod movement;

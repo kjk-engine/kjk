@@ -71,7 +71,9 @@ impl<'a> Bodies<'a> {
     }
 
     fn solid(&self, body: &Body, mask: Contents) -> bool {
-        body.contents.intersects(mask) && !self.skip.contains(&Some(body.entity))
+        !mask.intersects(Contents::NO_BODIES)
+            && body.contents.intersects(mask)
+            && !self.skip.contains(&Some(body.entity))
     }
 }
 

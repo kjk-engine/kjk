@@ -39,6 +39,9 @@ pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_play
 #[cfg(feature = "probes")]
 pub(crate) use saber::move_speed;
 pub(crate) use saber::play_speed;
+pub use saber::{LEAP_BLOW_MS, LEAP_END_MS, LEAP_LANDING_MS, LEAP_TAKEOFF_MS};
+#[cfg(feature = "probes")]
+pub(crate) use saber::{LEAP_TOP, leap_top_above};
 pub use weapon::{Arms, Other, gun_ready, gun_shot, shrugs_off_pain};
 
 pub use collision::UNIT;
@@ -402,6 +405,11 @@ struct Move<'a, 'b> {
     velocity_before: Vec3,
     room: SearchedOnce,
     freed: SearchedOnce,
+    /// A Force leap flies (`saber::Move::leap_step`): its traces meet the level
+    /// alone (`Contents::LEVEL_ONLY`), with the body's lowest part alone, up to
+    /// this top (`saber::leap_top`), so no character, remains, placeable,
+    /// ceiling or overhang turns it from its enemy.
+    leaping: Option<f32>,
 }
 
 /// The world does not change within a step, and a body wedged in the level
@@ -565,6 +573,14 @@ impl<'a, 'b> Move<'a, 'b> {
             sent_torso: ps.torso.anim,
         };
         let maxs = [HALF_WIDTH, HALF_WIDTH, ps.maxs_z];
+        // Only while the leap flies: once it has landed, the body meets
+        // characters, placeables and ceilings again, as any body does.
+        let leaping = arms
+            .as_deref()
+            .filter(|arms| arms.fighter.alive())
+            .and_then(|arms| arms.fighter.leap)
+            .filter(|leap| leap.flown && leap.elapsed(time_ms) < saber::LEAP_LANDING_MS)
+            .map(|leap| saber::leap_top(&leap, time_ms, ps.origin[2]));
         Move {
             cmd: *command,
             raw: *command,
@@ -589,6 +605,7 @@ impl<'a, 'b> Move<'a, 'b> {
             velocity_before: ps.velocity,
             room: SearchedOnce::default(),
             freed: SearchedOnce::default(),
+            leaping,
             ps,
         }
     }
@@ -674,6 +691,9 @@ impl Move<'_, '_> {
             // A dead body keeps no camera turn, so a body brought back to
             // life starts with no aim.
             arms.fighter.saber.turn = crate::combat::saber::duel::aim::Turn::NONE;
+            // A Force leap ends when the leaper dies. Left in place, the
+            // corpse would pass through characters until brought back.
+            arms.fighter.leap = None;
         }
         self.ps.velocity = self.ps.velocity.map(f32::round_ties_even);
         self.ps.maxs_z = self.maxs[2];
@@ -826,12 +846,28 @@ impl Move<'_, '_> {
     /// diagonal wall (Khoonda's office joins its hall by a diagonal channel
     /// a box could not pass).
     fn trace_masked(&self, start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3, mask: Contents) -> Hit {
+        let upright = mins == self.mins && maxs == self.maxs;
+        self.trace_shaped(start, end, (mins, maxs), upright, mask)
+    }
+
+    /// `trace_masked` with the shape named: `upright` sweeps the box round
+    /// across, as the body's own box is swept, and otherwise it is swept
+    /// square. A Force leap sweeps the body's box with its top lowered, and
+    /// it stays the body's round box (`trace`).
+    pub(super) fn trace_shaped(
+        &self,
+        start: Vec3,
+        end: Vec3,
+        (mins, maxs): (Vec3, Vec3),
+        upright: bool,
+        mask: Contents,
+    ) -> Hit {
         let metres = |v: Vec3| scale(v, UNIT);
         let extents = Extents {
             mins: metres(mins),
             maxs: metres(maxs),
         };
-        let shape = if mins == self.mins && maxs == self.maxs {
+        let shape = if upright {
             Shape::Upright(extents)
         } else {
             Shape::Box(extents)
@@ -857,6 +893,20 @@ impl Move<'_, '_> {
     }
 
     fn trace(&self, start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3) -> Hit {
+        if let Some(leap_top) = self.leaping {
+            // A Force leap in flight meets the level alone. The body's own
+            // box meets it with its lowest part alone, so no ceiling or
+            // overhang stops it (`saber::leap_top`). Every other box (the
+            // probes under the soles, the slabs over the head) keeps its own
+            // size: lowered, its top could fall below its bottom.
+            let body = mins == self.mins && maxs == self.maxs;
+            let top = if body {
+                [maxs[0], maxs[1], maxs[2].min(leap_top)]
+            } else {
+                maxs
+            };
+            return self.trace_shaped(start, end, (mins, top), body, Contents::LEVEL_ONLY);
+        }
         self.trace_masked(start, end, mins, maxs, Contents::PLAYER_SOLID)
     }
 

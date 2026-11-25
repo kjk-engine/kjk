@@ -418,6 +418,14 @@ pub(super) fn move_actors(
         .map(|(id, _, _, _, player, _)| (id.0, crate::combat::mind::eye(&player.0)))
         .collect();
     eyes.sort_by_key(|(id, _)| *id);
+    // Where each living character stands, by id: a seat's Force leap picks
+    // among its foes by it (`foes`).
+    let mut origins: Vec<(SimId, [f32; 3])> = actors
+        .iter()
+        .filter(|(.., fighting)| fighting.0.alive())
+        .map(|(id, _, _, _, player, _)| (id.0, player.0.origin))
+        .collect();
+    origins.sort_by_key(|(id, _)| *id);
     let players: Vec<[f32; 3]> = actors
         .iter()
         .filter(|(_, avatar, ..)| avatar.is_some())
@@ -930,6 +938,21 @@ pub(super) fn move_actors(
             .target
             .and_then(|target| eyes.binary_search_by_key(&target, |(id, _)| *id).ok())
             .map(|at| eyes[at].1);
+        // The characters hostile to a seat's body, which its Force leap may
+        // leap at (`motion::Move::force_leap`).
+        let foes: Vec<(u32, [f32; 3])> = match (seat.is_some(), side(id.0)) {
+            (true, Some(mine)) => sides
+                .iter()
+                .filter(|(_, theirs)| {
+                    crate::module::relation(standing, mine, *theirs) == Relation::Hostile
+                })
+                .filter_map(|(who, _)| {
+                    let at = origins.binary_search_by_key(who, |(id, _)| *id).ok()?;
+                    Some((who.0 | BODY, origins[at].1))
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
         let move_before = fighting.0.saber.current_move;
         let mut arms = motion::Arms {
             fighter: &mut fighting.0,
@@ -943,6 +966,7 @@ pub(super) fn move_actors(
             drew,
             rules,
             targeted,
+            foes: &foes,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.

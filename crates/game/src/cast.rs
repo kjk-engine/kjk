@@ -6157,6 +6157,8 @@ fn place<T: Transforms>(
                     .chain(flinch.shown(acted, ms, wield))
                     .filter(|_| at.alive),
             );
+            // A Force leap draws KOTOR's Force Jump clip on the whole body.
+            shown.extend(acting::leap_shown(at.fighter.as_ref(), acted, ms));
             // Out of a fight, its own clips (`gait`) unless a script's plays.
             let mut facing = None;
             if let Some(gait) = gait {

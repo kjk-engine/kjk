@@ -4504,6 +4504,16 @@ fn duel_rules() {
     probed("duel rules", &sim::trace::duel_probes::probes(), 71);
 }
 
+/// The Force leap (`kjk sim probes --only "force leap"`): a player with Force
+/// Jump who holds [Attack] and taps [Jump] twice within the window leaps at a
+/// distant enemy in front, one of a group or one below a ledge, and lands
+/// beside it. One tap jumps as it always did. No feat, no attack, or an
+/// enemy too near or well aside makes no leap. The
+/// sim alone (proposed 2026-11-26, awaiting approval).
+#[test]
+fn force_leap() {
+    probed("force leap", &sim::trace::force_leap_probes::probes(), 21);
+}
 /// TSL's Force rules (`kjk sim probes --only "tsl force"`): the Forms, a
 /// power's cost by alignment and the room's Force rating, Force point
 /// regeneration, and the powers each class is granted. The sim alone
