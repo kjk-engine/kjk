@@ -24,6 +24,14 @@ impl Default for DoorShut {
     }
 }
 
+/// A living body (box origin, units), and the shut door it stands inside
+/// with how far the door's panels are each way (`panel`), if any.
+type Body<'a> = (
+    SimId,
+    [f32; 3],
+    Option<(u32, &'a ObjectData, [f32; 2], [f32; 2])>,
+);
+
 /// A body's soles (metres) from its box origin (units).
 fn soles(origin: [f32; 3]) -> [f32; 3] {
     scale([origin[0], origin[1], origin[2] + motion::SOLE_Z], UNIT)
@@ -101,13 +109,7 @@ pub(super) fn free_shut_in(
         let behind = panel(world, index, middle, [-ax, -ay])?;
         Some((ahead, behind))
     };
-    // Each living body (box origin, units), and the shut door it stands
-    // inside with how far its panels are each way, if any.
-    let bodies: Vec<(
-        SimId,
-        [f32; 3],
-        Option<(u32, &ObjectData, [f32; 2], [f32; 2])>,
-    )> = level.0.with(states.as_deref(), |world| {
+    let bodies: Vec<Body> = level.0.with(states.as_deref(), |world| {
         players
             .iter()
             .filter(|(id, _)| alive(id.0))
