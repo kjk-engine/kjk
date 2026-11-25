@@ -7,6 +7,7 @@ kjk --headless --cmds 'wait 60f; screenshot; quit'   # no window
 kjk --load quick                      # opens on a save (`quick`, `0001`, …), as the main menu loads it
 KJK_PERF=1 kjk --cmds '…'             # also writes a trace
 kjk play --mute …                     # no sound (or KJK_MUTE=1); the settings' volumes untouched
+kjk play --lighting enhanced …        # lit as classic, enhanced or baked for this run (or KJK_LIGHTING); the options untouched
 kjk --reset-display                   # opens in a window: the settings' screen resolution put back
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)

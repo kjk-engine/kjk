@@ -1740,9 +1740,15 @@ impl Settings {
     /// baked lightmaps, which Classic or plain Enhanced would show at the
     /// wrong light. A run that started without them shows a change to
     /// Enhanced Lightmaps as plain Enhanced until the next start.
+    ///
+    /// `KJK_LIGHTING` (`rolloff::forced`, `kjk --lighting`) lights the run
+    /// as it says in place of the options, without changing them.
     pub fn lighting(&self) -> crate::rolloff::LightingMode {
         if crate::lighting_bakes::chosen() {
             return crate::rolloff::LightingMode::Baked;
+        }
+        if let Some(forced) = crate::rolloff::forced() {
+            return crate::rolloff::LightingMode::named(forced);
         }
         let value = self.values.get("display.lighting");
         crate::rolloff::LightingMode::named(value.map_or("classic", String::as_str))

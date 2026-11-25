@@ -285,6 +285,9 @@ pub struct EditorState {
     pub(crate) light_view: kjk_game::fitted_lights::Mode,
     pub(crate) bake: Option<PathBuf>,
     pub(crate) show_lights: bool,
+    /// The Lighting that Play starts kjk with (`play_lighting`): `classic`,
+    /// `enhanced` or `baked`, or `None` for the game's own options.
+    pub(crate) play_lighting: Option<&'static str>,
     /// Each kind of fitting the editor changed, as the light data held it
     /// before: what the view shows again when the change is undone.
     pub(crate) kind_originals: BTreeMap<(String, bool), level_edit::kinds::KindEdit>,
@@ -486,6 +489,7 @@ impl EditorState {
             light_view: kjk_game::fitted_lights::mode(),
             bake: None,
             show_lights: false,
+            play_lighting: crate::play_lighting::load(),
             kind_originals: BTreeMap::new(),
             bake_entry,
             levels_original,
@@ -3973,6 +3977,12 @@ fn command_words(
             command(state, &["save"], cameras)?;
             play(state, Some(spot))?;
         }
+        ["play", "lighting", word] => {
+            state.play_lighting = crate::play_lighting::of_word(word)?;
+            crate::play_lighting::save(state.play_lighting)?;
+            let choice = crate::play_lighting::choice(state.play_lighting);
+            state.say(format!("play lighting: {}. {}", choice.name, choice.hint));
+        }
         // The audit takes a while, so it runs on a thread of its own and
         // `redraw` shows its result when it ends.
         ["audit"] => {
@@ -4291,6 +4301,7 @@ fn at_arg((at, facing): ([f32; 3], f32)) -> String {
 fn play(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Result<(), String> {
     let project = state.editor.project.clone();
     let mut play = std::process::Command::new(&state.setup.program);
+    play.args(lighting_args(state));
     play.args([
         "--project",
         &project.name,
@@ -4305,11 +4316,25 @@ fn play(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Result<(), St
     }
     play.spawn()
         .map_err(|error| format!("kjk play did not start: {error}"))?;
+    let lit = crate::play_lighting::choice(state.play_lighting).name;
     state.say(match spot {
-        Some(spot) => format!("kjk play started on {} at {}", project.module, at_arg(spot)),
-        None => format!("kjk play started on {}", project.module),
+        Some(spot) => format!(
+            "kjk play started on {} at {}, lighting {lit}",
+            project.module,
+            at_arg(spot)
+        ),
+        None => format!("kjk play started on {}, lighting {lit}", project.module),
     });
     Ok(())
+}
+
+/// The `--lighting` that Play passes kjk (`play_lighting`): none when the
+/// game's options choose.
+fn lighting_args(state: &EditorState) -> Vec<&'static str> {
+    match state.play_lighting {
+        Some(lighting) => vec!["--lighting", lighting],
+        None => Vec::new(),
+    }
 }
 
 /// Starts play's walk mode (`kjk play --walk`) on the project, lit as the
@@ -4318,6 +4343,7 @@ pub(crate) fn walk(state: &mut EditorState, spot: Option<([f32; 3], f32)>) -> Re
     use kjk_game::fitted_lights::Mode;
     let project = state.editor.project.clone();
     let mut walk = std::process::Command::new(&state.setup.program);
+    walk.args(lighting_args(state));
     walk.args([
         "--project",
         &project.name,
@@ -6638,6 +6664,7 @@ pub(crate) fn facts_of(state: &EditorState) -> serde_json::Value {
             "boxes": (0..project.kjk.boxes.len()).map(|at| describe(state, Target::Box(at))).collect::<Vec<_>>(),
             "lighting": {
                 "view": format!("{:?}", state.light_view),
+                "play_lighting": state.play_lighting.unwrap_or("options"),
                 "bake": state.bake.as_ref().map(|bake| bake.display().to_string()),
                 "placed": (0..project.kjk.lights.len()).map(|at| describe(state, Target::Light(at))).collect::<Vec<_>>(),
                 "lamps": (0..project.kjk.lamps.len()).map(|at| describe(state, Target::Lamp(at))).collect::<Vec<_>>(),

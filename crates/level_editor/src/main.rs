@@ -18,6 +18,7 @@ mod links;
 mod listen;
 mod markers;
 mod picker;
+mod play_lighting;
 mod quest_links;
 mod recover;
 mod script_edit;

@@ -1434,6 +1434,7 @@ fn toolbar(root: &mut egui::Ui, state: &mut EditorState, ui_state: &mut UiState)
                     state.pending_command = Some(command.to_string());
                 }
             }
+            play_lighting_menu(ui, state);
             ui.checkbox(&mut state.show_collision, "Collision")
                 .on_hover_text("F2: walkable floor green, solid surfaces orange, edge walls blue");
             lighting_menu(ui, state);
@@ -7701,6 +7702,35 @@ fn recovery_window(ctx: &egui::Context, state: &mut EditorState) {
         });
     if let Some(command) = command {
         state.pending_command = Some(command.to_string());
+    }
+}
+
+/// The Lighting that Play starts kjk with (`play_lighting`), beside the Play
+/// buttons. A choice is kept for the next time the editor opens.
+fn play_lighting_menu(ui: &mut egui::Ui, state: &mut EditorState) {
+    let shown = crate::play_lighting::choice(state.play_lighting);
+    let mut chosen = None;
+    egui::ComboBox::from_id_salt("play-lighting")
+        .selected_text(shown.name)
+        .width(130.0)
+        .show_ui(ui, |ui| {
+            for choice in &crate::play_lighting::CHOICES {
+                if ui
+                    .selectable_label(choice.value == state.play_lighting, choice.name)
+                    .on_hover_text(choice.hint)
+                    .clicked()
+                {
+                    chosen = Some(choice.value);
+                }
+            }
+        })
+        .response
+        .on_hover_text(format!(
+            "The lighting Play and Play here start kjk with. {}. The game's options are not changed.",
+            shown.hint
+        ));
+    if let Some(value) = chosen {
+        state.pending_command = Some(format!("play lighting {}", value.unwrap_or("options")));
     }
 }
 

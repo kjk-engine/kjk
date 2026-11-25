@@ -85,6 +85,36 @@ impl LightingMode {
     }
 }
 
+/// The environment variable that lights one run with the Lighting it names,
+/// whatever the options hold: `classic`, `enhanced`, or `baked` for
+/// Enhanced Lightmaps. `kjk --lighting` sets it, and the level editor's Play
+/// passes it. The settings file is not changed, so the next run without it
+/// is lit as the options say again.
+pub const LIGHTING_VAR: &str = "KJK_LIGHTING";
+
+/// The values `LIGHTING_VAR` takes, as the settings file writes them.
+pub const LIGHTING_VALUES: [&str; 3] =
+    ["classic", "enhanced", crate::lighting_bakes::SETTING_VALUE];
+
+/// The value of `display.lighting` that `LIGHTING_VAR` gives this run. `None`
+/// when the variable is not set or names none of `LIGHTING_VALUES`, which
+/// leaves the options' own value.
+pub fn forced() -> Option<&'static str> {
+    static FORCED: std::sync::LazyLock<Option<&'static str>> = std::sync::LazyLock::new(|| {
+        let value = std::env::var(LIGHTING_VAR).ok()?;
+        let known = LIGHTING_VALUES
+            .into_iter()
+            .find(|known| known.eq_ignore_ascii_case(value.trim()));
+        if known.is_none() {
+            bevy::log::warn!(
+                "{LIGHTING_VAR}={value} names no lighting, so the options' Lighting is used: give classic, enhanced or baked"
+            );
+        }
+        known
+    });
+    *FORCED
+}
+
 /// On a scene camera whose frame the roll-off brings back into 0 to 1.
 #[derive(Component, ExtractComponent, Clone, Copy)]
 pub struct RollOff;

@@ -1497,6 +1497,22 @@ the view's centre meets the floor, facing as the camera faces (`kjk play
 --at`), to test one corner of a level without walking there. `edit walk
 here` does the same for walk mode.
 
+## Play's lighting
+
+The list beside **Play here** chooses the Lighting that Play, Play here
+and walk mode start kjk with. **Options** lights play as the game's options
+say. **Classic** lights it as the original games were lit. **Enhanced** lights
+it with kjk's own lighting, which a project's bake and its fitted lights are
+made for. **Enhanced Lightmaps** adds the lighting download's baked
+lightmaps, where the download is installed. A level the project keeps a
+bake of shows that bake under each of them.
+
+The editor passes the choice as `kjk --lighting`, which lights that one run
+and leaves the game's options as they are. The editor keeps the choice for
+the next time it opens, in `editor-play.toml` in kjk's own folder (or the
+file `KJK_EDITOR_PLAY` names). `edit play lighting options`, `classic`,
+`enhanced` or `baked` chooses it from a command.
+
 ## Conversations
 
 A project can bring conversations of its own, and copies of the game's.
@@ -2014,6 +2030,7 @@ about 20 frames (`wait 20f`) before a screenshot of the result.
 | `edit save` | saves the project |
 | `edit play` | saves, then starts `kjk play` on the project |
 | `edit play here`, `edit walk here` | the same, the player starting where the view looks at the floor |
+| `edit play lighting options`, `classic`, `enhanced`, `baked` | the Lighting that Play starts kjk with, kept for the next time ("Play's lighting") |
 | `edit audit` | saves, then runs `kjk collision audit` on the project. The audit runs beside the editor, which says its result among the messages when it ends |
 | `edit ui tool select`, `move`, `rotate`, `scale`, `measure` | picks the tool |
 | `edit ui tab placeables`, `creatures`, `props`, `shapes`, `waypoints`, `triggers`, `sounds`, `stores`, `encounters`, `lights` | shows a tab of the asset picker |

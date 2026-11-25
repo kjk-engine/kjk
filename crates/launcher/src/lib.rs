@@ -234,6 +234,11 @@ struct Cli {
     /// Skip the startup splash screen; `KJK_NO_SPLASH=1` does the same
     #[arg(long, global = true)]
     no_splash: bool,
+    /// Light this run as classic, enhanced or baked (Enhanced Lightmaps),
+    /// whatever the options' Lighting holds. The options are not changed.
+    /// `KJK_LIGHTING` does the same
+    #[arg(long, global = true, value_parser = kjk_game::rolloff::LIGHTING_VALUES)]
+    lighting: Option<String>,
     /// Open in a window of the default size: the settings' screen
     /// resolution put back (when a display setting stops the game starting)
     #[arg(long, global = true)]
@@ -834,6 +839,11 @@ pub fn run() -> ExitCode {
     if cli.no_splash {
         // SAFETY: set before any thread is started.
         unsafe { std::env::set_var(kjk_game::splash::NO_SPLASH, "1") };
+    }
+    if let Some(lighting) = &cli.lighting {
+        // An environment variable, so a restart into the menu keeps it.
+        // SAFETY: set before any thread is started.
+        unsafe { std::env::set_var(kjk_game::rolloff::LIGHTING_VAR, lighting) };
     }
     #[cfg(target_os = "linux")]
     linux_environment();
