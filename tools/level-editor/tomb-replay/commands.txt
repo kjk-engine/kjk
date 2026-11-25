@@ -206,7 +206,7 @@ ui conversation
 entrance add korr_m36aa newtransition 50.5 205 0.86 kje_vt_in
 add trigger newtransition 1.2 108 21
 tag kje_vt_out
-link korr_m36aa WP_kor36_sithguard_02
+link korr_m36aa wp_kor36_sithguard_02
 
 # Loot, and an encounter with two spawn points.
 begin

@@ -10253,7 +10253,7 @@ fn level_edit_posts() {
     ] {
         assert!(is_post(tag), "{tag} is a post");
     }
-    for tag in ["WP_dan13_jedim_01", "wp_hkfoo"] {
+    for tag in ["wp_dan13_jedim_01", "wp_hkfoo"] {
         assert!(!is_post(tag), "{tag} is no post");
     }
 }
