@@ -511,7 +511,11 @@ pub(crate) fn bar_description(
         Content::Feat(line) => line
             .known(sheet)
             .or(line.rows().first().copied())
-            .map(|row| described(assets, "feat", usize::from(row), "description")),
+            .map(|row| described(assets, "feat", usize::from(row), "description"))
+            .map(|mut told| {
+                told.extend(style_switch(line));
+                told
+            }),
         Content::Item(shelf) => chosen[shelf as usize]
             .as_ref()
             .and_then(|kind| kind.template.as_ref())
@@ -522,6 +526,22 @@ pub(crate) fn bar_description(
         Content::Mine | Content::Stealth => None,
     };
     told.unwrap_or(Vec::new())
+}
+
+/// The paragraph that follows a melee feat attack's description on the bar
+/// setup screen: with a single blade in hand, the feat switches the saber
+/// style (`sim::combat::picks::switches_to`). Empty for a gun's feat attack.
+fn style_switch(line: sim::combat::bar::FeatLine) -> Vec<u8> {
+    use sim::combat::saber::Style;
+    let style = match sim::combat::picks::style_of(line) {
+        Some(Style::Fast) => "fast",
+        Some(Style::Medium) => "medium",
+        Some(Style::Strong) => "strong",
+        _ => return Vec::new(),
+    };
+    fmt_odyssey::code_page_bytes(&format!(
+        "\n\nWith a single sword, vibroblade or lightsaber in hand, selecting this feat switches to the {style} saber style."
+    ))
 }
 
 /// How many different items of each kind the character carries, by `Shelf`
@@ -1245,6 +1265,17 @@ fn show(
                 "icons": hud.icons.len(),
                 "solo": snapshot.solo,
                 "form": sheet.form,
+                "saber_style": fighter.saber.style.map(|style| format!("{style:?}")),
+                "feats_lit": sheet.bar.slots().iter().flatten()
+                    .filter_map(|content| match content {
+                        sim::combat::bar::Content::Feat(line)
+                            if crate::bar_view::lit(*content, &sheet, &fighter) =>
+                        {
+                            Some(format!("{line:?}"))
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
                 "duel": duel.as_ref().map(|duel| serde_json::json!({
                     "points": duel.points.share,
                 })),

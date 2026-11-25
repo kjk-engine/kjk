@@ -179,7 +179,8 @@ pub(crate) fn with_bar_of<R>(
 /// cast, and not one the items it wears bar (`Means::barred`). Its cost is
 /// left to the sim (`payable`). An item kind must have
 /// an item left that the sim's key would use. A feat attack must be known
-/// and fit the weapon in hand. Mines need a mine kit and a rank in
+/// and fit the weapon in hand. With a single blade in hand, a melee feat
+/// attack fits and switches the blade to its style. Mines need a mine kit and a rank in
 /// Demolitions. Stealth mode needs a stealth field generator and a rank in
 /// Stealth (`bar::assignable`).
 pub fn usable(content: Content, means: &Means) -> bool {
@@ -190,7 +191,8 @@ pub fn usable(content: Content, means: &Means) -> bool {
         }
         Content::Item(shelf) => fighter.pack.keyed(sheet, shelf, means.now_ms).is_some(),
         // A double-bladed weapon with one blade lit fights as a single
-        // blade, which has no feat attack to choose.
+        // blade, but keeps the double-bladed weapon's feat choice, which it
+        // cannot use then.
         Content::Feat(line) => {
             !fighter.saber.second_off
                 && line.known(sheet).is_some()
@@ -219,12 +221,18 @@ pub fn device_use(content: Content, means: &Means, pressed: bool) -> Option<Acti
 }
 
 /// Whether the slot holding `content` shows as on: the feat attack the
-/// weapon in hand uses now (a gun's first known line too), stealth mode
-/// while the character is in stealth, or the grenades while the character
-/// has a grenade readied.
+/// weapon in hand uses now (a gun's first known line too), the feat attack
+/// whose style a single blade fights in or will switch to
+/// (`Picks::switches_to`), stealth mode while the character is in stealth,
+/// or the grenades while the character has a grenade readied.
 pub fn lit(content: Content, sheet: &Sheet, fighter: &Fighter) -> bool {
     match content {
-        Content::Feat(line) => Picks::in_use(sheet, fighter.hand) == Some(line),
+        Content::Feat(line) => {
+            let saber = &fighter.saber;
+            Picks::in_use(sheet, fighter.hand) == Some(line)
+                || Picks::switches_to(sheet, fighter.hand, line)
+                    .is_some_and(|style| saber.queued.or(saber.style) == Some(style))
+        }
         Content::Stealth => fighter.covert.stealth,
         Content::Item(Shelf::Grenade) => fighter.pack.readied == Readied::On,
         Content::Power(_) | Content::Item(_) | Content::Mine | Content::Device(_) => false,
@@ -506,6 +514,7 @@ pub mod probes {
     use bevy::input::keyboard::KeyCode;
     use sim::combat::bar::FeatLine;
     use sim::combat::items::Shelf;
+    use sim::combat::saber::Style;
     use sim::combat::sheet::feats;
     use sim::combat::spells::{
         FORCE_POWER_FORCE_PUSH as PUSH, FORCE_POWER_HEAL as HEAL,
@@ -519,6 +528,7 @@ pub mod probes {
             ("unusable slots do nothing", unusable()),
             ("first held wins", first_held_wins()),
             ("lit slots", lit_slots()),
+            ("single blade feat buttons", single_blade_feats()),
             ("usable slots", usable_slots()),
             ("powers the armour bars", barred_powers()),
             ("reply keys use no slot", reply_keys()),
@@ -1339,6 +1349,61 @@ pub mod probes {
             format!(
                 "Power Blast, Rapid Shot, stealth off, stealth on, mines, grenades, \
                  a grenade readied: {seen:?}"
+            ),
+        )
+    }
+
+    /// The soldier with every melee feat attack and `blades` lightsabers in
+    /// hand, fighting in `style`, with `queued` waiting.
+    fn swordsman(blades: usize, style: Style, queued: Option<Style>) -> (Sheet, Fighter) {
+        use sim::combat::sheet::{Delivery, SaberShape};
+        let (mut sheet, mut fighter) = soldier();
+        let mut weapon = sheet.main_weapon();
+        weapon.delivery = Delivery::Saber(SaberShape::Single);
+        sheet.weapons = [Some(weapon), (blades > 1).then_some(weapon)];
+        sheet.feats = [
+            feats::FLURRY[0],
+            feats::CRITICAL_STRIKE[0],
+            feats::POWER_ATTACK[0],
+        ]
+        .into_iter()
+        .fold(sheet.feats, |known, row| known.with(row));
+        fighter.saber.style = Some(style);
+        fighter.saber.queued = queued;
+        (sheet, fighter)
+    }
+
+    /// With one lightsaber in hand, the three melee feat attacks are usable,
+    /// and the one whose style the blade fights in shows as on. A style
+    /// waiting for the weapon timer shows its feat attack as on instead.
+    /// With two lightsabers, no feat attack shows as on before one is
+    /// chosen, whatever the style.
+    fn single_blade_feats() -> Result<String, String> {
+        let melee = [
+            FeatLine::Flurry,
+            FeatLine::CriticalStrike,
+            FeatLine::PowerAttack,
+        ];
+        let seen = |(sheet, fighter): (Sheet, Fighter)| {
+            let usable = with_means(sheet, &fighter, &|_| None, |means| {
+                melee.map(|line| usable(Content::Feat(line), means))
+            });
+            (
+                usable,
+                melee.map(|line| lit(Content::Feat(line), &sheet, &fighter)),
+            )
+        };
+        let fast = seen(swordsman(1, Style::Fast, None));
+        let switching = seen(swordsman(1, Style::Fast, Some(Style::Strong)));
+        let pair = seen(swordsman(2, Style::Dual, None));
+        let all = [true; 3];
+        check(
+            fast == (all, [true, false, false])
+                && switching == (all, [false, false, true])
+                && pair == (all, [false; 3]),
+            format!(
+                "usable and on for Flurry, Critical Strike, Power Attack: fast style {fast:?}, \
+                 strong style queued {switching:?}, two blades {pair:?}"
             ),
         )
     }

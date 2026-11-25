@@ -3,6 +3,8 @@
 //! - the next-feat action moves a gun round the lines known, the first known
 //!   first, and its alternate takes the choice; each gun type keeps its own;
 //! - one line known leaves nothing to cycle; a single blade has no choice;
+//! - a melee feat attack chosen on the action bar switches a single blade's
+//!   style, and two blades take it as their choice as before;
 //! - two blades and a double-bladed weapon carry none until one is chosen,
 //!   each known line in turn, then none, each its own; only the lines known;
 //! - a blow carries the chosen line's feat, and only Flurry's attacks faster;
@@ -15,6 +17,7 @@
 use super::SimWorld;
 use crate::action::Action;
 use crate::combat::Sheet;
+use crate::combat::bar::FeatLine;
 use crate::combat::picks::{Melee, Picks, Shown};
 use crate::combat::saber::{Kit, Style};
 use crate::combat::sheet::{Blaster, Delivery, SaberShape, Weapon, feats};
@@ -118,6 +121,94 @@ fn nothing_to_cycle() -> Result<String, String> {
     check(
         moved == [false, false] && shown == [None, None],
         format!("moved {moved:?}, shown {shown:?}"),
+    )
+}
+
+/// How many steps of 8 ms the bar probe waits after a choice: longer than
+/// any weapon timer the proving ground's fighter runs.
+const SETTLE_STEPS: u32 = 150;
+
+/// The style and the two blades' feat choice after each feat attack chosen
+/// on the action bar (`Action::Feat`), through the world, the first before
+/// any choice.
+fn bar_choices(
+    sheet: Sheet,
+    lines: &[FeatLine],
+) -> Result<Vec<(Option<Style>, [Melee; 2])>, String> {
+    let library = crate::probe::library::<String>("void ActionWait(float fSeconds);", []);
+    let level = crate::determinism::proving_ground().with_scripts(library);
+    let config = WorldConfig {
+        sheet,
+        ..WorldConfig::one_seat()
+    };
+    let mut world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
+    let mut tick = 0;
+    let mut seen = Vec::new();
+    for line in std::iter::once(None).chain(lines.iter().copied().map(Some)) {
+        let mut snapshot = None;
+        for at in 0..SETTLE_STEPS {
+            tick += 1;
+            let mut input = TickInput::default();
+            input.insert(Seat(0), Command::default());
+            if let Some(line) = line.filter(|_| at == 0) {
+                input.act(Seat(0), Action::Feat { hand: 0, line });
+            }
+            snapshot = Some(crate::step(
+                &mut world,
+                tick,
+                &input,
+                8,
+                StepReason::Authority,
+            ));
+        }
+        let body = snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.body(Seat(0)));
+        let style = body
+            .and_then(|body| body.fighter)
+            .and_then(|fighter| fighter.saber.style);
+        let picks = body
+            .and_then(|body| body.sheet)
+            .map(|sheet| sheet.picks.blades());
+        seen.push((style, picks.ok_or("no sheet")?));
+    }
+    Ok(seen)
+}
+
+/// The melee feat attacks chosen on the action bar. With one blade, Flurry,
+/// Power Attack and Critical Strike switch it to the fast, strong and
+/// medium style, and the feat choice stays empty. A feat the character
+/// does not know changes nothing. With two blades each choice is taken as
+/// the pair's feat attack as before, and the pair keeps the dual style.
+fn bar_feat_styles() -> Result<String, String> {
+    let lines = [
+        FeatLine::Flurry,
+        FeatLine::PowerAttack,
+        FeatLine::CriticalStrike,
+    ];
+    let single = holding(Delivery::Saber(SaberShape::Single), 1, &BLADE_LINES);
+    let one = bar_choices(single, &lines)?;
+    let none = [Melee::None; 2];
+    let one_want = [
+        (Some(Style::Medium), none),
+        (Some(Style::Fast), none),
+        (Some(Style::Strong), none),
+        (Some(Style::Medium), none),
+    ];
+    let unknown = holding(Delivery::Saber(SaberShape::Single), 1, &BLADE_LINES[1..2]);
+    let refused = bar_choices(unknown, &[FeatLine::Flurry])?;
+    let refused_want = [(Some(Style::Medium), none), (Some(Style::Medium), none)];
+    let pair = bar_choices(dual(&BLADE_LINES), &lines)?;
+    let chose = |melee| (Some(Style::Dual), [melee, Melee::None]);
+    let pair_want = [
+        chose(Melee::None),
+        chose(Melee::Flurry),
+        chose(Melee::Power),
+        chose(Melee::Critical),
+    ];
+    check(
+        one == one_want && refused == refused_want && pair == pair_want,
+        format!("one blade {one:?}; Flurry not known {refused:?}; two blades {pair:?}"),
     )
 }
 
@@ -366,10 +457,11 @@ fn round_trip() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 10] = [
+    let cases: [(&'static str, Case); 11] = [
         ("picks_gun_cycle", gun_cycle),
         ("picks_gun_types_apart", gun_types_apart),
         ("picks_nothing_to_cycle", nothing_to_cycle),
+        ("picks_bar_feat_styles", bar_feat_styles),
         ("picks_blade_cycle", blade_cycle),
         ("picks_blows_carry", blows_carry),
         ("picks_fast_style_damage", fast_style_damage),

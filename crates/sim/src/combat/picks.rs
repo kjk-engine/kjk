@@ -15,6 +15,9 @@
 //!   every hit (`Kit::swing`), none until one is chosen, without changing
 //!   their moves.
 //! - A single blade has no choice: its style is its feat (`Kit::swing`).
+//!   Choosing Flurry, Critical Strike or Power Attack on the action bar
+//!   switches it to the fast, medium or strong style instead, as the saber
+//!   style key would (`Picks::switches_to`, `world::feat_styles`).
 //! - Fists and a stun baton carry the chosen melee line on every blow
 //!   (`Kit::carry`), none until one is chosen. Both games' action menus
 //!   offer the melee feats for any attack that is not a ranged weapon's,
@@ -100,11 +103,30 @@ fn slot(sheet: &Sheet, hand: u8) -> Option<Slot> {
     }
 }
 
-/// Whether the weapon in `hand` chooses among the melee feat lines
-/// (`Some(true)`) or among the gun lines (`Some(false)`). A single blade
-/// has no choice (`None`).
+/// Whether `hand` holds a single blade with no blade in the other hand: a
+/// sword, a vibroblade or a lightsaber that is not double-bladed.
+fn lone_blade(kit: &Kit, hand: u8) -> bool {
+    kit.blade(hand).is_some() && kit.forced_style(hand).is_none()
+}
+
+/// Whether the weapon in `hand` takes the melee feat lines (`Some(true)`)
+/// or the gun lines (`Some(false)`). A single blade takes the melee lines
+/// as the styles they switch to (`Picks::switches_to`).
 pub(crate) fn chooses_melee(sheet: &Sheet, hand: u8) -> Option<bool> {
-    slot(sheet, hand).map(|slot| !matches!(slot, Slot::Gun(_)))
+    slot(sheet, hand)
+        .map(|slot| !matches!(slot, Slot::Gun(_)))
+        .or_else(|| lone_blade(&Kit::of(sheet), hand).then_some(true))
+}
+
+/// The single-blade style a melee feat line switches to: Flurry the fast
+/// style, Critical Strike the medium style, Power Attack the strong style.
+pub fn style_of(line: FeatLine) -> Option<Style> {
+    match line {
+        FeatLine::Flurry => Some(Style::Fast),
+        FeatLine::CriticalStrike => Some(Style::Medium),
+        FeatLine::PowerAttack => Some(Style::Strong),
+        FeatLine::PowerBlast | FeatLine::RapidShot | FeatLine::SniperShot => None,
+    }
 }
 
 /// What the weapon in a hand carries now, for the HUD.
@@ -331,6 +353,18 @@ impl Picks {
             _ => {}
         }
         sheet.picks != before
+    }
+
+    /// The style that choosing `line` switches the single blade in `hand`
+    /// to (`style_of`). There is none when `hand` holds anything but a
+    /// single blade alone, when the sheet does not know the line, or when
+    /// the blade cannot fight in the style (`Kit::singles`).
+    pub fn switches_to(sheet: &Sheet, hand: u8, line: FeatLine) -> Option<Style> {
+        let kit = Kit::of(sheet);
+        let style = style_of(line)?;
+        line.known(sheet)?;
+        let blade = kit.blade(hand).filter(|_| lone_blade(&kit, hand))?;
+        kit.singles(blade).contains(&style).then_some(style)
     }
 
     /// What the weapon in `hand` carries, where there is a choice to show:
