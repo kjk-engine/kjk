@@ -70,7 +70,10 @@ fn hidden(name: &str, flags: u32, skin: Option<&String>) -> bool {
 
 /// The model in its base pose, LOD 0. `texture` on each mesh is the
 /// surface's shader path from the skin (else the GLM's own), for the caller
-/// to resolve.
+/// to resolve. A GLM's triangles turn clockwise seen from their front, as
+/// Jedi Academy draws them, and KOTOR's turn counter-clockwise. Each
+/// triangle's last two corners are swapped, so a culled JA mesh shows its
+/// outside as a KOTOR mesh does.
 pub fn model(glm: &Glm, gla: &Gla, skin: &BTreeMap<String, String>) -> ModelIr {
     let mut nodes = vec![NodeIr {
         name: glm.name.clone(),
@@ -141,7 +144,11 @@ pub fn model(glm: &Glm, gla: &Gla, skin: &BTreeMap<String, String>) -> ModelIr {
             normals: surface.normals.clone(),
             uv1: surface.uvs.clone(),
             uv2: Vec::new(),
-            indices: surface.triangles.iter().flatten().copied().collect(),
+            indices: surface
+                .triangles
+                .iter()
+                .flat_map(|&[a, b, c]| [a, c, b])
+                .collect(),
             texture: (!texture.is_empty()).then_some(texture),
             lightmap: None,
             transparency_hint: 0,

@@ -79,12 +79,15 @@ impl ObjectKind {
         }
     }
 
-    /// The `yaw` that turns an object of this kind to `facing`, the
-    /// reverse of `facing`: a placeable a script makes at a location turns
-    /// its model's +Y to the location's facing.
+    /// The `yaw` of a door or placeable a script makes at a location
+    /// facing `facing`: its bearing is that facing turned a quarter left,
+    /// so its model's -Y points there. This is not the reverse of
+    /// `facing`. KOTOR 1 makes the player's torture cage on the Leviathan
+    /// at a marker facing Saul Karath, and the cage's open side faces him
+    /// there (the cage's back column is on its model's +Y).
     pub fn yaw_facing(self, facing: f32) -> f32 {
         if self.borne() {
-            facing - QUARTER_TURN
+            facing + QUARTER_TURN
         } else {
             facing
         }
