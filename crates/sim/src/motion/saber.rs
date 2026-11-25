@@ -904,20 +904,24 @@ impl Move<'_, '_> {
             && self.cmd.up <= 0
             && self.affords(arms, costs::KATA)
     }
-    /// Starts the pull stab or the pull swing if the attack key is held
+    /// Starts the pull stab or the pull swing if the attack key is pressed
     /// within the window of a Force Pull (`ForceState::pull_attack_until`).
+    /// The press must be a fresh one. A key held down since the pull starts
+    /// nothing until it has been let go (`ForceState::pull_attack_released`).
     /// The blade must be lit and ready (or in a return or a reflect) in one
-    /// of the single blade styles, the body on its feet on the ground, and
-    /// the Force to pay for it in the pool. The fast style stabs an enemy
-    /// within the stab's reach; the other styles swing at one between the
-    /// swing's two reaches. Starting it closes the window and lowers the
-    /// hand. Whether it started is returned.
+    /// of the single blade styles, in the hand and not thrown, the body on
+    /// its feet on the ground, and the Force to pay for it in the pool. The
+    /// fast style stabs an enemy within the stab's reach; the other styles
+    /// swing at one between the swing's two reaches. Starting it closes the
+    /// window and lowers the hand. Whether it started is returned.
     ///
     /// This is called before the hand is looked at, because the rest of the
     /// blade's step does not run while a hand is out.
-    /// step does not run.
     pub(super) fn pull_attack(&mut self, arms: &mut Arms) -> bool {
         let now = self.time_ms;
+        if arms.fighter.force.pull_attack_until > now && !self.attack_held() {
+            arms.fighter.force.pull_attack_released = true;
+        }
         let force = &arms.fighter.force;
         // A hand raised for another power, or a channel, keeps the attack
         // from starting; the hand of the pull itself does not.
@@ -925,7 +929,7 @@ impl Move<'_, '_> {
             || force
                 .hand
                 .is_some_and(|(gesture, until)| gesture != Gesture::Pull && until > now);
-        let raised = force.pull_attack_until > now && !busy;
+        let raised = force.pull_attack_until > now && force.pull_attack_released && !busy;
         if !raised {
             return false;
         }
@@ -935,7 +939,7 @@ impl Move<'_, '_> {
             return false;
         };
         let single = matches!(style, Style::Fast | Style::Medium | Style::Strong);
-        let lit = arms.kit.blade(arms.fighter.hand).is_some() && saber.on;
+        let lit = arms.kit.blade(arms.fighter.hand).is_some() && saber.on && saber.thrown.is_none();
         if !(single
             && lit
             && (current == READY || current.ret() || current.reflect())
@@ -964,6 +968,7 @@ impl Move<'_, '_> {
         Self::pay(arms, costs::FORWARD_BACK);
         arms.fighter.force.hand = None;
         arms.fighter.force.pull_attack_until = 0;
+        arms.fighter.force.pull_attack_released = false;
         true
     }
 

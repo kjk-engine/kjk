@@ -9,6 +9,8 @@
 //! - Without a pull, the same press makes an ordinary swing.
 //! - After the pull's hand has come down, the window is still open.
 //! - Once the window has closed, the press makes an ordinary swing.
+//! - A key held down through the pull makes no pull attack. The attack
+//!   needs a fresh press.
 //!
 //! Each is played from a trace scenario (`trace::duels`) under Jedi
 //! Academy's rules.
@@ -27,6 +29,9 @@ const READY: usize = 150;
 const TICK_MS: usize = 8;
 /// How many ticks the key is held after the hand is raised.
 const HELD: usize = 20;
+/// How many ticks the key is up after the pull before it is pressed. One
+/// tick makes the press a fresh one.
+const FRESH: usize = 1;
 /// The Force points the fighter starts with.
 const FP: u16 = 100;
 /// The window of a pull (ms).
@@ -93,7 +98,7 @@ fn paid(fighters: &[Fighter]) -> i32 {
 }
 fn stab_in_reach() -> Result<String, String> {
     let away = specials::PULL_STAB_REACH - MARGIN;
-    let fighters = pulled("fast", away, (WINDOW, 400), 0)?;
+    let fighters = pulled("fast", away, (WINDOW, 400), FRESH)?;
     check(
         made(&fighters, Move::PULL_ATTACK_STAB) && paid(&fighters) > 0,
         format!(
@@ -106,7 +111,7 @@ fn stab_in_reach() -> Result<String, String> {
 /// The medium style's swing at a foe `away` units off: whether the pull swing
 /// was made, and the Force paid (hundredths).
 fn swung(away: f32) -> Result<(bool, i32), String> {
-    let fighters = pulled("medium", away, (WINDOW, 400), 0)?;
+    let fighters = pulled("medium", away, (WINDOW, 400), FRESH)?;
     Ok((made(&fighters, Move::PULL_ATTACK_SWING), paid(&fighters)))
 }
 fn swing_in_reach() -> Result<String, String> {
@@ -134,7 +139,7 @@ fn swing_too_far() -> Result<String, String> {
 }
 fn stab_too_far() -> Result<String, String> {
     let away = specials::PULL_STAB_REACH + MARGIN;
-    let fighters = pulled("fast", away, (WINDOW, 400), 0)?;
+    let fighters = pulled("fast", away, (WINDOW, 400), FRESH)?;
     check(
         !pulled_attack(&fighters),
         format!(
@@ -145,7 +150,7 @@ fn stab_too_far() -> Result<String, String> {
 }
 fn no_pull_no_attack() -> Result<String, String> {
     let away = specials::PULL_STAB_REACH - MARGIN;
-    let fighters = pulled("fast", away, (0, 0), 0)?;
+    let fighters = pulled("fast", away, (0, 0), FRESH)?;
     check(
         !pulled_attack(&fighters),
         format!(
@@ -200,7 +205,24 @@ pub fn probes() -> Checks {
             "no pull attack after the window closes",
             window_closed_no_attack(),
         ),
+        (
+            "no pull attack with [Attack] held through the pull",
+            held_through_no_attack(),
+        ),
     ]
+}
+fn held_through_no_attack() -> Result<String, String> {
+    let away = specials::PULL_STAB_REACH - MARGIN;
+    // The key is down on the first tick of the window, as if it was held
+    // while the pull was cast.
+    let fighters = pulled("fast", away, (WINDOW, 400), 0)?;
+    check(
+        !pulled_attack(&fighters),
+        format!(
+            "fast style, key held through the pull: pull attack made: {}",
+            pulled_attack(&fighters)
+        ),
+    )
 }
 /// The pull swing deals damage through its first swipe as well as its
 /// second: from the very start of the move, and not in its last

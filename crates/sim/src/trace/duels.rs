@@ -1550,7 +1550,10 @@ fn drive(
                             "pull_hand" => {
                                 force.hand = Some((crate::combat::force::Gesture::Pull, until));
                             }
-                            "pull_window" => force.pull_attack_until = until,
+                            "pull_window" => {
+                                force.pull_attack_until = until;
+                                force.pull_attack_released = false;
+                            }
                             "throw_ready" => force.push_pull_ready = until,
                             "grip_ready" => force.grip_ready = until,
                             "drain_ready" => force.drain_ready = until,

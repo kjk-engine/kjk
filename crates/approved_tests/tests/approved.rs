@@ -4327,11 +4327,12 @@ fn duel_rules() {
 /// pressing [Attack] within the window of a Force Pull stabs (fast
 /// style) or swings (medium style) at the enemy in front, within the rulebook's
 /// reaches, and pays for it. Without a pull, after the window, or with the
-/// enemy out of reach, the press attacks as usual. The sim alone (proposed
-/// 2026-11-26, awaiting approval).
+/// enemy out of reach, the press attacks as usual. A key held down through
+/// the pull makes no pull attack. The sim alone (proposed 2026-11-26,
+/// awaiting approval).
 #[test]
 fn pull_attacks() {
-    probed("pull attack", &sim::trace::pull_attack_probes::probes(), 9);
+    probed("pull attack", &sim::trace::pull_attack_probes::probes(), 10);
 }
 /// TSL's Force rules (`kjk sim probes --only "tsl force"`): the Forms, a
 /// power's cost by alignment and the room's Force rating, Force point

@@ -1300,6 +1300,7 @@ impl Cast<'_, '_> {
         force.push_pull_ready = self.now + wait;
         if pull {
             force.pull_attack_until = self.now + rules::saber_moves::specials::PULL_WINDOW_MS;
+            force.pull_attack_released = false;
         }
         force.tricked = 0;
         let caught: Vec<usize> = if level < 2 {
