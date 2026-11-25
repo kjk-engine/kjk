@@ -339,6 +339,25 @@ fn disruptor_beams() {
     probed("disruptor beams", &kjk_game::shot_fx::probes(), 1);
 }
 
+/// Which lines of a computer's conversation show a camera feed
+/// (`kjk_game::terminal::feed_probes`). A line shows the feed only when a
+/// placed camera films it, which is its camera angle 6. A silent line with
+/// a camera id of -1 and no camera angle shows the computer's screen with
+/// its replies. A mod's storage computer on the Orion gave such a line, and
+/// kjk showed an empty camera feed that no click could leave. Needs
+/// `--features rig`; no installs (proposed 2026-11-25, awaiting approval).
+#[test]
+fn computer_camera_feeds() {
+    #[cfg(not(feature = "rig"))]
+    println!("computer_camera_feeds skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "computer camera feeds",
+        &kjk_game::terminal::feed_probes(),
+        6,
+    );
+}
+
 /// The photo camera (`kjk_game::photo_mode::camera_probes`): it moves at
 /// 3, 12 and 0.75 metres a second, reaches its speed in 0.2 seconds and
 /// stops in 0.2 seconds from any speed, zooms between 15 and 100 degrees, tilts up to 45 degrees, stops
