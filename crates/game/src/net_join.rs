@@ -351,6 +351,12 @@ fn attempt_through_lobby(
                         })?;
                     session::set_collision(collision);
                 }
+                // The host may say how often its view cuts a part off
+                // between the welcome and the level. The guest cuts as
+                // often from then on.
+                ClientEvent::Dismemberment(percent) => {
+                    session::set_host_dismemberment(Some(percent));
+                }
                 ClientEvent::NeedLevel(request) => {
                     let recv_buffer = socket.inner().recv_buffer();
                     let client = Arc::new(Mutex::new(client));
