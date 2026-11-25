@@ -145,7 +145,12 @@ lengths are the same as the CPU's. "Render facts" checks that the render
 numbers of the last 8 frames are kept, oldest first, with every number in
 each line. `lost_device_render_facts` checks that the crash file of a lost
 graphics device lists those frames. They are not approved tests, and they
-run only through `kjk sim probes`. `old_saves_load` gained the
+run only through `kjk sim probes`. The crash probe `native_crash_told`
+(issue 747) was proposed 2026-11-25 and awaits approval. It checks that a
+crash that is no panic, such as an access violation inside a graphics
+driver, is written to the crash file with the exception's code, its name,
+the address and the module that holds the address. It runs only through
+`kjk sim probes --only crash`. `old_saves_load` gained the
 fixture `prerelease/v0.18.1-6b2ea2a.kjkv` on 2026-11-17, and the change
 awaits approval. The pace probes `rolling_droid_stays_down`,
 `floating_droid_stays_down` and `walking_droid_jumps` were proposed
