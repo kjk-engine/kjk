@@ -222,6 +222,7 @@ The review tools are not on this branch. These are the picture harness, its shot
   - Eight of the 35 were looked at from 1 to 4 camera spots each, beside the patched game. None showed a hard fault. `003ebo` has two soft dark shapes on a wall where TSLRCM puts a workbench. In `411dxn` and `103per` the objects take the probes and are a little lighter than the dark baked room. Two areas that match in full looked the same as in the patched game.
   - Not looked at: the other 27 of the 35 areas, and play on foot. Why `101per` and `209tel` count as different is not known.
   - If the install should refuse an unpatched game later, the manifest can name areas that must match. This tells a missing patch from other mods on top.
+- The owner accepted two open points on 25 November 2026. One number per room taken from the games' lightmaps (`fill.txt`, each room's level) may ship. The unlit rooms of `305nar` stay as dark as the bake makes them.
 - No file in the repository may hold a personal folder path. The scripts take the root from their own place. The repository's commit check refuses such a path.
 
 ## Settings
