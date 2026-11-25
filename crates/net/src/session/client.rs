@@ -1050,7 +1050,7 @@ impl Client {
             stats.other_epoch += 1;
             return None;
         }
-        if session.ring.get(header.tick).is_some() {
+        if session.ring.holds(&header) {
             return Some(header.tick);
         }
         let empty = TickInput::default();
