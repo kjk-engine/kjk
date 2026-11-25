@@ -159,7 +159,9 @@ impl Engine<'_> {
         let tag = text(args, 0);
         match bound {
             Bound::AddJournalQuestEntry => {
-                let entry = int(args, 1);
+                // TSL's executable takes a negative entry as its positive
+                // [verify in K1's].
+                let entry = int(args, 1).wrapping_abs();
                 if self.state.set_quest(tag, entry, int(args, 2) != 0) {
                     self.report.talk.push(Line::Journal {
                         ms: self.view.now_ms,

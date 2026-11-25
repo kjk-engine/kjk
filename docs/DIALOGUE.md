@@ -1067,7 +1067,13 @@ conversation).
   when the line that began it showed (`Conversation::clip_from_ms`; TSL
   only: 33 lines in 11 DLGs, `kreia_kr`'s pan round Korriban, the
   prologue's, `851medit`'s; K1 has none) [verify in the exe; reone names
-  it `cut-199w`, no clip, so its camera plays on too]. The camera looks
+  it `cut-199w`, no clip, so its camera plays on too]. TSL's executable
+  names 1000 + n `cut%03d` (no `w`), a clip the camera models lack, so
+  the clip playing goes on. A line that starts the clip the camera still
+  plays carries it on as well: the model's play of a clip it already runs
+  keeps the run where it is, read from TSL's Mac executable (TSLRCM's
+  `enc_ruin`, whose Kreia lines each start `cut001w`, is one flight). A
+  clip that has ended starts again [verify]. The camera looks
   down the hook's −z; the line's `CamFieldOfView`, else 55 (Q-0141: reone
   keeps 55). A line that waits on its clip (`WaitFlags` 1) lasts its own
   timer (its voice or text, `Delay` and other waits) raised to what is
