@@ -142,6 +142,19 @@ const VERTEX_LIGHT: u32 = 524288;
 /// Such a mesh takes none of the game's own lamps
 /// (`placeable_light::alone`).
 const VERTEX_LIGHT_ALONE: u32 = 1048576;
+/// A punch-through surface (`Surface::Cutout`): its texels whose alpha is
+/// not above `PUNCH_THROUGH_CUT` are left out.
+const PUNCH_THROUGH: u32 = 2097152;
+
+/// The alpha a punch-through texel must be above to be drawn. Both games'
+/// executables draw a texture whose TXI says `blending punchthrough` with
+/// the alpha test "greater than 0.35", and every other texture with
+/// "greater than 0". The shaders keep the same number (`odyssey.wgsl`,
+/// `odyssey_prepass.wgsl`). At a distance, where the GPU reads a smaller mip
+/// level, the small holes of a cut-out (the gaps in Telos's tree crowns)
+/// average to a faint alpha. Cut at 0, they showed the colours stored in the
+/// holes as dark and blue blotches.
+pub const PUNCH_THROUGH_CUT: f32 = 0.35;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -411,11 +424,28 @@ pub struct Lighting {
     /// (as reone treats a mesh).
     pub alpha: f32,
     pub is_static: bool,
-    /// Room geometry is not lit at runtime: diffuse × lightmap, or the
-    /// diffuse alone (xoreos). The owner's screenshots show unlightmapped
-    /// room meshes (the ceiling strips) at full brightness, where reone's
-    /// static-object rule darkens them.
+    /// Room geometry: drawn unlit as diffuse × lightmap, with fights' lights
+    /// added to it (`ROOM`), and never lit by the light probes.
     pub is_room: bool,
+    /// A room mesh of an area that has no lightmap. It is lit, not drawn
+    /// at full light.
+    ///
+    /// KOTOR's executable draws the rooms in a pass of their own. For that
+    /// pass it sets the scene's ambient light to black and turns on only
+    /// the lamps of dynamic type 1 (`STATIC`). Each mesh gives its
+    /// self-illumination as the colour it emits. So a room mesh without a
+    /// lightmap shows as bright as its self-illumination, plus what the few
+    /// lamps of type 1 add. (This was read in KOTOR 2's Mac program, which
+    /// keeps its function names. KOTOR 1's program sets the ambient light
+    /// to black around its room pass in the same way.)
+    ///
+    /// The models are made for this rule. KOTOR 1's light panels, its signs
+    /// and Kashyyyk's grass have a self-illumination of 1, and still show at
+    /// full light. Kashyyyk's bark without a lightmap has 0.29, and
+    /// the bench seats of the Manaan hotel have 0.13 (issue 557). Kashyyyk's
+    /// root trunk and its vines have none, and show dark (issues 545 and
+    /// 546).
+    pub room_flat: bool,
     /// The model's header lets the area's fog draw over it.
     pub fogged: bool,
 }
@@ -482,7 +512,8 @@ impl Lighting {
             self.alpha.to_bits(),
             u32::from(self.is_static)
                 | (u32::from(self.is_room) << 1)
-                | (u32::from(self.fogged) << 2),
+                | (u32::from(self.fogged) << 2)
+                | (u32::from(self.room_flat) << 3),
         ]
     }
 }
@@ -640,9 +671,10 @@ pub enum Surface {
     /// opaque, with the env map added where alpha is low.
     OpaqueEnvMasked,
     /// A punch-through texture (TXI `blending punchthrough`): opaque, not
-    /// blended, with its alpha-0 texels left out. KOTOR's executable draws
-    /// every frame with the alpha test `GL_GREATER 0` and blends nothing
-    /// for a punch-through texture, so its texels are either solid or gone.
+    /// blended, with its texels of alpha 0.35 or less left out
+    /// (`PUNCH_THROUGH_CUT`). KOTOR's executable blends nothing for a
+    /// punch-through texture and draws it with the alpha test "greater than
+    /// 0.35", so its texels are either solid or gone.
     Cutout,
     /// Transparent pass, alpha-blended, no depth writes.
     Blend,
@@ -772,6 +804,20 @@ pub fn surface(
         Surface::OpaqueAlpha
     } else {
         Surface::Opaque
+    }
+}
+
+/// A mesh's self-illumination as the games light it. A mesh whose diffuse
+/// texture's TXI says `decal 1` glows at full light, whatever the model
+/// gives it. KOTOR 2's executable sets the emitted colour of such a mesh
+/// to white when it sets up the mesh's material. So a decal is drawn at its
+/// texture's own colours, in a dark place too (a mod's glowing blade
+/// texture, `decal 1` with `envmaptexture`).
+pub fn decal_glow(self_illum: [f32; 3], diffuse: Option<&TextureFacts>) -> [f32; 3] {
+    if diffuse.is_some_and(|facts| facts.decal) {
+        [1.0; 3]
+    } else {
+        self_illum
     }
 }
 
@@ -1164,7 +1210,7 @@ impl OdysseyMaterial {
     /// not coverage here.
     pub fn faded_additive(mut self) -> OdysseyMaterial {
         self.surface = Surface::AddOne;
-        self.params.flags &= !(DISCARD_ZERO_ALPHA | OPAQUE_ALPHA | VERTEX_ALPHA);
+        self.params.flags &= !(DISCARD_ZERO_ALPHA | PUNCH_THROUGH | OPAQUE_ALPHA | VERTEX_ALPHA);
         self.params.flags |= UNLIT | ADD_FADE;
         self
     }
@@ -1249,7 +1295,12 @@ impl OdysseyMaterial {
         // sphere keeps its self-illumination's red or blue. A blade's blue
         // glow with a green self-illumination keeps its blue, where scaling
         // by the green alone left a flickering green line. Other added
-        // surfaces are drawn unlit, as reone draws every added surface.
+        // surfaces are drawn unlit, as reone draws every added surface. A
+        // room is unlit, but for its meshes without a lightmap.
+        // A room surface with no lightmap in an area whose bake asks for it
+        // to be dark (Nar Shaddaa's tunnels under Enhanced Lightmaps) keeps
+        // the bake's own rule (`DARK_UNLIT`), not `room_flat`'s.
+        let dark_unlit = area.dark_unlit && lighting.is_room && lightmap.is_none();
         let lit_glow = matches!(surface, Surface::Additive | Surface::AddOne)
             && !lighting.is_room
             && lighting.self_illum != [0.0; 3];
@@ -1262,7 +1313,8 @@ impl OdysseyMaterial {
                 | Surface::BlendVertex
                 | Surface::Lighten
                 | Surface::Modulate
-        ) || lighting.is_room
+        ) || (lighting.is_room && !lighting.room_flat)
+            || dark_unlit
         {
             flags |= UNLIT;
         }
@@ -1282,7 +1334,7 @@ impl OdysseyMaterial {
         if area.probed && !lighting.is_room {
             flags |= PROBED;
         }
-        if area.dark_unlit && lighting.is_room && lightmap.is_none() {
+        if dark_unlit {
             flags |= DARK_UNLIT;
         }
         if lighting.is_room && lightmap.is_some() {
@@ -1414,7 +1466,7 @@ impl OdysseyMaterial {
     /// The same as another surface, with the flags `new` gives that surface
     /// (the pipeline warm-up's stand-ins: `warmup`).
     pub fn as_surface(mut self, surface: Surface) -> OdysseyMaterial {
-        let all = DISCARD_ZERO_ALPHA | OPAQUE_ALPHA | VERTEX_ALPHA;
+        let all = DISCARD_ZERO_ALPHA | PUNCH_THROUGH | OPAQUE_ALPHA | VERTEX_ALPHA;
         self.params.flags = (self.params.flags & !all) | surface_flags(surface);
         self.surface = surface;
         self
@@ -1547,7 +1599,8 @@ pub struct MotionFacts {
 /// The flags a surface draws with (`OdysseyMaterial::new`).
 fn surface_flags(surface: Surface) -> u32 {
     match surface {
-        Surface::OpaqueAlpha | Surface::Cutout => DISCARD_ZERO_ALPHA,
+        Surface::OpaqueAlpha => DISCARD_ZERO_ALPHA,
+        Surface::Cutout => DISCARD_ZERO_ALPHA | PUNCH_THROUGH,
         Surface::OpaqueEnvMasked => OPAQUE_ALPHA,
         Surface::BlendVertex | Surface::Lighten => VERTEX_ALPHA,
         _ => 0,
@@ -1905,8 +1958,8 @@ impl Material for OdysseyMaterial {
             Surface::Additive | Surface::AddOne | Surface::Lighten => AlphaMode::Add,
             // Cut out in the prepass too: an opaque surface's prepass draws
             // no fragments, so its depth would hide what shows through it.
-            // The shader cuts at alpha 0 (`DISCARD_ZERO_ALPHA`), whatever
-            // the mask's number.
+            // The shader cuts at `PUNCH_THROUGH_CUT` (`PUNCH_THROUGH`),
+            // whatever the mask's number.
             Surface::Cutout => AlphaMode::Mask(0.5),
             _ => AlphaMode::Opaque,
         }

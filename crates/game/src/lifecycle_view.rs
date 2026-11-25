@@ -338,6 +338,7 @@ pub(crate) fn unlit(tint: Vec4, texture: Option<Handle<Image>>) -> OdysseyMateri
             alpha: 1.0,
             is_static: false,
             is_room: true,
+            room_flat: false,
             fogged: false,
         },
         &AreaLight::ambient([1.0; 3]),

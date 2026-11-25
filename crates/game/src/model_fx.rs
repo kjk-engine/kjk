@@ -1729,6 +1729,7 @@ pub(crate) fn sprays(
                     alpha: 1.0,
                     is_static: false,
                     is_room: false,
+                    room_flat: false,
                     fogged: false,
                 };
                 let made = OdysseyMaterial::new(

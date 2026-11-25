@@ -1514,6 +1514,13 @@ impl<'t> Spawner<'t> {
         // both sides, a JA shader's `cull none`), and a mesh whose textures
         // say nothing is drawn from both sides.
         let culled = !facts.iter().all(|facts| facts.decal || facts.two_sided);
+        // A model hung under a room's reference node (a palm tree, a shrub,
+        // a vine) is an object of its own in the games, lit as a placeable
+        // is lit: by the area's ambient light and its lamps.
+        let hung = is_room && part.referenced;
+        // A room's own mesh without a lightmap that has a self-illumination
+        // is lit as the games light their rooms (`Lighting::room_flat`).
+        let room_flat = self.room.is_some() && !part.referenced && lightmap.is_none();
         // Under the fitted lights' trial a room's lamp that the files do
         // not set to glow glows by how lit its stored lightmap shows it.
         let switched = if is_room {
@@ -1528,16 +1535,19 @@ impl<'t> Spawner<'t> {
             self_illum: if switched > 0.0 {
                 [switched * crate::fitted_lights::SWITCHED_GLOW; 3]
             } else {
-                part.self_illum
+                material::decal_glow(part.self_illum, diffuse)
             },
             ambient: part.ambient,
             diffuse: part.diffuse,
             alpha: part.alpha,
-            is_static: placed.is_static,
+            // A room is static, and so is a room's own mesh without a
+            // lightmap. A model hung under it moves as an object would.
+            is_static: (placed.is_static && !hung) || room_flat,
             // A room's untextured mesh is lit in its material's colours, as
             // the executable's flat path lights it. Drawn unlit as the rest
             // of a room, it would show plain white.
-            is_room: is_room && !facts.is_empty(),
+            is_room: is_room && !hung && !facts.is_empty(),
+            room_flat,
             fogged: placed.ir.affected_by_fog,
         };
         // The env map named by any of the mesh's textures (xoreos takes
@@ -1815,6 +1825,7 @@ impl<'t> Spawner<'t> {
             alpha: part.alpha,
             is_static: false,
             is_room: false,
+            room_flat: false,
             fogged: false,
         };
         let made = OdysseyMaterial::new(
@@ -1889,6 +1900,7 @@ impl<'t> Spawner<'t> {
                     alpha: 1.0,
                     is_static: false,
                     is_room: true,
+                    room_flat: false,
                     fogged: false,
                 },
                 &self.area,
