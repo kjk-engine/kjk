@@ -53,6 +53,7 @@ fn field_model() -> ModelIr {
             uv_scroll: None,
             skin: None,
             dangly: None,
+            referenced: false,
         }],
         lights: Vec::new(),
         emitters: Vec::new(),
@@ -78,6 +79,7 @@ fn made(surface: material::Surface, alpha: f32) -> OdysseyMaterial {
         alpha,
         is_static: false,
         is_room: false,
+        room_flat: false,
         fogged: false,
     };
     OdysseyMaterial::new(

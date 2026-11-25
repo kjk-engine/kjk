@@ -43,6 +43,9 @@ const OPAQUE_ALPHA: u32 = 2u;
 const ENVMAP: u32 = 4u;
 const VERTEX_ALPHA: u32 = 64u;
 const OPAQUE_TEXTURE: u32 = 256u;
+// As `odyssey.wgsl` has them (`material::PUNCH_THROUGH_CUT`).
+const PUNCH_THROUGH: u32 = 65536u;
+const PUNCH_THROUGH_CUT: f32 = 0.35;
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: OdysseyParams;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var base_texture: texture_2d<f32>;
@@ -91,7 +94,8 @@ fn cut(in: VertexOutput) {
     }
 #else
 #ifdef CUT_ZERO_ALPHA
-    if coverage(in) == 0.0 {
+    let alpha = coverage(in);
+    if alpha == 0.0 || ((params.flags & PUNCH_THROUGH) != 0u && alpha <= PUNCH_THROUGH_CUT) {
         discard;
     }
 #endif

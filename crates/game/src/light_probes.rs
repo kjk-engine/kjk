@@ -478,7 +478,9 @@ impl Pixels {
 /// A room triangle the probes' rays may meet (game space): its corners,
 /// its lightmap and its texture (indices into the bake's `Pixels`) with
 /// their texture coordinates, and its self-illumination. A room mesh
-/// without a lightmap is drawn at full light (`material::Lighting`).
+/// without a lightmap is drawn in the light of its self-illumination
+/// (`material::Lighting::room_flat`). The few lamps of dynamic type 1 that
+/// would add to it are left out here.
 #[derive(Clone, Copy, Debug)]
 pub struct Surface {
     pub corners: [Vec3; 3],
@@ -495,9 +497,10 @@ impl Surface {
     /// full), on the stored values as the shader multiplies them.
     fn drawn(&self, maps: &[Pixels], (u, v): (f32, f32)) -> Vec3 {
         let at = |[a, b, c]: [Vec2; 3]| a * (1.0 - u - v) + b * u + c * v;
-        let light = self.lightmap.map_or(Vec3::ONE, |map| {
-            (self.glow + maps[map].sample(at(self.uv))).min(Vec3::ONE)
-        });
+        let baked = self
+            .lightmap
+            .map_or(Vec3::ZERO, |map| maps[map].sample(at(self.uv)));
+        let light = (self.glow + baked).min(Vec3::ONE);
         let texture = self
             .texture
             .map_or(Vec3::ONE, |map| maps[map].sample(at(self.texture_uv)));

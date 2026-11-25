@@ -212,6 +212,10 @@ const SPHERE_ENVMAP: u32 = 8192u;
 const EVEN_LIGHT: u32 = 16384u;
 // A model of an area, lit by the light probes under Enhanced lighting.
 const PROBED: u32 = 32768u;
+// A punch-through surface: alpha not above `PUNCH_THROUGH_CUT` is left out
+// (`material::PUNCH_THROUGH_CUT`, the same number).
+const PUNCH_THROUGH: u32 = 65536u;
+const PUNCH_THROUGH_CUT: f32 = 0.35;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
@@ -1707,8 +1711,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             }
             near = near_casters(position, select(vec3<f32>(0.0), normal, has_normal), VIS_ROOMS, owner);
         }
+        // A room's mesh without a lightmap is lit here too, and takes a
+        // fight's lights the way the rest of its room does (below).
+        let room = (params.flags & ROOM) != 0u;
         for (var i = 0u; i < light_count(); i++) {
             let light = light_at(i);
+            if room && light.kind.z == LIGHT_COMBAT {
+                continue;
+            }
             // A static mesh takes only the lights meant for everything.
             if is_static && light.kind.y != LIGHT_DYNAMIC_TYPE_ALL {
                 continue;
@@ -1894,6 +1904,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Alpha 0 (the vertex's included: a punch-through particle faded out)
     // hides nothing behind it.
     if (params.flags & DISCARD_ZERO_ALPHA) != 0u && alpha == 0.0 {
+        discard;
+    }
+    if (params.flags & PUNCH_THROUGH) != 0u && alpha <= PUNCH_THROUGH_CUT {
         discard;
     }
     // An added surface a clip fades (the swoop's thruster cards, its start

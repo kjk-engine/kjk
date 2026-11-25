@@ -637,7 +637,8 @@ As built (`light_probes.rs`, on `feat/light-probes` from step 4's
 - Each of the other five sides looks the way it faces, up to 20 m. Its rays
   take the colour of the room surfaces whose fronts they meet, as the
   screen shows them: the texture times its lightmap and its own glow. A
-  room mesh without a lightmap is drawn at full light, and is seen so. So
+  room mesh without a lightmap is drawn in the light of its own glow, and
+  is seen so (issues 545, 546 and 557). So
   a side facing a dark corridor stays dark, and a side facing a lit
   doorway takes the doorway's light.
 - Textures and lightmaps are read at a mip level no larger than 128 texels.
