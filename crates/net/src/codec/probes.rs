@@ -22,8 +22,8 @@ use sim::determinism::{self, Run, Setup};
 use sim::{Parts, SimId, SimRng, Snapshot, SnapshotHash, Stash, StepReason};
 
 use super::{
-    BLOB_WHOLE, CLIENT_RING, ClientRing, CodecError, Confirmed, FrameHeader, OP_NEW, Rebuilt,
-    ServerRing, Stepped, decode, decode_frame, encode, encode_frame, put_varint,
+    BLOB_WHOLE, CLIENT_RING, Check, ClientRing, CodecError, Confirmed, FrameHeader, OP_NEW,
+    Rebuilt, ServerRing, Stepped, decode, decode_frame, encode, encode_frame, put_varint,
 };
 
 /// One check: what it expects, what it found, and whether that passes.
@@ -708,6 +708,38 @@ fn frame_errors(probes: &mut Probes) {
             && delta == Ok(67)
             && again == Ok(67)
             && held == Some(67),
+    );
+
+    // A client that computed an install itself keeps that state as the
+    // install tick's snapshot. Here it holds tick 9's state as tick 10. The
+    // host's world at that tick is not the same, so the host sends tick
+    // 10's keyframe. The keyframe takes the computed state's place, and the
+    // host's next delta on it rebuilds. TSL's Peragus dormitories (105PER)
+    // stayed black for a guest whose ring kept the computed state.
+    frame.clear();
+    encode_frame(0, stepped(9), None, &mut frame);
+    let computed = decode_frame(&frame, None).ok().map(|rebuilt| {
+        let mut snapshot = (*rebuilt.snapshot).clone();
+        snapshot.tick = 10;
+        Rebuilt::of(snapshot)
+    });
+    let mut client = ClientRing::new(0, CLIENT_RING);
+    client.begin_epoch(0, computed);
+    frame.clear();
+    encode_frame(0, stepped(10), None, &mut frame);
+    let held = FrameHeader::read(&frame).map(|(header, _)| client.holds(&header));
+    let taken = client.receive(&frame).map(|rebuilt| rebuilt.tick);
+    let host_state = client
+        .get(10)
+        .is_some_and(|rebuilt| Check::of(&rebuilt.snapshot.hash()) == stepped(10).check());
+    frame.clear();
+    encode_frame(0, stepped(11), Some(stepped(10)), &mut frame);
+    let delta = client.receive(&frame).map(|rebuilt| rebuilt.tick);
+    probes.check(
+        "install differs",
+        "a computed install at tick 10 the host's keyframe does not match: not held, the keyframe kept in its place, a delta on it rebuilt (11)",
+        format!("held {held:?}, keyframe {taken:?}, the host's state {host_state}, delta {delta:?}"),
+        held == Ok(false) && taken == Ok(10) && host_state && delta == Ok(11),
     );
 
     let mut server = ServerRing::new(3);

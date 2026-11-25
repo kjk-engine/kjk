@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use sim::Parts;
 
-use super::{CodecError, FrameHeader, Rebuilt, SERVER_RING, Stepped, encode_frame, rebuild};
+use super::{Check, CodecError, FrameHeader, Rebuilt, SERVER_RING, Stepped, encode_frame, rebuild};
 
 /// The host's last `SERVER_RING` stepped snapshots of the current epoch,
 /// oldest first, shared by every client's frames.
@@ -182,8 +182,21 @@ impl ClientRing {
         self.held.get(at)
     }
 
+    /// Whether the frame `header` heads is held already: its tick is, and
+    /// it is no keyframe of another state than the one held there. A
+    /// client keeps the install it computed itself as its epoch's first
+    /// snapshot. When the host's world at that tick is not the same, the
+    /// host sends that tick's keyframe, and the keyframe takes the
+    /// computed snapshot's place.
+    pub fn holds(&self, header: &FrameHeader) -> bool {
+        self.held
+            .binary_search_by_key(&header.tick, |held| held.tick)
+            .is_ok_and(|at| header.baseline.is_some() || same(&self.held[at], header.check))
+    }
+
     /// Rebuilds a received frame against the baseline it names and keeps
-    /// it. A tick already held is returned as it is (a duplicate datagram).
+    /// it. A tick already held is returned as it is (a duplicate datagram),
+    /// unless the frame is a keyframe of another state (`holds`).
     pub fn receive(&mut self, frame: &[u8]) -> Result<&Rebuilt, CodecError> {
         match self.begin(frame)? {
             Begun::Held(at) => Ok(&self.held[at]),
@@ -213,7 +226,8 @@ impl ClientRing {
             .held
             .binary_search_by_key(&header.tick, |held| held.tick)
         {
-            Ok(held) => return Ok(Begun::Held(held)),
+            Ok(held) if self.holds(&header) => return Ok(Begun::Held(held)),
+            Ok(_) => {}
             Err(0) if self.held.len() == self.capacity => {
                 return Err(CodecError::Stale { tick: header.tick });
             }
@@ -238,6 +252,14 @@ impl ClientRing {
             .held
             .binary_search_by_key(&rebuilt.tick, |held| held.tick)
         {
+            // A keyframe of another state than the one held at its tick
+            // (`holds`) takes its place. What was kept after it was
+            // rebuilt from the state it replaces, so it goes too.
+            Ok(held) if !same(&self.held[held], Check::of(&rebuilt.snapshot.hash())) => {
+                self.held.truncate(held);
+                self.held.push_back(rebuilt);
+                return Ok(&self.held[held]);
+            }
             Ok(held) => return Ok(&self.held[held]),
             Err(0) if self.held.len() == self.capacity => {
                 return Err(CodecError::Stale { tick: rebuilt.tick });
@@ -254,6 +276,11 @@ impl ClientRing {
         };
         Ok(&self.held[at])
     }
+}
+
+/// Whether `held` is the state `check` names.
+fn same(held: &Rebuilt, check: Check) -> bool {
+    Check::of(&held.snapshot.hash()) == check
 }
 
 /// A received frame before its rebuild (`ClientRing::begin`).
