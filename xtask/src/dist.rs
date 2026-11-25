@@ -21,11 +21,6 @@
 //! is built and staged the same way, with
 //! `THIRD-PARTY-LICENSES-level-editor.html`.
 //!
-//! The version in the package's name is the release tag at the commit:
-//! `v0.20.0` names `kjk-v0.20.0-…`, and a level editor release tag
-//! (`kjk-editor-0.20.0`) names `kjk-editor-0.20.0-…`. Elsewhere it is
-//! `git describe` from the last `v…` tag.
-//!
 //! Everything goes to `target/packages/`. `--skip-build` packs the
 //! programs the last run built; `--pgo <profile>` builds kjk with a profile
 //! `cargo xtask pgo` made (docs/RELEASE.md, "A profile-guided build").
@@ -574,20 +569,6 @@ fn build_dir(root: &Path, program: &Program) -> PathBuf {
 /// The version: the last release tag (`v…`) and the commits since (`git
 /// describe`), else the commit.
 fn version() -> Result<String, String> {
-    // A level editor release (`kjk-editor-0.20.0`), named without its
-    // `kjk-`: the package is `kjk-editor-0.20.0-<os>-<arch>`.
-    if let Ok(tag) = git(&[
-        "describe",
-        "--tags",
-        "--exact-match",
-        "--match",
-        "kjk-editor-*",
-    ]) {
-        let tag = String::from_utf8_lossy(&tag).trim().to_string();
-        if let Some(version) = tag.strip_prefix("kjk-") {
-            return Ok(version.to_string());
-        }
-    }
     let described = git(&["describe", "--tags", "--match", "v*", "--always", "--dirty"])?;
     Ok(String::from_utf8_lossy(&described).trim().to_string())
 }

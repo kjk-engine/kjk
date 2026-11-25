@@ -7,21 +7,15 @@
 # "pre-release" is ticked: then the branch it ran on gets a draft
 # pre-release, tagged `pre-<branch>-<git describe>` when published.
 #
-# One package for each OS: Windows and Linux on x86-64 (Linux on Ubuntu
-# 22.04's older glibc, so it runs on newer systems and the Steam Deck too),
-# as v0.20.0 shipped; the level editor's releases build no macOS package.
-# Nothing is signed (the owner's call; the player's readme says how to open
-# the app).
-#
-# A level editor release tag (`kjk-editor-0.20.0`, docs/LEVEL-EDIT.md) is
-# built and drafted as a `v*` tag is, its packages named by it
-# (`kjk-editor-0.20.0-windows-x86_64.zip`), and a pre-release only with a
-# suffix (`kjk-editor-0.20.0-rc.1`).
+# One package for each OS: macOS on Apple silicon (no Intel build), Windows
+# and Linux on x86-64 (Linux on Ubuntu 22.04's older glibc, so it runs on
+# newer systems and the Steam Deck too). Nothing is signed (the
+# owner's call; the player's readme says how to open the app).
 name: release
 
 on:
   push:
-    tags: ["v*", "kjk-editor-*"]
+    tags: ["v*"]
     # A tag's run reads the rust caches that main saved and cannot save one
     # that a later tag could read (GitHub keeps a tag's caches to that tag).
     # So main builds the packages again when the dependencies or the
@@ -68,6 +62,7 @@ jobs:
           # approval has not been given (docs/RELEASE.md). To ship DLSS,
           # give the Windows and Linux lines `dist: --dlss`. That packs
           # NVIDIA's library and notices beside kjk. macOS has no DLSS.
+          - { name: macOS arm64, runner: macos-15, artifact: macos-arm64, dist: "" }
           - { name: Windows x86-64, runner: windows-latest, artifact: windows-x86_64, dist: "" }
           - { name: Linux x86-64, runner: ubuntu-22.04, artifact: linux-x86_64, dist: "" }
     defaults:
@@ -230,7 +225,7 @@ jobs:
   release:
     name: draft release
     needs: [package, sim]
-    if: always() && (startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/kjk-editor-') || inputs.prerelease)
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || inputs.prerelease)
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -249,7 +244,7 @@ jobs:
       - name: packages whose sim test passed
         run: |
           mkdir packages
-          for system in windows-x86_64 linux-x86_64; do
+          for system in macos-arm64 windows-x86_64 linux-x86_64; do
             [ -d "artifacts/$system" ] || continue
             if [ -d "artifacts/sim-$system" ]; then
               mv "artifacts/$system"/* packages/
@@ -267,7 +262,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           built="" missing=""
-          for pair in "windows-x86_64:Windows (x86-64)" "linux-x86_64:Linux (x86-64)"; do
+          for pair in "macos-aarch64:macOS (Apple silicon)" "windows-x86_64:Windows (x86-64)" "linux-x86_64:Linux (x86-64)"; do
             label=${pair#*:}
             if compgen -G "packages/kjk-*-${pair%%:*}.*" >/dev/null; then
               built+="${built:+, }$label"
@@ -292,14 +287,7 @@ jobs:
             intro=""
             how=(--verify-tag)
             # `v0.14.0-rc.1`, `v0.14.0-beta`: a pre-release of a version.
-            # A level editor release is named by its tag, and is a
-            # pre-release only with a suffix (`kjk-editor-0.20.0-rc.1`).
-            case $tag in
-              kjk-editor-*)
-                title=$tag
-                case ${tag#kjk-editor-} in *-*) how+=(--prerelease) ;; esac ;;
-              *-*) how+=(--prerelease) ;;
-            esac
+            case $tag in *-*) how+=(--prerelease) ;; esac
           fi
           notes="${intro}Unsigned builds for $built. Read README.txt in the package first; SHA256SUMS lists each file's checksum; \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\` proves a package was built by this repository's release workflow."
           [ -z "$missing" ] || notes+=" The $missing build is not here yet."
