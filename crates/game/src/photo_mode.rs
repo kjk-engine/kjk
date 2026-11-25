@@ -104,10 +104,11 @@ impl Speed {
         })
     }
 
-    /// The corner line's sentence for the speed, played alone.
+    /// The corner line's sentence for the speed, played alone. The starting
+    /// speed (stopped) needs no sentence.
     fn said(self) -> &'static str {
         match self {
-            Speed::Stopped => "The world is stopped.",
+            Speed::Stopped => "",
             Speed::Tenth => "The world runs at 10% speed.",
             Speed::Quarter => "The world runs at 25% speed.",
             Speed::Normal => "The world runs at normal speed.",
@@ -747,7 +748,7 @@ fn line_words(speed: Speed, coop: Option<Coop>, device: Device) -> [Vec<u8>; 2] 
         Device::Keys => ("Escape".to_string(), "the left mouse button".to_string()),
     };
     [
-        format!("Photo mode. {state}").into_bytes(),
+        format!("Photo mode. {state}").trim_end().into(),
         format!("Press {leave} to leave and {shot} to take a screenshot.").into_bytes(),
     ]
 }
