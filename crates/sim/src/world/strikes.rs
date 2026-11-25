@@ -664,8 +664,12 @@ pub(super) fn leap_blows(
         };
         let since = leap.elapsed(now);
         // KOTOR's Force Jump effect as it leaves the ground and as it lands.
+        // The takeoff is timed from when it left (`Leap::took_off`). A leap
+        // started in the air has its start set back past
+        // `motion::LEAP_TAKEOFF_MS`, so that mark is never crossed.
         let crossed = |mark: u64| since >= mark && since < mark + msec;
-        if crossed(motion::LEAP_TAKEOFF_MS) || crossed(motion::LEAP_LANDING_MS) {
+        let took_off = leap.flown && now >= leap.took_off && now < leap.took_off + msec;
+        if took_off || crossed(motion::LEAP_LANDING_MS) {
             let visual = crate::combat::fighter::Visual {
                 row: specials::LEAP_VISUAL,
                 ms: 0,

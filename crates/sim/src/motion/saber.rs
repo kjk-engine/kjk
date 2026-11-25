@@ -1932,7 +1932,7 @@ impl Move<'_, '_> {
                 let top = leap_top_above(specials::LEAP_HOP);
                 let maxs = [self.maxs[0], self.maxs[1], self.maxs[2].min(top)];
                 let clear = |from: Vec3, until: Vec3| {
-                    let hit = self.trace_masked(from, until, self.mins, maxs, level);
+                    let hit = self.trace_shaped(from, until, (self.mins, maxs), true, level);
                     hit.fraction >= 1.0 && !hit.all_solid
                 };
                 (clear(o, over) && clear(over, to) && self.leap_lands(to)).then(|| {
@@ -1999,8 +1999,10 @@ impl Move<'_, '_> {
             self.ps.ground = None;
             arms.fighter.leap = Some(leap);
         }
+        // In flight it is steered every step, also when its feet graze a
+        // bump or a step on the way: a graze does not stop it short.
         let flying = leap.flown && elapsed < LEAP_LANDING_MS;
-        if flying && (takeoff || self.ps.ground.is_none()) {
+        if flying {
             let step = self.ms.max(1) as u64;
             let left = (LEAP_LANDING_MS - elapsed).max(step);
             let mut way = math::sub(leap.to, self.ps.origin);
@@ -2017,14 +2019,16 @@ impl Move<'_, '_> {
                 rise / seconds + self.ps.gravity * seconds / 2.0,
             ];
         }
-        // Landed, it stops where it came down rather than slide on: on the
-        // ground and no longer rising, or past its landing time.
-        let down = self.ps.ground.is_some() && self.ps.velocity[2] <= 0.0;
-        if leap.flown
-            && !takeoff
-            && (down || elapsed >= LEAP_LANDING_MS)
-            && self.ps.ground.is_some()
-        {
+        // Landed, it stops where it came down rather than slide on. It has
+        // landed once its landing time is past, on the ground or not, so a
+        // body still a little above the floor then drops straight down and
+        // does not fly on past the enemy. Before that time it has landed
+        // only on the ground beside its landing spot (`specials::LEAP_STOP`).
+        let mut short = math::sub(leap.to, self.ps.origin);
+        short[2] = 0.0;
+        let beside = math::length(short) <= specials::LEAP_STOP;
+        let down = self.ps.ground.is_some() && self.ps.velocity[2] <= 0.0 && beside;
+        if leap.flown && !takeoff && (down || elapsed >= LEAP_LANDING_MS) {
             self.ps.velocity[0] = 0.0;
             self.ps.velocity[1] = 0.0;
         }
