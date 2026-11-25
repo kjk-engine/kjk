@@ -53,7 +53,10 @@ impl Plugin for TerminalPlugin {
             Update,
             (
                 show.before(crate::ui_view::Stepped),
-                answer.after(crate::ui_view::Stepped),
+                // Photo mode takes the screen's keys, its pointer and the pad.
+                answer
+                    .after(crate::ui_view::Stepped)
+                    .run_if(crate::photo_mode::off),
             ),
         );
     }
