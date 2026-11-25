@@ -1297,6 +1297,10 @@ impl OdysseyMaterial {
         // by the green alone left a flickering green line. Other added
         // surfaces are drawn unlit, as reone draws every added surface. A
         // room is unlit, but for its meshes without a lightmap.
+        // A room surface with no lightmap in an area whose bake asks for it
+        // to be dark (Nar Shaddaa's tunnels under Enhanced Lightmaps) keeps
+        // the bake's own rule (`DARK_UNLIT`), not `room_flat`'s.
+        let dark_unlit = area.dark_unlit && lighting.is_room && lightmap.is_none();
         let lit_glow = matches!(surface, Surface::Additive | Surface::AddOne)
             && !lighting.is_room
             && lighting.self_illum != [0.0; 3];
@@ -1310,6 +1314,7 @@ impl OdysseyMaterial {
                 | Surface::Lighten
                 | Surface::Modulate
         ) || (lighting.is_room && !lighting.room_flat)
+            || dark_unlit
         {
             flags |= UNLIT;
         }
@@ -1329,7 +1334,7 @@ impl OdysseyMaterial {
         if area.probed && !lighting.is_room {
             flags |= PROBED;
         }
-        if area.dark_unlit && lighting.is_room && lightmap.is_none() {
+        if dark_unlit {
             flags |= DARK_UNLIT;
         }
         if lighting.is_room && lightmap.is_some() {
