@@ -4865,13 +4865,16 @@ fn guests_drive_companions() {
 /// The check that a dialogue script nobody spoke to begins no conversation
 /// with `BeginConversation()`, and a click still does
 /// (`unspoken_begins_nothing`, TSL's Handmaiden sisters), awaits approval.
+/// So does the check that a conversation's end scripts begin no
+/// conversation again (`ending_begins_nothing`, TSLRCM's HK-50s and
+/// sisters).
 /// The nineteen checks of shared conversations (`shared_*`: free players
 /// near the main character's player joining its conversations, and the
 /// reply a player takes shown to the others before it runs; issues 636 and
 /// 637) await approval.
 #[test]
 fn dialogue_coop() {
-    probed("coop talk", &sim::coop_talk::probes(), 166);
+    probed("coop talk", &sim::coop_talk::probes(), 167);
 }
 
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
