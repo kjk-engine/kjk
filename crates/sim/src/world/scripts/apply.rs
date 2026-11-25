@@ -26,9 +26,10 @@ pub(in crate::world) fn apply(
     mut players: Query<(&Id, &mut Player)>,
     mut objects: Query<(&Id, &mut Object)>,
     mut fighters: Query<(&Id, &mut Fighting)>,
-    (lives, mut placed): (
+    (lives, mut placed, mut shut): (
         Query<&crate::world::Lifetime>,
         Query<(&Id, &mut Placed), Without<Player>>,
+        ResMut<crate::world::shut_in::DoorShut>,
     ),
 ) {
     // The doors as they stand, for a jump's place.
@@ -497,11 +498,13 @@ pub(in crate::world) fn apply(
                 // once no one in the doorway is on the move: its own queue
                 // asks again (Citadel Station's Exchange door, shut and locked
                 // behind Slusk as he walks through it to his desk). One
-                // standing still there with nothing left to do is shut in, as
-                // KOTOR shuts it. Grenn's officer stops a metre short of his
-                // mark outside the Exile's apartment in Residential 082 East,
-                // in the doorway, and the apartment's door (`a_grenn_intro`)
-                // must close and lock behind Grenn all the same.
+                // standing still there with nothing left to do does not keep
+                // it open: the door closes, and the body is put beside it
+                // (`shut_in`), never left inside it. Grenn's officer stops a
+                // metre short of his mark outside the Exile's apartment in
+                // Residential 082 East, in the doorway, and the apartment's
+                // door (`a_grenn_intro`) must close and lock behind Grenn all
+                // the same.
                 let index = object.index;
                 let passing = players.iter().any(|(id, player)| {
                     let alive = fighters
@@ -548,6 +551,9 @@ pub(in crate::world) fn apply(
                     Some(facts) if open => facts.opening(from),
                     _ => u8::from(open),
                 };
+                if !open {
+                    shut.0 = true;
+                }
                 if open {
                     let opened = (door.0, script::last::OPENED);
                     scripts.state.last.insert(opened, by.0);
