@@ -17,6 +17,7 @@ fn level() -> Camera {
         angles: [0.0; 3],
         fov: crate::play_view::FOV_DEGREES,
         velocity: Vec3::ZERO,
+        ease: 0.0,
     }
 }
 
@@ -71,6 +72,10 @@ pub fn camera_probes() -> Checks {
         velocity: Vec3::new(SPEED, 0.0, 0.0),
         ..level()
     };
+    let flying_fast = Camera {
+        velocity: Vec3::new(FAST, 0.0, 0.0),
+        ..level()
+    };
     let zoomed = Camera {
         fov: NARROWEST,
         ..level()
@@ -83,7 +88,7 @@ pub fn camera_probes() -> Checks {
         at: Vec3::new(REACH + 10.0, 0.0, 0.0),
         ..level()
     };
-    let cases: [Case; 17] = [
+    let cases: [Case; 18] = [
         (
             "speed",
             level(),
@@ -143,6 +148,16 @@ pub fn camera_probes() -> Checks {
         (
             "stopped after the ease",
             moving,
+            Input::default(),
+            OPEN,
+            EASE + DT,
+            |c| c.velocity.length(),
+            0.0,
+            1e-4,
+        ),
+        (
+            "stopped after the ease from fast flight",
+            flying_fast,
             Input::default(),
             OPEN,
             EASE + DT,

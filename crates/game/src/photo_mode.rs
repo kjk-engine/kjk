@@ -125,6 +125,9 @@ pub struct Camera {
     pub fov: f32,
     /// How fast it moves (metres a second, game space).
     pub velocity: Vec3,
+    /// How fast its velocity closes on the one asked for (metres a second,
+    /// each second), kept until the velocity gets there (`step`).
+    pub ease: f32,
 }
 
 impl Camera {
@@ -136,6 +139,7 @@ impl Camera {
             angles: angles.map(|angle| (angle + 180.0).rem_euclid(360.0) - 180.0),
             fov,
             velocity: Vec3::ZERO,
+            ease: 0.0,
         }
     }
 
@@ -193,9 +197,11 @@ fn speed(fast: bool, slow: bool) -> f32 {
 /// zoomed camera does not swing wildly. Its pitch stops short of straight
 /// up and down as the follow camera's does (`sim_host::pitch_limit`). It
 /// flies along the view, and up and down. Its velocity closes on the one
-/// asked for at the speed of the modifiers held divided by `EASE` each
-/// second, so with the same modifiers held the camera reaches its speed and
-/// stops in `EASE` seconds.
+/// asked for at the larger of the speed of the modifiers held and the
+/// velocity's way to go, divided by `EASE`, each second. That rate is kept
+/// until the velocity gets there, so it does not slow as the way shrinks.
+/// So the camera reaches its speed in `EASE` seconds, and stops in `EASE`
+/// seconds from whatever speed it had.
 pub fn step(camera: Camera, input: &Input, limits: &Limits, dt: f32) -> Camera {
     let slowed = camera.fov / crate::play_view::FOV_DEGREES;
     let most = crate::sim_host::pitch_limit();
@@ -209,12 +215,20 @@ pub fn step(camera: Camera, input: &Input, limits: &Limits, dt: f32) -> Camera {
     let wanted = (forward * input.forward + right * input.right + Vec3::Z * input.up)
         .clamp_length_max(1.0)
         * speed;
-    let velocity = camera.velocity + (wanted - camera.velocity).clamp_length_max(speed / EASE * dt);
+    let way = wanted - camera.velocity;
+    let rate = (speed.max(way.length()) / EASE).max(camera.ease);
+    let there = way.length() <= rate * dt;
+    let velocity = if there {
+        wanted
+    } else {
+        camera.velocity + way.clamp_length_max(rate * dt)
+    };
     Camera {
         at: clamp(camera.at + velocity * dt, camera.at, limits),
         angles: [pitch, yaw, roll],
         fov,
         velocity,
+        ease: if there { 0.0 } else { rate },
     }
 }
 
