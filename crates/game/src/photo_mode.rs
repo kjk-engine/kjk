@@ -752,6 +752,52 @@ fn line_words(speed: Speed, coop: Option<Coop>, device: Device) -> [Vec<u8>; 2] 
     ]
 }
 
+/// The bank's name for the shutter sound a photo plays (`shutter`).
+pub(crate) const SHUTTER: &str = "kjk/shutter";
+
+/// A camera's shutter, made here rather than read from a file, because
+/// neither game has one. The shutter opens with a sharp click and closes
+/// 70 ms later with a second, slightly lower and heavier click. Each click
+/// is a burst of noise that dies away in a few milliseconds, over a short
+/// thump of the shutter's body. The sound lasts a quarter of a second.
+pub(crate) fn shutter() -> audio::Clip {
+    const RATE: u32 = 44_100;
+    const SECONDS: f32 = 0.25;
+    /// When each click starts (s), how fast its snap and its thump die
+    /// away (s), the thump's pitch (Hz) and the click's loudness.
+    const CLICKS: [(f32, f32, f32, f32, f32); 2] = [
+        (0.0, 0.0025, 0.018, 190.0, 0.8),
+        (0.07, 0.004, 0.03, 120.0, 1.0),
+    ];
+    let mut seed = 0x2545_F491_u32;
+    let mut smooth = 0.0_f32;
+    let frames = (0..(RATE as f32 * SECONDS) as usize)
+        .map(|i| {
+            let t = i as f32 / RATE as f32;
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let noise = seed as f32 / u32::MAX as f32 * 2.0 - 1.0;
+            // The noise's high end makes the snap; its low end (a one-pole
+            // filter) colours the thump.
+            smooth += 0.2 * (noise - smooth);
+            let sample: f32 = CLICKS
+                .iter()
+                .filter(|(start, ..)| t >= *start)
+                .map(|&(start, snap, thump, pitch, loud)| {
+                    let age = t - start;
+                    let snap = (noise - smooth) * (-age / snap).exp();
+                    let body = (std::f32::consts::TAU * pitch * age).sin() * 0.6 + smooth * 1.5;
+                    loud * (snap * 0.7 + body * (-age / thump).exp() * 0.5)
+                })
+                .sum();
+            let sample = sample.clamp(-1.0, 1.0) * 0.6;
+            [sample, sample]
+        })
+        .collect();
+    audio::Clip::from_stereo(RATE, frames)
+}
+
 /// What `photo_keys` writes: photo mode itself, the screens, the asks for
 /// the party (a break and its resume), a replay's speed, and the dump.
 type Written<'w> = (

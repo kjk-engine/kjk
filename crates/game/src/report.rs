@@ -560,6 +560,11 @@ fn shoot(
     shots: Res<Shots>,
     windows: Query<(), With<bevy::window::PrimaryWindow>>,
     mut photo: Option<ResMut<crate::photo_mode::PhotoMode>>,
+    (mut added, mut now): (
+        Option<ResMut<crate::sound::Added>>,
+        Option<ResMut<crate::sound::Now>>,
+    ),
+    mut shutter: Local<Option<audio::Clip>>,
 ) {
     let typed = typed.read().map(|input| (input.key_code, input.state));
     // Photo mode keeps the frame's actions while play has none.
@@ -581,6 +586,19 @@ fn shoot(
         .map_or(asked, |photo| photo.shoots(asked));
     if !asked || windows.is_empty() {
         return;
+    }
+    // A picture taken in photo mode sounds a camera's shutter. The clip goes
+    // to the bank with each picture, because a new session makes a new bank.
+    if photo
+        .as_deref()
+        .is_some_and(crate::photo_mode::PhotoMode::is_on)
+        && let (Some(added), Some(now)) = (added.as_deref_mut(), now.as_deref_mut())
+    {
+        let clip = shutter.get_or_insert_with(crate::photo_mode::shutter);
+        added
+            .0
+            .push((crate::photo_mode::SHUTTER.into(), clip.clone()));
+        now.0.push(crate::photo_mode::SHUTTER.into());
     }
     let folder = screenshots();
     if let Err(error) = std::fs::create_dir_all(&folder) {
