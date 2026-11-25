@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `386315d9c09d779f`.
+Edition `dcae107a01159b7e`.
 
 ## Contents
 
@@ -498,6 +498,26 @@ strikes both if there are opponents on both sides within
 2.5 meters. A forward or backward swing does the
 same with opponents in front and behind. This attack uses up none of the
 second bar.
+
+#### <a id="controls-specials-leap"></a>Force Leap
+
+Hold [Attack] with a lightsaber, or swing it, with no movement key held, and
+tap [Jump] twice within 1 second. The character needs Force
+Jump. If an enemy stands in front of the character (the one under the
+crosshair first), more than
+5 meters away and within the leap's range, with
+nothing in the way, the character leaps across the distance and strikes once.
+The leap comes down at the enemy's height, so the character can leap down
+from a hill or up a few steps. The first tap jumps as usual. The second starts
+the leap, in the air from that jump or back on the ground. From the air it
+does not rise again, but falls onto the enemy.
+The range is 22.9 meters with Force Jump,
+30.5 meters with Advanced Force Jump and
+38.1 meters with Force Jump Mastery. The blow gets
++2 to hit and to damage with Advanced
+Force Jump and +4 with Force Jump
+Mastery. The leap costs no Force points. A kata, a lunge or another special
+attack does not lead into a leap.
 
 #### <a id="controls-specials-roll-stab"></a>Roll Stab
 
@@ -4382,6 +4402,100 @@ A character with two blades attacks both sides at once, or the front and back at
 The double attack finds an enemy up to 0.3 meters to either side of each line it attacks along.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-window-ms"></a>**Force Leap Window** = **1 second** (`1000 ms`) · `saber_moves.specials.leap_window_ms`
+
+A character with Force Jump makes a Force leap by holding [Attack], or swinging a lightsaber, with no movement key held, and tapping [Jump] twice within 1 second. The first tap jumps as usual, and the second starts the leap, in the air from that jump or back on the ground.
+
+KOTOR makes the leap whenever the Jedi attacks a distant enemy. kjk asks for two taps of the jump key during an attack with no movement key held. Every other jumping attack needs a movement key, so the leap takes nothing away from them.
+
+<sub>Source: ours, after KOTOR's Force Jump feats. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-least"></a>**Force Leap Least Distance** = **5 meters** (`197 units`) · `saber_moves.specials.leap_least`
+
+A Force leap needs the enemy to stand more than 5 meters away.
+
+KOTOR's Force Jump needs the enemy more than 10 meters away. kjk halves that, so the leap also works at a medium distance.
+
+<sub>Source: ours, after KOTOR's Force Jump feats. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-arc"></a>**Force Leap Aim** = **25°** · `saber_moves.specials.leap_arc`
+
+Without an enemy near the crosshair, a Force leap goes for an enemy within 25° degrees to either side of where the character faces, the one closest to that direction. Every enemy a leap goes for must be within these degrees.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-most"></a>**Force Leap Range** = **22.9 meters / 30.5 meters / 38.1 meters** (`900 / 1200 / 1500 units`) · `saber_moves.specials.leap_most`
+
+Force Jump **22.9 meters** · Advanced **30.5 meters** · Mastery **38.1 meters**
+
+A Force leap reaches an enemy up to 22.9 meters away with Force Jump, 30.5 meters with Advanced Force Jump and 38.1 meters with Force Jump Mastery.
+
+KOTOR sets no limit. kjk sets one for each rank, so a leap cannot cross a whole area.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-bonus"></a>**Force Leap Bonus** = **0 / 2 / 4** · `saber_moves.specials.leap_bonus`
+
+Force Jump **0** · Advanced **2** · Mastery **4**
+
+The blow at the end of a Force leap gets +2 to hit and to damage with Advanced Force Jump, and +4 with Force Jump Mastery.
+
+<sub>Source: KOTOR's Force Jump feats. Code: `sim::world::strikes`.</sub>
+
+<a id="saber-moves-specials-leap-times"></a>**Force Leap Timing** = **0.33 seconds / 0.83 seconds / 0.87 seconds / 1.5 seconds** (`333 / 833 / 867 / 1500 ms`) · `saber_moves.specials.leap_times`
+
+takeoff **0.33 seconds** · landing **0.83 seconds** · blow **0.87 seconds** · end **1.5 seconds**
+
+A Force leap leaves the ground as soon as it starts, 0.33 seconds into KOTOR's Force Jump animation, and lands 0.83 seconds into it. Its blow lands at 0.87 seconds, and the character can act again at 1.5 seconds.
+
+The times follow KOTOR's Force Jump animation, whose crouch before the jump kjk leaves out. The character crosses the whole distance between takeoff and landing in a low arc, however far the enemy is.
+
+<sub>Source: KOTOR's Force Jump animation. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-body"></a>**Force Leap Body** = **1 meter** (`40 units`) · `saber_moves.specials.leap_body`
+
+During a Force leap, only the part of the character's body up to 1 meter above the straight line from where the leap starts to where it lands meets the level, and never less than a step's height of it. Walls stop a leap, and so do the invisible walls that keep players in a level, but ceilings, overhangs and anything else above that do not. Characters, the remains of the dead and other placeables never stop it.
+
+A leap needs a clear way to the enemy at that height: from the character up its hop halfway along, then down to where it lands. The enemy may stand no higher above the character than the character's Force Jump rises.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-air-ms"></a>**Force Leap From the Air** = **0.25 seconds** (`250 ms`) · `saber_moves.specials.leap_air_ms`
+
+A Force leap started in the air comes down onto the enemy, taking at least 0.25 seconds to get there.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-visual"></a>**Force Leap Effect** = **1002** · `saber_moves.specials.leap_visual`
+
+A Force leap shows KOTOR's Force Jump effect, row 1002 of visualeffects.2da, as it leaves the ground and as it lands.
+
+<sub>Source: KOTOR's visualeffects.2da (VFX_IMP_FORCE_JUMP_ADVANCED). Code: `sim::world::strikes`.</sub>
+
+<a id="saber-moves-specials-leap-hop"></a>**Force Leap Hop** = **0.61 meters** (`24 units`) · `saber_moves.specials.leap_hop`
+
+A Force leap rises 0.61 meters above the straight line to where it lands, at its highest halfway along. A leap started in the air never rises above where it started.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-cone"></a>**Force Leap Crosshair Aim** = **10°** · `saber_moves.specials.leap_cone`
+
+A Force leap goes first for an enemy whose middle lies within 10° degrees of the crosshair's line, in any direction.
+
+<sub>Source: ours, after the targeting's own aim. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-stop"></a>**Force Leap Landing** = **1 meter** (`40 units`) · `saber_moves.specials.leap_stop`
+
+A Force leap lands 1 meter short of the enemy.
+
+<sub>Source: ours. Code: `sim::motion::saber`.</sub>
+
+<a id="saber-moves-specials-leap-reach"></a>**Force Leap Blow Reach** = **2.4 meters** (`96 units`) · `saber_moves.specials.leap_reach`
+
+The blow at the end of a Force leap lands if the enemy is still within 2.4 meters of the character.
+
+<sub>Source: ours. Code: `sim::world::strikes`.</sub>
 
 <a id="saber-moves-specials-cartwheel-rise"></a>**Cartwheel Rise** = **0.51 meters per second** (`20 units/s`) · `saber_moves.specials.cartwheel_rise`
 

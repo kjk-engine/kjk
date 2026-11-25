@@ -40,6 +40,8 @@ pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_play
 pub(crate) use saber::move_speed;
 pub(crate) use saber::play_speed;
 pub use saber::{LEAP_BLOW_MS, LEAP_END_MS, LEAP_LANDING_MS, LEAP_TAKEOFF_MS};
+#[cfg(feature = "probes")]
+pub(crate) use saber::{LEAP_TOP, leap_top_above};
 pub use weapon::{Arms, Other, gun_ready, gun_shot, shrugs_off_pain};
 
 pub use collision::UNIT;
@@ -404,9 +406,10 @@ struct Move<'a, 'b> {
     room: SearchedOnce,
     freed: SearchedOnce,
     /// A Force leap flies (`saber::Move::leap_step`): its traces meet the level
-    /// alone (`Contents::LEVEL_ONLY`), so no character, remains or other
-    /// placeable it passes over turns it from its enemy.
-    leaping: bool,
+    /// alone (`Contents::LEVEL_ONLY`), with the body's lowest part alone, up to
+    /// this top (`saber::leap_top`), so no character, remains, placeable,
+    /// ceiling or overhang turns it from its enemy.
+    leaping: Option<f32>,
 }
 
 /// The world does not change within a step, and a body wedged in the level
@@ -573,7 +576,8 @@ impl<'a, 'b> Move<'a, 'b> {
         let leaping = arms
             .as_deref()
             .and_then(|arms| arms.fighter.leap)
-            .is_some_and(|leap| leap.flown);
+            .filter(|leap| leap.flown)
+            .map(|leap| saber::leap_top(&leap, time_ms, ps.origin[2]));
         Move {
             cmd: *command,
             raw: *command,
@@ -867,12 +871,13 @@ impl Move<'_, '_> {
     }
 
     fn trace(&self, start: Vec3, end: Vec3, mins: Vec3, maxs: Vec3) -> Hit {
-        let mask = if self.leaping {
-            Contents::LEVEL_ONLY
-        } else {
-            Contents::PLAYER_SOLID
-        };
-        self.trace_masked(start, end, mins, maxs, mask)
+        if let Some(leap_top) = self.leaping {
+            // The leap's lowest part alone, against the level alone: no
+            // ceiling or overhang stops it (`saber::leap_top`).
+            let top = [maxs[0], maxs[1], maxs[2].min(leap_top)];
+            return self.trace_masked(start, end, mins, top, Contents::LEVEL_ONLY);
+        }
+        self.trace_masked(start, end, mins, maxs, Contents::PLAYER_SOLID)
     }
 
     // --- The box's height -------------------------------------------------

@@ -16,6 +16,7 @@
 //! - A leap from the ground starts at once and hops no higher than its hop.
 //! - Only the level stops a leap: not the remains of the dead, which an
 //!   ordinary move meets.
+//! - Ceilings and overhangs do not stop a leap; walls do.
 //! - An enemy standing in the way does not turn the leap aside, and killing
 //!   some of a group leaves the leap working on the rest.
 //! - Of three enemies side by side, the leap goes for the one looked at.
@@ -183,6 +184,10 @@ pub fn probes() -> Checks {
         ),
         ("a leap from the ground hops low, with no crouch", low_hop()),
         ("a leap passes the remains of the dead", passes_made_boxes()),
+        (
+            "a leap passes under overhangs, not through walls",
+            under_overhangs(),
+        ),
         ("no leap with a movement key held", moving_no_leap()),
         ("a leap from the air does not rise", from_the_air_no_rise()),
         ("no leap without Force Jump", no_feat()),
@@ -677,6 +682,45 @@ fn passes_made_boxes() -> Result<String, String> {
         format!(
             "across a made box: a move stops at {:.2}, a leap reaches {:.2} of the way",
             walking.fraction, leaping.fraction
+        ),
+    )
+}
+/// A floor with an overhang 1.2 m up across the way and, farther on, a wall:
+/// a standing body's sweep stops under the overhang. The part of the body a
+/// Force leap meets the level with passes under it, at the top of its hop
+/// (`motion::leap_top_above`) as on the ground, and stops at the wall.
+fn under_overhangs() -> Result<String, String> {
+    use collision::{BoxWorld, CollisionWorld, Contents, Extents, Shape, Solid};
+    let world = BoxWorld::floor(20.0, 0.0, 1.0)
+        .with(Solid::level([1.0, -2.0, 1.2], [1.5, 2.0, 1.6]))
+        .with(Solid::level([3.0, -2.0, 0.0], [3.5, 2.0, 3.0]));
+    let unit = collision::UNIT;
+    let half = crate::motion::HALF_WIDTH * unit;
+    let body = |top: f32| {
+        Shape::Upright(Extents {
+            mins: [-half, -half, crate::motion::SOLE_Z * unit],
+            maxs: [half, half, top * unit],
+        })
+    };
+    let feet = -crate::motion::SOLE_Z * unit + 0.01;
+    let hop = rules::saber_moves::specials::LEAP_HOP;
+    let peak = feet + hop * unit;
+    let along = |z: f32, x: f32| ([0.0, 0.0, z], [x, 0.0, z]);
+    let standing = body(crate::motion::STAND_HEIGHT);
+    let low = body(crate::motion::LEAP_TOP);
+    let high = body(crate::motion::leap_top_above(hop));
+    let sweep = |(from, to): ([f32; 3], [f32; 3]), shape: &Shape| {
+        world.sweep(from, to, shape, Contents::LEVEL_ONLY).fraction
+    };
+    let stand = sweep(along(feet, 2.5), &standing);
+    let under = sweep(along(feet, 2.5), &low);
+    let atop = sweep(along(peak, 2.5), &high);
+    let wall = sweep(along(feet, 4.5), &low);
+    check(
+        stand < 1.0 && under >= 1.0 && atop >= 1.0 && wall < 1.0,
+        format!(
+            "under a 1.2 m overhang: standing stops at {stand:.2}, leaping reaches {under:.2}, \
+             at the top of its hop {atop:.2}; at the wall the leap stops at {wall:.2}"
         ),
     )
 }

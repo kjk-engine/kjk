@@ -1705,6 +1705,33 @@ fn forward_gait(anim: Anim) -> bool {
 
 // --- The Force leap -------------------------------------------------------
 
+/// The top (units, over the origin) of the part of the body that meets the
+/// level during a Force leap, standing on the straight line from where it
+/// starts to where it lands: its soles and `specials::LEAP_BODY` above them.
+pub(crate) const LEAP_TOP: f32 = super::SOLE_Z + specials::LEAP_BODY;
+
+/// That top with the body `above` (units) over the straight line: lowered
+/// by as much, so the part that meets the level stays under the same
+/// height, but never below a step's height over the soles.
+pub(crate) fn leap_top_above(above: f32) -> f32 {
+    (LEAP_TOP - above.max(0.0)).max(super::SOLE_Z + super::STEP_HEIGHT)
+}
+
+/// That top for `leap` at `now` (sim ms) with the body's origin at height
+/// `z` (units): `LEAP_TOP` until it leaves the ground, then lowered by how
+/// far the body stands over its way's straight line (`Move::leap_height`).
+pub(crate) fn leap_top(leap: &crate::combat::Leap, now: u64, z: f32) -> f32 {
+    if !leap.flown {
+        return LEAP_TOP;
+    }
+    let flight = (leap.began + LEAP_LANDING_MS)
+        .saturating_sub(leap.took_off)
+        .max(1);
+    let share = (now.saturating_sub(leap.took_off) as f32 / flight as f32).min(1.0);
+    let line = leap.from_z - (leap.from_z - leap.to[2]) * share;
+    leap_top_above(z - line)
+}
+
 /// The Force leap's times from its start (ms): it leaves the ground, lands,
 /// strikes and ends (`specials::LEAP_TIMES`, KOTOR's Force Jump clip).
 pub const LEAP_TAKEOFF_MS: u64 = specials::LEAP_TIMES[0];
@@ -1855,10 +1882,10 @@ impl Move<'_, '_> {
     /// crosshair, as the targeting picks it (its middle within
     /// `specials::LEAP_CONE` of the crosshair's line,
     /// `mind::crosshair`), then the one nearest to the view's line. It lands `specials::LEAP_STOP` short of the enemy's
-    /// box, at the enemy's height. The way is clear when a box as wide as
-    /// the character's own meets nothing of the level going up to a point
-    /// `specials::LEAP_CLEAR` over the higher of the two halfway along, and
-    /// from there down to where it lands. Only the level counts
+    /// box, at the enemy's height. The way is clear when the lowest part of
+    /// the body (`leap_top_above` its hop) meets nothing of the level going up to a point
+    /// `specials::LEAP_HOP` over the higher of the two halfway along, and from
+    /// there down to where it lands: ceilings and overhangs do not count. Only the level counts
     /// (`Contents::LEVEL_ONLY`): characters, the remains of the dead and
     /// other placeables do not stop it.
     fn leap_target(&self, arms: &Arms, rank: usize) -> Option<(crate::snapshot::SimId, Vec3)> {
@@ -1900,9 +1927,11 @@ impl Move<'_, '_> {
                 let mut to = math::mad(o, back, way);
                 to[2] = z;
                 let mut over = math::mad(o, back / 2.0, way);
-                over[2] = o[2].max(z) + specials::LEAP_CLEAR;
+                over[2] = o[2].max(z) + specials::LEAP_HOP;
+                let top = leap_top_above(specials::LEAP_HOP);
+                let maxs = [self.maxs[0], self.maxs[1], self.maxs[2].min(top)];
                 let clear = |from: Vec3, until: Vec3| {
-                    let hit = self.trace_masked(from, until, self.mins, self.maxs, level);
+                    let hit = self.trace_masked(from, until, self.mins, maxs, level);
                     hit.fraction >= 1.0 && !hit.all_solid
                 };
                 (clear(o, over) && clear(over, to)).then(|| {

@@ -590,12 +590,13 @@ summary = "A Force leap leaves the ground as soon as it starts, {saber_moves.spe
 detail = "The times follow KOTOR's Force Jump animation, whose crouch before the jump kjk leaves out. The character crosses the whole distance between takeoff and landing in a low arc, however far the enemy is."
 source = "KOTOR's Force Jump animation"
 see = "sim::motion::saber"
-[specials.leap_clear]
-name = "Force Leap Clearance"
-value = 48.0
+[specials.leap_body]
+name = "Force Leap Body"
+value = 40.0
 unit = "units"
-range = [0.0, 512.0]
-summary = "A Force leap needs a clear way to the enemy: the character's body must pass up to {saber_moves.specials.leap_clear:m} over the higher of the two, halfway along, and down to where it lands, without meeting the level: its walls, floors and the invisible walls that keep players in it. Characters, the remains of the dead and other placeables do not stop a leap, and it passes over them. The enemy may stand no higher above the character than the character's Force Jump rises."
+range = [8.0, 128.0]
+summary = "During a Force leap, only the part of the character's body up to {saber_moves.specials.leap_body:m} above the straight line from where the leap starts to where it lands meets the level, and never less than a step's height of it. Walls stop a leap, and so do the invisible walls that keep players in a level, but ceilings, overhangs and anything else above that do not. Characters, the remains of the dead and other placeables never stop it."
+detail = "A leap needs a clear way to the enemy at that height: from the character up its hop halfway along, then down to where it lands. The enemy may stand no higher above the character than the character's Force Jump rises."
 source = "ours"
 see = "sim::motion::saber"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
