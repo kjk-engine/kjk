@@ -489,7 +489,10 @@ shows (`ShowGalaxyMap`, `docs/WORLD-STATE.md`): KOTOR 1's own layout and
 art, not KOTOR 2's, whose buttons are KOTOR 2's planets (`skin::OWN`).
 The planets the scripts made available stand on their buttons
 (`planetary.2da`'s `guitag`; the rest hidden), those not selectable
-greyed. It opens on the planet the script named (where the party is):
+greyed. Each button shows its row's `icon` in place of the layout's
+picture, as both games do. A mod's table may name any control of a mod's
+layout as a planet's button, not only those whose tags start with
+`LBL_Planet_`. It opens on the planet the script named (where the party is):
 chosen, its name and description (`planetary.2da`), and its model
 turning in the 3D view (`planetary.2da`'s `model`, seen from its
 `camerahook`, lit by its own aurora light). A selectable planet pressed is
