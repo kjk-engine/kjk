@@ -14,8 +14,8 @@
 //!   tags `K_COMPUTER_SPIKE`, `K_REPAIR_PART`, `GetNumStackedItems`);
 //!   `dialogue_view` keeps only the voice;
 //! - each new line starts the screen's rows over;
-//! - a camera feed (a line with a camera, while it plays; one with no
-//!   text until the next line) steps the screen aside;
+//! - a camera feed (a line filmed by a placed camera, while it plays; one
+//!   with no text until the next line) steps the screen aside;
 //! - while a camera feed shows, the feed's look is over the view
 //!   (`ui::screens::feed`), and a click or Enter skips its line;
 //! - it closes when the conversation ends, the screens over it staying;
@@ -104,7 +104,7 @@ fn view(
         return None;
     }
     let entry = dlg.entries.get(talk.entry as usize)?;
-    if feeds(entry, talk) {
+    if feeds(entry, talk.until_ms) {
         return None;
     }
     let words = |node: Option<&fmt_odyssey::dlg::Node>| {
@@ -157,13 +157,19 @@ fn view(
     Some((computer, (talk.id, talk.entry, talk.shown_ms)))
 }
 
-/// Whether a computer's line is on its camera feed: a line with a camera
-/// shows the camera's view while it plays (both games' live feed screen,
-/// `computercamera`, whose Enter cancels the feed back to the computer),
-/// one with no text until the next line. Peragus' shift console's camera
-/// lines carry their room's name and a 20 s delay.
-fn feeds(entry: &fmt_odyssey::dlg::Node, talk: &sim::script::dialogue::Conversation) -> bool {
-    entry.camera_id != 0 && (entry.is_silent() || talk.until_ms != u64::MAX)
+/// Whether a computer's line is on its camera feed: a line filmed by a
+/// placed camera (its own `CameraAngle` is 6, its `CameraID` names the
+/// camera) shows the camera's view while it plays (both games' live feed
+/// screen, `computercamera`, whose Enter cancels the feed back to the
+/// computer), one with no text until the next line. Peragus' shift
+/// console's camera lines carry their room's name and a 20 s delay. A
+/// `CameraID` on a line of another angle films nothing: the cinematic
+/// view does not use it either (`play_view::line_shot`). Some mods'
+/// computers give every line `CameraID` -1, and their silent lines that
+/// offer replies show those replies on the computer's screen.
+fn feeds(entry: &fmt_odyssey::dlg::Node, until_ms: u64) -> bool {
+    entry.camera_angle == u32::from(crate::play_view::ANGLE_PLACED)
+        && (entry.is_silent() || until_ms != u64::MAX)
 }
 
 /// Whether this player's computer conversation is on a camera feed
@@ -185,7 +191,7 @@ fn on_feed(
             && dlg
                 .entries
                 .get(talk.entry as usize)
-                .is_some_and(|entry| feeds(entry, talk))
+                .is_some_and(|entry| feeds(entry, talk.until_ms))
     })
 }
 
@@ -295,4 +301,115 @@ fn answer(
         }
         false
     });
+}
+
+/// The probes (`kjk sim probes --only "computer camera feeds"`): which of a
+/// computer conversation's lines step its screen aside for a camera feed.
+/// The DLG is written here as a GFF and read back. A silent line or a
+/// timed line filmed by a placed camera (angle 6) is a feed. A silent line
+/// with `CameraID` -1 and no angle of its own, or with a camera id but
+/// angle 0, is not, so its replies show on the screen.
+#[cfg(feature = "probes")]
+pub fn feed_probes() -> sim::probe::Checks {
+    use fmt_odyssey::gff::{Gff, GffField, GffStruct, GffValue, LocString};
+    let field = |label: &str, value| GffField {
+        label: label.as_bytes().to_vec(),
+        value,
+    };
+    let entry = |text: &str, angle: u32, camera: i32, delay: u32| GffStruct {
+        id: 0,
+        fields: vec![
+            field(
+                "Text",
+                GffValue::LocString(LocString {
+                    strref: u32::MAX,
+                    strings: (!text.is_empty())
+                        .then(|| (0, text.as_bytes().to_vec()))
+                        .into_iter()
+                        .collect(),
+                }),
+            ),
+            field("CameraAngle", GffValue::Dword(angle)),
+            field("CameraID", GffValue::Int(camera)),
+            field("Delay", GffValue::Dword(delay)),
+        ],
+    };
+    const NONE: u32 = u32::MAX;
+    // (name, line, the line's end in ms or none, a feed)
+    let cases = [
+        (
+            "silent_placed_camera_feeds",
+            entry("", 6, 8, 20),
+            20_000,
+            true,
+        ),
+        (
+            "silent_placed_camera_untimed_feeds",
+            entry("", 6, 16, NONE),
+            u64::MAX,
+            true,
+        ),
+        (
+            "timed_line_on_placed_camera_feeds",
+            entry("Shift 2", 6, 3, 20),
+            20_000,
+            true,
+        ),
+        (
+            "untimed_line_on_placed_camera_shows_screen",
+            entry("ACCESS DENIED", 6, 5, NONE),
+            u64::MAX,
+            false,
+        ),
+        (
+            "silent_line_camera_minus_one_shows_screen",
+            entry("", 0, -1, NONE),
+            u64::MAX,
+            false,
+        ),
+        (
+            "silent_line_camera_id_without_angle_shows_screen",
+            entry("", 0, 4, NONE),
+            u64::MAX,
+            false,
+        ),
+    ];
+    let root = GffStruct {
+        id: 0,
+        fields: vec![
+            field(
+                "EntryList",
+                GffValue::List(cases.iter().map(|(_, line, ..)| line.clone()).collect()),
+            ),
+            field("ConversationType", GffValue::Int(1)),
+        ],
+    };
+    let bytes = Gff {
+        file_type: *b"DLG ",
+        root,
+    }
+    .write();
+    let dlg = fmt_odyssey::dlg::Dlg::parse(&bytes);
+    cases
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _, until_ms, expected))| {
+            let result = match dlg.as_ref().ok().and_then(|dlg| dlg.entries.get(i)) {
+                None => Err("the DLG made here did not read back".to_string()),
+                Some(line) => {
+                    let feeds = feeds(line, *until_ms);
+                    sim::probe::check(
+                        feeds == *expected,
+                        format!(
+                            "angle {} camera {} silent {}: a feed {feeds}, expected {expected}",
+                            line.camera_angle,
+                            line.camera_id,
+                            line.is_silent()
+                        ),
+                    )
+                }
+            };
+            (*name, result)
+        })
+        .collect()
 }
